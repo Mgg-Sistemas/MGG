@@ -8,7 +8,7 @@
 import { useMemo, useState } from 'react';
 import { money, date as fmtDate } from '@/shared/lib/format';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { ESTADO_CHOFER, ESTADO_FLOTA, alertasDocumentos, estadoChofer, liquidarViaticos, textoRuta, type EstadoChofer, type EstadoFlota } from './choferes';
+import { ESTADO_CHOFER, ESTADO_FLOTA, alertasDocumentos, estadoChofer, liquidarViaticos, textoRuta, totalViajes, type EstadoChofer, type EstadoFlota } from './choferes';
 import { fechaHora, nombreConductor, textoVehiculo, type PropsTab } from './ChoferesPage';
 
 type Vista = 'tablero' | 'expediente' | 'viajes' | 'viaticos' | 'pagos' | 'descansos';
@@ -22,7 +22,7 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
 
   const porEstado = useMemo(() => {
     const m = { en_ruta: 0, descanso: 0, disponible: 0, inactivo: 0 };
-    for (const c of conductores) m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id) })]++;
+    for (const c of conductores) m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id ?? '') })]++;
     return m;
   }, [conductores, enRutaIds, descansoHoy]);
 
@@ -49,7 +49,7 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
   const pendientes = useMemo(() => pagos.filter((p) => p.estado === 'pendiente'), [pagos]);
   const porPagar = pendientes.reduce((a, p) => a + p.neto_usd, 0);
   const mes = hoy.slice(0, 7);
-  const viajesMes = viajes.filter((v) => v.estado === 'finalizado' && (v.llegada_real_at ?? v.fecha_salida).slice(0, 7) === mes).length;
+  const viajesMes = totalViajes(viajes.filter((v) => v.estado === 'finalizado' && (v.llegada_real_at ?? v.fecha_salida).slice(0, 7) === mes));
 
   const porId = useMemo(() => new Map(conductores.map((c) => [c.id, c])), [conductores]);
   const vehiculoPorId = useMemo(() => new Map(flota.map((v) => [v.id, v])), [flota]);
@@ -67,7 +67,7 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
     const m: Record<EstadoChofer, typeof activos> = { en_ruta: [], descanso: [], disponible: [], inactivo: [] };
     for (const c of activos) {
       if (q && !nombreConductor(c).toLowerCase().includes(q)) continue;
-      m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id) })].push(c);
+      m[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id ?? '') })].push(c);
     }
     for (const k of Object.keys(m) as EstadoChofer[]) m[k].sort((a, b) => nombreConductor(a).localeCompare(nombreConductor(b)));
     return { m, viajeDe };

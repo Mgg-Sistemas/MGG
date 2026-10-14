@@ -19,14 +19,14 @@ import { toast } from '@/shared/ui/Toast';
 import { money, date as fmtDate } from '@/shared/lib/format';
 import type { Personal } from '@/shared/lib/types';
 import { numeroFicha } from '@/modules/rrhh/fichaPersonal';
-import { crearVehiculo, editarVehiculo, type VehiculoInput } from '@/modules/asignaciones/vehiculos.repository';
+import { crearVehiculo, editarVehiculo, eliminarVehiculo, type VehiculoInput } from '@/modules/asignaciones/vehiculos.repository';
 import { filtrarVehiculos, normalizarPlaca } from '@/modules/asignaciones/vehiculos';
 import {
   ESTADO_CHOFER, ESTADO_FLOTA, TIPOS_FLOTA, estadoChofer, estadoVence, iconoFlota, labelTipoFlota,
-  peorEstadoDocumentos, textoEstadoVence, type EstadoFlota, type EstadoVence,
+  peorEstadoDocumentos, textoEstadoVence, datosConductor, type EstadoFlota, type EstadoVence,
 } from './choferes';
 import {
-  crearConductor, editarConductor, esCargoDeChofer, importarConductoresDesdeRrhh, setConductorActivo,
+  crearConductor, editarConductor, eliminarConductor, esCargoDeChofer, importarConductoresDesdeRrhh, setConductorActivo,
   type Conductor, type ConductorInput, type VehiculoFlota,
 } from './choferes.repository';
 import { fechaHora, nombreConductor, type PropsTab } from './ChoferesPage';
@@ -66,6 +66,7 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
   const [verFlota, setVerFlota] = useState(false);
   const [importando, setImportando] = useState(false);
   const [cambiarEstado, setCambiarEstado] = useState<Conductor | null>(null);
+  const [borrarC, setBorrarC] = useState<Conductor | null>(null);
 
   const enRutaIds = useMemo(() => new Set(viajes.filter((v) => v.estado === 'en_ruta').map((v) => v.chofer_id)), [viajes]);
   const descansoHoy = useMemo(() => new Set(descansos.filter((d) => d.desde <= hoy && hoy <= d.hasta).map((d) => d.personal_id)), [descansos, hoy]);
@@ -75,7 +76,7 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
     return conductores
       .filter((c) => verInactivos || c.activo)
       .filter((c) => !soloAlertas || ['vencido', 'por_vencer'].includes(peorEstadoDocumentos(c, hoy)))
-      .filter((c) => !t || normal(`${nombreConductor(c)} ${c.personal?.cedula ?? ''} ${c.personal?.numero_ficha ?? ''} ${c.licencia_numero ?? ''} ${c.licencia_grado ?? ''}`).includes(t))
+      .filter((c) => !t || normal(`${nombreConductor(c)} ${datosConductor(c).cedula ?? ''} ${c.personal?.numero_ficha ?? ''} ${c.externo ? 'externo' : ''} ${c.empresa_externa ?? ''} ${c.licencia_numero ?? ''} ${c.licencia_grado ?? ''}`).includes(t))
       .sort((a, b) => nombreConductor(a).localeCompare(nombreConductor(b), 'es'));
   }, [conductores, texto, soloAlertas, verInactivos, hoy]);
 
@@ -141,14 +142,15 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
               </thead>
               <tbody>
                 {filas.map((c) => {
-                  const e = ESTADO_CHOFER[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id) })];
+                  const e = ESTADO_CHOFER[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id ?? '') })];
+                  const dc = datosConductor(c);
                   return (
                     <tr key={c.id} style={{ opacity: c.activo ? 1 : .6 }}>
                       <td>
-                        <strong>{nombreConductor(c)}</strong>
-                        <div className="muted" style={{ fontSize: '.75rem' }}>{[c.personal?.cargo, c.personal?.telefono].filter(Boolean).join(' · ')}</div>
+                        <strong>{nombreConductor(c)}</strong>{c.externo && <span className="badge" style={{ marginLeft: 6, fontSize: '.65rem' }} title="No está en nómina: pago externo por viaje">🧾 Externo</span>}
+                        <div className="muted" style={{ fontSize: '.75rem' }}>{[dc.cargo, dc.telefono].filter(Boolean).join(' · ')}</div>
                       </td>
-                      <td className="mono" style={{ fontSize: '.8rem' }}>{c.personal?.cedula ?? '—'}<div className="muted">{numeroFicha(c.personal?.numero_ficha)}</div></td>
+                      <td className="mono" style={{ fontSize: '.8rem' }}>{dc.cedula ?? '—'}<div className="muted">{c.externo ? 'sin ficha' : numeroFicha(c.personal?.numero_ficha)}</div></td>
                       <td>
                         <div style={{ fontSize: '.8rem' }}>{[c.licencia_grado, c.licencia_numero].filter(Boolean).join(' · ') || <span className="muted">Sin datos</span>}</div>
                         <BadgeVence vence={c.licencia_vence} hoy={hoy} />
@@ -173,6 +175,7 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
                       <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                         <button className="btn btn-sm btn-ghost" onClick={() => setForm(c)} title={canWrite ? 'Editar expediente' : 'Ver expediente'}>{canWrite ? '✎' : '👁'}</button>
                         {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setCambiarEstado(c)} title={c.activo ? 'Desactivar' : 'Reactivar'}>{c.activo ? '⛔' : '♻'}</button>}
+                        {canWrite && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrarC(c)} title="Eliminar expediente (la ficha de RRHH no se toca)">🗑</button>}
                       </td>
                     </tr>
                   );
@@ -194,6 +197,16 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
           actor={actor} actorName={actorName} hoy={hoy} onClose={() => setForm(null)} onSaved={async () => { setForm(null); await recargar(); }} />
       )}
       {verFlota && <FlotaModal flota={flota} canWrite={canWrite} actor={actor} hoy={hoy} onClose={() => setVerFlota(false)} onChanged={recargar} />}
+      {borrarC && (
+        <ConfirmDialog title="Eliminar expediente" danger confirmText="Sí, eliminar"
+          message={<>Se borra el expediente de chofer de <strong>{nombreConductor(borrarC)}</strong> (licencia, certificado, seguro, tarifa y sus documentos). Su ficha de RRHH no se toca. Si tiene viajes, viáticos o recibos, el sistema no lo deja: en ese caso desactívalo.</>}
+          onCancel={() => setBorrarC(null)}
+          onConfirm={() => {
+            const c = borrarC; setBorrarC(null);
+            void eliminarConductor(c).then(async () => { toast('Expediente eliminado', 'success'); await recargar(); })
+              .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'));
+          }} />
+      )}
       {docsDe && (
         <DocumentosConductorModal conductor={conductores.find((x) => x.id === docsDe.id) ?? docsDe} documentos={documentos.filter((d) => d.chofer_id === docsDe.id)}
           sinInstalar={docsSinInstalar} canWrite={canWrite} actor={actor} actorName={actorName} hoy={hoy}
@@ -217,6 +230,9 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
 }) {
   const [personalId, setPersonalId] = useState(inicial?.personal_id ?? '');
   const [v, setV] = useState<Omit<ConductorInput, 'personal_id'>>({
+    // Chofer externo (14-10-2026): no está en nómina; sus datos viven en el expediente.
+    externo: inicial?.externo ?? false, nombre: inicial?.nombre ?? '', apellido: inicial?.apellido ?? '', cedula: inicial?.cedula ?? '',
+    telefono: inicial?.telefono ?? '', empresa_externa: inicial?.empresa_externa ?? '',
     licencia_grado: inicial?.licencia_grado ?? '', licencia_numero: inicial?.licencia_numero ?? '',
     licencia_vence: inicial?.licencia_vence ?? '', certificado_medico_vence: inicial?.certificado_medico_vence ?? '',
     seguro_vence: inicial?.seguro_vence ?? '', tarifa_viaje_usd: inicial?.tarifa_viaje_usd ?? 0, observaciones: inicial?.observaciones ?? '',
@@ -234,11 +250,12 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!inicial && !personalId) { setError('Elige la ficha del trabajador.'); return; }
+    if (!inicial && !v.externo && !personalId) { setError('Elige la ficha del trabajador o marca «Chofer externo».'); return; }
+    if (v.externo && !(v.nombre ?? '').trim()) { setError('Escribe el nombre del chofer externo.'); return; }
     setSaving(true);
     try {
       if (inicial) await editarConductor(inicial.id, v);
-      else await crearConductor({ personal_id: personalId, ...v }, actor, actorName);
+      else await crearConductor({ personal_id: v.externo ? null : personalId, ...v }, actor, actorName);
       toast(inicial ? 'Expediente guardado' : 'Expediente abierto', 'success');
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }
@@ -262,13 +279,34 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
       <form id="cond-form" onSubmit={guardar}>
         {error && <div className="aviso danger" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⛔</span><div>{error}</div></div>}
         <div className="form-grid">
-          <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-            <label htmlFor="cond-persona">Trabajador (ficha de RRHH)</label>
-            {inicial
-              ? <strong>{nombreConductor(inicial)}{persona?.cedula ? ` · ${persona.cedula}` : ''}{persona?.cargo ? ` · ${persona.cargo}` : ''}</strong>
-              : <SearchSelect id="cond-persona" value={personalId} onChange={setPersonalId} options={opciones} placeholder="🔍 Buscar por nombre, cédula o cargo…" />}
-            {!inicial && <span className="muted" style={{ fontSize: '.78rem' }}>Primero salen las fichas con cargo de conductor. Si la persona no está, créala antes en RRHH → Personal.</span>}
-          </div>
+          {!inicial && (
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.45rem', gridColumn: '1 / -1', fontSize: '.88rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={!!v.externo} onChange={(e) => set('externo', e.target.checked)} style={{ marginTop: 3 }} />
+              <span><strong>🧾 Chofer externo</strong> <span className="muted">· no está en nómina: se le paga por viaje fuera de RRHH. Sus datos se escriben aquí, sin ficha de personal.</span></span>
+            </label>
+          )}
+          {v.externo ? (
+            <>
+              <div className="form-row"><label htmlFor="cond-nombre">Nombre</label>
+                <input id="cond-nombre" className="input" value={v.nombre ?? ''} disabled={!canWrite} onChange={(e) => set('nombre', e.target.value)} required placeholder="PEDRO" /></div>
+              <div className="form-row"><label htmlFor="cond-apellido">Apellido</label>
+                <input id="cond-apellido" className="input" value={v.apellido ?? ''} disabled={!canWrite} onChange={(e) => set('apellido', e.target.value)} placeholder="PÉREZ" /></div>
+              <div className="form-row"><label htmlFor="cond-cedula">Cédula</label>
+                <input id="cond-cedula" className="input mono" value={v.cedula ?? ''} disabled={!canWrite} onChange={(e) => set('cedula', e.target.value)} placeholder="27514395" /></div>
+              <div className="form-row"><label htmlFor="cond-tlf">Teléfono</label>
+                <input id="cond-tlf" className="input" value={v.telefono ?? ''} disabled={!canWrite} onChange={(e) => set('telefono', e.target.value)} placeholder="0414-0000000" /></div>
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}><label htmlFor="cond-emp">Empresa / contratista <span className="muted" style={{ fontWeight: 400 }}>· opcional</span></label>
+                <input id="cond-emp" className="input" value={v.empresa_externa ?? ''} disabled={!canWrite} onChange={(e) => set('empresa_externa', e.target.value)} placeholder="Transporte Mata, dueño de la volqueta…" /></div>
+            </>
+          ) : (
+            <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+              <label htmlFor="cond-persona">Trabajador (ficha de RRHH)</label>
+              {inicial
+                ? <strong>{nombreConductor(inicial)}{persona?.cedula ? ` · ${persona.cedula}` : ''}{persona?.cargo ? ` · ${persona.cargo}` : ''}</strong>
+                : <SearchSelect id="cond-persona" value={personalId} onChange={setPersonalId} options={opciones} placeholder="🔍 Buscar por nombre, cédula o cargo…" />}
+              {!inicial && <span className="muted" style={{ fontSize: '.78rem' }}>Primero salen las fichas con cargo de conductor. Si la persona no está en RRHH y es un pago externo, marca «Chofer externo».</span>}
+            </div>
+          )}
           <div className="form-row"><label htmlFor="cond-grado">Grado de licencia</label>
             <select id="cond-grado" className="select" value={v.licencia_grado ?? ''} disabled={!canWrite} onChange={(e) => set('licencia_grado', e.target.value)}>
               <option value="">—</option>
@@ -285,7 +323,7 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
           <div className="form-row" style={{ gridColumn: '1 / -1' }}><label htmlFor="cond-obs">Observaciones</label>
             <input id="cond-obs" className="input" value={v.observaciones ?? ''} disabled={!canWrite} onChange={(e) => set('observaciones', e.target.value)} placeholder="Restricciones, tipo de vehículo que maneja, etc." /></div>
         </div>
-        {inicial && <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Expediente abierto {fmtDate(inicial.created_at)}{inicial.actor_name ? ` por ${inicial.actor_name}` : ''}. Los datos de la persona (teléfono, cédula, foto) se editan en RRHH.</p>}
+        {inicial && <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Expediente abierto {fmtDate(inicial.created_at)}{inicial.actor_name ? ` por ${inicial.actor_name}` : ''}. {inicial.externo ? 'Chofer externo: sus datos se editan aquí mismo.' : 'Los datos de la persona (teléfono, cédula, foto) se editan en RRHH.'}</p>}
       </form>
     </Modal>
   );
@@ -299,6 +337,7 @@ export function FlotaModal({ flota, canWrite, actor, hoy, onClose, onChanged, on
 }) {
   const [q, setQ] = useState('');
   const [form, setForm] = useState<VehiculoFlota | 'nuevo' | null>(null);
+  const [borrarV, setBorrarV] = useState<VehiculoFlota | null>(null);
   const visibles = useMemo(() => filtrarVehiculos(flota, q), [flota, q]);
 
   return (
@@ -326,6 +365,7 @@ export function FlotaModal({ flota, canWrite, actor, hoy, onClose, onChanged, on
                   <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                     {onElegir && v.activo && <button className="btn btn-sm btn-primary" onClick={() => onElegir(v)}>Usar</button>}
                     {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setForm(v)} title="Editar">✎</button>}
+                    {canWrite && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrarV(v)} title="Eliminar del catálogo">🗑</button>}
                   </td>
                 </tr>
               );
@@ -334,6 +374,16 @@ export function FlotaModal({ flota, canWrite, actor, hoy, onClose, onChanged, on
         </table>
       </div>
       {form && <VehiculoFormModal inicial={form === 'nuevo' ? null : form} actor={actor} onClose={() => setForm(null)} onSaved={async () => { setForm(null); await onChanged(); }} />}
+      {borrarV && (
+        <ConfirmDialog title={`Eliminar ${borrarV.placa}`} danger confirmText="Sí, eliminar"
+          message={<>Se borra <strong>{[borrarV.marca, borrarV.modelo].filter(Boolean).join(' ') || borrarV.placa}</strong> del catálogo de vehículos (compartido con Asignaciones). Los viajes que ya lo usaron quedan sin vehículo. Si está asignado a alguien, el sistema no lo deja.</>}
+          onCancel={() => setBorrarV(null)}
+          onConfirm={() => {
+            const v = borrarV; setBorrarV(null);
+            void eliminarVehiculo(v.id).then(async () => { toast(`${v.placa} eliminado`, 'success'); await onChanged(); })
+              .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'));
+          }} />
+      )}
     </Modal>
   );
 }

@@ -11,7 +11,7 @@ import { textoPdf, filaPdf } from '@/shared/lib/textoPdf';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf, anchoUtilPdf } from '@/shared/lib/pdfMargen';
 import { date as fmtDate } from '@/shared/lib/format';
 import { definicionEmpresa, normalizarEmpresa } from '@/modules/rrhh/empresa';
-import { textoConformidadViaje, type ReciboCalculado } from './choferes';
+import { textoConformidadViaje, nombreDeConductor, datosConductor, type ReciboCalculado } from './choferes';
 import type { Conductor, PagoViaje } from './choferes.repository';
 
 const NARANJA: [number, number, number] = [255, 138, 0];
@@ -42,7 +42,8 @@ export async function verReciboViajePdf(p: PagoViaje, c: Conductor | undefined |
   const H = doc.internal.pageSize.getHeight();
   const M = MARGEN_PDF;
   const empresa = definicionEmpresa(normalizarEmpresa(c?.personal?.empresa ?? null));
-  const nombre = c?.personal ? `${c.personal.nombre} ${c.personal.apellido ?? ''}`.trim() : '(ficha eliminada)';
+  const nombre = nombreDeConductor(c);
+  const datos = datosConductor(c);
   const calc = calculoDe(p);
   let y = M;
 
@@ -71,8 +72,8 @@ export async function verReciboViajePdf(p: PagoViaje, c: Conductor | undefined |
   autoTable(doc, {
     startY: y,
     body: [
-      filaPdf(['Chofer', nombre, 'Cédula', c?.personal?.cedula || '—']),
-      filaPdf(['Cargo', c?.personal?.cargo || '—', 'Licencia', [c?.licencia_grado, c?.licencia_numero].filter(Boolean).join(' · ') || '—']),
+      filaPdf(['Chofer', nombre, 'Cédula', datos.cedula || '—']),
+      filaPdf(['Cargo', datos.cargo || '—', 'Licencia', [c?.licencia_grado, c?.licencia_numero].filter(Boolean).join(' · ') || '—']),
       filaPdf(['Viajes', `${p.detalle.length}`, 'Tasa BCV', p.tasa ? `${p.tasa.toLocaleString('es-VE', { maximumFractionDigits: 2 })} Bs/$` : '—']),
     ],
     margin: MARGENES_TABLA_PDF, theme: 'grid',

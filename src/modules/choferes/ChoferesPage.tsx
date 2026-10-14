@@ -28,7 +28,7 @@ import {
   TABLAS_CHOFERES, esTablaFaltante, listConductores, listDocumentosChofer, listFlota, listPagos, listViajes, listViaticos,
   type Conductor, type DocumentoChofer, type PagoViaje, type VehiculoFlota, type Viaje, type Viatico,
 } from './choferes.repository';
-import { hoyVE } from './choferes';
+import { hoyVE, nombreDeConductor } from './choferes';
 import { TableroTab } from './TableroTab';
 import { ExpedienteTab } from './ExpedienteTab';
 import { ViajesTab } from './ViajesTab';
@@ -103,12 +103,12 @@ export function ChoferesPage() {
         listConductores(), listFlota(), listViajes(), listViaticos(), listPagos(),
         getTasaHoy().then((x) => x.usd ?? null).catch(() => null),
       ]);
-      const ds = await listDescansos(cs.map((c) => c.personal_id)).catch(() => [] as Descanso[]);
+      const ds = await listDescansos(cs.map((c) => c.personal_id).filter((x): x is string => !!x)).catch(() => [] as Descanso[]);
       // Los documentos tienen su propio SQL: si falta, el resto del módulo sigue andando.
       const docs = await listDocumentosChofer().catch((e) => { if (esTablaFaltante(e)) { setDocsSinInstalar(true); return [] as DocumentoChofer[]; } throw e; });
       const porId = new Map(ps.map((p) => [p.id, p]));
       setPersonal(ps);
-      setConductores(cs.map((c) => ({ ...c, personal: porId.get(c.personal_id) ?? null })));
+      setConductores(cs.map((c) => ({ ...c, personal: c.personal_id ? (porId.get(c.personal_id) ?? null) : null })));
       setFlota(fl); setViajes(vj); setViaticos(vt); setPagos(pg); setDescansos(ds); setTasa(t);
       setDocumentos(docs); if (docs.length) setDocsSinInstalar(false);
       setSinInstalar(false);
@@ -126,7 +126,7 @@ export function ChoferesPage() {
   }), [conductores, personal, flota, viajes, viaticos, pagos, descansos, documentos, docsSinInstalar, tasa, hoy, loading, recargar]);
 
   // Para la pestaña Descansos: solo las fichas con expediente de conductor activo.
-  const idsConductores = useMemo(() => new Set(conductores.filter((c) => c.activo).map((c) => c.personal_id)), [conductores]);
+  const idsConductores = useMemo(() => new Set(conductores.filter((c) => c.activo && c.personal_id).map((c) => c.personal_id as string)), [conductores]);
   const soloChoferes = useCallback((p: Personal) => idsConductores.has(p.id), [idsConductores]);
 
   const props: PropsTab = { datos, canWrite, actor, actorName };
@@ -171,10 +171,9 @@ export function ChoferesPage() {
 
 /* ───────────── Ayudantes compartidos por las pestañas ───────────── */
 
+/** Nombre del conductor: de su ficha de RRHH o, si es externo, de su expediente. */
 export function nombreConductor(c: Conductor | undefined | null): string {
-  if (!c) return '—';
-  const p = c.personal;
-  return p ? `${p.nombre} ${p.apellido ?? ''}`.trim() : '(ficha eliminada)';
+  return nombreDeConductor(c);
 }
 
 export function textoVehiculo(v: VehiculoFlota | undefined | null): string {

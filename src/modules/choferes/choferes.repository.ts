@@ -18,7 +18,7 @@ import type { Personal } from '@/shared/lib/types';
 import { registrarGasto, registrarIngresoCaja } from '@/modules/tesoreria/tesoreria.repository';
 import type { CuentaCaja } from '@/shared/lib/types';
 import type { Vehiculo } from '@/modules/asignaciones/vehiculos.repository';
-import type { Liquidacion, LineaRecibo, Parada, ReciboCalculado } from './choferes';
+import { tipoViajeDe, cantidadViajes, type Liquidacion, type LineaRecibo, type Parada, type ReciboCalculado, type TipoViaje } from './choferes';
 import { mensajeErrorDocumento, nombreSeguro, validarArchivoDocumento } from '@/modules/rrhh/documentosPersonal';
 
 const T_CONDUCTORES = 'choferes_conductores';
@@ -36,7 +36,15 @@ export const TABLAS_CHOFERES = [T_CONDUCTORES, T_VIAJES, T_VIATICOS, T_PAGOS, T_
 
 export interface Conductor {
   id: string;
-  personal_id: string;
+  /** Ficha de RRHH. null si es un chofer EXTERNO (14-10-2026). */
+  personal_id: string | null;
+  /** No está en nómina: se le paga por viaje fuera de RRHH; sus datos van abajo. */
+  externo: boolean;
+  nombre: string | null;
+  apellido: string | null;
+  cedula: string | null;
+  telefono: string | null;
+  empresa_externa: string | null;
   licencia_grado: string | null;
   licencia_numero: string | null;
   licencia_vence: string | null;
@@ -69,7 +77,12 @@ export interface Viaje {
   km_salida: number | null;
   km_llegada: number | null;
   estado: 'programado' | 'en_ruta' | 'finalizado' | 'cancelado';
+  /** Tarifa POR VIAJE (el recibo paga tarifa × viajes). */
   tarifa_usd: number;
+  /** Camión (ruta con paradas, horas y km) o volqueta (por día: material, origen, destino y viajes). 14-10-2026. */
+  tipo_viaje: TipoViaje;
+  /** Cuántos viajes trae la orden (la hoja de volqueta: «25 viajes escombros»). 1 en los de camión. */
+  viajes: number;
   nota: string | null;
   liquidado_at: string | null;
   liquidado_por: string | null;
@@ -159,11 +172,18 @@ const limpio = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim() || nu
 export async function listConductores(): Promise<Conductor[]> {
   const { data, error } = await supabase.from(T_CONDUCTORES).select('*').order('created_at');
   if (error) throw err(error, 'No se pudieron cargar los conductores.');
-  return (data ?? []).map((c) => ({ ...c, tarifa_viaje_usd: Number(c.tarifa_viaje_usd) || 0 })) as Conductor[];
+  return (data ?? []).map((c) => ({ ...c, externo: !!c.externo, tarifa_viaje_usd: Number(c.tarifa_viaje_usd) || 0 })) as Conductor[];
 }
 
 export interface ConductorInput {
-  personal_id: string;
+  /** Ficha de RRHH; va vacío si es externo. */
+  personal_id?: string | null;
+  externo?: boolean;
+  nombre?: string | null;
+  apellido?: string | null;
+  cedula?: string | null;
+  telefono?: string | null;
+  empresa_externa?: string | null;
   licencia_grado?: string | null;
   licencia_numero?: string | null;
   licencia_vence?: string | null;
@@ -174,7 +194,15 @@ export interface ConductorInput {
 }
 
 function filaConductor(i: Omit<ConductorInput, 'personal_id'>) {
+  const externo = !!i.externo;
+  if (externo && !limpio(i.nombre)) throw new Error('Escribe el nombre del chofer externo.');
   return {
+    externo,
+    nombre: externo ? limpio(i.nombre)?.toUpperCase() ?? null : null,
+    apellido: externo ? limpio(i.apellido)?.toUpperCase() ?? null : null,
+    cedula: externo ? limpio(i.cedula) : null,
+    telefono: externo ? limpio(i.telefono) : null,
+    empresa_externa: externo ? limpio(i.empresa_externa) : null,
     licencia_grado: limpio(i.licencia_grado)?.toUpperCase() ?? null,
     licencia_numero: limpio(i.licencia_numero),
     licencia_vence: i.licencia_vence || null,
@@ -186,9 +214,9 @@ function filaConductor(i: Omit<ConductorInput, 'personal_id'>) {
 }
 
 export async function crearConductor(i: ConductorInput, actor: string, actorName: string | null): Promise<Conductor> {
-  if (!i.personal_id) throw new Error('Elige la ficha del trabajador.');
+  if (!i.externo && !i.personal_id) throw new Error('Elige la ficha del trabajador o marca «Chofer externo».');
   const { data, error } = await supabase.from(T_CONDUCTORES)
-    .insert({ personal_id: i.personal_id, ...filaConductor(i), created_by: actor, actor_name: actorName })
+    .insert({ personal_id: i.externo ? null : i.personal_id, ...filaConductor(i), created_by: actor, actor_name: actorName })
     .select('*').single();
   if (error) throw err(error, error.code === '23505' ? 'Esa persona ya tiene expediente de conductor.' : 'No se pudo guardar el conductor.');
   return data as Conductor;
@@ -238,6 +266,8 @@ function normViaje(v: Record<string, unknown>): Viaje {
     ...(v as unknown as Viaje),
     paradas: Array.isArray(v.paradas) ? (v.paradas as Parada[]) : [],
     tarifa_usd: Number(v.tarifa_usd) || 0,
+    tipo_viaje: tipoViajeDe(v.tipo_viaje),
+    viajes: cantidadViajes(v.viajes),
     km_salida: v.km_salida == null ? null : Number(v.km_salida),
     km_llegada: v.km_llegada == null ? null : Number(v.km_llegada),
   };
@@ -265,6 +295,9 @@ export interface ViajeInput {
   nota?: string | null;
   /** Viaje ya realizado (12-10-2026): entra directo como finalizado con sus horas y km reales. */
   realizado?: ViajeRealizado | null;
+  tipo_viaje?: TipoViaje;
+  /** Cuántos viajes (entero ≥ 1). */
+  viajes?: number | null;
 }
 
 export interface ViajeRealizado {
@@ -278,6 +311,7 @@ function filaViaje(i: ViajeInput) {
   if (!i.chofer_id) throw new Error('Elige el chofer.');
   if (!limpio(i.origen) || !limpio(i.destino)) throw new Error('Indica el origen y el destino de la ruta.');
   if (!i.fecha_salida) throw new Error('Indica la fecha y hora de salida.');
+  if (i.viajes != null && (!Number.isInteger(Number(i.viajes)) || Number(i.viajes) < 1)) throw new Error('Los viajes tienen que ser un número entero, al menos 1.');
   const r = i.realizado ?? null;
   if (r) {
     if (!r.llegada_real_at) throw new Error('Indica la fecha y hora de llegada del viaje.');
@@ -306,6 +340,8 @@ function filaViaje(i: ViajeInput) {
     fecha_salida: new Date(i.fecha_salida).toISOString(),
     llegada_prevista: i.llegada_prevista ? new Date(i.llegada_prevista).toISOString() : null,
     tarifa_usd: Math.max(0, r2(i.tarifa_usd)),
+    tipo_viaje: tipoViajeDe(i.tipo_viaje),
+    viajes: cantidadViajes(i.viajes),
     nota: limpio(i.nota),
   };
 }
@@ -573,7 +609,7 @@ export async function subirDocumentoChofer(
   if (tipo === 'otro' && !etiqueta) throw new Error('Ponle un nombre al documento (ej.: Certificado de antecedentes).');
 
   const rand = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
-  const path = `choferes/${tipo}/${c.personal_id}/${rand}_${nombreSeguro(file.name)}`;
+  const path = `choferes/${tipo}/${c.personal_id ?? c.id}/${rand}_${nombreSeguro(file.name)}`;
   const { error: errSubir } = await supabase.storage.from(BUCKET_DOCS)
     .upload(path, file, { contentType: file.type || 'application/octet-stream', upsert: false });
   if (errSubir) throw new Error(mensajeErrorDocumento(errSubir));
@@ -617,4 +653,33 @@ export async function eliminarDocumentoChofer(d: DocumentoChofer): Promise<void>
     if (ant?.[0]) await supabase.from(T_DOCS).update({ vigente: true }).eq('id', ant[0].id);
   }
   await supabase.storage.from(BUCKET_DOCS).remove([d.path]).catch(() => undefined);
+}
+
+/* ───────────── Borrar (14-10-2026): cada pestaña permite eliminar ───────────── */
+
+/** Borra la orden de ruta con sus paradas y su liquidación. Si ya entró en un recibo, no deja: anula o borra el recibo primero. */
+export async function eliminarViaje(v: Pick<Viaje, 'id' | 'numero' | 'pago_id'>): Promise<void> {
+  if (v.pago_id) throw new Error(`${v.numero} ya está en un recibo de viaje: anula o borra ese recibo primero (Pagos por viaje).`);
+  const { data, error } = await supabase.from(T_VIAJES).delete().eq('id', v.id).select('id');
+  if (error) throw err(error, 'No se pudo eliminar el viaje.');
+  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
+}
+
+/** Borra el recibo. Pendiente → primero se anula (sus viajes vuelven a estar por pagar); pagado → no se borra: anúlalo. */
+export async function eliminarPago(p: Pick<PagoViaje, 'id' | 'numero' | 'estado'>, actor: string): Promise<void> {
+  if (p.estado === 'pagado') throw new Error(`${p.numero} ya está pagado: anúlalo (queda el rastro y sus viajes vuelven a estar por pagar) y después bórralo si hace falta.`);
+  if (p.estado === 'pendiente') await anularPago(p.id, actor);
+  const { data, error } = await supabase.from(T_PAGOS).delete().eq('id', p.id).select('id');
+  if (error) throw err(error, 'No se pudo eliminar el recibo.');
+  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
+}
+
+/** Borra el expediente del conductor (la ficha de RRHH no se toca). Con viajes, viáticos o recibos no deja: desactívalo. */
+export async function eliminarConductor(c: Pick<Conductor, 'id'>): Promise<void> {
+  const { data, error } = await supabase.from(T_CONDUCTORES).delete().eq('id', c.id).select('id');
+  if (error) {
+    if ((error as { code?: string }).code === '23503') throw new Error('Este conductor tiene viajes, viáticos o recibos registrados: no se puede borrar. Desactívalo (⛔) para que no salga en las listas.');
+    throw err(error, 'No se pudo eliminar el conductor.');
+  }
+  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
 }

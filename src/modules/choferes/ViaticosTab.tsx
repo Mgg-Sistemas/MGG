@@ -20,7 +20,7 @@ import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { FechaVe } from '@/shared/ui/FechaVe';
 import { toast } from '@/shared/ui/Toast';
 import { money, date as fmtDate } from '@/shared/lib/format';
-import { CONCEPTOS_GASTO, TIPO_VIATICO, liquidarViaticos, textoLiquidacion, textoRuta, type TipoViatico } from './choferes';
+import { CONCEPTOS_GASTO, TIPO_VIATICO, datosConductor, liquidarViaticos, textoLiquidacion, textoRuta, type TipoViatico } from './choferes';
 import {
   crearViatico, eliminarViatico, liquidarViaje, reabrirLiquidacion,
   type CajaDestino, type Conductor, type Viaje, type Viatico,
@@ -278,7 +278,7 @@ function ViaticoModal({ tipo, conductores, viajes, tasa, hoy, actor, actorName, 
         <div className="form-grid">
           <div className="form-row"><label htmlFor="vt-chofer">Chofer</label>
             <SearchSelect id="vt-chofer" value={choferId} onChange={(id) => { setChoferId(id); setViajeId(''); }} placeholder="🔍 Buscar chofer…"
-              options={conductores.filter((c) => c.activo).map((c) => ({ value: c.id, label: nombreConductor(c), hint: c.personal?.cedula ?? undefined }))} /></div>
+              options={conductores.filter((c) => c.activo).map((c) => ({ value: c.id, label: nombreConductor(c), hint: [datosConductor(c).cedula, c.externo ? 'externo' : null].filter(Boolean).join(' · ') || undefined }))} /></div>
           <div className="form-row"><label htmlFor="vt-viaje">Viaje (opcional)</label>
             <select id="vt-viaje" className="select" value={viajeId} onChange={(e) => setViajeId(e.target.value)} disabled={!choferId}>
               <option value="">Caja chica (sin viaje)</option>

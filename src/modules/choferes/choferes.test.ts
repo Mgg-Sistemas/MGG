@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest';
 import {
   alertasDocumentos, calcularRecibo, diasHasta, errorViajeRealizado, estadoChofer, estadoVence, liquidarViaticos, peorEstadoDocumentos,
   progresoParadas, textoConformidadViaje, textoLiquidacion, textoRuta,
+  tipoViajeDe, cantidadViajes, tarifaTotalViaje, textoRutaViajes, totalViajes, horasDiaVolqueta, errorViajesVolqueta,
+  nombreDeConductor, datosConductor,
 } from './choferes';
 
 const HOY = '2026-10-12';
@@ -109,5 +111,48 @@ describe('cargar un viaje ya realizado (viaje pasado)', () => {
   });
   it('el kilometraje de llegada no baja del de salida', () => {
     expect(errorViajeRealizado({ salida: '2026-10-05T06:30', llegada: '2026-10-05T18:10', kmSalida: 1000, kmLlegada: 900, ahora })).toMatch(/kilometraje/i);
+  });
+});
+
+describe('tipo de viaje y cantidad de viajes (volqueta)', () => {
+  it('tipo y cantidad con valores raros', () => {
+    expect(tipoViajeDe('volqueta')).toBe('volqueta');
+    expect(tipoViajeDe(undefined)).toBe('camion');
+    expect(cantidadViajes(25)).toBe(25);
+    expect(cantidadViajes('3')).toBe(3);
+    expect(cantidadViajes(null)).toBe(1);
+    expect(cantidadViajes(0)).toBe(1);
+    expect(cantidadViajes(2.6)).toBe(3);
+  });
+  it('la tarifa es por viaje: el total multiplica', () => {
+    expect(tarifaTotalViaje({ tarifa_usd: 4, viajes: 25 })).toBe(100);
+    expect(tarifaTotalViaje({ tarifa_usd: 12.5 })).toBe(12.5);
+    expect(textoRutaViajes({ origen: 'Playa Escondida', destino: 'Interno', viajes: 25 })).toBe('Playa Escondida → Interno × 25 viajes');
+    expect(textoRutaViajes({ origen: 'A', destino: 'B', viajes: 1 })).toBe('A → B');
+    expect(totalViajes([{ viajes: 25 }, { viajes: 21 }, {}])).toBe(47);
+  });
+  it('el día de volqueta sale 06:00 y llega 18:00, o ahora si el día es hoy', () => {
+    expect(horasDiaVolqueta('2026-10-06', '2026-10-14T09:00')).toEqual({ salida: '2026-10-06T06:00', llegada: '2026-10-06T18:00' });
+    expect(horasDiaVolqueta('2026-10-14', '2026-10-14T09:00')).toEqual({ salida: '2026-10-14T06:00', llegada: '2026-10-14T09:00' });
+    expect(horasDiaVolqueta('2026-10-14', '2026-10-14T05:00')).toEqual({ salida: '2026-10-14T06:00', llegada: '2026-10-14T06:00' });
+  });
+  it('valida viajes y material', () => {
+    expect(errorViajesVolqueta(25, 'Escombros')).toBeNull();
+    expect(errorViajesVolqueta(0, 'Escombros')).toMatch(/viajes/);
+    expect(errorViajesVolqueta(2.5, 'Escombros')).toMatch(/entero/);
+    expect(errorViajesVolqueta(3, '  ')).toMatch(/material/);
+  });
+});
+
+describe('chofer externo (sin ficha de RRHH)', () => {
+  it('nombre y datos salen de la ficha si la hay, o del expediente si es externo', () => {
+    expect(nombreDeConductor({ personal: { nombre: 'JOSE', apellido: 'RONDON', cedula: '27514395' } })).toBe('JOSE RONDON');
+    expect(nombreDeConductor({ externo: true, nombre: 'PEDRO', apellido: 'PEREZ' })).toBe('PEDRO PEREZ');
+    expect(nombreDeConductor({ externo: true, nombre: '', apellido: null })).toBe('Chofer externo');
+    expect(nombreDeConductor({ externo: false, personal: null })).toBe('(ficha eliminada)');
+    expect(nombreDeConductor(null)).toBe('—');
+    expect(datosConductor({ externo: true, cedula: '12345', telefono: '0414', empresa_externa: 'Transporte Mata' })).toEqual({ cedula: '12345', telefono: '0414', cargo: 'Chofer externo · Transporte Mata' });
+    expect(datosConductor({ personal: { nombre: 'A', cedula: '9', cargo: 'CHOFER' } }).cargo).toBe('CHOFER');
+    expect(datosConductor(undefined).cedula).toBeNull();
   });
 });

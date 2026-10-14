@@ -15,9 +15,9 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { toast } from '@/shared/ui/Toast';
 import { money, date as fmtDate } from '@/shared/lib/format';
-import { calcularRecibo, liquidarViaticos, textoRuta, type LineaRecibo } from './choferes';
+import { calcularRecibo, liquidarViaticos, tarifaTotalViaje, textoRuta, textoRutaViajes, type LineaRecibo } from './choferes';
 import {
-  anularPago, crearPago, liquidarViaje, marcarPagado,
+  anularPago, crearPago, eliminarPago, liquidarViaje, marcarPagado,
   type CajaDestino, type Conductor, type PagoViaje, type Viaje, type Viatico,
 } from './choferes.repository';
 import { CajaSelector } from './CajaSelector';
@@ -37,6 +37,7 @@ export function PagosTab({ datos, canWrite, actor, actorName }: PropsTab) {
   const [nuevo, setNuevo] = useState(false);
   const [pagar, setPagar] = useState<PagoViaje | null>(null);
   const [anular, setAnular] = useState<PagoViaje | null>(null);
+  const [borrarP, setBorrarP] = useState<PagoViaje | null>(null);
   const [imprimiendo, setImprimiendo] = useState<string | null>(null);
 
   const porId = useMemo(() => new Map(conductores.map((c) => [c.id, c])), [conductores]);
@@ -105,6 +106,7 @@ export function PagosTab({ datos, canWrite, actor, actorName }: PropsTab) {
                         <button className="btn btn-sm btn-ghost" onClick={() => void imprimir(p)} disabled={imprimiendo === p.id} title="Ver / imprimir el recibo de viaje">{imprimiendo === p.id ? '…' : '🖨'}</button>
                         {canWrite && p.estado === 'pendiente' && <button className="btn btn-sm btn-success" onClick={() => setPagar(p)} title="Marcar pagado">✔ Pagar</button>}
                         {canWrite && p.estado !== 'anulado' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setAnular(p)} title="Anular">✖</button>}
+                        {canWrite && p.estado !== 'pagado' && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrarP(p)} title="Eliminar recibo">🗑</button>}
                       </td>
                     </tr>
                   );
@@ -126,6 +128,16 @@ export function PagosTab({ datos, canWrite, actor, actorName }: PropsTab) {
         <ConfirmDialog title={`Anular ${anular.numero}`} danger confirmText="Sí, anular"
           message={`El recibo queda como anulado (no se borra) y sus ${anular.detalle.length} viaje(s) vuelven a estar disponibles para otro recibo.${anular.movimiento_caja_id ? ' La salida de caja que registró en Tesorería NO se revierte sola: hazlo desde el libro de la caja.' : ''}`}
           onConfirm={() => { void confirmarAnular(); }} onCancel={() => setAnular(null)} />
+      )}
+      {borrarP && (
+        <ConfirmDialog title={`Eliminar ${borrarP.numero}`} danger confirmText="Sí, eliminar"
+          message={`Se borra el recibo ${borrarP.numero}${borrarP.estado === 'pendiente' ? ` y sus ${borrarP.detalle.length} viaje(s) vuelven a estar disponibles para otro recibo` : ''}. Esto no se deshace.`}
+          onCancel={() => setBorrarP(null)}
+          onConfirm={() => {
+            const p = borrarP; setBorrarP(null);
+            void eliminarPago(p, actorName || actor).then(async () => { toast(`${p.numero} eliminado`, 'success'); await recargar(); })
+              .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'));
+          }} />
       )}
     </div>
   );
@@ -165,7 +177,7 @@ function NuevoReciboModal({ conductores, viajes, viaticos, tasa, actor, actorNam
 
   const lineas: LineaRecibo[] = useMemo(() => candidatos.filter((v) => sel.has(v.id)).map((v) => {
     const l = liqDe(v);
-    return { viaje_id: v.id, numero: v.numero, ruta: textoRuta(v), fecha: (v.llegada_real_at ?? v.fecha_salida).slice(0, 10), tarifa_usd: tarifas[v.id] ?? v.tarifa_usd, reembolso_usd: l.reembolso, deduccion_usd: l.deduccion };
+    return { viaje_id: v.id, numero: v.numero, ruta: textoRutaViajes(v), fecha: (v.llegada_real_at ?? v.fecha_salida).slice(0, 10), tarifa_usd: tarifas[v.id] ?? tarifaTotalViaje(v), reembolso_usd: l.reembolso, deduccion_usd: l.deduccion };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [candidatos, sel, tarifas, viaticos]);
 

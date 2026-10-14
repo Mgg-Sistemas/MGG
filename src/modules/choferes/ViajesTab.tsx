@@ -10,22 +10,30 @@
    FINALIZADO con sus horas y km reales, listo para liquidar; mientras no esté
    liquidado ni en recibo se corrige con ✎ (12-10-2026).
 
+   Tipo de viaje (14-10-2026): CAMIÓN (lo de arriba) o VOLQUETA, que se carga
+   por día como la hoja física: nombre, vehículo, material, origen, destino,
+   fecha y CUÁNTOS viajes. La tarifa es por viaje (el recibo paga tarifa × viajes).
+   Cada orden se puede eliminar (🗑) salvo que ya esté en un recibo.
+
    Avisos al programar: chofer de descanso ese día, documentos vencidos,
    vehículo en taller. La base no deja dos rutas EN RUTA del mismo chofer o
    del mismo vehículo.
    ============================================================ */
 import { useMemo, useState, type FormEvent } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { toast } from '@/shared/ui/Toast';
-import { money } from '@/shared/lib/format';
+import { money, date as fmtDate } from '@/shared/lib/format';
+import { listadoFlotaPdf } from '@/modules/maquinaria/flotaPdf';
+import { listadoFlotaExcel } from '@/modules/maquinaria/flotaExcel';
 import {
-  ESTADO_VIAJE, alertasDocumentos, errorViajeRealizado, progresoParadas, textoRuta, type EstadoViaje, type Parada,
+  ESTADO_VIAJE, TIPO_VIAJE, alertasDocumentos, errorViajeRealizado, progresoParadas, textoRuta,
+  tarifaTotalViaje, totalViajes, horasDiaVolqueta, errorViajesVolqueta, cantidadViajes, datosConductor, type EstadoViaje, type Parada, type TipoViaje,
 } from './choferes';
 import {
-  cancelarViaje, crearViaje, editarViaje, finalizarViaje, guardarParadas, iniciarViaje,
+  cancelarViaje, crearViaje, editarViaje, eliminarViaje, finalizarViaje, guardarParadas, iniciarViaje,
   type Conductor, type VehiculoFlota, type Viaje, type ViajeInput,
 } from './choferes.repository';
 import { FlotaModal } from './ExpedienteTab';
@@ -41,6 +49,8 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
   const [form, setForm] = useState<Viaje | 'nuevo' | null>(null);
   const [detalle, setDetalle] = useState<Viaje | null>(null);
   const [accion, setAccion] = useState<{ tipo: 'iniciar' | 'finalizar' | 'cancelar'; viaje: Viaje } | null>(null);
+  const [tipo, setTipo] = useState<TipoViaje | ''>('');
+  const [borrar, setBorrar] = useState<Viaje | null>(null);
 
   const porId = useMemo(() => new Map(conductores.map((c) => [c.id, c])), [conductores]);
   const vehPorId = useMemo(() => new Map(flota.map((v) => [v.id, v])), [flota]);
@@ -49,15 +59,48 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
     const t = normal(texto.trim());
     return viajes.filter((v) =>
       (!estado || v.estado === estado)
+      && (!tipo || v.tipo_viaje === tipo)
       && (!choferId || v.chofer_id === choferId)
       && (!t || normal(`${v.numero} ${nombreConductor(porId.get(v.chofer_id))} ${v.origen} ${v.destino} ${v.carga ?? ''} ${textoVehiculo(vehPorId.get(v.vehiculo_id ?? ''))} ${(v.paradas ?? []).map((p) => p.lugar).join(' ')}`).includes(t)));
-  }, [viajes, texto, estado, choferId, porId, vehPorId]);
+  }, [viajes, texto, estado, tipo, choferId, porId, vehPorId]);
 
   const conteo = useMemo(() => {
     const m: Record<EstadoViaje, number> = { programado: 0, en_ruta: 0, finalizado: 0, cancelado: 0 };
     for (const v of viajes) m[v.estado]++;
     return m;
   }, [viajes]);
+
+  /** Listado para PDF / Excel: con el filtro «Volqueta» sale el formato de la hoja (nombre, vehículo, material, origen, destino, fecha, viajes). */
+  function listado() {
+    const volq = tipo === 'volqueta';
+    const subtitulo = [tipo ? TIPO_VIAJE[tipo].label : 'Camión y volqueta', estado ? ESTADO_VIAJE[estado].label : 'todos los estados',
+      choferId ? nombreConductor(porId.get(choferId)) : 'todos los choferes', texto ? `«${texto}»` : ''].filter(Boolean).join(' · ') + ` · ${totalViajes(filas)} viaje(s)`;
+    const archivo = `${volq ? 'viajes-volqueta' : 'rutas-y-viajes'}-${new Date().toISOString().slice(0, 10)}`;
+    if (volq) {
+      return {
+        titulo: 'VIAJES DE VOLQUETA', subtitulo, archivo,
+        encabezados: ['Nombre y apellido', 'Vehículo', 'Material', 'Origen', 'Destino', 'Fecha', 'Viajes'], anchos: [3, 3, 2.4, 2.6, 2.6, 1.6, 1], numeros: [6],
+        filas: filas.map((v) => [nombreConductor(porId.get(v.chofer_id)), textoVehiculo(vehPorId.get(v.vehiculo_id ?? '')), v.carga ?? '', v.origen, v.destino, fmtDate(v.salida_real_at ?? v.fecha_salida), v.viajes]),
+      };
+    }
+    return {
+      titulo: 'RUTAS Y VIAJES', subtitulo, archivo,
+      encabezados: ['N°', 'Tipo', 'Fecha', 'Chofer', 'Vehículo', 'Material / carga', 'Origen', 'Destino', 'Viajes', 'Tarifa $', 'Estado'],
+      anchos: [1.8, 1.3, 1.6, 2.8, 2.8, 2.2, 2.2, 2.2, 1, 1.3, 1.5], numeros: [8, 9],
+      filas: filas.map((v) => [v.numero, TIPO_VIAJE[v.tipo_viaje].label, fmtDate(v.salida_real_at ?? v.fecha_salida), nombreConductor(porId.get(v.chofer_id)),
+        textoVehiculo(vehPorId.get(v.vehiculo_id ?? '')), v.carga ?? '', v.origen, v.destino, v.viajes, tarifaTotalViaje(v), ESTADO_VIAJE[v.estado].label]),
+    };
+  }
+  async function exportar(t: 'pdf' | 'excel') {
+    try { if (t === 'pdf') await listadoFlotaPdf(listado()); else await listadoFlotaExcel(listado()); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo exportar', 'error'); }
+  }
+  async function confirmarBorrar() {
+    const v = borrar; setBorrar(null);
+    if (!v) return;
+    try { await eliminarViaje(v); toast(`${v.numero} eliminado`, 'success'); await recargar(); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+  }
 
   return (
     <div>
@@ -67,12 +110,18 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
           <option value="">Todos los estados</option>
           {Object.entries(ESTADO_VIAJE).map(([k, e]) => <option key={k} value={k}>{e.icon} {e.label} ({conteo[k as EstadoViaje]})</option>)}
         </select>
+        <select className="select" style={{ width: 'auto' }} value={tipo} onChange={(e) => setTipo(e.target.value as TipoViaje | '')} aria-label="Tipo de viaje">
+          <option value="">Camión y volqueta</option>
+          {(Object.keys(TIPO_VIAJE) as TipoViaje[]).map((t) => <option key={t} value={t}>{TIPO_VIAJE[t].icon} {TIPO_VIAJE[t].label}</option>)}
+        </select>
         <select className="select" style={{ width: 'auto', maxWidth: 220 }} value={choferId} onChange={(e) => setChoferId(e.target.value)} aria-label="Chofer">
           <option value="">Todos los choferes</option>
           {conductores.map((c) => <option key={c.id} value={c.id}>{nombreConductor(c)}</option>)}
         </select>
         <div className="desc-acciones">
-          <span className="chip">🚛 {conteo.en_ruta} en ruta · 📅 {conteo.programado} programados</span>
+          <span className="chip">🚛 {conteo.en_ruta} en ruta · 📅 {conteo.programado} programados · Σ {totalViajes(filas)} viajes</span>
+          <button className="btn btn-sm btn-ghost" disabled={!filas.length} onClick={() => void exportar('pdf')} title={tipo === 'volqueta' ? 'Formato de la hoja de volqueta' : 'Listado de viajes'}>↓ PDF</button>
+          <button className="btn btn-sm btn-ghost" disabled={!filas.length} onClick={() => void exportar('excel')} title={tipo === 'volqueta' ? 'Formato de la hoja de volqueta' : 'Listado de viajes'}>↓ Excel</button>
           {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setForm('nuevo')} disabled={!conductores.some((c) => c.activo)} title={conductores.some((c) => c.activo) ? 'Programar una ruta o cargar un viaje ya realizado' : 'Primero abre expedientes en «Expediente y flota»'}>+ Orden de ruta</button>}
         </div>
       </div>
@@ -83,20 +132,21 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
         : (
           <div className="table-wrap card" style={{ padding: 0 }}>
             <table className="table" style={{ fontSize: '.85rem' }}>
-              <thead><tr><th>N°</th><th>Salida</th><th>Chofer</th><th>Ruta</th><th>Vehículo</th><th>Paradas</th><th style={{ textAlign: 'right' }}>Tarifa</th><th>Estado</th><th></th></tr></thead>
+              <thead><tr><th>N°</th><th>Salida</th><th>Chofer</th><th>Ruta</th><th>Vehículo</th><th>Paradas</th><th style={{ textAlign: 'right' }}>Viajes</th><th style={{ textAlign: 'right' }}>Tarifa</th><th>Estado</th><th></th></tr></thead>
               <tbody>
                 {filas.map((v) => {
                   const e = ESTADO_VIAJE[v.estado];
                   const pr = progresoParadas(v.paradas);
                   return (
                     <tr key={v.id}>
-                      <td className="mono">{v.numero}</td>
+                      <td className="mono">{v.numero}{v.tipo_viaje === 'volqueta' && <div className="muted" style={{ fontSize: '.7rem' }}>🚜 Volqueta</div>}</td>
                       <td className="mono" style={{ fontSize: '.8rem' }}>{fechaHora(v.salida_real_at ?? v.fecha_salida)}{v.estado === 'finalizado' && v.llegada_real_at ? <div className="muted">llegó {fechaHora(v.llegada_real_at)}</div> : null}</td>
                       <td>{nombreConductor(porId.get(v.chofer_id))}</td>
                       <td>{textoRuta(v)}{v.carga ? <div className="muted" style={{ fontSize: '.75rem' }}>{v.carga}</div> : null}</td>
                       <td style={{ fontSize: '.8rem' }}>{textoVehiculo(vehPorId.get(v.vehiculo_id ?? ''))}</td>
                       <td className="mono">{pr.total ? `${pr.hechas}/${pr.total}` : '—'}</td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{money(v.tarifa_usd)}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{v.viajes}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{money(tarifaTotalViaje(v))}{v.viajes > 1 ? <div className="muted" style={{ fontSize: '.7rem' }}>{money(v.tarifa_usd)} × {v.viajes}</div> : null}</td>
                       <td>
                         <span className={`badge ${e.clase}`}>{e.icon} {e.label}</span>
                         {v.estado === 'finalizado' && (
@@ -111,6 +161,7 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
                         {canWrite && v.estado === 'programado' && <button className="btn btn-sm btn-primary" onClick={() => setAccion({ tipo: 'iniciar', viaje: v })} title="Iniciar ruta">▶</button>}
                         {canWrite && v.estado === 'en_ruta' && <button className="btn btn-sm btn-success" onClick={() => setAccion({ tipo: 'finalizar', viaje: v })} title="Finalizar ruta">🏁</button>}
                         {canWrite && (v.estado === 'programado' || v.estado === 'en_ruta') && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setAccion({ tipo: 'cancelar', viaje: v })} title="Cancelar">✖</button>}
+                        {canWrite && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(v)} title={v.pago_id ? 'Está en un recibo: anula el recibo primero' : 'Eliminar'}>🗑</button>}
                       </td>
                     </tr>
                   );
@@ -131,6 +182,11 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
       {accion && (
         <AccionViajeModal accion={accion.tipo} viaje={accion.viaje} conductor={porId.get(accion.viaje.chofer_id)}
           onClose={() => setAccion(null)} onDone={async () => { setAccion(null); await recargar(); }} />
+      )}
+      {borrar && (
+        <ConfirmDialog title={`Eliminar ${borrar.numero}`} danger confirmText="Sí, eliminar"
+          message={<>Se borra la orden <strong>{borrar.numero}</strong> ({textoRuta(borrar)} · {nombreConductor(porId.get(borrar.chofer_id))}{borrar.viajes > 1 ? ` · ${borrar.viajes} viajes` : ''}) con sus paradas y su liquidación. Los viáticos cargados a ese viaje quedan como caja chica del chofer. {borrar.pago_id ? 'Está en un recibo de viaje: primero anula o borra ese recibo.' : 'Esto no se deshace.'}</>}
+          onConfirm={() => { void confirmarBorrar(); }} onCancel={() => setBorrar(null)} />
       )}
     </div>
   );
@@ -161,6 +217,16 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
   const [llegadaReal, setLlegadaReal] = useState(inicial?.llegada_real_at ? aDatetimeLocal(inicial.llegada_real_at) : '');
   const [kmSalida, setKmSalida] = useState<number | null>(inicial?.km_salida ?? null);
   const [kmLlegada, setKmLlegada] = useState<number | null>(inicial?.km_llegada ?? null);
+  // Camión o volqueta (14-10-2026) y cuántos viajes trae la orden.
+  const [tipoV, setTipoV] = useState<TipoViaje>(inicial?.tipo_viaje ?? 'camion');
+  const [nViajes, setNViajes] = useState<number | null>(inicial?.viajes ?? 1);
+  const [fechaDia, setFechaDia] = useState((inicial ? aDatetimeLocal(inicial.salida_real_at ?? inicial.fecha_salida) : ahoraLocal()).slice(0, 10));
+  const volq = tipoV === 'volqueta';
+  function elegirTipo(t: TipoViaje) {
+    setTipoV(t);
+    // Un día de volqueta casi siempre se carga ya realizado (la hoja se llena al final del día).
+    if (t === 'volqueta' && !inicial) setRealizado(true);
+  }
 
   const chofer = conductores.find((c) => c.id === choferId) ?? null;
   const vehiculo = flota.find((v) => v.id === vehiculoId) ?? null;
@@ -201,21 +267,30 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
+    if (volq) {
+      const ev = errorViajesVolqueta(nViajes, carga);
+      if (ev) { setError(ev); return; }
+    }
+    // Volqueta: la hoja va por día; las horas quedan 06:00 → 18:00 (o «ahora» si es hoy).
+    const horas = volq ? horasDiaVolqueta(fechaDia, ahoraLocal()) : null;
+    const salidaF = horas ? horas.salida : salida;
+    const llegadaRealF = horas ? horas.llegada : llegadaReal;
     const input: ViajeInput = {
-      chofer_id: choferId, vehiculo_id: vehiculoId || null, origen, destino, paradas, carga,
-      fecha_salida: salida, llegada_prevista: llegada || null, tarifa_usd: tarifa ?? 0, nota,
-      realizado: realizado ? { salida_real_at: salida, llegada_real_at: llegadaReal, km_salida: kmSalida, km_llegada: kmLlegada } : null,
+      chofer_id: choferId, vehiculo_id: vehiculoId || null, origen, destino, paradas: volq ? [] : paradas, carga,
+      fecha_salida: salidaF, llegada_prevista: volq ? null : (llegada || null), tarifa_usd: tarifa ?? 0, nota,
+      tipo_viaje: tipoV, viajes: cantidadViajes(nViajes),
+      realizado: realizado ? { salida_real_at: salidaF, llegada_real_at: llegadaRealF, km_salida: volq ? null : kmSalida, km_llegada: volq ? null : kmLlegada } : null,
     };
-    if (realizado) {
+    if (realizado && !volq) {
       const e = errorViajeRealizado({ salida, llegada: llegadaReal, kmSalida, kmLlegada, ahora: ahoraLocal() });
       if (e) { setError(e); return; }
-    } else if (llegada && llegada < salida) { setError('La llegada prevista no puede ser antes de la salida.'); return; }
+    } else if (!volq && llegada && llegada < salida) { setError('La llegada prevista no puede ser antes de la salida.'); return; }
     setSaving(true);
     try {
       if (inicial) { await editarViaje(inicial.id, input); toast(realizado ? 'Viaje corregido' : 'Orden de ruta guardada', 'success'); }
       else {
         const v = await crearViaje(input, actor, actorName);
-        toast(realizado ? `Viaje ${v.numero} cargado como finalizado. Ahora se pueden liquidar sus viáticos.` : `Orden de ruta ${v.numero} creada`, 'success');
+        toast(volq && realizado ? `${v.numero}: ${cantidadViajes(nViajes)} viaje(s) de volqueta cargados.` : realizado ? `Viaje ${v.numero} cargado como finalizado. Ahora se pueden liquidar sus viáticos.` : `Orden de ruta ${v.numero} creada`, 'success');
       }
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }
@@ -224,14 +299,22 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
   const activos = conductores.filter((c) => c.activo || c.id === inicial?.chofer_id);
 
   return (
-    <Modal title={inicial ? `🗺 ${inicial.estado === 'finalizado' ? 'Corregir viaje' : 'Orden de ruta'} ${inicial.numero}` : realizado ? '🕓 Cargar viaje ya realizado' : '🗺 Nueva orden de ruta'} size="lg" onClose={() => !saving && onClose()} footer={
+    <Modal title={inicial ? `${TIPO_VIAJE[tipoV].icon} ${inicial.estado === 'finalizado' ? 'Corregir viaje' : 'Orden de ruta'} ${inicial.numero}` : volq ? (realizado ? '🚜 Cargar viajes de volqueta del día' : '🚜 Programar día de volqueta') : realizado ? '🕓 Cargar viaje ya realizado' : '🗺 Nueva orden de ruta'} size="lg" onClose={() => !saving && onClose()} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        {canWrite && <button type="submit" form="viaje-form" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : inicial ? 'Guardar cambios' : realizado ? 'Cargar viaje finalizado' : 'Crear orden'}</button>}
+        {canWrite && <button type="submit" form="viaje-form" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : inicial ? 'Guardar cambios' : volq && realizado ? 'Cargar viajes del día' : realizado ? 'Cargar viaje finalizado' : 'Crear orden'}</button>}
       </>
     }>
       <form id="viaje-form" onSubmit={guardar}>
         {error && <div className="aviso danger" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⛔</span><div>{error}</div></div>}
+        <div className="form-row" style={{ marginBottom: '.6rem' }}><label>Tipo de viaje</label>
+          <div role="group" aria-label="Tipo de viaje" style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
+            {(Object.keys(TIPO_VIAJE) as TipoViaje[]).map((t) => (
+              <button key={t} type="button" className={`btn btn-sm ${tipoV === t ? 'btn-primary' : 'btn-ghost'}`} aria-pressed={tipoV === t} onClick={() => elegirTipo(t)}>{TIPO_VIAJE[t].icon} {TIPO_VIAJE[t].label}</button>
+            ))}
+            <span className="muted" style={{ fontSize: '.75rem', alignSelf: 'center' }}>{TIPO_VIAJE[tipoV].hint}</span>
+          </div>
+        </div>
         {!inicial && (
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.45rem', marginBottom: '.6rem', fontSize: '.88rem', cursor: 'pointer' }}>
             <input type="checkbox" checked={realizado} onChange={(e) => setRealizado(e.target.checked)} style={{ marginTop: 3 }} />
@@ -244,17 +327,22 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
         <div className="form-grid">
           <div className="form-row"><label htmlFor="vj-chofer">Chofer</label>
             <SearchSelect id="vj-chofer" value={choferId} onChange={elegirChofer} placeholder="🔍 Buscar chofer…"
-              options={activos.map((c) => ({ value: c.id, label: nombreConductor(c), hint: [c.personal?.cedula, c.licencia_grado ? `Lic. ${c.licencia_grado}` : null].filter(Boolean).join(' · ') }))} /></div>
+              options={activos.map((c) => ({ value: c.id, label: nombreConductor(c), hint: [datosConductor(c).cedula, c.externo ? 'externo' : null, c.licencia_grado ? `Lic. ${c.licencia_grado}` : null].filter(Boolean).join(' · ') }))} /></div>
           <div className="form-row"><label htmlFor="vj-veh">Vehículo</label>
             <div style={{ display: 'flex', gap: '.35rem' }}>
               <SearchSelect id="vj-veh" value={vehiculoId} onChange={setVehiculoId} placeholder="🔍 Placa, marca, modelo…" style={{ flex: 1 }}
                 options={flota.filter((v) => v.activo && v.estado_flota !== 'inactivo' || v.id === vehiculoId).map((v) => ({ value: v.id, label: textoVehiculo(v), hint: v.capacidad ?? undefined }))} />
               <button type="button" className="btn btn-ghost" onClick={() => setVerFlota(true)} title="Ver la flota / agregar vehículo">🚚</button>
             </div></div>
-          <div className="form-row"><label htmlFor="vj-origen">Origen</label><input id="vj-origen" className="input" value={origen} onChange={(e) => setOrigen(e.target.value)} required placeholder="Galpón Los Pinos" /></div>
-          <div className="form-row"><label htmlFor="vj-destino">Destino</label><input id="vj-destino" className="input" value={destino} onChange={(e) => setDestino(e.target.value)} required placeholder="Centro de Fundición Matanzas" /></div>
-          <div className="form-row"><label htmlFor="vj-salida">{realizado ? 'Salida real (fecha y hora)' : 'Salida programada'}</label><input id="vj-salida" className="input" type="datetime-local" value={salida} max={realizado ? ahoraLocal() : undefined} onChange={(e) => setSalida(e.target.value)} required /></div>
-          {realizado ? (
+          <div className="form-row"><label htmlFor="vj-origen">Origen</label><input id="vj-origen" className="input" value={origen} onChange={(e) => setOrigen(e.target.value)} required placeholder={volq ? 'Playa Escondida' : 'Galpón Los Pinos'} /></div>
+          <div className="form-row"><label htmlFor="vj-destino">Destino</label><input id="vj-destino" className="input" value={destino} onChange={(e) => setDestino(e.target.value)} required placeholder={volq ? 'Interno' : 'Centro de Fundición Matanzas'} /></div>
+          {volq ? (
+            <div className="form-row"><label htmlFor="vj-fecha">Fecha</label><input id="vj-fecha" className="input" type="date" value={fechaDia} max={realizado ? ahoraLocal().slice(0, 10) : undefined} onChange={(e) => setFechaDia(e.target.value)} required />
+              <span className="muted" style={{ fontSize: '.75rem' }}>Un renglón por día, como la hoja: las horas quedan 06:00 → 18:00.</span></div>
+          ) : (
+            <div className="form-row"><label htmlFor="vj-salida">{realizado ? 'Salida real (fecha y hora)' : 'Salida programada'}</label><input id="vj-salida" className="input" type="datetime-local" value={salida} max={realizado ? ahoraLocal() : undefined} onChange={(e) => setSalida(e.target.value)} required /></div>
+          )}
+          {volq ? null : realizado ? (
             <>
               <div className="form-row"><label htmlFor="vj-llegada-real">Llegada real (fecha y hora)</label><input id="vj-llegada-real" className="input" type="datetime-local" value={llegadaReal} min={salida || undefined} max={ahoraLocal()} onChange={(e) => setLlegadaReal(e.target.value)} required /></div>
               <div className="form-row"><label>Kilometraje de salida</label><DecimalInput className="input" value={kmSalida} onChange={setKmSalida} placeholder="opcional" aria-label="Kilometraje de salida" /></div>
@@ -263,11 +351,14 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
           ) : (
             <div className="form-row"><label htmlFor="vj-llegada">Llegada prevista</label><input id="vj-llegada" className="input" type="datetime-local" value={llegada} min={salida || undefined} onChange={(e) => setLlegada(e.target.value)} /></div>
           )}
-          <div className="form-row"><label htmlFor="vj-carga">Carga / motivo</label><input id="vj-carga" className="input" value={carga} onChange={(e) => setCarga(e.target.value)} placeholder="Casiterita 20 t · víveres · repuestos…" /></div>
-          <div className="form-row"><label>Tarifa del viaje ($)</label>
-            <DecimalInput className="input" value={tarifa} onChange={setTarifa} placeholder="0,00" aria-label="Tarifa del viaje en dólares" />
-            <span className="muted" style={{ fontSize: '.75rem' }}>Lo que se le paga al chofer por este viaje{chofer ? ` (su tarifa base: ${money(chofer.tarifa_viaje_usd)})` : ''}.</span></div>
-          <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+          <div className="form-row"><label htmlFor="vj-carga">{volq ? 'Material' : 'Carga / motivo'}</label><input id="vj-carga" className="input" value={carga} onChange={(e) => setCarga(e.target.value)} required={volq} placeholder={volq ? 'Escombros · cabilla · arena…' : 'Casiterita 20 t · víveres · repuestos…'} /></div>
+          <div className="form-row"><label htmlFor="vj-viajes">{volq ? 'Viajes del día' : 'Viajes'}</label>
+            <input id="vj-viajes" className="input mono" type="number" min={1} step={1} inputMode="numeric" value={nViajes ?? ''} onChange={(e) => setNViajes(e.target.value === '' ? null : Number(e.target.value))} required />
+            <span className="muted" style={{ fontSize: '.75rem' }}>{volq ? 'Cuántos viajes hizo ese día (02, 25, 21…).' : 'Normalmente 1; si fue ida y vuelta varias veces, pon cuántas.'}</span></div>
+          <div className="form-row"><label>Tarifa por viaje ($)</label>
+            <DecimalInput className="input" value={tarifa} onChange={setTarifa} placeholder="0,00" aria-label="Tarifa por viaje en dólares" />
+            <span className="muted" style={{ fontSize: '.75rem' }}>Por viaje{chofer ? ` (su tarifa base: ${money(chofer.tarifa_viaje_usd)})` : ''}{cantidadViajes(nViajes) > 1 ? ` · total ${money((tarifa ?? 0) * cantidadViajes(nViajes))}` : ''}.</span></div>
+          {!volq && <div className="form-row" style={{ gridColumn: '1 / -1' }}>
             <label>Puntos de parada (en orden){realizado && <span className="muted" style={{ fontWeight: 400 }}> · en un viaje ya realizado quedan marcadas como cumplidas a la hora de llegada</span>}</label>
             <div className="chf-paradas">
               {paradas.map((p, i) => (
@@ -286,7 +377,7 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
                 <button type="button" className="btn btn-ghost" onClick={agregarParada} disabled={!nuevaParada.trim()}>+ Parada</button>
               </div>
             </div>
-          </div>
+          </div>}
           <div className="form-row" style={{ gridColumn: '1 / -1' }}><label htmlFor="vj-nota">Nota</label><input id="vj-nota" className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Instrucciones, contacto en destino…" /></div>
         </div>
         {!!avisos.length && (
@@ -319,6 +410,7 @@ function DetalleViajeModal({ viaje: v, conductor, vehiculo, canWrite, onClose, o
     <Modal title={`🗺 ${v.numero} · ${textoRuta(v)}`} size="md" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
       <div className="form-grid" style={{ fontSize: '.88rem' }}>
         <div><span className="muted">Estado</span><div><span className={`badge ${e.clase}`}>{e.icon} {e.label}</span></div></div>
+        <div><span className="muted">Tipo · viajes</span><div>{TIPO_VIAJE[v.tipo_viaje].icon} {TIPO_VIAJE[v.tipo_viaje].label} · <span className="mono">{v.viajes}</span> viaje{v.viajes === 1 ? '' : 's'}</div></div>
         <div><span className="muted">Chofer</span><div><strong>{nombreConductor(conductor)}</strong></div></div>
         <div><span className="muted">Vehículo</span><div>{textoVehiculo(vehiculo)}</div></div>
         <div><span className="muted">Carga</span><div>{v.carga ?? '—'}</div></div>
@@ -327,7 +419,7 @@ function DetalleViajeModal({ viaje: v, conductor, vehiculo, canWrite, onClose, o
         <div><span className="muted">Salida real</span><div className="mono">{fechaHora(v.salida_real_at)}{v.km_salida != null ? ` · ${v.km_salida.toLocaleString('es-VE')} km` : ''}</div></div>
         <div><span className="muted">Llegada real</span><div className="mono">{fechaHora(v.llegada_real_at)}{v.km_llegada != null ? ` · ${v.km_llegada.toLocaleString('es-VE')} km` : ''}</div></div>
         <div><span className="muted">Recorrido</span><div className="mono">{km != null ? `${km.toLocaleString('es-VE')} km` : '—'}</div></div>
-        <div><span className="muted">Tarifa</span><div className="mono">{money(v.tarifa_usd)}</div></div>
+        <div><span className="muted">Tarifa</span><div className="mono">{money(tarifaTotalViaje(v))}{v.viajes > 1 ? <span className="muted"> ({money(v.tarifa_usd)} × {v.viajes})</span> : null}</div></div>
       </div>
       <div style={{ marginTop: '.8rem' }}>
         <strong style={{ fontSize: '.88rem' }}>Paradas ({progresoParadas(v.paradas).hechas}/{v.paradas.length})</strong>

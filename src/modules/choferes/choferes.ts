@@ -277,3 +277,73 @@ export function errorViajeRealizado(o: { salida: string; llegada: string; kmSali
 export function hoyVE(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 }
+
+/* ───────── Tipo de viaje y cantidad de viajes (14-10-2026) ─────────
+   La hoja física se llena por día: «Jose Rondon · 25 viajes · escombros ·
+   Playa Escondida → Interno». Camión = ruta con paradas, horas y km;
+   volqueta = por día con material, origen, destino y cuántos viajes. */
+export type TipoViaje = 'camion' | 'volqueta';
+export const TIPO_VIAJE: Record<TipoViaje, { label: string; icon: string; hint: string }> = {
+  camion: { label: 'Camión', icon: '🚛', hint: 'Ruta con paradas, horas y kilometraje' },
+  volqueta: { label: 'Volqueta', icon: '🚜', hint: 'Por día: material, origen, destino y cuántos viajes se hicieron' },
+};
+export function tipoViajeDe(v: unknown): TipoViaje { return v === 'volqueta' ? 'volqueta' : 'camion'; }
+/** Cuántos viajes trae la orden (entero, mínimo 1). */
+export function cantidadViajes(v: unknown): number {
+  const n = Math.round(Number(v));
+  return Number.isFinite(n) && n >= 1 ? n : 1;
+}
+/** Lo que se le paga por la orden: tarifa por viaje × viajes. */
+export function tarifaTotalViaje(v: { tarifa_usd: number; viajes?: number | null }): number {
+  return Math.round((Number(v.tarifa_usd) || 0) * cantidadViajes(v.viajes) * 100) / 100;
+}
+/** «RES CORAL → PARQUE × 25 viajes» (para el recibo y los listados). */
+export function textoRutaViajes(v: { origen: string; destino: string; viajes?: number | null }): string {
+  const n = cantidadViajes(v.viajes);
+  return n > 1 ? `${textoRuta(v)} × ${n} viajes` : textoRuta(v);
+}
+/** Total de viajes de una lista (una orden de volqueta con 25 viajes cuenta 25). */
+export function totalViajes(lista: { viajes?: number | null }[]): number {
+  return lista.reduce((a, v) => a + cantidadViajes(v.viajes), 0);
+}
+/**
+ * Horas de un día de volqueta (no se cargan hora por hora): sale 06:00 y llega 18:00.
+ * Si el día es hoy y aún no son las 18:00, llega «ahora» para no terminar en el futuro.
+ */
+export function horasDiaVolqueta(fecha: string, ahoraLocal: string): { salida: string; llegada: string } {
+  const salida = `${fecha}T06:00`;
+  const llegada = `${fecha}T18:00`;
+  return { salida, llegada: llegada > ahoraLocal ? (ahoraLocal > salida ? ahoraLocal : salida) : llegada };
+}
+export function errorViajesVolqueta(viajes: number | null | undefined, material: string): string | null {
+  const n = Number(viajes);
+  if (!(n >= 1) || !Number.isInteger(n)) return 'Indica cuántos viajes se hicieron (número entero, al menos 1).';
+  if (!material.trim()) return 'Indica el material (escombros, cabilla, arena…).';
+  return null;
+}
+
+/* ───────── Chofer externo (14-10-2026) ─────────
+   Un conductor puede no estar en nómina (pago externo por viaje): su expediente
+   lleva nombre, apellido, cédula y teléfono propios, sin ficha de RRHH. */
+export interface DatosPersonaConductor {
+  externo?: boolean;
+  nombre?: string | null;
+  apellido?: string | null;
+  cedula?: string | null;
+  telefono?: string | null;
+  empresa_externa?: string | null;
+  personal?: { nombre: string; apellido?: string | null; cedula?: string | null; telefono?: string | null; cargo?: string | null } | null;
+}
+export function nombreDeConductor(c: DatosPersonaConductor | null | undefined): string {
+  if (!c) return '—';
+  if (c.personal) return `${c.personal.nombre} ${c.personal.apellido ?? ''}`.trim();
+  if (c.externo) return `${c.nombre ?? ''} ${c.apellido ?? ''}`.trim() || 'Chofer externo';
+  return '(ficha eliminada)';
+}
+/** Cédula, teléfono y cargo: de la ficha de RRHH o, si es externo, del expediente. */
+export function datosConductor(c: DatosPersonaConductor | null | undefined): { cedula: string | null; telefono: string | null; cargo: string | null } {
+  if (!c) return { cedula: null, telefono: null, cargo: null };
+  if (c.personal) return { cedula: c.personal.cedula ?? null, telefono: c.personal.telefono ?? null, cargo: c.personal.cargo ?? null };
+  if (c.externo) return { cedula: c.cedula ?? null, telefono: c.telefono ?? null, cargo: `Chofer externo${c.empresa_externa ? ` · ${c.empresa_externa}` : ''}` };
+  return { cedula: null, telefono: null, cargo: null };
+}
