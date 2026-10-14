@@ -30,7 +30,7 @@ import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
   calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal,
   labelDireccion, labelEstadoRetencion, labelImpuesto, labelPeriodo, labelSujeto,
-  periodoDe, quincenaDe, resumenLibro, significadoRetencion,
+  periodoDe, quincenaDe, resumenLibro, significadoRetencion, totalesPorMoneda,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type EstadoRetencion, type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
@@ -112,7 +112,12 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
     tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada,
   }))), [visibles]);
 
-  const moneda = visibles[0]?.moneda ?? 'Bs';
+  // Bs y $ no se suman: cada total va en su moneda.
+  const totales = useMemo(() => totalesPorMoneda(visibles.map((r) => ({
+    tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada, moneda: r.moneda,
+  }))), [visibles]);
+  const enMonedas = (campo: 'aFavor' | 'igtfPagado' | 'porEnterar') =>
+    totales.length ? totales.map((t) => monto(t.resumen[campo], t.moneda)).join(' · ') : monto(0, 'Bs');
   const limpiar = () => {
     setDireccion(''); setTipo(''); setEstado(''); setTexto('');
     setDesde(primeroDelMes()); setHasta(hoyIso());
@@ -137,7 +142,7 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
   async function verLibroPdf() {
     try {
       const { verLibroFiscalPdf } = await import('./libroFiscalPdf');
-      await verLibroFiscalPdf(visibles, config, { desde, hasta, direccion: direccion || null, resumen, moneda });
+      await verLibroFiscalPdf(visibles, config, { desde, hasta, direccion: direccion || null, resumen, totales });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el libro', 'error'); }
   }
 
@@ -169,11 +174,11 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
 
       {/* Los cuatro números */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
-        <Kpi titulo="A favor (nos retuvieron)" valor={monto(resumen.aFavor, moneda)} color="var(--success)"
+        <Kpi titulo="A favor (nos retuvieron)" valor={enMonedas('aFavor')} color="var(--success)"
           pie="Se descuenta del impuesto a pagar" />
-        <Kpi titulo="IGTF pagado" valor={monto(resumen.igtfPagado, moneda)} color="var(--danger)"
+        <Kpi titulo="IGTF pagado" valor={enMonedas('igtfPagado')} color="var(--danger)"
           pie="No se recupera: es costo" />
-        <Kpi titulo="Por enterar al fisco" valor={monto(resumen.porEnterar, moneda)}
+        <Kpi titulo="Por enterar al fisco" valor={enMonedas('porEnterar')}
           color={resumen.porEnterar > 0 ? 'var(--warning)' : undefined}
           pie="Lo que la empresa retuvo y todavía no declaró" />
         <Kpi titulo="Registros" valor={String(resumen.registros)} pie={pieRegistros(visibles)} />
