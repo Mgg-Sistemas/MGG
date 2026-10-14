@@ -11,6 +11,7 @@ import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, Costo
 import { AgregarProductoCompra } from './AgregarProductoCompra';
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, adjuntosDeOferta, CONDICIONES_PAGO, descuentoEfectivo, type EditarOfertaInput } from './ofertas.repository';
 import { resincronizarOcDesdeOferta } from './pedidos.repository';
+import { fijarActividadTextoProveedor } from '@/modules/proveedores/actividades.repository';
 import { ivaDesdePorcentaje, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
@@ -116,8 +117,21 @@ export function AgregarOfertaModal({
   const [provDireccion, setProvDireccion] = useState('');
   const [provOrigen, setProvOrigen] = useState<OrigenProveedor>('nacional');
   const rifPartes = partirRif(provRif);
-  // La actividad económica (CIIU) del proveedor ya NO se pide acá (14-10-2026): se carga
-  // al indicar el método de pago de la OC (MetodoPagoModal) y queda en la ficha.
+  // Actividad económica del proveedor en TEXTO LIBRE (14-10-2026, segunda vuelta): se
+  // escribe en la cotización, es OPCIONAL y queda en la ficha del proveedor (columna
+  // actividad_economica_texto). Sin desplegable hasta que la administración pase el catálogo.
+  const proveedorElegido = proveedores.find((p) => p.id === (proveedorId || ofertaEdit?.proveedor_id));
+  const idElegido = proveedorElegido?.id;
+  const actividadTextoGuardada = proveedorElegido?.actividad_economica_texto ?? '';
+  const [provActividadTexto, setProvActividadTexto] = useState<string>(actividadTextoGuardada);
+  useEffect(() => { if (!nuevoProveedor) setProvActividadTexto(actividadTextoGuardada); }, [idElegido, actividadTextoGuardada, nuevoProveedor]);
+  /** Deja la actividad (texto) en la ficha del proveedor si cambió; no tumba la oferta si falla. */
+  async function guardarActividadTextoEn(provId: string, guardada: string) {
+    const nuevo = provActividadTexto.trim().toUpperCase();
+    if (nuevo === (guardada ?? '').trim().toUpperCase()) return;
+    try { await fijarActividadTextoProveedor(provId, nuevo || null); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar la actividad económica del proveedor', 'error'); }
+  }
 
   // Calificación histórica de los proveedores (se guarda al finalizar cada pedido).
   const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
@@ -430,6 +444,11 @@ export function AgregarOfertaModal({
       if (isEdit && ofertaEdit) {
         // Adjuntos finales = los existentes que se conservaron (se pueden quitar) + los
         // nuevos que se cargaron. Siempre se persiste, así las remociones quedan guardadas.
+        {
+          // La actividad económica (texto, opcional) queda en la ficha del proveedor de la oferta.
+          const provIdEdit = proveedorId || ofertaEdit.proveedor_id;
+          await guardarActividadTextoEn(provIdEdit, proveedores.find((p) => p.id === provIdEdit)?.actividad_economica_texto ?? '');
+        }
         const subidos = pdfFiles.length ? await subirAdjuntosOferta(ordenOfertas, ofertaEdit.proveedor_id, pdfFiles) : [];
         const todos = [...adjuntosExist, ...subidos];
         const adjuntosPatch: EditarOfertaInput = {
@@ -516,6 +535,7 @@ export function AgregarOfertaModal({
           telefono: provTelefono.trim() || null,
           email: emailClean || null,
           direccion: provDireccion.trim().toUpperCase() || null,
+          actividad_economica_texto: provActividadTexto.trim().toUpperCase() || null,
           categorias: [],
           origen: provOrigen,
           estado: 'activo',
@@ -527,6 +547,9 @@ export function AgregarOfertaModal({
         setSubmitting(false);
         return;
       }
+
+      // 1b) La actividad económica (texto, opcional) queda en la ficha del proveedor ya registrado.
+      if (!nuevoProveedor) await guardarActividadTextoEn(provId, actividadTextoGuardada);
 
       // 2) Subir los adjuntos (fotos/PDF) si los hay
       const adjuntos = pdfFiles.length ? await subirAdjuntosOferta(ordenOfertas, provId, pdfFiles) : [];
@@ -670,6 +693,11 @@ export function AgregarOfertaModal({
             <input className="input" value={provDireccion} onChange={(e) => setProvDireccion(e.target.value.toUpperCase())} />
           </div>
           <div className="form-row">
+            <label>Actividad económica <span className="muted" style={{ fontWeight: 400 }}>(opcional, texto)</span></label>
+            <input className="input" value={provActividadTexto} maxLength={160} onChange={(e) => setProvActividadTexto(e.target.value.toUpperCase())} placeholder="Ej. VENTA AL MAYOR DE VÍVERES" />
+            <small className="hint muted">Queda en la ficha del proveedor.</small>
+          </div>
+          <div className="form-row">
             <label>Origen</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
               {([
@@ -736,6 +764,17 @@ export function AgregarOfertaModal({
               {avisoOcultos && <><br />ℹ️ {avisoOcultos}</>}
             </p>
           )}
+        </div>
+      )}
+
+      {(isEdit || !nuevoProveedor) && (
+        <div className="form-row">
+          <label>Actividad económica del proveedor <span className="muted" style={{ fontWeight: 400 }}>(opcional, texto; queda en su ficha)</span></label>
+          <input className="input" value={provActividadTexto} maxLength={160} disabled={!isEdit && !proveedorId}
+            onChange={(e) => setProvActividadTexto(e.target.value.toUpperCase())} placeholder="Ej. VENTA AL MAYOR DE VÍVERES" />
+          <small className="hint muted">
+            {actividadTextoGuardada ? 'Ya está en la ficha del proveedor; solo se cambia si estaba mal.' : 'Si la cargás, queda en la ficha del proveedor para las próximas cotizaciones.'}
+          </small>
         </div>
       )}
 

@@ -799,8 +799,8 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
                 <div><span className="muted">OP:</span> <strong className="mono">{orden.codigo}</strong></div>
                 <div><span className="muted">N°ODC:</span> <strong className="mono">{orden.oc_codigo ?? '—'}</strong></div>
                 {orden.numero_administracion && (
-                  <div title="Número con el que la administración del proveedor identifica este cobro (se carga al indicar el método de pago)">
-                    <span className="muted">N° administración del proveedor:</span> <strong className="mono">{orden.numero_administracion}</strong>
+                  <div title="Teléfono de la administración del proveedor (se carga al indicar el método de pago y queda en su ficha)">
+                    <span className="muted">📞 Administración del proveedor:</span> <strong className="mono">{orden.numero_administracion}</strong>
                   </div>
                 )}
                 <div>

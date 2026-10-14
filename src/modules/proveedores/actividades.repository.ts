@@ -35,3 +35,13 @@ export async function fijarActividadProveedor(proveedorId: string, codigo: strin
   const { error } = await supabase.rpc('proveedor_fijar_actividad', { p_proveedor: proveedorId, p_codigo: codigo || null });
   if (error) throw new Error(error.message);
 }
+
+/**
+ * Actividad económica como TEXTO LIBRE (14-10-2026): la que se escribe en la cotización
+ * mientras la administración define el catálogo. Queda en la ficha del proveedor; RPC
+ * para que alcance con el permiso de Pedidos.
+ */
+export async function fijarActividadTextoProveedor(proveedorId: string, texto: string | null): Promise<void> {
+  const { error } = await supabase.rpc('proveedor_fijar_actividad_texto', { p_proveedor: proveedorId, p_texto: texto?.trim() || null });
+  if (error) throw new Error(error.message);
+}

@@ -160,7 +160,7 @@ export function RetencionesPage() {
                 <tr key={`${it.kind}-${it.id}`}>
                   <td className="mono">
                     {it.ocCodigo ?? '—'}{it.kind === 'compra_directa' && <span className="badge" style={{ marginLeft: '.35rem' }} title="Compra directa">CD</span>}
-                    {it.numeroAdministracion && <div className="muted" style={{ fontSize: '.72rem' }} title="Número de administración del proveedor">N° adm. {it.numeroAdministracion}</div>}
+                    {it.numeroAdministracion && <div className="muted" style={{ fontSize: '.72rem' }} title="Teléfono de administración del proveedor">📞 {it.numeroAdministracion}</div>}
                   </td>
                   <td className="mono">{it.opCodigo ?? '—'}</td>
                   <td>{it.proveedorNombre}</td>
@@ -268,8 +268,8 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.4rem .9rem', fontSize: '.86rem' }}>
           <div><span className="muted">Proveedor:</span> <strong>{item.proveedorNombre}</strong></div>
           {o.numero_administracion && (
-            <div title="Número con el que la administración del proveedor identifica este cobro (se carga al indicar el método de pago)">
-              <span className="muted">N° administración del proveedor:</span> <strong className="mono">{o.numero_administracion}</strong>
+            <div title="Teléfono de la administración del proveedor (se carga al indicar el método de pago y queda en su ficha)">
+              <span className="muted">📞 Administración del proveedor:</span> <strong className="mono">{o.numero_administracion}</strong>
             </div>
           )}
           <div><span className="muted">Condición:</span> {labelCondicionPago(o.condiciones_pago)}</div>

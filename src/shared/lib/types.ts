@@ -722,9 +722,12 @@ export interface Proveedor {
   direccion?: string | null;
   /** Código CIIU (SENIAT) de la actividad económica; el texto vive en actividades_economicas. */
   actividad_economica?: string | null;
-  /** Número con el que la administración del proveedor identifica sus cobros a MGG
-   *  (14-10-2026): se pide la primera vez al indicar el método de pago de una OC. */
+  /** TELÉFONO de la administración del proveedor (14-10-2026; la columna nació como
+   *  «número»): se pide la primera vez al indicar el método de pago de una OC. */
   numero_administracion?: string | null;
+  /** Actividad económica escrita a mano en la cotización (opcional, texto libre) mientras
+   *  no haya catálogo definitivo; `actividad_economica` (CIIU) sigue siendo el código. */
+  actividad_economica_texto?: string | null;
   categorias: string[];
   origen: OrigenProveedor;
   estado: EstadoGenerico;

@@ -108,6 +108,7 @@ import { ordenesConOfertasDe } from './ordenDeOfertas';
 import { avisoDeCuadre, desglosarOc } from './cuadreOc';
 import { etiquetaAjuste, etiquetaIva, ivaDesdePorcentaje, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
 import { fijarNumeroAdministracionProveedor } from '@/modules/proveedores/numeroAdministracion.repository';
+import { telefonoAdministracionValido } from '@/modules/proveedores/telefonoAdministracion';
 import { SolicitudMercadoModal } from './SolicitudMercadoModal';
 // descargarTrazabilidadPdf / descargarOrdenCompraPdf se importan dinámicamente
 // (al generar) para no cargar jsPDF al abrir Pedidos.
@@ -1446,11 +1447,12 @@ function MetodoPagoModal({
     if (proveedorActual && !out.some((p) => p.id === proveedorActual.id)) out.unshift(proveedorActual);
     return out;
   }, [proveedores, proveedorActual]);
-  // Número de administración del PROVEEDOR (14-10-2026): el número con el que su
-  // administración identifica sus cobros a MGG. Es obligatorio y se pide UNA vez: la
-  // primera OC que se manda a pagar lo carga y queda en la ficha del proveedor; las
-  // siguientes lo traen precargado (se puede corregir). Cada OC guarda su copia y la ven
-  // Tesorería (al pagar) y Retenciones (al cargar los certificados).
+  // TELÉFONO de administración del PROVEEDOR (14-10-2026): el número de teléfono de la
+  // administración del proveedor (a quien se le avisa del pago / se le pide la factura).
+  // Es obligatorio y se pide UNA vez: la primera OC que se manda a pagar lo carga y queda
+  // en la ficha del proveedor; las siguientes lo traen precargado (se puede corregir).
+  // Cada OC guarda su copia y la ven Tesorería (al pagar) y Retenciones (certificados).
+  // (Columna `numero_administracion`: nació como "número" y resultó ser un teléfono.)
   const provSel = proveedoresSel.find((p) => p.id === proveedorId) ?? null;
   const numeroAdminGuardado = provSel?.numero_administracion ?? '';
   const [numeroAdmin, setNumeroAdmin] = useState<string>(orden.numero_administracion || numeroAdminGuardado);
@@ -1513,7 +1515,8 @@ function MetodoPagoModal({
     if (!proveedorId) { setError('Indicá el proveedor.'); return; }
     // Si cambió el proveedor, la OC vuelve a aprobación del Gerente: no se exige método de pago.
     if (!proveedorCambiado) {
-      if (!numeroAdmin.trim()) { setError('Indicá el número de administración del proveedor: se carga una sola vez y queda en su ficha.'); return; }
+      if (!numeroAdmin.trim()) { setError('Indicá el teléfono de administración del proveedor: se carga una sola vez y queda en su ficha.'); return; }
+      if (!telefonoAdministracionValido(numeroAdmin)) { setError('El teléfono de administración no parece un teléfono (mínimo 7 dígitos; se admiten +, espacios, guiones y paréntesis).'); return; }
       if (!validos.length) { setError('Indicá al menos un método de pago.'); return; }
       // En multipago, cada método/moneda debe llevar su monto (es el reparto que define la OC).
       if (esMultipago && validos.some((l) => !((l.monto ?? 0) > 0))) {
@@ -1592,12 +1595,12 @@ function MetodoPagoModal({
       </div>
       )}
 
-      {/* Número de administración del proveedor (14-10-2026): lo ven Tesorería y Retenciones. */}
+      {/* Teléfono de administración del proveedor (14-10-2026): lo ven Tesorería y Retenciones. */}
       {!proveedorCambiado && (
         <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: numeroAdmin.trim() ? 'var(--border)' : 'var(--warning)' }}>
-          <div className="card-title" style={{ marginBottom: '.45rem' }}>Número de administración del proveedor <span className="muted" style={{ fontWeight: 400 }}>(obligatorio)</span></div>
-          <input className="input mono" value={numeroAdmin} maxLength={60} placeholder="N.º con el que la administración del proveedor identifica sus cobros"
-            onChange={(e) => setNumeroAdmin(e.target.value.toUpperCase())} />
+          <div className="card-title" style={{ marginBottom: '.45rem' }}>📞 Teléfono de administración del proveedor <span className="muted" style={{ fontWeight: 400 }}>(obligatorio)</span></div>
+          <input className="input mono" type="tel" value={numeroAdmin} maxLength={40} placeholder="Ej. 0414-1234567 o +58 412 1234567"
+            onChange={(e) => setNumeroAdmin(e.target.value)} />
           <small className="hint muted" style={{ display: 'block', marginTop: '.35rem' }}>
             {numeroAdminGuardado
               ? 'Ya está en la ficha del proveedor; solo se cambia si estaba mal (se actualiza la ficha).'
