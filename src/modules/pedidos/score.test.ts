@@ -105,3 +105,11 @@ describe('scoreOfertas · a quién recomienda', () => {
     expect(out.every((s) => s.mejorPrecio)).toBe(true);
   });
 });
+
+describe('montoFinalOferta con el IVA adentro y ajuste (14-10-2026)', () => {
+  it('el IVA incluido no suma; el ajuste sí, con su signo', () => {
+    expect(montoFinalOferta(of({ precio_total: 2944.07, iva: 144.69, iva_incluido: true, ajuste: 2.52 })).final).toBe(2946.59);
+    expect(montoFinalOferta(of({ precio_total: 100, iva: 16, iva_incluido: false })).final).toBe(116);
+    expect(montoFinalOferta(of({ precio_total: 100, ajuste: -0.4 })).final).toBe(99.6);
+  });
+});

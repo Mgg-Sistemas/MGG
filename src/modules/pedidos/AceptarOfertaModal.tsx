@@ -261,18 +261,21 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
               Es el mismo reparto que hace `aprobarOrdenConOferta`, así que el número de
               acá es el que va a quedar en la OC. El descuento faltaba y el total salía
               más alto de lo que se iba a pagar. */}
-          {((Number(oferta.iva) || 0) > 0 || (Number(oferta.igtf) || 0) > 0 || (Number(oferta.descuento) || 0) > 0) && (() => {
+          {((Number(oferta.iva) || 0) > 0 || (Number(oferta.igtf) || 0) > 0 || (Number(oferta.descuento) || 0) > 0 || (Number(oferta.ajuste) || 0) !== 0) && (() => {
             const parte = recortarOfertaAHija(oferta, elegidos.map((it) => it.sku));
             const iva = Number(parte.iva) || 0;
             const igtf = Number(parte.igtf) || 0;
             const desc = Number(parte.descuento) || 0;
-            const conBcv = montoFinalOferta({ precio_total: bcvTotal, precio_efectivo: null, iva, igtf, descuento: desc });
-            const conUsd = montoFinalOferta({ precio_total: usdTotal, precio_efectivo: null, iva, igtf, descuento: desc });
+            const ajuste = Number(parte.ajuste) || 0;
+            const incl = parte.iva_incluido;
+            const conBcv = montoFinalOferta({ precio_total: bcvTotal, precio_efectivo: null, iva, igtf, descuento: desc, iva_incluido: incl, ajuste });
+            const conUsd = montoFinalOferta({ precio_total: usdTotal, precio_efectivo: null, iva, igtf, descuento: desc, iva_incluido: incl, ajuste });
             return (
               <div style={{ marginTop: '.2rem' }}>
                 {desc > 0 && <span className="badge success" style={{ marginRight: '.35rem' }}>− desc. {money(desc)}</span>}
-                {iva > 0 && <span className="badge" style={{ marginRight: '.35rem' }}>+ IVA {money(iva)}</span>}
-                {igtf > 0 && <span className="badge">+ IGTF {money(igtf)}</span>}
+                {iva > 0 && <span className="badge" style={{ marginRight: '.35rem' }} title={incl ? 'Los precios ya traen el IVA: se guarda para la retención, no se suma' : undefined}>{incl ? 'IVA incluido' : '+ IVA'} {money(iva)}</span>}
+                {igtf > 0 && <span className="badge" style={{ marginRight: '.35rem' }}>+ IGTF {money(igtf)}</span>}
+                {ajuste !== 0 && <span className="badge" title={parte.ajuste_motivo ?? undefined}>{ajuste > 0 ? '+' : '−'} ajuste {money(Math.abs(ajuste))}</span>}
                 <div style={{ marginTop: '.2rem' }}>
                   Total a pagar: <strong>{bcvTotal > 0 ? money(conBcv.final, 'Bs') : '—'}</strong>
                   {usdTotal > 0 && <> · <strong style={{ color: 'var(--success)' }}>{money(conUsd.final, 'USD')}</strong></>}

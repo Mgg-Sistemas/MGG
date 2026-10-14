@@ -26,6 +26,11 @@ export interface OfertaRecortable<T extends ItemRecortable> {
   descuento?: number | null;
   iva?: number | null;
   igtf?: number | null;
+  /** Los precios ya traen el IVA (impuestosOc.ts): la hija hereda la bandera tal cual. */
+  iva_incluido?: boolean | null;
+  /** Diferencia declarada frente a la factura (con signo): se prorratea como el IVA. */
+  ajuste?: number | null;
+  ajuste_motivo?: string | null;
 }
 
 export interface OfertaRecortada<T extends ItemRecortable> {
@@ -37,6 +42,9 @@ export interface OfertaRecortada<T extends ItemRecortable> {
   descuento: number | null;
   iva: number | null;
   igtf: number | null;
+  iva_incluido: boolean;
+  ajuste: number | null;
+  ajuste_motivo: string | null;
   /** Fracción del total cotizado que representa la hija (0..1). */
   fraccion: number;
 }
@@ -129,6 +137,9 @@ export function recortarOfertaAHija<T extends ItemRecortable>(
     const p = round2(n * fraccion);
     return p > 0 ? p : null;
   };
+  // El ajuste lleva signo (puede ser negativo): se prorratea sin descartar los negativos.
+  const ajusteN = round2(Number(oferta.ajuste) || 0);
+  const ajuste = ajusteN !== 0 ? round2(ajusteN * fraccion) : null;
   return {
     items,
     precio_total: grossHija,
@@ -136,6 +147,9 @@ export function recortarOfertaAHija<T extends ItemRecortable>(
     descuento: prorratear(oferta.descuento),
     iva: prorratear(oferta.iva),
     igtf: prorratear(oferta.igtf),
+    iva_incluido: !!oferta.iva_incluido,
+    ajuste: ajuste !== null && ajuste !== 0 ? ajuste : null,
+    ajuste_motivo: ajuste !== null && ajuste !== 0 ? (oferta.ajuste_motivo ?? null) : null,
     fraccion,
   };
 }

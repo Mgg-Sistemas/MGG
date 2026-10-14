@@ -25,6 +25,11 @@ export interface CrearOfertaInput {
   iva?: number | null;
   /** IGTF (monto); se suma al total a pagar. */
   igtf?: number | null;
+  /** Los precios cotizados ya traen el IVA: `iva` se guarda pero no suma (impuestosOc.ts). */
+  iva_incluido?: boolean | null;
+  /** Diferencia declarada frente a la factura (con signo) y su motivo. */
+  ajuste?: number | null;
+  ajuste_motivo?: string | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;  // 'contra_entrega' | 'anticipado' | 'credito'
   notas?: string | null;
@@ -210,6 +215,9 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
       descuento: input.descuento ?? null,
       iva: input.iva ?? null,
       igtf: input.igtf ?? null,
+      iva_incluido: !!input.iva_incluido,
+      ajuste: input.ajuste ?? null,
+      ajuste_motivo: input.ajuste_motivo ?? null,
       fecha_entrega_prometida: input.fecha_entrega_prometida ?? null,
       condiciones_pago: input.condiciones_pago ?? null,
       notas: input.notas ?? null,
@@ -235,6 +243,9 @@ export interface EditarOfertaInput {
   descuento?: number | null;
   iva?: number | null;
   igtf?: number | null;
+  iva_incluido?: boolean | null;
+  ajuste?: number | null;
+  ajuste_motivo?: string | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;
   notas?: string | null;
@@ -256,6 +267,9 @@ export async function actualizarOferta(
   if (input.descuento !== undefined) patch.descuento = input.descuento;
   if (input.iva !== undefined) patch.iva = input.iva;
   if (input.igtf !== undefined) patch.igtf = input.igtf;
+  if (input.iva_incluido !== undefined) patch.iva_incluido = !!input.iva_incluido;
+  if (input.ajuste !== undefined) patch.ajuste = input.ajuste;
+  if (input.ajuste_motivo !== undefined) patch.ajuste_motivo = input.ajuste_motivo;
   if (input.fecha_entrega_prometida !== undefined) patch.fecha_entrega_prometida = input.fecha_entrega_prometida;
   if (input.condiciones_pago !== undefined) patch.condiciones_pago = input.condiciones_pago;
   if (input.notas !== undefined) patch.notas = input.notas;

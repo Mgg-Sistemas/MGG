@@ -11,6 +11,7 @@ import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, Costo
 import { AgregarProductoCompra } from './AgregarProductoCompra';
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, adjuntosDeOferta, CONDICIONES_PAGO, descuentoEfectivo, type EditarOfertaInput } from './ofertas.repository';
 import { resincronizarOcDesdeOferta } from './pedidos.repository';
+import { ivaDesdePorcentaje, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { insert as crearProveedor } from '@/modules/proveedores/proveedores.repository';
 import { ActividadEconomicaSelect } from '@/modules/proveedores/ActividadEconomicaSelect';
@@ -171,6 +172,13 @@ export function AgregarOfertaModal({
   // alterar el valor cargado; al elegir % (o activar el impuesto) pasa a 'pct' y sincroniza.
   const [ivaModo, setIvaModo] = useState<'pct' | 'monto'>((Number(ofertaEdit?.iva) || 0) > 0 ? 'monto' : 'pct');
   const [igtfModo, setIgtfModo] = useState<'pct' | 'monto'>((Number(ofertaEdit?.igtf) || 0) > 0 ? 'monto' : 'pct');
+  // Factura de punto de venta: los precios YA traen el IVA. El monto se guarda (retención,
+  // libro fiscal) pero no se suma al total (impuestosOc.ts, 14-10-2026).
+  const [ivaIncluido, setIvaIncluido] = useState<boolean>(!!ofertaEdit?.iva_incluido);
+  // Ajuste declarado frente a la factura (con signo) y su motivo: p. ej. redondeo de los
+  // precios unitarios en un ticket de muchos renglones.
+  const [ajusteStr, setAjusteStr] = useState<string>(ofertaEdit?.ajuste != null && Number(ofertaEdit.ajuste) !== 0 ? String(ofertaEdit.ajuste) : '');
+  const [ajusteMotivo, setAjusteMotivo] = useState<string>(ofertaEdit?.ajuste_motivo ?? '');
   // Datos técnicos/logísticos de la oferta (todos opcionales).
   const [detalle, setDetalle] = useState<OfertaDetalle>(ofertaEdit?.detalle ?? {});
   const setD = (patch: Partial<OfertaDetalle>) => setDetalle((d) => ({ ...d, ...patch }));
@@ -234,23 +242,41 @@ export function AgregarOfertaModal({
   const IVA_PCT_SUGERIDO = 16, IGTF_PCT_SUGERIDO = 3;
   const ivaMonto = incluyeIva ? Math.max(0, r2(Number(ivaMontoStr) || 0)) : 0;
   const igtfMonto = incluyeIgtf ? Math.max(0, r2(Number(igtfMontoStr) || 0)) : 0;
-  const totalConImpuestos = r2(facturaNeta + ivaMonto + igtfMonto);
-  const setImpPct = (v: string, setPct: (s: string) => void, setMonto: (s: string) => void, setModo: (m: 'pct' | 'monto') => void) => {
+  const ivaAdentro = incluyeIva && ivaIncluido;
+  const ajusteMonto = r2(Number(ajusteStr) || 0);
+  const totalConImpuestos = totalDesdePartes({ subtotal: facturaNeta, iva: ivaMonto, igtf: igtfMonto, iva_incluido: ivaAdentro, ajuste: ajusteMonto });
+  // `incluido` solo aplica al IVA: con los precios ya con IVA adentro, el % se calcula sobre
+  // la base neta (base × p / (100 + p)), no sobre la factura.
+  const setImpPct = (v: string, setPct: (s: string) => void, setMonto: (s: string) => void, setModo: (m: 'pct' | 'monto') => void, incluido = false) => {
     setModo('pct');
     setPct(v);
     const p = Math.max(0, Number(v) || 0);
-    setMonto(p > 0 && facturaNeta > 0 ? String(r2(facturaNeta * p / 100)) : '');
+    const monto = ivaDesdePorcentaje(facturaNeta, p, incluido);
+    setMonto(monto > 0 ? String(monto) : '');
   };
-  const setImpMonto = (v: string, setPct: (s: string) => void, setMonto: (s: string) => void, setModo: (m: 'pct' | 'monto') => void) => {
+  const setImpMonto = (v: string, setPct: (s: string) => void, setMonto: (s: string) => void, setModo: (m: 'pct' | 'monto') => void, incluido = false) => {
     setModo('monto');
     setMonto(v);
     const m = Math.max(0, Number(v) || 0);
-    setPct(m > 0 && facturaNeta > 0 ? String(r2(m / facturaNeta * 100)) : '');
+    const pct = porcentajeDesdeIva(facturaNeta, m, incluido);
+    setPct(pct > 0 ? String(pct) : '');
   };
   function toggleIva(on: boolean) {
     setIncluyeIva(on);
-    if (on) { setIvaModo('pct'); if (!(Number(ivaMontoStr) > 0)) setImpPct(String(IVA_PCT_SUGERIDO), setIvaPctStr, setIvaMontoStr, setIvaModo); }
-    if (!on) { setIvaMontoStr(''); setIvaPctStr(''); }
+    if (on) { setIvaModo('pct'); if (!(Number(ivaMontoStr) > 0)) setImpPct(String(IVA_PCT_SUGERIDO), setIvaPctStr, setIvaMontoStr, setIvaModo, ivaIncluido); }
+    if (!on) { setIvaMontoStr(''); setIvaPctStr(''); setIvaIncluido(false); }
+  }
+  function toggleIvaIncluido(on: boolean) {
+    setIvaIncluido(on);
+    // Si el monto venía del %, se recalcula con la base que corresponde.
+    const pct = Number(ivaPctStr) || 0;
+    if (ivaModo === 'pct' && pct > 0) {
+      const monto = ivaDesdePorcentaje(facturaNeta, pct, on);
+      setIvaMontoStr(monto > 0 ? String(monto) : '');
+    } else if (Number(ivaMontoStr) > 0) {
+      const p = porcentajeDesdeIva(facturaNeta, Number(ivaMontoStr) || 0, on);
+      setIvaPctStr(p > 0 ? String(p) : '');
+    }
   }
   function toggleIgtf(on: boolean) {
     setIncluyeIgtf(on);
@@ -259,7 +285,10 @@ export function AgregarOfertaModal({
   }
   // Backfill del % al abrir en edición (monto conocido, % vacío).
   useEffect(() => {
-    if (Number(ivaMontoStr) > 0 && !ivaPctStr && facturaNeta > 0) setIvaPctStr(String(r2(Number(ivaMontoStr) / facturaNeta * 100)));
+    if (Number(ivaMontoStr) > 0 && !ivaPctStr && facturaNeta > 0) {
+      const p = porcentajeDesdeIva(facturaNeta, Number(ivaMontoStr) || 0, ivaIncluido);
+      if (p > 0) setIvaPctStr(String(p));
+    }
     if (Number(igtfMontoStr) > 0 && !igtfPctStr && facturaNeta > 0) setIgtfPctStr(String(r2(Number(igtfMontoStr) / facturaNeta * 100)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [facturaNeta]);
@@ -272,10 +301,11 @@ export function AgregarOfertaModal({
     if (!incluyeIva || ivaModo !== 'pct') return;
     const pct = Number(ivaPctStr) || 0;
     if (pct <= 0) return;
-    const nuevo = facturaNeta > 0 ? String(r2(facturaNeta * pct / 100)) : '';
+    const monto = ivaDesdePorcentaje(facturaNeta, pct, ivaIncluido);
+    const nuevo = monto > 0 ? String(monto) : '';
     setIvaMontoStr((prev) => (prev === nuevo ? prev : nuevo));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [facturaNeta, ivaPctStr, incluyeIva, ivaModo]);
+  }, [facturaNeta, ivaPctStr, incluyeIva, ivaModo, ivaIncluido]);
   useEffect(() => {
     if (!incluyeIgtf || igtfModo !== 'pct') return;
     const pct = Number(igtfPctStr) || 0;
@@ -436,6 +466,9 @@ export function AgregarOfertaModal({
           descuento: descuentoObt > 0 ? descuentoObt : null,
           iva: ivaMonto > 0 ? ivaMonto : null,
           igtf: igtfMonto > 0 ? igtfMonto : null,
+          iva_incluido: ivaAdentro && ivaMonto > 0,
+          ajuste: ajusteMonto !== 0 ? ajusteMonto : null,
+          ajuste_motivo: ajusteMonto !== 0 ? (ajusteMotivo.trim() || null) : null,
           fecha_entrega_prometida: fechaEntrega || null,
           condiciones_pago: condiciones.trim() || null,
           notas: notas.trim() || null,
@@ -456,6 +489,9 @@ export function AgregarOfertaModal({
               descuento: descuentoObt > 0 ? descuentoObt : null,
               iva: ivaMonto > 0 ? ivaMonto : null,
               igtf: igtfMonto > 0 ? igtfMonto : null,
+              iva_incluido: ivaAdentro && ivaMonto > 0,
+              ajuste: ajusteMonto !== 0 ? ajusteMonto : null,
+              ajuste_motivo: ajusteMonto !== 0 ? (ajusteMotivo.trim() || null) : null,
             });
           } catch (e) {
             // No romper el guardado de la oferta si la re-sincronización falla.
@@ -534,6 +570,9 @@ export function AgregarOfertaModal({
         // oferta nueva no "tomaba" el IVA y la OC salía sin impuestos. Ahora se persisten.
         iva: ivaMonto > 0 ? ivaMonto : null,
         igtf: igtfMonto > 0 ? igtfMonto : null,
+        iva_incluido: ivaAdentro && ivaMonto > 0,
+        ajuste: ajusteMonto !== 0 ? ajusteMonto : null,
+        ajuste_motivo: ajusteMonto !== 0 ? (ajusteMotivo.trim() || null) : null,
         fecha_entrega_prometida: fechaEntrega || null,
         condiciones_pago: condiciones.trim() || null,
         notas: notas.trim() || null,
@@ -910,7 +949,7 @@ export function AgregarOfertaModal({
       {/* Impuestos: IVA e IGTF, por % o por monto (sincronizados). Se suman al total a pagar. */}
       <div className="card" style={{ background: 'var(--bg-2)', padding: '.8rem', marginBottom: '.75rem' }}>
         <div className="card-title" style={{ marginBottom: '.5rem' }}>
-          <span>🧾 Impuestos <span className="muted" style={{ fontWeight: 400 }}>(se calculan sobre la factura neta {money(facturaNeta)} y se suman al total)</span></span>
+          <span>🧾 Impuestos <span className="muted" style={{ fontWeight: 400 }}>(se calculan sobre la factura neta {money(facturaNeta)} y se suman al total, salvo que los precios ya traigan el IVA)</span></span>
         </div>
 
         {/* IVA */}
@@ -924,15 +963,26 @@ export function AgregarOfertaModal({
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span className="muted" style={{ fontSize: '.72rem' }}>%</span>
                 <input className="input mono" type="number" min={0} step="any" style={{ width: 110, textAlign: 'right' }}
-                  value={ivaPctStr} placeholder="16" onChange={(e) => setImpPct(e.target.value, setIvaPctStr, setIvaMontoStr, setIvaModo)} />
+                  value={ivaPctStr} placeholder="16" onChange={(e) => setImpPct(e.target.value, setIvaPctStr, setIvaMontoStr, setIvaModo, ivaIncluido)} />
               </div>
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 <span className="muted" style={{ fontSize: '.72rem' }}>Monto</span>
                 <input className="input mono" type="number" min={0} step="any" style={{ width: 140, textAlign: 'right' }}
-                  value={ivaMontoStr} placeholder="0,00" onChange={(e) => setImpMonto(e.target.value, setIvaPctStr, setIvaMontoStr, setIvaModo)} />
+                  value={ivaMontoStr} placeholder="0,00" onChange={(e) => setImpMonto(e.target.value, setIvaPctStr, setIvaMontoStr, setIvaModo, ivaIncluido)} />
               </div>
-              <span className="muted" style={{ fontSize: '.78rem', alignSelf: 'flex-end', paddingBottom: '.4rem' }}>IVA: <strong className="mono">{money(ivaMonto)}</strong></span>
+              <span className="muted" style={{ fontSize: '.78rem', alignSelf: 'flex-end', paddingBottom: '.4rem' }}>IVA: <strong className="mono">{money(ivaMonto)}</strong>{ivaIncluido ? ' (ya adentro de los precios)' : ''}</span>
             </div>
+          )}
+          {incluyeIva && (
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', cursor: 'pointer', marginTop: '.4rem', fontSize: '.85rem' }}>
+              <input type="checkbox" checked={ivaIncluido} onChange={(e) => toggleIvaIncluido(e.target.checked)} style={{ marginTop: '.2rem' }} />
+              <span>
+                Los precios cotizados <strong>ya traen el IVA</strong> (factura de punto de venta).
+                <small className="hint muted" style={{ display: 'block' }}>
+                  El monto se guarda para la retención y el libro fiscal, pero no se suma otra vez al total. Si cargás el %, el monto se calcula sobre la base sin IVA (factura ÷ (1 + %)), como lo imprime la factura.
+                </small>
+              </span>
+            </label>
           )}
         </div>
 
@@ -959,10 +1009,22 @@ export function AgregarOfertaModal({
           )}
         </div>
 
+        {/* Ajuste declarado frente a la factura (con signo): lo que ningún renglón explica. */}
+        <div className="form-row" style={{ marginBottom: '.5rem' }}>
+          <label>Ajuste frente a la factura (opcional, ± con signo)</label>
+          <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <input className="input mono" type="number" step="any" style={{ width: 140, textAlign: 'right' }}
+              value={ajusteStr} placeholder="0,00" onChange={(e) => setAjusteStr(e.target.value)} />
+            <input className="input" type="text" maxLength={120} style={{ flex: 1, minWidth: 220 }}
+              value={ajusteMotivo} placeholder="Motivo (p. ej. redondeo de precios unitarios de la factura N.º …)" onChange={(e) => setAjusteMotivo(e.target.value)} />
+          </div>
+          <small className="hint muted">Para que la OC dé exactamente lo que dice la factura cuando los precios unitarios redondeados no cierran al céntimo. Se ve en el pie de la OC con su motivo.</small>
+        </div>
+
         <div className="mono" style={{ fontSize: '.95rem', borderTop: '1px solid var(--border)', paddingTop: '.5rem' }}>
           Total a pagar (con impuestos): <strong style={{ color: 'var(--primary-3)' }}>{money(totalConImpuestos)}</strong>
-          {(ivaMonto > 0 || igtfMonto > 0) && (
-            <span className="muted" style={{ fontSize: '.78rem' }}> {' '}= {money(facturaNeta)}{ivaMonto > 0 ? ` + IVA ${money(ivaMonto)}` : ''}{igtfMonto > 0 ? ` + IGTF ${money(igtfMonto)}` : ''}</span>
+          {(ivaMonto > 0 || igtfMonto > 0 || ajusteMonto !== 0) && (
+            <span className="muted" style={{ fontSize: '.78rem' }}> {' '}= {money(facturaNeta)}{ivaMonto > 0 ? (ivaAdentro ? ` (con IVA ${money(ivaMonto)} adentro)` : ` + IVA ${money(ivaMonto)}`) : ''}{igtfMonto > 0 ? ` + IGTF ${money(igtfMonto)}` : ''}{ajusteMonto !== 0 ? ` ${ajusteMonto > 0 ? '+' : '−'} ajuste ${money(Math.abs(ajusteMonto))}` : ''}</span>
           )}
         </div>
       </div>

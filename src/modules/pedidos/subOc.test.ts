@@ -197,3 +197,24 @@ describe('la sub-OC compra lo que el proveedor cotizó (SP-2026-0184-1, 14-10-20
     expect(itemsAgregadosPorOferta(oferta, ['VIV-139', 'VIV-124'])).toEqual([]);
   });
 });
+
+describe('recorte a la hija con IVA adentro y ajuste (14-10-2026)', () => {
+  it('la bandera pasa tal cual y el ajuste se prorratea con su signo y su motivo', () => {
+    const rec = recortarOfertaAHija({
+      items: [{ sku: 'A', cantidad: 1, precio: 60 }, { sku: 'B', cantidad: 1, precio: 40 }],
+      precio_total: 100, iva: 13.79, iva_incluido: true, ajuste: -1, ajuste_motivo: 'redondeo',
+    }, ['A']);
+    expect(rec.fraccion).toBe(0.6);
+    expect(rec.iva_incluido).toBe(true);
+    expect(rec.iva).toBe(8.27);
+    expect(rec.ajuste).toBe(-0.6);
+    expect(rec.ajuste_motivo).toBe('redondeo');
+  });
+
+  it('sin ajuste ni bandera, la hija nace sin ellos', () => {
+    const rec = recortarOfertaAHija({ items: [{ sku: 'A', cantidad: 1, precio: 10 }], precio_total: 10 }, ['A']);
+    expect(rec.iva_incluido).toBe(false);
+    expect(rec.ajuste).toBeNull();
+    expect(rec.ajuste_motivo).toBeNull();
+  });
+});

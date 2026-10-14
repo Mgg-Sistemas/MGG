@@ -31,6 +31,7 @@
    ignorar la advertencia.
    ============================================================ */
 import type { ItemOrden } from '@/shared/lib/types';
+import { etiquetaAjuste, etiquetaIva, ivaQueSuma, totalDesdePartes } from './impuestosOc';
 
 /** Dinero a 2 decimales. */
 const r2 = (n: number) => Math.round(n * 100) / 100;
@@ -44,6 +45,11 @@ export interface OrdenCuadrable {
   descuento_obtenido?: number | null;
   iva?: number | null;
   igtf?: number | null;
+  /** Los precios ya traen el IVA: `iva` se guarda pero no suma (impuestosOc.ts). */
+  iva_incluido?: boolean | null;
+  /** Diferencia declarada frente a la factura (con signo). */
+  ajuste?: number | null;
+  ajuste_motivo?: string | null;
   total?: number | null;
 }
 
@@ -51,9 +57,13 @@ export interface DesgloseOc {
   /** Σ cantidad × precio de los ítems marcados para comprar. */
   base: number;
   descuento: number;
+  /** El IVA guardado (sume o no al total). */
   iva: number;
+  /** `true` = ese IVA ya está adentro de los precios: no suma. */
+  ivaIncluido: boolean;
   igtf: number;
-  /** base − descuento + IVA + IGTF. */
+  ajuste: number;
+  /** base − descuento + IVA (si suma) + IGTF + ajuste. */
   esperado: number;
   /** El `total` que tiene guardado la orden. */
   guardado: number;
@@ -74,11 +84,13 @@ export function desglosarOc(orden: OrdenCuadrable): DesgloseOc {
   const base = r2(items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0));
   const descuento = Math.max(0, r2(Number(orden.descuento_obtenido) || 0));
   const iva = Math.max(0, r2(Number(orden.iva) || 0));
+  const ivaIncluido = !!orden.iva_incluido;
   const igtf = Math.max(0, r2(Number(orden.igtf) || 0));
-  const esperado = r2(Math.max(0, base - descuento) + iva + igtf);
+  const ajuste = r2(Number(orden.ajuste) || 0);
+  const esperado = totalDesdePartes({ subtotal: base, descuento, iva, igtf, iva_incluido: ivaIncluido, ajuste });
   const guardado = r2(Number(orden.total) || 0);
   const diferencia = r2(guardado - esperado);
-  return { base, descuento, iva, igtf, esperado, guardado, diferencia, cuadra: Math.abs(diferencia) <= TOLERANCIA };
+  return { base, descuento, iva, ivaIncluido, igtf, ajuste, esperado, guardado, diferencia, cuadra: Math.abs(diferencia) <= TOLERANCIA };
 }
 
 export interface DesfaseConOferta {
@@ -122,10 +134,11 @@ export function avisoDeCuadre(orden: OrdenCuadrable): string | null {
   const d = desglosarOc(orden);
   if (d.cuadra) return null;
   const sobra = d.diferencia > 0;
-  const partes = [`base ${d.base.toFixed(2)}`];
+  const partes = [`base ${d.base.toFixed(2)}${d.ivaIncluido && d.iva > 0 ? ` (con IVA ${d.iva.toFixed(2)} adentro)` : ''}`];
   if (d.descuento > 0) partes.push(`− desc. ${d.descuento.toFixed(2)}`);
-  if (d.iva > 0) partes.push(`+ IVA ${d.iva.toFixed(2)}`);
+  if (ivaQueSuma({ iva: d.iva, iva_incluido: d.ivaIncluido }) > 0) partes.push(`+ ${etiquetaIva(false)} ${d.iva.toFixed(2)}`);
   if (d.igtf > 0) partes.push(`+ IGTF ${d.igtf.toFixed(2)}`);
+  if (d.ajuste !== 0) partes.push(`${d.ajuste > 0 ? '+' : '−'} ${etiquetaAjuste(orden.ajuste_motivo).toLowerCase()} ${Math.abs(d.ajuste).toFixed(2)}`);
   return `El total no cuadra con sus partes: ${partes.join(' ')} dan ${d.esperado.toFixed(2)}, `
     + `pero la orden dice ${d.guardado.toFixed(2)} (${sobra ? 'sobran' : 'faltan'} ${Math.abs(d.diferencia).toFixed(2)}).`;
 }

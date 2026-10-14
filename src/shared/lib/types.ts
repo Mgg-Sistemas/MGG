@@ -1059,6 +1059,13 @@ export interface Orden {
   iva?: number | null;
   /** IGTF (monto) de la oferta elegida, copiado a la OC: ya está incluido en `total`. */
   igtf?: number | null;
+  /** `true` = los precios de los renglones YA traen el IVA (factura de punto de venta):
+   *  `iva` se guarda para la retención pero NO suma al total. Ver impuestosOc.ts. */
+  iva_incluido?: boolean | null;
+  /** Diferencia declarada frente a la factura que ningún concepto explica (p. ej. redondeo
+   *  de precios unitarios); suma al total con su signo. */
+  ajuste?: number | null;
+  ajuste_motivo?: string | null;
   /** Seriales de los billetes entregados al pagar la OC en USD físico (efectivo). */
   seriales_billetes?: string[] | null;
   /** Marca de prioridad: ORDEN URGENTE (se refleja en el PDF y la trazabilidad). */
@@ -1410,6 +1417,11 @@ export interface OfertaProveedor {
   iva?: number | null;
   /** IGTF (monto) de la oferta: se suma al total a pagar (típico en pagos en divisas). */
   igtf?: number | null;
+  /** `true` = los precios cotizados ya traen el IVA: `iva` se guarda pero no suma. */
+  iva_incluido?: boolean | null;
+  /** Diferencia declarada frente a la factura (redondeos); suma al total con su signo. */
+  ajuste?: number | null;
+  ajuste_motivo?: string | null;
   fecha_entrega_prometida?: string | null;
   condiciones_pago?: string | null;
   notas?: string | null;

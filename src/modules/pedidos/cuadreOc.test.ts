@@ -110,3 +110,26 @@ describe('avisoDeCuadre', () => {
     expect(avisoDeCuadre({ items: [it_(1, 100)], total: 150 })).not.toContain('desc.');
   });
 });
+
+describe('precios con el IVA adentro y ajuste declarado (14-10-2026)', () => {
+  it('Super Home, factura 11208: 47 renglones con IVA adentro + ajuste de redondeo cuadran con 2.946,59', () => {
+    const d = desglosarOc({ items: [it_(1, 2944.07)], iva: 144.69, iva_incluido: true, ajuste: 2.52, total: 2946.59 });
+    expect(d.ivaIncluido).toBe(true);
+    expect(d.iva).toBe(144.69);
+    expect(d.esperado).toBe(2946.59);
+    expect(d.cuadra).toBe(true);
+  });
+
+  it('con el IVA adentro, sumarlo otra vez al total es un descuadre', () => {
+    const d = desglosarOc({ items: [it_(1, 2944.07)], iva: 144.69, iva_incluido: true, total: 3088.76 });
+    expect(d.cuadra).toBe(false);
+    expect(d.diferencia).toBe(144.69);
+  });
+
+  it('el aviso dice que el IVA va adentro y nombra el ajuste', () => {
+    const msg = avisoDeCuadre({ items: [it_(1, 100)], iva: 13.79, iva_incluido: true, ajuste: -0.5, ajuste_motivo: 'redondeo', total: 120 }) ?? '';
+    expect(msg).toContain('con IVA 13.79 adentro');
+    expect(msg).toContain('ajuste · redondeo 0.50');
+    expect(msg).toContain('dan 99.50');
+  });
+});

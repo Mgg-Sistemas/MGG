@@ -32,6 +32,9 @@ export interface OcComparable {
   /** Impuestos de la OC (montos). Desde el 10-10-2026 se editan en «Pendiente por aprobar». */
   iva?: number | null;
   igtf?: number | null;
+  /** Los precios ya traen el IVA / ajuste declarado (impuestosOc.ts): mueven el total. */
+  iva_incluido?: boolean | null;
+  ajuste?: number | null;
 }
 
 export interface EdicionComparable {
@@ -44,6 +47,9 @@ export interface EdicionComparable {
   /** IVA / IGTF (montos). undefined = no se tocaron. Cambiarlos es material: mueve el total a pagar. */
   iva?: number | null;
   igtf?: number | null;
+  /** undefined = no se tocaron. */
+  iva_incluido?: boolean | null;
+  ajuste?: number | null;
 }
 
 const r2 = (n: unknown): number => Math.round((Number(n) || 0) * 100) / 100;
@@ -78,6 +84,9 @@ export function hayCambiosMateriales(oc: OcComparable, edicion: EdicionComparabl
   // Los impuestos cambian lo que se paga: son tan materiales como un precio.
   if (edicion.iva !== undefined && r2(edicion.iva) !== r2(oc.iva)) return true;
   if (edicion.igtf !== undefined && r2(edicion.igtf) !== r2(oc.igtf)) return true;
+  // Que el IVA venga adentro de los precios, o un ajuste declarado, también mueven el total.
+  if (edicion.iva_incluido !== undefined && !!edicion.iva_incluido !== !!oc.iva_incluido) return true;
+  if (edicion.ajuste !== undefined && r2(edicion.ajuste) !== r2(oc.ajuste)) return true;
   return false;
 }
 

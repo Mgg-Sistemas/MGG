@@ -115,12 +115,14 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
 
   // Resumen por proveedor (de lo asignado en esta sesión).
   const resumen = useMemo(() => {
-    const m = new Map<string, { items: number; total: number; iva: number; igtf: number }>();
+    // `iva` acá es SOLO el que suma al total (con los precios ya con IVA adentro va en 0);
+    // `ajuste` es la parte prorrateada del ajuste declarado (impuestosOc.ts).
+    const m = new Map<string, { items: number; total: number; iva: number; igtf: number; ajuste: number }>();
     for (const it of opItems) {
       const prov = asignado[it.sku];
       if (!prov) continue;
       const precio = precioDe(prov, it.sku) ?? 0;
-      const cur = m.get(prov) ?? { items: 0, total: 0, iva: 0, igtf: 0 };
+      const cur = m.get(prov) ?? { items: 0, total: 0, iva: 0, igtf: 0, ajuste: 0 };
       cur.items += 1;
       // Con la cantidad COTIZADA (misma regla que al crear la sub-OC).
       const cantOf = Number(ofertaDe.get(prov)?.items?.find((x) => x.sku === it.sku)?.cantidad) || 0;
@@ -150,14 +152,18 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
           descuento: enDivisa ? null : of?.descuento,
           iva: enDivisa ? null : of?.iva,
           igtf: enDivisa ? null : of?.igtf,
+          iva_incluido: enDivisa ? null : of?.iva_incluido,
+          ajuste: enDivisa ? null : of?.ajuste,
+          ajuste_motivo: of?.ajuste_motivo,
         },
         [
           ...opItems.filter((it) => asignado[it.sku] === prov).map((it) => it.sku),
           ...itemsAgregadosPorOferta(of?.items ?? [], opItems.map((i) => i.sku)).map((it) => it.sku),
         ],
       );
-      r.iva = rec.iva ?? 0;
+      r.iva = rec.iva_incluido ? 0 : (rec.iva ?? 0);
       r.igtf = rec.igtf ?? 0;
+      r.ajuste = rec.ajuste ?? 0;
       // Efectivo (si es menor que el BCV asignado) reemplaza el subtotal; el descuento lo reduce.
       const base = rec.precio_efectivo != null && rec.precio_efectivo < r.total ? rec.precio_efectivo : r.total;
       r.total = Math.max(0, base - (rec.descuento ?? 0));
@@ -207,6 +213,9 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
           descuento: enDivisa ? null : of?.descuento,
           iva: enDivisa ? null : of?.iva,
           igtf: enDivisa ? null : of?.igtf,
+          iva_incluido: enDivisa ? null : of?.iva_incluido,
+          ajuste: enDivisa ? null : of?.ajuste,
+          ajuste_motivo: of?.ajuste_motivo,
         },
         items.map((i) => i.sku),
       );
@@ -218,6 +227,9 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
         descuento: rec.descuento,
         iva: rec.iva,
         igtf: rec.igtf,
+        iva_incluido: rec.iva_incluido,
+        ajuste: rec.ajuste,
+        ajuste_motivo: rec.ajuste_motivo,
       };
     });
     setSaving(true);
@@ -274,7 +286,7 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
               const activo = selProv === o.proveedor_id;
               return (
                 <button key={o.id} className={activo ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'} onClick={() => setSelProv(o.proveedor_id)}>
-                  {provName(o.proveedor_id)}{r ? ` · ${r.items} ítem(s) · ${money(r.total + r.iva + r.igtf)}` : ''}
+                  {provName(o.proveedor_id)}{r ? ` · ${r.items} ítem(s) · ${money(r.total + r.iva + r.igtf + r.ajuste)}` : ''}
                 </button>
               );
             })}
@@ -353,8 +365,8 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
             ) : (
               <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '.85rem' }}>
                 {Array.from(resumen.entries()).map(([prov, r]) => (
-                  <li key={prov}><strong>{provName(prov)}</strong>: {r.items} producto(s) · <span className="mono">{money(r.total + r.iva + r.igtf)}</span>
-                    {(r.iva > 0 || r.igtf > 0) && <span className="muted"> (base {money(r.total)}{r.iva > 0 ? ` · IVA ${money(r.iva)}` : ''}{r.igtf > 0 ? ` · IGTF ${money(r.igtf)}` : ''})</span>}
+                  <li key={prov}><strong>{provName(prov)}</strong>: {r.items} producto(s) · <span className="mono">{money(r.total + r.iva + r.igtf + r.ajuste)}</span>
+                    {(r.iva > 0 || r.igtf > 0 || r.ajuste !== 0) && <span className="muted"> (base {money(r.total)}{r.iva > 0 ? ` · IVA ${money(r.iva)}` : ''}{r.igtf > 0 ? ` · IGTF ${money(r.igtf)}` : ''}{r.ajuste !== 0 ? ` · ajuste ${money(r.ajuste)}` : ''})</span>}
                   </li>
                 ))}
               </ul>

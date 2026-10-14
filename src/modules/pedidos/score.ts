@@ -23,7 +23,7 @@ export interface ScoredOferta {
 /** Lo mínimo de una oferta para saber cuánto se paga por ella. */
 export type OfertaCotizada = Pick<
   OfertaProveedor,
-  'precio_total' | 'precio_efectivo' | 'iva' | 'igtf' | 'descuento'
+  'precio_total' | 'precio_efectivo' | 'iva' | 'igtf' | 'descuento' | 'iva_incluido' | 'ajuste'
 >;
 
 /** Redondeo a 2 decimales: el monto de una factura no tiene colas largas. */
@@ -45,16 +45,19 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
  * pagar— y el sistema recomendó otra oferta de 60,07 marcándola «Mejor precio».
  */
 export function montoFinalOferta(o: OfertaCotizada): {
-  base: number; descuento: number; impuestos: number; final: number;
+  base: number; descuento: number; impuestos: number; ajuste: number; final: number;
 } {
-  const impuestos = r2((Number(o.iva) || 0) + (Number(o.igtf) || 0));
+  // Con los precios ya con IVA adentro (factura de punto de venta), el IVA se guarda pero
+  // no suma: impuestos = solo lo que SÍ suma (impuestosOc.ts, 14-10-2026).
+  const impuestos = r2((o.iva_incluido ? 0 : Number(o.iva) || 0) + (Number(o.igtf) || 0));
+  const ajuste = r2(Number(o.ajuste) || 0);
   const bcv = Number(o.precio_total) || 0;
   const efe = Number(o.precio_efectivo) || 0;
   // Qué precio manda: solo USD, solo Bs, o el menor de los dos cuando hay ambos.
   const base = r2(bcv <= 0 ? efe : efe <= 0 ? bcv : Math.min(efe, bcv));
   // El descuento nunca puede dejar la factura en negativo.
   const descuento = Math.min(Math.max(0, r2(Number(o.descuento) || 0)), base);
-  return { base, descuento, impuestos, final: r2(base - descuento + impuestos) };
+  return { base, descuento, impuestos, ajuste, final: r2(base - descuento + impuestos + ajuste) };
 }
 
 /**

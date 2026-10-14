@@ -63,3 +63,34 @@ describe('el pie del cuadro de ítems de una OC', () => {
     expect(l).toEqual([{ etiqueta: 'Subtotal OC-2026-0135', monto: 50 }]);
   });
 });
+
+describe('pie con el IVA adentro de los precios y ajuste (14-10-2026)', () => {
+  it('Super Home: subtotal con IVA, ajuste con motivo, TOTAL y las dos líneas informativas', () => {
+    const l = lineasDeTotal({
+      items: [{ cantidad: 1, precio: 2944.07 }], total: 2946.59, iva: 144.69, iva_incluido: true,
+      ajuste: 2.52, ajuste_motivo: 'redondeo de la factura 11208',
+    });
+    expect(l).toEqual([
+      { etiqueta: 'Subtotal ítems (con IVA)', monto: 2944.07 },
+      { etiqueta: 'Ajuste · redondeo de la factura 11208', monto: 2.52 },
+      { etiqueta: 'TOTAL', monto: 2946.59 },
+      { etiqueta: 'Base sin IVA (informativo)', monto: 2801.9 },
+      { etiqueta: 'IVA (incluido en los precios) (informativo)', monto: 144.69 },
+    ]);
+  });
+
+  it('con el IVA adentro y sin ajuste, el pie igual dice cuánto IVA lleva', () => {
+    const l = lineasDeTotal({ items: [{ cantidad: 1, precio: 116 }], total: 116, iva: 16, iva_incluido: true });
+    expect(l.map((x) => x.etiqueta)).toEqual(['Subtotal ítems (con IVA)', 'TOTAL', 'Base sin IVA (informativo)', 'IVA (incluido en los precios) (informativo)']);
+    expect(l[2].monto).toBe(100);
+  });
+
+  it('un ajuste negativo también se ve', () => {
+    const l = lineasDeTotal({ items: [{ cantidad: 1, precio: 100 }], total: 99.7, ajuste: -0.3 });
+    expect(l).toEqual([
+      { etiqueta: 'Subtotal ítems', monto: 100 },
+      { etiqueta: 'Ajuste', monto: -0.3 },
+      { etiqueta: 'TOTAL', monto: 99.7 },
+    ]);
+  });
+});

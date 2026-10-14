@@ -455,16 +455,17 @@ export function OfertasComparativa({
                         // descuento y la comparativa decía una cosa y la OC otra.
                         const iva = Number(s.oferta.iva) || 0;
                         const igtf = Number(s.oferta.igtf) || 0;
-                        const { base, descuento, impuestos, final } = montoFinalOferta(s.oferta);
+                        const { base, descuento, impuestos, ajuste, final } = montoFinalOferta(s.oferta);
+                        const incl = !!s.oferta.iva_incluido && iva > 0;
                         const efe = Number(s.oferta.precio_efectivo) || 0;
                         const ahorro = descuentoEfectivo(s.oferta.precio_total, s.oferta.precio_efectivo);
-                        const desglose = (impuestos > 0 || descuento > 0);
+                        const desglose = (impuestos > 0 || descuento > 0 || incl || ajuste !== 0);
                         return (
                           <>
                             <strong>{money(final)}</strong>
                             {desglose && (
                               <div className="muted" style={{ fontSize: '.7rem', marginTop: '.1rem', whiteSpace: 'nowrap' }}>
-                                base {money(base)}{descuento > 0 ? ` · desc. ${money(descuento)}` : ''}{iva > 0 ? ` · IVA ${money(iva)}` : ''}{igtf > 0 ? ` · IGTF ${money(igtf)}` : ''}
+                                base {money(base)}{descuento > 0 ? ` · desc. ${money(descuento)}` : ''}{iva > 0 ? (incl ? ` · IVA incl. ${money(iva)}` : ` · IVA ${money(iva)}`) : ''}{igtf > 0 ? ` · IGTF ${money(igtf)}` : ''}{ajuste !== 0 ? ` · ajuste ${money(ajuste)}` : ''}
                               </div>
                             )}
                             {ahorro && (

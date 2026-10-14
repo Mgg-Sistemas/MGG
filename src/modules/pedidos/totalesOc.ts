@@ -11,6 +11,8 @@
    los renglones, una sola línea alcanza.
    ============================================================ */
 
+import { etiquetaAjuste, etiquetaIva, totalDesdePartes } from './impuestosOc';
+
 const round2 = (n: number): number => Math.round((Number(n) || 0) * 100) / 100;
 
 export interface ItemOc {
@@ -26,6 +28,11 @@ export interface OrdenTotalizable {
   iva?: number | null;
   igtf?: number | null;
   descuento_obtenido?: number | null;
+  /** Los precios ya traen el IVA: se informa, no suma (impuestosOc.ts). */
+  iva_incluido?: boolean | null;
+  /** Diferencia declarada frente a la factura (con signo). */
+  ajuste?: number | null;
+  ajuste_motivo?: string | null;
 }
 
 export interface LineaTotal {
@@ -53,21 +60,31 @@ export function lineasDeTotal(o: OrdenTotalizable, etiquetaFinal = 'TOTAL'): Lin
   const iva = round2(o.iva ?? 0);
   const igtf = round2(o.igtf ?? 0);
   const desc = round2(o.descuento_obtenido ?? 0);
+  const incluido = !!o.iva_incluido && iva > 0;
+  const ajuste = round2(o.ajuste ?? 0);
 
-  // Si el total ya es la suma de los renglones, desglosar sería ruido.
-  if (Math.abs(total - sub) < 0.01) return [{ etiqueta: etiquetaFinal, monto: total }];
+  // Si el total ya es la suma de los renglones, desglosar sería ruido… salvo que los
+  // precios traigan el IVA adentro: ahí el pie tiene que decir cuánto es (14-10-2026).
+  if (Math.abs(total - sub) < 0.01 && !incluido) return [{ etiqueta: etiquetaFinal, monto: total }];
 
-  const lineas: LineaTotal[] = [{ etiqueta: 'Subtotal ítems', monto: sub }];
+  const lineas: LineaTotal[] = [{ etiqueta: incluido ? 'Subtotal ítems (con IVA)' : 'Subtotal ítems', monto: sub }];
   if (desc > 0) lineas.push({ etiqueta: 'Descuento', monto: -desc });
-  if (iva > 0) lineas.push({ etiqueta: 'IVA', monto: iva });
+  if (iva > 0 && !incluido) lineas.push({ etiqueta: etiquetaIva(false), monto: iva });
   if (igtf > 0) lineas.push({ etiqueta: 'IGTF', monto: igtf });
+  if (ajuste !== 0) lineas.push({ etiqueta: etiquetaAjuste(o.ajuste_motivo), monto: ajuste });
 
   // Lo que ninguna de esas líneas explica. Se muestra en vez de esconderse:
   // un pie que no cierra es peor que uno que admite lo que no sabe.
-  const explicado = round2(sub - desc + iva + igtf);
+  const explicado = totalDesdePartes({ subtotal: sub, descuento: desc, iva, igtf, iva_incluido: incluido, ajuste });
   const resto = round2(total - explicado);
   if (Math.abs(resto) >= 0.01) lineas.push({ etiqueta: 'Otros ajustes', monto: resto });
 
   lineas.push({ etiqueta: etiquetaFinal, monto: total });
+  // Con el IVA adentro de los precios, al pie se le dice cuánto es y sobre qué base,
+  // como lo imprime la factura: no suma, ya está arriba.
+  if (incluido) {
+    lineas.push({ etiqueta: 'Base sin IVA (informativo)', monto: round2(total - iva - igtf) });
+    lineas.push({ etiqueta: `${etiquetaIva(true)} (informativo)`, monto: iva });
+  }
   return lineas;
 }

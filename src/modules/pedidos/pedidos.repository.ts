@@ -8,6 +8,7 @@ import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { guardarDatosPago, listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { motivoNoCorregible } from './metodoPagoEdicion';
 import { recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
+import { totalDesdePartes } from './impuestosOc';
 import { camposDeEdicion, cambiaProveedorOc, cambiaTexto, cambianNombres, hayCambiosMateriales } from './edicionOc';
 import { fechaVE, tasaValida } from './compraDirectaMoneda';
 import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository';
@@ -545,6 +546,11 @@ export interface EditarOcInput {
   /** IVA / IGTF (montos) de la OC: entran al total a pagar. */
   iva?: number | null;
   igtf?: number | null;
+  /** Los precios ya traen el IVA: se guarda pero no suma (impuestosOc.ts). */
+  iva_incluido?: boolean | null;
+  /** Diferencia declarada frente a la factura (con signo) y su motivo. */
+  ajuste?: number | null;
+  ajuste_motivo?: string | null;
 }
 
 /**
@@ -574,14 +580,19 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
   const r2 = (n: unknown) => Math.max(0, Math.round((Number(n) || 0) * 100) / 100);
   const ivaOc = puedeTodo && input.iva !== undefined ? r2(input.iva) : Math.max(0, Number(o.iva) || 0);
   const igtfOc = puedeTodo && input.igtf !== undefined ? r2(input.igtf) : Math.max(0, Number(o.igtf) || 0);
-  const total = Math.round((Math.max(0, subtotal - descObt) + ivaOc + igtfOc) * 100) / 100;
+  // Precios con el IVA adentro y ajuste declarado (impuestosOc.ts): igual que el IVA, se
+  // conservan si no vienen en el input y solo se cambian mientras está por aprobar.
+  const ivaIncluidoOc = puedeTodo && input.iva_incluido !== undefined ? !!input.iva_incluido : !!o.iva_incluido;
+  const ajusteOc = puedeTodo && input.ajuste !== undefined ? Math.round((Number(input.ajuste) || 0) * 100) / 100 : Math.round((Number(o.ajuste) || 0) * 100) / 100;
+  const ajusteMotivoOc = puedeTodo && input.ajuste_motivo !== undefined ? (input.ajuste_motivo?.trim() || null) : (o.ajuste_motivo ?? null);
+  const total = totalDesdePartes({ subtotal, descuento: descObt, iva: ivaOc, igtf: igtfOc, iva_incluido: ivaIncluidoOc, ajuste: ajusteOc });
   // Cambio de proveedor (opcional): si difiere del actual, la OC se reabre a aprobación.
   const cambiaProveedor = cambiaProveedorOc(o, input);
   // Solo un cambio MATERIAL (ítems, variantes, cantidades, precios, proveedor, condición,
   // descuento) devuelve a aprobación una OC ya confirmada. Guardar sin tocar nada, corregir
   // la nota o el nombre de un producto no la reabre: antes lo hacía siempre, y borraba la
   // firma del Gerente (caso SP-2026-0124).
-  const cambioMaterial = hayCambiosMateriales(o, puedeTodo ? input : { ...input, iva: undefined, igtf: undefined });
+  const cambioMaterial = hayCambiosMateriales(o, puedeTodo ? input : { ...input, iva: undefined, igtf: undefined, iva_incluido: undefined, ajuste: undefined });
   // Los datos de la solicitud (unidad, persona, motivo, finalidad, urgente) solo se editan
   // por aprobar; son texto: se guardan sin reabrir nada.
   const camposSolicitud = puedeTodo
@@ -610,6 +621,8 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
   if (puedeTodo) {
     if (input.iva !== undefined) patch.iva = ivaOc || null;
     if (input.igtf !== undefined) patch.igtf = igtfOc || null;
+    if (input.iva_incluido !== undefined) patch.iva_incluido = ivaIncluidoOc;
+    if (input.ajuste !== undefined) { patch.ajuste = ajusteOc || null; patch.ajuste_motivo = ajusteOc ? ajusteMotivoOc : null; }
     if (input.urgente !== undefined) patch.urgente = !!input.urgente;
   }
   if (cambiaProveedor) patch.proveedor_id = input.proveedorId ?? null;
@@ -712,6 +725,9 @@ export async function resincronizarOcDesdeOferta(
     descuento: number | null;
     iva: number | null;
     igtf: number | null;
+    iva_incluido?: boolean | null;
+    ajuste?: number | null;
+    ajuste_motivo?: string | null;
     /** Proveedor de la oferta: en una hija solo se re-sincroniza la de su propio proveedor. */
     proveedor_id?: string | null;
   },
@@ -750,13 +766,18 @@ export async function resincronizarOcDesdeOferta(
   const igtfOf = ofBase.igtf != null ? Math.max(0, Math.round(Number(ofBase.igtf) * 100) / 100) : 0;
   const repEf = reprecioPorEfectivo(itemsConContexto, efectivoOf);
   const subtotalOc = repEf ? repEf.total : Math.round((Number(ofBase.precio_total) || 0) * 100) / 100;
-  const totalOc = Math.round((Math.max(0, subtotalOc - descObt) + ivaOf + igtfOf) * 100) / 100;
+  const ivaIncluidoOf = !!ofBase.iva_incluido;
+  const ajusteOf = Math.round((Number(ofBase.ajuste) || 0) * 100) / 100;
+  const totalOc = totalDesdePartes({ subtotal: subtotalOc, descuento: descObt, iva: ivaOf, igtf: igtfOf, iva_incluido: ivaIncluidoOf, ajuste: ajusteOf });
   const patch = {
     items: repEf ? repEf.items : itemsConContexto,
     total: totalOc,
     descuento_obtenido: descObt || null,
     iva: ivaOf || null,
     igtf: igtfOf || null,
+    iva_incluido: ivaIncluidoOf,
+    ajuste: ajusteOf || null,
+    ajuste_motivo: ajusteOf ? (ofBase.ajuste_motivo ?? null) : null,
     oferta_precio_efectivo: efectivoOf,
     oferta_precio_bcv: repEf ? repEf.bcv : null,
   };
@@ -795,7 +816,7 @@ export async function aprobarOrdenConOferta(
   // En una sub-OC (hija) las ofertas viven en la orden MADRE.
   const esHija = !!o.parent_orden_id;
   const { data: ofRow } = await supabase
-    .from('ofertas_proveedor').select('condiciones_pago, detalle, precio_efectivo, descuento, iva, igtf')
+    .from('ofertas_proveedor').select('condiciones_pago, detalle, precio_efectivo, descuento, iva, igtf, iva_incluido, ajuste, ajuste_motivo')
     .eq('orden_id', o.parent_orden_id ?? o.id).eq('proveedor_id', ofertaProveedorId)
     .order('registrada_en', { ascending: false })
     .limit(1)
@@ -835,7 +856,10 @@ export async function aprobarOrdenConOferta(
   }
   const recorte = esHija
     ? recortarOfertaAHija(
-        { items: itemsBase, precio_total: totalBase, precio_efectivo: ofRow?.precio_efectivo, descuento: ofRow?.descuento, iva: ofRow?.iva, igtf: ofRow?.igtf },
+        {
+          items: itemsBase, precio_total: totalBase, precio_efectivo: ofRow?.precio_efectivo, descuento: ofRow?.descuento, iva: ofRow?.iva, igtf: ofRow?.igtf,
+          iva_incluido: ofRow?.iva_incluido, ajuste: ofRow?.ajuste, ajuste_motivo: ofRow?.ajuste_motivo,
+        },
         skusPermitidos,
       )
     : null;
@@ -855,8 +879,11 @@ export async function aprobarOrdenConOferta(
   const itemsHija = recorte ? recorte.items.filter((it) => propios.has(it.sku) || (Number(it.precio) || 0) > 0) : itemsBase;
   const subtotalBase = recorte ? recorte.precio_total : totalBase;
   const impuestosBase = recorte
-    ? { precio_efectivo: recorte.precio_efectivo, descuento: recorte.descuento, iva: recorte.iva, igtf: recorte.igtf }
-    : { precio_efectivo: ofRow?.precio_efectivo ?? null, descuento: ofRow?.descuento ?? null, iva: ofRow?.iva ?? null, igtf: ofRow?.igtf ?? null };
+    ? { precio_efectivo: recorte.precio_efectivo, descuento: recorte.descuento, iva: recorte.iva, igtf: recorte.igtf, iva_incluido: recorte.iva_incluido, ajuste: recorte.ajuste, ajuste_motivo: recorte.ajuste_motivo }
+    : {
+        precio_efectivo: ofRow?.precio_efectivo ?? null, descuento: ofRow?.descuento ?? null, iva: ofRow?.iva ?? null, igtf: ofRow?.igtf ?? null,
+        iva_incluido: !!ofRow?.iva_incluido, ajuste: (ofRow?.ajuste as number | null) ?? null, ajuste_motivo: (ofRow?.ajuste_motivo as string | null) ?? null,
+      };
   // Finalidad/área/comprar por SKU: los de la hija, y para los absorbidos los de la madre.
   const origBySku = new Map([...itemsMadre, ...o.items].map((it) => [it.sku, it]));
   const itemsConContexto = itemsHija.map((of) => {
@@ -877,6 +904,10 @@ export async function aprobarOrdenConOferta(
   // sobre la factura neta al cargar la oferta). Se arrastran a la OC para mostrarlos.
   const ivaOf = impuestosBase.iva != null ? Math.max(0, Math.round(Number(impuestosBase.iva) * 100) / 100) : 0;
   const igtfOf = impuestosBase.igtf != null ? Math.max(0, Math.round(Number(impuestosBase.igtf) * 100) / 100) : 0;
+  // Precios con el IVA adentro y ajuste declarado (impuestosOc.ts): la OC los hereda tal cual.
+  const ivaIncluidoOf = !!impuestosBase.iva_incluido;
+  const ajusteOf = Math.round((Number(impuestosBase.ajuste) || 0) * 100) / 100;
+  const ajusteMotivoOf = ajusteOf ? (impuestosBase.ajuste_motivo ?? null) : null;
 
   // Productos en $0 (sin precio en la oferta) NO entran a la OC. Si quedan productos
   // con precio, se crea la OC solo con esos y la SP madre conserva los $0 en
@@ -899,6 +930,9 @@ export async function aprobarOrdenConOferta(
       descuento: descObt || null,
       iva: ivaOf || null,
       igtf: igtfOf || null,
+      iva_incluido: ivaIncluidoOf,
+      ajuste: ajusteOf || null,
+      ajuste_motivo: ajusteMotivoOf,
       motivo: motivo?.trim() || null,
       motivoAdjuntos: (motivoAdjuntos && motivoAdjuntos.length) ? motivoAdjuntos : null,
     }], actorEmail);
@@ -909,8 +943,8 @@ export async function aprobarOrdenConOferta(
 
   const repEf = reprecioPorEfectivo(itemsConContexto, efectivoOf);
   const subtotalOc = repEf ? repEf.total : subtotalBase;
-  // Total de la OC = (Σ ítems − descuento) + IVA + IGTF.
-  const totalOc = Math.round((Math.max(0, subtotalOc - descObt) + ivaOf + igtfOf) * 100) / 100;
+  // Total de la OC = (Σ ítems − descuento) + IVA (si no viene adentro) + IGTF + ajuste.
+  const totalOc = totalDesdePartes({ subtotal: subtotalOc, descuento: descObt, iva: ivaOf, igtf: igtfOf, iva_incluido: ivaIncluidoOf, ajuste: ajusteOf });
   const patch = {
     estado: 'oc_creada' as EstadoOrden,
     proveedor_id: ofertaProveedorId,
@@ -919,6 +953,9 @@ export async function aprobarOrdenConOferta(
     descuento_obtenido: descObt || null,
     iva: ivaOf || null,
     igtf: igtfOf || null,
+    iva_incluido: ivaIncluidoOf,
+    ajuste: ajusteOf || null,
+    ajuste_motivo: ajusteMotivoOf,
     oc_codigo: ocCodigo,
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
     // Snapshot de la oferta elegida: datos técnicos/logísticos + precio efectivo (se ven en la OC y su PDF).
@@ -960,6 +997,10 @@ export interface AsignacionProveedor {
   /** IVA / IGTF (montos) de la oferta: se suman al total de la sub-OC. */
   iva?: number | null;
   igtf?: number | null;
+  /** Los precios ya traen el IVA (no suma) y ajuste declarado (impuestosOc.ts). */
+  iva_incluido?: boolean | null;
+  ajuste?: number | null;
+  ajuste_motivo?: string | null;
   /** Observación del analista (por qué eligió) + adjuntos (imágenes/PDF). */
   motivo?: string | null;
   motivoAdjuntos?: { path: string; filename: string }[] | null;
@@ -1009,7 +1050,9 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
     // IVA / IGTF (montos) de la oferta: se suman al total de la sub-OC.
     const ivaA = a.iva != null ? Math.max(0, Math.round(Number(a.iva) * 100) / 100) : 0;
     const igtfA = a.igtf != null ? Math.max(0, Math.round(Number(a.igtf) * 100) / 100) : 0;
-    const total = Math.round((Math.max(0, subtotal - descObt) + ivaA + igtfA) * 100) / 100;
+    const ivaIncluidoA = !!a.iva_incluido;
+    const ajusteA = Math.round((Number(a.ajuste) || 0) * 100) / 100;
+    const total = totalDesdePartes({ subtotal, descuento: descObt, iva: ivaA, igtf: igtfA, iva_incluido: ivaIncluidoA, ajuste: ajusteA });
     const ocCodigo = await nextOcCodigo();
     const row = {
       codigo: `${op.codigo}-${n}`,
@@ -1032,6 +1075,9 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
       descuento_obtenido: descObt || null,
       iva: ivaA || null,
       igtf: igtfA || null,
+      iva_incluido: ivaIncluidoA,
+      ajuste: ajusteA || null,
+      ajuste_motivo: ajusteA ? (a.ajuste_motivo ?? null) : null,
       estado: 'oc_creada' as EstadoOrden,
       // La sub-OC hereda la CLASE del padre: un servicio (SV) genera sub-órdenes de
       // servicio, no de producto. Sin esto tomaba el default 'producto' y el SV

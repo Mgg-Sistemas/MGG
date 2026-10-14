@@ -106,6 +106,7 @@ import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { AgregarProductoCompra } from './AgregarProductoCompra';
 import { ordenesConOfertasDe } from './ordenDeOfertas';
 import { avisoDeCuadre, desglosarOc } from './cuadreOc';
+import { etiquetaAjuste, etiquetaIva, ivaDesdePorcentaje, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
 import { SolicitudMercadoModal } from './SolicitudMercadoModal';
 // descargarTrazabilidadPdf / descargarOrdenCompraPdf se importan dinámicamente
 // (al generar) para no cargar jsPDF al abrir Pedidos.
@@ -3252,20 +3253,23 @@ function OrdenDetailModal({
              223,65. Ahora se muestra la suma tal como se calcula, renglón por
              renglón, y si el total no da se dice. */
           const d = desglosarOc(o);
-          const detalle = d.descuento > 0 || d.iva > 0 || d.igtf > 0;
+          const detalle = d.descuento > 0 || d.iva > 0 || d.igtf > 0 || d.ajuste !== 0;
           return (
           <tfoot>
             {detalle && (
               <>
-                <tr><td colSpan={6} className="num">Base</td><td className="num">{money(d.base, o.moneda)}</td><td></td></tr>
+                <tr><td colSpan={6} className="num">Base{d.ivaIncluido && d.iva > 0 ? ' (precios con IVA)' : ''}</td><td className="num">{money(d.base, o.moneda)}</td><td></td></tr>
                 {d.descuento > 0 && (
                   <tr><td colSpan={6} className="num" style={{ color: 'var(--success)' }}>Descuento obtenido</td><td className="num" style={{ color: 'var(--success)' }}>− {money(d.descuento, o.moneda)}</td><td></td></tr>
                 )}
-                {d.iva > 0 && (
+                {d.iva > 0 && !d.ivaIncluido && (
                   <tr><td colSpan={6} className="num">IVA</td><td className="num">+ {money(d.iva, o.moneda)}</td><td></td></tr>
                 )}
                 {d.igtf > 0 && (
                   <tr><td colSpan={6} className="num">IGTF</td><td className="num">+ {money(d.igtf, o.moneda)}</td><td></td></tr>
+                )}
+                {d.ajuste !== 0 && (
+                  <tr><td colSpan={6} className="num">{etiquetaAjuste(o.ajuste_motivo)}</td><td className="num">{d.ajuste > 0 ? '+' : '−'} {money(Math.abs(d.ajuste), o.moneda)}</td><td></td></tr>
                 )}
               </>
             )}
@@ -3274,6 +3278,13 @@ function OrdenDetailModal({
               <td className="num" style={!d.cuadra ? { color: 'var(--warning)' } : undefined}>{money(o.total, o.moneda)}</td>
               <td></td>
             </tr>
+            {d.ivaIncluido && d.iva > 0 && (
+              /* Como lo imprime la factura de punto de venta: base sin IVA e IVA, ya adentro del total. */
+              <>
+                <tr className="muted"><td colSpan={6} className="num" style={{ fontSize: '.8rem' }}>Base sin IVA (informativo)</td><td className="num" style={{ fontSize: '.8rem' }}>{money(Math.round(((Number(o.total) || 0) - d.iva - d.igtf) * 100) / 100, o.moneda)}</td><td></td></tr>
+                <tr className="muted"><td colSpan={6} className="num" style={{ fontSize: '.8rem' }}>{etiquetaIva(true)} · ya sumado</td><td className="num" style={{ fontSize: '.8rem' }}>{money(d.iva, o.moneda)}</td><td></td></tr>
+              </>
+            )}
             {!d.cuadra && (
               <tr>
                 <td colSpan={8} style={{ color: 'var(--warning)', fontSize: '.8rem', whiteSpace: 'normal' }}>
@@ -3635,6 +3646,10 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   const [urgente, setUrgente] = useState(!!orden.urgente);
   const [ivaStr, setIvaStr] = useState((Number(orden.iva) || 0) > 0 ? String(orden.iva) : '');
   const [igtfStr, setIgtfStr] = useState((Number(orden.igtf) || 0) > 0 ? String(orden.igtf) : '');
+  // Precios con el IVA adentro y ajuste declarado frente a la factura (impuestosOc.ts).
+  const [ivaIncluido, setIvaIncluido] = useState(!!orden.iva_incluido);
+  const [ajusteStr, setAjusteStr] = useState(orden.ajuste != null && Number(orden.ajuste) !== 0 ? String(orden.ajuste) : '');
+  const [ajusteMotivo, setAjusteMotivo] = useState(orden.ajuste_motivo ?? '');
   // Unidad solicitante: catálogo + alta al vuelo (igual que al cargar la OP).
   const [unidadesSol, setUnidadesSol] = useState<string[]>([]);
   const [nuevaUnidad, setNuevaUnidad] = useState('');
@@ -3680,10 +3695,13 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   const ivaOc = puedeTodo ? r2m(ivaStr) : Math.max(0, Number(orden.iva) || 0);
   const igtfOc = puedeTodo ? r2m(igtfStr) : Math.max(0, Number(orden.igtf) || 0);
   const facturaNeta = Math.max(0, subtotal - descuentoObt);
-  const total = Math.round((facturaNeta + ivaOc + igtfOc) * 100) / 100;
+  const ivaAdentro = puedeTodo ? (ivaIncluido && ivaOc > 0) : !!orden.iva_incluido;
+  const ajusteOc = puedeTodo ? Math.round((Number(ajusteStr) || 0) * 100) / 100 : Math.round((Number(orden.ajuste) || 0) * 100) / 100;
+  const total = totalDesdePartes({ subtotal: facturaNeta, iva: ivaOc, igtf: igtfOc, iva_incluido: ivaAdentro, ajuste: ajusteOc });
   // Ayuda: IVA/IGTF por % sobre la factura neta (subtotal − descuento), como en la cotización.
-  const pctDe = (monto: number) => (facturaNeta > 0 && monto > 0 ? Math.round((monto / facturaNeta) * 10000) / 100 : 0);
-  const aplicarPct = (pct: number, set: (s: string) => void) => set(pct > 0 && facturaNeta > 0 ? String(Math.round(facturaNeta * pct) / 100) : '');
+  // Con los precios ya con IVA adentro, el % del IVA se calcula sobre la base sin IVA.
+  const pctDe = (monto: number, incluido = false) => porcentajeDesdeIva(facturaNeta, monto, incluido);
+  const aplicarPct = (pct: number, set: (s: string) => void, incluido = false) => { const m = ivaDesdePorcentaje(facturaNeta, pct, incluido); set(m > 0 ? String(m) : ''); };
   const upd = (idx: number, patch: Partial<ItemOrden>) =>
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, ...patch } : it)));
   const quitarItem = (idx: number) => setItems((prev) => prev.filter((_, k) => k !== idx));
@@ -3701,6 +3719,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
         ...(puedeTodo ? {
           solicitante: unidadSol, ci_solicitante: personaSol, motivo, finalidad, urgente,
           iva: ivaOc, igtf: igtfOc,
+          iva_incluido: ivaAdentro, ajuste: ajusteOc, ajuste_motivo: ajusteOc ? ajusteMotivo : null,
         } : {}),
       }, actorEmail);
       if (guardada === orden) {
@@ -3814,12 +3833,15 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
             ))}
           </tbody>
           <tfoot>
-            {(descuentoObt > 0 || ivaOc > 0 || igtfOc > 0) && (
+            {(descuentoObt > 0 || ivaOc > 0 || igtfOc > 0 || ajusteOc !== 0) && (
               <>
-                <tr><td colSpan={3} style={{ textAlign: 'right' }}>Subtotal</td><td className="mono" style={{ textAlign: 'right' }}>{money(subtotal)}</td><td></td></tr>
+                <tr><td colSpan={3} style={{ textAlign: 'right' }}>Subtotal{ivaAdentro ? ' (precios con IVA)' : ''}</td><td className="mono" style={{ textAlign: 'right' }}>{money(subtotal)}</td><td></td></tr>
                 {descuentoObt > 0 && <tr><td colSpan={3} style={{ textAlign: 'right', color: 'var(--success)' }}>Descuento obtenido</td><td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>− {money(descuentoObt)}</td><td></td></tr>}
-                {ivaOc > 0 && <tr><td colSpan={3} style={{ textAlign: 'right' }}>IVA{puedeTodo && pctDe(ivaOc) > 0 ? ` (${num(pctDe(ivaOc))} %)` : ''}</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(ivaOc)}</td><td></td></tr>}
+                {ivaOc > 0 && (ivaAdentro
+                  ? <tr className="muted"><td colSpan={3} style={{ textAlign: 'right' }}>{etiquetaIva(true)}{puedeTodo && pctDe(ivaOc, true) > 0 ? ` (${num(pctDe(ivaOc, true))} %)` : ''} · ya sumado</td><td className="mono" style={{ textAlign: 'right' }}>{money(ivaOc)}</td><td></td></tr>
+                  : <tr><td colSpan={3} style={{ textAlign: 'right' }}>IVA{puedeTodo && pctDe(ivaOc) > 0 ? ` (${num(pctDe(ivaOc))} %)` : ''}</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(ivaOc)}</td><td></td></tr>)}
                 {igtfOc > 0 && <tr><td colSpan={3} style={{ textAlign: 'right' }}>IGTF{puedeTodo && pctDe(igtfOc) > 0 ? ` (${num(pctDe(igtfOc))} %)` : ''}</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(igtfOc)}</td><td></td></tr>}
+                {ajusteOc !== 0 && <tr><td colSpan={3} style={{ textAlign: 'right' }}>{etiquetaAjuste(puedeTodo ? ajusteMotivo : orden.ajuste_motivo)}</td><td className="mono" style={{ textAlign: 'right' }}>{ajusteOc > 0 ? '+' : '−'} {money(Math.abs(ajusteOc))}</td><td></td></tr>}
               </>
             )}
             <tr style={{ fontWeight: 700 }}><td colSpan={3} style={{ textAlign: 'right' }}>Total</td><td className="mono" style={{ textAlign: 'right' }}>{money(total)}</td><td></td></tr>
@@ -3838,10 +3860,14 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
             <label>IVA (monto)</label>
             <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
               <input className="input mono" type="number" min={0} step="any" value={ivaStr} onChange={(e) => setIvaStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 160 }} />
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPct(16, setIvaStr)} title="Calcular el 16 % sobre la factura neta (subtotal − descuento)">16 %</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setIvaStr('')} title="Sin IVA">Quitar</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPct(16, setIvaStr, ivaIncluido)} title={ivaIncluido ? 'Calcular el 16 % sobre la base sin IVA (factura ÷ 1,16)' : 'Calcular el 16 % sobre la factura neta (subtotal − descuento)'}>16 %</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setIvaStr(''); setIvaIncluido(false); }} title="Sin IVA">Quitar</button>
             </div>
-            <small className="hint muted">Se calcula sobre la factura neta ({money(facturaNeta)}) y se suma al total. Dejalo vacío si la OC no lleva IVA.</small>
+            <small className="hint muted">{ivaIncluido ? 'Los precios ya lo traen: se guarda para la retención y NO se suma al total.' : <>Se calcula sobre la factura neta ({money(facturaNeta)}) y se suma al total. Dejalo vacío si la OC no lleva IVA.</>}</small>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', marginTop: '.35rem', fontSize: '.85rem' }}>
+              <input type="checkbox" checked={ivaIncluido} onChange={(e) => setIvaIncluido(e.target.checked)} />
+              <span>Los precios ya traen el IVA (factura de punto de venta)</span>
+            </label>
           </div>
           <div className="form-row">
             <label>IGTF (monto)</label>
@@ -3851,6 +3877,14 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
               <button type="button" className="btn btn-sm btn-ghost" onClick={() => setIgtfStr('')} title="Sin IGTF">Quitar</button>
             </div>
             <small className="hint muted">Típico en pagos en divisas. Se suma al total a pagar.</small>
+          </div>
+          <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+            <label>Ajuste frente a la factura (opcional, ± con signo)</label>
+            <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <input className="input mono" type="number" step="any" value={ajusteStr} onChange={(e) => setAjusteStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 160 }} />
+              <input className="input" type="text" maxLength={120} value={ajusteMotivo} onChange={(e) => setAjusteMotivo(e.target.value)} placeholder="Motivo (p. ej. redondeo de precios unitarios de la factura N.º …)" style={{ flex: 1, minWidth: 220 }} />
+            </div>
+            <small className="hint muted">Lo que la factura trae de más o de menos frente a los renglones y ningún concepto explica. Se ve en el pie de la OC con su motivo.</small>
           </div>
         </div>
       )}
