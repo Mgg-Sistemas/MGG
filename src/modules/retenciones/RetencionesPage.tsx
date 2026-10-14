@@ -75,7 +75,7 @@ export function RetencionesPage() {
       if (fDesde && !fin) return false;
       if (fTipo && !it.tiposComprobante.includes(fTipo)) return false;
       if (txt) {
-        const hay = `${it.ocCodigo ?? ''} ${it.opCodigo ?? ''} ${it.proveedorNombre}`.toLowerCase();
+        const hay = `${it.ocCodigo ?? ''} ${it.opCodigo ?? ''} ${it.proveedorNombre} ${it.numeroAdministracion ?? ''}`.toLowerCase();
         if (!hay.includes(txt)) return false;
       }
       return true;
@@ -158,7 +158,10 @@ export function RetencionesPage() {
               )}
               {!loading && filas.map((it) => (
                 <tr key={`${it.kind}-${it.id}`}>
-                  <td className="mono">{it.ocCodigo ?? '—'}{it.kind === 'compra_directa' && <span className="badge" style={{ marginLeft: '.35rem' }} title="Compra directa">CD</span>}</td>
+                  <td className="mono">
+                    {it.ocCodigo ?? '—'}{it.kind === 'compra_directa' && <span className="badge" style={{ marginLeft: '.35rem' }} title="Compra directa">CD</span>}
+                    {it.numeroAdministracion && <div className="muted" style={{ fontSize: '.72rem' }} title="Número de administración del proveedor">N° adm. {it.numeroAdministracion}</div>}
+                  </td>
                   <td className="mono">{it.opCodigo ?? '—'}</td>
                   <td>{it.proveedorNombre}</td>
                   <td>{it.condicionLabel}</td>
@@ -264,6 +267,11 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
         <div className="card-title" style={{ marginBottom: '.4rem' }}>Detalle de la orden de compra</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.4rem .9rem', fontSize: '.86rem' }}>
           <div><span className="muted">Proveedor:</span> <strong>{item.proveedorNombre}</strong></div>
+          {o.numero_administracion && (
+            <div title="Número con el que la administración del proveedor identifica este cobro (se carga al indicar el método de pago)">
+              <span className="muted">N° administración del proveedor:</span> <strong className="mono">{o.numero_administracion}</strong>
+            </div>
+          )}
           <div><span className="muted">Condición:</span> {labelCondicionPago(o.condiciones_pago)}</div>
           <div><span className="muted">Retención:</span> {labelRetencionModo(o.retencion_modo)}</div>
           <div><span className="muted">Total:</span> <strong className="mono">{money(o.total)}</strong></div>

@@ -107,6 +107,7 @@ import { AgregarProductoCompra } from './AgregarProductoCompra';
 import { ordenesConOfertasDe } from './ordenDeOfertas';
 import { avisoDeCuadre, desglosarOc } from './cuadreOc';
 import { etiquetaAjuste, etiquetaIva, ivaDesdePorcentaje, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
+import { fijarNumeroAdministracionProveedor } from '@/modules/proveedores/numeroAdministracion.repository';
 import { SolicitudMercadoModal } from './SolicitudMercadoModal';
 // descargarTrazabilidadPdf / descargarOrdenCompraPdf se importan dinámicamente
 // (al generar) para no cargar jsPDF al abrir Pedidos.
@@ -1059,11 +1060,11 @@ export function PedidosPage() {
           proveedorActual={modal.orden.proveedor_id ? proveedorMap.get(modal.orden.proveedor_id) ?? null : null}
           modo="corregir"
           onClose={() => setModal({ kind: 'none' })}
-          onSent={async (metodos) => {
+          onSent={async (metodos, soporte) => {
             try {
               const email = usuario?.email ?? user?.email ?? 'sistema';
               const codigo = modal.orden.oc_codigo ?? modal.orden.codigo;
-              await corregirMetodoPago(modal.orden, metodos, email);
+              await corregirMetodoPago(modal.orden, metodos, email, soporte.numeroAdministracion);
               notify(`OC ${codigo} · método de pago corregido · Tesorería ya ve los datos nuevos`, 'success', { link: '#/app/tesoreria' });
               setModal({ kind: 'none' });
               await refresh();
@@ -1420,7 +1421,7 @@ function MetodoPagoModal({
    *  Confirmada pagar y solo se arregla CÓMO se le paga (método y datos del beneficiario). */
   modo?: 'enviar' | 'corregir';
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null }, proveedorId: string, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; numeroAdministracion: string | null }, proveedorId: string, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
 }) {
   // Al corregir se arranca con lo que ya tiene la OC (método, moneda, monto y datos),
   // para que el usuario vea y edite exactamente lo que se cargó.
@@ -1445,6 +1446,15 @@ function MetodoPagoModal({
     if (proveedorActual && !out.some((p) => p.id === proveedorActual.id)) out.unshift(proveedorActual);
     return out;
   }, [proveedores, proveedorActual]);
+  // Número de administración del PROVEEDOR (14-10-2026): el número con el que su
+  // administración identifica sus cobros a MGG. Es obligatorio y se pide UNA vez: la
+  // primera OC que se manda a pagar lo carga y queda en la ficha del proveedor; las
+  // siguientes lo traen precargado (se puede corregir). Cada OC guarda su copia y la ven
+  // Tesorería (al pagar) y Retenciones (al cargar los certificados).
+  const provSel = proveedoresSel.find((p) => p.id === proveedorId) ?? null;
+  const numeroAdminGuardado = provSel?.numero_administracion ?? '';
+  const [numeroAdmin, setNumeroAdmin] = useState<string>(orden.numero_administracion || numeroAdminGuardado);
+  useEffect(() => { setNumeroAdmin(orden.numero_administracion || numeroAdminGuardado); }, [proveedorId, numeroAdminGuardado, orden.numero_administracion]);
   // Contra entrega: ya se recibió y verificó; se confirma la Nota de entrega antes de pagar.
   const esContraEntrega = orden.condiciones_pago === 'contra_entrega';
   const [notaEntrega, setNotaEntrega] = useState(false);
@@ -1503,6 +1513,7 @@ function MetodoPagoModal({
     if (!proveedorId) { setError('Indicá el proveedor.'); return; }
     // Si cambió el proveedor, la OC vuelve a aprobación del Gerente: no se exige método de pago.
     if (!proveedorCambiado) {
+      if (!numeroAdmin.trim()) { setError('Indicá el número de administración del proveedor: se carga una sola vez y queda en su ficha.'); return; }
       if (!validos.length) { setError('Indicá al menos un método de pago.'); return; }
       // En multipago, cada método/moneda debe llevar su monto (es el reparto que define la OC).
       if (esMultipago && validos.some((l) => !((l.monto ?? 0) > 0))) {
@@ -1522,7 +1533,13 @@ function MetodoPagoModal({
       }
     }
     setSaving(true);
-    try { await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null }, proveedorId, qr, incluyeDesc && descNum > 0 ? descNum : null); }
+    try {
+      // El número queda en la ficha del proveedor (si es nuevo o cambió) ANTES del envío:
+      // si falla, se avisa y no se manda a pagar sin el dato.
+      const numero = numeroAdmin.trim() || null;
+      if (!proveedorCambiado && numero && numero !== numeroAdminGuardado) await fijarNumeroAdministracionProveedor(proveedorId, numero);
+      await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, numeroAdministracion: numero }, proveedorId, qr, incluyeDesc && descNum > 0 ? descNum : null);
+    }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
 
@@ -1573,6 +1590,21 @@ function MetodoPagoModal({
           </small>
         )}
       </div>
+      )}
+
+      {/* Número de administración del proveedor (14-10-2026): lo ven Tesorería y Retenciones. */}
+      {!proveedorCambiado && (
+        <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: numeroAdmin.trim() ? 'var(--border)' : 'var(--warning)' }}>
+          <div className="card-title" style={{ marginBottom: '.45rem' }}>Número de administración del proveedor <span className="muted" style={{ fontWeight: 400 }}>(obligatorio)</span></div>
+          <input className="input mono" value={numeroAdmin} maxLength={60} placeholder="N.º con el que la administración del proveedor identifica sus cobros"
+            onChange={(e) => setNumeroAdmin(e.target.value.toUpperCase())} />
+          <small className="hint muted" style={{ display: 'block', marginTop: '.35rem' }}>
+            {numeroAdminGuardado
+              ? 'Ya está en la ficha del proveedor; solo se cambia si estaba mal (se actualiza la ficha).'
+              : 'Se carga una sola vez y queda en la ficha del proveedor; las próximas OC lo traen precargado.'}
+            {' '}Tesorería lo ve al pagar y Retenciones al cargar los certificados.
+          </small>
+        </div>
       )}
 
       {proveedorCambiado ? (

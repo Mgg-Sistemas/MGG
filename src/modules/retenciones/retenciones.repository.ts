@@ -44,6 +44,8 @@ export interface RetencionItem {
   id: string;
   ocCodigo: string | null;      // N°OC (OC) o código CD (compra directa)
   opCodigo: string | null;      // OP (OC) o null (compra directa)
+  /** Número con el que la administración del proveedor identifica el cobro (se carga al indicar el método de pago, 14-10-2026). */
+  numeroAdministracion?: string | null;
   proveedorNombre: string;
   /** Datos que el comprobante de retención necesita del sujeto retenido. */
   proveedorId: string | null;
@@ -62,16 +64,16 @@ export interface RetencionItem {
 }
 
 /** Proveedor por id: el nombre para mostrar y el RIF, que el comprobante pide. */
-export interface ProveedorBreve { nombre: string; rif: string | null }
+export interface ProveedorBreve { nombre: string; rif: string | null; numeroAdministracion: string | null }
 
 async function mapProveedores(): Promise<Map<string, ProveedorBreve>> {
   // Por páginas (N3): pasadas las 1.000 filas, Supabase corta sin avisar. Un error sigue dando
   // el mapa vacío, como antes: Tesorería no cambia.
   const data = await todasLasFilas<Record<string, unknown>>((d, h) =>
-    supabase.from('proveedores').select('id, razon_social, rif').order('id').range(d, h)).catch(() => []);
+    supabase.from('proveedores').select('id, razon_social, rif, numero_administracion').order('id').range(d, h)).catch(() => []);
   return new Map(data.map((p) => [
     p.id as string,
-    { nombre: (p.razon_social as string) ?? '—', rif: (p.rif as string) ?? null },
+    { nombre: (p.razon_social as string) ?? '—', rif: (p.rif as string) ?? null, numeroAdministracion: (p.numero_administracion as string | null) ?? null },
   ]));
 }
 
@@ -84,6 +86,8 @@ function ocToItem(o: Orden, pm: Map<string, ProveedorBreve>): RetencionItem {
   return {
     kind: 'oc', id: o.id,
     ocCodigo: o.oc_codigo ?? null, opCodigo: o.codigo,
+    // El de la OC (copiado al indicar el método de pago); si no, el de la ficha del proveedor.
+    numeroAdministracion: ((o as { numero_administracion?: string | null }).numero_administracion || prov?.numeroAdministracion) ?? null,
     proveedorNombre: prov?.nombre || '—',
     proveedorId: (o.proveedor_id as string) ?? null,
     proveedorRif: prov?.rif ?? null,
@@ -102,6 +106,7 @@ function compraToItem(c: CompraDirecta, pm: Map<string, ProveedorBreve>): Retenc
   return {
     kind: 'compra_directa', id: c.id,
     ocCodigo: c.codigo, opCodigo: null,
+    numeroAdministracion: prov?.numeroAdministracion ?? null,
     proveedorNombre: c.proveedor_nombre || prov?.nombre || '—',
     proveedorId: c.proveedor_id ?? null,
     proveedorRif: prov?.rif ?? null,

@@ -1204,7 +1204,7 @@ export async function indicarMetodoPago(
   o: Orden,
   metodos: PagoMetodo[],
   actorEmail: string,
-  soporte?: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null },
+  soporte?: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo?: 'se_paga_despues' | 'completo_reembolso' | null; numeroAdministracion?: string | null },
   qr?: File | null,
   descuentoPago?: number | null,
 ): Promise<Orden> {
@@ -1251,7 +1251,9 @@ export async function indicarMetodoPago(
     pago_qr_path: qrPath,
     pago_qr_nombre: qrNombre,
     descuento_pago: descPago > 0 ? descPago : null,
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, qr: !!qrPath, ...(descPago > 0 ? { descuento_pago: descPago } : {}) }),
+    // Número de administración del proveedor (14-10-2026): lo ven Tesorería y Retenciones.
+    numero_administracion: soporte?.numeroAdministracion?.trim() || null,
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, qr: !!qrPath, ...(descPago > 0 ? { descuento_pago: descPago } : {}), ...(soporte?.numeroAdministracion?.trim() ? { numero_administracion: soporte.numeroAdministracion.trim() } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -1278,6 +1280,8 @@ export async function corregirMetodoPago(
   o: Orden,
   metodos: PagoMetodo[],
   actorEmail: string,
+  /** Número de administración del proveedor (14-10-2026). undefined = no se tocó. */
+  numeroAdministracion?: string | null,
 ): Promise<Orden> {
   const impedimento = motivoNoCorregible(o);
   if (impedimento) throw new Error(impedimento);
@@ -1294,9 +1298,11 @@ export async function corregirMetodoPago(
     metodo_pago: limpios,
     metodo_pago_por: actorEmail,
     metodo_pago_en: new Date().toISOString(),
+    ...(numeroAdministracion !== undefined ? { numero_administracion: numeroAdministracion?.trim() || null } : {}),
     historial: appendHistorial(o, 'metodo_pago_corregido', actorEmail, {
       antes: o.metodo_pago ?? null,
       despues: limpios,
+      ...(numeroAdministracion !== undefined ? { numero_administracion: numeroAdministracion?.trim() || null } : {}),
     }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();

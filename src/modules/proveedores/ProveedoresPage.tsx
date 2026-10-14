@@ -40,6 +40,7 @@ const EMPTY_FORM: ProveedorInput = {
   email: '',
   direccion: '',
   actividad_economica: null,
+  numero_administracion: null,
   categorias: [],
   origen: 'nacional',
   estado: 'activo',
@@ -403,6 +404,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       email: initial.email ?? '',
       direccion: initial.direccion ?? '',
       actividad_economica: initial.actividad_economica ?? null,
+      numero_administracion: initial.numero_administracion ?? null,
       categorias: [...(initial.categorias ?? [])],
       origen: initial.origen ?? 'nacional',
       estado: initial.estado,
@@ -485,6 +487,7 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       email: emailClean || null,
       direccion: form.direccion?.trim().toUpperCase() || null,
       actividad_economica: form.actividad_economica || null,
+      numero_administracion: form.numero_administracion?.trim().toUpperCase() || null,
     };
     if (!payload.rif || !payload.razon_social) {
       toast('RIF (con número) y razón social son obligatorios', 'error');
@@ -595,6 +598,10 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
         <div className="form-row">
           <label>Actividad económica <span className="muted" style={{ fontWeight: 400 }}>(código CIIU del SENIAT)</span></label>
           <ActividadEconomicaSelect value={form.actividad_economica ?? ''} onChange={(c) => update('actividad_economica', c || null)} />
+        </div>
+        <div className="form-row">
+          <label>Número de administración <span className="muted" style={{ fontWeight: 400 }}>(el que usa la administración del proveedor para sus cobros)</span></label>
+          <input className="input mono" value={form.numero_administracion ?? ''} maxLength={60} onChange={(e) => update('numero_administracion', e.target.value.toUpperCase() || null)} placeholder="Se pide la primera vez al indicar el método de pago de una OC" />
         </div>
 
         <div className="form-row">
@@ -716,6 +723,7 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         <DetailRow label="Correo" value={proveedor.email || '—'} />
         <DetailRow label="Dirección" value={proveedor.direccion || '—'} />
         <DetailRow label="Actividad económica" value={<TextoActividad codigo={proveedor.actividad_economica} />} />
+        <DetailRow label="N° de administración" value={proveedor.numero_administracion ? <span className="mono">{proveedor.numero_administracion}</span> : '—'} />
         <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
         <DetailRow
           label="Categorías"

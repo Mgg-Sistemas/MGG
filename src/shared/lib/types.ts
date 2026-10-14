@@ -722,6 +722,9 @@ export interface Proveedor {
   direccion?: string | null;
   /** Código CIIU (SENIAT) de la actividad económica; el texto vive en actividades_economicas. */
   actividad_economica?: string | null;
+  /** Número con el que la administración del proveedor identifica sus cobros a MGG
+   *  (14-10-2026): se pide la primera vez al indicar el método de pago de una OC. */
+  numero_administracion?: string | null;
   categorias: string[];
   origen: OrigenProveedor;
   estado: EstadoGenerico;
@@ -1059,6 +1062,9 @@ export interface Orden {
   iva?: number | null;
   /** IGTF (monto) de la oferta elegida, copiado a la OC: ya está incluido en `total`. */
   igtf?: number | null;
+  /** Número con el que la administración del PROVEEDOR identifica este cobro/factura
+   *  (14-10-2026). Se carga al indicar el método de pago; lo ven Tesorería y Retenciones. */
+  numero_administracion?: string | null;
   /** `true` = los precios de los renglones YA traen el IVA (factura de punto de venta):
    *  `iva` se guarda para la retención pero NO suma al total. Ver impuestosOc.ts. */
   iva_incluido?: boolean | null;
