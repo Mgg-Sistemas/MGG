@@ -34,6 +34,7 @@ import {
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type EstadoRetencion, type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
+import { pieRegistros } from './pieRegistros';
 import {
   activarConcepto, adjuntarComprobante, anularRetencion, getConfigRetencion, guardarConcepto,
   guardarConfigRetencion, listConceptos, listRetenciones, marcarDeclarada, registrarRetencion,
@@ -174,8 +175,7 @@ export function LibroFiscalView({ canWrite, actor, actorName }: {
         <Kpi titulo="Por enterar al fisco" valor={monto(resumen.porEnterar, moneda)}
           color={resumen.porEnterar > 0 ? 'var(--warning)' : undefined}
           pie="Lo que la empresa retuvo y todavía no declaró" />
-        <Kpi titulo="Registros" valor={String(resumen.registros)}
-          pie={resumen.anulados ? `${resumen.anulados} anulada${resumen.anulados === 1 ? '' : 's'} aparte` : 'Todos con comprobante'} />
+        <Kpi titulo="Registros" valor={String(resumen.registros)} pie={pieRegistros(visibles)} />
       </div>
 
       {/* Filtros */}
