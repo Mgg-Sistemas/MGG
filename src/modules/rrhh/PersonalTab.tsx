@@ -43,6 +43,7 @@ import {
 } from './personal.repository';
 import { verFichaTecnicaPdf } from './fichaTecnicaPdf';
 import { ExportarPersonalModal } from './ExportarPersonalModal';
+import { DirectorioFotosModal } from './DirectorioFotosModal';
 import { CARNET_VENCE_POR_DEFECTO, UNIDADES_DURACION, finDeMes, textoVence, venceTras, carnetVencido, type UnidadDuracion } from './carnetVence';
 import {
   TIPOS_CAMBIO_SUELDO, huboCambioSueldo, labelTipoCambio, textoVariacion, tipoSugerido,
@@ -298,6 +299,8 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   const [fichaPersona, setFichaPersona] = useState<Personal | null>(null);
   // ↔ Transferir a otra nómina (14-10-2026): solo si hay otra nómina activa.
   const [transferir, setTransferir] = useState<Personal | null>(null);
+  // 📷 Directorio de fotos (14-10-2026, traído de La Cantera): solo administración.
+  const [directorio, setDirectorio] = useState(false);
   const hayOtraNomina = canWrite && destinosDeTransferencia(empresa, empresas).length > 0;
   // La familia que se está editando en el formulario. Se guarda al guardar la
   // ficha, para que al crear a alguien se pueda cargar todo de una vez.
@@ -706,6 +709,10 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
         {/* Todos los cambios de sueldo de todo el personal, con PDF y Excel (09-10-2026). */}
         <button className="btn btn-ghost" onClick={() => setHistoricoSalarial(true)}
           title="Todos los cambios de sueldo del personal: quién, cuándo, de cuánto a cuánto y por qué">📜 Histórico salarial</button>
+        {isAdmin && (
+          <button className="btn btn-ghost" onClick={() => setDirectorio(true)} disabled={!visibles.length}
+            title="Fotos con nombre y cargo, una al lado de la otra; al imprimir, una debajo de la otra. Respeta el filtro de la lista.">📷 Directorio de fotos</button>
+        )}
         {canWrite && (
           <>
             {/* La hoja en blanco es para ANTES de que exista la ficha: se imprime,
@@ -721,6 +728,9 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
       {exportando && (
         <ExportarPersonalModal todos={lista} visibles={visibles} hayFiltros={visibles.length !== lista.length}
           onClose={() => setExportando(false)} />
+      )}
+      {directorio && (
+        <DirectorioFotosModal visibles={visibles} total={lista.length} empresa={empresa} emitidoPor={actorName || actor} onClose={() => setDirectorio(false)} />
       )}
       {historicoSalarial && <HistoricoSalarialModal personal={lista} canWrite={canWrite} isAdmin={isAdmin} actor={actor} actorName={actorName ?? null} onClose={() => setHistoricoSalarial(false)} />}
 
