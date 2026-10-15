@@ -22,6 +22,7 @@ import type { Caja, MovimientoCaja, Orden, Producto, Almacen } from '@/shared/li
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { HistorialTasasModal } from './HistorialTasasModal';
+import { filtrarRenglonesNomina, armarLote, alternarSeleccion, seleccionarVisibles, podarSeleccion } from './nominaLote';
 import { TasasView } from './TasasView';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, crearBilleteraEnCero, listConversiones } from './cajaSaldos.repository';
@@ -3011,35 +3012,75 @@ function NominaPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
   const [rows, setRows] = useState<NominaRenglon[]>([]);
   const [loading, setLoading] = useState(true);
   const [pagar, setPagar] = useState<NominaRenglon | null>(null);
+  // Buscador y selección para el pago por lote (orden de la administradora, 15-10-2026).
+  const [q, setQ] = useState('');
+  const [sel, setSel] = useState<Set<string>>(() => new Set());
+  const [lote, setLote] = useState<NominaRenglon[] | null>(null);
 
   const recargar = useCallback(async () => {
     setLoading(true);
-    try { setRows(await listRenglonesPorPagar()); }
+    try {
+      const nuevas = await listRenglonesPorPagar();
+      setRows(nuevas);
+      // Lo que ya se pagó (o se fue de la cola) sale de la selección.
+      setSel((s) => podarSeleccion(s, nuevas));
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar la nómina', 'error'); }
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void recargar(); }, [recargar]);
   useRealtime(['nomina_renglones'], () => { void recargar(); });
 
-  // Una sola nómina: la cola es toda la cola.
-  const visibles = rows;
-  const total = useMemo(() => round2(visibles.reduce((a, r) => a + (Number(r.neto_usd) || 0), 0)), [visibles]);
+  const visibles = useMemo(() => filtrarRenglonesNomina(rows, q), [rows, q]);
+  const total = useMemo(() => round2(rows.reduce((a, r) => a + (Number(r.neto_usd) || 0), 0)), [rows]);
+  const seleccionados = useMemo(() => rows.filter((r) => sel.has(r.id)), [rows, sel]);
+  const totalSel = useMemo(() => round2(seleccionados.reduce((a, r) => a + (Number(r.neto_usd) || 0), 0)), [seleccionados]);
+  const todosVisiblesMarcados = visibles.length > 0 && visibles.every((r) => sel.has(r.id));
 
   return (
-    <Modal title="Pagar nómina" size="xl" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+    <Modal title="Pagar nómina" size="xl" onClose={onClose} footer={
+      <>
+        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+        <button className="btn btn-primary" disabled={!seleccionados.length} onClick={() => setLote(seleccionados)}
+          title={seleccionados.length ? 'Paga todos los marcados desde una misma caja' : 'Marcá renglones para pagar por lote'}>
+          💸 Pagar seleccionados{seleccionados.length ? ` (${seleccionados.length}) · ${monto(totalSel, 'USD')}` : ''}
+        </button>
+      </>
+    }>
       <div className="muted" style={{ marginBottom: '.6rem', fontSize: '.86rem' }}>
-        Renglones cargados desde <strong>RRHH</strong>. Tesorería paga uno a uno (efectivo USD con seriales, o Bs a tasa BCV) y adjunta el comprobante (opcional).
-        {visibles.length > 0 && <> · {visibles.length} pendiente(s) · Total <strong className="mono">{monto(total, 'USD')}</strong></>}
+        Renglones cargados desde <strong>RRHH</strong>. Se paga <strong>uno a uno</strong> (💸 Pagar: efectivo USD con seriales, o Bs a tasa BCV, con comprobante opcional)
+        o <strong>por lote</strong>: marcá los renglones (o «Marcar todos») y tocá <strong>Pagar seleccionados</strong>; salen de una misma caja, cada uno por su neto.
+        {rows.length > 0 && <> · {rows.length} pendiente(s) · Total <strong className="mono">{monto(total, 'USD')}</strong></>}
+      </div>
+
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5rem' }}>
+        <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Buscar por trabajador, departamento, cargo, nómina o motivo…"
+          style={{ flex: 1, minWidth: 240 }} aria-label="Buscar en la nómina por pagar" />
+        <button type="button" className="btn btn-sm btn-ghost" disabled={!visibles.length || todosVisiblesMarcados} onClick={() => setSel((s) => seleccionarVisibles(s, visibles, true))}>
+          ☑ Marcar todos{q.trim() && visibles.length !== rows.length ? ` (${visibles.length} filtrados)` : ''}
+        </button>
+        <button type="button" className="btn btn-sm btn-ghost" disabled={!sel.size} onClick={() => setSel(new Set())}>☐ Desmarcar todos</button>
+        {sel.size > 0 && <span className="muted" style={{ fontSize: '.82rem' }}>{sel.size} marcado(s) · <strong className="mono">{monto(totalSel, 'USD')}</strong></span>}
       </div>
 
       <div className="table-wrap" style={{ maxHeight: 440, overflowY: 'auto' }}>
         <table className="table" style={{ fontSize: '.84rem' }}>
-          <thead><tr><th>Trabajador</th><th>Nómina</th><th>Motivo</th><th>Departamento</th><th style={{ textAlign: 'right' }}>Días</th><th style={{ textAlign: 'right' }}>Neto USD</th><th style={{ textAlign: 'center' }}>Acción</th></tr></thead>
+          <thead><tr>
+            <th style={{ width: 34, textAlign: 'center' }}>
+              <input type="checkbox" aria-label="Marcar todos los visibles" checked={todosVisiblesMarcados} disabled={!visibles.length}
+                onChange={(e) => setSel((s) => seleccionarVisibles(s, visibles, e.target.checked))} />
+            </th>
+            <th>Trabajador</th><th>Nómina</th><th>Motivo</th><th>Departamento</th><th style={{ textAlign: 'right' }}>Días</th><th style={{ textAlign: 'right' }}>Neto USD</th><th style={{ textAlign: 'center' }}>Acción</th>
+          </tr></thead>
           <tbody>
-            {loading && <tr><td colSpan={7} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
-            {!loading && !visibles.length && <tr><td colSpan={7}><EmptyState message="No hay nómina pendiente por pagar" icon="✅" /></td></tr>}
+            {loading && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!loading && !rows.length && <tr><td colSpan={8}><EmptyState message="No hay nómina pendiente por pagar" icon="✅" /></td></tr>}
+            {!loading && rows.length > 0 && !visibles.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Nadie coincide con «{q}».</td></tr>}
             {!loading && visibles.map((r) => (
-              <tr key={r.id}>
+              <tr key={r.id} style={sel.has(r.id) ? { background: 'rgba(255,138,0,0.08)' } : undefined}>
+                <td style={{ textAlign: 'center' }}>
+                  <input type="checkbox" aria-label={`Marcar a ${r.nombre}`} checked={sel.has(r.id)} onChange={() => setSel((s) => alternarSeleccion(s, r.id))} />
+                </td>
                 <td>{r.nombre}</td>
                 <td className="mono muted">{r.periodo?.codigo ?? '—'}</td>
                 <td><span className="badge" style={{ background: r.periodo?.tipo === 'vacaciones' ? 'var(--danger, #e5484d)' : r.periodo?.tipo === 'liquidacion' ? 'var(--warning, #ffae00)' : 'var(--primary-2, #2b6cb0)', color: '#fff' }}>{labelMotivoNomina(r.periodo?.tipo)}</span></td>
@@ -3058,6 +3099,164 @@ function NominaPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
           onClose={() => setPagar(null)}
           onPaid={async () => { setPagar(null); await recargar(); onPaid(); }} />
       )}
+      {lote && (
+        <PagarLoteNominaModal renglones={lote} cajas={cajas} actor={actor} actorName={actorName}
+          onClose={async (pagados) => { setLote(null); if (pagados > 0) { await recargar(); onPaid(); } }} />
+      )}
+    </Modal>
+  );
+}
+
+/* ───────── Pagar nómina POR LOTE (15-10-2026) ─────────
+   Varios renglones marcados, una misma caja (y saldo), cada uno por su neto: en
+   USD directo, en Bs a la tasa BCV. Se pagan uno detrás del otro con el MISMO RPC
+   transaccional del pago individual (nomina_pagar_renglon): cada renglón es su
+   propio egreso en el libro, con su beneficiario, y descuenta sus anticipos. Si
+   uno falla, se para ahí: lo ya pagado queda pagado (cada uno fue su transacción)
+   y se dice cuáles faltaron. Sin seriales ni comprobante: eso es del pago uno a
+   uno (un serial es de UN billete que se le da a UNA persona). */
+function PagarLoteNominaModal({ renglones, cajas, actor, actorName, onClose }: {
+  renglones: NominaRenglon[]; cajas: Caja[]; actor: string; actorName: string | null; onClose: (pagados: number) => void;
+}) {
+  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+  const caja = cajas.find((c) => c.id === cajaId) ?? null;
+  const [saldosCaja, setSaldosCaja] = useState<CajaSaldo[]>([]);
+  const [saldoSelId, setSaldoSelId] = useState('');
+  const [tasa, setTasa] = useState(0);
+  const [tasaFecha, setTasaFecha] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [progreso, setProgreso] = useState<{ hecho: number; actual: string | null }>({ hecho: 0, actual: null });
+  const [pagados, setPagados] = useState<string[]>([]);
+
+  useEffect(() => {
+    getTasaHoy().then((t) => { if (t.usd != null) setTasa(t.usd); setTasaFecha(t.fecha); }).catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!cajaId) { setSaldosCaja([]); setSaldoSelId(''); return; }
+    saldosDeCaja(cajaId).then((rows) => {
+      const conSaldo = rows.filter((r) => Number(r.saldo) > 0);
+      setSaldosCaja(conSaldo);
+      const pref = conSaldo.find((r) => r.moneda === 'USD') ?? conSaldo[0];
+      setSaldoSelId(pref?.id ?? '');
+    }).catch(() => { setSaldosCaja([]); setSaldoSelId(''); });
+  }, [cajaId]);
+
+  const esMulti = saldosCaja.length > 0;
+  const selSaldo = saldosCaja.find((s) => s.id === saldoSelId) ?? null;
+  const moneda = esMulti ? (selSaldo?.moneda ?? 'USD') : (caja?.moneda ?? 'USD');
+  const cuentaPago = esMulti ? (selSaldo?.cuenta ?? 'general') : null;
+  const disponible = esMulti ? (Number(selSaldo?.saldo) || 0) : (Number(caja?.saldo) || 0);
+
+  const { lineas, total } = useMemo(() => armarLote(renglones, moneda, tasa), [renglones, moneda, tasa]);
+  const alcanza = total <= disponible + 0.01;
+
+  async function submit(e: FormEvent) {
+    e.preventDefault(); setError(null);
+    if (!cajaId) { setError('Elegí la caja con la que se paga.'); return; }
+    if (esMulti && !selSaldo) { setError('Elegí de qué saldo (moneda) de la caja se paga.'); return; }
+    if (moneda === 'Bs' && !(tasa > 0)) { setError('Indicá la tasa BCV para pagar en bolívares.'); return; }
+    if (total <= 0) { setError('El lote no tiene montos por pagar.'); return; }
+    if (!alcanza) { setError(`Saldo insuficiente para el lote. Disponible: ${monto(disponible, moneda)} · Lote: ${monto(total, moneda)}.`); return; }
+    setSaving(true);
+    const ok: string[] = [];
+    try {
+      for (const ln of lineas) {
+        setProgreso({ hecho: ok.length, actual: ln.renglon.nombre });
+        await pagarRenglon({
+          renglon: ln.renglon, cajaId, monto: ln.monto,
+          cuenta: cuentaPago, moneda,
+          tasa: moneda === 'Bs' ? tasa : null,
+          seriales: null, comprobante: null,
+          actorEmail: actor, actorName,
+        });
+        ok.push(ln.renglon.id);
+        setPagados([...ok]);
+      }
+      notify(`Nómina pagada por lote · ${ok.length} persona(s) · ${monto(total, moneda)}`, 'success', { link: '#/app/tesoreria' });
+      onClose(ok.length);
+    } catch (err) {
+      const faltan = lineas.filter((l) => !ok.includes(l.renglon.id)).map((l) => l.renglon.nombre);
+      setError(`${err instanceof Error ? err.message : 'No se pudo pagar.'} · Se pagaron ${ok.length} de ${lineas.length}; faltan: ${faltan.join(', ')}.`);
+      setSaving(false);
+      setProgreso({ hecho: ok.length, actual: null });
+    }
+  }
+
+  return (
+    <Modal title={`Pagar nómina por lote · ${renglones.length} persona(s)`} size="lg" onClose={() => !saving && onClose(pagados.length)} footer={
+      <>
+        <button className="btn btn-ghost" onClick={() => onClose(pagados.length)} disabled={saving}>{pagados.length && !saving ? 'Cerrar' : 'Cancelar'}</button>
+        <button type="submit" form="pagar-nomina-lote" className="btn btn-primary" disabled={saving || !alcanza || total <= 0 || pagados.length === lineas.length}>
+          {saving ? `Pagando ${progreso.hecho + 1} de ${lineas.length}…` : `PAGAR ${lineas.length} · ${monto(total, moneda)}`}
+        </button>
+      </>
+    }>
+      <form id="pagar-nomina-lote" onSubmit={submit}>
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+
+        <div className="form-grid">
+          <div className="form-row">
+            <label>Caja (de dónde sale el dinero)</label>
+            <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)} required disabled={saving}>
+              {!cajas.length && <option value="">— sin cajas —</option>}
+              {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </div>
+          {esMulti && (
+            <div className="form-row">
+              <label>Saldo de la caja (moneda / cuenta)</label>
+              <select className="select" value={saldoSelId} onChange={(e) => setSaldoSelId(e.target.value)} required disabled={saving}>
+                {saldosCaja.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.moneda}{s.cuenta !== 'general' ? ` · ${labelCuentaCaja(s.cuenta)}` : ''} · {monto(Number(s.saldo), s.moneda)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {moneda === 'Bs' && (
+            <div className="form-row">
+              <label>Tasa BCV (Bs/$){tasaFecha ? ` · ${fmtDate(tasaFecha)}` : ''}</label>
+              <input className="input mono" type="number" min={0} step="any" value={tasa || ''} onChange={(e) => setTasa(Number(e.target.value) || 0)} placeholder="0,00" disabled={saving} />
+              <small className="hint muted">Cada neto en USD se convierte a Bs con esta tasa.</small>
+            </div>
+          )}
+        </div>
+
+        <div className="card" style={{ margin: '.75rem 0', borderColor: alcanza ? 'var(--brand, #ff8a00)' : 'var(--danger)' }}>
+          <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <div><div className="muted" style={{ fontSize: '.72rem' }}>Total del lote ({moneda})</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{monto(total, moneda)}</strong></div>
+            <div><div className="muted" style={{ fontSize: '.72rem' }}>Disponible en el saldo</div><strong className="mono" style={{ fontSize: '1.1rem', color: alcanza ? 'var(--success)' : 'var(--danger)' }}>{monto(disponible, moneda)}</strong></div>
+            {!alcanza && <div className="muted" style={{ fontSize: '.82rem' }}>No alcanza: quitá personas del lote o elegí otra caja / saldo.</div>}
+          </div>
+        </div>
+
+        <div className="table-wrap" style={{ maxHeight: 300, overflowY: 'auto' }}>
+          <table className="table" style={{ fontSize: '.82rem' }}>
+            <thead><tr><th>#</th><th>Trabajador</th><th>Nómina</th><th style={{ textAlign: 'right' }}>Neto USD</th><th style={{ textAlign: 'right' }}>Paga ({moneda})</th><th style={{ textAlign: 'center' }}>Estado</th></tr></thead>
+            <tbody>
+              {lineas.map((ln, i) => {
+                const hecho = pagados.includes(ln.renglon.id);
+                const enCurso = saving && progreso.actual === ln.renglon.nombre && !hecho;
+                return (
+                  <tr key={ln.renglon.id} style={hecho ? { opacity: .65 } : undefined}>
+                    <td className="muted">{i + 1}</td>
+                    <td>{ln.renglon.nombre}</td>
+                    <td className="mono muted">{ln.renglon.periodo?.codigo ?? '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{monto(ln.netoUsd, 'USD')}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{monto(ln.monto, moneda)}</td>
+                    <td style={{ textAlign: 'center' }}>{hecho ? '✅ Pagado' : enCurso ? '⏳ Pagando…' : <span className="muted">Pendiente</span>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <small className="hint muted" style={{ display: 'block', marginTop: '.5rem' }}>
+          Cada persona queda como su propio egreso en el registro de movimientos (con sus anticipos descontados). Los seriales de billetes y el comprobante se cargan solo en el pago uno a uno.
+        </small>
+      </form>
     </Modal>
   );
 }
