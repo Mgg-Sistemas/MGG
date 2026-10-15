@@ -22,7 +22,7 @@ import type { Caja, MovimientoCaja, Orden, Producto, Almacen } from '@/shared/li
 import { listProductos } from '@/modules/inventario/inventario.repository';
 import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacenes.repository';
 import { HistorialTasasModal } from './HistorialTasasModal';
-import { filtrarRenglonesNomina, armarLote, alternarSeleccion, seleccionarVisibles, podarSeleccion } from './nominaLote';
+import { filtrarRenglonesNomina, armarLote, pendientesDelLote, alternarSeleccion, seleccionarVisibles, podarSeleccion } from './nominaLote';
 import { TasasView } from './TasasView';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, crearBilleteraEnCero, listConversiones } from './cajaSaldos.repository';
@@ -3111,10 +3111,16 @@ function NominaPorPagarModal({ cajas, actor, actorName, onClose, onPaid }: {
    Varios renglones marcados, una misma caja (y saldo), cada uno por su neto: en
    USD directo, en Bs a la tasa BCV. Se pagan uno detrás del otro con el MISMO RPC
    transaccional del pago individual (nomina_pagar_renglon): cada renglón es su
-   propio egreso en el libro, con su beneficiario, y descuenta sus anticipos. Si
-   uno falla, se para ahí: lo ya pagado queda pagado (cada uno fue su transacción)
-   y se dice cuáles faltaron. Sin seriales ni comprobante: eso es del pago uno a
-   uno (un serial es de UN billete que se le da a UNA persona). */
+   propio egreso en el libro, con su beneficiario, y descuenta sus anticipos.
+
+   El lote NO es una sola operación todo-o-nada (regla de la administradora): si
+   la conexión se cae a la mitad, los ya pagados quedan pagados (cada uno fue su
+   transacción) y el resto sigue en la lista para volver a intentar. Al reintentar
+   solo se pagan los que faltan; y antes de pagar cada uno se reconsulta en la base:
+   si quedó pagado aunque la respuesta se haya perdido, se da por hecho y se sigue
+   (nunca se paga dos veces: el RPC también lo bloquea). Sin seriales ni
+   comprobante: eso es del pago uno a uno (un serial es de UN billete que se le da
+   a UNA persona). */
 function PagarLoteNominaModal({ renglones, cajas, actor, actorName, onClose }: {
   renglones: NominaRenglon[]; cajas: Caja[]; actor: string; actorName: string | null; onClose: (pagados: number) => void;
 }) {
@@ -3148,8 +3154,11 @@ function PagarLoteNominaModal({ renglones, cajas, actor, actorName, onClose }: {
   const cuentaPago = esMulti ? (selSaldo?.cuenta ?? 'general') : null;
   const disponible = esMulti ? (Number(selSaldo?.saldo) || 0) : (Number(caja?.saldo) || 0);
 
-  const { lineas, total } = useMemo(() => armarLote(renglones, moneda, tasa), [renglones, moneda, tasa]);
+  const { lineas } = useMemo(() => armarLote(renglones, moneda, tasa), [renglones, moneda, tasa]);
+  // Lo que FALTA por pagar (tras una caída, solo eso se reintenta y solo eso se compara con el disponible).
+  const { lineas: faltantes, total } = useMemo(() => pendientesDelLote(lineas, pagados), [lineas, pagados]);
   const alcanza = total <= disponible + 0.01;
+  const reintento = pagados.length > 0 && faltantes.length > 0;
 
   async function submit(e: FormEvent) {
     e.preventDefault(); setError(null);
@@ -3157,27 +3166,36 @@ function PagarLoteNominaModal({ renglones, cajas, actor, actorName, onClose }: {
     if (esMulti && !selSaldo) { setError('Elegí de qué saldo (moneda) de la caja se paga.'); return; }
     if (moneda === 'Bs' && !(tasa > 0)) { setError('Indicá la tasa BCV para pagar en bolívares.'); return; }
     if (total <= 0) { setError('El lote no tiene montos por pagar.'); return; }
-    if (!alcanza) { setError(`Saldo insuficiente para el lote. Disponible: ${monto(disponible, moneda)} · Lote: ${monto(total, moneda)}.`); return; }
+    if (!alcanza) { setError(`Saldo insuficiente para lo que falta del lote. Disponible: ${monto(disponible, moneda)} · Falta: ${monto(total, moneda)}.`); return; }
     setSaving(true);
-    const ok: string[] = [];
+    const ok: string[] = [...pagados];
+    let hechosAhora = 0;
     try {
-      for (const ln of lineas) {
+      for (const ln of faltantes) {
         setProgreso({ hecho: ok.length, actual: ln.renglon.nombre });
-        await pagarRenglon({
-          renglon: ln.renglon, cajaId, monto: ln.monto,
-          cuenta: cuentaPago, moneda,
-          tasa: moneda === 'Bs' ? tasa : null,
-          seriales: null, comprobante: null,
-          actorEmail: actor, actorName,
-        });
+        // Reconsulta en la base: si un intento anterior lo pagó pero la respuesta se perdió
+        // (conexión caída), ya está pagado → se da por hecho y se sigue con el siguiente.
+        const actual = await getRenglonById(ln.renglon.id);
+        if (!actual) throw new Error(`${ln.renglon.nombre}: el renglón ya no está en la nómina.`);
+        if (actual.estado !== 'pagada') {
+          await pagarRenglon({
+            renglon: actual, cajaId, monto: ln.monto,
+            cuenta: cuentaPago, moneda,
+            tasa: moneda === 'Bs' ? tasa : null,
+            seriales: null, comprobante: null,
+            actorEmail: actor, actorName,
+          });
+          hechosAhora += 1;
+        }
         ok.push(ln.renglon.id);
         setPagados([...ok]);
       }
-      notify(`Nómina pagada por lote · ${ok.length} persona(s) · ${monto(total, moneda)}`, 'success', { link: '#/app/tesoreria' });
+      notify(`Nómina pagada por lote · ${ok.length} persona(s)${hechosAhora < ok.length ? ` (${ok.length - hechosAhora} ya estaban pagadas)` : ''}`, 'success', { link: '#/app/tesoreria' });
       onClose(ok.length);
     } catch (err) {
       const faltan = lineas.filter((l) => !ok.includes(l.renglon.id)).map((l) => l.renglon.nombre);
-      setError(`${err instanceof Error ? err.message : 'No se pudo pagar.'} · Se pagaron ${ok.length} de ${lineas.length}; faltan: ${faltan.join(', ')}.`);
+      const sinRed = typeof navigator !== 'undefined' && navigator.onLine === false;
+      setError(`${sinRed ? 'Se perdió la conexión.' : (err instanceof Error ? err.message : 'No se pudo pagar.')} Van ${ok.length} de ${lineas.length} pagadas: esas quedan pagadas. Faltan ${faltan.length}: ${faltan.join(', ')}. Cuando vuelva la conexión, tocá «Reintentar los que faltan»; si cerrás, siguen en la lista.`);
       setSaving(false);
       setProgreso({ hecho: ok.length, actual: null });
     }
@@ -3187,13 +3205,18 @@ function PagarLoteNominaModal({ renglones, cajas, actor, actorName, onClose }: {
     <Modal title={`Pagar nómina por lote · ${renglones.length} persona(s)`} size="lg" onClose={() => !saving && onClose(pagados.length)} footer={
       <>
         <button className="btn btn-ghost" onClick={() => onClose(pagados.length)} disabled={saving}>{pagados.length && !saving ? 'Cerrar' : 'Cancelar'}</button>
-        <button type="submit" form="pagar-nomina-lote" className="btn btn-primary" disabled={saving || !alcanza || total <= 0 || pagados.length === lineas.length}>
-          {saving ? `Pagando ${progreso.hecho + 1} de ${lineas.length}…` : `PAGAR ${lineas.length} · ${monto(total, moneda)}`}
+        <button type="submit" form="pagar-nomina-lote" className="btn btn-primary" disabled={saving || !alcanza || total <= 0 || !faltantes.length}>
+          {saving
+            ? `Pagando ${Math.min(progreso.hecho + 1, lineas.length)} de ${lineas.length}…`
+            : reintento
+              ? `🔁 REINTENTAR LOS QUE FALTAN (${faltantes.length}) · ${monto(total, moneda)}`
+              : `PAGAR ${faltantes.length} · ${monto(total, moneda)}`}
         </button>
       </>
     }>
       <form id="pagar-nomina-lote" onSubmit={submit}>
-        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Atención:</strong> {error}</div>}
+        {reintento && !error && <div className="card" style={{ borderColor: 'var(--warning, #ffae00)', marginBottom: '.75rem' }}>Ya se pagaron {pagados.length} de {lineas.length}; quedan {faltantes.length} por pagar.</div>}
 
         <div className="form-grid">
           <div className="form-row">
@@ -3226,7 +3249,7 @@ function PagarLoteNominaModal({ renglones, cajas, actor, actorName, onClose }: {
 
         <div className="card" style={{ margin: '.75rem 0', borderColor: alcanza ? 'var(--brand, #ff8a00)' : 'var(--danger)' }}>
           <div style={{ display: 'flex', gap: '1.2rem', flexWrap: 'wrap', alignItems: 'center' }}>
-            <div><div className="muted" style={{ fontSize: '.72rem' }}>Total del lote ({moneda})</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{monto(total, moneda)}</strong></div>
+            <div><div className="muted" style={{ fontSize: '.72rem' }}>{reintento ? `Falta del lote (${moneda})` : `Total del lote (${moneda})`}</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{monto(total, moneda)}</strong></div>
             <div><div className="muted" style={{ fontSize: '.72rem' }}>Disponible en el saldo</div><strong className="mono" style={{ fontSize: '1.1rem', color: alcanza ? 'var(--success)' : 'var(--danger)' }}>{monto(disponible, moneda)}</strong></div>
             {!alcanza && <div className="muted" style={{ fontSize: '.82rem' }}>No alcanza: quitá personas del lote o elegí otra caja / saldo.</div>}
           </div>
@@ -3254,7 +3277,7 @@ function PagarLoteNominaModal({ renglones, cajas, actor, actorName, onClose }: {
           </table>
         </div>
         <small className="hint muted" style={{ display: 'block', marginTop: '.5rem' }}>
-          Cada persona queda como su propio egreso en el registro de movimientos (con sus anticipos descontados). Los seriales de billetes y el comprobante se cargan solo en el pago uno a uno.
+          Cada persona queda como su propio egreso en el registro de movimientos (con sus anticipos descontados). El lote no es todo-o-nada: si se cae la conexión a la mitad, los ya pagados quedan pagados y el resto sigue en la lista para volver a intentar. Los seriales de billetes y el comprobante se cargan solo en el pago uno a uno.
         </small>
       </form>
     </Modal>

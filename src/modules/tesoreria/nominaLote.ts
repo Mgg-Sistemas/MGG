@@ -51,6 +51,18 @@ export function armarLote(rows: NominaRenglon[], moneda: string, tasa: number): 
   return { lineas, total: round2(lineas.reduce((a, l) => a + l.monto, 0)) };
 }
 
+/**
+ * El lote NO es todo-o-nada (regla de la administradora, 15-10-2026): cada renglón es
+ * su propia transacción. Si la conexión se cae a la mitad, los ya pagados quedan
+ * pagados y estos son los que faltan: con ellos se reintenta (y se recalcula el total
+ * que se compara con el disponible).
+ */
+export function pendientesDelLote(lineas: LineaLote[], pagados: Iterable<string>): { lineas: LineaLote[]; total: number } {
+  const hechos = new Set(pagados);
+  const rest = lineas.filter((l) => !hechos.has(l.renglon.id));
+  return { lineas: rest, total: round2(rest.reduce((a, l) => a + l.monto, 0)) };
+}
+
 /** Alterna un id en el conjunto de seleccionados (devuelve un conjunto nuevo). */
 export function alternarSeleccion(sel: Set<string>, id: string): Set<string> {
   const s = new Set(sel);

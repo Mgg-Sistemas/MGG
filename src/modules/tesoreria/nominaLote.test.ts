@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { NominaRenglon } from '@/shared/lib/types';
-import { alternarSeleccion, armarLote, filtrarRenglonesNomina, podarSeleccion, seleccionarVisibles } from './nominaLote';
+import { alternarSeleccion, armarLote, filtrarRenglonesNomina, pendientesDelLote, podarSeleccion, seleccionarVisibles } from './nominaLote';
 
 function r(id: string, nombre: string, extra: Partial<NominaRenglon> = {}): NominaRenglon {
   return {
@@ -53,6 +53,15 @@ describe('Tesorería · pagar nómina: lote', () => {
     expect(sel.size).toBe(0);
     sel = alternarSeleccion(sel, 'a');
     expect([...sel]).toEqual(['a']);
+  });
+
+  it('el lote no es todo-o-nada: tras una caída quedan solo los que faltan, con su total', () => {
+    const { lineas } = armarLote(cola, 'USD', 0);
+    const rest = pendientesDelLote(lineas, ['a']);
+    expect(rest.lineas.map((l) => l.renglon.id)).toEqual(['b', 'c']);
+    expect(rest.total).toBe(283.33);
+    expect(pendientesDelLote(lineas, ['a', 'b', 'c']).lineas).toHaveLength(0);
+    expect(pendientesDelLote(lineas, []).total).toBe(383.33);
   });
 
   it('al recargar la cola se podan los ids que ya se pagaron', () => {
