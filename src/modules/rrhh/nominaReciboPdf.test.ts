@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { calcularRecibo } from './sueldoQuincena';
-import { textoConformidad, tituloRecibo } from './nominaReciboPdf';
+import { pagoQuincenalBs, textoConformidad, tituloRecibo } from './nominaReciboPdf';
 
 /* Dos recibos por persona (09-10-2026): cada conformidad certifica SOLO lo
-   que se entrega con ese recibo, nombra al otro, y el 2/2 cierra con el total. */
+   que se entrega con ese recibo, nombra al otro, y el 2/2 cierra con el total.
+   Desde el 15-10-2026 el 1/2 (bolívares) es SOLO en bolívares: nada en $. */
 describe('recibos de nómina · dos por persona', () => {
   const c = calcularRecibo({
     brutoQuincena: 250, diasTrabajados: 11, diasDescanso: 4, bonosExtra: 20, viaticos: 15,
@@ -15,15 +16,22 @@ describe('recibos de nómina · dos por persona', () => {
     expect(tituloRecibo('bono')).toBe('COMPROBANTE DE PAGO 2/2 · BONIFICACIÓN EN DIVISAS');
   });
 
-  it('el 1/2 certifica el neto en Bs, sin la palabra sueldo, y remite el bono al 2/2', () => {
+  it('el 1/2 certifica el neto en Bs, sin dólares ni tasa, sin la palabra sueldo, y remite el bono al 2/2', () => {
     const t = textoConformidad('sueldo', c);
     expect(t.toLowerCase()).not.toContain('sueldo');
     expect(tituloRecibo('sueldo').toLowerCase()).not.toContain('sueldo');
     expect(t).toContain('Bs 15.637,88'); // 82,50 $ x 189,55 = 15.637,875
-    expect(t).toContain('$ 82,50');
+    expect(t).not.toContain('$');
+    expect(t).not.toContain('tasa');
     expect(t).toContain('recibo 1 de 2');
     expect(t).toContain('recibo 2 de 2');
-    expect(t).not.toContain('totalidad');
+  });
+
+  it('el pago quincenal en Bs del 1/2 son los días (trabajados + descanso) y el diario es ÷ 15', () => {
+    // La parte en Bs de 250 $ brutos es 50 $ (20 %): 11 + 4 días → 50 $ x 189,55 = 9.477,50 Bs.
+    const q = pagoQuincenalBs(c);
+    expect(q.quincenal).toBe(9477.5);
+    expect(q.diario).toBe(631.83);
   });
 
   it('el 2/2 certifica el bono neto, nombra el 1/2 y cierra con el total de los dos', () => {

@@ -62,14 +62,27 @@ export function tituloRecibo(hoja: HojaRecibo): string {
  * recibo es la remuneración completa. El 2/2 cierra con el total de los dos.
  */
 export function textoConformidad(hoja: HojaRecibo, c: ReciboCalculado): string {
-  const tasaStr = c.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   if (hoja === 'sueldo') {
-    return `Certifico haber recibido ${bsStr(c.netoBs)} en bolívares (${usd(c.netoUsd)} a la tasa de ${tasaStr} Bs/$) por el período indicado, según el desglose de este recibo 1 de 2. La bonificación en divisas se entrega con el recibo 2 de 2. Firmo en señal de conformidad.`;
+    // SOLO bolívares (regla de la administradora, 15-10-2026): ni equivalente en $, ni tasa.
+    return `Certifico haber recibido la cantidad de ${bsStr(c.netoBs)} que comprende la totalidad de mi pago en bolívares del período que se indica en el mismo, según el desglose de este recibo 1 de 2. La bonificación se entrega con el recibo 2 de 2. Firmo en señal de conformidad.`;
   }
   const descuento = c.deduccionBonoUsd > 0
     ? ` (bono de ${usd(c.bonoUsd)} menos ${usd(c.deduccionBonoUsd)} de préstamos y anticipos)`
     : '';
   return `Certifico haber recibido ${usd(c.bonoNetoUsd)} de bonificación en divisas${descuento} por el período indicado, según este recibo 2 de 2. El pago en bolívares se entregó con el recibo 1 de 2 (${bsStr(c.netoBs)}, ${usd(c.netoUsd)}). Entre los dos recibos queda cubierta la totalidad de mi remuneración del período, ${usd(c.totalRecibidoUsd)}. Firmo en señal de conformidad.`;
+}
+
+/**
+ * Pago quincenal y diario EN BOLÍVARES del recibo 1/2 (15-10-2026): como el formato
+ * que usa la administración (sueldo quincenal = días trabajados + descanso, diario =
+ * quincenal ÷ 15). Solo las líneas con días; bonos y viáticos van aparte en la tabla.
+ */
+export function pagoQuincenalBs(c: ReciboCalculado): { quincenal: number; diario: number } {
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const quincenal = c.lineas
+    .filter((ln) => ln.tipo === 'devengado' && ln.dias != null)
+    .reduce((a, ln) => a + aBs(ln.usd, c.tasa), 0);
+  return { quincenal: r2(quincenal), diario: r2(quincenal / 15) };
 }
 
 /** Lo que se le pasa al cálculo del recibo, sacado del renglón de nómina. */
@@ -116,7 +129,7 @@ function finalY(doc: Doc, fallback: number): number {
 }
 
 /** Encabezado (logo, empresa, código, fecha), raya naranja, título del recibo y datos del trabajador. */
-function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecibo): number {
+function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecibo, c: ReciboCalculado): number {
   const { doc, autoTable, logoDataUrl, PAGE_W } = l;
   const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
@@ -159,8 +172,18 @@ function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecib
         ? `${fmtDate(meta.periodo.periodo_desde)}${meta.periodo.periodo_hasta ? ' al ' + fmtDate(meta.periodo.periodo_hasta) : ''}`
         : '—',
         'Días', `${Number(r.dias_trabajados) || 0} trabajados + ${Number(r.dias_descanso) || 0} de descanso`],
-      ['Estado', r.estado === 'pagada' ? `Pagado${r.pagada_en ? ' · ' + fmtDate(r.pagada_en) : ''}` : 'Por pagar',
-        'Sueldo mensual', usd(r.sueldo_base_mensual)],
+      // 1/2 (solo bolívares, 15-10-2026): pago quincenal y diario en Bs, como el formato de la
+      // administración. 2/2: el sueldo mensual en $, que es la base del bono.
+      ...(hoja === 'sueldo'
+        ? [
+            ['Estado', r.estado === 'pagada' ? `Pagado${r.pagada_en ? ' · ' + fmtDate(r.pagada_en) : ''}` : 'Por pagar',
+              'Forma de pago', 'Bs'],
+            ['Pago quincenal', bsStr(pagoQuincenalBs(c).quincenal), 'Pago diario', bsStr(pagoQuincenalBs(c).diario)],
+          ]
+        : [
+            ['Estado', r.estado === 'pagada' ? `Pagado${r.pagada_en ? ' · ' + fmtDate(r.pagada_en) : ''}` : 'Por pagar',
+              'Sueldo mensual', usd(r.sueldo_base_mensual)],
+          ]),
     ],
     margin: MARGENES_TABLA_PDF,
     theme: 'grid',
@@ -211,30 +234,31 @@ function pie(l: Lienzo, r: NominaRenglon, hoja: HojaRecibo, c: ReciboCalculado, 
 /* ───────── Recibo 1/2 · pago en bolívares ───────── */
 function hojaSueldo(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalculado): void {
   const { doc, autoTable } = l;
-  let y = cabecera(l, r, meta, 'sueldo');
+  let y = cabecera(l, r, meta, 'sueldo', c);
   const tasa = c.tasa;
 
-  /* LA TABLA: solo lo que se paga EN BOLÍVARES, o sea la parte «sueldo»
-     (20 %) repartida en días, más los extras, menos las deducciones de ley.
-     Se imprimen TODOS los conceptos aunque estén en cero: así el recibo es
-     siempre el mismo documento y quien lo firma ve que no se le omitió
-     ningún descuento. */
+  /* LA TABLA: solo lo que se paga EN BOLÍVARES y SOLO EN BOLÍVARES (regla de la
+     administradora, 15-10-2026): ni columnas «en $», ni equivalente, ni tasa. Es la
+     parte «sueldo» repartida en días, más los extras, menos las deducciones de ley.
+     Se imprimen TODOS los conceptos aunque estén en cero: así el recibo es siempre
+     el mismo documento y quien lo firma ve que no se le omitió ningún descuento.
+     Columnas como el formato de la administración: concepto, días, devengado,
+     deducción y saldo. */
   const filas = c.lineas.map((ln, i) => ([
     String(i + 1),
-    ln.dias != null ? `${ln.concepto} (${ln.dias})` : ln.concepto,
+    ln.concepto,
+    ln.dias != null ? String(ln.dias) : '',
     ln.tipo === 'devengado' ? bsStr(aBs(ln.usd, tasa)) : '',
-    ln.tipo === 'devengado' ? usd(ln.usd) : '',
     ln.tipo === 'deduccion' ? bsStr(aBs(ln.usd, tasa)) : '',
-    ln.tipo === 'deduccion' ? usd(ln.usd) : '',
   ]));
 
   autoTable(doc, {
     startY: y,
-    head: [['#', 'CONCEPTO', 'DEVENGADO Bs', 'en $', 'DEDUCCIÓN Bs', 'en $']],
+    head: [['#', 'CONCEPTO', 'DÍAS', 'DEVENGADO Bs', 'DEDUCCIÓN Bs']],
     body: filas,
     foot: [
-      ['', 'TOTALES', bsStr(c.totalDevengadoBs), usd(c.totalDevengadoUsd), bsStr(c.totalDeduccionBs), usd(c.totalDeduccionUsd)],
-      ['', 'NETO A PAGAR EN BOLÍVARES', bsStr(c.netoBs), usd(c.netoUsd), '', ''],
+      ['', 'TOTALES', '', bsStr(c.totalDevengadoBs), bsStr(c.totalDeduccionBs)],
+      ['', 'NETO A PAGAR EN BOLÍVARES', '', bsStr(c.netoBs), ''],
     ],
     margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 8.5, cellPadding: 2.5 },
@@ -242,28 +266,27 @@ function hojaSueldo(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalc
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
     columnStyles: {
       0: { cellWidth: 18, halign: 'center' },
-      2: { halign: 'right' }, 3: { halign: 'right' },
-      4: { halign: 'right' }, 5: { halign: 'right' },
+      2: { cellWidth: 40, halign: 'center' },
+      3: { halign: 'right', cellWidth: 110 }, 4: { halign: 'right', cellWidth: 110 },
     },
   });
   y = finalY(doc, y) + 6;
 
-  /* EL PAGO: lo que se entrega con este recibo, con la tasa a la vista, y la
-     nota de que el bono va aparte. */
+  /* EL PAGO: lo que se entrega con este recibo, en bolívares, y la nota de que la
+     bonificación va aparte (sin su monto: eso es del recibo 2/2). */
   autoTable(doc, {
     startY: y,
-    head: [['PAGO DE ESTE RECIBO', 'Bs', 'Equivalente $']],
+    head: [['PAGO DE ESTE RECIBO', 'Bs']],
     body: [
-      ['Pago en bolívares (20 % del total acordado)', bsStr(c.netoBs), usd(c.netoUsd)],
-      ['Tasa aplicada (BCV de la quincena)', tasa > 0 ? `${bsStr(tasa)} / $` : '—', ''],
-      ['Bonificación en divisas', 'va en el recibo 2/2', usd(c.bonoNetoUsd)],
+      ['Pago en bolívares', bsStr(c.netoBs)],
+      ['Bonificación', 'se entrega con el recibo 2/2'],
     ],
-    foot: [['TOTAL ENTREGADO CON ESTE RECIBO', bsStr(c.netoBs), usd(c.netoUsd)]],
+    foot: [['NETO ENTREGADO CON ESTE RECIBO', bsStr(c.netoBs)]],
     margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 8.5, cellPadding: 2.5 },
     headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
-    columnStyles: { 1: { halign: 'right', cellWidth: 125 }, 2: { halign: 'right', cellWidth: 105 } },
+    columnStyles: { 1: { halign: 'right', cellWidth: 170 } },
   });
   y = finalY(doc, y) + 6;
 
@@ -273,7 +296,7 @@ function hojaSueldo(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalc
 /* ───────── Recibo 2/2 · bonificación en divisas ───────── */
 function hojaBono(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalculado): void {
   const { doc, autoTable } = l;
-  let y = cabecera(l, r, meta, 'bono');
+  let y = cabecera(l, r, meta, 'bono', c);
 
   /* EL BONO: el 80 %, en divisas. De acá se descuentan préstamos y anticipos:
      se prestan en dólares y se cobran en dólares. Si el bono no alcanza, el
