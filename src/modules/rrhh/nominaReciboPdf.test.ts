@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { calcularRecibo } from './sueldoQuincena';
-import { pagoQuincenalBs, textoConformidad, textoPeriodo, tituloRecibo } from './nominaReciboPdf';
+import { fechaDocumento, pagoQuincenalBs, textoConformidad, textoPeriodo, tituloRecibo } from './nominaReciboPdf';
 
 /* Dos recibos por persona (09-10-2026). Desde el 15-10-2026: el título es solo
    «COMPROBANTE DE PAGO», el de bolívares es SOLO en bolívares y no nombra la
@@ -16,10 +16,10 @@ describe('recibos de nómina · dos por persona', () => {
     expect(tituloRecibo('bono')).toBe('COMPROBANTE DE PAGO');
   });
 
-  it('el de bolívares certifica el neto en Bs, sin dólares, tasa, sueldo ni bonificación', () => {
-    const t = textoConformidad('sueldo', c);
-    expect(t.toLowerCase()).not.toContain('sueldo');
-    expect(t).toContain('Bs 15.637,88'); // 82,50 $ x 189,55 = 15.637,875
+  it('el de bolívares certifica el neto en Bs y el período con el texto de la administradora, sin dólares ni bonificación', () => {
+    const t = textoConformidad('sueldo', c, '01 oct. 2026 al 15 oct. 2026');
+    expect(t).toBe('Certifico haber recibido la cantidad de Bs 15.637,88, que conforme a la totalidad de mi salario al período del 01 oct. 2026 al 15 oct. 2026. Y firmo en señal de conformidad.'); // 82,50 $ x 189,55 = 15.637,875
+    expect(textoConformidad('sueldo', c, '—')).not.toContain('período'); // sin período no inventa
     expect(t).not.toContain('$');
     expect(t).not.toContain('tasa');
     expect(t.toLowerCase()).not.toContain('bonificaci');
@@ -52,5 +52,12 @@ describe('recibos de nómina · dos por persona', () => {
     expect(textoPeriodo({ periodo: { periodo_desde: '2026-10-15', periodo_hasta: '2026-10-15' } })).not.toContain(' al ');
     expect(textoPeriodo({ periodo: { periodo_desde: null, periodo_hasta: null } }, { periodo: { codigo: 'X', tipo: 'quincena', periodo_desde: '2026-10-16', periodo_hasta: '2026-10-31' } })).toContain(' al ');
     expect(textoPeriodo({ periodo: { periodo_desde: null, periodo_hasta: null } }, null)).toBe('—');
+  });
+
+  it('la fecha del documento es la del pago si ya se pagó, o la de emisión si no', () => {
+    expect(fechaDocumento({ estado: 'pagada', pagada_en: '2026-10-16' }, '2026-10-20')).toBe('Pagado el 16 oct. 2026');
+    expect(fechaDocumento({ estado: 'por_pagar', pagada_en: null }, '2026-10-15')).toBe('Emitido el 15 oct. 2026');
+    // Pagada sin fecha de pago (dato viejo): no inventa; usa la emisión.
+    expect(fechaDocumento({ estado: 'pagada', pagada_en: null }, '2026-10-15')).toBe('Emitido el 15 oct. 2026');
   });
 });

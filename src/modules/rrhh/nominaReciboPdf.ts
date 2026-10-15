@@ -12,11 +12,16 @@
    La palabra «sueldo» no va en el 1/2 (pedido de la administradora, 09-10): se llama «pago en bolívares». Antes iba todo en una hoja. Se separan porque se pagan en monedas
    distintas, muchas veces en días distintos, y cada entrega necesita su
    propia firma: quien cobra el sueldo firma el sueldo, quien recibe el bono
-   firma el bono. Los dos recibos llevan el mismo código de nómina y se
-   nombran entre sí, y el 2/2 cierra con el total de los dos.
+   firma el bono. Los dos recibos llevan el mismo código de nómina.
 
-   Cada recibo entra en UNA carta (datos, desglose, conformidad y firmas); si
-   algún día no entra, las firmas pasan de hoja enteras, nunca partidas. Los
+   Desde el 15-10-2026 (reglas de la administradora): los dos se titulan solo
+   «COMPROBANTE DE PAGO»; el de bolívares es SOLO en Bs y no nombra la
+   bonificación; el de la bonificación es SOLO en $ y no nombra al otro; firma
+   solo el trabajador, centrada al pie de la hoja; arriba a la derecha va la
+   fecha de pago (o de emisión si aún no se pagó) y bajo el nombre el RIF.
+
+   Cada recibo entra en UNA carta (datos, desglose, conformidad y firma); si
+   algún día no entra, la firma pasa de hoja entera, nunca partida. Los
    seriales de billetes van en el 2/2, que es el que se paga en efectivo.
    ============================================================ */
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
@@ -62,11 +67,12 @@ export function tituloRecibo(hoja: HojaRecibo): string {
  * entrega con él, en su moneda, y nombra al otro para que nadie crea que un
  * recibo es la remuneración completa. El 2/2 cierra con el total de los dos.
  */
-export function textoConformidad(hoja: HojaRecibo, c: ReciboCalculado): string {
+export function textoConformidad(hoja: HojaRecibo, c: ReciboCalculado, periodo = ''): string {
   if (hoja === 'sueldo') {
-    // SOLO bolívares (regla de la administradora, 15-10-2026): ni equivalente en $, ni tasa,
-    // ni mención de la bonificación.
-    return `Certifico haber recibido la cantidad de ${bsStr(c.netoBs)} que comprende la totalidad de mi pago en bolívares del período que se indica en el mismo, según el desglose de este recibo, y firmo en señal de conformidad.`;
+    // SOLO bolívares y con el texto que dictó la administradora (15-10-2026): monto y
+    // período; ni equivalente en $, ni tasa, ni mención de la bonificación.
+    const del = periodo && periodo !== '—' ? ` al período del ${periodo}` : '';
+    return `Certifico haber recibido la cantidad de ${bsStr(c.netoBs)}, que conforme a la totalidad de mi salario${del}. Y firmo en señal de conformidad.`;
   }
   // SOLO dólares en el de la bonificación (15-10-2026): nada en Bs.
   const descuento = c.deduccionBonoUsd > 0
@@ -101,6 +107,16 @@ export function textoPeriodo(
   const hasta = meta.periodo.periodo_hasta || r?.periodo?.periodo_hasta || null;
   if (!desde) return '—';
   return hasta && hasta !== desde ? `${fmtDate(desde)} al ${fmtDate(hasta)}` : fmtDate(desde);
+}
+
+/**
+ * La fecha que lleva el comprobante arriba a la derecha (15-10-2026): la del PAGO si el
+ * renglón ya se pagó; si no, la de emisión (el día en que se imprime). Antes salía el
+ * inicio del período, que ya está en la tabla y confundía con la fecha del documento.
+ */
+export function fechaDocumento(r: Pick<NominaRenglon, 'estado' | 'pagada_en'>, hoyIso: string): string {
+  const base = r.estado === 'pagada' && r.pagada_en ? r.pagada_en : hoyIso;
+  return (r.estado === 'pagada' && r.pagada_en ? 'Pagado el ' : 'Emitido el ') + fmtDate(base);
 }
 
 /** Lo que se le pasa al cálculo del recibo, sacado del renglón de nómina. */
@@ -158,14 +174,19 @@ function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecib
   doc.setFont('helvetica', 'bold'); doc.setFontSize(15);
   // La razón social sale de la EMPRESA del renglón, no de una constante: el
   // recibo tiene que decir a nombre de quién se paga.
-  doc.text(definicionEmpresa(normalizarEmpresa(r.empresa)).razonSocial, tx, y + 16);
+  const empresa = definicionEmpresa(normalizarEmpresa(r.empresa));
+  doc.text(empresa.razonSocial, tx, y + 16);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text('Comprobante de Pago de Personal', tx, y + 32);
+  // Debajo del nombre va el RIF (el título de abajo ya dice «COMPROBANTE DE PAGO»; no se
+  // repite). Si la empresa no tiene RIF cargado, el subtítulo genérico.
+  doc.text(empresa.rif ? `RIF ${empresa.rif}` : 'Comprobante de Pago de Personal', tx, y + 32);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
   doc.text(meta.periodo.codigo ?? '', PAGE_W - MARGIN, y + 16, { align: 'right' });
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  const fecha = meta.periodo.periodo_desde ? fmtDate(meta.periodo.periodo_desde) : (r.pagada_en ? fmtDate(r.pagada_en) : '');
-  doc.text(fecha, PAGE_W - MARGIN, y + 32, { align: 'right' });
+  // Fecha local (no UTC): de noche en Venezuela el ISO de UTC ya es «mañana».
+  const ahora = new Date();
+  const hoyIso = `${ahora.getFullYear()}-${String(ahora.getMonth() + 1).padStart(2, '0')}-${String(ahora.getDate()).padStart(2, '0')}`;
+  doc.text(fechaDocumento(r, hoyIso), PAGE_W - MARGIN, y + 32, { align: 'right' });
   y += Math.max(LOGO, 40) + 6;
 
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
@@ -210,13 +231,13 @@ function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecib
 }
 
 /** Conformidad (y seriales, si van) y firmas al pie. Devuelve nada: cierra la hoja. */
-function pie(l: Lienzo, r: NominaRenglon, hoja: HojaRecibo, c: ReciboCalculado, yIni: number): void {
+function pie(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecibo, c: ReciboCalculado, yIni: number): void {
   const { doc, PAGE_W, PAGE_H } = l;
   const MARGIN = MARGEN_PDF;
   let y = yIni;
 
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-  const lineasConformidad = doc.splitTextToSize(textoConformidad(hoja, c), anchoUtilPdf(PAGE_W)) as string[];
+  const lineasConformidad = doc.splitTextToSize(textoConformidad(hoja, c, textoPeriodo(meta, r)), anchoUtilPdf(PAGE_W)) as string[];
   // Si no entra sobre el margen inferior, la conformidad pasa a la hoja siguiente.
   if (y + 10 + lineasConformidad.length * 10 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN; }
   doc.text(lineasConformidad, MARGIN, y + 10);
@@ -231,15 +252,15 @@ function pie(l: Lienzo, r: NominaRenglon, hoja: HojaRecibo, c: ReciboCalculado, 
     y += 8 + seriales.length * 10;
   }
 
-  // Firmas (al pie de la página). El bloque termina (fy + 22) dentro del margen
-  // inferior; si lo de arriba llegó hasta la raya, las firmas pasan ENTERAS a la
-  // hoja siguiente (nunca la raya en una hoja y el nombre en la otra).
-  // Solo firma el trabajador (la firma de RRHH se quitó el 15-10-2026 por pedido de la
-  // administradora). Va a la derecha, con nombre y cédula debajo de la raya.
+  // Firma: al PIE de la hoja y EN EL MEDIO (orden de la administradora, 15-10-2026).
+  // El bloque termina (fy + 22) dentro del margen inferior; si lo de arriba llegó hasta
+  // la raya, pasa ENTERO a la hoja siguiente (nunca la raya en una hoja y el nombre en
+  // la otra). Solo firma el trabajador (la firma de RRHH se quitó el 15-10-2026), con
+  // el nombre debajo de la raya.
   const fy = limiteInferiorPdf(PAGE_H) - 40;
   if (y + 16 > fy) doc.addPage();
   const colW = (anchoUtilPdf(PAGE_W) - 40) / 2;
-  const x0 = PAGE_W - MARGIN - colW;
+  const x0 = (PAGE_W - colW) / 2;
   doc.setDrawColor(120); doc.setLineWidth(0.7);
   doc.line(x0, fy, x0 + colW, fy);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
@@ -288,24 +309,11 @@ function hojaSueldo(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalc
   });
   y = finalY(doc, y) + 6;
 
-  /* EL PAGO: lo que se entrega con este recibo, en bolívares. Sin mención de la
-     bonificación (regla de la administradora, 15-10-2026). */
-  autoTable(doc, {
-    startY: y,
-    head: [['PAGO DE ESTE RECIBO', 'Bs']],
-    body: [
-      ['Pago en bolívares', bsStr(c.netoBs)],
-    ],
-    foot: [['NETO ENTREGADO CON ESTE RECIBO', bsStr(c.netoBs)]],
-    margin: MARGENES_TABLA_PDF,
-    styles: { fontSize: 8.5, cellPadding: 2.5 },
-    headStyles: { fillColor: [255, 138, 0], textColor: 255, fontStyle: 'bold' },
-    footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
-    columnStyles: { 1: { halign: 'right', cellWidth: 170 } },
-  });
-  y = finalY(doc, y) + 6;
-
-  pie(l, r, 'sueldo', c, y);
+  /* Ya no va un segundo cuadro «PAGO DE ESTE RECIBO» (15-10-2026): repetía el mismo
+     neto tres veces (totales, neto a pagar, neto entregado). El pie «NETO A PAGAR EN
+     BOLÍVARES» de la tabla ES lo que se entrega con este recibo, y la conformidad lo
+     certifica. Sin mención de la bonificación. */
+  pie(l, r, meta, 'sueldo', c, y);
 }
 
 /* ───────── Recibo 2/2 · bonificación en divisas ───────── */
@@ -338,7 +346,7 @@ function hojaBono(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalcul
 
   /* Desde el 15-10-2026 este recibo es SOLO en dólares (regla de la administradora):
      ya no lleva el cuadro con el pago en bolívares ni el total de los dos recibos. */
-  pie(l, r, 'bono', c, y);
+  pie(l, r, meta, 'bono', c, y);
 }
 
 async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
