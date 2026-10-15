@@ -51,9 +51,10 @@ export type HojaRecibo = 'sueldo' | 'bono';
 
 /** Título de cada recibo, como sale impreso debajo del encabezado. */
 export function tituloRecibo(hoja: HojaRecibo): string {
-  return hoja === 'sueldo'
-    ? 'COMPROBANTE DE PAGO 1/2 · PAGO EN BOLÍVARES'
-    : 'COMPROBANTE DE PAGO 2/2 · BONIFICACIÓN EN DIVISAS';
+  // Desde el 15-10-2026 el título es solo «COMPROBANTE DE PAGO» en los dos (regla de la
+  // administradora); cuál es cada uno lo dice su contenido (bolívares o divisas).
+  void hoja;
+  return 'COMPROBANTE DE PAGO';
 }
 
 /**
@@ -63,13 +64,15 @@ export function tituloRecibo(hoja: HojaRecibo): string {
  */
 export function textoConformidad(hoja: HojaRecibo, c: ReciboCalculado): string {
   if (hoja === 'sueldo') {
-    // SOLO bolívares (regla de la administradora, 15-10-2026): ni equivalente en $, ni tasa.
-    return `Certifico haber recibido la cantidad de ${bsStr(c.netoBs)} que comprende la totalidad de mi pago en bolívares del período que se indica en el mismo, según el desglose de este recibo 1 de 2. La bonificación se entrega con el recibo 2 de 2. Firmo en señal de conformidad.`;
+    // SOLO bolívares (regla de la administradora, 15-10-2026): ni equivalente en $, ni tasa,
+    // ni mención de la bonificación.
+    return `Certifico haber recibido la cantidad de ${bsStr(c.netoBs)} que comprende la totalidad de mi pago en bolívares del período que se indica en el mismo, según el desglose de este recibo, y firmo en señal de conformidad.`;
   }
+  // SOLO dólares en el de la bonificación (15-10-2026): nada en Bs.
   const descuento = c.deduccionBonoUsd > 0
     ? ` (bono de ${usd(c.bonoUsd)} menos ${usd(c.deduccionBonoUsd)} de préstamos y anticipos)`
     : '';
-  return `Certifico haber recibido ${usd(c.bonoNetoUsd)} de bonificación en divisas${descuento} por el período indicado, según este recibo 2 de 2. El pago en bolívares se entregó con el recibo 1 de 2 (${bsStr(c.netoBs)}, ${usd(c.netoUsd)}). Entre los dos recibos queda cubierta la totalidad de mi remuneración del período, ${usd(c.totalRecibidoUsd)}. Firmo en señal de conformidad.`;
+  return `Certifico haber recibido ${usd(c.bonoNetoUsd)} de bonificación en divisas${descuento} por el período indicado, según este recibo, y firmo en señal de conformidad.`;
 }
 
 /**
@@ -83,6 +86,21 @@ export function pagoQuincenalBs(c: ReciboCalculado): { quincenal: number; diario
     .filter((ln) => ln.tipo === 'devengado' && ln.dias != null)
     .reduce((a, ln) => a + aBs(ln.usd, c.tasa), 0);
   return { quincenal: r2(quincenal), diario: r2(quincenal / 15) };
+}
+
+/**
+ * El período que imprime el recibo (15-10-2026): el de la nómina; si la nómina no lo
+ * trae, el que el renglón tiene pegado (join a nomina_periodos). «Desde al hasta», o
+ * una sola fecha si son iguales; «—» solo si no hay ninguna.
+ */
+export function textoPeriodo(
+  meta: { periodo: Pick<NominaPeriodo, 'periodo_desde' | 'periodo_hasta'> },
+  r?: Pick<NominaRenglon, 'periodo'> | null,
+): string {
+  const desde = meta.periodo.periodo_desde || r?.periodo?.periodo_desde || null;
+  const hasta = meta.periodo.periodo_hasta || r?.periodo?.periodo_hasta || null;
+  if (!desde) return '—';
+  return hasta && hasta !== desde ? `${fmtDate(desde)} al ${fmtDate(hasta)}` : fmtDate(desde);
 }
 
 /** Lo que se le pasa al cálculo del recibo, sacado del renglón de nómina. */
@@ -168,9 +186,7 @@ function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecib
     body: [
       ['Trabajador', r.nombre, 'Cédula', cedula || '—'],
       ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
-      ['Período', meta.periodo.periodo_desde
-        ? `${fmtDate(meta.periodo.periodo_desde)}${meta.periodo.periodo_hasta ? ' al ' + fmtDate(meta.periodo.periodo_hasta) : ''}`
-        : '—',
+      ['Período', textoPeriodo(meta, r),
         'Días', `${Number(r.dias_trabajados) || 0} trabajados + ${Number(r.dias_descanso) || 0} de descanso`],
       // 1/2 (solo bolívares, 15-10-2026): pago quincenal y diario en Bs, como el formato de la
       // administración. 2/2: el sueldo mensual en $, que es la base del bono.
@@ -218,17 +234,17 @@ function pie(l: Lienzo, r: NominaRenglon, hoja: HojaRecibo, c: ReciboCalculado, 
   // Firmas (al pie de la página). El bloque termina (fy + 22) dentro del margen
   // inferior; si lo de arriba llegó hasta la raya, las firmas pasan ENTERAS a la
   // hoja siguiente (nunca la raya en una hoja y el nombre en la otra).
+  // Solo firma el trabajador (la firma de RRHH se quitó el 15-10-2026 por pedido de la
+  // administradora). Va a la derecha, con nombre y cédula debajo de la raya.
   const fy = limiteInferiorPdf(PAGE_H) - 40;
   if (y + 16 > fy) doc.addPage();
   const colW = (anchoUtilPdf(PAGE_W) - 40) / 2;
+  const x0 = PAGE_W - MARGIN - colW;
   doc.setDrawColor(120); doc.setLineWidth(0.7);
-  doc.line(MARGIN, fy, MARGIN + colW, fy);
-  doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);
+  doc.line(x0, fy, x0 + colW, fy);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text('Firma del trabajador', MARGIN + colW / 2, fy + 11, { align: 'center' });
-  doc.text(r.nombre, MARGIN + colW / 2, fy + 22, { align: 'center' });
-  doc.text('Firma de la Jefa de RRHH', MARGIN + colW + 40 + colW / 2, fy + 11, { align: 'center' });
-  doc.text('Recursos Humanos', MARGIN + colW + 40 + colW / 2, fy + 22, { align: 'center' });
+  doc.text('Firma del trabajador', x0 + colW / 2, fy + 11, { align: 'center' });
+  doc.text(r.nombre, x0 + colW / 2, fy + 22, { align: 'center' });
 }
 
 /* ───────── Recibo 1/2 · pago en bolívares ───────── */
@@ -272,14 +288,13 @@ function hojaSueldo(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalc
   });
   y = finalY(doc, y) + 6;
 
-  /* EL PAGO: lo que se entrega con este recibo, en bolívares, y la nota de que la
-     bonificación va aparte (sin su monto: eso es del recibo 2/2). */
+  /* EL PAGO: lo que se entrega con este recibo, en bolívares. Sin mención de la
+     bonificación (regla de la administradora, 15-10-2026). */
   autoTable(doc, {
     startY: y,
     head: [['PAGO DE ESTE RECIBO', 'Bs']],
     body: [
       ['Pago en bolívares', bsStr(c.netoBs)],
-      ['Bonificación', 'se entrega con el recibo 2/2'],
     ],
     foot: [['NETO ENTREGADO CON ESTE RECIBO', bsStr(c.netoBs)]],
     margin: MARGENES_TABLA_PDF,
@@ -321,24 +336,8 @@ function hojaBono(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalcul
   });
   y = finalY(doc, y) + 6;
 
-  /* EL TOTAL DE LA QUINCENA: los dos recibos juntos, cada uno en la moneda en
-     que se paga. Es lo que la persona se lleva entre los dos. */
-  autoTable(doc, {
-    startY: y,
-    head: [['TOTAL DE LA QUINCENA (RECIBOS 1/2 + 2/2)', 'Bs', 'Equivalente $']],
-    body: [
-      ['Recibo 1/2 · pago en bolívares', bsStr(c.netoBs), usd(c.netoUsd)],
-      ['Recibo 2/2 · bonificación en divisas (menos préstamos y anticipos)', '', usd(c.bonoNetoUsd)],
-    ],
-    foot: [['TOTAL RECIBIDO EN EL PERÍODO', '', usd(c.totalRecibidoUsd)]],
-    margin: MARGENES_TABLA_PDF,
-    styles: { fontSize: 8.5, cellPadding: 2.5 },
-    headStyles: { fillColor: [55, 55, 55], textColor: 255, fontStyle: 'bold' },
-    footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
-    columnStyles: { 1: { halign: 'right', cellWidth: 115 }, 2: { halign: 'right', cellWidth: 115 } },
-  });
-  y = finalY(doc, y) + 6;
-
+  /* Desde el 15-10-2026 este recibo es SOLO en dólares (regla de la administradora):
+     ya no lleva el cuadro con el pago en bolívares ni el total de los dos recibos. */
   pie(l, r, 'bono', c, y);
 }
 

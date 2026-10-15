@@ -318,6 +318,11 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
   // Quien ingresó dentro de la quincena cobra desde su ingreso (13-10-2026).
   const diasDeHoy = diasDeFecha(hoyIso);
   const quincena = rangoQuincena(hoyIso);
+  // Período de la nómina (15-10-2026): antes se guardaba «desde» y «hasta» con la fecha
+  // del día y el recibo salía con un período de un solo día. Arranca en la quincena de
+  // hoy (1-15 / 16-fin de mes) y se puede corregir.
+  const [desde, setDesde] = useState(quincena.desde);
+  const [hasta, setHasta] = useState(quincena.hasta);
   const [diasBase, setDiasBase] = useState(diasDeHoy.total);
   const [tasa, setTasa] = useState(0);
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
@@ -413,7 +418,7 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
       });
       const per = await cargarNomina({
         empresa, nombre: nombre || null,
-        periodo_desde: hoyIso, periodo_hasta: hoyIso, dias_base: diasBase,
+        periodo_desde: desde || hoyIso, periodo_hasta: hasta || desde || hoyIso, dias_base: diasBase,
         tasa_bcv: tasa || null, notas: notas || null, renglones, actorEmail: actor, actorName,
       });
       notify(`Nómina «${nombreNomina(per)}» cargada · ${renglones.length} persona(s) · ${money(per.total_usd)}`, 'success', { link: '#/app/tesoreria' });
@@ -447,6 +452,14 @@ function CargarNominaModal({ empresa, actor, actorName, onClose, onSaved }: {
           <div>
             <div className="muted" style={{ fontSize: '.72rem' }}>Fecha</div>
             <strong className="mono">{date(hoyIso)}</strong>
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>Período · desde</div>
+            <input type="date" className="input mono" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} style={{ width: 150 }} />
+          </div>
+          <div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>Período · hasta</div>
+            <input type="date" className="input mono" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} style={{ width: 150 }} />
           </div>
           <div className="form-row" style={{ minWidth: 130 }}>
             <label style={{ fontSize: '.72rem' }}>Días base (quincena)</label>
