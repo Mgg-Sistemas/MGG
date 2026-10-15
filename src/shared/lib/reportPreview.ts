@@ -123,15 +123,39 @@ function imprimirPdfEnPestana(url: string): void {
     try { window.alert('El navegador bloqueó la pestaña de impresión. Descargá el PDF y imprimilo desde el archivo.'); } catch { /* sin alert */ }
     return;
   }
-  // El visor de PDF tarda un momento en cargar; el diálogo se pide después.
-  // Si el navegador ignora el print() sobre un PDF, la pestaña queda abierta
-  // y se imprime desde el botón del visor (o Ctrl+P).
-  const pedir = () => { try { w.focus(); w.print(); } catch { /* queda la pestaña abierta */ } };
-  let pedido = false;
-  const unaVez = () => { if (!pedido) { pedido = true; pedir(); } };
-  try { w.addEventListener('load', unaVez); } catch { /* documento PDF: puede no avisar */ }
-  setTimeout(unaVez, 1200);
+  /* NO se llama `w.print()` desde acá (15-10-2026). En Chrome/Edge la pestaña del
+     PDF es una página del navegador que EMBEBE el visor; pedirle print() a esa
+     página imprimía el marco con el PDF encogido a ~75 % y pegado arriba a la
+     izquierda, con el resto de la hoja en blanco (lo reportó la administradora con
+     los comprobantes de nómina). El PDF se imprime bien solo cuando lo pide el
+     visor mismo: con la orden de impresión EMBEBIDA en el archivo (autoPrint, ver
+     `imprimirPdfGenerado`) o con el botón 🖨 del visor / Ctrl+P en la pestaña. */
+  try { w.focus(); } catch { /* queda la pestaña abierta */ }
 }
+
+/**
+ * Imprime un PDF GENERADO por el sistema (jsPDF): le embebe la orden de impresión
+ * (`autoPrint` → /OpenAction /Print) y lo abre en su pestaña. El visor del navegador
+ * ejecuta esa orden al abrirlo y saca el diálogo de impresión con el PDF a tamaño
+ * real y con sus márgenes (los 2 cm del documento). Si el visor no obedece la
+ * orden, la pestaña queda abierta y se imprime desde su botón.
+ */
+function imprimirPdfGenerado(doc: DocPdf, urlVista: string): void {
+  let url = urlVista;
+  try {
+    if (typeof doc.autoPrint === 'function') {
+      doc.autoPrint();
+      url = URL.createObjectURL(doc.output('blob') as Blob);
+      // La pestaña ya tiene el archivo cargado; el object URL se libera después.
+      setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
+    }
+  } catch {
+    url = urlVista; // sin autoPrint: se abre la vista y se imprime desde el visor
+  }
+  imprimirPdfEnPestana(url);
+}
+
+type DocPdf = { output: (type: string) => unknown; autoPrint?: () => unknown };
 
 /** Imprime una imagen sola, en una hoja, con un iframe oculto. */
 function imprimirImagen(url: string): void {
@@ -151,7 +175,7 @@ function imprimirImagen(url: string): void {
 }
 
 /** Muestra un PDF (jsPDF doc) en el visor. Lo usa el patch de `save`. */
-export function previewPdfDoc(doc: { output: (type: string) => unknown }, filename: string): void {
+export function previewPdfDoc(doc: DocPdf, filename: string): void {
   const blob = doc.output('blob') as Blob;
   const url = URL.createObjectURL(blob);
   const iframe = document.createElement('iframe');
@@ -160,7 +184,7 @@ export function previewPdfDoc(doc: { output: (type: string) => unknown }, filena
   abrirVisor({
     titulo: 'PDF', filename, cuerpo: iframe, blob,
     onClose: () => URL.revokeObjectURL(url),
-    imprimir: () => imprimirPdfEnPestana(url),
+    imprimir: () => imprimirPdfGenerado(doc, url),
   });
 }
 
