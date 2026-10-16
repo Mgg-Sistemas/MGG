@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { calcularLinea, redondear, type ContextoCalculo, type EntradaLinea, type ResultadoCalculo } from './motor';
 import {
-  ACTIVIDAD, CONTEXTO, HONORARIOS_PNR, IGTF, ISAE, ISLR_PJND, ISLR_PNR, IVA, PORCION_PJD, SERVICIOS_PJD, SERVICIOS_PJND, TASA_USD,
+  ACTIVIDAD, COMISIONES_PNR, CONTEXTO, HONORARIOS_PNR, IGTF, ISAE, ISLR_PJND, ISLR_PNR, IVA, PORCION_PJD, SERVICIOS_PJD, SERVICIOS_PJND, TASA_USD,
 } from './reglasDePrueba';
 import type { VersionRegla } from './regla';
 
@@ -99,7 +99,7 @@ describe('ISLR de persona natural residente, como dato: porción, mínimo en UT,
     // Una fila con sustraendo y sin mínimo: 1.000 × 3 % = 30 − 107,50 → 0, nunca −77,50
     const r = calcularLinea(ISLR_PNR, linea({ montos: { subtotal: 1000 }, fila: { ...HONORARIOS_PNR, minimo: null } }), CONTEXTO);
     expect(monto(r)).toBe(0);
-    expect(r.foto.pasos.find((p) => p.paso === 'topes')?.entradas.antes).toBe(-77.5);
+    expect(r.foto.pasos.find((p) => p.paso === 'topes')?.entradas.antes).toBe(-77.500086);
   });
 });
 
@@ -140,18 +140,18 @@ describe('ISAE, como dato: subtotal − descuento, mínimo en la moneda de mayor
   });
 
   it('por debajo del mínimo (10 × la tasa de la MMV = 500 Bs) no retiene, y la foto guarda la tasa usada', () => {
-    const r = calcularLinea(ISAE, linea({ montos: { subtotal: 400 }, fila: ACTIVIDAD }), CONTEXTO);
+    const r = calcularLinea(ISAE, linea({ montos: { subtotal: 400, descuento: 0 }, fila: ACTIVIDAD }), CONTEXTO);
     expect(r).toMatchObject({ estado: 'calculado', monto: 0 });
     expect(r.foto.valores.tasas.map((t) => t.moneda)).toEqual(['EUR']);
   });
 
   it('sin la tasa de la moneda de mayor valor no calcula', () => {
-    expect(calcularLinea(ISAE, linea({ montos: { subtotal: 10000 }, fila: ACTIVIDAD }), { ...CONTEXTO, tasaMmv: null }))
+    expect(calcularLinea(ISAE, linea({ montos: { subtotal: 10000, descuento: 0 }, fila: ACTIVIDAD }), { ...CONTEXTO, tasaMmv: null }))
       .toMatchObject({ estado: 'sin_dato', falta: { tipo: 'tasa_mmv' } });
   });
 
   it('una factura en $ usa dos tasas, la del USD y la de la MMV, y las dos quedan en la foto', () => {
-    const r = calcularLinea(ISAE, linea({ moneda: 'USD', montos: { subtotal: 100 }, fila: ACTIVIDAD }), { ...CONTEXTO, tasa: TASA_USD });
+    const r = calcularLinea(ISAE, linea({ moneda: 'USD', montos: { subtotal: 100, descuento: 0 }, fila: ACTIVIDAD }), { ...CONTEXTO, tasa: TASA_USD });
     expect(monto(r)).toBe(100);
     expect(r.foto.valores.tasas.map((t) => t.moneda)).toEqual(['USD', 'EUR']);
   });
@@ -164,7 +164,7 @@ describe('IGTF, como dato: el % del parámetro sobre lo pagado en divisas', () =
   });
 
   it('un pago sin divisas da 0, con su nota', () => {
-    expect(calcularLinea(IGTF, linea({ tipo: 'pago', montos: { subtotal: 1000 } }), CONTEXTO))
+    expect(calcularLinea(IGTF, linea({ tipo: 'pago', montos: { pagado_divisas: 0 } }), CONTEXTO))
       .toMatchObject({ estado: 'calculado', monto: 0, cero: true, nota: 'El cálculo da 0,00 con estos datos.' });
   });
 
@@ -197,11 +197,28 @@ describe('las piezas sueltas', () => {
     expect(monto(calcularLinea(v, linea({ montos: { subtotal: 300 } }), CONTEXTO))).toBe(300);
   });
 
-  it('lo que se resta no puede dejar la base negativa', () => {
+  it('una base negativa no se calcula: los montos del documento no cuadran', () => {
     const v: VersionRegla = { ...vacia, pasos: { base: { suma: ['subtotal'], resta: ['descuento'], porcion: null, alicuota: null }, tasa: { op: 'pct', fuente: { tipo: 'fijo', valor: 10 } } } };
     const r = calcularLinea(v, linea({ montos: { subtotal: 100, descuento: 200 } }), CONTEXTO);
-    expect(monto(r)).toBe(0);
-    expect(r.foto.pasos[0].nota).toContain('la base queda en 0');
+    expect(r).toMatchObject({ estado: 'sin_dato', falta: { tipo: 'base_negativa' } });
+    expect(r.estado === 'sin_dato' && r.nota).toBe('La base da negativa: 100,00 − 200,00 = -100,00. Revisar los montos del documento. No se calcula.');
+  });
+
+  it('un monto que la regla usa y no viene es un dato que falta, no un 0', () => {
+    const r = calcularLinea(IVA, linea({ montos: { subtotal: 1000 } }), CONTEXTO);
+    expect(r).toMatchObject({ estado: 'sin_dato', falta: { tipo: 'componente', componente: 'iva' } });
+    expect(monto(calcularLinea(IVA, linea({ montos: { iva: 0 } }), CONTEXTO))).toBe(0);
+  });
+
+  it('la foto del paso 1 guarda los montos con los que se compuso la base', () => {
+    const r = calcularLinea(ISAE, linea({ montos: { subtotal: 10000, descuento: 1000 }, fila: ACTIVIDAD }), CONTEXTO);
+    expect(r.foto.pasos[0]).toMatchObject({ paso: 'base', entradas: { subtotal: 10000, '− descuento': 1000 }, valor: 9000 });
+  });
+
+  it('una regla sin paso de moneda con un documento en $ calcula, pero avisa', () => {
+    const v: VersionRegla = { ...vacia, pasos: { base: { suma: ['subtotal'], resta: [], porcion: null, alicuota: null }, tasa: { op: 'pct', fuente: { tipo: 'fijo', valor: 10 } } } };
+    const r = calcularLinea(v, linea({ moneda: 'USD', montos: { subtotal: 100 } }), CONTEXTO);
+    expect(r).toMatchObject({ estado: 'calculado', monto: 10, avisos: ['El documento está en USD y la regla no convierte la moneda: el resultado queda en USD.'] });
   });
 
   it('el sustraendo «% × UT × factor» sin un paso de tasa en % es un error de la regla, no un 0', () => {
@@ -220,6 +237,73 @@ describe('las piezas sueltas', () => {
     const r = calcularLinea(ISLR_PNR, linea({ montos: { subtotal: 50000 }, fila: HONORARIOS_PNR }), CONTEXTO);
     expect(r.foto.regla_version_id).toBe('v-islr-pnr');
     const sus = r.foto.pasos.find((p) => p.paso === 'sustraendo');
-    expect(sus).toMatchObject({ operacion: 'ut_factor_pct', entradas: { pct: 3, ut: 43, factor: 83.3334 } });
+    expect(sus).toMatchObject({ operacion: 'ut_factor_pct', entradas: { pct: 3, ut: 43, factor: 83.3334, sustraendo: 107.500086 } });
+  });
+
+  it('una línea de bienes no lleva una regla de servicios', () => {
+    const servicios: VersionRegla = { ...ISLR_PNR, operacion: 'servicios' };
+    const r = calcularLinea(servicios, linea({ operacion: 'bienes', montos: { subtotal: 50000 }, fila: HONORARIOS_PNR }), CONTEXTO);
+    expect(r).toMatchObject({ estado: 'no_aplica', motivo: 'La línea es de bienes; la regla aplica solo a servicios.' });
+  });
+});
+
+describe('los bordes', () => {
+  const vacia: VersionRegla = { ...IVA, id: 'v-vacia', pasos: {} };
+  const base = { suma: ['subtotal' as const], resta: [], porcion: null, alicuota: null };
+
+  it('la base exactamente igual al mínimo sí retiene (ISAE: 10 × 50 = 500)', () => {
+    expect(monto(calcularLinea(ISAE, linea({ montos: { subtotal: 500, descuento: 0 }, fila: ACTIVIDAD }), CONTEXTO))).toBe(12.5);
+    expect(monto(calcularLinea(ISAE, linea({ montos: { subtotal: 499.99, descuento: 0 }, fila: ACTIVIDAD }), CONTEXTO))).toBe(0);
+  });
+
+  it('el mínimo en Bs', () => {
+    const v: VersionRegla = { ...vacia, pasos: { base, minimo: { fuente: { tipo: 'fijo', valor: 1000 }, unidad: 'bs' }, tasa: { op: 'pct', fuente: { tipo: 'fijo', valor: 10 } } } };
+    expect(monto(calcularLinea(v, linea({ montos: { subtotal: 999.99 } }), CONTEXTO))).toBe(0);
+    expect(monto(calcularLinea(v, linea({ montos: { subtotal: 1000 } }), CONTEXTO))).toBe(100);
+  });
+
+  it('el tramo en el límite exacto (2.000 UT) y la base 0 en los tramos', () => {
+    // 2.000 UT × 43 = 86.000 Bs: 15 % de 2.000 = 300 UT, lo mismo que 22 % − 140; × 43 = 12.900
+    expect(monto(calcularLinea(ISLR_PJND, linea({ montos: { subtotal: 86000 }, fila: SERVICIOS_PJND }), CONTEXTO))).toBe(12900);
+    const r = calcularLinea(ISLR_PJND, linea({ montos: { subtotal: 0 }, fila: SERVICIOS_PJND }), CONTEXTO);
+    expect(r).toMatchObject({ estado: 'calculado', monto: 0 });
+  });
+
+  it('el tope «máximo el causado» corta de verdad', () => {
+    const v: VersionRegla = { ...vacia, pasos: { base: { ...base, suma: ['iva'] }, retiene: { op: 'pct', fuente: { tipo: 'fijo', valor: 150 } }, topes: { no_negativo: true, max_causado: true, max_base: false } } };
+    expect(monto(calcularLinea(v, linea({ montos: { iva: 100 } }), CONTEXTO))).toBe(100);
+  });
+
+  it('el sustraendo como monto', () => {
+    const v: VersionRegla = { ...vacia, pasos: { base, tasa: { op: 'pct', fuente: { tipo: 'fijo', valor: 10 } }, sustraendo: { op: 'monto', fuente: { tipo: 'fijo', valor: 5 } } } };
+    expect(monto(calcularLinea(v, linea({ montos: { subtotal: 100 } }), CONTEXTO))).toBe(5);
+  });
+
+  it('una tasa de otra moneda no sirve: la del EUR no convierte un documento en USD', () => {
+    const eur = { moneda: 'EUR', tasa: 50, fecha: '2026-10-14', fuente: 'bcv' };
+    expect(calcularLinea(IVA, linea({ moneda: 'USD', montos: { iva: 100 } }), { ...CONTEXTO, tasa: eur }))
+      .toMatchObject({ estado: 'sin_dato', falta: { tipo: 'tasa', moneda: 'USD' } });
+    expect(monto(calcularLinea(IVA, linea({ moneda: 'EUR', montos: { iva: 100 } }), { ...CONTEXTO, tasa: eur }))).toBe(3750);
+  });
+
+  it('0,1 + 0,2 da 0,3, y la foto no guarda el ruido de coma flotante', () => {
+    const v: VersionRegla = { ...vacia, pasos: { base: { ...base, suma: ['subtotal', 'otros_cargos'] }, tasa: { op: 'pct', fuente: { tipo: 'fijo', valor: 100 } } } };
+    const r = calcularLinea(v, linea({ montos: { subtotal: 0.1, otros_cargos: 0.2 } }), CONTEXTO);
+    expect(monto(r)).toBe(0.3);
+    expect(r.foto.pasos[0].valor).toBe(0.3);
+  });
+
+  it('una nota de crédito por debajo del mínimo da 0, nunca −0; por encima, resta', () => {
+    const debajo = calcularLinea(ISAE, linea({ tipo: 'nc', montos: { subtotal: 400, descuento: 0 }, fila: ACTIVIDAD }), CONTEXTO);
+    expect(Object.is(monto(debajo), 0)).toBe(true);
+    expect(monto(calcularLinea(ISAE, linea({ tipo: 'nc', montos: { subtotal: 1000, descuento: 0 }, fila: ACTIVIDAD }), CONTEXTO))).toBe(-25);
+    expect(Object.is(redondear(-0.001), 0)).toBe(true);
+  });
+
+  it('el redondeo intermedio: exacto por defecto; «publicado» usa 107,50 y 3.583,34, y puede mover un céntimo', () => {
+    // 20.000,05 × 5 % = 1.000,0025; sustraendo exacto 179,16681 → 820,84; publicado 179,17 → 820,83
+    const e = linea({ montos: { subtotal: 20000.05 }, fila: COMISIONES_PNR });
+    expect(monto(calcularLinea(ISLR_PNR, e, CONTEXTO))).toBe(820.84);
+    expect(monto(calcularLinea(ISLR_PNR, e, { ...CONTEXTO, redondeoIntermedio: 'publicado' }))).toBe(820.83);
   });
 });

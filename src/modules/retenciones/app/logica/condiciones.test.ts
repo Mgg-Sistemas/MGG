@@ -40,6 +40,10 @@ describe('las condiciones de la versión, sin mirar el nombre del impuesto', () 
     expect(aplicaRegla({ ...ISLR_PNR, operacion: 'bienes' }, docu(), null)).toEqual({ aplica: false, motivo: 'La regla aplica solo a compras de bienes.' });
   });
 
+  it('un documento con bienes y servicios no descarta la regla: se decide por línea', () => {
+    expect(aplicaRegla({ ...ISLR_PNR, operacion: 'servicios' }, docu({ operacion: 'ambos' }), null)).toEqual({ aplica: true, aviso: null });
+  });
+
   it('el sujeto: si la regla lo exige y el perfil no lo dice, se pide; nunca se adivina', () => {
     expect(aplicaRegla(ISLR_PNR, docu({ sujeto: null }), null)).toMatchObject({ aplica: 'falta_dato', falta: 'sujeto' });
     expect(aplicaRegla(ISLR_PNR, docu({ sujeto: 'pj_no_domiciliada' }), null)).toMatchObject({ aplica: false });

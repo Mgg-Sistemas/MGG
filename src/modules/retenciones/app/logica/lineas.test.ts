@@ -46,8 +46,8 @@ describe('varias líneas por documento · el mínimo y el sustraendo por línea 
 
   it('una nota de crédito con varias líneas resta en cada una y en el total', () => {
     const r = calcularDocumento(ISAE, doc([
-      { montos: { subtotal: 10000 }, fila: ACTIVIDAD },
-      { montos: { subtotal: 20000 }, fila: { ...ACTIVIDAD, id: 'f-a2', codigo: 'A-2', pct: 1 } },
+      { montos: { subtotal: 10000, descuento: 0 }, fila: ACTIVIDAD },
+      { montos: { subtotal: 20000, descuento: 0 }, fila: { ...ACTIVIDAD, id: 'f-a2', codigo: 'A-2', pct: 1 } },
     ], { tipo: 'nc' }), CONTEXTO);
     expect(montos(r)).toEqual([-250, -200]);
     expect(r.total).toBe(-450);
@@ -92,6 +92,24 @@ describe('varias líneas por documento · el mínimo y el sustraendo «una vez p
     expect(ultimo).toMatchObject({ operacion: 'sobrante', nota: 'Quedaron 27,50 del sustraendo sin descontar: las líneas no alcanzan.' });
   });
 
+  it('con una sola línea, «por línea» y «por factura» dan lo mismo, céntimo a céntimo', () => {
+    const una = doc([{ montos: { subtotal: 20000.05 }, fila: COMISIONES_PNR }]);
+    expect(calcularDocumento(ISLR_PNR, una, CONTEXTO).total).toBe(820.84);
+    expect(calcularDocumento(ISLR_PNR_FACTURA, una, CONTEXTO).total).toBe(820.84);
+    const publicado = { ...CONTEXTO, redondeoIntermedio: 'publicado' as const };
+    expect(calcularDocumento(ISLR_PNR, una, publicado).total).toBe(820.83);
+    expect(calcularDocumento(ISLR_PNR_FACTURA, una, publicado).total).toBe(820.83);
+  });
+
+  it('si la primera línea no tiene sustraendo, se toma el de la primera que lo tenga', () => {
+    // Línea 1 sin factor: 50.000 × 3 % = 1.500; el sustraendo (107,50) sale de la línea 2 y lo absorbe la 1
+    const r = calcularDocumento(ISLR_PNR_FACTURA, doc([
+      { montos: { subtotal: 50000 }, fila: { ...HONORARIOS_PNR, id: 'f-sin', sustraendo_factor: null } },
+      { montos: { subtotal: 50000 }, fila: HONORARIOS_PNR },
+    ]), CONTEXTO);
+    expect(montos(r)).toEqual([1392.5, 1500]);
+  });
+
   it('si la base del documento no llega al mínimo, no retiene ninguna línea', () => {
     const r = calcularDocumento(ISLR_PNR_FACTURA, doc([
       { montos: { subtotal: 1000 }, fila: HONORARIOS_PNR },
@@ -107,6 +125,18 @@ describe('varias líneas por documento · el mínimo y el sustraendo «una vez p
       { montos: { subtotal: 20000 }, fila: null },
     ]), CONTEXTO);
     expect(r).toMatchObject({ estado: 'sin_dato', total: 0 });
+  });
+});
+
+describe('un documento con bienes y servicios: la operación se decide por línea', () => {
+  it('la línea de bienes no lleva la regla de servicios y no suma al total', () => {
+    const servicios = { ...ISLR_PNR, operacion: 'servicios' as const };
+    const r = calcularDocumento(servicios, doc([
+      { montos: { subtotal: 50000 }, fila: HONORARIOS_PNR, operacion: 'servicios' },
+      { montos: { subtotal: 80000 }, fila: HONORARIOS_PNR, operacion: 'bienes' },
+    ]), CONTEXTO);
+    expect(r.lineas.map((l) => l.estado)).toEqual(['calculado', 'no_aplica']);
+    expect(r.total).toBe(1392.5);
   });
 });
 

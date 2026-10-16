@@ -54,7 +54,8 @@ export function aplicaRegla(
 ): Aplicacion {
   if (v.direccion !== doc.direccion) return { aplica: false, motivo: `La regla es para retenciones ${v.direccion === 'practicada' ? 'practicadas' : 'recibidas'}.` };
   if (!v.documentos.includes(doc.tipo)) return { aplica: false, motivo: `La regla no aplica a una ${ETIQUETA_DOC[doc.tipo]}.` };
-  if (v.operacion !== 'ambos' && doc.operacion !== v.operacion) {
+  // Un documento con bienes y servicios no se descarta entero: se decide por línea (motor.ts).
+  if (v.operacion !== 'ambos' && doc.operacion !== 'ambos' && doc.operacion !== v.operacion) {
     return { aplica: false, motivo: `La regla aplica solo a ${v.operacion === 'bienes' ? 'compras de bienes' : 'servicios'}.` };
   }
   if (v.sujetos.length) {
