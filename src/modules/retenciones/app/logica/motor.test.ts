@@ -111,6 +111,18 @@ describe('ISLR de persona jurídica no domiciliada, como dato: la Tarifa N° 2 p
     expect(r.foto.valores).toMatchObject({ base_ut: 2325.5814, tramo: { desde: 2000, hasta: 3000, pct: 22, sustraendo: 140 } });
   });
 
+  it('una regla que toma el % de la tabla usa la tarifa de la fila cuando la fila trae tarifa y no %', () => {
+    // La misma regla del ISLR sirve para las filas con % y para las de Tarifa N° 2
+    const r = calcularLinea(ISLR_PNR, linea({ montos: { subtotal: 100000 }, fila: SERVICIOS_PJND }), CONTEXTO);
+    expect(monto(r)).toBe(15980);
+    expect(r.foto.pasos.find((p) => p.paso === 'tasa')?.operacion).toBe('tramos');
+  });
+
+  it('una fila sin % ni tarifa no calcula: falta el %', () => {
+    expect(calcularLinea(ISLR_PNR, linea({ montos: { subtotal: 100000 }, fila: { ...SERVICIOS_PJND, tarifa_id: null } }), CONTEXTO))
+      .toMatchObject({ estado: 'sin_dato', falta: { tipo: 'columna', columna: 'pct' } });
+  });
+
   it('en el primer tramo, el % directo', () => {
     expect(monto(calcularLinea(ISLR_PJND, linea({ montos: { subtotal: 50000 }, fila: SERVICIOS_PJND }), CONTEXTO))).toBe(7500);
   });

@@ -255,27 +255,36 @@ export function calcularLinea(
 
     // 4. Aplicar la tasa
     let pct: number | null = null;
+    const porTramos = (tarifaId: string, origen: string) => {
+      const tarifa = ctx.tarifas[tarifaId];
+      if (!tarifa) throw new FaltaDato({ tipo: 'tarifa', tarifa_id: tarifaId }, `La tarifa ${origen} no tiene tramos vigentes a la fecha de la factura. No se calcula.`);
+      const factor = tarifa.unidad === 'ut' ? ut() : 1;
+      const x = v / factor;
+      const tramo = [...tarifa.tramos].sort((a, b) => a.desde - b.desde).find((t) => x >= t.desde && (t.hasta == null || x <= t.hasta));
+      if (!tramo) throw new FaltaDato({ tipo: 'tramo' }, `Ningún tramo de «${tarifa.nombre}» cubre una base de ${redondear(x)} ${tarifa.unidad === 'ut' ? 'UT' : 'Bs'}. No se calcula.`);
+      foto.valores.base_ut = tarifa.unidad === 'ut' ? redondear(x, 4) : undefined;
+      foto.valores.tramo = tramo;
+      pct = tramo.pct;
+      v = Math.max(0, (x * tramo.pct) / 100 - tramo.sustraendo) * factor;
+      anotar('tasa', 'tramos', { tarifa: tarifa.nombre, base_en_unidad: redondear(x, 4), desde: tramo.desde, hasta: tramo.hasta, pct: tramo.pct, sustraendo: tramo.sustraendo }, v);
+    };
     if (p.tasa) {
       if (p.tasa.op === 'pct') {
-        pct = requerido(p.tasa.fuente);
-        v = (v * pct) / 100;
-        anotar('tasa', 'pct', { pct }, v);
+        // Una fila de la tabla lleva o su % o su tarifa por tramos (la Tarifa N° 2), nunca las dos.
+        const f = p.tasa.fuente;
+        if (f.tipo === 'tabla' && f.columna === 'pct' && e.fila && e.fila.pct == null && e.fila.tarifa_id) {
+          porTramos(e.fila.tarifa_id, `de la fila «${e.fila.codigo}»`);
+        } else {
+          pct = requerido(f);
+          v = (v * pct) / 100;
+          anotar('tasa', 'pct', { pct }, v);
+        }
       } else if (p.tasa.op === 'monto_fijo') {
         const fijo = requerido(p.tasa.fuente);
         v = fijo;
         anotar('tasa', 'monto_fijo', { monto: fijo }, v);
       } else {
-        const tarifa = ctx.tarifas[p.tasa.tarifa_id];
-        if (!tarifa) throw new FaltaDato({ tipo: 'tarifa', tarifa_id: p.tasa.tarifa_id }, 'La tarifa de la regla no tiene tramos vigentes a la fecha de la factura. No se calcula.');
-        const factor = tarifa.unidad === 'ut' ? ut() : 1;
-        const x = v / factor;
-        const tramo = tarifa.tramos.find((t) => x >= t.desde && (t.hasta == null || x <= t.hasta));
-        if (!tramo) throw new FaltaDato({ tipo: 'tramo' }, `Ningún tramo de «${tarifa.nombre}» cubre una base de ${redondear(x)} ${tarifa.unidad === 'ut' ? 'UT' : 'Bs'}. No se calcula.`);
-        foto.valores.base_ut = tarifa.unidad === 'ut' ? redondear(x, 4) : undefined;
-        foto.valores.tramo = tramo;
-        pct = tramo.pct;
-        v = Math.max(0, (x * tramo.pct) / 100 - tramo.sustraendo) * factor;
-        anotar('tasa', 'tramos', { tarifa: tarifa.nombre, base_en_unidad: redondear(x, 4), desde: tramo.desde, hasta: tramo.hasta, pct: tramo.pct, sustraendo: tramo.sustraendo }, v);
+        porTramos(p.tasa.tarifa_id, 'de la regla');
       }
     }
 

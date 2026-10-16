@@ -17,6 +17,7 @@ import {
   calcularLinea, redondear, sustraendoDelDocumento,
   type ContextoCalculo, type EntradaLinea, type ResultadoCalculo,
 } from './motor';
+import { fmt2 } from './numeros';
 import type { Componente, FilaClasificacion, SupuestoMarcado, TipoDocumento, VersionRegla } from './regla';
 
 export interface LineaDocumento {
@@ -75,6 +76,14 @@ export function calcularDocumento(version: VersionRegla, doc: EntradaDocumento, 
     }
     resultados.push(r);
   });
+  // Lo que sobra después de la última línea se pierde (nunca negativo), y la foto lo dice.
+  const ultima = resultados[resultados.length - 1];
+  if (disponible != null && disponible > 0 && ultima?.estado === 'calculado') {
+    ultima.foto.pasos.push({
+      paso: 'sustraendo', operacion: 'sobrante', entradas: { sobrante: redondear(disponible) }, valor: ultima.magnitud,
+      nota: `Quedaron ${fmt2(redondear(disponible))} del sustraendo sin descontar: las líneas no alcanzan.`,
+    });
+  }
   return cerrar(resultados);
 }
 

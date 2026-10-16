@@ -80,6 +80,18 @@ describe('varias líneas por documento · el mínimo y el sustraendo «una vez p
     ]), CONTEXTO))).toEqual([0, 0]);
   });
 
+  it('lo que sobra del sustraendo después de la última línea se pierde, y la foto lo dice', () => {
+    // Una fila sin mínimo: 1.000 × 3 % = 30 y 1.000 × 5 % = 50; el sustraendo (107,50) se come las dos y sobran 27,50
+    const sinMinimo = { ...HONORARIOS_PNR, minimo: null };
+    const r = calcularDocumento(ISLR_PNR_FACTURA, doc([
+      { montos: { subtotal: 1000 }, fila: sinMinimo },
+      { montos: { subtotal: 1000 }, fila: { ...COMISIONES_PNR, minimo: null } },
+    ]), CONTEXTO);
+    expect(montos(r)).toEqual([0, 0]);
+    const ultimo = r.lineas[1].foto.pasos[r.lineas[1].foto.pasos.length - 1];
+    expect(ultimo).toMatchObject({ operacion: 'sobrante', nota: 'Quedaron 27,50 del sustraendo sin descontar: las líneas no alcanzan.' });
+  });
+
   it('si la base del documento no llega al mínimo, no retiene ninguna línea', () => {
     const r = calcularDocumento(ISLR_PNR_FACTURA, doc([
       { montos: { subtotal: 1000 }, fila: HONORARIOS_PNR },
