@@ -94,11 +94,11 @@ describe('varias líneas por documento · el mínimo y el sustraendo «una vez p
 
   it('con una sola línea, «por línea» y «por factura» dan lo mismo, céntimo a céntimo', () => {
     const una = doc([{ montos: { subtotal: 20000.05 }, fila: COMISIONES_PNR }]);
-    expect(calcularDocumento(ISLR_PNR, una, CONTEXTO).total).toBe(820.84);
-    expect(calcularDocumento(ISLR_PNR_FACTURA, una, CONTEXTO).total).toBe(820.84);
-    const publicado = { ...CONTEXTO, redondeoIntermedio: 'publicado' as const };
-    expect(calcularDocumento(ISLR_PNR, una, publicado).total).toBe(820.83);
-    expect(calcularDocumento(ISLR_PNR_FACTURA, una, publicado).total).toBe(820.83);
+    expect(calcularDocumento(ISLR_PNR, una, CONTEXTO).total).toBe(820.83);
+    expect(calcularDocumento(ISLR_PNR_FACTURA, una, CONTEXTO).total).toBe(820.83);
+    const exacto = { ...CONTEXTO, redondeoIntermedio: 'exacto' as const };
+    expect(calcularDocumento(ISLR_PNR, una, exacto).total).toBe(820.84);
+    expect(calcularDocumento(ISLR_PNR_FACTURA, una, exacto).total).toBe(820.84);
   });
 
   it('si la primera línea no tiene sustraendo, se toma el de la primera que lo tenga', () => {
