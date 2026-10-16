@@ -40,6 +40,12 @@ describe('las condiciones de la versión, sin mirar el nombre del impuesto', () 
     expect(aplicaRegla({ ...ISLR_PNR, operacion: 'bienes' }, docu(), null)).toEqual({ aplica: false, motivo: 'La regla aplica solo a compras de bienes.' });
   });
 
+  it('lo que la base deja en null: sin dirección no se aplica; operación, sujetos y contribuyentes en null = todos', () => {
+    expect(aplicaRegla({ ...ISLR_PNR, direccion: null }, docu(), null)).toMatchObject({ aplica: false, motivo: expect.stringContaining('no dice si es para retenciones practicadas o recibidas') });
+    expect(aplicaRegla({ ...ISLR_PNR, operacion: null, sujetos: null, contribuyentes: null }, docu({ operacion: 'bienes', sujeto: null, contribuyente: null }), null))
+      .toEqual({ aplica: true, aviso: null });
+  });
+
   it('un documento con bienes y servicios no descarta la regla: se decide por línea', () => {
     expect(aplicaRegla({ ...ISLR_PNR, operacion: 'servicios' }, docu({ operacion: 'ambos' }), null)).toEqual({ aplica: true, aviso: null });
   });

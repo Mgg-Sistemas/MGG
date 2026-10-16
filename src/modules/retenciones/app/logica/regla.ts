@@ -89,13 +89,15 @@ export interface VersionRegla {
   vigente_hasta: string | null;
   estado: EstadoVersion;
   motivo: string | null;
-  direccion: Direccion;
+  /** null = la versión no lo dice: no se aplica (nunca se supone una dirección). */
+  direccion: Direccion | null;
   documentos: TipoDocumento[];
-  operacion: Operacion;
-  /** Vacío = todos. */
-  sujetos: Sujeto[];
-  /** Vacío = todos. */
-  contribuyentes: Contribuyente[];
+  /** null = 'ambos'. */
+  operacion: Operacion | null;
+  /** Vacío o null = todos. */
+  sujetos: Sujeto[] | null;
+  /** Vacío o null = todos. */
+  contribuyentes: Contribuyente[] | null;
   /** La clave del parámetro que dice si la empresa es agente de ese impuesto; null = no se exige. */
   condicion_agente: string | null;
   /** La tabla de clasificación que la regla exige; null = no exige fila. */
@@ -126,5 +128,10 @@ export interface TarifaVigente { id: string; nombre: string; unidad: 'ut' | 'bs'
 /** Un supuesto de retencion_supuestos (los casos del 100 % del art. 5), marcado en el documento. */
 export interface SupuestoMarcado { id: string; texto: string; pct: number }
 
-/** Una tasa a la fecha de la factura (fin de semana pasado al lunes), tal como la da la base. */
-export interface TasaFecha { moneda: string; tasa: number; fecha: string; fuente: string }
+/**
+ * Una tasa a la fecha de la factura, tal como la dan retencion_tasa_bcv y
+ * retencion_tasa_mmv: `fecha_tasa` es el día cuya tasa vale (el fin de
+ * semana ya pasado), `regla` dice cómo se eligió y `provisional` avisa que
+ * aún no es la definitiva.
+ */
+export interface TasaFecha { moneda: string; tasa: number; fecha_tasa: string; regla: string; provisional: boolean; fuente?: string }

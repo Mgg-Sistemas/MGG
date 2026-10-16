@@ -187,12 +187,21 @@ export function calcularLinea(
     foto.pasos.push({ paso, operacion, entradas, valor: limpio(valor), nota });
   };
   const agregarTasa = (t: TasaFecha) => {
-    if (!foto.valores.tasas.some((x) => x.moneda === t.moneda && x.fecha === t.fecha)) foto.valores.tasas.push(t);
+    if (foto.valores.tasas.some((x) => x.moneda === t.moneda && x.fecha_tasa === t.fecha_tasa)) return;
+    foto.valores.tasas.push(t);
+    if (t.provisional) avisos.push(`La tasa de ${t.moneda} del ${t.fecha_tasa} es provisional: el monto puede cambiar cuando salga la definitiva.`);
   };
 
   // La operación se decide por línea: una regla de servicios no aplica a una línea de bienes.
-  if (e.operacion && version.operacion !== 'ambos' && e.operacion !== version.operacion) {
-    return { estado: 'no_aplica', motivo: `La línea es de ${e.operacion}; la regla aplica solo a ${version.operacion === 'bienes' ? 'bienes' : 'servicios'}.`, foto };
+  const operacionRegla = version.operacion ?? 'ambos';
+  if (e.operacion && operacionRegla !== 'ambos' && e.operacion !== operacionRegla) {
+    return { estado: 'no_aplica', motivo: `La línea es de ${e.operacion}; la regla aplica solo a ${operacionRegla === 'bienes' ? 'bienes' : 'servicios'}.`, foto };
+  }
+
+  // Un paso con una operación fuera de la lista no se interpreta: la regla está mal escrita.
+  const malEscrito = pasoMalEscrito(p);
+  if (malEscrito) {
+    return { estado: 'sin_dato', falta: { tipo: 'regla', detalle: malEscrito }, nota: `La regla está mal escrita (${malEscrito}). Revisarla en ⚙ Parámetros. No se calcula.`, foto };
   }
 
   const parametro = (clave: string): number => {
@@ -247,8 +256,8 @@ export function calcularLinea(
     let v = 0;
     if (p.base) {
       const entradas: PasoFoto['entradas'] = {};
-      const suma = p.base.suma.reduce((a, c) => { const m = monto(c); entradas[c] = m; return a + m; }, 0);
-      const resta = p.base.resta.reduce((a, c) => { const m = monto(c); entradas[`− ${c}`] = m; return a + m; }, 0);
+      const suma = (p.base.suma ?? []).reduce((a, c) => { const m = monto(c); entradas[c] = m; return a + m; }, 0);
+      const resta = (p.base.resta ?? []).reduce((a, c) => { const m = monto(c); entradas[`− ${c}`] = m; return a + m; }, 0);
       v = suma - resta;
       if (v < 0) {
         anotar('base', 'componer', entradas, v, 'La base da negativa.');
@@ -278,7 +287,7 @@ export function calcularLinea(
         }
         agregarTasa(t);
         v *= t.tasa;
-        anotar('moneda', 'multiplicar_tasa', { moneda: t.moneda, tasa: t.tasa, fecha: t.fecha }, v);
+        anotar('moneda', 'multiplicar_tasa', { moneda: t.moneda, tasa: t.tasa, fecha: t.fecha_tasa }, v);
       } else {
         avisos.push(`El documento está en ${e.moneda} y la regla no convierte la moneda: el resultado queda en ${e.moneda}.`);
       }
@@ -397,6 +406,20 @@ export function calcularLinea(
     if (err instanceof FaltaDato) return { estado: 'sin_dato', falta: err.falta, nota: err.message, foto };
     throw err;
   }
+}
+
+/**
+ * Qué paso tiene una operación fuera de la lista cerrada; null si todos están
+ * bien. Un «retiene» sin `op` NO se toma como «todo»: un 75 % mal escrito
+ * retendría el 100 % (revisión de REG-1, B1).
+ */
+export function pasoMalEscrito(p: PasosRegla): string | null {
+  const op = (paso: unknown) => (paso as { op?: unknown } | null | undefined)?.op;
+  if (p.tasa && !['pct', 'tramos', 'monto_fijo'].includes(op(p.tasa) as string)) return 'tasa sin una operación válida';
+  if (p.sustraendo && !['ut_factor_pct', 'monto'].includes(op(p.sustraendo) as string)) return 'sustraendo sin una operación válida';
+  if (p.retiene && !['todo', 'pct'].includes(op(p.retiene) as string)) return 'retiene sin una operación válida';
+  if (p.redondeo && (p.redondeo as { modo?: unknown }).modo !== 'mitad_arriba') return 'redondeo con un modo que el motor no conoce';
+  return null;
 }
 
 /** El sustraendo de una línea. null = la regla lo pide pero la fila no tiene factor (sin sustraendo). */
