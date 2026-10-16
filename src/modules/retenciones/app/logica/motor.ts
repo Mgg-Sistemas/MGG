@@ -1,0 +1,356 @@
+/* ============================================================
+   MGG · Retenciones · El motor: una línea, los 8 pasos
+
+   Recorre los pasos de la versión en su orden fijo (regla.ts) y deja en la
+   foto lo que hizo cada uno: con qué entradas, qué valor dio y por qué. La
+   foto se guarda con la retención (retenciones.calculo_foto), así que el
+   comprobante y el contador ven de dónde salió el número, y un cambio de
+   norma no altera lo emitido.
+
+   Es una función pura: los parámetros, las tasas y las tarifas llegan ya
+   resueltos a la fecha de la factura. Sin un dato que hace falta no se
+   calcula: nunca con 0 en silencio.
+
+   Convenciones acordadas con BD (16/10):
+   · se calcula con magnitudes positivas; la nota de crédito pone el signo
+     −1 DESPUÉS del paso 8, y la foto lo guarda;
+   · una retención negativa no existe: el resultado nunca baja de 0, aunque
+     la regla no tenga el paso de topes;
+   · con varios supuestos marcados, se toma el mayor %;
+   · los tramos comparan la base llevada a la unidad de la tarifa (UT a la
+     fecha de la factura), y el resultado vuelve a Bs.
+   ============================================================ */
+
+import type {
+  ColumnaTabla, Componente, FilaClasificacion, Fuente, NombrePaso, PasosRegla, SupuestoMarcado,
+  TarifaVigente, TasaFecha, TipoDocumento, TramoTarifa, UnidadMinimo, VersionRegla,
+} from './regla';
+
+/** La clave del parámetro de la unidad tributaria. */
+export const CLAVE_UT = 'valor_ut';
+
+export interface EntradaLinea {
+  /** Los montos de la línea, en la moneda del documento. Un componente que falta vale 0. */
+  montos: Readonly<Partial<Record<Componente, number>>>;
+  /** La moneda del documento ('Bs', 'USD', 'EUR'…). */
+  moneda: string;
+  tipo: TipoDocumento;
+  /** La fila de clasificación elegida para esta línea (concepto, actividad…). */
+  fila: FilaClasificacion | null;
+  supuestos: readonly SupuestoMarcado[];
+}
+
+/** Los valores vigentes a la fecha de la factura. */
+export interface ContextoCalculo {
+  /** Por clave. null o ausente = sin valor a esa fecha. */
+  parametros: Readonly<Record<string, number | null | undefined>>;
+  /** La tasa de la moneda del documento a Bs. */
+  tasa: TasaFecha | null;
+  /** La de la moneda de mayor valor del BCV (la mayor del día). */
+  tasaMmv: TasaFecha | null;
+  tarifas: Readonly<Record<string, TarifaVigente | undefined>>;
+}
+
+/** Lo que el documento impone a la línea cuando el mínimo o el sustraendo van «una vez por factura». */
+export interface AjustesDocumento {
+  /** La base con la que se compara el mínimo (la de todo el documento). */
+  baseMinimo?: number;
+  /** El sustraendo que queda por descontar en el documento; la línea toma lo que pueda. */
+  sustraendoDisponible?: number;
+  /** El texto de la foto cuando el sustraendo se aplicó en otra línea. */
+  notaSustraendo?: string;
+}
+
+export interface PasoFoto {
+  paso: NombrePaso;
+  operacion: string;
+  entradas: Record<string, number | string | null>;
+  valor: number;
+  nota: string;
+}
+
+export interface ValoresFoto {
+  valor_ut: number | null;
+  alicuota: number | null;
+  fila_id: string | null;
+  supuestos: string[];
+  pct_supuesto: number | null;
+  tasas: TasaFecha[];
+  base_ut?: number;
+  tramo?: TramoTarifa;
+}
+
+export interface FotoCalculo {
+  regla_version_id: string;
+  signo: 1 | -1;
+  pasos: PasoFoto[];
+  valores: ValoresFoto;
+}
+
+export type Falta =
+  | { tipo: 'parametro'; clave: string }
+  | { tipo: 'fila' }
+  | { tipo: 'columna'; columna: ColumnaTabla }
+  | { tipo: 'tasa'; moneda: string }
+  | { tipo: 'tasa_mmv' }
+  | { tipo: 'tarifa'; tarifa_id: string }
+  | { tipo: 'tramo' }
+  | { tipo: 'regla'; detalle: string };
+
+export type ResultadoCalculo =
+  | {
+    estado: 'calculado';
+    /** Con su signo: negativo en la nota de crédito. */
+    monto: number;
+    magnitud: number;
+    cero: boolean;
+    nota: string;
+    /** La base después de convertir la moneda (pasos 1 y 2). */
+    base: number;
+    /** El % del paso de la tasa, si fue un %; lo usa el sustraendo «una vez por factura». */
+    pct: number | null;
+    /** Lo que restó el sustraendo, antes de los topes. */
+    sustraendo: number;
+    foto: FotoCalculo;
+  }
+  | { estado: 'sin_dato'; falta: Falta; nota: string; foto: FotoCalculo };
+
+class FaltaDato extends Error {
+  constructor(readonly falta: Falta, mensaje: string) { super(mensaje); }
+}
+
+/** Redondeo a `d` decimales, la mitad hacia arriba, sin el error de coma flotante de 1,005. */
+export function redondear(n: number, d = 2): number {
+  const f = 10 ** d;
+  const s = Math.sign(n) || 1;
+  return (s * Math.round(Math.abs(n) * f + 1e-7)) / f;
+}
+
+const MONEDAS_BS = new Set(['bs', 'ves', 'bs.', 'bss']);
+const esBolivares = (moneda: string) => MONEDAS_BS.has(moneda.trim().toLowerCase());
+
+const COLUMNA_TEXTO: Record<ColumnaTabla, string> = {
+  pct: 'el %', base_pct: 'el % de la base', minimo: 'el mínimo', sustraendo_factor: 'el factor del sustraendo',
+};
+
+export function calcularLinea(
+  version: VersionRegla, e: EntradaLinea, ctx: ContextoCalculo, ajustes: AjustesDocumento = {},
+): ResultadoCalculo {
+  const p: PasosRegla = version.pasos ?? {};
+  const signo: 1 | -1 = e.tipo === 'nc' ? -1 : 1;
+  const foto: FotoCalculo = {
+    regla_version_id: version.id, signo, pasos: [],
+    valores: { valor_ut: null, alicuota: null, fila_id: e.fila?.id ?? null, supuestos: [], pct_supuesto: null, tasas: [] },
+  };
+  const anotar = (paso: NombrePaso, operacion: string, entradas: PasoFoto['entradas'], valor: number, nota = '') => {
+    foto.pasos.push({ paso, operacion, entradas, valor, nota });
+  };
+  const agregarTasa = (t: TasaFecha) => {
+    if (!foto.valores.tasas.some((x) => x.moneda === t.moneda && x.fecha === t.fecha)) foto.valores.tasas.push(t);
+  };
+
+  const parametro = (clave: string): number => {
+    const v = ctx.parametros[clave];
+    if (v == null || !Number.isFinite(v)) throw new FaltaDato({ tipo: 'parametro', clave }, `Sin valor de «${clave}» para la fecha de la factura. Registrarlo en ⚙ Parámetros. No se calcula.`);
+    return v;
+  };
+  const ut = (): number => {
+    const v = parametro(CLAVE_UT);
+    if (v <= 0) throw new FaltaDato({ tipo: 'parametro', clave: CLAVE_UT }, 'El valor de la UT para la fecha de la factura es 0. Registrar el valor correcto en ⚙ Parámetros. No se calcula.');
+    foto.valores.valor_ut = v;
+    return v;
+  };
+  const fila = (): FilaClasificacion => {
+    if (!e.fila) throw new FaltaDato({ tipo: 'fila' }, 'Falta elegir el concepto o la actividad de la línea. No se calcula.');
+    return e.fila;
+  };
+  /** Resuelve una fuente. `opcional` = una columna vacía de la tabla vale null (sin mínimo, sin sustraendo). */
+  const resolver = (f: Fuente, opcional = false): number | null => {
+    switch (f.tipo) {
+      case 'fijo': return f.valor;
+      case 'parametro': return parametro(f.clave);
+      case 'tabla': {
+        const v = fila()[f.columna];
+        if (v == null) {
+          if (opcional) return null;
+          if (f.columna === 'base_pct') return 100;
+          throw new FaltaDato({ tipo: 'columna', columna: f.columna }, `La fila «${fila().codigo}» no tiene ${COLUMNA_TEXTO[f.columna]}. Completarla en ⚙ Parámetros. No se calcula.`);
+        }
+        return v;
+      }
+      case 'supuesto': {
+        if (e.supuestos.length) {
+          const mayor = Math.max(...e.supuestos.map((s) => s.pct));
+          foto.valores.supuestos = e.supuestos.map((s) => s.id);
+          foto.valores.pct_supuesto = mayor;
+          return mayor;
+        }
+        return resolver(f.defecto, opcional);
+      }
+    }
+  };
+  const requerido = (f: Fuente): number => resolver(f) as number;
+
+  try {
+    // 1. Componer la base
+    let v = 0;
+    if (p.base) {
+      const suma = p.base.suma.reduce((a, c) => a + (Number(e.montos[c]) || 0), 0);
+      const resta = p.base.resta.reduce((a, c) => a + (Number(e.montos[c]) || 0), 0);
+      v = suma - resta;
+      let nota = '';
+      if (v < 0) { nota = 'Lo que se resta supera lo que se suma: la base queda en 0.'; v = 0; }
+      const entradas: PasoFoto['entradas'] = { suma: p.base.suma.join(' + '), resta: p.base.resta.join(' + ') || null };
+      if (p.base.porcion) {
+        const porc = requerido(p.base.porcion);
+        entradas.porcion = porc;
+        v = (v * porc) / 100;
+      }
+      if (p.base.alicuota) {
+        const ali = requerido(p.base.alicuota);
+        entradas.alicuota = ali;
+        foto.valores.alicuota = ali;
+        v = (v * ali) / 100;
+      }
+      anotar('base', 'componer', entradas, v, nota);
+    }
+
+    // 2. Convertir la moneda
+    if (p.moneda?.convertir && !esBolivares(e.moneda)) {
+      const t = ctx.tasa;
+      if (!t || t.moneda !== e.moneda || !(t.tasa > 0)) {
+        throw new FaltaDato({ tipo: 'tasa', moneda: e.moneda }, `Sin tasa BCV de ${e.moneda} para la fecha de la factura. No se calcula.`);
+      }
+      agregarTasa(t);
+      v *= t.tasa;
+      anotar('moneda', 'multiplicar_tasa', { moneda: t.moneda, tasa: t.tasa, fecha: t.fecha }, v);
+    }
+    const base = v;
+
+    // 3. Comparar con el mínimo
+    if (p.minimo) {
+      const m = resolver(p.minimo.fuente, true);
+      if (m != null && m > 0) {
+        const unidad: UnidadMinimo = p.minimo.fuente.tipo === 'tabla' && e.fila?.minimo_unidad ? e.fila.minimo_unidad : p.minimo.unidad;
+        let minimoBs = m;
+        if (unidad === 'ut') minimoBs = m * ut();
+        if (unidad === 'mmv') {
+          const t = ctx.tasaMmv;
+          if (!t || !(t.tasa > 0)) throw new FaltaDato({ tipo: 'tasa_mmv' }, 'Sin la tasa de la moneda de mayor valor del BCV para la fecha de la factura. No se calcula.');
+          agregarTasa(t);
+          minimoBs = m * t.tasa;
+        }
+        const comparada = ajustes.baseMinimo ?? base;
+        const llega = comparada >= minimoBs;
+        anotar('minimo', 'comparar', { minimo: m, unidad, minimo_bs: redondear(minimoBs), base_comparada: redondear(comparada) }, v,
+          llega ? '' : ajustes.baseMinimo != null ? 'La base del documento no llega al mínimo.' : 'La base no llega al mínimo.');
+        if (!llega) {
+          return {
+            estado: 'calculado', monto: 0, magnitud: 0, cero: true, base: redondear(base), pct: null, sustraendo: 0, foto,
+            nota: ajustes.baseMinimo != null ? 'No se retiene: la base del documento no llega al mínimo.' : 'No se retiene: la base no llega al mínimo.',
+          };
+        }
+      }
+    }
+
+    // 4. Aplicar la tasa
+    let pct: number | null = null;
+    if (p.tasa) {
+      if (p.tasa.op === 'pct') {
+        pct = requerido(p.tasa.fuente);
+        v = (v * pct) / 100;
+        anotar('tasa', 'pct', { pct }, v);
+      } else if (p.tasa.op === 'monto_fijo') {
+        const fijo = requerido(p.tasa.fuente);
+        v = fijo;
+        anotar('tasa', 'monto_fijo', { monto: fijo }, v);
+      } else {
+        const tarifa = ctx.tarifas[p.tasa.tarifa_id];
+        if (!tarifa) throw new FaltaDato({ tipo: 'tarifa', tarifa_id: p.tasa.tarifa_id }, 'La tarifa de la regla no tiene tramos vigentes a la fecha de la factura. No se calcula.');
+        const factor = tarifa.unidad === 'ut' ? ut() : 1;
+        const x = v / factor;
+        const tramo = tarifa.tramos.find((t) => x >= t.desde && (t.hasta == null || x <= t.hasta));
+        if (!tramo) throw new FaltaDato({ tipo: 'tramo' }, `Ningún tramo de «${tarifa.nombre}» cubre una base de ${redondear(x)} ${tarifa.unidad === 'ut' ? 'UT' : 'Bs'}. No se calcula.`);
+        foto.valores.base_ut = tarifa.unidad === 'ut' ? redondear(x, 4) : undefined;
+        foto.valores.tramo = tramo;
+        pct = tramo.pct;
+        v = Math.max(0, (x * tramo.pct) / 100 - tramo.sustraendo) * factor;
+        anotar('tasa', 'tramos', { tarifa: tarifa.nombre, base_en_unidad: redondear(x, 4), desde: tramo.desde, hasta: tramo.hasta, pct: tramo.pct, sustraendo: tramo.sustraendo }, v);
+      }
+    }
+
+    // 5. Restar el sustraendo
+    let sustraendo = 0;
+    if (ajustes.sustraendoDisponible != null) {
+      sustraendo = Math.min(v, ajustes.sustraendoDisponible);
+      v -= sustraendo;
+      anotar('sustraendo', 'una_vez_por_documento', { disponible: redondear(ajustes.sustraendoDisponible) }, v,
+        ajustes.notaSustraendo ?? (sustraendo > 0 ? 'El sustraendo del documento se descuenta aquí.' : 'El sustraendo del documento ya se descontó.'));
+    } else if (p.sustraendo) {
+      const s = sustraendoDeLinea(p, pct, resolver, ut);
+      if (s != null) {
+        sustraendo = s.monto;
+        v -= sustraendo;
+        anotar('sustraendo', p.sustraendo.op, s.entradas, v);
+      }
+    }
+    const causado = Math.max(0, v);
+
+    // 6. Cuánto se retiene
+    if (p.retiene) {
+      if (p.retiene.op === 'pct') {
+        const r = requerido(p.retiene.fuente);
+        v = (v * r) / 100;
+        anotar('retiene', 'pct', { pct: r }, v, foto.valores.pct_supuesto != null ? 'Por el supuesto marcado.' : '');
+      } else {
+        anotar('retiene', 'todo', {}, v);
+      }
+    }
+
+    // 7. Topes (nunca negativo, aunque la regla no lo pida)
+    const antes = v;
+    v = Math.max(0, v);
+    if (p.topes?.max_causado) v = Math.min(v, causado);
+    if (p.topes?.max_base) v = Math.min(v, base);
+    if (p.topes || antes !== v) anotar('topes', 'max_min', { antes: redondear(antes), causado: redondear(causado), base: redondear(base) }, v);
+
+    // 8. Redondear
+    const decimales = p.redondeo?.decimales ?? 2;
+    const magnitud = redondear(v, decimales);
+    anotar('redondeo', 'mitad_arriba', { decimales }, magnitud);
+
+    const monto = signo === -1 && magnitud !== 0 ? -magnitud : magnitud;
+    return {
+      estado: 'calculado', monto, magnitud, cero: magnitud === 0, base: redondear(base), pct, sustraendo: redondear(sustraendo), foto,
+      nota: magnitud === 0 ? 'El cálculo da 0,00 con estos datos.' : signo === -1 ? 'Nota de crédito: el monto resta.' : '',
+    };
+  } catch (err) {
+    if (err instanceof FaltaDato) return { estado: 'sin_dato', falta: err.falta, nota: err.message, foto };
+    throw err;
+  }
+}
+
+/** El sustraendo de una línea. null = la regla lo pide pero la fila no tiene factor (sin sustraendo). */
+function sustraendoDeLinea(
+  p: PasosRegla, pct: number | null, resolver: (f: Fuente, opcional?: boolean) => number | null, ut: () => number,
+): { monto: number; entradas: PasoFoto['entradas'] } | null {
+  const s = p.sustraendo;
+  if (!s) return null;
+  if (s.op === 'monto') {
+    const monto = resolver(s.fuente, true);
+    return monto == null ? null : { monto, entradas: { monto } };
+  }
+  const factor = resolver(s.factor, true);
+  if (factor == null || factor === 0) return null;
+  if (pct == null) throw new FaltaDato({ tipo: 'regla', detalle: 'sustraendo_sin_pct' }, 'La regla pide un sustraendo «% × UT × factor» sin un paso de tasa en %. Revisar la regla. No se calcula.');
+  const valorUt = ut();
+  return { monto: (pct / 100) * valorUt * factor, entradas: { pct, ut: valorUt, factor } };
+}
+
+/**
+ * El sustraendo «una vez por documento»: el de la primera línea, con su % y su fila
+ * (se calcula sin el mínimo, que en ese modo se compara con la base del documento).
+ */
+export function sustraendoDelDocumento(version: VersionRegla, primera: EntradaLinea, ctx: ContextoCalculo): ResultadoCalculo {
+  return calcularLinea({ ...version, pasos: { ...version.pasos, minimo: null } }, primera, ctx);
+}
