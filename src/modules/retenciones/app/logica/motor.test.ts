@@ -247,6 +247,33 @@ describe('las piezas sueltas', () => {
   });
 });
 
+describe('una regla mal escrita no se interpreta (revisión de REG-1)', () => {
+  const malos: [string, Record<string, unknown>][] = [
+    ['retiene sin op: no se toma como «todo»', { retiene: { fuente: { tipo: 'fijo', valor: 75 } } }],
+    ['retiene vacío', { retiene: {} }],
+    ['tasa con una op inventada', { tasa: { op: 'raiz', fuente: { tipo: 'fijo', valor: 3 } } }],
+    ['sustraendo sin op', { sustraendo: { factor: { tipo: 'fijo', valor: 83.3334 } } }],
+    ['redondeo con otro modo', { redondeo: { decimales: 2, modo: 'truncar' } }],
+  ];
+  for (const [nombre, paso] of malos) {
+    it(nombre, () => {
+      const v = { ...IVA, pasos: { ...IVA.pasos, ...paso } } as VersionRegla;
+      expect(calcularLinea(v, linea({ montos: { iva: 1600 } }), CONTEXTO)).toMatchObject({ estado: 'sin_dato', falta: { tipo: 'regla' } });
+    });
+  }
+
+  it('una base sin «resta» (o sin «suma») no rompe: vale como lista vacía', () => {
+    const v = { ...IVA, pasos: { ...IVA.pasos, base: { suma: ['iva'] } } } as unknown as VersionRegla;
+    expect(monto(calcularLinea(v, linea({ montos: { iva: 1600 } }), CONTEXTO))).toBe(1200);
+  });
+
+  it('una tasa provisional calcula, pero avisa', () => {
+    const provisional = { ...TASA_USD, provisional: true };
+    const r = calcularLinea(IVA, linea({ moneda: 'USD', montos: { iva: 100 } }), { ...CONTEXTO, tasa: provisional });
+    expect(r).toMatchObject({ estado: 'calculado', monto: 3000, avisos: ['La tasa de USD del 2026-10-14 es provisional: el monto puede cambiar cuando salga la definitiva.'] });
+  });
+});
+
 describe('los bordes', () => {
   const vacia: VersionRegla = { ...IVA, id: 'v-vacia', pasos: {} };
   const base = { suma: ['subtotal' as const], resta: [], porcion: null, alicuota: null };
@@ -287,7 +314,7 @@ describe('los bordes', () => {
   });
 
   it('una tasa de otra moneda no sirve: la del EUR no convierte un documento en USD', () => {
-    const eur = { moneda: 'EUR', tasa: 50, fecha: '2026-10-14', fuente: 'bcv' };
+    const eur = { moneda: 'EUR', tasa: 50, fecha_tasa: '2026-10-14', regla: 'bcv', provisional: false };
     expect(calcularLinea(IVA, linea({ moneda: 'USD', montos: { iva: 100 } }), { ...CONTEXTO, tasa: eur }))
       .toMatchObject({ estado: 'sin_dato', falta: { tipo: 'tasa', moneda: 'USD' } });
     expect(monto(calcularLinea(IVA, linea({ moneda: 'EUR', montos: { iva: 100 } }), { ...CONTEXTO, tasa: eur }))).toBe(3750);

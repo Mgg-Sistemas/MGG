@@ -52,20 +52,25 @@ const ETIQUETA_DOC: Record<TipoDocumento, string> = { factura: 'factura', nd: 'n
 export function aplicaRegla(
   v: VersionRegla, doc: DocumentoCondiciones, agente: number | null, sinConfigurar: SinConfigurar = 'avisar',
 ): Aplicacion {
+  // Una versión sin dirección no se aplica: nunca se supone (revisión de REG-1, C1).
+  if (!v.direccion) return { aplica: false, motivo: 'La regla no dice si es para retenciones practicadas o recibidas. Revisarla en ⚙ Parámetros.' };
   if (v.direccion !== doc.direccion) return { aplica: false, motivo: `La regla es para retenciones ${v.direccion === 'practicada' ? 'practicadas' : 'recibidas'}.` };
-  if (!v.documentos.includes(doc.tipo)) return { aplica: false, motivo: `La regla no aplica a una ${ETIQUETA_DOC[doc.tipo]}.` };
-  // Un documento con bienes y servicios no se descarta entero: se decide por línea (motor.ts).
-  if (v.operacion !== 'ambos' && doc.operacion !== 'ambos' && doc.operacion !== v.operacion) {
-    return { aplica: false, motivo: `La regla aplica solo a ${v.operacion === 'bienes' ? 'compras de bienes' : 'servicios'}.` };
+  if (!(v.documentos ?? []).includes(doc.tipo)) return { aplica: false, motivo: `La regla no aplica a una ${ETIQUETA_DOC[doc.tipo]}.` };
+  // Un documento con bienes y servicios no se descarta entero: se decide por línea (motor.ts). null = 'ambos'.
+  const operacion = v.operacion ?? 'ambos';
+  if (operacion !== 'ambos' && doc.operacion !== 'ambos' && doc.operacion !== operacion) {
+    return { aplica: false, motivo: `La regla aplica solo a ${operacion === 'bienes' ? 'compras de bienes' : 'servicios'}.` };
   }
-  if (v.sujetos.length) {
+  const sujetos = v.sujetos ?? [];
+  if (sujetos.length) {
     // El sujeto no se adivina por la letra del RIF: si falta, se pide.
     if (!doc.sujeto) return { aplica: 'falta_dato', falta: 'sujeto', motivo: 'Falta el tipo de sujeto de la contraparte en su perfil fiscal.' };
-    if (!v.sujetos.includes(doc.sujeto)) return { aplica: false, motivo: 'La regla no aplica a este tipo de sujeto.' };
+    if (!sujetos.includes(doc.sujeto)) return { aplica: false, motivo: 'La regla no aplica a este tipo de sujeto.' };
   }
-  if (v.contribuyentes.length) {
+  const contribuyentes = v.contribuyentes ?? [];
+  if (contribuyentes.length) {
     if (!doc.contribuyente) return { aplica: 'falta_dato', falta: 'contribuyente', motivo: 'Falta el tipo de contribuyente de la contraparte en su perfil fiscal.' };
-    if (!v.contribuyentes.includes(doc.contribuyente)) return { aplica: false, motivo: 'La regla no aplica a este tipo de contribuyente.' };
+    if (!contribuyentes.includes(doc.contribuyente)) return { aplica: false, motivo: 'La regla no aplica a este tipo de contribuyente.' };
   }
   if (v.condicion_agente) {
     if (agente == null) {

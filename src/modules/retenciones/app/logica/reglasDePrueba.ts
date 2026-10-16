@@ -103,8 +103,8 @@ export const TARIFA_2: TarifaVigente = {
 export const CONTEXTO: ContextoCalculo = {
   parametros: { valor_ut: 43, pct_igtf: 3, agente_iva: 1 },
   tasa: null,
-  tasaMmv: { moneda: 'EUR', tasa: 50, fecha: '2026-10-14', fuente: 'bcv' },
+  tasaMmv: { moneda: 'EUR', tasa: 50, fecha_tasa: '2026-10-14', regla: 'bcv', provisional: false },
   tarifas: { 't-2': TARIFA_2 },
 };
 
-export const TASA_USD = { moneda: 'USD', tasa: 40, fecha: '2026-10-14', fuente: 'bcv' };
+export const TASA_USD = { moneda: 'USD', tasa: 40, fecha_tasa: '2026-10-14', regla: 'bcv', provisional: false };
