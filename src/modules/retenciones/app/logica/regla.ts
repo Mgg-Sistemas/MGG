@@ -134,4 +134,4 @@ export interface SupuestoMarcado { id: string; texto: string; pct: number }
  * semana ya pasado), `regla` dice cómo se eligió y `provisional` avisa que
  * aún no es la definitiva.
  */
-export interface TasaFecha { moneda: string; tasa: number; fecha_tasa: string; regla: string; provisional: boolean }
+export interface TasaFecha { moneda: string; tasa: number; fecha_tasa: string; regla: string; provisional: boolean; fuente?: string }
