@@ -1,7 +1,7 @@
 /* ============================================================
    MGG · Comprobante de retención (Venezuela)
 
-   El comprobante de retención de IVA que manda la Providencia SNAT/2015/0049:
+   El comprobante de retención de IVA que manda la Providencia SNAT/2025/000054:
    número de comprobante AAAAMM + 8 dígitos, período fiscal, datos del agente y
    del sujeto retenido, la factura que lo origina, la base, el impuesto, el
    porcentaje y el monto retenido.
@@ -60,7 +60,7 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
   doc.text(textoPdf(`COMPROBANTE DE ${labelImpuesto(r.tipo).toUpperCase()}`), W / 2, y + 16, { align: 'center' });
   doc.setTextColor(40, 40, 40); doc.setFontSize(9); doc.setFont('helvetica', 'normal');
   if (r.tipo === 'iva') {
-    doc.text(textoPdf('Providencia Administrativa SNAT/2015/0049'), W / 2, y + 30, { align: 'center' });
+    doc.text(textoPdf('Providencia Administrativa SNAT/2025/000054'), W / 2, y + 30, { align: 'center' });
   } else if (r.tipo === 'islr') {
     doc.text(textoPdf('Decreto 1.808 · Reglamento Parcial de la Ley de ISLR en materia de retenciones'), W / 2, y + 30, { align: 'center' });
   }

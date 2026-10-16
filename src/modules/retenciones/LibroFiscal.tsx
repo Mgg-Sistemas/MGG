@@ -439,8 +439,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
   async function emitir() {
     setError(null);
-    if (montoFinal <= 0) { setError(esManual ? 'Cargá el monto que dice el comprobante.' : calculo.explicacion); return; }
-    if (esManual && !contraparte.trim()) { setError('Poné quién practicó la retención.'); return; }
+    if (montoFinal <= 0) { setError(esManual ? 'Cargue el monto que dice el comprobante.' : calculo.explicacion); return; }
+    if (esManual && !contraparte.trim()) { setError('Indique quién practicó la retención.'); return; }
     const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
     setSaving(true);
     try {
@@ -577,7 +577,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
       {direccion === 'practicada' && tipo === 'iva' && (
         <div className="form-row">
-          <label>¿Corresponde retener el 100%? (Providencia SNAT/2015/0049, art. 5)</label>
+          <label>¿Corresponde retener el 100%? (Providencia SNAT/2025/000054, art. 5)</label>
           {([
             ['ivaNoDiscriminado', 'El IVA no está discriminado en la factura'],
             ['facturaNoCumple', 'La factura no cumple los requisitos de facturación'],
@@ -622,7 +622,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
               <label>Monto retenido</label>
               <input className="input mono" value={montoStr} onChange={(e) => setMontoStr(e.target.value)} inputMode="decimal"
                 placeholder={String(Math.round(nDec(baseStr) * nDec(pctStr)) / 100)} />
-              <small className="hint muted">Si lo dejás vacío se toma base × %.</small>
+              <small className="hint muted">Si se deja vacío, se toma base × %.</small>
             </div>
           </>
         )}
@@ -652,7 +652,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
       <div className="form-row">
         <label>Observación</label>
-        <input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} placeholder="Opcional" />
+        <input className="input" value={observacion} onChange={(e) => setObservacion(e.target.value)} />
       </div>
 
       {/* El resultado, con la cuenta a la vista */}
@@ -816,7 +816,7 @@ function CatalogoConceptos({ conceptos, onCambio }: { conceptos: ConceptoRetenci
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
         Los conceptos de <strong>ISLR</strong> vienen del <strong>Decreto 1.808</strong>. Los de <strong>municipal</strong> y
         <strong> timbre estadal</strong> nacen en <strong>0% y desactivados</strong> a propósito: esa alícuota la fija la
-        ordenanza de cada municipio y la ley de cada estado, no hay un número nacional. Cargá el de ustedes y activalo.
+        ordenanza de cada municipio y la ley de cada estado, no hay un número nacional. Se carga el de la empresa y se activa.
       </p>
       <div className="table-wrap" style={{ maxHeight: 420, overflow: 'auto' }}>
         <table className="table" style={{ fontSize: '.82rem' }}>
