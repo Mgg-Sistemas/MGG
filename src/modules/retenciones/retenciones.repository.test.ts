@@ -52,6 +52,17 @@ describe('Retenciones no se corta en las 1.000 filas de Supabase (N3)', () => {
     expect(await listRetencionesHechas()).toHaveLength(1200);
   });
 
+  it('una OC en Bs sale en Bs, no como $; sin moneda, en USD como antes', async () => {
+    tablas.ordenes = [
+      { id: 'oc-bs', codigo: 'OP-1', oc_codigo: 'OC-1', proveedor_id: 'p-1', total: 1160, moneda: 'Bs' },
+      { id: 'oc-usd', codigo: 'OP-2', oc_codigo: 'OC-2', proveedor_id: 'p-1', total: 50 },
+    ];
+    tablas.proveedores = proveedores(1);
+    const [bs, usd] = await listRetencionesPendientes();
+    expect(bs).toMatchObject({ moneda: 'Bs', avisoMoneda: null });
+    expect(usd).toMatchObject({ moneda: 'USD', avisoMoneda: null });
+  });
+
   it('el nombre y el RIF salen aunque el proveedor esté pasada la fila 1.000', async () => {
     tablas.ordenes = [{ id: 'oc-x', codigo: 'OP-X', oc_codigo: 'OC-X', proveedor_id: 'p-1250', total: 1 }];
     tablas.proveedores = proveedores(1300);

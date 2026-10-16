@@ -13,6 +13,7 @@ import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Orden } from '@/shared/lib/types';
 import { listComprasConRetencion, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
+import { monedaDeOrden } from './monedaOrden';
 
 const TABLE = 'ordenes';
 const BUCKET = 'compras-oc';
@@ -53,6 +54,8 @@ export interface RetencionItem {
   condicionLabel: string;       // condición de pago (OC) o "Compra directa"
   retencionLabel: string;       // modo de retención (OC) o "16% IVA · Bs X" (compra directa)
   moneda: string;
+  /** La OC trae una moneda que Retenciones no maneja (ver monedaOrden.ts). */
+  avisoMoneda?: string | null;
   total: number;
   tesoreria: 'pagada' | 'por_pagar' | 'na';
   finalizada: boolean;
@@ -83,6 +86,7 @@ const FILTRO_COMPROBANTE = 'comprobante_tipo.eq.factura,and(comprobante_tipo.eq.
 
 function ocToItem(o: Orden, pm: Map<string, ProveedorBreve>): RetencionItem {
   const prov = o.proveedor_id ? pm.get(o.proveedor_id as string) : undefined;
+  const mon = monedaDeOrden(o.moneda);
   return {
     kind: 'oc', id: o.id,
     ocCodigo: o.oc_codigo ?? null, opCodigo: o.codigo,
@@ -93,7 +97,7 @@ function ocToItem(o: Orden, pm: Map<string, ProveedorBreve>): RetencionItem {
     proveedorRif: prov?.rif ?? null,
     condicionLabel: labelCondicionPago(o.condiciones_pago),
     retencionLabel: labelRetencionModo(o.retencion_modo),
-    moneda: 'USD', total: Number(o.total) || 0,
+    moneda: mon.moneda, avisoMoneda: mon.aviso, total: Number(o.total) || 0,
     tesoreria: o.retencion_pagada ? 'pagada' : 'por_pagar',
     finalizada: !!o.retencion_finalizada, finalizadaEn: o.retencion_finalizada_en ?? null,
     tiposComprobante: comprobantesDeOrden(o).map((c) => c.tipo),
@@ -188,7 +192,7 @@ export async function finalizarRetencion(input: {
   actor: string;
 }): Promise<void> {
   const entries = (Object.entries(input.archivos) as [TipoRetencion, File | undefined][]).filter(([, f]) => !!f);
-  if (!entries.length) throw new Error('Cargá al menos un comprobante de retención (IVA, ISLR o Municipal).');
+  if (!entries.length) throw new Error('Cargue al menos un comprobante de retención (IVA, ISLR o Municipal).');
   for (const [, f] of entries) {
     const file = f as File;
     if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) {
