@@ -99,7 +99,7 @@ describe('ISLR de persona natural residente, como dato: porción, mínimo en UT,
     // Una fila con sustraendo y sin mínimo: 1.000 × 3 % = 30 − 107,50 → 0, nunca −77,50
     const r = calcularLinea(ISLR_PNR, linea({ montos: { subtotal: 1000 }, fila: { ...HONORARIOS_PNR, minimo: null } }), CONTEXTO);
     expect(monto(r)).toBe(0);
-    expect(r.foto.pasos.find((p) => p.paso === 'topes')?.entradas.antes).toBe(-77.500086);
+    expect(r.foto.pasos.find((p) => p.paso === 'topes')?.entradas.antes).toBe(-77.5);
   });
 });
 
@@ -237,7 +237,7 @@ describe('las piezas sueltas', () => {
     const r = calcularLinea(ISLR_PNR, linea({ montos: { subtotal: 50000 }, fila: HONORARIOS_PNR }), CONTEXTO);
     expect(r.foto.regla_version_id).toBe('v-islr-pnr');
     const sus = r.foto.pasos.find((p) => p.paso === 'sustraendo');
-    expect(sus).toMatchObject({ operacion: 'ut_factor_pct', entradas: { pct: 3, ut: 43, factor: 83.3334, sustraendo: 107.500086 } });
+    expect(sus).toMatchObject({ operacion: 'ut_factor_pct', entradas: { pct: 3, ut: 43, factor: 83.3334, sustraendo: 107.5 } });
   });
 
   it('una línea de bienes no lleva una regla de servicios', () => {
@@ -254,6 +254,13 @@ describe('los bordes', () => {
   it('la base exactamente igual al mínimo sí retiene (ISAE: 10 × 50 = 500)', () => {
     expect(monto(calcularLinea(ISAE, linea({ montos: { subtotal: 500, descuento: 0 }, fila: ACTIVIDAD }), CONTEXTO))).toBe(12.5);
     expect(monto(calcularLinea(ISAE, linea({ montos: { subtotal: 499.99, descuento: 0 }, fila: ACTIVIDAD }), CONTEXTO))).toBe(0);
+  });
+
+  it('el borde del mínimo es un interruptor: «incluido» por defecto; «excluido» exige superarlo', () => {
+    const justo = linea({ montos: { subtotal: 500, descuento: 0 }, fila: ACTIVIDAD });
+    expect(monto(calcularLinea(ISAE, justo, CONTEXTO))).toBe(12.5);
+    expect(monto(calcularLinea(ISAE, justo, { ...CONTEXTO, minimoBorde: 'excluido' }))).toBe(0);
+    expect(monto(calcularLinea(ISAE, linea({ montos: { subtotal: 500.01, descuento: 0 }, fila: ACTIVIDAD }), { ...CONTEXTO, minimoBorde: 'excluido' }))).toBe(12.5);
   });
 
   it('el mínimo en Bs', () => {
@@ -300,10 +307,10 @@ describe('los bordes', () => {
     expect(Object.is(redondear(-0.001), 0)).toBe(true);
   });
 
-  it('el redondeo intermedio: exacto por defecto; «publicado» usa 107,50 y 3.583,34, y puede mover un céntimo', () => {
-    // 20.000,05 × 5 % = 1.000,0025; sustraendo exacto 179,16681 → 820,84; publicado 179,17 → 820,83
+  it('el redondeo intermedio: «publicado» por defecto (107,50 y 3.583,34, como la tabla oficial); «exacto» puede mover un céntimo', () => {
+    // 20.000,05 × 5 % = 1.000,0025; publicado 179,17 → 820,83; exacto 179,16681 → 820,84
     const e = linea({ montos: { subtotal: 20000.05 }, fila: COMISIONES_PNR });
-    expect(monto(calcularLinea(ISLR_PNR, e, CONTEXTO))).toBe(820.84);
-    expect(monto(calcularLinea(ISLR_PNR, e, { ...CONTEXTO, redondeoIntermedio: 'publicado' }))).toBe(820.83);
+    expect(monto(calcularLinea(ISLR_PNR, e, CONTEXTO))).toBe(820.83);
+    expect(monto(calcularLinea(ISLR_PNR, e, { ...CONTEXTO, redondeoIntermedio: 'exacto' }))).toBe(820.84);
   });
 });

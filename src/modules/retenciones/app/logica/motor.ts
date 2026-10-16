@@ -13,11 +13,15 @@
    calcula: nunca con 0 en silencio. Un monto del documento sin cargar no
    es lo mismo que un 0.
 
-   Entre pasos se trabaja con los valores exactos; se redondea solo en el
-   paso 8. El interruptor `redondeoIntermedio: 'publicado'` usa el mínimo y
-   el sustraendo en Bs con 2 decimales, como los publica la norma
-   (3.583,34 y 107,50): lo decide el usuario, y vale igual por línea y por
-   factura.
+   Dos interruptores de la empresa (decisión del usuario, 16/10 12:19), que
+   valen igual por línea y por factura:
+   · retenciones.calculo.redondeo_intermedio: «publicado» (por defecto) usa
+     el mínimo y el sustraendo en Bs con 2 decimales, como la tabla oficial
+     (3.583,34 y 107,50); «exacto» los usa sin redondear. El resultado se
+     redondea siempre en el paso 8.
+   · retenciones.calculo.minimo_borde: «incluido» (por defecto) retiene
+     cuando la base es igual al mínimo; «excluido» exige que lo supere.
+     Queda abierto para el contador.
 
    Convenciones acordadas con BD (16/10):
    · se calcula con magnitudes positivas; la nota de crédito pone el signo
@@ -66,8 +70,10 @@ export interface ContextoCalculo {
   /** La de la moneda de mayor valor del BCV (la mayor del día). */
   tasaMmv: TasaFecha | null;
   tarifas: Readonly<Record<string, TarifaVigente | undefined>>;
-  /** Interruptor: 'exacto' (por defecto) o 'publicado' (mínimo y sustraendo en Bs con 2 decimales). */
+  /** retenciones.calculo.redondeo_intermedio: 'publicado' (por defecto; mínimo y sustraendo en Bs con 2 decimales) o 'exacto'. */
   redondeoIntermedio?: 'exacto' | 'publicado';
+  /** retenciones.calculo.minimo_borde: 'incluido' (por defecto; base = mínimo retiene) o 'excluido' (base > mínimo). */
+  minimoBorde?: 'incluido' | 'excluido';
 }
 
 /** Lo que el documento impone a la línea cuando el mínimo o el sustraendo van «una vez por factura». */
@@ -170,7 +176,8 @@ export function calcularLinea(
 ): ResultadoCalculo {
   const p: PasosRegla = version.pasos ?? {};
   const signo: 1 | -1 = e.tipo === 'nc' ? -1 : 1;
-  const publicado = ctx.redondeoIntermedio === 'publicado';
+  const publicado = (ctx.redondeoIntermedio ?? 'publicado') === 'publicado';
+  const bordeIncluido = (ctx.minimoBorde ?? 'incluido') === 'incluido';
   const foto: FotoCalculo = {
     regla_version_id: version.id, signo, pasos: [],
     valores: { valor_ut: null, alicuota: null, fila_id: e.fila?.id ?? null, supuestos: [], pct_supuesto: null, tasas: [] },
@@ -293,7 +300,7 @@ export function calcularLinea(
         }
         if (publicado) minimoBs = redondear(minimoBs);
         const comparada = ajustes.baseMinimo ?? base;
-        const llega = comparada >= minimoBs;
+        const llega = bordeIncluido ? comparada >= minimoBs : comparada > minimoBs;
         const delDocumento = ajustes.baseMinimo != null;
         anotar('minimo', 'comparar', { minimo: m, unidad, minimo_bs: limpio(minimoBs), base_comparada: limpio(comparada) }, v,
           llega ? '' : delDocumento ? 'La base del documento no llega al mínimo.' : 'La base no llega al mínimo.');
