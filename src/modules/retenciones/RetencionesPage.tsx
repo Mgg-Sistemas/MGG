@@ -239,7 +239,7 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
 
   async function handleFinalizar(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!algunArchivo) { setError('Cargá al menos un comprobante (IVA, ISLR o Municipal).'); return; }
+    if (!algunArchivo) { setError('Cargue al menos un comprobante (IVA, ISLR o Municipal).'); return; }
     setSaving(true);
     try {
       void actorName;
@@ -318,7 +318,7 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
       {!yaFinalizada && canWrite && (
         <form id="ret-form" onSubmit={handleFinalizar}>
           <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.5rem' }}>
-            Cargá <strong>al menos uno</strong> de los comprobantes (PDF o imagen). Al finalizar, la retención queda registrada y se refleja en Tesorería.
+            Cargue <strong>al menos uno</strong> de los comprobantes (PDF o imagen). Al finalizar, la retención queda registrada y se refleja en Tesorería.
           </div>
           {TIPOS_RETENCION.map((t) => (
             <div key={t.key} className="form-row">
@@ -354,7 +354,7 @@ function RetencionCompraModal({ compra, canWrite, actor, onClose, onSaved }: {
 
   async function handleFinalizar(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!file) { setError('Cargá el comprobante de la retención de IVA (PDF o imagen).'); return; }
+    if (!file) { setError('Cargue el comprobante de la retención de IVA (PDF o imagen).'); return; }
     setSaving(true);
     try {
       await finalizarRetencionCompraDirecta({ compra, file, actor });
@@ -427,7 +427,7 @@ function RetencionCompraModal({ compra, canWrite, actor, onClose, onSaved }: {
       {!yaFinalizada && canWrite && (
         <form id="ret-cd-form" onSubmit={handleFinalizar}>
           <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.5rem' }}>
-            Cargá el <strong>comprobante de la retención de IVA</strong> (PDF o imagen). Al finalizar, la retención queda registrada.
+            Cargue el <strong>comprobante de la retención de IVA</strong> (PDF o imagen). Al finalizar, la retención queda registrada.
           </div>
           <div className="form-row">
             <label>Comprobante de retención de IVA</label>

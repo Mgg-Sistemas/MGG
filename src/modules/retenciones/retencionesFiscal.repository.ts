@@ -275,7 +275,7 @@ async function retencionVigenteDeLaFactura(input: NuevaRetencion): Promise<Reten
  * se copia tal cual del comprobante que entregaron.
  */
 export async function registrarRetencion(input: NuevaRetencion): Promise<RetencionPracticada> {
-  if (input.montoRetenido <= 0) throw new Error('La retención no tiene monto: revisá la base y el porcentaje.');
+  if (input.montoRetenido <= 0) throw new Error('La retención no tiene monto: revise la base y el porcentaje.');
   const previa = await retencionVigenteDeLaFactura(input);
   if (previa) throw new Error(mensajeDobleRegistro(previa));
   let numero: string | null = input.numeroComprobante?.trim() || null;
@@ -309,7 +309,7 @@ export async function registrarRetencion(input: NuevaRetencion): Promise<Retenci
  */
 export async function anularRetencion(id: string, motivo: string): Promise<void> {
   const m = motivo.trim();
-  if (!m) throw new Error('Indicá por qué se anula la retención.');
+  if (!m) throw new Error('Indique por qué se anula la retención.');
   const { error } = await supabase.from(T_RETENCIONES)
     .update({ anulada: true, anulada_motivo: m, anulada_en: new Date().toISOString() })
     .eq('id', id);

@@ -16,7 +16,7 @@ const concepto = (over: Partial<ConceptoRetencion>): ConceptoRetencion => ({
   fundamento: 'Decreto 1.808', activo: true, orden: 1, ...over,
 });
 
-describe('retención de IVA · Providencia SNAT/2015/0049', () => {
+describe('retención de IVA · Providencia SNAT/2025/000054', () => {
   it('quien no es contribuyente especial no retiene IVA', () => {
     const noEspecial: ConfigRetencion = { ...CONFIG_RETENCION_DEFECTO, esContribuyenteEspecial: false };
     const r = calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, noEspecial);

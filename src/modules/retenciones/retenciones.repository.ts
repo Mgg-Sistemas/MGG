@@ -188,7 +188,7 @@ export async function finalizarRetencion(input: {
   actor: string;
 }): Promise<void> {
   const entries = (Object.entries(input.archivos) as [TipoRetencion, File | undefined][]).filter(([, f]) => !!f);
-  if (!entries.length) throw new Error('Cargá al menos un comprobante de retención (IVA, ISLR o Municipal).');
+  if (!entries.length) throw new Error('Cargue al menos un comprobante de retención (IVA, ISLR o Municipal).');
   for (const [, f] of entries) {
     const file = f as File;
     if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) {

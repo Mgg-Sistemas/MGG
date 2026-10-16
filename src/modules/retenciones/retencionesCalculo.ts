@@ -5,7 +5,7 @@
    poder probarla renglón por renglón contra el reglamento.
 
    LO QUE MANDA EN CADA UNO
-   · IVA       — Providencia SNAT/2015/0049. Solo retiene el contribuyente
+   · IVA       — Providencia SNAT/2025/000054. Solo retiene el contribuyente
                  ESPECIAL designado. Retiene el 75% del IVA de la factura, y el
                  100% en los supuestos del art. 5 (factura que no cumple los
                  requisitos, IVA no discriminado, proveedor no inscrito o no
@@ -209,7 +209,7 @@ export function calcularRetencionIslr(
   config: ConfigRetencion,
 ): CalculoRetencion {
   const c = input.concepto;
-  if (!c) return CERO('islr', 'Elegí el concepto del Decreto 1.808 que corresponde al pago.');
+  if (!c) return CERO('islr', 'Elija el concepto del Decreto 1.808 que corresponde al pago.');
   if (!c.activo) return CERO('islr', `El concepto «${c.nombre}» está desactivado en el catálogo.`);
   const pago = r2(n0(input.montoPago));
   if (pago <= 0) return CERO('islr', 'El pago no tiene monto.');
@@ -217,7 +217,7 @@ export function calcularRetencionIslr(
   // La base puede ser una porción del pago (transporte internacional, p. ej.).
   const base = r2((pago * n0(c.basePct)) / 100);
   const pct = n0(c.porcentaje);
-  if (pct <= 0) return CERO('islr', `El concepto «${c.nombre}» está en 0%: cargá su porcentaje en el catálogo.`);
+  if (pct <= 0) return CERO('islr', `El concepto «${c.nombre}» está en 0%: cargue su porcentaje en el catálogo.`);
 
   const minimo = minimoIslr(c, config.valorUt);
   if (minimo > 0 && base < minimo) {
@@ -254,12 +254,12 @@ export function calcularRetencionLocal(
 ): CalculoRetencion {
   const c = input.concepto;
   const queEs = tipo === 'municipal' ? 'la ordenanza del municipio' : 'la ley de timbre fiscal del estado';
-  if (!c) return CERO(tipo, `Elegí el concepto. La alícuota sale de ${queEs}.`);
+  if (!c) return CERO(tipo, `Elija el concepto. La alícuota sale de ${queEs}.`);
   const pago = r2(n0(input.montoPago));
   if (pago <= 0) return CERO(tipo, 'El pago no tiene monto.');
   const pct = n0(c.porcentaje);
   if (pct <= 0) {
-    return CERO(tipo, `«${c.nombre}» está en 0%: cargá la alícuota de ${queEs} en ⚙ Configuración fiscal.`);
+    return CERO(tipo, `«${c.nombre}» está en 0%: cargue la alícuota de ${queEs} en ⚙ Configuración fiscal.`);
   }
   const base = r2((pago * n0(c.basePct)) / 100);
   return {
