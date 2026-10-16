@@ -177,10 +177,17 @@ describe('IGTF, como dato: el % del parámetro sobre lo pagado en divisas', () =
 describe('las piezas sueltas', () => {
   const vacia: VersionRegla = { ...IVA, id: 'v-vacia', pasos: {} };
 
-  it('un paso ausente no hace nada: una regla sin pasos da 0', () => {
-    const r = calcularLinea(vacia, linea({ montos: { iva: 100 } }), CONTEXTO);
-    expect(monto(r)).toBe(0);
-    expect(pasos(r)).toEqual(['redondeo']);
+  it('una regla sin pasos, o solo con la base, está incompleta: no retiene 0 ni la base entera', () => {
+    expect(calcularLinea(vacia, linea({ montos: { iva: 100 } }), CONTEXTO))
+      .toMatchObject({ estado: 'sin_dato', falta: { tipo: 'regla', detalle: 'falta la base' } });
+    const soloBase: VersionRegla = { ...vacia, pasos: { base: { suma: ['iva'], resta: [], porcion: null, alicuota: null } } };
+    expect(calcularLinea(soloBase, linea({ montos: { iva: 100 } }), CONTEXTO))
+      .toMatchObject({ estado: 'sin_dato', falta: { tipo: 'regla', detalle: 'falta la tasa o cuánto se retiene' } });
+  });
+
+  it('un paso intermedio ausente no hace nada (la regla del IGTF no tiene mínimo ni sustraendo)', () => {
+    const r = calcularLinea(IGTF, linea({ tipo: 'pago', moneda: 'USD', montos: { pagado_divisas: 10 } }), { ...CONTEXTO, tasa: TASA_USD });
+    expect(pasos(r)).toEqual(['base', 'moneda', 'tasa', 'topes', 'redondeo']);
   });
 
   it('monto fijo y alícuota en la base', () => {
@@ -254,6 +261,7 @@ describe('una regla mal escrita no se interpreta (revisión de REG-1)', () => {
     ['tasa con una op inventada', { tasa: { op: 'raiz', fuente: { tipo: 'fijo', valor: 3 } } }],
     ['sustraendo sin op', { sustraendo: { factor: { tipo: 'fijo', valor: 83.3334 } } }],
     ['redondeo con otro modo', { redondeo: { decimales: 2, modo: 'truncar' } }],
+    ['redondeo sin modo (la base también lo exige)', { redondeo: { decimales: 2 } }],
   ];
   for (const [nombre, paso] of malos) {
     it(nombre, () => {
@@ -265,6 +273,14 @@ describe('una regla mal escrita no se interpreta (revisión de REG-1)', () => {
   it('una base sin «resta» (o sin «suma») no rompe: vale como lista vacía', () => {
     const v = { ...IVA, pasos: { ...IVA.pasos, base: { suma: ['iva'] } } } as unknown as VersionRegla;
     expect(monto(calcularLinea(v, linea({ montos: { iva: 1600 } }), CONTEXTO))).toBe(1200);
+  });
+
+  it('una tasa que la base devuelve sin fila (moneda y tasa en null) es «falta la tasa»', () => {
+    const sinFila = { moneda: null, tasa: null, fecha_tasa: '2026-10-19', regla: 'lunes', provisional: false };
+    expect(calcularLinea(IVA, linea({ moneda: 'USD', montos: { iva: 100 } }), { ...CONTEXTO, tasa: sinFila }))
+      .toMatchObject({ estado: 'sin_dato', falta: { tipo: 'tasa', moneda: 'USD' } });
+    expect(calcularLinea(ISAE, linea({ montos: { subtotal: 10000, descuento: 0 }, fila: ACTIVIDAD }), { ...CONTEXTO, tasaMmv: sinFila }))
+      .toMatchObject({ estado: 'sin_dato', falta: { tipo: 'tasa_mmv' } });
   });
 
   it('una tasa provisional calcula, pero avisa', () => {

@@ -282,12 +282,13 @@ export function calcularLinea(
     if (!esBolivares(e.moneda)) {
       if (p.moneda?.convertir) {
         const t = ctx.tasa;
-        if (!t || t.moneda !== e.moneda || !(t.tasa > 0)) {
+        const tasa = t?.tasa;
+        if (!t || t.moneda !== e.moneda || tasa == null || !(tasa > 0)) {
           throw new FaltaDato({ tipo: 'tasa', moneda: e.moneda }, `Sin tasa BCV de ${e.moneda} para la fecha de la factura. No se calcula.`);
         }
         agregarTasa(t);
-        v *= t.tasa;
-        anotar('moneda', 'multiplicar_tasa', { moneda: t.moneda, tasa: t.tasa, fecha: t.fecha_tasa }, v);
+        v *= tasa;
+        anotar('moneda', 'multiplicar_tasa', { moneda: t.moneda, tasa, fecha: t.fecha_tasa }, v);
       } else {
         avisos.push(`El documento está en ${e.moneda} y la regla no convierte la moneda: el resultado queda en ${e.moneda}.`);
       }
@@ -303,9 +304,10 @@ export function calcularLinea(
         if (unidad === 'ut') minimoBs = m * ut();
         if (unidad === 'mmv') {
           const t = ctx.tasaMmv;
-          if (!t || !(t.tasa > 0)) throw new FaltaDato({ tipo: 'tasa_mmv' }, 'Sin la tasa de la moneda de mayor valor del BCV para la fecha de la factura. No se calcula.');
+          const tasa = t?.tasa;
+          if (!t || !t.moneda || tasa == null || !(tasa > 0)) throw new FaltaDato({ tipo: 'tasa_mmv' }, 'Sin la tasa de la moneda de mayor valor del BCV para la fecha de la factura. No se calcula.');
           agregarTasa(t);
-          minimoBs = m * t.tasa;
+          minimoBs = m * tasa;
         }
         if (publicado) minimoBs = redondear(minimoBs);
         const comparada = ajustes.baseMinimo ?? base;
@@ -409,12 +411,18 @@ export function calcularLinea(
 }
 
 /**
- * Qué paso tiene una operación fuera de la lista cerrada; null si todos están
- * bien. Un «retiene» sin `op` NO se toma como «todo»: un 75 % mal escrito
- * retendría el 100 % (revisión de REG-1, B1).
+ * Qué está mal escrito en los pasos; null si nada. Lo mismo que exige la
+ * base (retencion_regla_pasos_validos y el trigger de las versiones vigentes):
+ * · sin `base` no hay de qué retener, y sin `tasa` ni `retiene` se retendría
+ *   la base entera: los dos son reglas incompletas;
+ * · un «retiene» sin `op` NO se toma como «todo»: un 75 % mal escrito
+ *   retendría el 100 % (revisión de REG-1, B1);
+ * · el redondeo exige `modo` = 'mitad_arriba' (sin modo, mal escrito).
  */
 export function pasoMalEscrito(p: PasosRegla): string | null {
   const op = (paso: unknown) => (paso as { op?: unknown } | null | undefined)?.op;
+  if (!p.base) return 'falta la base';
+  if (!p.tasa && !p.retiene) return 'falta la tasa o cuánto se retiene';
   if (p.tasa && !['pct', 'tramos', 'monto_fijo'].includes(op(p.tasa) as string)) return 'tasa sin una operación válida';
   if (p.sustraendo && !['ut_factor_pct', 'monto'].includes(op(p.sustraendo) as string)) return 'sustraendo sin una operación válida';
   if (p.retiene && !['todo', 'pct'].includes(op(p.retiene) as string)) return 'retiene sin una operación válida';

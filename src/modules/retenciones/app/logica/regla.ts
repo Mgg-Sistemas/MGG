@@ -132,6 +132,7 @@ export interface SupuestoMarcado { id: string; texto: string; pct: number }
  * Una tasa a la fecha de la factura, tal como la dan retencion_tasa_bcv y
  * retencion_tasa_mmv: `fecha_tasa` es el día cuya tasa vale (el fin de
  * semana ya pasado), `regla` dice cómo se eligió y `provisional` avisa que
- * aún no es la definitiva.
+ * aún no es la definitiva. `moneda` y `tasa` vienen en null cuando la base
+ * no tiene fila para ese día: el motor lo trata como «falta la tasa».
  */
-export interface TasaFecha { moneda: string; tasa: number; fecha_tasa: string; regla: string; provisional: boolean; fuente?: string }
+export interface TasaFecha { moneda: string | null; tasa: number | null; fecha_tasa: string; regla: string; provisional: boolean; fuente?: string }
