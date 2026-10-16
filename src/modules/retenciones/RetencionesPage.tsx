@@ -166,7 +166,10 @@ export function RetencionesPage() {
                   <td>{it.proveedorNombre}</td>
                   <td>{it.condicionLabel}</td>
                   <td>{it.retencionLabel}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{fmtMonto(it.total, it.moneda)}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>
+                    {fmtMonto(it.total, it.moneda)}
+                    {it.avisoMoneda && <span title={it.avisoMoneda} aria-label={it.avisoMoneda} style={{ marginLeft: '.3rem', color: 'var(--warning)' }}>⚠</span>}
+                  </td>
                   <td>{it.tesoreria === 'pagada' ? <span className="badge" style={{ color: 'var(--success)' }}>✓ Pagada</span> : it.tesoreria === 'por_pagar' ? <span className="muted">Por pagar</span> : <span className="muted">—</span>}</td>
                   {vista === 'hechas' && <td className="muted">{it.finalizadaEn ? dateTime(it.finalizadaEn) : '—'}</td>}
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
@@ -274,7 +277,8 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
           )}
           <div><span className="muted">Condición:</span> {labelCondicionPago(o.condiciones_pago)}</div>
           <div><span className="muted">Retención:</span> {labelRetencionModo(o.retencion_modo)}</div>
-          <div><span className="muted">Total:</span> <strong className="mono">{money(o.total)}</strong></div>
+          <div><span className="muted">Total:</span> <strong className="mono">{money(o.total, item.moneda)}</strong></div>
+          {item.avisoMoneda && <div className="hint" style={{ color: 'var(--warning)' }}>⚠ {item.avisoMoneda}</div>}
           <div><span className="muted">Tesorería:</span> {o.retencion_pagada ? <strong style={{ color: 'var(--success)' }}>✓ Pagada{o.retencion_pagada_en ? ` · ${dateTime(o.retencion_pagada_en)}` : ''}</strong> : 'Por pagar'}</div>
         </div>
         <div className="table-wrap" style={{ marginTop: '.5rem' }}>
@@ -282,7 +286,7 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
             <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th></tr></thead>
             <tbody>
               {(o.items ?? []).map((it, i) => (
-                <tr key={i}><td>{it.nombre}{it.sku ? <span className="muted"> · {it.sku}</span> : null}</td><td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td><td className="mono" style={{ textAlign: 'right' }}>{money(it.precio)}</td></tr>
+                <tr key={i}><td>{it.nombre}{it.sku ? <span className="muted"> · {it.sku}</span> : null}</td><td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td><td className="mono" style={{ textAlign: 'right' }}>{money(it.precio, item.moneda)}</td></tr>
               ))}
             </tbody>
           </table>

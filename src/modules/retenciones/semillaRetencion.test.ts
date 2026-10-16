@@ -43,4 +43,10 @@ describe('semilla del 🧾 · la base es el total menos el IVA y el IGTF, con lo
     expect(s.baseImponible).toBe(1000);
     expect(s.moneda).toBe('Bs');
   });
+
+  it('OC en Bs: el registro se abre en Bs, con la base en Bs', () => {
+    const s = semillaDeItem(fila({ moneda: 'Bs', total: 1160, orden: orden(160, null) }));
+    expect(s.moneda).toBe('Bs');
+    expect(s.baseImponible).toBe(1000);
+  });
 });
