@@ -451,7 +451,9 @@ export function PedidosPage() {
   const creadores = useMemo(() => opcionesCreador(ordenesDePestana, nombreDeCorreo), [ordenesDePestana, nombreDeCorreo]);
 
   const filteredOrdenes = useMemo(() => {
-    const porEstado = ordenesDePestana.filter((o) => !(viewMode === 'lista' && filterEstado && o.estado !== filterEstado));
+    // El filtro de estado vale en Lista Y en Kanban (17-10-2026: antes en Kanban estaba
+    // deshabilitado y la administradora lo reportó como «no funciona»); en Kanban deja solo esa columna.
+    const porEstado = ordenesDePestana.filter((o) => !(filterEstado && o.estado !== filterEstado));
     // Buscador ampliado (16-10-2026): por cualquier dato de la orden (código, proveedor,
     // solicitante, renglones, estado, monto, fecha, método de pago, quién la hizo…) y el
     // filtro «Realizada por». Ver buscarOrdenes.ts.
@@ -460,7 +462,7 @@ export function PedidosPage() {
       labelMetodo: labelMetodoPago,
       nombreDe: nombreDeCorreo,
     });
-  }, [ordenesDePestana, filterText, filterEstado, filterCreador, viewMode, proveedorMap, nombreDeCorreo]);
+  }, [ordenesDePestana, filterText, filterEstado, filterCreador, proveedorMap, nombreDeCorreo]);
 
   function switchView(mode: ViewMode) {
     setViewMode(mode);
@@ -480,7 +482,12 @@ export function PedidosPage() {
     }
   }
 
-  const kanbanCols = scope === 'oc' ? KANBAN_COLS_OC : scope === 'servicio' ? KANBAN_COLS_SERVICIO : KANBAN_COLS_PEDIDOS;
+  const kanbanColsTodas = scope === 'oc' ? KANBAN_COLS_OC : scope === 'servicio' ? KANBAN_COLS_SERVICIO : KANBAN_COLS_PEDIDOS;
+  // Con un estado elegido, el tablero muestra solo esa columna (si el estado no es una
+  // columna de esta pestaña, se muestran todas y el filtro de órdenes igual aplica).
+  const kanbanCols = filterEstado && kanbanColsTodas.some((c) => c.key === filterEstado)
+    ? kanbanColsTodas.filter((c) => c.key === filterEstado)
+    : kanbanColsTodas;
 
   const currentDetail =
     modal.kind === 'detail' ? ordenes.find((o) => o.id === modal.ordenId) ?? null : null;
@@ -655,8 +662,7 @@ export function PedidosPage() {
           style={{ maxWidth: 220 }}
           value={filterEstado}
           onChange={(e) => setFilterEstado(e.target.value as EstadoOrden | '')}
-          disabled={viewMode === 'kanban'}
-          title={viewMode === 'kanban' ? 'Filtro deshabilitado en vista Kanban' : ''}
+          title="Filtra por estado en Kanban (deja solo esa columna) y en Lista"
         >
           <option value="">Todos los estados</option>
           <option value="pendiente">Pendientes</option>

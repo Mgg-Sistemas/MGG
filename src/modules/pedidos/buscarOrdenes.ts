@@ -60,21 +60,27 @@ export interface OpcionCreador {
  * lo conoce, se muestra el correo tal cual.
  */
 export function opcionesCreador(ordenes: Orden[], nombreDe?: ContextoBusquedaOrden['nombreDe']): OpcionCreador[] {
-  const vistos = new Map<string, OpcionCreador>();
+  // Una persona puede haber trabajado con dos correos (p. ej. JAVIER LEIVA): se agrupa por
+  // NOMBRE y la opción lleva todos sus correos (separados por coma) para no salir repetida.
+  const porNombre = new Map<string, OpcionCreador>();
   for (const o of ordenes) {
     const email = creadorDeOrden(o);
-    if (!email || vistos.has(email)) continue;
+    if (!email) continue;
     const nombre = (nombreDe?.(email) ?? '').trim();
-    vistos.set(email, { email, label: nombre || email });
+    const label = nombre || email;
+    const k = label.toLowerCase();
+    const prev = porNombre.get(k);
+    if (!prev) porNombre.set(k, { email, label });
+    else if (!prev.email.split(',').includes(email)) prev.email = `${prev.email},${email}`;
   }
-  return Array.from(vistos.values()).sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
+  return Array.from(porNombre.values()).sort((a, b) => a.label.localeCompare(b.label, 'es', { sensitivity: 'base' }));
 }
 
-/** Deja solo las órdenes realizadas por ese correo. Vacío = «Todos los usuarios». */
+/** Deja solo las órdenes realizadas por ese correo (o varios separados por coma). Vacío = «Todos los usuarios». */
 export function filtrarPorCreador(ordenes: Orden[], email: string): Orden[] {
-  const e = (email ?? '').trim().toLowerCase();
-  if (!e) return ordenes;
-  return ordenes.filter((o) => creadorDeOrden(o) === e);
+  const set = new Set((email ?? '').split(',').map((e) => e.trim().toLowerCase()).filter(Boolean));
+  if (!set.size) return ordenes;
+  return ordenes.filter((o) => set.has(creadorDeOrden(o)));
 }
 
 const TZ = 'America/Caracas';

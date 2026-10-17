@@ -159,6 +159,10 @@ describe('Realizada por · creadorDeOrden / opcionesCreador / filtrarPorCreador'
     // Sin mapa de usuarios se muestra el correo.
     expect(opcionesCreador([camion]).map((c) => c.label)).toEqual(['isner@mgg.com']);
     expect(opcionesCreador([])).toEqual([]);
+    // Una persona con dos correos sale UNA vez, con los dos correos en la opción.
+    const dosCorreos = (e: string | null | undefined) => (e === 'kelvin@mgg.com' || e === 'isner@mgg.com' ? 'JAVIER LEIVA' : undefined);
+    expect(opcionesCreador(todas, dosCorreos)).toEqual([{ email: 'kelvin@mgg.com,isner@mgg.com', label: 'JAVIER LEIVA' }]);
+    expect(codigos(filtrarPorCreador(todas, 'kelvin@mgg.com,isner@mgg.com'))).toEqual(['SP-2026-0150', 'SP-2026-0151', 'SV-2026-0018']);
   });
 
   it('al elegir «KELVIN PEÑA» se ven todas las OC de ese usuario; vacío = todos', () => {
