@@ -6,8 +6,10 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import type { AbonoCredito, EstadoOrden, Orden, Proveedor } from '@/shared/lib/types';
-import { listAbonos, listOrdenes, listProveedoresActivos, urlAdjuntoOc } from './pedidos.repository';
+import type { AbonoCredito, EstadoOrden, Orden, Proveedor, Usuario } from '@/shared/lib/types';
+import { labelMetodoPago, listAbonos, listOrdenes, listProveedoresActivos, urlAdjuntoOc } from './pedidos.repository';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { MaterialesDemandaModal } from './MaterialesDemandaModal';
 // descargarDetallePedidoPdf / descargarOrdenCompraPdf se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
@@ -34,11 +36,15 @@ const FECHA_CAMPOS: Array<{ value: FechaCampo; label: string }> = [
 export function HistoricoPage() {
   const [ordenes, setOrdenes] = useState<Orden[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+  // Usuarios: para mostrar «KELVIN PEÑA» en vez del correo en «Realizada por» y
+  // para que el buscador encuentre por el nombre (16-10-2026).
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Filtros tipo "opciones"
   const [qFree, setQFree] = useState('');
+  const [creadorSel, setCreadorSel] = useState('');   // correo del analista que creó la OC ('' = todos)
   const [estadosSel, setEstadosSel] = useState<Set<EstadoOrden>>(new Set());
   const [fechaOpen, setFechaOpen] = useState(false);
   const [fechaCampo, setFechaCampo] = useState<FechaCampo>('created_at');
@@ -50,9 +56,12 @@ export function HistoricoPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [os, pvs] = await Promise.all([listOrdenes(), listProveedoresActivos()]);
+      const [os, pvs, usrs] = await Promise.all([
+        listOrdenes(), listProveedoresActivos(), listUsuarios().catch(() => [] as Usuario[]),
+      ]);
       setOrdenes(os);
       setProveedores(pvs);
+      setUsuarios(usrs);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al cargar histórico');
@@ -70,14 +79,21 @@ export function HistoricoPage() {
     [proveedores],
   );
 
+  // Correo → «Nombre Apellido»; si no está en usuarios, el propio correo lo muestra el desplegable.
+  const nombreDeCorreo = useCallback(
+    (email: string | null | undefined) => {
+      const u = email ? usuarios.find((x) => x.email.toLowerCase() === email.toLowerCase()) : undefined;
+      return u ? (`${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email) : undefined;
+    },
+    [usuarios],
+  );
+  const creadores = useMemo(() => opcionesCreador(ordenes, nombreDeCorreo), [ordenes, nombreDeCorreo]);
+
   const filtered = useMemo(() => {
-    const free = qFree.trim().toLowerCase();
     const desdeMs = desde ? new Date(desde + 'T00:00:00').getTime() : null;
     const hastaMs = hasta ? new Date(hasta + 'T23:59:59.999').getTime() : null;
 
-    const rows = ordenes.filter((o) => {
-      const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : null;
-
+    const porOpciones = ordenes.filter((o) => {
       if (estadosSel.size > 0 && !estadosSel.has(o.estado)) return false;
 
       if (desdeMs || hastaMs) {
@@ -87,18 +103,16 @@ export function HistoricoPage() {
         if (desdeMs && ts < desdeMs) return false;
         if (hastaMs && ts > hastaMs) return false;
       }
-
-      if (free) {
-        const hay = [
-          o.codigo, o.oc_codigo, o.solicitante, o.solicitante_email, o.ci_solicitante,
-          o.notas, prov?.razon_social, prov?.rif, prov?.contacto,
-          o.estado,
-          o.total != null ? String(o.total) : null,
-          ...o.items.map((it) => `${it.sku} ${it.nombre}`),
-        ].map((v) => (v ?? '').toString().toLowerCase()).join(' | ');
-        if (!hay.includes(free)) return false;
-      }
       return true;
+    });
+
+    // Buscador ampliado (16-10-2026): el MISMO buscador que el Kanban/Lista de Pedidos
+    // (buscarOrdenes.ts): cualquier dato de la orden, sin acentos, varias palabras = todas.
+    // Las filas ya están cargadas (listOrdenes trae todo), así que se filtra en cliente.
+    const rows = filtrarOrdenes(filtrarPorCreador(porOpciones, creadorSel), qFree, {
+      proveedor: (o) => (o.proveedor_id ? proveedorMap.get(o.proveedor_id) : undefined),
+      labelMetodo: labelMetodoPago,
+      nombreDe: nombreDeCorreo,
     });
 
     return rows.sort((a, b) => {
@@ -106,7 +120,7 @@ export function HistoricoPage() {
       const tb = new Date(b.created_at).getTime();
       return sortDesc ? tb - ta : ta - tb;
     });
-  }, [ordenes, proveedorMap, qFree, estadosSel, fechaCampo, desde, hasta, sortDesc]);
+  }, [ordenes, proveedorMap, nombreDeCorreo, qFree, creadorSel, estadosSel, fechaCampo, desde, hasta, sortDesc]);
 
   function toggleEstado(value: EstadoOrden) {
     setEstadosSel((prev) => {
@@ -117,10 +131,10 @@ export function HistoricoPage() {
     });
   }
 
-  const hasFiltro = Boolean(qFree.trim() || estadosSel.size > 0 || desde || hasta);
+  const hasFiltro = Boolean(qFree.trim() || creadorSel || estadosSel.size > 0 || desde || hasta);
 
   function limpiar() {
-    setQFree(''); setEstadosSel(new Set());
+    setQFree(''); setCreadorSel(''); setEstadosSel(new Set());
     setDesde(''); setHasta(''); setFechaOpen(false); setFechaCampo('created_at');
   }
 
@@ -130,7 +144,7 @@ export function HistoricoPage() {
         <div>
           <h1>Histórico de Pedidos / Compras</h1>
           <p className="hint muted">
-            Busca por código de pedido, OC, usuario, proveedor, SKU o cualquier dato del registro.
+            Busca por código de pedido, OC, usuario, proveedor, SKU, estado, monto, fecha, método de pago o cualquier dato del registro; y filtra por quién la realizó.
           </p>
         </div>
         <div className="actions">
@@ -147,14 +161,28 @@ export function HistoricoPage() {
 
       {/* Barra de búsqueda central */}
       <div className="card" style={{ marginBottom: '1rem', padding: '1rem 1.25rem' }}>
-        <div style={{ position: 'relative' }}>
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
           <input
             className="input"
-            placeholder="🔎 Busca por OP, OC, usuario, proveedor, SKU, monto, nota… (cualquier cosa)"
+            placeholder="🔎 Busca por OP, OC, usuario, proveedor, SKU, estado, monto, fecha, método de pago, nota… (cualquier cosa)"
             value={qFree}
             onChange={(e) => setQFree(e.target.value)}
-            style={{ fontSize: '1rem', padding: '.75rem 1rem' }}
+            style={{ fontSize: '1rem', padding: '.75rem 1rem', flex: '1 1 320px' }}
           />
+          {/* Realizada por (16-10-2026): el analista que creó la OC (o cargó la OP si aún no tiene OC). */}
+          <select
+            className="select"
+            style={{ maxWidth: 260 }}
+            value={creadorSel}
+            onChange={(e) => setCreadorSel(e.target.value)}
+            aria-label="Realizada por"
+            title="Ver solo las órdenes realizadas por un usuario"
+          >
+            <option value="">Realizada por: todos los usuarios</option>
+            {creadores.map((c) => (
+              <option key={c.email} value={c.email}>{c.label}</option>
+            ))}
+          </select>
         </div>
 
         {/* Chips de estado */}
