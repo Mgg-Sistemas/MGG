@@ -7,7 +7,8 @@
 import { supabase } from '@/shared/lib/supabase';
 
 /** 'documento' = nombres reutilizables de los documentos de cada equipo (contrato, ficha técnica…). */
-export type TipoCatalogoMaquinaria = 'tipo_maquinaria' | 'propietario' | 'status' | 'documento';
+/** 'grupo_mantenimiento' = grupos del submódulo Servicio de Mantenimiento (desde 16-10-2026 se agregan en línea). */
+export type TipoCatalogoMaquinaria = 'tipo_maquinaria' | 'propietario' | 'status' | 'documento' | 'grupo_mantenimiento';
 
 export interface CatalogoMaquinaria {
   id: string;

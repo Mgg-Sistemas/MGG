@@ -16,6 +16,7 @@ import {
   urlVerDocumento, urlDescargaDocumento, type DocumentoEquipo,
 } from './maquinariaDocumentos.repository';
 import { ACEPTA_DOC, MAX_DOCS_EQUIPO, limpiarNombreDoc, slotsDeEquipo } from './documentosEquipo';
+import { documentoAFotoEquipo } from './fotosEquipo.repository';
 
 /**
  * Documentos de un equipo (contrato, ficha técnica, póliza…): hasta 4, cada uno en
@@ -90,8 +91,9 @@ export function DocumentosEquipoModal({ equipo, canWrite, actor, onClose }: {
       }
     >
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Hasta <strong>{MAX_DOCS_EQUIPO} documentos</strong> por equipo: <strong>PDF o imagen</strong> (JPG, PNG…), máx. 15 MB cada uno.
+        Hasta <strong>{MAX_DOCS_EQUIPO} documentos</strong> por equipo (RCV, placa, serial, contrato, póliza…): <strong>PDF o imagen</strong> (JPG, PNG…), máx. 15 MB cada uno.
         Cada uno se sube, se ve y se descarga por separado. Cargados: <strong>{docs.length} de {MAX_DOCS_EQUIPO}</strong>.
+        Las <strong>fotos del equipo</strong> (la portada) van aparte, en la pestaña <strong>Fotos</strong> del expediente; si una imagen de acá es la foto del equipo, tocá <strong>📷 Es foto del equipo</strong>.
       </p>
 
       {verCatalogo && canWrite && <CatalogoNombresDoc nombres={nombres} onCambio={() => { void recargar(); }} />}
@@ -174,6 +176,13 @@ function SlotDocumento({ slot, doc, equipoId, canWrite, actor, opciones, onRecor
     notify(`«${n}» subido`, 'success');
   }, 'No se pudo subir el documento');
 
+  // Una imagen cargada acá por error (p. ej. la foto del equipo) pasa a Fotos: mismo archivo, libera el espacio.
+  const pasarAFoto = () => correr(async () => {
+    if (!doc) return;
+    await documentoAFotoEquipo(doc, actor);
+    notify(`«${doc.nombre}» ahora es foto del equipo (pestaña Fotos)`, 'success');
+  }, 'No se pudo pasar a foto del equipo');
+
   const cambiarArchivo = (file: File) => correr(async () => {
     if (!doc) return;
     await guardarDocumento({ equipoId, slot, nombre: doc.nombre, file, actor, anterior: doc });
@@ -248,6 +257,9 @@ function SlotDocumento({ slot, doc, equipoId, canWrite, actor, opciones, onRecor
             )}
             {canWrite && (
               <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => cambiarRef.current?.click()}>⇄ Cambiar archivo</button>
+            )}
+            {canWrite && esImagen && (
+              <button className="btn btn-sm btn-ghost" disabled={busy} title="Pasa esta imagen a las fotos del equipo (portada)" onClick={pasarAFoto}>📷 Es foto del equipo</button>
             )}
             {canWrite && (
               <button className="btn btn-sm btn-danger" disabled={busy} onClick={() => onBorrar(doc)}>🗑 Eliminar</button>

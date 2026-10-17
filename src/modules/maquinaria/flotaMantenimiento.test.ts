@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { grupoPorTipo, grupoDeEquipo, infoServicio, compararUrgencia, resumenServicio, REGLA_PROXIMO } from './flotaMantenimiento';
+import { grupoPorTipo, grupoDeEquipo, gruposVisibles, infoServicio, compararUrgencia, resumenServicio, REGLA_PROXIMO } from './flotaMantenimiento';
 
 const intervalos = (h: number | null, baseH: number | null, km: number | null = null, baseKm: number | null = null) => ({
   mantenimiento_cada_hrs: h, mantenimiento_base_hrs: baseH, mantenimiento_cada_km: km, mantenimiento_base_km: baseKm,
@@ -12,9 +12,14 @@ describe('grupos de flota', () => {
     expect(grupoPorTipo('EXCAVADORA')).toBe('FLOTA PESADA');
     expect(grupoPorTipo(null)).toBe('FLOTA PESADA');
   });
-  it('el asignado en la ficha manda; uno desconocido cae al deducido', () => {
+  it('el asignado en la ficha manda (también uno nuevo creado en línea); sin grupo, el deducido', () => {
     expect(grupoDeEquipo({ grupo_mantenimiento: 'PLANTAS ELÉCTRICAS', tipo: 'EXCAVADORA' })).toBe('PLANTAS ELÉCTRICAS');
-    expect(grupoDeEquipo({ grupo_mantenimiento: 'OTRO GRUPO', tipo: 'CAMIÓN' })).toBe('VEHÍCULOS DE CARGA');
+    expect(grupoDeEquipo({ grupo_mantenimiento: 'OTRO GRUPO', tipo: 'CAMIÓN' })).toBe('OTRO GRUPO');
+    expect(grupoDeEquipo({ grupo_mantenimiento: '  ', tipo: 'CAMIÓN' })).toBe('VEHÍCULOS DE CARGA');
+  });
+  it('los grupos visibles son los de siempre + catálogo + los usados, sin repetir', () => {
+    expect(gruposVisibles(['MOTOS', 'flota pesada'], [{ grupo_mantenimiento: 'EQUIPOS DE OFICINA' }, { grupo_mantenimiento: 'MOTOS' }, { grupo_mantenimiento: null }]))
+      .toEqual(['FLOTA PESADA', 'VEHÍCULOS DE CARGA', 'PLANTAS ELÉCTRICAS', 'MOTOS', 'EQUIPOS DE OFICINA']);
   });
 });
 

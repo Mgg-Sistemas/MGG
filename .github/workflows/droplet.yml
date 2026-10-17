@@ -1,122 +1,62 @@
-# Deploy a un Droplet de DigitalOcean via SSH.
+# CI de MGG (pruebas + build) en cada push a main.
 #
-# Este workflow se SALTA automaticamente mientras no esten configurados los
-# secrets del Droplet. Cuando MGG provea las credenciales del servidor, agregar
-# en Settings -> Secrets and variables -> Actions:
+# EL DESPLIEGUE NO SALE DE ACÁ (17-10-2026). Este flujo exigía secrets del Droplet
+# (DROPLET_HOST, DROPLET_SSH_KEY…) que nunca se cargaron, así que cada push a main
+# fallaba en rojo avisando «el deploy NO se hizo» y el servidor seguía con la versión
+# vieja hasta que alguien corría `mgg-deploy` a mano (pasó el 16-10-2026 con los
+# cambios de un compañero).
 #
-#   DROPLET_HOST          IP o dominio del Droplet (ej: 167.99.123.45)
-#   DROPLET_USER          Usuario SSH (ej: deploy o root)
-#   DROPLET_SSH_KEY       Clave privada SSH (contenido completo del archivo .pem o id_ed25519)
-#   DROPLET_PORT          (opcional) Puerto SSH. Default 22.
-#   DROPLET_TARGET_DIR    Ruta absoluta donde sirve nginx (ej: /var/www/mgg-inventario)
+# Ahora el Droplet se despliega SOLO: un timer de systemd (`mgg-autodeploy.timer`,
+# cada 5 minutos) revisa si origin/main tiene un commit nuevo y, si lo hay, corre
+# `mgg-deploy` (compila aparte y cambia el puntero sin caída). No necesita secrets
+# en GitHub. Para ver el estado en el servidor:
+#   systemctl list-timers | grep mgg        tail -n 30 /var/log/mgg-autodeploy.log
 #
-# Y opcionalmente:
-#   VITE_SUPABASE_URL
-#   VITE_SUPABASE_ANON_KEY
-#
-# Cuando esos secrets existan, este workflow desplegara automaticamente
-# en cada push a main.
+# Este flujo queda como control de calidad: si las pruebas o el build fallan, el
+# push sale en rojo y hay que corregirlo (el servidor igual intentará desplegar lo
+# que haya en main; mgg-deploy aborta si el build no compila y deja la versión anterior).
 
-name: Deploy to DigitalOcean Droplet
+name: CI (pruebas y build)
 
 on:
   push:
     branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 concurrency:
-  group: droplet
+  group: ci-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  check:
-    runs-on: ubuntu-latest
-    outputs:
-      enabled: ${{ steps.check.outputs.enabled }}
-    steps:
-      - id: check
-        env:
-          HAS_HOST: ${{ secrets.DROPLET_HOST != '' }}
-          HAS_KEY: ${{ secrets.DROPLET_SSH_KEY != '' }}
-          HAS_USER: ${{ secrets.DROPLET_USER != '' }}
-          HAS_DIR: ${{ secrets.DROPLET_TARGET_DIR != '' }}
-          HAS_SUPA_URL: ${{ secrets.VITE_SUPABASE_URL != '' }}
-          HAS_SUPA_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY != '' }}
-        run: |
-          faltan=""
-          [ "$HAS_HOST" = "true" ]     || faltan="$faltan DROPLET_HOST"
-          [ "$HAS_USER" = "true" ]     || faltan="$faltan DROPLET_USER"
-          [ "$HAS_KEY" = "true" ]      || faltan="$faltan DROPLET_SSH_KEY"
-          [ "$HAS_DIR" = "true" ]      || faltan="$faltan DROPLET_TARGET_DIR"
-          [ "$HAS_SUPA_URL" = "true" ] || faltan="$faltan VITE_SUPABASE_URL"
-          [ "$HAS_SUPA_KEY" = "true" ] || faltan="$faltan VITE_SUPABASE_ANON_KEY"
-
-          if [ -z "$faltan" ]; then
-            echo "enabled=true" >> "$GITHUB_OUTPUT"
-            echo "Secrets completos: se procede con el deploy."
-            exit 0
-          fi
-
-          # Antes esto se omitia en silencio y el run salia VERDE: durante mas de una
-          # semana se creyo que lo que entraba a main estaba publicado, y el servidor
-          # seguia sirviendo un build viejo. Un deploy que no ocurrio no es un exito.
-          echo "enabled=false" >> "$GITHUB_OUTPUT"
-          {
-            echo "## El deploy NO se hizo"
-            echo ""
-            echo "Faltan estos secrets en *Settings -> Secrets and variables -> Actions*:"
-            for s in $faltan; do echo "- \`$s\`"; done
-            echo ""
-            echo "El servidor sigue sirviendo el build anterior. Mientras falten, cada"
-            echo "entrega hay que subirla a mano (\`npm run build:prod\` y copiar \`dist/\`)."
-          } >> "$GITHUB_STEP_SUMMARY"
-          echo "::error title=Deploy no configurado::Faltan secrets:$faltan - lo que esta en main NO llego al servidor."
-          exit 1
-
-  deploy:
-    needs: check
-    if: needs.check.outputs.enabled == 'true'
+  ci:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Node 20
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install dependencies
+      - name: Dependencias
         run: npm ci
 
-      - name: Run tests
+      - name: Pruebas
         run: npm test
 
-      - name: Build project (base '/')
+      - name: Build (base '/')
         env:
           VITE_BASE_PATH: /
-          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
         run: npm run build
 
-      - name: Copy dist to Droplet
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          port: ${{ secrets.DROPLET_PORT || 22 }}
-          source: "dist/*"
-          target: ${{ secrets.DROPLET_TARGET_DIR }}
-          strip_components: 1
-
-      - name: Reload nginx (opcional)
-        uses: appleboy/ssh-action@v1.0.3
-        continue-on-error: true
-        with:
-          host: ${{ secrets.DROPLET_HOST }}
-          username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
-          port: ${{ secrets.DROPLET_PORT || 22 }}
-          script: sudo systemctl reload nginx || true
+      - name: Resumen
+        run: |
+          {
+            echo "## Pruebas y build en verde"
+            echo ""
+            echo "El despliegue lo hace el Droplet solo (timer \`mgg-autodeploy\`, cada 5 min) al ver este commit en main."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -8,8 +8,8 @@
    llenando para reutilizarlos la próxima vez.
    ============================================================ */
 
-/** Máximo de documentos por equipo. */
-export const MAX_DOCS_EQUIPO = 4;
+/** Máximo de documentos por equipo (de 4 a 12 el 16-10-2026, orden de la administradora). */
+export const MAX_DOCS_EQUIPO = 12;
 
 /** Tamaño máximo por archivo (lo mismo limita el bucket en Supabase). */
 export const MAX_BYTES_DOC = 15 * 1024 * 1024;
@@ -22,12 +22,18 @@ export function limpiarNombreDoc(nombre: string | null | undefined): string {
   return (nombre ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
 }
 
-/** Los 4 espacios del equipo, cada uno con su documento o vacío. */
+/**
+ * Las tarjetas del equipo: los documentos cargados (por espacio) y UNA tarjeta vacía
+ * para subir el siguiente (el primer espacio libre), mientras no se llegue al máximo.
+ * Antes eran siempre 4 tarjetas; con 12 espacios, mostrar 12 vacías era ruido.
+ */
 export function slotsDeEquipo<T extends { slot: number }>(docs: T[]): Array<{ slot: number; doc: T | null }> {
-  return Array.from({ length: MAX_DOCS_EQUIPO }, (_, i) => {
-    const slot = i + 1;
-    return { slot, doc: docs.find((d) => d.slot === slot) ?? null };
-  });
+  const tarjetas = [...docs].sort((a, b) => a.slot - b.slot).map((d) => ({ slot: d.slot, doc: d as T | null }));
+  const ocupados = new Set(docs.map((d) => d.slot));
+  for (let slot = 1; slot <= MAX_DOCS_EQUIPO; slot++) {
+    if (!ocupados.has(slot)) { tarjetas.push({ slot, doc: null }); break; }
+  }
+  return tarjetas;
 }
 
 /** Motivo por el que el archivo no se acepta, o null si está bien. */
