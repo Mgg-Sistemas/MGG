@@ -1,5 +1,5 @@
 // MGG · Edge Function: crear-usuario
-// Solo callable por admin. Crea el usuario en auth.users con la clave inicial 'mgg2026'
+// La usa el admin o un rol con permiso de Usuarios (escritura/full) en la matriz (17-10-2026). Crea el usuario en auth.users con la clave inicial 'mgg2026'
 // (must_change_password=true) e inserta su ficha en public.usuarios. Devuelve la clave
 // inicial para que la pantalla la muestre.
 //
@@ -27,6 +27,34 @@ function json(body: unknown, status = 200) {
   });
 }
 
+/** Quién puede usar esta función: el rol admin, o un rol con permiso de Usuarios
+ *  (escritura o full) en la matriz de Roles y Permisos; siempre con estado activo.
+ *  Quien no es admin nunca actúa sobre una cuenta admin ni asigna el rol admin
+ *  (17-10-2026, orden de la administradora: antes era solo admin y los roles con
+ *  "full control" no podían hacer nada en Usuarios). */
+async function permisoUsuarios(admin: ReturnType<typeof createClient>, callerId: string) {
+  const { data: callerRow } = await admin
+    .from('usuarios')
+    .select('role, estado')
+    .eq('id', callerId)
+    .maybeSingle();
+  if (!callerRow || callerRow.estado !== 'activo') return { ok: false, esAdmin: false };
+  if (callerRow.role === 'admin') return { ok: true, esAdmin: true };
+  const { data: perm } = await admin
+    .from('roles_permisos')
+    .select('permisos')
+    .eq('role', callerRow.role)
+    .maybeSingle();
+  const u = (perm?.permisos as Record<string, { escritura?: boolean; full?: boolean }> | null)?.usuarios;
+  return { ok: !!(u?.full || u?.escritura), esAdmin: false };
+}
+
+/** true si la cuenta objetivo es admin (quien no es admin no la puede tocar). */
+async function objetivoEsAdmin(admin: ReturnType<typeof createClient>, targetId: string) {
+  const { data } = await admin.from('usuarios').select('role').eq('id', targetId).maybeSingle();
+  return data?.role === 'admin';
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -37,7 +65,7 @@ serve(async (req) => {
   if (!url || !serviceKey || !anonKey)
     return json({ error: 'Supabase env vars faltantes' }, 500);
 
-  // 1) Validar caller admin con su JWT
+  // 1) Validar quién llama (admin o permiso de Usuarios)
   const authHeader = req.headers.get('Authorization') ?? '';
   const callerClient = createClient(url, anonKey, {
     global: { headers: { Authorization: authHeader } },
@@ -46,13 +74,9 @@ serve(async (req) => {
   if (!caller?.user) return json({ error: 'No autenticado' }, 401);
 
   const admin = createClient(url, serviceKey);
-  const { data: callerRow } = await admin
-    .from('usuarios')
-    .select('role')
-    .eq('id', caller.user.id)
-    .maybeSingle();
-  if (!callerRow || callerRow.role !== 'admin')
-    return json({ error: 'Solo admin puede crear usuarios' }, 403);
+  const quien = await permisoUsuarios(admin, caller.user.id);
+  if (!quien.ok)
+    return json({ error: 'Su rol no tiene permiso de Usuarios para crear usuarios' }, 403);
 
   // 2) Validar payload
   let payload: {
@@ -83,6 +107,8 @@ serve(async (req) => {
     .maybeSingle();
   if (roleErr) return json({ error: 'No se pudo validar el rol: ' + roleErr.message }, 500);
   if (!roleRow) return json({ error: `Rol "${role}" no existe en el catalogo` }, 400);
+  if (!quien.esAdmin && role === 'admin')
+    return json({ error: 'Solo un administrador puede crear otro administrador' }, 403);
 
   // 3) Crear auth user con la clave inicial
   const clave = CLAVE_INICIAL;
