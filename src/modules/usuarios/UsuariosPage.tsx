@@ -56,9 +56,14 @@ type ModalKind =
 type RoleQuickModal = 'none' | 'crear' | 'gestionar';
 
 export function UsuariosPage() {
-  const canWrite = usePermissions().can('usuarios', 'escritura');
+  const { can, isAdmin } = usePermissions();
+  const canWrite = can('usuarios', 'escritura');
+  /** La matriz de roles la edita quien tiene Usuarios full (igual que la base). */
+  const canRoles = can('usuarios', 'full');
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [roles, setRoles] = useState<CustomRole[]>([]);
+  /** Roles que puede asignar quien está conectado: el rol Administrador solo lo asigna un administrador (igual que la base). */
+  const rolesAsignables = roles.filter((r) => isAdmin || r.key !== 'admin');
   const [loading, setLoading] = useState(true);
   // Historial de renombres de todos los usuarios (07-10-2026): se ve en la fila,
   // en el detalle y en el botón 📜 de arriba.
@@ -191,7 +196,7 @@ export function UsuariosPage() {
       )}
 
       {view === 'roles' ? (
-        <RolesPermisosPanel readOnly={!canWrite} onRolesChanged={refresh} />
+        <RolesPermisosPanel readOnly={!canRoles} onRolesChanged={refresh} />
       ) : (
       <>
       {/* Tarjetas dinámicas (07-10-2026): al tocarlas se ve la información.
@@ -340,7 +345,7 @@ export function UsuariosPage() {
                   <td><StatusBadge estado={u.estado} /></td>
                   <td className="muted" style={{ fontSize: '.82rem' }}>{dateTime(u.created_at)}</td>
                   <td className="actions">
-                    {canWrite && (
+                    {canWrite && (isAdmin || u.role !== 'admin') && (
                       <button
                         className="btn btn-sm btn-ghost"
                         onClick={() => setModal({ kind: 'edit', usuario: u })}
@@ -375,7 +380,7 @@ export function UsuariosPage() {
 
       {modal.kind === 'create' && (
         <UsuarioFormModal
-          roles={roles}
+          roles={rolesAsignables}
           departamentos={departamentos}
           actorEmail={user?.email ?? undefined}
           recientementeCreado={lastCreatedRoleKey}
@@ -404,7 +409,7 @@ export function UsuariosPage() {
       {modal.kind === 'edit' && (
         <UsuarioEditModal
           usuario={modal.usuario}
-          roles={roles}
+          roles={rolesAsignables}
           departamentos={departamentos}
           actorEmail={user?.email ?? undefined}
           recientementeCreado={lastCreatedRoleKey}
