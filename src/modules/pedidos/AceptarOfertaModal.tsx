@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
-import { money } from '@/shared/lib/format';
+import { money, moneyUnit } from '@/shared/lib/format';
 import { montoFinalOferta } from './score';
 import { recortarOfertaAHija } from './subOc';
 import type { ItemOrden, OfertaProveedor } from '@/shared/lib/types';
@@ -209,8 +209,8 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
                         </div>
                       </div>
                       <div className="mono" style={{ textAlign: 'right', fontSize: '.82rem', lineHeight: 1.5 }}>
-                        <div>Bs: <strong>{u.bcv > 0 ? money(u.bcv, 'Bs') : '—'}</strong></div>
-                        <div style={{ color: 'var(--success)' }}>$: <strong>{u.usd > 0 ? money(u.usd, 'USD') : '—'}</strong></div>
+                        <div>Bs: <strong>{u.bcv > 0 ? moneyUnit(u.bcv, 'Bs') : '—'}</strong></div>
+                        <div style={{ color: 'var(--success)' }}>$: <strong>{u.usd > 0 ? moneyUnit(u.usd, 'USD') : '—'}</strong></div>
                         <div className="muted" style={{ fontSize: '.72rem' }}>
                           Total: {u.bcv > 0 ? money(u.cant * u.bcv, 'Bs') : '—'}{u.usd > 0 ? ` · ${money(u.cant * u.usd, 'USD')}` : ''}
                         </div>

@@ -3,7 +3,7 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { date, money } from '@/shared/lib/format';
+import { date, money, moneyUnit } from '@/shared/lib/format';
 import type {
   OfertaProveedor,
   Orden,
@@ -611,12 +611,12 @@ export function OfertasComparativa({
                                     <td>{[f.marca, f.modelo].filter(Boolean).join(' · ') || <span className="muted">—</span>}</td>
                                     <td className="num mono">{f.precioPorUso != null ? f.cantidadTexto : f.cantidad}</td>
                                     <td className="num mono">
-                                      {money(f.precioBcv)}
+                                      {moneyUnit(f.precioBcv)}
                                       {/* Precio por unidad de uso: compara proveedores que venden en medidas distintas. */}
                                       {f.precioPorUso != null && <div className="muted" style={{ fontSize: '.7rem' }}>≈ {money(f.precioPorUso)}/{f.unidadUso || 'und'}</div>}
                                     </td>
                                     <td className="num mono">{money(f.totalBcv)}</td>
-                                    <td className="num mono">{f.precioUsd > 0 ? money(f.precioUsd) : '—'}</td>
+                                    <td className="num mono">{f.precioUsd > 0 ? moneyUnit(f.precioUsd) : '—'}</td>
                                     <td className="num mono">{f.precioUsd > 0 ? money(f.totalUsd) : '—'}</td>
                                     <td className="num mono" style={{ color: f.diferencia > 0 ? 'var(--success)' : undefined }}>{hayUsd ? money(f.diferencia) : '—'}</td>
                                     <td className="num mono">{f.precioUsd > 0 ? `${f.pct.toFixed(2)}%` : '—'}</td>

@@ -12,6 +12,16 @@ export function money(n: number | null | undefined, moneda?: string | null): str
   return '$ ' + monto;
 }
 
+/** Precio UNITARIO: 2 decimales como mínimo y hasta 4 si el proveedor cotizó 10,2648 (que 105 × 10,26 no contradiga el total). */
+export function moneyUnit(n: number | null | undefined, moneda?: string | null): string {
+  if (n == null || isNaN(n as number)) return '—';
+  const monto = Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+  const m = String(moneda ?? '').trim().toUpperCase();
+  if (m === 'BS' || m === 'BSS' || m === 'BSD') return 'Bs ' + monto;
+  if (m && m !== 'USD' && m !== '$' && m !== 'DIVISA') return `${monto} ${String(moneda).trim()}`;
+  return '$ ' + monto;
+}
+
 /**
  * Redondea un monto en $ hacia arriba al siguiente múltiplo de 5, pensado para el
  * pago en efectivo (billetes físicos). Ej.: 233,33 → 235 · 231 → 235 · 236 → 240.
