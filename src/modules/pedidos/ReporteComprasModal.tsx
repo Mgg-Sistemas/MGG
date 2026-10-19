@@ -7,27 +7,23 @@
      · CUENTAS A CRÉDITO            (OC/servicio en `cuenta_abierta`)
      · POR INDICAR MÉTODO DE PAGO   (OC/servicio en `confirmada_metodo`)
      · POR PAGAR                    (OC/servicio en `oc_aprobada` + directos `por_pagar`)
-   Se actualiza en vivo (realtime) y adentro tiene el PDF (misma data).
+   Salidas: PDF (vista previa), Excel con estilos, WhatsApp (mensaje con
+   emojis, listo para copiar o mandar) e impresión por sistema.
+   Se actualiza en vivo (realtime).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { agruparReporte, fmtMonto, totalesPorMoneda, type FilaReporteCompras, type GrupoReporteFilas } from './comprasReporte';
+import { agruparReporte, fmtMonto, totalesPorMoneda, totalesTexto, type FilaReporteCompras } from './comprasReporte';
 import { listReporteCompras } from './comprasReporte.repository';
-
-/** Totales de un renglón: solo las monedas que tienen filas (una compra puede ser $ o Bs). */
-function totalesDe(g: GrupoReporteFilas): string {
-  const partes: string[] = [];
-  if (g.filas.some((f) => f.moneda === 'USD')) partes.push(fmtMonto(g.totalUsd, 'USD'));
-  if (g.filas.some((f) => f.moneda === 'Bs')) partes.push(fmtMonto(g.totalBs, 'Bs'));
-  return partes.join('  ·  ') || fmtMonto(0, 'USD');
-}
+import { compartirMovimiento, enlaceWhatsapp, mensajeReporteCompras, puedeCompartir } from './comprasReporteMensaje';
 
 export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [filas, setFilas] = useState<FilaReporteCompras[]>([]);
   const [genPdf, setGenPdf] = useState(false);
+  const [genExcel, setGenExcel] = useState(false);
   const [imprimiendo, setImprimiendo] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -41,6 +37,7 @@ export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
 
   const grupos = useMemo(() => agruparReporte(filas), [filas]);
   const total = useMemo(() => totalesPorMoneda(filas), [filas]);
+  const mensaje = useMemo(() => mensajeReporteCompras(filas), [filas]);
   const vacio = !loading && filas.length === 0;
 
   async function verPdf() {
@@ -50,6 +47,15 @@ export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
       await descargarReporteComprasPdf(filas);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
     finally { setGenPdf(false); }
+  }
+
+  async function verExcel() {
+    setGenExcel(true);
+    try {
+      const { exportarReporteComprasExcel } = await import('./reporteComprasExcel');
+      await exportarReporteComprasExcel(filas);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'); }
+    finally { setGenExcel(false); }
   }
 
   // Imprimir por sistema: el mismo PDF, con la orden de impresión embebida (sale a
@@ -63,12 +69,31 @@ export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
     finally { setImprimiendo(false); }
   }
 
+  async function copiar() {
+    try { await navigator.clipboard.writeText(mensaje); toast('Mensaje copiado', 'success'); }
+    catch { toast('No se pudo copiar solo. Mantené presionado el texto para copiarlo.', 'warning'); }
+  }
+
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       <button className="btn btn-ghost" onClick={() => void verPdf()} disabled={genPdf || vacio}>
-        {genPdf ? 'Generando…' : '📄 Ver PDF (vista previa)'}
+        {genPdf ? 'Generando…' : '📄 PDF (vista previa)'}
       </button>
+      <button className="btn btn-ghost" onClick={() => void verExcel()} disabled={genExcel || vacio}>
+        {genExcel ? 'Generando…' : '📊 Excel'}
+      </button>
+      {/* En el teléfono el mensaje va por la hoja de compartir (llega exacto, con sus
+          emojis); en la PC, el enlace derecho a api.whatsapp.com (nunca wa.me). */}
+      <a className="btn btn-ghost" href={enlaceWhatsapp(mensaje)} target="_blank" rel="noopener noreferrer"
+        onClick={(e) => {
+          if (vacio) { e.preventDefault(); return; }
+          if (!puedeCompartir()) return;
+          e.preventDefault();
+          void compartirMovimiento(mensaje);
+        }}>
+        💬 WhatsApp
+      </a>
       <button className="btn btn-primary" onClick={() => void imprimir()} disabled={imprimiendo || vacio}>
         {imprimiendo ? 'Enviando…' : '🖨 Imprimir'}
       </button>
@@ -95,7 +120,7 @@ export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
           <div key={g.key} className="table-wrap" style={{ marginBottom: '.9rem' }}>
             <table className="table" style={{ fontSize: '.82rem' }}>
               <thead>
-                <tr><th colSpan={cols} style={{ background: g.color, color: '#fff', fontWeight: 700, letterSpacing: '.02em' }}>{g.titulo} · {g.filas.length}</th></tr>
+                <tr><th colSpan={cols} style={{ background: g.color, color: '#fff', fontWeight: 700, letterSpacing: '.02em' }}>{g.emoji} {g.titulo} · {g.filas.length}</th></tr>
                 <tr>
                   <th style={{ width: 34, textAlign: 'center' }}>#</th>
                   <th style={{ width: 122 }}>CÓDIGO</th>
@@ -124,7 +149,7 @@ export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
                   <td colSpan={cols - 1} style={{ textAlign: 'right', fontWeight: 700 }}>
                     TOTAL {g.titulo}{esCredito ? ' (saldo pendiente)' : ''}
                   </td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{totalesDe(g)}</td>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700, whiteSpace: 'nowrap' }}>{totalesTexto(g)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -142,6 +167,17 @@ export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
             {fmtMonto(total.usd, 'USD')}  ·  {fmtMonto(total.bs, 'Bs')}
           </div>
         </div>
+      )}
+
+      {/* El mismo mensaje que se manda por WhatsApp, con sus emojis, a la vista. */}
+      {!loading && !vacio && (
+        <details style={{ marginTop: '.9rem' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>💬 Mensaje para WhatsApp (con emojis)</summary>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '.5rem 0' }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => void copiar()}>📋 Copiar mensaje</button>
+          </div>
+          <pre className="surt-mensaje">{mensaje}</pre>
+        </details>
       )}
     </Modal>
   );

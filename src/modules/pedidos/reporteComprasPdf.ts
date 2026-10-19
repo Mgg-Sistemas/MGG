@@ -12,15 +12,7 @@
    ============================================================ */
 import { previewPdfDoc, imprimirPdfDoc } from '@/shared/lib/reportPreview';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
-import { agruparReporte, fmtMonto, totalesPorMoneda, type FilaReporteCompras, type GrupoReporteFilas } from './comprasReporte';
-
-/** Totales de un renglón: solo las monedas que tienen filas. */
-function textoTotal(g: GrupoReporteFilas): string {
-  const partes: string[] = [];
-  if (g.filas.some((f) => f.moneda === 'USD')) partes.push(fmtMonto(g.totalUsd, 'USD'));
-  if (g.filas.some((f) => f.moneda === 'Bs')) partes.push(fmtMonto(g.totalBs, 'Bs'));
-  return partes.join('  ·  ') || fmtMonto(0, 'USD');
-}
+import { agruparReporte, fmtMonto, totalesPorMoneda, totalesTexto, type FilaReporteCompras } from './comprasReporte';
 
 /** El color de la pantalla (#rrggbb) en el formato de jsPDF. */
 function hexRgb(hex: string): [number, number, number] {
@@ -83,7 +75,7 @@ async function construir(filas: FilaReporteCompras[]): Promise<{ doc: import('js
         cols,
       ],
       body: cuerpo,
-      foot: [[{ content: `TOTAL ${g.titulo}`, colSpan: cols.length - 1, styles: { halign: 'right' } }, textoTotal(g)]],
+      foot: [[{ content: `TOTAL ${g.titulo}`, colSpan: cols.length - 1, styles: { halign: 'right' } }, totalesTexto(g)]],
       styles: { fontSize: 8.5, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
       headStyles: { fillColor: [225, 225, 225], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
       footStyles: { fillColor: hexRgb(g.color), textColor: [255, 255, 255], fontStyle: 'bold', halign: 'right', fontSize: 9 },

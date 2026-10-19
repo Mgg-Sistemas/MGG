@@ -15,11 +15,14 @@ import type { Orden } from '@/shared/lib/types';
 /** Los cuatro renglones del reporte, en el orden en que se muestran. */
 export type GrupoReporte = 'pendiente_aprobar' | 'cuenta_abierta' | 'indicar_metodo' | 'por_pagar';
 
-export const GRUPOS_REPORTE: { key: GrupoReporte; titulo: string; color: string }[] = [
-  { key: 'pendiente_aprobar', titulo: 'PENDIENTE POR APROBAR', color: '#ff8a00' },
-  { key: 'cuenta_abierta', titulo: 'CUENTAS A CRÉDITO', color: '#dc2626' },
-  { key: 'indicar_metodo', titulo: 'POR INDICAR MÉTODO DE PAGO', color: '#7c5cff' },
-  { key: 'por_pagar', titulo: 'POR PAGAR', color: '#2563eb' },
+/** Los cuatro renglones del reporte, en el orden en que se muestran. El emoji va sin
+ *  el selector U+FE0F a propósito: en WhatsApp ese selector se pierde y llega un
+ *  cuadrito (ver `comprasReporteMensaje.ts`). */
+export const GRUPOS_REPORTE: { key: GrupoReporte; titulo: string; emoji: string; color: string }[] = [
+  { key: 'pendiente_aprobar', titulo: 'PENDIENTE POR APROBAR', emoji: '⏳', color: '#ff8a00' },
+  { key: 'cuenta_abierta', titulo: 'CUENTAS A CRÉDITO', emoji: '💳', color: '#dc2626' },
+  { key: 'indicar_metodo', titulo: 'POR INDICAR MÉTODO DE PAGO', emoji: '🏦', color: '#7c5cff' },
+  { key: 'por_pagar', titulo: 'POR PAGAR', emoji: '💰', color: '#2563eb' },
 ];
 
 /** El tipo de documento de la fila (lo que el reporte llama «tipo por renglón»). */
@@ -131,6 +134,8 @@ export function filaDeDirecto(d: DirectoReporte): FilaReporteCompras {
 export interface GrupoReporteFilas {
   key: GrupoReporte;
   titulo: string;
+  /** Emoji del renglón (sin selector U+FE0F): va en el mensaje de WhatsApp. */
+  emoji: string;
   color: string;
   filas: FilaReporteCompras[];
   totalUsd: number;
@@ -146,6 +151,15 @@ export function totalesPorMoneda(filas: FilaReporteCompras[]): { usd: number; bs
     else usd += f.saldo;
   }
   return { usd: dos(usd), bs: dos(bs) };
+}
+
+/** Los totales de un renglón en texto: solo las monedas que tienen filas, sin mezclarlas
+ *  («$ 1.234,56 · Bs 9.000,00»). Lo usan la pantalla, el PDF y el mensaje de WhatsApp. */
+export function totalesTexto(x: Pick<GrupoReporteFilas, 'filas' | 'totalUsd' | 'totalBs'>): string {
+  const partes: string[] = [];
+  if (x.filas.some((f) => f.moneda === 'USD')) partes.push(fmtMonto(x.totalUsd, 'USD'));
+  if (x.filas.some((f) => f.moneda === 'Bs')) partes.push(fmtMonto(x.totalBs, 'Bs'));
+  return partes.join('  ·  ') || fmtMonto(0, 'USD');
 }
 
 /** Agrupa las filas en los cuatro renglones del reporte (siempre los cuatro, aunque estén vacíos). */

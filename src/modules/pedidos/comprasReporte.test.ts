@@ -11,6 +11,7 @@ import {
   montoDeOrden,
   motivoDeOrden,
   totalesPorMoneda,
+  totalesTexto,
 } from './comprasReporte';
 
 /** Una orden mínima para probar el mapeo sin base de datos. */
@@ -181,6 +182,33 @@ describe('agruparReporte', () => {
       filaDeDirecto({ tipo: 'Servicio directo', codigo: 'SD-1', motivo: 'X', proveedor: '—', total: 100.5, moneda: 'Bs' }),
     ];
     expect(totalesPorMoneda(filas)).toEqual({ usd: 10.01, bs: 100.5 });
+  });
+});
+
+describe('totalesTexto', () => {
+  const g = (filas: ReturnType<typeof filaDeDirecto>[]) => agruparReporte(filas).find((x) => x.key === 'por_pagar')!;
+
+  it('escribe solo las monedas que tienen filas (nunca mezcla $ con Bs)', () => {
+    expect(totalesTexto(g([filaDeDirecto({ tipo: 'Compra directa', codigo: 'CD-1', motivo: 'X', proveedor: '—', total: 1234.5, moneda: 'USD' })]))).toBe('$ 1.234,50');
+    expect(totalesTexto(g([filaDeDirecto({ tipo: 'Compra directa', codigo: 'CD-1', motivo: 'X', proveedor: '—', total: 9000, moneda: 'Bs' })]))).toBe('Bs 9.000,00');
+    expect(totalesTexto(g([
+      filaDeDirecto({ tipo: 'Compra directa', codigo: 'CD-1', motivo: 'X', proveedor: '—', total: 527.85, moneda: 'USD' }),
+      filaDeDirecto({ tipo: 'Compra directa', codigo: 'CD-2', motivo: 'X', proveedor: '—', total: 9000, moneda: 'Bs' }),
+    ]))).toBe('$ 527,85  ·  Bs 9.000,00');
+  });
+
+  it('un renglón vacío muestra $ 0,00 (nunca una celda en blanco)', () => {
+    expect(totalesTexto(agruparReporte([])[3])).toBe('$ 0,00');
+  });
+});
+
+describe('los emojis de los renglones', () => {
+  it('cada renglón tiene su emoji, para el mensaje de WhatsApp', () => {
+    for (const g of GRUPOS_REPORTE) expect(g.emoji.trim().length).toBeGreaterThan(0);
+  });
+
+  it('van sin el selector U+FE0F ni unión invisible: WhatsApp los borra y llega un cuadrito', () => {
+    for (const g of GRUPOS_REPORTE) expect(/[\uFE0F\u200D]/.test(g.emoji)).toBe(false);
   });
 });
 
