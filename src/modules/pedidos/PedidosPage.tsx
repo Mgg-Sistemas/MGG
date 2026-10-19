@@ -116,6 +116,7 @@ import { enviarTrazabilidadAMultiples } from './enviarTrazabilidad';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { cargarHistorialNombres, nombreEnFecha, type CambioNombre, type PersonasMap } from '@/shared/lib/personas';
 import { PendientesPorPagarModal } from './PendientesPorPagarModal';
+import { ReporteComprasModal } from './ReporteComprasModal';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
@@ -340,6 +341,7 @@ export function PedidosPage() {
   // Unifica TODO lo pendiente de pago (OC, servicios, compras/servicios directos) e indica
   // las CUENTAS A CRÉDITO. El modal lee en vivo (realtime) y adentro genera el PDF.
   const [porPagarOpen, setPorPagarOpen] = useState(false);
+  const [reporteOpen, setReporteOpen] = useState(false);
 
   // Al cerrar cualquier modal, traer lo que haya cambiado mientras estuvo pausado.
   const modalKindPrev = useRef(modal.kind);
@@ -519,6 +521,13 @@ export function PedidosPage() {
             title="Ver todo lo pendiente por pagar (OC, servicios, compras/servicios directos) + cuentas a crédito"
           >
             💰 Pendientes por pagar
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => setReporteOpen(true)}
+            title="Reporte por renglón: pendiente por aprobar, cuentas a crédito, por indicar método de pago y por pagar (código, motivo y monto en $ o Bs)"
+          >
+            📊 Reporte por renglón
           </button>
           {scope !== 'compra_directa' && scope !== 'oc_lote' && scope !== 'servicio_directo' && (
             <>
@@ -814,6 +823,7 @@ export function PedidosPage() {
 
       {/* Modal: SOLICITUD DE MERCADO (botón independiente · COCINA · urgente · Víveres y Art. de Limpieza) */}
       {porPagarOpen && <PendientesPorPagarModal onClose={() => setPorPagarOpen(false)} />}
+      {reporteOpen && <ReporteComprasModal onClose={() => setReporteOpen(false)} />}
 
       {modal.kind === 'mercado' && (
         <SolicitudMercadoModal
