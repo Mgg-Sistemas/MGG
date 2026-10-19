@@ -3,6 +3,8 @@ import type { Orden } from '@/shared/lib/types';
 import {
   GRUPOS_REPORTE,
   agruparReporte,
+  COLOR_TOTAL,
+  COLOR_TOTAL_TEXTO,
   filaDeDirecto,
   filaDeOrden,
   fmtMonto,
@@ -202,12 +204,41 @@ describe('totalesTexto', () => {
   });
 });
 
-describe('los emojis de los renglones', () => {
+describe('los colores de los renglones (pastel, legibles)', () => {
+  /** Luminancia relativa del W3C: sirve para saber si un color es claro u oscuro. */
+  function luminancia(hex: string): number {
+    const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255);
+    const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  }
+  /** Contraste W3C entre dos colores (1 = iguales; 4,5 es el mínimo para texto chico). */
+  function contraste(a: string, b: string): number {
+    const [alto, bajo] = [luminancia(a), luminancia(b)].sort((x, y) => y - x);
+    return (alto + 0.05) / (bajo + 0.05);
+  }
+
+  it('el fondo es PASTEL (claro), no el naranja pleno de la marca ni un color saturado', () => {
+    for (const g of GRUPOS_REPORTE) expect(luminancia(g.color)).toBeGreaterThan(0.7);
+  });
+
+  it('la letra va en el tono oscuro del mismo color: sobre pastel el blanco no se lee', () => {
+    for (const g of GRUPOS_REPORTE) expect(luminancia(g.colorTexto)).toBeLessThan(0.15);
+  });
+
+  it('cada renglón pasa el contraste 4,5:1 del W3C (encabezado y subtotal)', () => {
+    for (const g of GRUPOS_REPORTE) expect(contraste(g.color, g.colorTexto)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('el TOTAL GENERAL usa el mismo par pastel y también se lee', () => {
+    expect(luminancia(COLOR_TOTAL)).toBeGreaterThan(0.7);
+    expect(contraste(COLOR_TOTAL, COLOR_TOTAL_TEXTO)).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('cada renglón tiene su emoji, para el mensaje de WhatsApp', () => {
     for (const g of GRUPOS_REPORTE) expect(g.emoji.trim().length).toBeGreaterThan(0);
   });
 
-  it('van sin el selector U+FE0F ni unión invisible: WhatsApp los borra y llega un cuadrito', () => {
+  it('los emojis van sin el selector U+FE0F ni unión invisible: WhatsApp los borra y llega un cuadrito', () => {
     for (const g of GRUPOS_REPORTE) expect(/[\uFE0F\u200D]/.test(g.emoji)).toBe(false);
   });
 });

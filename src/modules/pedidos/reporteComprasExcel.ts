@@ -10,7 +10,7 @@
    Se MUESTRA en vista previa (nada se descarga solo).
    ============================================================ */
 import { previewWorkbook } from '@/shared/lib/reportPreview';
-import { agruparReporte, fmtMonto, totalesPorMoneda, type FilaReporteCompras } from './comprasReporte';
+import { agruparReporte, fmtMonto, totalesPorMoneda, COLOR_TOTAL, COLOR_TOTAL_TEXTO, type FilaReporteCompras } from './comprasReporte';
 
 /** Lo mínimo del módulo xlsx-js-style que hace falta (se acepta sin tipar, como en el resto). */
 interface XlsxLike {
@@ -23,15 +23,15 @@ interface XlsxLike {
 }
 type Celda = { v?: unknown; t?: string; z?: string; s?: unknown } | undefined;
 
-const NARANJA = 'FF8A00';
-const GRIS_ENCABEZADO = '333333';
+const NARANJA = COLOR_TOTAL;
+const GRIS_ENCABEZADO = 'F2F2F2';
 /** #rrggbb (pantalla) → RRGGBB (Excel). */
 const rgb = (hex: string): string => hex.replace('#', '').toUpperCase();
 
-const TITULO = { font: { name: 'Arial', sz: 14, bold: true, color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: NARANJA } }, alignment: { horizontal: 'left', vertical: 'center' } };
+const TITULO = { font: { name: 'Arial', sz: 14, bold: true, color: { rgb: rgb(COLOR_TOTAL_TEXTO) } }, fill: { patternType: 'solid', fgColor: { rgb: rgb(NARANJA) } }, alignment: { horizontal: 'left', vertical: 'center' } };
 const SUBTITULO = { font: { name: 'Arial', sz: 9, italic: true, color: { rgb: '666666' } } };
-const ENCABEZADO = { font: { name: 'Arial', sz: 10, bold: true, color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: GRIS_ENCABEZADO } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true } };
-const TOTAL = { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: NARANJA } }, alignment: { horizontal: 'right', vertical: 'center' } };
+const ENCABEZADO = { font: { name: 'Arial', sz: 10, bold: true, color: { rgb: '333333' } }, fill: { patternType: 'solid', fgColor: { rgb: GRIS_ENCABEZADO } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true } };
+const TOTAL = { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: rgb(COLOR_TOTAL_TEXTO) } }, fill: { patternType: 'solid', fgColor: { rgb: rgb(NARANJA) } }, alignment: { horizontal: 'right', vertical: 'center' } };
 const MONEDA_FMT = '#,##0.00';
 
 /** Una fila de datos del reporte, en las columnas del Excel. */
@@ -54,11 +54,11 @@ async function construirLibro(filas: FilaReporteCompras[]): Promise<{ XLSX: Xlsx
     ['#', 'CÓDIGO', 'TIPO', 'MOTIVO', 'MONEDA', 'MONTO', 'ABONADO', 'SALDO'],
   ];
   /** Marcas de estilo por fila: título, subtítulo, encabezado, cabecera de grupo o total. */
-  const marcas: { fila: number; tipo: 'titulo' | 'subtitulo' | 'encabezado' | 'grupo' | 'total'; color?: string }[] = [
+  const marcas: { fila: number; tipo: 'titulo' | 'subtitulo' | 'encabezado' | 'grupo' | 'total'; color?: string; colorTexto?: string }[] = [
     { fila: 0, tipo: 'titulo' }, { fila: 1, tipo: 'subtitulo' }, { fila: 3, tipo: 'encabezado' },
   ];
   for (const g of grupos) {
-    marcas.push({ fila: aoa.length, tipo: 'grupo', color: g.color });
+    marcas.push({ fila: aoa.length, tipo: 'grupo', color: g.color, colorTexto: g.colorTexto });
     aoa.push([`${g.emoji} ${g.titulo} · ${g.filas.length}`]);
     g.filas.forEach((f, i) => aoa.push(filaExcel(f, i, g.key === 'cuenta_abierta')));
   }
@@ -80,7 +80,7 @@ async function construirLibro(filas: FilaReporteCompras[]): Promise<{ XLSX: Xlsx
     if (m.tipo === 'grupo') {
       (ws as Record<string, unknown>)['!merges'] = [...((ws as Record<string, unknown>)['!merges'] as unknown[]), { s: { r: m.fila, c: 0 }, e: { r: m.fila, c: 7 } }];
       const c0 = cellAt(m.fila, 0);
-      if (c0) c0.s = { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: 'FFFFFF' } }, fill: { patternType: 'solid', fgColor: { rgb: rgb(m.color ?? NARANJA) } }, alignment: { horizontal: 'left', vertical: 'center' } };
+      if (c0) c0.s = { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: rgb(m.colorTexto ?? COLOR_TOTAL_TEXTO) } }, fill: { patternType: 'solid', fgColor: { rgb: rgb(m.color ?? NARANJA) } }, alignment: { horizontal: 'left', vertical: 'center' } };
       continue;
     }
     const estilo = m.tipo === 'titulo' ? TITULO : m.tipo === 'subtitulo' ? SUBTITULO : m.tipo === 'encabezado' ? ENCABEZADO : TOTAL;

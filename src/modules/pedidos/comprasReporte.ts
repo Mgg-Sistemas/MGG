@@ -17,13 +17,23 @@ export type GrupoReporte = 'pendiente_aprobar' | 'cuenta_abierta' | 'indicar_met
 
 /** Los cuatro renglones del reporte, en el orden en que se muestran. El emoji va sin
  *  el selector U+FE0F a propósito: en WhatsApp ese selector se pierde y llega un
- *  cuadrito (ver `comprasReporteMensaje.ts`). */
-export const GRUPOS_REPORTE: { key: GrupoReporte; titulo: string; emoji: string; color: string }[] = [
-  { key: 'pendiente_aprobar', titulo: 'PENDIENTE POR APROBAR', emoji: '⏳', color: '#ff8a00' },
-  { key: 'cuenta_abierta', titulo: 'CUENTAS A CRÉDITO', emoji: '💳', color: '#dc2626' },
-  { key: 'indicar_metodo', titulo: 'POR INDICAR MÉTODO DE PAGO', emoji: '🏦', color: '#7c5cff' },
-  { key: 'por_pagar', titulo: 'POR PAGAR', emoji: '💰', color: '#2563eb' },
+ *  cuadrito (ver `comprasReporteMensaje.ts`).
+ *
+ *  Los colores son PASTEL (pedido de la administradora, 19-10-2026: «los colores están
+ *  muy chillones»): antes eran el naranja de la marca y rojo/violeta/azul plenos, con
+ *  la letra en blanco. Ahora el fondo va suave y la letra en el tono oscuro del MISMO
+ *  color (`colorTexto`), que es lo que se lee. `comprasReporte.test.ts` comprueba con
+ *  la fórmula de contraste del W3C que cada par fondo/letra pasa de 4,5:1. */
+export const GRUPOS_REPORTE: { key: GrupoReporte; titulo: string; emoji: string; color: string; colorTexto: string }[] = [
+  { key: 'pendiente_aprobar', titulo: 'PENDIENTE POR APROBAR', emoji: '⏳', color: '#ffe0bd', colorTexto: '#8a4b00' },
+  { key: 'cuenta_abierta', titulo: 'CUENTAS A CRÉDITO', emoji: '💳', color: '#ffd2d2', colorTexto: '#9b1c1c' },
+  { key: 'indicar_metodo', titulo: 'POR INDICAR MÉTODO DE PAGO', emoji: '🏦', color: '#e3dcff', colorTexto: '#4a37a8' },
+  { key: 'por_pagar', titulo: 'POR PAGAR', emoji: '💰', color: '#d2e2ff', colorTexto: '#1e4696' },
 ];
+
+/** El tono del TOTAL GENERAL: un pastel de la marca con su letra oscura. */
+export const COLOR_TOTAL = '#ffe6cc';
+export const COLOR_TOTAL_TEXTO = '#8a4b00';
 
 /** El tipo de documento de la fila (lo que el reporte llama «tipo por renglón»). */
 export type TipoReporte = 'OC' | 'Servicio' | 'Compra directa' | 'Servicio directo';
@@ -136,7 +146,10 @@ export interface GrupoReporteFilas {
   titulo: string;
   /** Emoji del renglón (sin selector U+FE0F): va en el mensaje de WhatsApp. */
   emoji: string;
+  /** Fondo pastel del encabezado del renglón. */
   color: string;
+  /** La letra del encabezado: el tono oscuro del mismo color (sobre pastel no va el blanco). */
+  colorTexto: string;
   filas: FilaReporteCompras[];
   totalUsd: number;
   totalBs: number;

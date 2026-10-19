@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { agruparReporte, fmtMonto, totalesPorMoneda, totalesTexto, type FilaReporteCompras } from './comprasReporte';
+import { agruparReporte, fmtMonto, totalesPorMoneda, totalesTexto, COLOR_TOTAL, COLOR_TOTAL_TEXTO, type FilaReporteCompras } from './comprasReporte';
 import { listReporteCompras } from './comprasReporte.repository';
 import { compartirMovimiento, enlaceWhatsapp, mensajeReporteCompras, puedeCompartir } from './comprasReporteMensaje';
 
@@ -120,7 +120,7 @@ export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
           <div key={g.key} className="table-wrap" style={{ marginBottom: '.9rem' }}>
             <table className="table" style={{ fontSize: '.82rem' }}>
               <thead>
-                <tr><th colSpan={cols} style={{ background: g.color, color: '#fff', fontWeight: 700, letterSpacing: '.02em' }}>{g.emoji} {g.titulo} · {g.filas.length}</th></tr>
+                <tr><th colSpan={cols} style={{ background: g.color, color: g.colorTexto, fontWeight: 700, letterSpacing: '.02em' }}>{g.emoji} {g.titulo} · {g.filas.length}</th></tr>
                 <tr>
                   <th style={{ width: 34, textAlign: 'center' }}>#</th>
                   <th style={{ width: 122 }}>CÓDIGO</th>
@@ -145,7 +145,7 @@ export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
                 ))}
               </tbody>
               <tfoot>
-                <tr style={{ background: g.color, color: '#fff' }}>
+                <tr style={{ background: g.color, color: g.colorTexto }}>
                   <td colSpan={cols - 1} style={{ textAlign: 'right', fontWeight: 700 }}>
                     TOTAL {g.titulo}{esCredito ? ' (saldo pendiente)' : ''}
                   </td>
@@ -158,10 +158,10 @@ export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
       })}
 
       {!loading && !vacio && (
-        <div className="card" style={{ background: 'var(--brand, #ff8a00)', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+        <div className="card" style={{ background: COLOR_TOTAL, color: COLOR_TOTAL_TEXTO, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
           <div>
             <strong style={{ fontSize: '1.05rem' }}>TOTAL GENERAL</strong>
-            <div style={{ fontSize: '.78rem', opacity: .9 }}>Suma de los cuatro renglones (en crédito, el saldo pendiente) · en la moneda de cada compra</div>
+            <div style={{ fontSize: '.78rem', opacity: .85 }}>Suma de los cuatro renglones (en crédito, el saldo pendiente) · en la moneda de cada compra</div>
           </div>
           <div className="mono" style={{ textAlign: 'right', fontSize: '1.25rem', fontWeight: 800 }}>
             {fmtMonto(total.usd, 'USD')}  ·  {fmtMonto(total.bs, 'Bs')}

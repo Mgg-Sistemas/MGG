@@ -12,7 +12,7 @@
    ============================================================ */
 import { previewPdfDoc, imprimirPdfDoc } from '@/shared/lib/reportPreview';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
-import { agruparReporte, fmtMonto, totalesPorMoneda, totalesTexto, type FilaReporteCompras } from './comprasReporte';
+import { agruparReporte, fmtMonto, totalesPorMoneda, totalesTexto, COLOR_TOTAL, COLOR_TOTAL_TEXTO, type FilaReporteCompras } from './comprasReporte';
 
 /** El color de la pantalla (#rrggbb) en el formato de jsPDF. */
 function hexRgb(hex: string): [number, number, number] {
@@ -71,14 +71,14 @@ async function construir(filas: FilaReporteCompras[]): Promise<{ doc: import('js
     autoTable(doc, {
       startY: y,
       head: [
-        [{ content: `${g.titulo} · ${g.filas.length} renglón(es)`, colSpan: cols.length, styles: { fillColor: hexRgb(g.color), textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left', fontSize: 10 } }],
+        [{ content: `${g.titulo} · ${g.filas.length} renglón(es)`, colSpan: cols.length, styles: { fillColor: hexRgb(g.color), textColor: hexRgb(g.colorTexto), fontStyle: 'bold', halign: 'left', fontSize: 10 } }],
         cols,
       ],
       body: cuerpo,
       foot: [[{ content: `TOTAL ${g.titulo}`, colSpan: cols.length - 1, styles: { halign: 'right' } }, totalesTexto(g)]],
       styles: { fontSize: 8.5, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
       headStyles: { fillColor: [225, 225, 225], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
-      footStyles: { fillColor: hexRgb(g.color), textColor: [255, 255, 255], fontStyle: 'bold', halign: 'right', fontSize: 9 },
+      footStyles: { fillColor: hexRgb(g.color), textColor: hexRgb(g.colorTexto), fontStyle: 'bold', halign: 'right', fontSize: 9 },
       tableWidth: CW,
       columnStyles: colStyles,
       margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 40 },
@@ -97,9 +97,9 @@ async function construir(filas: FilaReporteCompras[]): Promise<{ doc: import('js
   if (grupos.length > 0) {
     const boxH = 56;
     if (y + boxH > limiteInferiorPdf(H) - 14) { doc.addPage(); y = MARGEN_PDF; }
-    doc.setFillColor(255, 138, 0);
+    doc.setFillColor(...hexRgb(COLOR_TOTAL));
     doc.rect(MARGEN_PDF, y, CW, boxH, 'F');
-    doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...hexRgb(COLOR_TOTAL_TEXTO)); doc.setFont('helvetica', 'bold');
     doc.setFontSize(13); doc.text('TOTAL GENERAL', MARGEN_PDF + 16, y + 24);
     doc.setFontSize(9); doc.setFont('helvetica', 'normal');
     doc.text('Suma de los cuatro renglones (en crédito, el saldo pendiente) · en la moneda de cada compra', MARGEN_PDF + 16, y + 42);
