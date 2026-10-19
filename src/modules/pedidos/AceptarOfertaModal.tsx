@@ -48,6 +48,8 @@ const marcaLabel = (it: ItemOrden) =>
 interface Props {
   oferta: OfertaProveedor;
   proveedorNombre: string;
+  /** Moneda de la ORDEN: 'USD' o 'Bs'. Los precios «BCV» de la oferta están en esa moneda; antes se rotulaban siempre en Bs. */
+  moneda?: string | null;
   /** SKUs que YA compra otra sub-OC viva: se muestran en gris y no se pueden marcar
    *  (comprarlos de nuevo sería pagar dos veces el mismo producto). */
   skusBloqueados?: Set<string>;
@@ -57,7 +59,9 @@ interface Props {
   onCancel: () => void;
 }
 
-export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, onConfirm, onCancel }: Props) {
+export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloqueados, onConfirm, onCancel }: Props) {
+  const esBs = moneda === 'Bs';
+  const mo = esBs ? 'Bs' : 'USD';
   const grupos = useMemo(() => agruparPorProducto(oferta.items), [oferta.items]);
   const bloqueado = (sku: string) => !!skusBloqueados?.has(sku);
   // Solo se cotizan/compran los productos que quedan libres.
@@ -209,10 +213,10 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
                         </div>
                       </div>
                       <div className="mono" style={{ textAlign: 'right', fontSize: '.82rem', lineHeight: 1.5 }}>
-                        <div>Bs: <strong>{u.bcv > 0 ? moneyUnit(u.bcv, 'Bs') : '—'}</strong></div>
-                        <div style={{ color: 'var(--success)' }}>$: <strong>{u.usd > 0 ? moneyUnit(u.usd, 'USD') : '—'}</strong></div>
+                        <div>{esBs ? 'Bs' : '$ BCV'}: <strong>{u.bcv > 0 ? moneyUnit(u.bcv, mo) : '—'}</strong></div>
+                        <div style={{ color: 'var(--success)' }}>{esBs ? '$' : '$ efectivo'}: <strong>{u.usd > 0 ? moneyUnit(u.usd, 'USD') : '—'}</strong></div>
                         <div className="muted" style={{ fontSize: '.72rem' }}>
-                          Total: {u.bcv > 0 ? money(u.cant * u.bcv, 'Bs') : '—'}{u.usd > 0 ? ` · ${money(u.cant * u.usd, 'USD')}` : ''}
+                          Total: {u.bcv > 0 ? money(u.cant * u.bcv, mo) : '—'}{u.usd > 0 ? ` · ${money(u.cant * u.usd, 'USD')}` : ''}
                         </div>
                       </div>
                     </label>
@@ -254,8 +258,8 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
       <div className="card" style={{ background: 'var(--bg-2)', padding: '.7rem .8rem', marginTop: '.8rem' }}>
         <div className="card-title" style={{ marginBottom: '.35rem' }}><span>💵 Total a comprar</span></div>
         <div className="mono" style={{ fontSize: '.9rem', lineHeight: 1.7 }}>
-          <div>Total Bs (BCV): <strong>{bcvTotal > 0 ? money(bcvTotal, 'Bs') : '—'}</strong></div>
-          <div>Total $ (USD): <strong style={{ color: 'var(--success)' }}>{usdTotal > 0 ? money(usdTotal, 'USD') : '—'}</strong></div>
+          <div>{esBs ? 'Total Bs (BCV)' : 'Total $ (BCV)'}: <strong>{bcvTotal > 0 ? money(bcvTotal, mo) : '—'}</strong></div>
+          <div>{esBs ? 'Total $ (USD)' : 'Total $ efectivo'}: <strong style={{ color: 'var(--success)' }}>{usdTotal > 0 ? money(usdTotal, 'USD') : '—'}</strong></div>
           {/* Descuento e impuestos van PRORRATEADOS a lo que se está eligiendo: si se le
               compran solo algunos productos a esta oferta, se lleva la parte que le toca.
               Es el mismo reparto que hace `aprobarOrdenConOferta`, así que el número de
@@ -272,12 +276,12 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, skusBloqueados, on
             const conUsd = montoFinalOferta({ precio_total: usdTotal, precio_efectivo: null, iva, igtf, descuento: desc, iva_incluido: incl, ajuste });
             return (
               <div style={{ marginTop: '.2rem' }}>
-                {desc > 0 && <span className="badge success" style={{ marginRight: '.35rem' }}>− desc. {money(desc)}</span>}
-                {iva > 0 && <span className="badge" style={{ marginRight: '.35rem' }} title={incl ? 'Los precios ya traen el IVA: se guarda para la retención, no se suma' : undefined}>{incl ? 'IVA incluido' : '+ IVA'} {money(iva)}</span>}
-                {igtf > 0 && <span className="badge" style={{ marginRight: '.35rem' }}>+ IGTF {money(igtf)}</span>}
-                {ajuste !== 0 && <span className="badge" title={parte.ajuste_motivo ?? undefined}>{ajuste > 0 ? '+' : '−'} ajuste {money(Math.abs(ajuste))}</span>}
+                {desc > 0 && <span className="badge success" style={{ marginRight: '.35rem' }}>− desc. {money(desc, mo)}</span>}
+                {iva > 0 && <span className="badge" style={{ marginRight: '.35rem' }} title={incl ? 'Los precios ya traen el IVA: se guarda para la retención, no se suma' : undefined}>{incl ? 'IVA incluido' : '+ IVA'} {money(iva, mo)}</span>}
+                {igtf > 0 && <span className="badge" style={{ marginRight: '.35rem' }}>+ IGTF {money(igtf, mo)}</span>}
+                {ajuste !== 0 && <span className="badge" title={parte.ajuste_motivo ?? undefined}>{ajuste > 0 ? '+' : '−'} ajuste {money(Math.abs(ajuste), mo)}</span>}
                 <div style={{ marginTop: '.2rem' }}>
-                  Total a pagar: <strong>{bcvTotal > 0 ? money(conBcv.final, 'Bs') : '—'}</strong>
+                  Total a pagar: <strong>{bcvTotal > 0 ? money(conBcv.final, mo) : '—'}</strong>
                   {usdTotal > 0 && <> · <strong style={{ color: 'var(--success)' }}>{money(conUsd.final, 'USD')}</strong></>}
                 </div>
                 <div className="muted" style={{ fontSize: '.76rem', marginTop: '.15rem' }}>

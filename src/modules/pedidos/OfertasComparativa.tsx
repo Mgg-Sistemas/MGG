@@ -45,6 +45,8 @@ export function OfertasComparativa({
   onAddOferta,
   onAbrirOrden,
 }: Props) {
+  // Moneda de la ORDEN: los precios «BCV» de las ofertas están en ella (antes siempre se rotulaban en $).
+  const mo = orden.moneda === 'Bs' ? 'Bs' : 'USD';
   const [ofertas, setOfertas] = useState<OfertaProveedor[]>([]);
   const [stats, setStats] = useState<Map<string, ProveedorStats>>(new Map());
   const [loading, setLoading] = useState(true);
@@ -337,14 +339,14 @@ export function OfertasComparativa({
             ⚠ Los impuestos de esta OC no son los de su oferta aceptada
           </div>
           <div className="hint muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>
-            La OC arrastra IVA <strong className="mono">{money(desfaseImpuestos.ivaOrden)}</strong>
-            {desfaseImpuestos.igtfOrden > 0 && <> e IGTF <strong className="mono">{money(desfaseImpuestos.igtfOrden)}</strong></>}
+            La OC arrastra IVA <strong className="mono">{money(desfaseImpuestos.ivaOrden, mo)}</strong>
+            {desfaseImpuestos.igtfOrden > 0 && <> e IGTF <strong className="mono">{money(desfaseImpuestos.igtfOrden, mo)}</strong></>}
             {' y la oferta dice '}
-            <strong className="mono">{money(desfaseImpuestos.ivaOferta)}</strong>
-            {desfaseImpuestos.igtfOferta > 0 && <> e <strong className="mono">{money(desfaseImpuestos.igtfOferta)}</strong></>}
+            <strong className="mono">{money(desfaseImpuestos.ivaOferta, mo)}</strong>
+            {desfaseImpuestos.igtfOferta > 0 && <> e <strong className="mono">{money(desfaseImpuestos.igtfOferta, mo)}</strong></>}
             {': el total pide '}
             <strong className="mono" style={{ color: 'var(--warning)' }}>
-              {money(Math.abs(desfaseImpuestos.diferencia))}
+              {money(Math.abs(desfaseImpuestos.diferencia), mo)}
             </strong>
             {desfaseImpuestos.diferencia > 0 ? ' de más.' : ' de menos.'}
             {' '}Pasa cuando la oferta se edita después de emitir la OC. Para recalcularla,
@@ -462,16 +464,16 @@ export function OfertasComparativa({
                         const desglose = (impuestos > 0 || descuento > 0 || incl || ajuste !== 0);
                         return (
                           <>
-                            <strong>{money(final)}</strong>
+                            <strong>{money(final, mo)}</strong>
                             {desglose && (
                               <div className="muted" style={{ fontSize: '.7rem', marginTop: '.1rem', whiteSpace: 'nowrap' }}>
-                                base {money(base)}{descuento > 0 ? ` · desc. ${money(descuento)}` : ''}{iva > 0 ? (incl ? ` · IVA incl. ${money(iva)}` : ` · IVA ${money(iva)}`) : ''}{igtf > 0 ? ` · IGTF ${money(igtf)}` : ''}{ajuste !== 0 ? ` · ajuste ${money(ajuste)}` : ''}
+                                base {money(base, mo)}{descuento > 0 ? ` · desc. ${money(descuento, mo)}` : ''}{iva > 0 ? (incl ? ` · IVA incl. ${money(iva, mo)}` : ` · IVA ${money(iva, mo)}`) : ''}{igtf > 0 ? ` · IGTF ${money(igtf, mo)}` : ''}{ajuste !== 0 ? ` · ajuste ${money(ajuste)}` : ''}
                               </div>
                             )}
                             {ahorro && (
                               <div style={{ fontSize: '.75rem', marginTop: '.15rem', whiteSpace: 'nowrap' }}>
-                                <span style={{ color: 'var(--success)' }}>{money(final)}</span>{' '}
-                                <span className="badge success" title={`Ahorro ${money(ahorro.diferencia)} (${money(s.oferta.precio_total)} BCV − ${money(efe)} efectivo)`}>−{ahorro.pct.toFixed(2)}%</span>
+                                <span style={{ color: 'var(--success)' }}>{money(final, mo)}</span>{' '}
+                                <span className="badge success" title={`Ahorro ${money(ahorro.diferencia, mo)} (${money(s.oferta.precio_total, mo)} BCV − ${money(efe)} efectivo)`}>−{ahorro.pct.toFixed(2)}%</span>
                               </div>
                             )}
                           </>
@@ -611,11 +613,11 @@ export function OfertasComparativa({
                                     <td>{[f.marca, f.modelo].filter(Boolean).join(' · ') || <span className="muted">—</span>}</td>
                                     <td className="num mono">{f.precioPorUso != null ? f.cantidadTexto : f.cantidad}</td>
                                     <td className="num mono">
-                                      {moneyUnit(f.precioBcv)}
+                                      {moneyUnit(f.precioBcv, mo)}
                                       {/* Precio por unidad de uso: compara proveedores que venden en medidas distintas. */}
-                                      {f.precioPorUso != null && <div className="muted" style={{ fontSize: '.7rem' }}>≈ {money(f.precioPorUso)}/{f.unidadUso || 'und'}</div>}
+                                      {f.precioPorUso != null && <div className="muted" style={{ fontSize: '.7rem' }}>≈ {money(f.precioPorUso, mo)}/{f.unidadUso || 'und'}</div>}
                                     </td>
-                                    <td className="num mono">{money(f.totalBcv)}</td>
+                                    <td className="num mono">{money(f.totalBcv, mo)}</td>
                                     <td className="num mono">{f.precioUsd > 0 ? moneyUnit(f.precioUsd) : '—'}</td>
                                     <td className="num mono">{f.precioUsd > 0 ? money(f.totalUsd) : '—'}</td>
                                     <td className="num mono" style={{ color: f.diferencia > 0 ? 'var(--success)' : undefined }}>{hayUsd ? money(f.diferencia) : '—'}</td>
@@ -626,7 +628,7 @@ export function OfertasComparativa({
                               <tfoot>
                                 <tr style={{ fontWeight: 700 }}>
                                   <td colSpan={4} className="num">TOTAL</td>
-                                  <td className="num mono">{money(totBcv)}</td>
+                                  <td className="num mono">{money(totBcv, mo)}</td>
                                   <td></td>
                                   <td className="num mono">{hayUsd ? money(totUsd) : '—'}</td>
                                   <td className="num mono">{hayUsd ? money(totBcv - totUsd) : '—'}</td>
@@ -676,7 +678,7 @@ export function OfertasComparativa({
       {eliminando && (
         <ConfirmDialog
           title="Eliminar oferta"
-          message={`¿Eliminar la oferta de ${proveedorMap.get(eliminando.proveedor_id)?.razon_social ?? 'este proveedor'} (${money(eliminando.precio_total)})? Se quita de la comparativa.`}
+          message={`¿Eliminar la oferta de ${proveedorMap.get(eliminando.proveedor_id)?.razon_social ?? 'este proveedor'} (${money(eliminando.precio_total, mo)})? Se quita de la comparativa.`}
           confirmText="Eliminar"
           danger
           onConfirm={() => confirmarEliminar(eliminando)}
@@ -698,6 +700,7 @@ export function OfertasComparativa({
         <AceptarOfertaModal
           oferta={confirmando.oferta}
           proveedorNombre={proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'}
+          moneda={orden.moneda}
           skusBloqueados={skusAjenos}
           onConfirm={(items, bcv, usd, motivo, files) => confirmarAceptacion(confirmando, items, bcv, usd, motivo, files)}
           onCancel={() => setConfirmando(null)}
