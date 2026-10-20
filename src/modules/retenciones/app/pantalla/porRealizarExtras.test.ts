@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RetencionItem } from '../datos/puerta';
-import { archivosFactura, avisoDeDocumento, avisoRetencionPago, itemDelRetenido, retenidoSinRegistrar, type RetenidoAlPagar } from './porRealizarExtras';
+import { archivosDeFilas, archivosFactura, avisoDeDocumento, avisoRetencionPago, itemDelRetenido, retenidoSinRegistrar, type RetenidoAlPagar } from './porRealizarExtras';
 
 // Datos ficticios
 const oc = (over: Partial<RetencionItem> = {}): RetencionItem => ({
@@ -77,5 +77,19 @@ describe('lo retenido al pagar que no está en el libro (C1)', () => {
     expect(itemDelRetenido(r(), items)?.id).toBe('o1');
     expect(itemDelRetenido(r({ kind: 'compra_directa', id: 'c1' }), items)?.id).toBe('c1');
     expect(itemDelRetenido(r({ kind: 'servicio_directo', id: 's1' }), items)).toBeNull();
+  });
+});
+
+describe('los archivos de la factura desde las filas de Compras (Realizadas y Libro)', () => {
+  it('arma un mapa por documento: la OC con su factura y la compra con todas las suyas', () => {
+    const m = archivosDeFilas(
+      [{ id: 'o1', factura_path: 'o1/f.pdf', factura_nombre: 'f.pdf' }, { id: 'o2', factura_path: null }],
+      [{ id: 'c1', facturas: [{ path: 'c1/1-a.pdf', filename: 'a.pdf' }], adjunto_path: null }, { id: 'c2', facturas: [], adjunto_path: 'c2/x.jpg', adjunto_nombre: 'x.jpg' }],
+    );
+    expect(m.get('oc:o1')).toEqual([{ origen: 'oc', path: 'o1/f.pdf', nombre: 'f.pdf' }]);
+    expect(m.has('oc:o2')).toBe(false);
+    expect(m.get('compra_directa:c1')).toEqual([{ origen: 'compra', path: 'c1/1-a.pdf', nombre: 'a.pdf' }]);
+    // Las compras viejas solo tienen adjunto_path
+    expect(m.get('compra_directa:c2')).toEqual([{ origen: 'compra', path: 'c2/x.jpg', nombre: 'x.jpg' }]);
   });
 });

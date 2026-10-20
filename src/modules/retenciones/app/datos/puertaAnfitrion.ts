@@ -13,8 +13,9 @@ import {
   listConceptos, listRetenciones, registrarRetencion,
 } from '../../retencionesFiscal.repository';
 import { urlAdjuntoCompra } from '@/modules/pedidos/compras.repository';
+import { resumenLibro, totalesPorMoneda } from '../../retencionesCalculo';
 import type { PuertaRetenciones } from './puerta';
-import { listRetenidoSinRegistrar } from './retenidoAlPagar';
+import { listArchivosDeDocumentos, listRetenidoSinRegistrar } from './retenidoAlPagar';
 
 export const puertaAnfitrion: PuertaRetenciones = {
   capacidades: { reglas: false, periodos: false, otroSistema: false, impresiones: false, reportes: false },
@@ -44,4 +45,15 @@ export const puertaAnfitrion: PuertaRetenciones = {
     await previewFileUrl(url, a.nombre, 'Factura');
   },
   retenidoSinRegistrar: () => listRetenidoSinRegistrar(),
+  archivosDeDocumentos: (docs) => listArchivosDeDocumentos(docs),
+  // Lo mismo que hace hoy el Libro fiscal (LibroFiscal.tsx, verLibroFiscalPdf con su resumen y un total por moneda).
+  imprimirLibro: async (filas, rango) => {
+    const [config, { verLibroFiscalPdf }] = await Promise.all([getConfigRetencion(), import('../../libroFiscalPdf')]);
+    const fila = (r: (typeof filas)[number]) => ({ tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada });
+    await verLibroFiscalPdf(filas, config, {
+      ...rango, direccion: null,
+      resumen: resumenLibro(filas.map(fila)),
+      totales: totalesPorMoneda(filas.map((r) => ({ ...fila(r), moneda: r.moneda }))),
+    });
+  },
 };

@@ -61,6 +61,10 @@ export interface PuertaRetenciones {
   verFactura?(a: ArchivoFactura): Promise<void>;
   /** Lo retenido al pagar que no está en el libro (C1). Sin él, el panel no se muestra. */
   retenidoSinRegistrar?(): Promise<RetenidoAlPagar[]>;
+  /** Los archivos de la factura de unos documentos, por «<kind>:<id>» (Realizadas y Libro). Sin él, «📎 Factura» no se muestra ahí. */
+  archivosDeDocumentos?(docs: { kind: string; id: string }[]): Promise<Map<string, ArchivoFactura[]>>;
+  /** «🖨 Imprimir lista / PDF» del Libro: lo filtrado, con el PDF de hoy. Sin él, el botón no se muestra. */
+  imprimirLibro?(filas: RetencionPracticada[], rango: { desde: string; hasta: string }): Promise<void>;
 }
 
 export const PuertaContext = createContext<PuertaRetenciones | null>(null);
