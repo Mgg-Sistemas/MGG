@@ -9,7 +9,8 @@
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { listRetencionesHechas, listRetencionesPendientes, urlRetencion } from '../../retenciones.repository';
 import {
-  adjuntarComprobante, anularRetencion, getConfigRetencion, listConceptos, listRetenciones, registrarRetencion,
+  activarConcepto, adjuntarComprobante, anularRetencion, getConfigRetencion, guardarConcepto, guardarConfigRetencion,
+  listConceptos, listRetenciones, registrarRetencion,
 } from '../../retencionesFiscal.repository';
 import type { PuertaRetenciones } from './puerta';
 
@@ -27,6 +28,9 @@ export const puertaAnfitrion: PuertaRetenciones = {
     const [config, { verComprobanteRetencionPdf }] = await Promise.all([getConfigRetencion(), import('../../comprobanteRetencionPdf')]);
     await verComprobanteRetencionPdf(r, config);
   },
+  guardarConfig: (c, actor) => guardarConfigRetencion(c, actor),
+  guardarConcepto: (c) => guardarConcepto(c),
+  activarConcepto: (id, activo) => activarConcepto(id, activo),
   verArchivo: async (r) => {
     if (!r.comprobantePath) throw new Error('La retención no tiene archivo adjunto.');
     await previewFileUrl(await urlRetencion(r.comprobantePath), r.comprobanteNombre ?? 'comprobante', 'Comprobante de retención');
