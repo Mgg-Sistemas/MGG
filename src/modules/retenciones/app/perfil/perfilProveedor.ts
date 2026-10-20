@@ -103,12 +103,14 @@ export function validarPerfil(b: BorradorPerfil): string[] {
   return errores;
 }
 
-/** Las columnas de retencion_perfil_proveedor que se guardan (vacío → null, como piden sus restricciones). */
+/**
+ * Las columnas de retencion_perfil_proveedor que se guardan (vacío → null, como piden sus restricciones).
+ * La actividad no: la pone la base desde la principal de retencion_proveedor_actividades (v8p-04).
+ */
 export function filaPerfil(proveedorId: string, b: BorradorPerfil) {
-  const v = (s: string) => s.trim() || null;
   return {
     proveedor_id: proveedorId, tipo_contribuyente: b.tipoContribuyente || null, persona: b.persona || null,
-    actividad_codigo: v(b.actividadCodigo), sujeto_100_portal: b.sujeto100Portal, numero_id: v(b.numeroId),
+    sujeto_100_portal: b.sujeto100Portal, numero_id: b.numeroId.trim() || null,
   };
 }
 

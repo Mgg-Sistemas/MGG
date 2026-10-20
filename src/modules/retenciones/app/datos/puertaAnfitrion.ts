@@ -17,9 +17,11 @@ import { resumenLibro, totalesPorMoneda } from '../../retencionesCalculo';
 import type { PuertaRetenciones } from './puerta';
 import { declararPeriodo, guardarPasoInicial, listPasoInicial, listPeriodos, reabrirPeriodo, umbralDeclaraciones } from './periodos';
 import { direccionDeProveedor, listArchivosDeDocumentos, listRetenidoSinRegistrar } from './retenidoAlPagar';
+import { guardarPerfilProveedor, leerPerfilProveedor, listTiposLicencia } from './perfilProveedor';
 
 export const puertaAnfitrion: PuertaRetenciones = {
-  capacidades: { reglas: false, periodos: false, otroSistema: false, impresiones: false, reportes: false },
+  // perfilProveedor: false hasta que la base tenga la v2.2 (05) y v8p-03, 04 y 05.
+  capacidades: { reglas: false, periodos: false, otroSistema: false, impresiones: false, reportes: false, perfilProveedor: false },
   pendientes: () => listRetencionesPendientes(),
   hechas: () => listRetencionesHechas(),
   libro: (filtro) => listRetenciones(filtro),
@@ -48,6 +50,9 @@ export const puertaAnfitrion: PuertaRetenciones = {
   retenidoSinRegistrar: () => listRetenidoSinRegistrar(),
   archivosDeDocumentos: (docs) => listArchivosDeDocumentos(docs),
   direccionProveedor: (id) => direccionDeProveedor(id),
+  perfilProveedor: (id) => leerPerfilProveedor(id),
+  tiposLicencia: () => listTiposLicencia(),
+  guardarPerfilProveedor: (id, c) => guardarPerfilProveedor(id, c),
   // Lo mismo que hace hoy el Libro fiscal (LibroFiscal.tsx, verLibroFiscalPdf con su resumen y un total por moneda).
   // Los períodos (paquete 07 de la base de Retenciones): sin él, periodos() da null y la pestaña no se muestra.
   periodos: () => listPeriodos(),

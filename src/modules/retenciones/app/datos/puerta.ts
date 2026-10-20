@@ -18,8 +18,10 @@ import type { FiltroRetenciones, NuevaRetencion, RetencionPracticada } from '../
 import type { ConceptoRetencion, ConfigRetencion } from '../../retencionesCalculo';
 import type { ArchivoFactura, RetenidoAlPagar } from '../pantalla/porRealizarExtras';
 import type { Declaracion, PasoInicial, PeriodoRetencion } from './periodos';
+import type { CambiosPerfil, DatosPerfil } from './perfilProveedor';
+import type { TipoLicencia } from '../perfil/actividadesLicencia';
 
-export type { RetencionItem, RetencionPracticada, FiltroRetenciones, NuevaRetencion, ConfigRetencion, ConceptoRetencion, ArchivoFactura, RetenidoAlPagar };
+export type { RetencionItem, RetencionPracticada, FiltroRetenciones, NuevaRetencion, ConfigRetencion, ConceptoRetencion, ArchivoFactura, RetenidoAlPagar, CambiosPerfil, DatosPerfil, TipoLicencia };
 
 /** Qué partes de la v8 tienen datos hoy. La pantalla oculta lo que dé false. */
 export interface Capacidades {
@@ -33,6 +35,8 @@ export interface Capacidades {
   impresiones: boolean;
   /** Reportes guardados (E15-2). */
   reportes: boolean;
+  /** El perfil fiscal del proveedor: v2.2 05 y v8p-03, 04 y 05 (actividades, licencia y sus tipos). */
+  perfilProveedor: boolean;
 }
 
 export interface PuertaRetenciones {
@@ -80,6 +84,12 @@ export interface PuertaRetenciones {
   umbralDeclaraciones?(): Promise<number>;
   /** La dirección del proveedor, para el comprobante impreso (proveedores.direccion). Sin él, la hoja la deja en blanco. */
   direccionProveedor?(id: string): Promise<string>;
+  /** El perfil fiscal de un proveedor, sus actividades y su licencia. Solo con capacidades.perfilProveedor. */
+  perfilProveedor?(proveedorId: string): Promise<DatosPerfil>;
+  /** El catálogo «Tipos de licencia». Solo con capacidades.perfilProveedor. */
+  tiposLicencia?(): Promise<TipoLicencia[]>;
+  /** Guarda el perfil, sus actividades y su licencia. Solo con capacidades.perfilProveedor. */
+  guardarPerfilProveedor?(proveedorId: string, c: CambiosPerfil): Promise<void>;
 }
 
 export const PuertaContext = createContext<PuertaRetenciones | null>(null);

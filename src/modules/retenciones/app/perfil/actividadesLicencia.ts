@@ -24,6 +24,9 @@ export interface ActividadProveedor {
   hasta: string | null;
 }
 
+/** Un tipo de licencia (retencion_licencia_tipos). */
+export interface TipoLicencia { id: string; nombre: string; activo: boolean; vigenciaMeses: number | null }
+
 const ACTIVIDAD = /^[0-9]+(\.[0-9]+){0,5}$/;
 const abierta = (x: ActividadProveedor) => !x.hasta;
 
