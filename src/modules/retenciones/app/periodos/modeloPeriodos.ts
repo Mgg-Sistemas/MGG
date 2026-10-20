@@ -84,3 +84,15 @@ export const aniosDe = (ps: readonly PeriodoRetencion[]) => [...new Set(ps.map(a
 
 /** «Por quincena» si el impuesto tiene tramos; si no, «Mensual». */
 export const periodicidadDe = (ps: readonly PeriodoRetencion[], k: string) => (ps.some((p) => p.tipo === k && p.tramo > 0) ? 'Por quincena' : 'Mensual');
+
+/** `avisosPeriodos` como lista: cada período vencido o por vencer (a umbral días), con su nombre y los días que faltan. */
+export function avisosPeriodosLista(ps: readonly PeriodoRetencion[], impuestos: readonly string[], hoy: string, umbral = UMBRAL_DECLARACIONES) {
+  const out: { cls: 'vencido' | 'pronto'; p: PeriodoRetencion; nombre: string; dias: number }[] = [];
+  for (const p of ps) {
+    if (!impuestos.includes(p.tipo) || !p.vence) continue;
+    const e = estadoFila(p), dias = diasEntre(hoy, p.vence);
+    if (e === 'vencido') out.push({ cls: 'vencido', p, nombre: nombrePeriodo(p), dias });
+    else if (e === 'por_declarar' && dias <= umbral) out.push({ cls: 'pronto', p, nombre: nombrePeriodo(p), dias });
+  }
+  return out;
+}
