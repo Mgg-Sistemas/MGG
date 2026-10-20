@@ -1,0 +1,11 @@
+/* ============================================================
+   MGG · Retenciones v8 · «Registrar nota de crédito»
+   Traslado de la maqueta (v8-12-decisiones-1014.js §4): .nota-modal,
+   .form-pa con sus .campo y .error-campo. Con las variables del tema.
+   ============================================================ */
+.rv8-nc-sub { margin: 0 0 .4rem; font-size: .85rem; color: var(--text-muted); }
+.rv8-nc-nota { margin: .4rem 0; font-size: .8rem; color: var(--text-muted); }
+.rv8-nc-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: .6rem 1rem; margin: .6rem 0; }
+.rv8-nc-campo { display: flex; flex-direction: column; gap: .35rem; }
+.rv8-nc-campo > span { font-size: .78rem; color: var(--text-muted); font-weight: 600; }
+.rv8-nc-error { margin: .4rem 0 0; font-size: .8rem; color: var(--danger, var(--warning)); }
