@@ -10,8 +10,8 @@
    ============================================================ */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { usePuerta, type RetencionItem, type RetencionPracticada } from '../datos/puerta';
-import { documentosPendientes } from './pendientesPorDocumento';
+import { usePuerta, type ConceptoRetencion, type ConfigRetencion, type RetencionItem, type RetencionPracticada } from '../datos/puerta';
+import { documentosPendientes, impuestosQueAplican } from './pendientesPorDocumento';
 import { LibroFiscalV8 } from './LibroFiscalV8';
 import { PorRealizar } from './PorRealizar';
 import { Realizadas } from './Realizadas';
@@ -36,7 +36,7 @@ interface Props {
   onAdjuntar?: (r: RetencionPracticada, archivo: File) => void;
 }
 
-interface Datos { pendientes: RetencionItem[]; libro: RetencionPracticada[] }
+interface Datos { pendientes: RetencionItem[]; libro: RetencionPracticada[]; config: ConfigRetencion; conceptos: ConceptoRetencion[] }
 
 export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar }: Props) {
   const puerta = usePuerta();
@@ -46,13 +46,16 @@ export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar }: P
 
   const cargar = useCallback(() => {
     setError(null);
-    Promise.all([puerta.pendientes(), puerta.libro()])
-      .then(([pendientes, libro]) => setDatos({ pendientes, libro }))
+    Promise.all([puerta.pendientes(), puerta.libro(), puerta.config(), puerta.conceptos(true)])
+      .then(([pendientes, libro, config, conceptos]) => setDatos({ pendientes, libro, config, conceptos }))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'No se pudieron leer las retenciones.'));
   }, [puerta]);
   useEffect(() => { cargar(); }, [cargar]);
 
-  const docs = useMemo(() => (datos ? documentosPendientes(datos.pendientes, datos.libro) : []), [datos]);
+  const docs = useMemo(
+    () => (datos ? documentosPendientes(datos.pendientes, datos.libro, (it) => impuestosQueAplican(it, datos.config, datos.conceptos)) : []),
+    [datos],
+  );
 
   return (
     <main className="page ret-v8">
