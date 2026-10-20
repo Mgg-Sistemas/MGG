@@ -12,7 +12,9 @@ import {
   activarConcepto, adjuntarComprobante, anularRetencion, getConfigRetencion, guardarConcepto, guardarConfigRetencion,
   listConceptos, listRetenciones, registrarRetencion,
 } from '../../retencionesFiscal.repository';
+import { urlAdjuntoCompra } from '@/modules/pedidos/compras.repository';
 import type { PuertaRetenciones } from './puerta';
+import { listRetenidoSinRegistrar } from './retenidoAlPagar';
 
 export const puertaAnfitrion: PuertaRetenciones = {
   capacidades: { reglas: false, periodos: false, otroSistema: false, impresiones: false, reportes: false },
@@ -36,4 +38,10 @@ export const puertaAnfitrion: PuertaRetenciones = {
     await previewFileUrl(await urlRetencion(r.comprobantePath), r.comprobanteNombre ?? 'comprobante', 'Comprobante de retención');
   },
   anular: (id, motivo) => anularRetencion(id, motivo),
+  // La factura de la OC está en compras-oc (urlRetencion); la de la compra directa, en su bucket (urlAdjuntoCompra).
+  verFactura: async (a) => {
+    const url = a.origen === 'oc' ? await urlRetencion(a.path) : await urlAdjuntoCompra(a.path);
+    await previewFileUrl(url, a.nombre, 'Factura');
+  },
+  retenidoSinRegistrar: () => listRetenidoSinRegistrar(),
 };
