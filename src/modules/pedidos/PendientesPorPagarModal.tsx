@@ -4,7 +4,8 @@
    de compra · Servicios · Servicios directos, con subtotales y un
    TOTAL GENERAL en $ y Bs (tasa BCV del día). Sección aparte de
    CUENTAS A CRÉDITO (cuenta abierta, saldo pendiente). Realtime.
-   Adentro, botón para ver/descargar el PDF (misma data).
+   Salidas (misma data): PDF (vista previa), Excel (20-10-2026) y WhatsApp con
+   emojis (mensaje a la vista, para copiar o mandar).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
@@ -12,18 +13,16 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { listOrdenesPorPagar, listOrdenesEnCredito, type OrdenPorPagar } from './pedidos.repository';
 import { cargarDirectosPorPagar, type DirectoFila } from './DirectosPorPagarModal';
-import { getTasaHoy, aBs, aExtranjero } from '@/modules/tesoreria/tasas.repository';
+import { getTasaHoy, aBs } from '@/modules/tesoreria/tasas.repository';
+import { armarReportePorPagar } from './pendientesPorPagarReporte';
+import { compartirMovimiento, enlaceWhatsapp, mensajePendientesPorPagar, puedeCompartir } from './pendientesPorPagarMensaje';
 
-const esBsMoneda = (m: string | null | undefined): boolean => /bs|ves/i.test(String(m ?? ''));
 function usd(n: number | null | undefined): string {
   return `$ ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 function bs(n: number | null | undefined): string {
   return `Bs ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
-
-interface FilaRep { codigo: string; nombre: string; detalle: string; montoUsd: number }
-interface Segmento { titulo: string; color: string; filas: FilaRep[] }
 
 export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
@@ -33,6 +32,7 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
   const [tasa, setTasa] = useState(0);
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
   const [genPdf, setGenPdf] = useState(false);
+  const [genExcel, setGenExcel] = useState(false);
 
   const cargar = useCallback(async () => {
     const [r, d, c, t] = await Promise.all([
@@ -49,38 +49,10 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
   // Realtime: cada pago (OC, compra/servicio directo) actualiza la lista al instante.
   useRealtime(['ordenes', 'compras_directas', 'servicios_directos', 'movimientos_caja', 'cajas'], () => { void cargar(); });
 
-  const { segmentos, totalUsd, credFilas, credTotal } = useMemo(() => {
-    const ocRows = rows.filter((r) => r.orden.clase !== 'servicio');
-    const servRows = rows.filter((r) => r.orden.clase === 'servicio');
-    const comprasDir = directos.filter((d) => d.kind === 'compra');
-    const servDir = directos.filter((d) => d.kind === 'servicio');
-
-    const deOrden = (r: OrdenPorPagar): FilaRep => ({
-      codigo: r.orden.oc_codigo ?? r.orden.codigo, nombre: r.proveedorNombre,
-      detalle: r.esperandoMetodo ? 'Esperando método' : 'Lista para pagar',
-      montoUsd: Number(r.montoAPagar) || 0,
-    });
-    const deDirecto = (d: DirectoFila): FilaRep => ({
-      codigo: d.codigo, nombre: d.titulo, detalle: d.detalle || '—',
-      montoUsd: esBsMoneda(d.moneda) ? aExtranjero(Number(d.total) || 0, tasa) : (Number(d.total) || 0),
-    });
-
-    const segs: Segmento[] = [
-      { titulo: 'COMPRAS DIRECTAS', color: '#2563eb', filas: comprasDir.map(deDirecto) },
-      { titulo: 'ÓRDENES DE COMPRA', color: '#ff8a00', filas: ocRows.map(deOrden) },
-      { titulo: 'SERVICIOS', color: '#7c5cff', filas: servRows.map(deOrden) },
-      { titulo: 'SERVICIOS DIRECTOS', color: '#108a78', filas: servDir.map(deDirecto) },
-    ].filter((s) => s.filas.length > 0);
-    const total = segs.reduce((a, s) => a + s.filas.reduce((b, f) => b + f.montoUsd, 0), 0);
-
-    const cred = creditos.map((r) => {
-      const t = Number(r.montoAPagar) || 0;
-      const ab = Math.max(0, Number(r.orden.abonado_total) || 0);
-      return { codigo: r.orden.oc_codigo ?? r.orden.codigo, nombre: r.proveedorNombre, abonado: ab, total: t, saldo: Math.max(0, Math.round((t - ab) * 100) / 100) };
-    });
-    const credT = cred.reduce((a, f) => a + f.saldo, 0);
-    return { segmentos: segs, totalUsd: total, credFilas: cred, credTotal: credT };
-  }, [rows, directos, creditos, tasa]);
+  const reporte = useMemo(() => armarReportePorPagar(rows, directos, creditos, tasa), [rows, directos, creditos, tasa]);
+  const { segmentos, totalUsd, credito: credFilas, creditoTotal: credTotal } = reporte;
+  // El mismo mensaje que se manda por WhatsApp (con sus emojis), armado de las mismas filas.
+  const mensaje = useMemo(() => mensajePendientesPorPagar(reporte, { tasaFecha }), [reporte, tasaFecha]);
 
   const nPend = rows.length + directos.length;
   const vacio = !loading && nPend === 0 && creditos.length === 0;
@@ -94,6 +66,20 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
     finally { setGenPdf(false); }
   }
 
+  async function verExcel() {
+    setGenExcel(true);
+    try {
+      const { exportarPendientesPorPagarExcel } = await import('./pendientesPorPagarExcel');
+      await exportarPendientesPorPagarExcel(reporte, tasaFecha);
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el Excel', 'error'); }
+    finally { setGenExcel(false); }
+  }
+
+  async function copiar() {
+    try { await navigator.clipboard.writeText(mensaje); toast('Mensaje copiado', 'success'); }
+    catch { toast('No se pudo copiar solo. Mantené presionado el texto para copiarlo.', 'warning'); }
+  }
+
   const montoCell = (u: number) => (
     <>
       <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{usd(u)}</td>
@@ -104,6 +90,20 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      <button className="btn btn-ghost" onClick={() => void verExcel()} disabled={genExcel || vacio}>
+        {genExcel ? 'Generando…' : '📊 Excel'}
+      </button>
+      {/* En el teléfono el mensaje va por la hoja de compartir (llega exacto, con sus emojis);
+          en la PC, el enlace derecho a api.whatsapp.com (nunca wa.me). */}
+      <a className="btn btn-ghost" href={enlaceWhatsapp(mensaje)} target="_blank" rel="noopener noreferrer"
+        onClick={(e) => {
+          if (vacio) { e.preventDefault(); return; }
+          if (!puedeCompartir()) return;
+          e.preventDefault();
+          void compartirMovimiento(mensaje);
+        }}>
+        💬 WhatsApp
+      </a>
       <button className="btn btn-primary" onClick={() => void verPdf()} disabled={genPdf || vacio}>
         {genPdf ? 'Generando…' : '📄 Ver PDF (vista previa)'}
       </button>
@@ -204,6 +204,17 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
             </tfoot>
           </table>
         </div>
+      )}
+
+      {/* El mismo mensaje que se manda por WhatsApp, con sus emojis, a la vista. */}
+      {!loading && !vacio && (
+        <details style={{ marginTop: '.9rem' }}>
+          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>💬 Mensaje para WhatsApp (con emojis)</summary>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '.5rem 0' }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => void copiar()}>📋 Copiar mensaje</button>
+          </div>
+          <pre className="surt-mensaje">{mensaje}</pre>
+        </details>
       )}
     </Modal>
   );
