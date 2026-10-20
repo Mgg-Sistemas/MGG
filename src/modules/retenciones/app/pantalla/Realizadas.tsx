@@ -32,12 +32,13 @@ import { quienYCuando } from './quien';
 import { puedeRegistrarDeNuevo } from './registrarDeNuevo';
 import { useArchivosFactura } from './useArchivosFactura';
 import { useVistaComprobante } from '../impresion/useVistaComprobante';
+import { EjemploImpresion } from '../impresion/EjemploImpresion';
+import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
 import './rv8-por-realizar.css';
 
 const ORDENES = [{ valor: 'reciente', texto: 'Más reciente primero' }, { valor: 'antiguo', texto: 'Más antiguo primero' }];
 /** Las columnas de la maqueta (listaSis de v7PintarHechas). */
 const COLUMNAS = { '--cols': '1fr 1.5fr 1fr 3.2fr 1.4fr' } as CSSProperties;
-const MARCA_BASE = 'Requiere la base de Retenciones (paquete 2.1)';
 
 export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegistrarDeNuevo }: {
   libro: RetencionPracticada[];
@@ -76,6 +77,7 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
         onOrden={(v) => cambiar({ orden: v as OrdenLista })}
         onQuitar={() => cambiar({ q: '', impuesto: '', mes: '', estado: '' })}
       />
+      <EjemploImpresion />
       <div className="lista-sis v8-realizadas" style={COLUMNAS}>
         <div className="fila-sis cab"><span>OC o compra</span><span>Proveedor</span><span>Factura</span><span>Retenciones</span><span /></div>
         {filas.length === 0 && (
@@ -111,7 +113,7 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
                   </button>
                 ))}
                 {import.meta.env.DEV && ivaRegistrado && x.direccion === 'practicada' && (
-                  <button type="button" className="mini rv8-requiere-base" disabled title={MARCA_BASE} aria-label={`+ Nota de crédito (${MARCA_BASE})`}>+ Nota de crédito</button>
+                  <span className="rv8-con-marca"><button type="button" className="mini rv8-requiere-base" disabled>+ Nota de crédito</button><MarcaPaquete21 /></span>
                 )}
                 {archivos && <BotonFactura archivos={archivos.get(`${x.todas[0].docKind}:${x.todas[0].docId}`)} nombre={x.facturaNumero ?? ''} />}
                 {onVerAgrupada && <button type="button" className="mini" onClick={() => onVerAgrupada(x)}>Ver en vista agrupada</button>}

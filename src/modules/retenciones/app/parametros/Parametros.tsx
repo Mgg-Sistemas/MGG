@@ -28,7 +28,8 @@ import { labelSujeto, type ConceptoRetencion, type ConfigRetencion } from '../..
 import { usePuerta } from '../datos/puerta';
 import { nombreImpuesto } from '../pantalla/pendientesPorDocumento';
 import { EditorConcepto, EditorEmpresa, EditorRegimen } from './editores';
-import { AVISO_AVANZADOS, CADENA, MARCA_BASE, seccionesDe, type Seccion } from './secciones';
+import { AVISO_AVANZADOS, CADENA, seccionesDe, type Seccion } from './secciones';
+import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
 import './parametros.css';
 import './rv8-parametros.css';
 
@@ -92,9 +93,9 @@ export function Parametros({ onCerrar, puedeEditar = false, vistaInicial = 'port
       </button>
     )
     : (
-      <button key={s.clave} type="button" className="v7-pa-btn rv8-requiere-base" disabled title={MARCA_BASE} aria-label={`${s.titulo} (${MARCA_BASE})`}>
-        <span className="t">{s.titulo}</span><span className="d">{s.linea}</span><span className="r">{MARCA_BASE}</span>
-      </button>
+      <div key={s.clave} className="v7-pa-btn rv8-requiere-base" aria-disabled="true">
+        <span className="t">{s.titulo} <MarcaPaquete21 /></span><span className="d">{s.linea}</span>
+      </div>
     ));
   const volver = (a: Vista) => <button type="button" className="v7-volver" onClick={() => ir(a)}>‹ Volver</button>;
   const botonEditar = (que: string) => (puedeEditar && editando == null
