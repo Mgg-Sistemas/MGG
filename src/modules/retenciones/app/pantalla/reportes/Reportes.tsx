@@ -22,6 +22,7 @@ import { HojaRelacion, hojasDeRelacion } from '../../impresion/HojaRelacion';
 import { nombreImagenRelacion } from '../../impresion/imagen';
 import { PreviaRelacion } from '../../impresion/PreviaRelacion';
 import { EjemploImpresion } from '../../impresion/EjemploImpresion';
+import { BotonTxtIva } from '../TxtIva';
 import { MarcaPaquete21 } from '../../comun/MarcaPaquete21';
 import type { Impuesto } from '../../impresion/tipos';
 import { VistaImpresion } from '../../impresion/VistaComprobante';
@@ -123,6 +124,7 @@ export function Reportes({ libro }: { libro: RetencionPracticada[] }) {
       <section className="rv8-rep-constructor">
         <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{nombre}</h2>
         <EjemploImpresion />
+        <BotonTxtIva libro={libro} />
         <div className="rv8-rep-filtros">
           <label className="rv8-campo"><span>Período del reporte</span>
             <select className="rv8-sel" value={atajo} onChange={(e) => setAtajo(e.target.value as Atajo)}>
