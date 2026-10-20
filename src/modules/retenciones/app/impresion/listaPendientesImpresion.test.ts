@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { filtrarPendientesImpresion, mesesDeFacturas, motivoImpresion, textoMotivo, type RetencionImpresion } from './pendientesImpresion';
+import { filtrarPendientesImpresion, mesesDeFacturas, motivoImpresion, textoMotivo, type RetencionImpresion } from './listaPendientesImpresion';
 
 // Datos inventados, con las columnas del paquete 04 (impresa_*, entregada_*, revision_pendiente).
 const r = (over: Partial<RetencionImpresion> = {}): RetencionImpresion => ({
