@@ -22,11 +22,11 @@ import {
   EST_PER, aniosDe, atencionDe, avisosPeriodos, corto, diasEntre, estadoFila, etiquetaPeriodo, nombrePeriodo,
   periodicidadDe, periodosPorAnio, type EstadoFila,
 } from './modeloPeriodos';
+import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
 import { DeclararDialogo, PasoInicialDialogo, ReabrirDialogo } from './PeriodoDialogos';
 import './rv8-periodos.css';
 
 const MARCA = 'Requiere la base de Retenciones (paquete 2.1)';
-const Marca21 = () => (import.meta.env.DEV ? <span className="rv8-marca21" title={MARCA}>2.1</span> : null);
 const TAM = 12;
 const hoyIso = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
 const ESTADOS: ['' | EstadoFila, string][] = [['', 'Todos'], ['abierto', 'Abiertos'], ['por_declarar', 'Por declarar'], ['vencido', 'Vencidos'], ['declarado', 'Declarados'], ['anterior', 'Otro sistema']];
@@ -120,7 +120,7 @@ export function Periodos({ periodos, paso, impuestos, onDeclarar, onReabrir, onP
       </div>
       <p className="rv8-nota-igtf">
         {nombreImpuesto(k)}: {periodicidadDe(ps, k).toLowerCase()}. Los vencimientos salen del calendario oficial cargado en la base. Marcar declarado y reabrir (con motivo): administración o escritura.
-        {periodos == null && <> <Marca21 /></>}
+        {periodos == null && <> <MarcaPaquete21 /></>}
       </p>
 
       <section className="rv8-per-imp">
@@ -128,7 +128,7 @@ export function Periodos({ periodos, paso, impuestos, onDeclarar, onReabrir, onP
         {!paso[k] && periodos != null ? (
           <div className="rv8-vacio"><p><b>Indique el período en curso de {nombreImpuesto(k)}.</b> Sin él, el impuesto no tiene períodos ni vencimientos.</p>
             {onPasoInicial ? <button type="button" className="btn btn-primary" onClick={() => setPasoDe(k)}>Indicar el período en curso</button>
-              : import.meta.env.DEV && <><button type="button" className="btn btn-primary rv8-requiere-base" disabled title={MARCA}>Indicar el período en curso</button> <Marca21 /></>}</div>
+              : import.meta.env.DEV && <><button type="button" className="btn btn-primary rv8-requiere-base" disabled title={MARCA}>Indicar el período en curso</button> <MarcaPaquete21 /></>}</div>
         ) : !tabla.length ? (
           <div className="rv8-vacio"><p>{periodos == null ? 'Sin períodos: la base de Retenciones todavía no los tiene.' : 'Sin períodos para los filtros aplicados.'}</p></div>
         ) : tabla.map((a) => {
