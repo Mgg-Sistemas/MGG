@@ -35,6 +35,7 @@ import { contextoDeHoy, filaDeConcepto, reglasDeHoy, SUPUESTOS_IVA, supuestosMar
 import { textoDelPaso, textoFalta } from './textosCalculo';
 import { revisarRif } from './validarRif';
 import { textoNumeroComprobante } from './numeroComprobante';
+import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
 import './registro.css';
 import './rv8-registro.css';
 
@@ -291,9 +292,9 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
               <span className="rv8-caja-t">N° de comprobante</span>
               <p className="rv8-huella">{textoNumeroComprobante(imp, fecha ? periodoDe(fecha) : '')}</p>
               {import.meta.env.DEV && (
-                <label className="rv8-chk rv8-requiere-base" title="Requiere la base de Retenciones (paquete 2.1)">
-                  <input type="checkbox" disabled /> Editar número <small>· Requiere la base de Retenciones (paquete 2.1)</small>
-                </label>
+                <span className="rv8-con-marca">
+                  <label className="rv8-chk rv8-requiere-base"><input type="checkbox" disabled /> Editar número</label><MarcaPaquete21 />
+                </span>
               )}
             </div>
 

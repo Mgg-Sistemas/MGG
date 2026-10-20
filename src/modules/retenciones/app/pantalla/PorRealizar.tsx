@@ -25,6 +25,7 @@ import { Paginador } from './Paginador';
 import { filtrarPendientes, nombreImpuesto, opcionesImpuesto, type DocumentoPendiente, type OrdenPendientes } from './pendientesPorDocumento';
 import { BotonFactura } from './BotonFactura';
 import { archivosFactura, avisoDeDocumento, itemDelRetenido } from './porRealizarExtras';
+import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
 import './rv8-por-realizar.css';
 
 interface Props {
@@ -42,7 +43,6 @@ const ORDENES: { valor: OrdenPendientes; texto: string }[] = [
   { valor: 'proveedor', texto: 'Proveedor (A–Z)' },
 ];
 
-const MARCA_BASE = 'Requiere la base de Retenciones (paquete 2.1)';
 
 export function PorRealizar({ docs, onRegistrar, onVerOc, onVerAgrupada }: Props) {
   const puerta = usePuerta();
@@ -109,9 +109,7 @@ export function PorRealizar({ docs, onRegistrar, onVerOc, onVerAgrupada }: Props
                     <button key={k} type="button" className="mini registrar" onClick={() => onRegistrar(item, k)}>Registrar {nombreImpuesto(k)}</button>
                   ))}
                   {import.meta.env.DEV && pendientes.length > 0 && (
-                    <button type="button" className="mini rv8-requiere-base" disabled title={MARCA_BASE} aria-label={`Gestionada en otro sistema (${MARCA_BASE})`}>
-                      Gestionada en otro sistema…
-                    </button>
+                    <span className="rv8-con-marca"><button type="button" className="mini rv8-requiere-base" disabled>Gestionada en otro sistema…</button><MarcaPaquete21 /></span>
                   )}
                   <BotonFactura archivos={archivosFactura(item)} nombre={item.ocCodigo ?? ''} />
                   {onVerOc && item.kind === 'oc' && <button type="button" className="mini" onClick={() => onVerOc(item)}>Ver OC</button>}

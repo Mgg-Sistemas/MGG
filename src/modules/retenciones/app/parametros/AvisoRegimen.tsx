@@ -10,7 +10,7 @@
    aviso se ve solo en local, con su marca; en producción no aparece.
    ============================================================ */
 
-import { MARCA_BASE } from './secciones';
+import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
 import './rv8-parametros.css';
 
 export function AvisoRegimen({ onConfigurar }: { onConfigurar: () => void }) {
@@ -20,7 +20,7 @@ export function AvisoRegimen({ onConfigurar }: { onConfigurar: () => void }) {
       <p className="rv8-alerta-media rv8-aviso-reg">
         <span>
           <b>Configure desde cuándo la empresa es agente de retención.</b> Mientras no se configure, la retención de IVA se propone sin comprobar esa fecha.
-          <small className="rv8-marca-base"> · {MARCA_BASE}</small>
+          <MarcaPaquete21 />
         </span>
         <button type="button" className="btn" onClick={onConfigurar}>Configurar el régimen</button>
       </p>

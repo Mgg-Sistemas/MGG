@@ -55,4 +55,3 @@ export const CADENA: [string, string][] = [
   ['Período y numeración', 'periodicidad, serie y paso inicial'], ['Formato', 'comprobante y relación, con versiones'],
 ];
 
-export const MARCA_BASE = 'Requiere la base de Retenciones (paquete 2.1)';
