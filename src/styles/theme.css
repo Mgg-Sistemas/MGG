@@ -406,6 +406,30 @@ input[type="week"]::-webkit-calendar-picker-indicator:hover {
 }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
+/* Barra de pestañas minimizadas (DockMinimizadas): encima de los modales (9000) */
+.dock-min {
+  position: fixed; left: 50%; bottom: 8px; transform: translateX(-50%);
+  z-index: 9001; max-width: 96vw;
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: .4rem;
+  padding: .35rem .6rem;
+  background: var(--surface-2); border: 1px solid var(--border-strong);
+  border-radius: 999px; box-shadow: var(--shadow-lg);
+}
+.dock-min-cuenta { font-size: .72rem; font-weight: 700; color: var(--text-muted); letter-spacing: .04em; }
+.dock-min-pill {
+  display: inline-flex; align-items: center; max-width: 100%;
+  background: var(--grad-primary-soft); border: 1px solid rgba(255,138,0,.45); border-radius: 999px;
+}
+.dock-min-pill button { background: none; border: 0; color: var(--text); font: inherit; cursor: pointer; }
+.dock-min-abrir { padding: .25rem .35rem .25rem .75rem; font-size: .8rem; font-weight: 600; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dock-min-abrir:hover:not(:disabled) { color: var(--primary-3); }
+.dock-min-abrir:disabled { opacity: .5; cursor: not-allowed; }
+.dock-min-cerrar { padding: .25rem .6rem .25rem .3rem; font-size: .7rem; color: var(--text-muted) !important; }
+.dock-min-cerrar:hover { color: var(--danger) !important; }
+/* Mientras la barra está a la vista, las ventanas a pantalla completa dejan libre su pie. */
+body.dock-activo .modal-backdrop { padding-bottom: 52px; }
+body.dock-activo .modal:not(.modal-sm) { height: calc(94vh - 52px); max-height: calc(94vh - 52px); }
+
 /* Empty state */
 .empty {
   padding: 3rem 1rem; text-align: center; color: var(--text-muted);

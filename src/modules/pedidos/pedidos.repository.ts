@@ -10,6 +10,17 @@ import { motivoNoCorregible } from './metodoPagoEdicion';
 import { recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
 import { totalDesdePartes } from './impuestosOc';
 import { camposDeEdicion, cambiaProveedorOc, cambiaTexto, cambianNombres, hayCambiosMateriales } from './edicionOc';
+import { errorMotivoCambio, extrasCambioProveedor, type ProveedorRef } from './cambioProveedor';
+
+/** Nombre y RIF de los proveedores dados (para sellarlos tal cual en la traza). */
+async function refsProveedores(ids: (string | null | undefined)[]): Promise<Map<string, ProveedorRef>> {
+  const limpios = Array.from(new Set(ids.filter((x): x is string => !!x)));
+  const out = new Map<string, ProveedorRef>();
+  if (!limpios.length) return out;
+  const { data } = await supabase.from('proveedores').select('id, razon_social, rif').in('id', limpios);
+  (data ?? []).forEach((p) => out.set((p as ProveedorRef).id as string, p as ProveedorRef));
+  return out;
+}
 import { fechaVE, tasaValida } from './compraDirectaMoneda';
 import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository';
 import { ubicacionAlRecibir } from '@/modules/inventario/ubicacionProducto';
@@ -609,13 +620,24 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
   const evento = reabre ? 'oc_reabierta_edicion'
     : (cambioMaterial || totalDesfasado || cambianNombres(o, input) || cambiaSolicitud) ? 'oc_editada'
     : 'nota_editada';
+  // Si cambia el proveedor, el evento lo cuenta (de quién a quién, con nombre y RIF de ese día).
+  const refsProv = cambiaProveedor ? await refsProveedores([o.proveedor_id, input.proveedorId]) : null;
+  const extrasProv = refsProv
+    ? extrasCambioProveedor({
+        anterior: (o.proveedor_id ? refsProv.get(o.proveedor_id) : null) ?? { id: o.proveedor_id },
+        nuevo: (input.proveedorId ? refsProv.get(input.proveedorId) : null) ?? { id: input.proveedorId ?? null },
+        confirmadaPor: reabre ? o.oc_aprobada_por ?? null : null,
+        confirmadaEn: reabre ? o.oc_aprobada_en ?? null : null,
+        total, moneda: o.moneda ?? null,
+      })
+    : {};
   const patch: Record<string, unknown> = {
     items: input.items,
     total,
     descuento_obtenido: descObt || null,
     condiciones_pago: input.condiciones_pago ?? o.condiciones_pago ?? null,
     notas: input.notas?.trim() || null,
-    historial: appendHistorial(o, evento, actorEmail),
+    historial: appendHistorial(o, evento, actorEmail, extrasProv),
     ...camposSolicitud,
   };
   if (puedeTodo) {
@@ -1324,25 +1346,47 @@ export async function corregirMetodoPago(
  * el proveedor, la OC NO sigue a pago: vuelve a "Pendiente por aprobación (Gerente
  * General)" (oc_creada) para que el gerente la confirme de nuevo con el nuevo proveedor.
  * Se limpia el método de pago previo (se vuelve a indicar tras la re-confirmación). Los
- * ítems, cantidades y montos se conservan. Queda registro en el historial.
+ * ítems, cantidades y montos se conservan.
+ *
+ * Traza (20-10-2026): el evento «proveedor_cambiado» guarda quién y cuándo, de quién a
+ * quién (nombre y RIF de ese día), el MOTIVO (obligatorio), el total y la confirmación del
+ * Gerente que se anula; esa confirmación se limpia de la OC (como al «Editar OC»), el
+ * teléfono de administración era del proveedor anterior y también se limpia. Solo en
+ * «Confirmada (indicar método de pago)»: una OC ya recibida contra entrega no cambia de proveedor.
  */
 export async function reasignarProveedorAReaprobacion(
   o: Orden,
   nuevoProveedorId: string,
   actorEmail: string,
+  motivo: string,
 ): Promise<Orden> {
+  if (o.estado !== 'confirmada_metodo') throw new Error('Solo se cambia el proveedor mientras la OC está pendiente de indicar el método de pago.');
   const id = (nuevoProveedorId ?? '').trim();
   if (!id) throw new Error('Indicá el proveedor.');
   if (id === o.proveedor_id) throw new Error('El proveedor es el mismo; no hay cambio que reaprobar.');
+  const errMotivo = errorMotivoCambio(motivo);
+  if (errMotivo) throw new Error(errMotivo);
+  const refs = await refsProveedores([o.proveedor_id, id]);
   const patch = {
     proveedor_id: id,
     estado: 'oc_creada' as EstadoOrden,
+    oc_aprobada_por: null,
+    oc_aprobada_en: null,
+    numero_administracion: null,
     metodo_pago: null,
     metodo_pago_por: null,
     metodo_pago_en: null,
     comprobante_tipo: null,
     retencion_modo: null,
-    historial: appendHistorial(o, 'proveedor_cambiado', actorEmail, { de: o.proveedor_id, a: id, vuelve_a: 'oc_creada' }),
+    historial: appendHistorial(o, 'proveedor_cambiado', actorEmail, extrasCambioProveedor({
+      anterior: (o.proveedor_id ? refs.get(o.proveedor_id) : null) ?? { id: o.proveedor_id },
+      nuevo: refs.get(id) ?? { id },
+      motivo,
+      confirmadaPor: o.oc_aprobada_por ?? null,
+      confirmadaEn: o.oc_aprobada_en ?? null,
+      total: Number(o.total) || 0,
+      moneda: o.moneda ?? null,
+    })),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;

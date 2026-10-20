@@ -20,6 +20,8 @@ import { prefetchRoute } from '@/shared/lib/routePrefetch';
 import { ensureSession, heartbeat, endSession } from '@/modules/usuarios/userSessions.repository';
 import { ayudasOcultas, aplicarAyudas } from '@/shared/lib/ayudas';
 import { asegurarEmpresas } from '@/modules/rrhh/empresas.repository';
+import { intentarSalir, vaciarMinimizadas } from '@/shared/lib/minimizadas';
+import { AvisoSalidaModulo } from '@/shared/ui/AvisoSalidaModulo';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -164,6 +166,7 @@ export function AppShell() {
   async function handleLogout() {
     const id = sessionIdRef.current;
     if (id) { await endSession(id).catch(() => { /* no bloquea el logout */ }); sessionIdRef.current = null; }
+    vaciarMinimizadas();
     await signOut();
     navigate('/login');
   }
@@ -307,7 +310,7 @@ export function AppShell() {
       <div className="sidebar-overlay" onClick={closeDrawer} aria-hidden="true" />
       <aside className="sidebar">
         <div className="sidebar-brand">
-          <NavLink to="/app" className="brand">
+          <NavLink to="/app" className="brand" onClick={(e) => { if (!intentarSalir('/app')) e.preventDefault(); }}>
             <img src="/image.jpeg" alt="MGG" />
             <div className="brand-text">
               <strong>MGG</strong>
@@ -534,6 +537,7 @@ export function AppShell() {
       </header>
 
       <AvisoActualizacion />
+      <AvisoSalidaModulo />
 
       <main className="main">
         <Outlet />
@@ -693,6 +697,8 @@ function NavItem({
       end={exact}
       onMouseEnter={() => prefetchRoute(to)}
       onFocus={() => prefetchRoute(to)}
+      // Con pestañas minimizadas, salir del módulo pide confirmación (minimizadas.ts).
+      onClick={(e) => { if (!intentarSalir(to)) e.preventDefault(); }}
     >
       <span className="icn">{icon}</span> <span>{label}</span>
     </NavLink>
