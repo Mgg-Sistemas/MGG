@@ -12,7 +12,8 @@ import { useState } from 'react';
 import { comprobanteDeEjemplo, relacionDeEjemplo } from './ejemplos';
 import { FORMATO_COMPROBANTE, FORMATO_FABRICA } from './formatos';
 import { PaginaComprobante } from './HojasComprobante';
-import { HojaRelacion } from './HojaRelacion';
+import { HojaRelacion, hojasDeRelacion } from './HojaRelacion';
+import { nombreImagenComprobante, nombreImagenRelacion } from './imagen';
 import { PreviaRelacion } from './PreviaRelacion';
 import type { Impuesto } from './tipos';
 import { VistaImpresion } from './VistaComprobante';
@@ -41,11 +42,16 @@ export function EjemploImpresion() {
       )}
       {ejemplo && ejemplo !== 'relacion' && (
         <VistaImpresion titulo={`EJEMPLO · Comprobante de ${ejemplo === 'isae' ? 'ISAE' : ejemplo.toUpperCase()}`} marco ejemplo onCerrar={() => setEjemplo(null)}
-          hoja={(o) => <PaginaComprobante datos={comprobanteDeEjemplo(ejemplo)} formato={FORMATO_FABRICA[FORMATO_COMPROBANTE[ejemplo]]} orientacion={o} />} />
+          hoja={(o) => <PaginaComprobante datos={comprobanteDeEjemplo(ejemplo)} formato={FORMATO_FABRICA[FORMATO_COMPROBANTE[ejemplo]]} orientacion={o} />}
+          imagen={{
+            nombre: `ejemplo-${nombreImagenComprobante(ejemplo, comprobanteDeEjemplo(ejemplo).numero)}`,
+            capturas: (o) => [<PaginaComprobante key="c" datos={comprobanteDeEjemplo(ejemplo)} formato={FORMATO_FABRICA[FORMATO_COMPROBANTE[ejemplo]]} orientacion={o} />],
+          }} />
       )}
       {ejemplo === 'relacion' && (
         <VistaImpresion titulo="EJEMPLO · Relación de retenciones de IVA" marco={false} ejemplo onCerrar={() => setEjemplo(null)}
-          hoja={(o) => <HojaRelacion datos={relacion} orientacion={o} />} previa={(o) => <PreviaRelacion datos={relacion} orientacion={o} />} />
+          hoja={(o) => <HojaRelacion datos={relacion} orientacion={o} />} previa={(o) => <PreviaRelacion datos={relacion} orientacion={o} />}
+          imagen={{ nombre: `ejemplo-${nombreImagenRelacion('iva', relacion.desde)}`, capturas: (o) => hojasDeRelacion(relacion, o) }} />
       )}
     </div>
   );

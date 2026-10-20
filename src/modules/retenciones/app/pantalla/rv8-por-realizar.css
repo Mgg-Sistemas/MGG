@@ -38,3 +38,10 @@
 .rv8-v7-lista-barra { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: flex-end; margin: .2rem 0 .6rem; }
 .rv8-v7-imprimir-lista { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-left: auto; max-width: 520px; }
 .rv8-v7-imprimir-lista .rv8-huella { font-size: .74rem; }
+@media (max-width: 640px) {
+  .rv8-aviso-fila { flex-direction: column; align-items: flex-start; }
+  .rv8-v8-pago-imp { width: 100%; }
+  .rv8-v8-pago-imp .rv8-select { flex: 1 1 auto; }
+  .rv8-v7-imprimir-lista { margin-left: 0; max-width: none; }
+  .rv8-btn { min-height: 44px; }
+}

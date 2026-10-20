@@ -1,0 +1,3 @@
+/* MGG · Retenciones v8 · La pastilla «2.1» (solo en local). Prefijo rv8-, variables del tema. */
+.rv8-marca21 { display: inline-flex; align-items: center; justify-content: center; min-width: 26px; height: 18px; padding: 0 .35rem; margin-left: .3rem; border: 1px dashed var(--border-strong); border-radius: 999px; font: 600 .66rem/1 var(--font-mono); color: var(--text-muted); vertical-align: middle; cursor: help; }
+.rv8-con-marca { display: inline-flex; align-items: center; }
