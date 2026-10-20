@@ -24,7 +24,7 @@ import {
 } from './modeloAgrupada';
 
 const MAX_GRUPO = 10;
-const RequiereBase = () => (import.meta.env.DEV ? <span className="rv8-huella">requiere la base de Retenciones (paquete 2.1)</span> : null);
+const RequiereBase = () => (import.meta.env.DEV ? <span className="rv8-marca21" title="Requiere la base de Retenciones (paquete 2.1)">2.1</span> : null);
 const montos = (m: Record<string, number>) => Object.entries(m).map(([mon, v]) => money(v, mon)).join(' + ');
 
 interface Props {

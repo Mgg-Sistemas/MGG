@@ -4,6 +4,8 @@
    los tokens del tema del sistema. Todo bajo .ret-v8 para no tocar el resto.
    ============================================================ */
 
+/* El ancho de la página, como la maqueta (`.page`, l. 43): a 1920 px no se estira a todo el ancho */
+.ret-v8.page { max-width: 1180px; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
 .ret-v8 .page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .ret-v8 .page-head h1 { margin: 0; }
 .ret-v8 .page-head p { margin: .25rem 0 0; color: var(--text-muted); }
@@ -88,6 +90,7 @@
 
 /* Teléfono */
 @media (max-width: 640px) {
+  .ret-v8.page { padding: 1rem 16px 5rem; }
   .ret-v8 .view-toggle { width: 100%; }
   .ret-v8 .view-toggle button { flex: 0 0 auto; padding: .45rem .6rem; font-size: .8rem; }
   .ret-v8 .cabeza-acciones { width: 100%; }

@@ -30,7 +30,7 @@ import { PorImpuesto } from './PorImpuesto';
 import './rv8-agrupada.css';
 
 /** Una marca discreta, solo en local, para lo que espera a la base de Retenciones. */
-const RequiereBase = () => (import.meta.env.DEV ? <span className="rv8-huella">requiere la base de Retenciones (paquete 2.1)</span> : null);
+const RequiereBase = () => (import.meta.env.DEV ? <span className="rv8-marca21" title="Requiere la base de Retenciones (paquete 2.1)">2.1</span> : null);
 
 const FECHAS: [FiltroFecha, string][] = [['quincena', 'Quincena actual'], ['mes', 'Mes actual'], ['pasado', 'Mes anterior'], ['todo', 'Todas'], ['rango', 'Rango…']];
 const DIRECCIONES: ['practicada' | 'recibida' | '', string][] = [['practicada', 'A proveedores'], ['recibida', 'De clientes'], ['', 'Todas']];
@@ -183,7 +183,7 @@ export function VistaAgrupada({ foco, onQuitarFoco, pendientes, libro, config, c
             {/* «Gestionada en otro sistema» (v8-8-facturas.js): espera a la base; solo en local. */}
             {import.meta.env.DEV && vista === 'factura' && filtroActivo && conPendientes > 0 && (
               <div className="rv8-v8-sel-filtro">
-                <button type="button" className="btn" disabled>Seleccionar las {nf(conPendientes)} factura(s) del filtro</button>
+                <button type="button" className="btn rv8-requiere-base" disabled title="Requiere la base de Retenciones (paquete 2.1)">Seleccionar las {nf(conPendientes)} factura(s) del filtro</button>
                 <span className="rv8-huella">Las que tienen impuestos pendientes o ya marcados, en todas las páginas.</span> <RequiereBase />
               </div>
             )}
@@ -339,7 +339,7 @@ function Proveedor({ fs, todas, conResumen, impuestos, e, abierto, onPlegar, ...
     <section className="rv8-proveedor">
       <header>
         <h3>{f0.proveedorNombre}<span className="rv8-rif">{f0.proveedorRif ?? ''}</span></h3>
-        {f0.dir === 'recibida' ? <span className="rv8-perfil"><span className="rv8-etq">Cliente</span></span> : import.meta.env.DEV && <span className="rv8-perfil"><button type="button" className="rv8-mini" disabled>Perfil fiscal</button><RequiereBase /></span>}
+        {f0.dir === 'recibida' ? <span className="rv8-perfil"><span className="rv8-etq">Cliente</span></span> : import.meta.env.DEV && <span className="rv8-perfil"><button type="button" className="rv8-mini rv8-requiere-base" disabled title="Requiere la base de Retenciones (paquete 2.1)">Perfil fiscal</button><RequiereBase /></span>}
         <span className="rv8-resumen">{resumen}</span>
       </header>
       {porDocumento(visibles).map(([doc, xs]) => <Documento key={doc} xs={xs} todas={todas} impuestos={impuestos} e={e} {...acc} />)}
@@ -388,7 +388,7 @@ function Factura({ f, impuestos, e, ...acc }: AccionesProps & { f: FacturaAgrupa
         <div className="rv8-num">{titulo}</div>
         {seleccionable && (
           <div className="rv8-meta rv8-v8-meta-acc">
-            <button type="button" className="rv8-mini" disabled title="Requiere la base de Retenciones (paquete 2.1)">Marcar la factura como gestionada en otro sistema…</button>
+            <button type="button" className="rv8-mini rv8-requiere-base" disabled title="Marcar la factura como gestionada en otro sistema. Requiere la base de Retenciones (paquete 2.1)">Gestionada en otro sistema…</button>
           </div>
         )}
         <div className="rv8-meta">{fechaVe(f.fecha)} · <span className="rv8-doc">{f.docCodigo ?? '—'}</span>{f.total != null ? ` · ${money(f.total, f.moneda)}` : ''}</div>
