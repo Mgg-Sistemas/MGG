@@ -5,6 +5,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
+import { MAX_MINIMIZADAS, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { opcionesCategoria } from '@/modules/inventario/opcionesCategoria';
@@ -494,6 +496,37 @@ export function PedidosPage() {
   const currentDetail =
     modal.kind === 'detail' ? ordenes.find((o) => o.id === modal.ordenId) ?? null : null;
 
+  // Pestañas minimizadas (20-10-2026): el detalle de una orden se minimiza a la barra de abajo
+  // para abrir otra; viven SOLO en este módulo (al salir, AppShell avisa y se pierden).
+  const tituloMin = (o: Orden) => `Orden ${o.codigo}${o.urgente ? ' · 🚨' : ''}`;
+  function minimizarDetalle() {
+    if (!currentDetail) return;
+    const r = minimizar('Pedidos / Compras', '/app/pedidos', { id: currentDetail.id, titulo: tituloMin(currentDetail) });
+    if (r === 'lleno') {
+      toast(`Ya tienes ${MAX_MINIMIZADAS} pestañas minimizadas (el máximo). Restaura o descarta una para minimizar esta.`, 'warning');
+      return;
+    }
+    setModal({ kind: 'none' });
+  }
+  async function restaurarMinimizada(id: string) {
+    let o = ordenes.find((x) => x.id === id) ?? null;
+    if (!o) {
+      // La lista cargada ya no la trae (otra sesión la movió o la borró): se pide por su id.
+      try { o = await getOrdenById(id); } catch { o = null; }
+      if (!o) { quitarMinimizada(id); toast('Esa orden ya no existe.', 'warning'); return; }
+      const nueva = o;
+      setOrdenes((prev) => (prev.some((x) => x.id === nueva.id) ? prev : [...prev, nueva]));
+    }
+    // Con otro detalle abierto, ese ocupa el lugar de la restaurada en la barra (no se pierde).
+    if (currentDetail && currentDetail.id !== id) intercambiarMinimizada(id, { id: currentDetail.id, titulo: tituloMin(currentDetail) });
+    else quitarMinimizada(id);
+    setModal({ kind: 'detail', ordenId: id });
+  }
+  // Si la orden se abre por otro camino (lista, buscador) deja de estar «minimizada».
+  useEffect(() => { if (modal.kind === 'detail') quitarMinimizada(modal.ordenId); }, [modal]);
+  // Al salir del módulo (con el aviso o por otro camino) la barra se pierde.
+  useEffect(() => () => vaciarMinimizadas(), []);
+
   return (
     <div>
       <div className="page-head">
@@ -744,9 +777,12 @@ export function PedidosPage() {
       </>
       )}
 
+      <DockMinimizadas onRestaurar={(id) => { void restaurarMinimizada(id); }} bloqueado={modal.kind !== 'none' && modal.kind !== 'detail'} />
+
       {/* Modal: detalle */}
       {modal.kind === 'detail' && currentDetail && (
         <OrdenDetailModal
+          onMinimizar={minimizarDetalle}
           orden={currentDetail}
           proveedor={currentDetail.proveedor_id ? proveedorMap.get(currentDetail.proveedor_id) ?? null : null}
           proveedorMap={proveedorMap}
@@ -2405,6 +2441,8 @@ const KanbanCard = memo(function KanbanCard({
    ───────────────────────────────────────────── */
 interface OrdenDetailModalProps {
   orden: Orden;
+  /** Minimiza el detalle a la barra de abajo (máx. 3 pestañas). */
+  onMinimizar: () => void;
   proveedor: Proveedor | null;
   proveedorMap: Map<string, Proveedor>;
   personaMap: Map<string, string>;
@@ -2445,6 +2483,7 @@ interface OrdenDetailModalProps {
 }
 function OrdenDetailModal({
   orden: o,
+  onMinimizar,
   proveedor,
   proveedorMap,
   personaMap,
@@ -2868,7 +2907,7 @@ function OrdenDetailModal({
 
   return (
     <>
-    <Modal title={`Orden ${o.codigo}${o.urgente ? ' · 🚨 URGENTE' : ''}`} size="lg" onClose={onClose} footer={buttons}>
+    <Modal title={`Orden ${o.codigo}${o.urgente ? ' · 🚨 URGENTE' : ''}`} size="lg" onClose={onClose} onMinimizar={onMinimizar} footer={buttons}>
       {o.urgente && (
         <div className="card" style={{ borderColor: 'var(--danger)', background: 'rgba(239,68,68,.08)', margin: '0 0 .75rem', padding: '.5rem .8rem', fontWeight: 700, color: 'var(--danger)' }}>
           🚨 ORDEN URGENTE — solicitud marcada como prioritaria.
