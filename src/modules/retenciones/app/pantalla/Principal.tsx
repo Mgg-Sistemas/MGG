@@ -16,6 +16,10 @@ import { documentosPendientes, impuestosQueAplican } from './pendientesPorDocume
 import { LibroFiscalV8 } from './LibroFiscalV8';
 import { PorRealizar } from './PorRealizar';
 import { Realizadas } from './Realizadas';
+import { documentoParaRegistrar, semillaDeAnulada, type SemillaRegistro } from './registrarDeNuevo';
+import type { FacturaRealizada } from './realizadasYLibro';
+import { AvisoRegimen } from '../parametros/AvisoRegimen';
+import type { Foco } from '../agrupada/VistaAgrupada';
 import { VistaAgrupada } from '../agrupada/VistaAgrupada';
 import { impuestosActivos } from '../agrupada/modeloAgrupada';
 import { CabeceraLocal, PeriodoEnCurso } from './CabeceraLocal';
@@ -34,8 +38,12 @@ const DESCRIPCION: Record<Seccion, string> = {
 interface Props {
   /** Abre ⚙ Parámetros. Sin ella, el acceso no se muestra. */
   onParametros?: () => void;
-  /** Abre el registro de una retención. Sin ella, los botones «Registrar» no se muestran. */
-  onRegistrar?: (item: RetencionItem, impuesto: string) => void;
+  /** Abre el registro de una retención (con la semilla de una anulada, en «Registrar de nuevo»). Sin ella, los botones «Registrar» no se muestran. */
+  onRegistrar?: (item: RetencionItem, impuesto: string, semilla?: SemillaRegistro) => void;
+  /** Abre el detalle de la OC o de la compra directa. Sin ella, «Ver OC» no se muestra. */
+  onVerOc?: (item: RetencionItem) => void;
+  /** Abre Parámetros en el régimen (el aviso «Configure desde cuándo…»). */
+  onConfigurarRegimen?: () => void;
   /** Anula una retención del libro. Sin ella, «Anular» no se muestra. */
   onAnular?: (r: RetencionPracticada) => void;
   /** Adjunta el archivo a una retención. Sin ella, «Adjuntar» no se muestra. */
@@ -46,9 +54,21 @@ interface Props {
 
 interface Datos { pendientes: RetencionItem[]; libro: RetencionPracticada[]; config: ConfigRetencion; conceptos: ConceptoRetencion[] }
 
-export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar, onRegistrarRecibida }: Props) {
+export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegimen, onAnular, onAdjuntar, onRegistrarRecibida }: Props) {
   const puerta = usePuerta();
   const [sec, setSec] = useState<Seccion>('pendientes');
+  // «Ver en vista agrupada»: la Vista agrupada con solo ese documento o esa factura (`estado.foco` de la maqueta).
+  const [foco, setFoco] = useState<Foco | null>(null);
+  const irAgrupada = (f: Foco) => { setFoco(f); setSec('agrupada'); };
+  const verDocumento = (item: RetencionItem) => irAgrupada({ etiqueta: item.ocCodigo ?? 'el documento', prueba: (f) => f.docKind === item.kind && f.docId === item.id });
+  const verFactura = (x: FacturaRealizada) => {
+    const ids = new Set(x.todas.map((r) => r.id));
+    irAgrupada({ etiqueta: `Factura ${x.facturaNumero ?? '—'}`, prueba: (f) => Object.values(f.casillas).some((c) => !!c.retencion && ids.has(c.retencion.id)) });
+  };
+  const registrarDeNuevo = (r: RetencionPracticada) => {
+    const it = datos && documentoParaRegistrar(r, datos.pendientes);
+    if (it && onRegistrar) onRegistrar(it, r.tipo, semillaDeAnulada(r));
+  };
   const [datos, setDatos] = useState<Datos | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,6 +88,7 @@ export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar, onR
 
   return (
     <main className="page ret-v8">
+      {onConfigurarRegimen && <div style={{ margin: '.6rem 0' }}><AvisoRegimen onConfigurar={onConfigurarRegimen} /></div>}
       <header className="page-head">
         <div>
           <h1>🧾 Retenciones</h1>
@@ -99,14 +120,15 @@ export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar, onR
 
       {import.meta.env.DEV && datos && <PeriodoEnCurso impuestos={impuestos} />}
 
-      {datos && sec === 'pendientes' && <PorRealizar docs={docs} onRegistrar={onRegistrar} />}
+      {datos && sec === 'pendientes' && <PorRealizar docs={docs} onRegistrar={onRegistrar} onVerOc={onVerOc} onVerAgrupada={verDocumento} />}
 
       {datos && sec === 'agrupada' && (
         <VistaAgrupada pendientes={datos.pendientes} libro={datos.libro} config={datos.config} conceptos={datos.conceptos}
-          onRegistrar={onRegistrar} onAnular={onAnular} onAdjuntar={onAdjuntar} />
+          onRegistrar={onRegistrar} onAnular={onAnular} onAdjuntar={onAdjuntar} foco={foco} onQuitarFoco={() => setFoco(null)} />
       )}
 
-      {datos && sec === 'hechas' && <Realizadas libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} />}
+      {datos && sec === 'hechas' && <Realizadas libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} onVerAgrupada={verFactura}
+        onRegistrarDeNuevo={onRegistrar ? registrarDeNuevo : undefined} />}
 
       {datos && sec === 'libro' && <LibroFiscalV8 libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} onRegistrarRecibida={onRegistrarRecibida} />}
     </main>

@@ -3,28 +3,22 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { money, num, dateTime } from '@/shared/lib/format';
+import { dateTime } from '@/shared/lib/format';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import { urlAdjuntoCompra, finalizarRetencionCompraDirecta, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import {
   listRetencionesPendientes, listRetencionesHechas, finalizarRetencion,
-  urlRetencion, comprobantesDeOrden, labelRetencionModo,
+  urlRetencion, comprobantesDeOrden,
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
 import { LibroFiscalView, RegistrarRetencionModal, type SemillaRetencion } from './LibroFiscal';
 import { semillaDeItem } from './semillaRetencion';
+import { DetalleCompraDirecta, DetalleOrdenCompra, fmtMonto } from './DetalleDocumento';
 
 type Vista = 'pendientes' | 'hechas' | 'libro';
-
-/** Formatea un monto según la moneda de la fila (compra directa puede ser Bs). */
-function fmtMonto(n: number | null | undefined, moneda: string): string {
-  const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return moneda === 'Bs' ? `Bs ${v}` : `$ ${v}`;
-}
 
 export function RetencionesPage() {
   const { user } = useSession();
@@ -266,32 +260,7 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
       {/* Detalle de la OC */}
-      <div className="card" style={{ margin: '0 0 .75rem' }}>
-        <div className="card-title" style={{ marginBottom: '.4rem' }}>Detalle de la orden de compra</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.4rem .9rem', fontSize: '.86rem' }}>
-          <div><span className="muted">Proveedor:</span> <strong>{item.proveedorNombre}</strong></div>
-          {o.numero_administracion && (
-            <div title="Teléfono de la administración del proveedor (se carga al indicar el método de pago y queda en su ficha)">
-              <span className="muted">📞 Administración del proveedor:</span> <strong className="mono">{o.numero_administracion}</strong>
-            </div>
-          )}
-          <div><span className="muted">Condición:</span> {labelCondicionPago(o.condiciones_pago)}</div>
-          <div><span className="muted">Retención:</span> {labelRetencionModo(o.retencion_modo)}</div>
-          <div><span className="muted">Total:</span> <strong className="mono">{money(o.total, item.moneda)}</strong></div>
-          {item.avisoMoneda && <div className="hint" style={{ color: 'var(--warning)' }}>⚠ {item.avisoMoneda}</div>}
-          <div><span className="muted">Tesorería:</span> {o.retencion_pagada ? <strong style={{ color: 'var(--success)' }}>✓ Pagada{o.retencion_pagada_en ? ` · ${dateTime(o.retencion_pagada_en)}` : ''}</strong> : 'Por pagar'}</div>
-        </div>
-        <div className="table-wrap" style={{ marginTop: '.5rem' }}>
-          <table className="table" style={{ fontSize: '.82rem' }}>
-            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th></tr></thead>
-            <tbody>
-              {(o.items ?? []).map((it, i) => (
-                <tr key={i}><td>{it.nombre}{it.sku ? <span className="muted"> · {it.sku}</span> : null}</td><td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td><td className="mono" style={{ textAlign: 'right' }}>{money(it.precio, item.moneda)}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DetalleOrdenCompra item={item} />
 
       {/* Factura / nota de entrega cargada en la OC (comprobante de ingreso) */}
       {o.factura_path && (
@@ -345,7 +314,6 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
 function RetencionCompraModal({ compra, canWrite, actor, onClose, onSaved }: {
   compra: CompraDirecta; canWrite: boolean; actor: string; onClose: () => void; onSaved: () => void;
 }) {
-  const m = compra.moneda || 'Bs';
   const yaFinalizada = !!compra.retencion_finalizada;
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -381,28 +349,7 @@ function RetencionCompraModal({ compra, canWrite, actor, onClose, onSaved }: {
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
       {/* Detalle de la compra directa */}
-      <div className="card" style={{ margin: '0 0 .75rem' }}>
-        <div className="card-title" style={{ marginBottom: '.4rem' }}>Detalle de la compra directa</div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.4rem .9rem', fontSize: '.86rem' }}>
-          <div><span className="muted">Proveedor:</span> <strong>{compra.proveedor_nombre || '—'}</strong></div>
-          <div><span className="muted">Moneda:</span> {m === 'Bs' ? 'Bolívares (Bs)' : 'Dólares ($)'}</div>
-          {compra.descuento_monto > 0 && <div><span className="muted">Descuento:</span> {compra.descuento_pct ? `${compra.descuento_pct}% · ` : ''}{fmtMonto(compra.descuento_monto, m)}</div>}
-          <div><span className="muted">IVA:</span> <strong className="mono">{fmtMonto(compra.iva, m)}</strong></div>
-          <div><span className="muted">Retención IVA:</span> <strong className="mono">{compra.retencion_pct}% · {fmtMonto(compra.retencion_monto, m)}</strong></div>
-          <div><span className="muted">Total:</span> <strong className="mono">{fmtMonto(compra.gasto, m)}</strong></div>
-          <div><span className="muted">Tesorería:</span> {compra.estado === 'por_pagar' ? 'Por pagar' : <strong style={{ color: 'var(--success)' }}>✓ Pagada</strong>}</div>
-        </div>
-        <div className="table-wrap" style={{ marginTop: '.5rem' }}>
-          <table className="table" style={{ fontSize: '.82rem' }}>
-            <thead><tr><th>Material</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th></tr></thead>
-            <tbody>
-              {(compra.items ?? []).map((it, i) => (
-                <tr key={i}><td>{it.producto_nombre}{it.producto_sku ? <span className="muted"> · {it.producto_sku}</span> : null}</td><td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}</td><td className="mono" style={{ textAlign: 'right' }}>{fmtMonto(it.gasto, m)}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      <DetalleCompraDirecta compra={compra} />
 
       {/* Facturas cargadas en la compra */}
       {(compra.facturas?.length ?? 0) > 0 && (

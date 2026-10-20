@@ -39,7 +39,12 @@ const MAX_PROVEEDOR = 5;
 const monto = (m: Record<string, number>) => Object.entries(m).map(([mon, v]) => money(v, mon)).join(' + ') || money(0, 'Bs');
 const plural = (n: number, uno: string, varios: string) => (n === 1 ? uno : varios);
 
+/** «Ver en vista agrupada»: solo ese documento o esa factura, sin los demás filtros (`estado.foco` de la maqueta). */
+export interface Foco { etiqueta: string; prueba: (f: FacturaAgrupada) => boolean }
+
 interface Props {
+  foco?: Foco | null;
+  onQuitarFoco?: () => void;
   pendientes: RetencionItem[];
   libro: RetencionPracticada[];
   config: ConfigRetencion;
@@ -49,7 +54,7 @@ interface Props {
   onAdjuntar?: (r: RetencionPracticada, archivo: File) => void;
 }
 
-export function VistaAgrupada({ pendientes, libro, config, conceptos, onRegistrar, onAnular, onAdjuntar }: Props) {
+export function VistaAgrupada({ foco, onQuitarFoco, pendientes, libro, config, conceptos, onRegistrar, onAnular, onAdjuntar }: Props) {
   const impuestos = useMemo(() => impuestosActivos(config, conceptos, libro), [config, conceptos, libro]);
   const facturas = useMemo(
     () => armarFacturas(pendientes, libro, impuestos, (it) => impuestosQueAplican(it, config, conceptos), motivoNoAplica(config, conceptos)),
@@ -64,7 +69,7 @@ export function VistaAgrupada({ pendientes, libro, config, conceptos, onRegistra
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   const cambiar = (p: Partial<EstadoVista>) => { setE((x) => ({ ...x, ...p })); setPagina(1); };
 
-  const enBase = useMemo(() => base(facturas, e), [facturas, e]);
+  const enBase = useMemo(() => (foco ? facturas.filter(foco.prueba) : base(facturas, e)), [facturas, e, foco]);
   const lista = useMemo(() => (vista === 'sin' ? sinRetencion(enBase, impuestos) : vistaFactura(enBase, e, impuestos)), [vista, enBase, e, impuestos]);
   const { filas, pagina: pag } = paginar(lista, pagina, tamano);
 
@@ -148,6 +153,10 @@ export function VistaAgrupada({ pendientes, libro, config, conceptos, onRegistra
           <button type="button" aria-pressed={vista === 'sin'} onClick={() => { setVista('sin'); setPagina(1); }}>Sin retención</button>
         </div>
         <div className="rv8-activos" aria-live="polite">
+          {foco && (
+            <span className="rv8-activo">Búsqueda: {foco.etiqueta}
+              <button type="button" aria-label="Quitar la búsqueda" onClick={() => onQuitarFoco?.()}>✕</button></span>
+          )}
           {e.cuenta && (
             <span className="rv8-activo">Filtro: {nombreImpuesto(e.cuenta.k)} {{ falta: 'pendiente', hechas: 'registrada', pd: 'por definir', nc: 'no aplica' }[e.cuenta.tipo]}
               <button type="button" aria-label="Quitar este filtro" onClick={() => cambiar({ cuenta: null })}>✕</button></span>
