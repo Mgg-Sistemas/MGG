@@ -20,6 +20,7 @@ import { puertaAnfitrion } from './datos/puertaAnfitrion';
 import { Principal } from './pantalla/Principal';
 import { Parametros } from './parametros/Parametros';
 import { AnularDialogo } from './registro/AnularDialogo';
+import { RecibidaDialogo } from './registro/RecibidaDialogo';
 import { RegistroDialogo } from './registro/RegistroDialogo';
 
 export function RetencionesV8() {
@@ -27,6 +28,7 @@ export function RetencionesV8() {
   const [registrar, setRegistrar] = useState<{ item: RetencionItem; impuesto: string } | null>(null);
   const [parametros, setParametros] = useState(false);
   const [anular, setAnular] = useState<RetencionPracticada | null>(null);
+  const [recibida, setRecibida] = useState(false);
   const [lectura, setLectura] = useState(0);
   if (loading) return <div className="p-8 muted">Cargando…</div>;
   const puedeEscribir = can('retenciones', 'escritura');
@@ -36,12 +38,16 @@ export function RetencionesV8() {
         onParametros={() => setParametros(true)}
         onRegistrar={puedeEscribir ? (item, impuesto) => setRegistrar({ item, impuesto }) : undefined}
         onAnular={puedeEscribir ? (r) => setAnular(r) : undefined}
+        onRegistrarRecibida={puedeEscribir ? () => setRecibida(true) : undefined}
         onAdjuntar={puedeEscribir ? (r, archivo) => {
           puertaAnfitrion.adjuntarComprobante(r.id, archivo)
             .then(() => { toast('Comprobante adjuntado.', 'success'); setLectura((n) => n + 1); })
             .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo adjuntar el comprobante.', 'error'));
         } : undefined} />
       {parametros && <Parametros puedeEditar={puedeEscribir} onCerrar={() => setParametros(false)} />}
+      {recibida && (
+        <RecibidaDialogo onCerrar={() => setRecibida(false)} onRegistrada={() => { setRecibida(false); setLectura((n) => n + 1); }} />
+      )}
       {anular && (
         <AnularDialogo retencion={anular} onCerrar={() => setAnular(null)}
           onAnulada={() => { setAnular(null); setLectura((n) => n + 1); }} />
