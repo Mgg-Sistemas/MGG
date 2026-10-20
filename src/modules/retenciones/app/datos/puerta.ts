@@ -16,8 +16,9 @@ import { createContext, useContext } from 'react';
 import type { RetencionItem } from '../../retenciones.repository';
 import type { FiltroRetenciones, NuevaRetencion, RetencionPracticada } from '../../retencionesFiscal.repository';
 import type { ConceptoRetencion, ConfigRetencion } from '../../retencionesCalculo';
+import type { ArchivoFactura, RetenidoAlPagar } from '../pantalla/porRealizarExtras';
 
-export type { RetencionItem, RetencionPracticada, FiltroRetenciones, NuevaRetencion, ConfigRetencion, ConceptoRetencion };
+export type { RetencionItem, RetencionPracticada, FiltroRetenciones, NuevaRetencion, ConfigRetencion, ConceptoRetencion, ArchivoFactura, RetenidoAlPagar };
 
 /** Qué partes de la v8 tienen datos hoy. La pantalla oculta lo que dé false. */
 export interface Capacidades {
@@ -56,6 +57,10 @@ export interface PuertaRetenciones {
   guardarConcepto(c: Partial<ConceptoRetencion> & { nombre: string; tipo: ConceptoRetencion['tipo'] }): Promise<void>;
   activarConcepto(id: string, activo: boolean): Promise<void>;
   anular(id: string, motivo: string): Promise<void>;
+  /** Abre un archivo de la factura cargado en Compras («📎 Factura»). Sin él, el botón no se muestra. */
+  verFactura?(a: ArchivoFactura): Promise<void>;
+  /** Lo retenido al pagar que no está en el libro (C1). Sin él, el panel no se muestra. */
+  retenidoSinRegistrar?(): Promise<RetenidoAlPagar[]>;
 }
 
 export const PuertaContext = createContext<PuertaRetenciones | null>(null);

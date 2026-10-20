@@ -13,7 +13,7 @@ import { previewWorkbook } from '@/shared/lib/reportPreview';
 import { agruparReporte, fmtMonto, totalesPorMoneda, COLOR_TOTAL, COLOR_TOTAL_TEXTO, type FilaReporteCompras } from './comprasReporte';
 
 /** Lo mínimo del módulo xlsx-js-style que hace falta (se acepta sin tipar, como en el resto). */
-interface XlsxLike {
+export interface XlsxLike {
   utils: {
     aoa_to_sheet: (d: unknown[][]) => Record<string, unknown>;
     encode_cell: (c: { r: number; c: number }) => string;
@@ -21,18 +21,18 @@ interface XlsxLike {
     book_append_sheet: (wb: unknown, ws: unknown, name: string) => void;
   };
 }
-type Celda = { v?: unknown; t?: string; z?: string; s?: unknown } | undefined;
+export type Celda = { v?: unknown; t?: string; z?: string; s?: unknown } | undefined;
 
 const NARANJA = COLOR_TOTAL;
 const GRIS_ENCABEZADO = 'F2F2F2';
 /** #rrggbb (pantalla) → RRGGBB (Excel). */
-const rgb = (hex: string): string => hex.replace('#', '').toUpperCase();
+export const rgb = (hex: string): string => hex.replace('#', '').toUpperCase();
 
-const TITULO = { font: { name: 'Arial', sz: 14, bold: true, color: { rgb: rgb(COLOR_TOTAL_TEXTO) } }, fill: { patternType: 'solid', fgColor: { rgb: rgb(NARANJA) } }, alignment: { horizontal: 'left', vertical: 'center' } };
-const SUBTITULO = { font: { name: 'Arial', sz: 9, italic: true, color: { rgb: '666666' } } };
-const ENCABEZADO = { font: { name: 'Arial', sz: 10, bold: true, color: { rgb: '333333' } }, fill: { patternType: 'solid', fgColor: { rgb: GRIS_ENCABEZADO } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true } };
-const TOTAL = { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: rgb(COLOR_TOTAL_TEXTO) } }, fill: { patternType: 'solid', fgColor: { rgb: rgb(NARANJA) } }, alignment: { horizontal: 'right', vertical: 'center' } };
-const MONEDA_FMT = '#,##0.00';
+export const TITULO = { font: { name: 'Arial', sz: 14, bold: true, color: { rgb: rgb(COLOR_TOTAL_TEXTO) } }, fill: { patternType: 'solid', fgColor: { rgb: rgb(NARANJA) } }, alignment: { horizontal: 'left', vertical: 'center' } };
+export const SUBTITULO = { font: { name: 'Arial', sz: 9, italic: true, color: { rgb: '666666' } } };
+export const ENCABEZADO = { font: { name: 'Arial', sz: 10, bold: true, color: { rgb: '333333' } }, fill: { patternType: 'solid', fgColor: { rgb: GRIS_ENCABEZADO } }, alignment: { horizontal: 'center', vertical: 'center', wrapText: true } };
+export const TOTAL = { font: { name: 'Arial', sz: 11, bold: true, color: { rgb: rgb(COLOR_TOTAL_TEXTO) } }, fill: { patternType: 'solid', fgColor: { rgb: rgb(NARANJA) } }, alignment: { horizontal: 'right', vertical: 'center' } };
+export const MONEDA_FMT = '#,##0.00';
 
 /** Una fila de datos del reporte, en las columnas del Excel. */
 function filaExcel(f: FilaReporteCompras, i: number, esCredito: boolean): unknown[] {
