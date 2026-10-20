@@ -23,6 +23,13 @@
 .ret-v8 .v7-que dt { color: var(--text-muted); font-weight: 600; }
 .ret-v8 .v7-que dd { margin: 0; }
 .ret-v8 .lista-sis.v8-pa-conceptos { --cols: .6fr 2fr 1.2fr .5fr .5fr 1.3fr .7fr; }
+.ret-v8 .lista-sis.v8-pa-conceptos.con-acciones { --cols: .6fr 2fr 1.2fr .5fr .5fr 1.3fr .7fr 1.4fr; }
+.ret-v8 .v8-pa-editar { margin-left: .5rem; vertical-align: middle; }
+.ret-v8 .v8-pa-editor { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: .6rem .8rem; margin: 0 0 .8rem; padding: .7rem .8rem; border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--bg-1); }
+.ret-v8 .v8-pa-editor-t { grid-column: 1 / -1; margin: 0; font-size: .95rem; }
+.ret-v8 .v8-pa-casilla { grid-column: 1 / -1; display: flex; gap: .45rem; align-items: center; min-height: 36px; font-size: .84rem; }
+.ret-v8 .v8-pa-editor .aviso-error { grid-column: 1 / -1; }
+.ret-v8 .v8-pa-botones { grid-column: 1 / -1; display: flex; gap: .5rem; justify-content: flex-end; }
 .ret-v8 .pill.inactivo { color: var(--text-muted); }
 .v8-pa-pie { margin-right: auto; }
 

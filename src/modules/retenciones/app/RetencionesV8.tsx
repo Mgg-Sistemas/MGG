@@ -43,7 +43,7 @@ export function RetencionesV8() {
             .then(() => { toast('Comprobante adjuntado.', 'success'); setLectura((n) => n + 1); })
             .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo adjuntar el comprobante.', 'error'));
         } : undefined} />
-      {parametros && <Parametros onCerrar={() => setParametros(false)} />}
+      {parametros && <Parametros puedeEditar={puedeEscribir} onCerrar={() => setParametros(false)} />}
       {anular && (
         <AnularDialogo retencion={anular} onCerrar={() => setAnular(null)}
           onAnulada={() => { setAnular(null); setLectura((n) => n + 1); }} />

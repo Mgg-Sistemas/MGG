@@ -50,6 +50,11 @@ export interface PuertaRetenciones {
   verComprobante(r: RetencionPracticada): Promise<void>;
   /** Abre el archivo adjunto de una retención (comprobante subido o el PDF del cliente). */
   verArchivo(r: RetencionPracticada): Promise<void>;
+  /** Guarda los datos de la empresa, el régimen y los valores compartidos (retencion_config). */
+  guardarConfig(c: ConfigRetencion, actor: string): Promise<void>;
+  /** Crea (sin id) o modifica (con id) un concepto del catálogo. */
+  guardarConcepto(c: Partial<ConceptoRetencion> & { nombre: string; tipo: ConceptoRetencion['tipo'] }): Promise<void>;
+  activarConcepto(id: string, activo: boolean): Promise<void>;
   anular(id: string, motivo: string): Promise<void>;
 }
 
