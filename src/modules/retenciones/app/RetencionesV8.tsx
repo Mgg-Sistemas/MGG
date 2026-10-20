@@ -18,18 +18,23 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { PuertaContext, type RetencionItem } from './datos/puerta';
 import { puertaAnfitrion } from './datos/puertaAnfitrion';
 import { Principal } from './pantalla/Principal';
+import { Parametros } from './parametros/Parametros';
 import { RegistroDialogo } from './registro/RegistroDialogo';
 
 export function RetencionesV8() {
   const { isAdmin, loading, can } = usePermissions();
   const [registrar, setRegistrar] = useState<{ item: RetencionItem; impuesto: string } | null>(null);
+  const [parametros, setParametros] = useState(false);
   const [lectura, setLectura] = useState(0);
   if (loading) return <div className="p-8 muted">Cargando…</div>;
   if (!isAdmin) return <Navigate to="/app/retenciones" replace />;
   const puedeEscribir = can('retenciones', 'escritura');
   return (
     <PuertaContext.Provider value={puertaAnfitrion}>
-      <Principal key={lectura} onRegistrar={puedeEscribir ? (item, impuesto) => setRegistrar({ item, impuesto }) : undefined} />
+      <Principal key={lectura}
+        onParametros={() => setParametros(true)}
+        onRegistrar={puedeEscribir ? (item, impuesto) => setRegistrar({ item, impuesto }) : undefined} />
+      {parametros && <Parametros onCerrar={() => setParametros(false)} />}
       {registrar && (
         <RegistroDialogo
           item={registrar.item} impuesto={registrar.impuesto}
