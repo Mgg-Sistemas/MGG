@@ -10,10 +10,11 @@
    ============================================================ */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { money } from '@/shared/lib/format';
 import { usePuerta, type RetencionItem, type RetencionPracticada } from '../datos/puerta';
-import { documentosPendientes, nombreImpuesto } from './pendientesPorDocumento';
+import { documentosPendientes } from './pendientesPorDocumento';
+import { LibroFiscalV8 } from './LibroFiscalV8';
 import { PorRealizar } from './PorRealizar';
+import { Realizadas } from './Realizadas';
 import './principal.css';
 
 type Seccion = 'pendientes' | 'hechas' | 'libro';
@@ -29,11 +30,13 @@ interface Props {
   onParametros?: () => void;
   /** Abre el registro de una retención. Sin ella, los botones «Registrar» no se muestran. */
   onRegistrar?: (item: RetencionItem, impuesto: string) => void;
+  /** Anula una retención del libro. Sin ella, «Anular» no se muestra. */
+  onAnular?: (r: RetencionPracticada) => void;
 }
 
-interface Datos { pendientes: RetencionItem[]; hechas: RetencionItem[]; libro: RetencionPracticada[] }
+interface Datos { pendientes: RetencionItem[]; libro: RetencionPracticada[] }
 
-export function Principal({ onParametros, onRegistrar }: Props) {
+export function Principal({ onParametros, onRegistrar, onAnular }: Props) {
   const puerta = usePuerta();
   const [sec, setSec] = useState<Seccion>('pendientes');
   const [datos, setDatos] = useState<Datos | null>(null);
@@ -41,8 +44,8 @@ export function Principal({ onParametros, onRegistrar }: Props) {
 
   const cargar = useCallback(() => {
     setError(null);
-    Promise.all([puerta.pendientes(), puerta.hechas(), puerta.libro()])
-      .then(([pendientes, hechas, libro]) => setDatos({ pendientes, hechas, libro }))
+    Promise.all([puerta.pendientes(), puerta.libro()])
+      .then(([pendientes, libro]) => setDatos({ pendientes, libro }))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'No se pudieron leer las retenciones.'));
   }, [puerta]);
   useEffect(() => { cargar(); }, [cargar]);
@@ -77,31 +80,9 @@ export function Principal({ onParametros, onRegistrar }: Props) {
 
       {datos && sec === 'pendientes' && <PorRealizar docs={docs} onRegistrar={onRegistrar} />}
 
-      {datos && sec === 'hechas' && (
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th>OC o compra</th><th>Proveedor</th><th style={{ textAlign: 'right' }}>Total</th></tr></thead>
-            <tbody>
-              {datos.hechas.map((it) => (
-                <tr key={`${it.kind}-${it.id}`}><td className="mono">{it.ocCodigo ?? '—'}</td><td>{it.proveedorNombre}</td><td className="mono" style={{ textAlign: 'right' }}>{money(it.total, it.moneda)}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {datos && sec === 'hechas' && <Realizadas libro={datos.libro} />}
 
-      {datos && sec === 'libro' && (
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th>Fecha</th><th>Comprobante</th><th>Impuesto</th><th>Proveedor</th><th style={{ textAlign: 'right' }}>Retenido</th></tr></thead>
-            <tbody>
-              {datos.libro.map((r) => (
-                <tr key={r.id}><td>{r.facturaFecha ?? '—'}</td><td className="mono">{r.numeroComprobante ?? '—'}</td><td>{nombreImpuesto(r.tipo)}</td><td>{r.contraparteNombre ?? '—'}</td><td className="mono" style={{ textAlign: 'right' }}>{money(r.montoRetenido, r.moneda)}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      {datos && sec === 'libro' && <LibroFiscalV8 libro={datos.libro} onAnular={onAnular} />}
     </main>
   );
 }
