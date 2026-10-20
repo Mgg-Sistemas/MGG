@@ -25,7 +25,7 @@ import {
   HUELLA_IMPRESION, MOTIVO_IMPRESION, ORDENES_IMPRESION, SIN_RESULTADOS, VACIO_IMPRESION,
   basePendientes, filtrarPendientesImpresion, mesesDeFacturas, pasaImpresion, pendientesImpresion, textoMotivo,
   type FiltrosImpresion, type OrdenImpresion, type RetencionImpresion,
-} from './pendientesImpresion';
+} from './listaPendientesImpresion';
 import './rv8-pendientes-impresion.css';
 
 const INICIALES: FiltrosImpresion = { q: '', impuesto: '', motivo: '', mes: '', orden: 'antiguo' };
