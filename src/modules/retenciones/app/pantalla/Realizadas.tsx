@@ -18,7 +18,7 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import { money } from '@/shared/lib/format';
 import { toast } from '@/shared/ui/Toast';
 import { paginar, TAMANO_PAGINA_INICIAL } from '../listas/paginador';
-import { usePuerta, type RetencionPracticada } from '../datos/puerta';
+import type { RetencionPracticada } from '../datos/puerta';
 import { AccionesRetencion } from './AccionesRetencion';
 import { BotonFactura } from './BotonFactura';
 import { BarraLista } from './BarraLista';
@@ -31,6 +31,7 @@ import {
 import { quienYCuando } from './quien';
 import { puedeRegistrarDeNuevo } from './registrarDeNuevo';
 import { useArchivosFactura } from './useArchivosFactura';
+import { useVistaComprobante } from '../impresion/useVistaComprobante';
 import './rv8-por-realizar.css';
 
 const ORDENES = [{ valor: 'reciente', texto: 'Más reciente primero' }, { valor: 'antiguo', texto: 'Más antiguo primero' }];
@@ -47,7 +48,6 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
   /** «Registrar <IMP> de nuevo» en una anulada sin reemplazo. Sin ella, el botón no se muestra. */
   onRegistrarDeNuevo?: (r: RetencionPracticada) => void;
 }) {
-  const puerta = usePuerta();
   const [f, setF] = useState<FiltroLibro>(FILTRO_INICIAL);
   const [pagina, setPagina] = useState(1);
   const [tamano, setTamano] = useState<number>(TAMANO_PAGINA_INICIAL);
@@ -56,8 +56,9 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
   const { filas, pagina: pag } = paginar(facturas, pagina, tamano);
   const cambiar = (x: Partial<FiltroLibro>) => { setF((v) => ({ ...v, ...x })); setPagina(1); };
   const archivos = useArchivosFactura(useMemo(() => filas.map((x) => ({ kind: x.todas[0].docKind, id: x.todas[0].docId })), [filas]));
+  const hoja = useVistaComprobante(libro);
   const comprobante = (r: RetencionPracticada) => () => {
-    puerta.verComprobante(r).catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante.', 'error'));
+    hoja.abrir(r).catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante.', 'error'));
   };
 
   return (
@@ -121,6 +122,7 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
         <Paginador total={facturas.length} pagina={pag} tamano={tamano} unidad="factura(s)"
           onPagina={setPagina} onTamano={(t) => { setTamano(t); setPagina(1); }} />
       </div>
+      {hoja.vista}
     </>
   );
 }
