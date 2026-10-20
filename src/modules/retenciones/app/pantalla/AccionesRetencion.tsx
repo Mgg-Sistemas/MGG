@@ -27,9 +27,11 @@ interface Props {
   corto?: boolean;
   /** Sin «🖨 Comprobante»: en Realizadas va en la columna de acciones de la factura («🖨 IVA»). */
   sinComprobante?: boolean;
+  /** Abre el comprobante (la hoja fiel). Sin ella, el PDF de hoy. */
+  onComprobante?: (r: RetencionPracticada) => Promise<void>;
 }
 
-export function AccionesRetencion({ r, onAnular, onAdjuntar, corto, sinComprobante }: Props) {
+export function AccionesRetencion({ r, onAnular, onAdjuntar, corto, sinComprobante, onComprobante }: Props) {
   const puerta = usePuerta();
   const input = useRef<HTMLInputElement>(null);
   const estado = estadoDe(r);
@@ -45,7 +47,7 @@ export function AccionesRetencion({ r, onAnular, onAdjuntar, corto, sinComproban
     <>
       {!sinComprobante && r.direccion === 'practicada' && estado !== 'anulada' && (
         <button type="button" className="mini" aria-label={`Comprobante ${nombre}`}
-          onClick={intentar(() => puerta.verComprobante(r), 'No se pudo generar el comprobante.')}>
+          onClick={intentar(() => (onComprobante ? onComprobante(r) : puerta.verComprobante(r)), 'No se pudo generar el comprobante.')}>
           🖨{corto ? '' : ' Comprobante'}
         </button>
       )}

@@ -34,7 +34,9 @@ import type { SemillaRegistro } from '../pantalla/registrarDeNuevo';
 import { contextoDeHoy, filaDeConcepto, reglasDeHoy, SUPUESTOS_IVA, supuestosMarcados } from './reglasDesdeConfig';
 import { textoDelPaso, textoFalta } from './textosCalculo';
 import { revisarRif } from './validarRif';
+import { textoNumeroComprobante } from './numeroComprobante';
 import './registro.css';
+import './rv8-registro.css';
 
 type Impuesto = 'iva' | 'islr' | 'municipal';
 
@@ -203,7 +205,10 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
   };
 
   const err = (k: string) => (tocado || k.startsWith('base') || k.startsWith('concepto') ? errores[k] : null);
-  const subtitulo = `${item.kind === 'compra_directa' ? 'Compra' : 'Documento'} ${item.ocCodigo ?? ''} · ${item.proveedorNombre}${factura.trim() ? ` · factura ${factura.trim()}` : ' · factura por indicar'}`;
+  // Como la maqueta (abrirRegistrar): «Factura N · Proveedor · Documento», o «Documento … · Proveedor · factura por indicar».
+  const subtitulo = factura.trim()
+    ? `Factura ${factura.trim()} · ${item.proveedorNombre} · ${item.ocCodigo ?? '—'}`
+    : `Documento ${item.ocCodigo ?? '—'} · ${item.proveedorNombre} · factura por indicar`;
 
   const footer = (
     <>
@@ -279,6 +284,16 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
                     {err('iva') && <small className="v8-reg-error">{err('iva')}</small>}
                   </label>
                 </>
+              )}
+            </div>
+
+            <div className="rv8-caja-pa" aria-live="polite">
+              <span className="rv8-caja-t">N° de comprobante</span>
+              <p className="rv8-huella">{textoNumeroComprobante(imp, fecha ? periodoDe(fecha) : '')}</p>
+              {import.meta.env.DEV && (
+                <label className="rv8-chk rv8-requiere-base" title="Requiere la base de Retenciones (paquete 2.1)">
+                  <input type="checkbox" disabled /> Editar número <small>· Requiere la base de Retenciones (paquete 2.1)</small>
+                </label>
               )}
             </div>
 

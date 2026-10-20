@@ -15,7 +15,7 @@ import {
 import { urlAdjuntoCompra } from '@/modules/pedidos/compras.repository';
 import { resumenLibro, totalesPorMoneda } from '../../retencionesCalculo';
 import type { PuertaRetenciones } from './puerta';
-import { listArchivosDeDocumentos, listRetenidoSinRegistrar } from './retenidoAlPagar';
+import { direccionDeProveedor, listArchivosDeDocumentos, listRetenidoSinRegistrar } from './retenidoAlPagar';
 
 export const puertaAnfitrion: PuertaRetenciones = {
   capacidades: { reglas: false, periodos: false, otroSistema: false, impresiones: false, reportes: false },
@@ -46,6 +46,7 @@ export const puertaAnfitrion: PuertaRetenciones = {
   },
   retenidoSinRegistrar: () => listRetenidoSinRegistrar(),
   archivosDeDocumentos: (docs) => listArchivosDeDocumentos(docs),
+  direccionProveedor: (id) => direccionDeProveedor(id),
   // Lo mismo que hace hoy el Libro fiscal (LibroFiscal.tsx, verLibroFiscalPdf con su resumen y un total por moneda).
   imprimirLibro: async (filas, rango) => {
     const [config, { verLibroFiscalPdf }] = await Promise.all([getConfigRetencion(), import('../../libroFiscalPdf')]);

@@ -67,6 +67,13 @@ export async function listArchivosDeDocumentos(docs: readonly { kind: string; id
   return archivosDeFilas((ocs.data ?? []) as Fila[], (compras.data ?? []) as Fila[]);
 }
 
+/** La dirección del proveedor (solo lectura), para el comprobante impreso. */
+export async function direccionDeProveedor(id: string): Promise<string> {
+  const { data, error } = await supabase.from('proveedores').select('direccion').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return txt((data as Fila | null)?.direccion) ?? '';
+}
+
 /** Lo retenido al pagar que todavía no está en el libro. */
 export async function listRetenidoSinRegistrar(): Promise<RetenidoAlPagar[]> {
   const [docs, libro] = await Promise.all([listRetenidoAlPagar(), listRegistrosDeDocumentos()]);

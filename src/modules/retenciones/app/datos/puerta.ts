@@ -65,6 +65,8 @@ export interface PuertaRetenciones {
   archivosDeDocumentos?(docs: { kind: string; id: string }[]): Promise<Map<string, ArchivoFactura[]>>;
   /** «🖨 Imprimir lista / PDF» del Libro: lo filtrado, con el PDF de hoy. Sin él, el botón no se muestra. */
   imprimirLibro?(filas: RetencionPracticada[], rango: { desde: string; hasta: string }): Promise<void>;
+  /** La dirección del proveedor, para el comprobante impreso (proveedores.direccion). Sin él, la hoja la deja en blanco. */
+  direccionProveedor?(id: string): Promise<string>;
 }
 
 export const PuertaContext = createContext<PuertaRetenciones | null>(null);
