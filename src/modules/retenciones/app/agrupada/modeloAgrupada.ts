@@ -260,3 +260,59 @@ export function porDocumento(fs: readonly FacturaAgrupada[]): [string, FacturaAg
   }
   return [...g.entries()];
 }
+
+/* ───────── «Por impuesto» (v7): un impuesto a la vez, por proveedor ───────── */
+
+export type MostrarImpuesto = 'pend' | 'pd' | 'hechas' | 'nc';
+export const MOSTRAR_I: Record<MostrarImpuesto, string> = {
+  pend: 'Pendientes (rango de fechas de los filtros)',
+  pd: 'Por definir',
+  hechas: 'Registradas',
+  nc: 'No aplican',
+};
+export type OrdenImpuesto = 'antigua' | 'reciente' | 'monto';
+
+export interface GrupoImpuesto { p: string; nombre: string; rif: string | null; xs: FacturaAgrupada[]; total: Record<string, number>; antigua: string }
+
+/** Lo retenido de un impuesto en una factura (las pendientes aún no tienen monto: lo calcula el registro). */
+export function montoDe(f: FacturaAgrupada, k: string): { moneda: string; monto: number } | null {
+  const c = f.casillas[k];
+  return c && hecha(c.estado) && c.retencion ? { moneda: c.retencion.moneda, monto: c.retencion.montoRetenido } : null;
+}
+
+/** `vistaImpuesto` de la v7: las facturas del impuesto según «Mostrar», agrupadas por proveedor y ordenadas. */
+export function gruposPorImpuesto(fs: readonly FacturaAgrupada[], k: string, mostrar: MostrarImpuesto, orden: OrdenImpuesto, q: string): { grupos: GrupoImpuesto[]; facturas: number } {
+  const prueba = (f: FacturaAgrupada) => {
+    const e = f.casillas[k]?.estado ?? 'nc';
+    if (mostrar === 'pend') return faltaEn(e);
+    if (mostrar === 'hechas') return hecha(e);
+    return e === mostrar;
+  };
+  const xs = fs.filter((f) => prueba(f) && buscaEn(q, f.proveedorNombre, f.proveedorRif, f.num, f.docCodigo));
+  const g = new Map<string, GrupoImpuesto>();
+  for (const f of xs) {
+    const p = f.proveedorId ?? f.proveedorNombre;
+    let x = g.get(p);
+    if (!x) { x = { p, nombre: f.proveedorNombre, rif: f.proveedorRif, xs: [], total: {}, antigua: f.fecha }; g.set(p, x); }
+    x.xs.push(f);
+    const m = montoDe(f, k);
+    if (m) x.total[m.moneda] = (x.total[m.moneda] ?? 0) + m.monto;
+  }
+  const grupos = [...g.values()];
+  for (const x of grupos) { x.xs.sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : 0)); x.antigua = x.xs[0].fecha; }
+  const suma = (x: GrupoImpuesto) => Object.values(x.total).reduce((a, b) => a + b, 0);
+  if (orden === 'monto') grupos.sort((a, b) => suma(b) - suma(a));
+  else if (orden === 'reciente') grupos.sort((a, b) => (a.xs[a.xs.length - 1].fecha < b.xs[b.xs.length - 1].fecha ? 1 : -1));
+  else grupos.sort((a, b) => (a.antigua < b.antigua ? -1 : a.antigua > b.antigua ? 1 : 0));
+  return { grupos, facturas: xs.length };
+}
+
+/** Por qué una selección no se agrupa en un comprobante (`v7ResumenSeleccion`). */
+export function razonSeleccion(sel: readonly { f: FacturaAgrupada; k: string }[]): string {
+  const provs = new Set(sel.map((x) => x.f.proveedorId ?? x.f.proveedorNombre)), ks = new Set(sel.map((x) => x.k));
+  const meses = new Set(sel.map((x) => x.f.fecha.slice(0, 7)));
+  if (provs.size > 1) return `No se pueden agrupar: son de ${provs.size} proveedores distintos.`;
+  if (ks.size > 1) return `No se pueden agrupar: son de ${ks.size} impuestos distintos.`;
+  if (meses.size > 1) return `No se pueden agrupar: son de ${meses.size} meses distintos.`;
+  return 'Mismo proveedor, impuesto y período: se pueden agrupar en un comprobante con el interruptor «Agrupar comprobantes» encendido (solo IVA, la misma quincena y la misma moneda).';
+}

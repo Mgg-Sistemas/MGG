@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG_RETENCION_DEFECTO } from '../../retencionesCalculo';
 import type { RetencionItem, RetencionPracticada } from '../datos/puerta';
-import { armarFacturas, base, cuentasDe, impuestosActivos, motivoNoAplica, rangoFechas, sinRetencion, vistaFactura, type EstadoVista } from './modeloAgrupada';
+import { armarFacturas, base, cuentasDe, gruposPorImpuesto, impuestosActivos, motivoNoAplica, rangoFechas, razonSeleccion, sinRetencion, vistaFactura, type EstadoVista } from './modeloAgrupada';
 
 const IMP = ['iva', 'islr'];
 const item = (id: string, x: Partial<RetencionItem> = {}): RetencionItem => ({
@@ -78,5 +78,23 @@ describe('la Vista agrupada', () => {
   it('los impuestos de la tira: el IVA si la empresa es agente; los demás con conceptos activos o con algo en el libro', () => {
     expect(impuestosActivos(CONFIG_RETENCION_DEFECTO, [], [])).toEqual(['iva']);
     expect(impuestosActivos({ ...CONFIG_RETENCION_DEFECTO, esContribuyenteEspecial: false }, [], [ret('r', { tipo: 'municipal' })])).toEqual(['municipal']);
+  });
+  it('«Por impuesto»: las del impuesto según «Mostrar», por proveedor, con lo retenido y la más antigua', () => {
+    const fs = armarFacturas(
+      [item('1'), item('2', { proveedorId: 'p2', proveedorNombre: 'Beta', orden: { iva: 160, created_at: '2026-09-01T00:00:00Z' } as RetencionItem['orden'] })],
+      [ret('r1'), ret('r2', { facturaNumero: '000124', montoRetenido: 30 })], IMP, () => ['iva'], motivo);
+    const hechas = gruposPorImpuesto(fs, 'iva', 'hechas', 'antigua', '');
+    expect(hechas.facturas).toBe(2);
+    expect(hechas.grupos).toHaveLength(1);
+    expect(hechas.grupos[0].total).toEqual({ Bs: 150 });
+    const pend = gruposPorImpuesto(fs, 'iva', 'pend', 'antigua', '');
+    expect(pend.grupos.map((g) => g.nombre)).toEqual(['Beta']);
+    expect(gruposPorImpuesto(fs, 'iva', 'pend', 'antigua', 'alfa').facturas).toBe(0);
+  });
+
+  it('la selección dice por qué no se agrupa', () => {
+    const fs = armarFacturas([item('1'), item('2', { proveedorId: 'p2' })], [], IMP, () => ['iva'], motivo);
+    expect(razonSeleccion(fs.map((f) => ({ f, k: 'iva' })))).toBe('No se pueden agrupar: son de 2 proveedores distintos.');
+    expect(razonSeleccion([{ f: fs[0], k: 'iva' }])).toMatch(/^Mismo proveedor/);
   });
 });

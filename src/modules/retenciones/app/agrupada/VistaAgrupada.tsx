@@ -26,6 +26,7 @@ import {
   porProveedor, retenidoDe, sinRetencion, vistaFactura,
   type EstadoCasilla, type EstadoVista, type FacturaAgrupada, type FiltroFecha,
 } from './modeloAgrupada';
+import { PorImpuesto } from './PorImpuesto';
 import './rv8-agrupada.css';
 
 /** Una marca discreta, solo en local, para lo que espera a la base de Retenciones. */
@@ -86,7 +87,7 @@ export function VistaAgrupada({ pendientes, libro, config, conceptos, onRegistra
           value={e.q} onChange={(ev) => cambiar({ q: ev.target.value })} />
       </section>
 
-      <Totales enBase={enBase} impuestos={impuestos} e={e} onImpuesto={elegirImpuesto} onCuenta={elegirCuenta} />
+      <Totales enBase={enBase} impuestos={impuestos} e={e} porImpuesto={vista === 'impuesto'} onImpuesto={elegirImpuesto} onCuenta={elegirCuenta} />
       <p className="rv8-nota-igtf">El IGTF no se incluye en la tira: corresponde a una percepción por cada pago en divisas, no a una retención por factura. Se registra con el pago, en el Libro fiscal («IGTF pagado»).</p>
 
       <details className="rv8-filtros" open>
@@ -137,6 +138,11 @@ export function VistaAgrupada({ pendientes, libro, config, conceptos, onRegistra
       <div className="rv8-barra-vista">
         <div className="rv8-view-switch rv8-agrupar" role="group" aria-label="Agrupar por">
           <button type="button" aria-pressed={vista === 'factura'} onClick={() => { setVista('factura'); setPagina(1); }}>Por factura</button>
+          <button type="button" aria-pressed={vista === 'impuesto'} onClick={() => {
+            // «Por impuesto» siempre muestra uno: el elegido o el primero.
+            if (!e.sel) cambiar({ sel: impuestos[0] ?? null, imp: new Set(impuestos.slice(0, 1)), cuenta: null });
+            setVista('impuesto'); setPagina(1);
+          }}>Por impuesto</button>
           <button type="button" aria-pressed={vista === 'sin'} onClick={() => { setVista('sin'); setPagina(1); }}>Sin retención</button>
         </div>
         <div className="rv8-activos" aria-live="polite">
@@ -148,7 +154,9 @@ export function VistaAgrupada({ pendientes, libro, config, conceptos, onRegistra
       </div>
 
       <section className="rv8-vista">
-        {!lista.length ? (
+        {vista === 'impuesto' && e.sel ? (
+          <PorImpuesto key={e.sel} enBase={enBase} k={e.sel} onRegistrar={onRegistrar} />
+        ) : !lista.length ? (
           <div className="rv8-vacio">
             <p>{vista === 'sin' ? 'Sin facturas sin retención para los filtros aplicados.' : 'Sin facturas para los filtros aplicados.'}</p>
             <p className="rv8-muted">Ampliar el rango de fechas o buscar por proveedor, RIF, factura, OC o comprobante.</p>
@@ -179,8 +187,8 @@ export function VistaAgrupada({ pendientes, libro, config, conceptos, onRegistra
 }
 
 /* ───────── Las tarjetas por impuesto (`pintarTotales`, v7) ───────── */
-function Totales({ enBase, impuestos, e, onImpuesto, onCuenta }: {
-  enBase: FacturaAgrupada[]; impuestos: string[]; e: EstadoVista;
+function Totales({ enBase, impuestos, e, porImpuesto, onImpuesto, onCuenta }: {
+  enBase: FacturaAgrupada[]; impuestos: string[]; e: EstadoVista; porImpuesto: boolean;
   onImpuesto: (k: string | null) => void; onCuenta: (k: string, tipo: 'falta' | 'hechas' | 'pd' | 'nc') => void;
 }) {
   const cuentas = Object.fromEntries(impuestos.map((k) => [k, cuentasDe(enBase, k)]));
@@ -191,12 +199,12 @@ function Totales({ enBase, impuestos, e, onImpuesto, onCuenta }: {
         <span className="rv8-v7-tj-ayuda">
           {e.sel ? <>Se muestra <b>{nombreImpuesto(e.sel)}</b>.</> : `Se muestran los ${impuestos.length} impuestos activos.`} Cada tarjeta selecciona su impuesto; sus números filtran la vista.
         </span>
-        {e.sel && <button type="button" className="btn btn-ghost" onClick={() => onImpuesto(null)}>Ver todos los impuestos</button>}
+        {e.sel && !porImpuesto && <button type="button" className="btn btn-ghost" onClick={() => onImpuesto(null)}>Ver todos los impuestos</button>}
       </div>
       <label className="rv8-campo rv8-v7-sel-movil">
         <span>Impuesto</span>
         <select className="rv8-select" value={e.sel ?? ''} onChange={(ev) => onImpuesto(ev.target.value || null)}>
-          <option value="">Todos los impuestos · {nf(tot)} pendientes</option>
+          {!porImpuesto && <option value="">Todos los impuestos · {nf(tot)} pendientes</option>}
           {impuestos.map((k) => <option key={k} value={k}>{nombreImpuesto(k)} · {nf(cuentas[k].faltan)} pendientes</option>)}
         </select>
       </label>
@@ -210,7 +218,7 @@ function Totales({ enBase, impuestos, e, onImpuesto, onCuenta }: {
           );
           return (
             <div key={k} className={`rv8-total-imp rv8-v7-tarjeta${on ? ' rv8-sel' : ''}`}>
-              <button type="button" className="rv8-v7-tj" aria-pressed={on} onClick={() => onImpuesto(on ? null : k)}
+              <button type="button" className="rv8-v7-tj" aria-pressed={on} onClick={() => onImpuesto(on && !porImpuesto ? null : k)}
                 aria-label={`${nombreImpuesto(k)}: ${on ? 'seleccionado; tocar para ver todos los impuestos' : 'ver solo este impuesto'}`}>
                 <span className="rv8-v7-tj-nombre">{nombreImpuesto(k)}</span>
                 <span className="rv8-v7-tj-marca" aria-hidden="true">{on ? '✓ Seleccionado' : 'Ver solo este'}</span>
