@@ -7,6 +7,7 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
 import { errorMotivoCambio, lineaCambioProveedor, lineaReaperturaOc } from './cambioProveedor';
+import { compartirMovimiento, enlaceWhatsapp, puedeCompartir, textoOrdenPago } from './ordenPagoTxt';
 import { MAX_MINIMIZADAS, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -2687,14 +2688,27 @@ function OrdenDetailModal({
   }
   /* La orden en texto plano, para mandarla por correo o WhatsApp a quien paga y
      no entra al sistema. Se genera solo con este botón. */
-  function handlePagoTxt() {
-    import('./ordenPagoTxt')
-      .then(({ descargarOrdenPagoTxt }) => descargarOrdenPagoTxt(
-        o,
-        proveedor?.razon_social ?? (o.proveedor_id ? proveedorMap.get(o.proveedor_id)?.razon_social : '') ?? '—',
-      ))
-      .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el TXT', 'error'));
-  }
+  /* «💬 WhatsApp para pagar» (20-10-2026): antes era «↓ TXT para pagar», un archivo que se
+     bajaba y se pegaba a mano. Ahora el mismo texto, con sus emojis, sale directo por WhatsApp
+     como los movimientos de Combustible: en el teléfono por la hoja de compartir (llega exacto)
+     y en la PC por el enlace derecho a api.whatsapp.com (nunca wa.me, que se come los emojis). */
+  const textoPago = () => textoOrdenPago(o, proveedor?.razon_social ?? (o.proveedor_id ? proveedorMap.get(o.proveedor_id)?.razon_social : '') ?? '—');
+  const botonWhatsappPago = (titulo: string) => (
+    <a
+      className="btn btn-ghost"
+      href={enlaceWhatsapp(textoPago())}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={titulo}
+      onClick={(e) => {
+        if (!puedeCompartir()) return;
+        e.preventDefault();
+        void compartirMovimiento(textoPago());
+      }}
+    >
+      💬 WhatsApp para pagar
+    </a>
+  );
   /* La solicitud aprobada en PDF, para mandarla a cotizar: lleva los materiales
      con su medida y cantidad, y la columna de precio EN BLANCO. Se genera solo
      con este botón. */
@@ -2804,9 +2818,7 @@ function OrdenDetailModal({
       {isOcAprobada && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
-          <button className="btn btn-ghost" onClick={handlePagoTxt} title="Bajar la orden en texto plano: quién la pidió, de qué unidad, qué pidió, el proveedor y cómo se paga con los datos del beneficiario">
-            ↓ TXT para pagar
-          </button>
+          {botonWhatsappPago('Mandar la orden por WhatsApp con sus emojis: orden, proveedor, detalle, total y cómo se paga con los datos del beneficiario')}
           {canManageProcurement && (
             <button className="btn btn-ghost" onClick={onEditarOc} title="Editar los precios de la OC. El nuevo total se sincroniza con Tesorería sin sacar la OC de pago; queda en la trazabilidad.">✎ Editar precios</button>
           )}
@@ -2829,9 +2841,7 @@ function OrdenDetailModal({
           {/* Una cuenta abierta se paga por abonos, y casi siempre la paga alguien
               que no entra al sistema: necesita el mismo papelito que una OC
               confirmada, pero con el SALDO en vez del total. */}
-          <button className="btn btn-ghost" onClick={handlePagoTxt} title="Bajar la orden en texto plano para mandar el abono por WhatsApp: proveedor, total, lo ya abonado, el saldo pendiente y los datos del beneficiario">
-            ↓ TXT para pagar
-          </button>
+          {botonWhatsappPago('Mandar el abono por WhatsApp con sus emojis: proveedor, total, lo ya abonado, el saldo pendiente y los datos del beneficiario')}
           <button className="btn btn-ghost" onClick={onAbono} title="Ver la cuenta del crédito y el historial de abonos">
             📋 Ver crédito / historial
           </button>

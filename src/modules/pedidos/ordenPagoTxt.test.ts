@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { textoOrdenPago, montoTxt, bancoTxt, detalleTxt, saldoPendiente } from './ordenPagoTxt';
+import { textoOrdenPago, montoTxt, bancoTxt, detalleTxt, saldoPendiente, enlaceWhatsapp } from './ordenPagoTxt';
 import type { Orden } from '@/shared/lib/types';
 
 /** La orden del ejemplo que dio el usuario: calzado para el motorizado. */
@@ -20,7 +20,7 @@ const txt = (o: Partial<Orden> = {}) => textoOrdenPago({ ...base, ...o } as Orde
 
 describe('textoOrdenPago · formato corto para WhatsApp', () => {
   it('sale exactamente con la forma pedida', () => {
-    expect(txt().split('\r\n')).toEqual([
+    expect(txt().split('\n')).toEqual([
       '🔹 *ORDEN:* OC-2026-0130',
       '🏭 *Proveedor:* MAXI SHOES',
       '📝 *Detalle:* Dotación de calzado para motorizado (delivery). Para: Héctor Alagal.',
@@ -42,18 +42,18 @@ describe('textoOrdenPago · formato corto para WhatsApp', () => {
 
   it('la nota va en su renglón, y en una sola línea', () => {
     const t = txt({ notas: 'Se paga\ncontra entrega' });
-    expect(t).toContain('🗒️ *Nota:* Se paga contra entrega');
+    expect(t).toContain('📌 *Nota:* Se paga contra entrega');
   });
 
   it('sin detalle ni nota no deja renglones huérfanos', () => {
     const t = txt({ motivo: null, finalidad: null, notas: null } as Partial<Orden>);
     expect(t).not.toContain('*Detalle:*');
     expect(t).not.toContain('*Nota:*');
-    expect(t.split('\r\n')[0]).toBe('🔹 *ORDEN:* OC-2026-0130');
+    expect(t.split('\n')[0]).toBe('🔹 *ORDEN:* OC-2026-0130');
   });
 
   it('el monto de la pata no se repite si ya lo dijo el total', () => {
-    expect(txt()).toContain('💳 *Pago móvil:*\r\n');
+    expect(txt()).toContain('💳 *Pago móvil:*\n');
   });
 
   it('pero sí se muestra cuando el pago va en otra moneda que el total', () => {
@@ -81,7 +81,7 @@ describe('textoOrdenPago · formato corto para WhatsApp', () => {
     // como si el pago fuera por nada.
     const t = txt({ metodo_pago: [{ metodo: 'pago_movil', moneda: 'Bs', monto: 0,
       datos: { banco: '0134', ci_rif: 'J-30646306-2', telefono: '04249692172' } }] } as Partial<Orden>);
-    expect(t).toContain('💳 *Pago móvil:*\r\n');
+    expect(t).toContain('💳 *Pago móvil:*\n');
     expect(t).not.toContain('Bs 0,00');
     expect(t).not.toContain('$0,00');
   });
@@ -93,16 +93,47 @@ describe('textoOrdenPago · formato corto para WhatsApp', () => {
   it('el efectivo no inventa datos de beneficiario', () => {
     const t = txt({ metodo_pago: [{ metodo: 'divisas_efectivo', moneda: '$', monto: 79, datos: {} }] } as Partial<Orden>);
     expect(t).toContain('💳 *Divisas en efectivo:*');
-    expect(t.split('\r\n').filter((l) => l.startsWith('* '))).toEqual([]);
+    expect(t.split('\n').filter((l) => l.startsWith('* '))).toEqual([]);
   });
 
   it('si no hay OC todavía, sale el código de la solicitud', () => {
     expect(txt({ oc_codigo: null } as Partial<Orden>)).toContain('🔹 *ORDEN:* SP-2026-0126');
   });
 
-  it('usa CRLF: se abre en el Bloc de notas sin quedar todo en una línea', () => {
-    expect(txt()).toContain('\r\n');
-    expect(txt().split('\r\n').length).toBeGreaterThan(5);
+  it('usa saltos de línea simples: WhatsApp los respeta y no se cuela un retorno de carro', () => {
+    expect(txt()).toContain('\n');
+    expect(txt()).not.toContain('\r');
+    expect(txt().split('\n').length).toBeGreaterThan(5);
+  });
+});
+
+describe('WhatsApp: emojis y enlace', () => {
+  // Una orden con TODO lo que puede llevar: detalle, nota, abonos y varios métodos.
+  const completa = () => txt({
+    notas: 'Se paga contra entrega', abonado_total: 20,
+    metodo_pago: [
+      { metodo: 'pago_movil', moneda: 'Bs', monto: 4500, datos: { banco: '0102', ci_rif: 'P1131881', telefono: '04249692172' } },
+      { metodo: 'transferencia', moneda: '$', monto: 40, datos: { nombre: 'JUAN', ci: 'V-1', banco: '0134', cuenta: '01340123012301230123' } },
+      { metodo: 'zelle', moneda: '$', monto: 10, datos: { nombre: 'ANA', email: 'ana@x.com' } },
+    ],
+  } as Partial<Orden>);
+
+  it('ningún emoji lleva el selector U+FE0F ni unión invisible: si no, WhatsApp muestra un cuadrito', () => {
+    expect(/️|‍/.test(completa())).toBe(false);
+    expect(/️|‍/.test(txt())).toBe(false);
+  });
+
+  it('la nota usa 📌 (el 🗒️ viaja con selector y se rompe)', () => {
+    expect(completa()).toContain('📌 *Nota:* Se paga contra entrega');
+    expect(completa()).not.toContain('🗒');
+  });
+
+  it('el enlace va derecho a api.whatsapp.com (nunca wa.me) y el texto vuelve exacto', () => {
+    const t = completa();
+    const url = enlaceWhatsapp(t);
+    expect(url.startsWith('https://api.whatsapp.com/send?text=')).toBe(true);
+    expect(url).not.toContain('wa.me');
+    expect(decodeURIComponent(url.split('text=')[1])).toBe(t);
   });
 });
 
