@@ -10,7 +10,7 @@
 
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
-import { retenidoSinRegistrar, type RegistroDelLibro, type RetenidoAlPagar } from '../pantalla/porRealizarExtras';
+import { archivosDeFilas, retenidoSinRegistrar, type ArchivoFactura, type RegistroDelLibro, type RetenidoAlPagar } from '../pantalla/porRealizarExtras';
 
 type Fila = Record<string, unknown>;
 const n = (v: unknown) => Number(v) || 0;
@@ -52,6 +52,19 @@ async function listRegistrosDeDocumentos(): Promise<RegistroDelLibro[]> {
     .in('doc_kind', ['oc', 'compra_directa', 'servicio_directo']).not('doc_id', 'is', null)
     .order('id').range(d, h));
   return filas.map((r) => ({ docKind: String(r.doc_kind), docId: txt(r.doc_id), direccion: String(r.direccion ?? 'recibida'), anulada: !!r.anulada }));
+}
+
+/** Los archivos de la factura de unas OC y compras directas (Realizadas y Libro), en dos lecturas. */
+export async function listArchivosDeDocumentos(docs: readonly { kind: string; id: string }[]): Promise<Map<string, ArchivoFactura[]>> {
+  const ids = (k: string) => [...new Set(docs.filter((d) => d.kind === k && d.id).map((d) => d.id))];
+  const ocIds = ids('oc'), compraIds = ids('compra_directa');
+  const [ocs, compras] = await Promise.all([
+    ocIds.length ? supabase.from('ordenes').select('id, factura_path, factura_nombre').in('id', ocIds) : Promise.resolve({ data: [], error: null }),
+    compraIds.length ? supabase.from('compras_directas').select('id, facturas, adjunto_path, adjunto_nombre').in('id', compraIds) : Promise.resolve({ data: [], error: null }),
+  ]);
+  if (ocs.error) throw ocs.error;
+  if (compras.error) throw compras.error;
+  return archivosDeFilas((ocs.data ?? []) as Fila[], (compras.data ?? []) as Fila[]);
 }
 
 /** Lo retenido al pagar que todavía no está en el libro. */

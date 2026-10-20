@@ -31,3 +31,10 @@
 .rv8-aviso-fila { display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .5rem; }
 /* Lo que necesita la base de Retenciones (paquete 2.1): solo en local, desactivado y con su marca */
 .rv8-requiere-base { border-style: dashed; opacity: .55; cursor: not-allowed; }
+
+/* La barra «🖨 Imprimir lista / PDF» del Libro (maqueta: .v7-lista-barra y .v7-imprimir-lista, con css_rv8.py) */
+.rv8-btn { display: inline-flex; align-items: center; gap: .4rem; min-height: 38px; padding: .45rem .9rem; border-radius: var(--r-md); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text); font-weight: 500; cursor: pointer; }
+.rv8-btn:disabled { opacity: .6; cursor: progress; }
+.rv8-v7-lista-barra { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: flex-end; margin: .2rem 0 .6rem; }
+.rv8-v7-imprimir-lista { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-left: auto; max-width: 520px; }
+.rv8-v7-imprimir-lista .rv8-huella { font-size: .74rem; }
