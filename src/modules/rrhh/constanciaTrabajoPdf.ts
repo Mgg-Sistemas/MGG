@@ -9,6 +9,7 @@ import { money } from '@/shared/lib/format';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { MARGEN_PDF, limiteInferiorPdf, anchoUtilPdf } from '@/shared/lib/pdfMargen';
 import type { Personal } from '@/shared/lib/types';
+import { cedulaConPuntos } from './fichaPersonal';
 
 const EMPRESA = 'Mineral Group Guayana C.A.';
 const RIF = 'J-50221930-7';
@@ -25,6 +26,29 @@ function fechaLarga(iso?: string | null): string {
 function hoyLarga(): string {
   const d = new Date();
   return `${d.getDate()} de ${MESES[d.getMonth()]} de ${d.getFullYear()}`;
+}
+
+/**
+ * El párrafo de la constancia. La cédula va con puntos de miles (27514395 → 27.514.395; con
+ * letra, V-27.514.395), como en el carnet. Se exporta aparte para probarlo sin armar el PDF.
+ */
+export function cuerpoConstancia(persona: Personal, incluirSalario = true): string {
+  const nombre = `${persona.nombre ?? ''} ${persona.apellido ?? ''}`.trim().toUpperCase();
+  const cedula = cedulaConPuntos(persona.cedula);
+  const cargo = (persona.cargo ?? '').trim();
+  const depto = (persona.departamento ?? '').trim();
+  const ingreso = fechaLarga(persona.fecha_ingreso);
+  const sueldoN = Number(persona.sueldo_base) || 0;
+
+  let cuerpo = `Por medio de la presente, ${EMPRESA}, RIF ${RIF}, hace constar que el(la) ciudadano(a) ${nombre}`;
+  cuerpo += cedula ? `, titular de la cédula de identidad N° ${cedula},` : ',';
+  cuerpo += ' presta sus servicios en esta empresa';
+  if (ingreso) cuerpo += ` desde el ${ingreso}`;
+  if (cargo) cuerpo += `, desempeñando el cargo de ${cargo}`;
+  if (depto) cuerpo += ` en el área de ${depto}`;
+  if (incluirSalario && sueldoN > 0) cuerpo += `, devengando un sueldo mensual de ${money(sueldoN)}`;
+  cuerpo += '.';
+  return cuerpo;
 }
 
 export interface ConstanciaOpts {
@@ -78,20 +102,7 @@ export async function descargarConstanciaTrabajoPdf(persona: Personal, opts: Con
 
   // ── Cuerpo ──
   const nombre = `${persona.nombre ?? ''} ${persona.apellido ?? ''}`.trim().toUpperCase();
-  const cedula = (persona.cedula ?? '').trim();
-  const cargo = (persona.cargo ?? '').trim();
-  const depto = (persona.departamento ?? '').trim();
-  const ingreso = fechaLarga(persona.fecha_ingreso);
-  const sueldoN = Number(persona.sueldo_base) || 0;
-
-  let cuerpo = `Por medio de la presente, ${EMPRESA}, RIF ${RIF}, hace constar que el(la) ciudadano(a) ${nombre}`;
-  cuerpo += cedula ? `, titular de la cédula de identidad N° ${cedula},` : ',';
-  cuerpo += ' presta sus servicios en esta empresa';
-  if (ingreso) cuerpo += ` desde el ${ingreso}`;
-  if (cargo) cuerpo += `, desempeñando el cargo de ${cargo}`;
-  if (depto) cuerpo += ` en el área de ${depto}`;
-  if (incluirSalario && sueldoN > 0) cuerpo += `, devengando un sueldo mensual de ${money(sueldoN)}`;
-  cuerpo += '.';
+  const cuerpo = cuerpoConstancia(persona, incluirSalario);
 
   const cierre = `Constancia que se expide a solicitud de la parte interesada, en ${lugar}, a los ${hoyLarga()}.`;
 
@@ -106,18 +117,14 @@ export async function descargarConstanciaTrabajoPdf(persona: Personal, opts: Con
   y += parrafo2.length * LH + 8;
   doc.setLineHeightFactor(1.15); // restaurar por si acaso
 
-  // ── Firma y sello (bloque inferior) ──
-  // Se reserva un espacio en blanco (SELLO_ESPACIO) por encima de la línea de firma
-  // para la firma manuscrita y el sello húmedo de la Jefa de Recursos Humanos.
+  // ── Firma (bloque inferior) ──
+  // Se reserva un espacio en blanco (FIRMA_ESPACIO) por encima de la línea de firma para la
+  // firma manuscrita de la Jefa de Recursos Humanos. Sin rótulos: la hoja no dice «sello»
+  // (pedido del 20-10-2026).
   const cx = PAGE_W / 2;
-  const SELLO_ESPACIO = 84;                         // alto en blanco para firma + sello
-  // Ancla el bloque cerca del pie, dejando el espacio de sello sobre la línea.
-  const fy = Math.min(limiteInferiorPdf(PAGE_H) - 52, Math.max(y + SELLO_ESPACIO + 24, PAGE_H - 170));
-
-  // Caption tenue del recuadro de sello (guía, no imprime borde).
-  doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(150);
-  doc.text('(Espacio para firma y sello)', cx, fy - SELLO_ESPACIO + 10, { align: 'center' });
-  doc.setTextColor(0);
+  const FIRMA_ESPACIO = 84;                         // alto en blanco para la firma
+  // Ancla el bloque cerca del pie, dejando el espacio de firma sobre la línea.
+  const fy = Math.min(limiteInferiorPdf(PAGE_H) - 52, Math.max(y + FIRMA_ESPACIO + 24, PAGE_H - 170));
 
   // Línea de firma.
   doc.setDrawColor(120); doc.setLineWidth(0.7);
@@ -131,7 +138,7 @@ export async function descargarConstanciaTrabajoPdf(persona: Personal, opts: Con
 
   // ── Pie ──
   doc.setFontSize(8); doc.setTextColor(120);
-  doc.text('Documento generado por el sistema · válido con sello y firma autorizada.', MARGIN, limiteInferiorPdf(PAGE_H));
+  doc.text('Documento generado por el sistema · válido con firma autorizada.', MARGIN, limiteInferiorPdf(PAGE_H));
 
   const base = `constancia-trabajo-${nombre}`.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
   previewPdfDoc(doc, `${base}.pdf`);
