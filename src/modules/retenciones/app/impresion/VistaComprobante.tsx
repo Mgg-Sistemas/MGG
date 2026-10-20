@@ -13,12 +13,14 @@
    ============================================================ */
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { toast } from '@/shared/ui/Toast';
 import { createPortal } from 'react-dom';
 import { Modal } from '@/shared/ui/Modal';
 import { FORMATO_COMPROBANTE, FORMATO_FABRICA } from './formatos';
 import { PaginaComprobante } from './HojasComprobante';
 import type { DatosComprobante, Orientacion } from './tipos';
 import { escalaPara, useAncho } from './useAncho';
+import { descargarImagenes, nombreImagenComprobante } from './imagen';
 import './hojas.css';
 import './rv8-vista-comprobante.css';
 
@@ -42,14 +44,26 @@ export function imprimirHojas(orientacion: Orientacion): void {
  * (comprobante) o se desplaza a lo largo. `previa`, si se da, reemplaza a la
  * hoja en la pantalla (la relación, cortada en páginas).
  */
-export function VistaImpresion({ titulo, hoja, marco, previa, ejemplo, onCerrar }: {
+export function VistaImpresion({ titulo, hoja, marco, previa, ejemplo, onCerrar, imagen }: {
   titulo: string; hoja: (o: Orientacion) => ReactNode; marco: boolean; previa?: (o: Orientacion) => ReactNode;
   /** Datos inventados: la marca «EJEMPLO» en pantalla y también en cada hoja impresa. */
   ejemplo?: boolean; onCerrar: () => void;
+  /** «⬇ Descargar imagen (PNG)»: el nombre del archivo y lo que se captura (una imagen por elemento). */
+  imagen?: { nombre: string; capturas: (o: Orientacion) => ReactNode[] };
 }) {
   const [orientacion, setOrientacion] = useState<Orientacion>('horizontal');
   const caja = useRef<HTMLDivElement>(null);
   const escala = escalaPara(useAncho(caja, 1056), orientacion === 'vertical' ? 816 : 1056);
+  // La imagen: las copias se montan fuera de pantalla solo al pedirla, y se capturan ya montadas
+  const capturas = useRef<HTMLDivElement>(null);
+  const [capturando, setCapturando] = useState(false);
+  useEffect(() => {
+    if (!capturando || !imagen || !capturas.current) return;
+    const els = Array.from(capturas.current.querySelectorAll<HTMLElement>('.rv8-captura'));
+    descargarImagenes(els, imagen.nombre)
+      .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo generar la imagen.', 'error'))
+      .finally(() => setCapturando(false));
+  }, [capturando, imagen]);
   // Si se cierra a mitad de una impresión, la página no queda marcada
   useEffect(() => () => { document.documentElement.classList.remove(CLASE); document.body.classList.remove(CLASE); }, []);
 
@@ -64,6 +78,11 @@ export function VistaImpresion({ titulo, hoja, marco, previa, ejemplo, onCerrar 
         ))}
       </span>
       <button type="button" className="btn btn-ghost" onClick={onCerrar}>Cerrar</button>
+      {imagen && (
+        <button type="button" className="btn btn-ghost" disabled={capturando} onClick={() => setCapturando(true)}>
+          {capturando ? 'Generando la imagen…' : '⬇ Descargar imagen (PNG)'}
+        </button>
+      )}
       <button type="button" className="btn btn-primary" onClick={() => imprimirHojas(orientacion)}>🖨 Imprimir</button>
     </>
   );
@@ -87,6 +106,17 @@ export function VistaImpresion({ titulo, hoja, marco, previa, ejemplo, onCerrar 
         )}
       </div>
       {ejemplo && <p className="rv8-vc-ejemplo" role="note">EJEMPLO · solo en local · datos inventados</p>}
+      {capturando && imagen && createPortal(
+        <div ref={capturas} className="rv8-capturas" aria-hidden="true">
+          {imagen.capturas(orientacion).map((nodo, i) => (
+            <div key={i} className="rv8-captura">
+              {nodo}
+              {ejemplo && <div className="rv8-captura-ejemplo"><span>EJEMPLO</span></div>}
+            </div>
+          ))}
+        </div>,
+        document.body,
+      )}
       {createPortal(
         <div id="retenciones-imprimir" aria-hidden="true">
           {ejemplo && <div className="rv8-marca-ejemplo"><span>EJEMPLO</span></div>}
@@ -100,5 +130,6 @@ export function VistaImpresion({ titulo, hoja, marco, previa, ejemplo, onCerrar 
 
 export function VistaComprobante({ datos, titulo, onCerrar }: { datos: DatosComprobante; titulo: string; onCerrar: () => void }) {
   const formato = FORMATO_FABRICA[FORMATO_COMPROBANTE[datos.impuesto]];
-  return <VistaImpresion titulo={titulo} marco onCerrar={onCerrar} hoja={(o) => <PaginaComprobante datos={datos} formato={formato} orientacion={o} />} />;
+  const hoja = (o: Orientacion) => <PaginaComprobante datos={datos} formato={formato} orientacion={o} />;
+  return <VistaImpresion titulo={titulo} marco onCerrar={onCerrar} hoja={hoja} imagen={{ nombre: nombreImagenComprobante(datos.impuesto, datos.numero), capturas: (o) => [hoja(o)] }} />;
 }

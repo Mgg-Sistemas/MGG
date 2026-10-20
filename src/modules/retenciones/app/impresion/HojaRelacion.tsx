@@ -29,6 +29,13 @@ function valor(c: DefColumna, f: FilaRelacion): string {
 /** Una página de la vista previa: un grupo de columnas, sus filas y si cierra con los totales. */
 export interface PaginaHoja { grupo: number; filas: number[]; conTotal: boolean }
 
+/** Una hoja por grupo de columnas, cada una con todas sus filas y sus totales (la imagen de la relación). */
+export function hojasDeRelacion(d: DatosRelacion, orientacion: Orientacion) {
+  const n = gruposRelacion(FORMATO_RELACION[d.impuesto], FORMATO_FABRICA[FORMATO_RELACION[d.impuesto]]).length;
+  const todas = d.filas.map((_, i) => i);
+  return Array.from({ length: n }, (_, g) => <HojaRelacion key={g} datos={d} orientacion={orientacion} pagina={{ grupo: g, filas: todas, conTotal: true }} />);
+}
+
 export function HojaRelacion({ datos: d, orientacion, pagina }: { datos: DatosRelacion; orientacion: Orientacion; pagina?: PaginaHoja }) {
   const formato = FORMATO_FABRICA[FORMATO_RELACION[d.impuesto]];
   const x = formato.textos, hoja = HOJA_RELACION[d.impuesto];

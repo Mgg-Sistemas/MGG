@@ -18,9 +18,11 @@ import { money } from '@/shared/lib/format';
 import { toast } from '@/shared/ui/Toast';
 import { usePuerta, type ConceptoRetencion, type RetencionPracticada } from '../../datos/puerta';
 import { datosRelacion } from '../../impresion/datosRelacion';
-import { HojaRelacion } from '../../impresion/HojaRelacion';
+import { HojaRelacion, hojasDeRelacion } from '../../impresion/HojaRelacion';
+import { nombreImagenRelacion } from '../../impresion/imagen';
 import { PreviaRelacion } from '../../impresion/PreviaRelacion';
 import { EjemploImpresion } from '../../impresion/EjemploImpresion';
+import { MarcaPaquete21 } from '../../comun/MarcaPaquete21';
 import type { Impuesto } from '../../impresion/tipos';
 import { VistaImpresion } from '../../impresion/VistaComprobante';
 import { descargarCsv, descargarExcel, tablaLibro } from '../exportarLibro';
@@ -47,7 +49,6 @@ const ATAJOS: { id: Atajo; texto: string }[] = [
   { id: 'ultimos_6', texto: 'Últimos 6 meses' }, { id: 'ultimos_12', texto: 'Últimos 12 meses' }, { id: 'rango', texto: 'Desde · hasta' },
 ];
 const IMPUESTO_RELACION: Partial<Record<Plantilla, Impuesto>> = { rel_iva: 'iva', rel_islr: 'islr', rel_isae: 'isae' };
-const MARCA_BASE = 'Requiere la base de Retenciones (paquete 2.1)';
 
 const iso = (d: Date) => d.toLocaleDateString('en-CA');
 /** El rango de un atajo («últimos N meses» cuenta el mes en curso). */
@@ -114,7 +115,7 @@ export function Reportes({ libro }: { libro: RetencionPracticada[] }) {
         {import.meta.env.DEV && (
           <>
             <h4>Propias y compartidas</h4>
-            <button type="button" className="rv8-pl rv8-requiere-base" disabled title={MARCA_BASE}>Guardar como plantilla…<small>{MARCA_BASE}</small></button>
+            <span className="rv8-con-marca"><button type="button" className="rv8-pl rv8-requiere-base" disabled>Guardar como plantilla…</button><MarcaPaquete21 /></span>
           </>
         )}
       </aside>
@@ -195,7 +196,8 @@ export function Reportes({ libro }: { libro: RetencionPracticada[] }) {
 
       {vista === 'relacion' && relacion && (
         <VistaImpresion titulo={nombre} marco={false} onCerrar={() => setVista(null)}
-          hoja={(o) => <HojaRelacion datos={relacion} orientacion={o} />} previa={(o) => <PreviaRelacion datos={relacion} orientacion={o} />} />
+          hoja={(o) => <HojaRelacion datos={relacion} orientacion={o} />} previa={(o) => <PreviaRelacion datos={relacion} orientacion={o} />}
+          imagen={{ nombre: nombreImagenRelacion(relacion.impuesto, relacion.desde), capturas: (o) => hojasDeRelacion(relacion, o) }} />
       )}
       {analisis && (
         <Modal title={`Análisis · ${analisis.nombre}`} size="xl" onClose={() => setAnalisis(null)}>
