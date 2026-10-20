@@ -78,3 +78,48 @@ export function lineaCambioProveedor(h: Evento, resolver: (id: string) => Provee
   const motivo = str(h.motivo);
   return ` · de ${ant} → ${nue}${motivo ? ` · ${motivo}` : ''}`;
 }
+
+export interface DatosReaperturaOc {
+  /** Proveedor con el que estaba la OC (el que se deja de lado). */
+  anterior: ProveedorRef | null;
+  motivo?: string | null;
+  /** Estado desde el que se reabre («confirmada_metodo» = cambio de proveedor). */
+  desde?: string | null;
+  confirmadaPor?: string | null;
+  confirmadaEn?: string | null;
+  total?: number | null;
+  moneda?: string | null;
+}
+
+/**
+ * Campos del evento «oc_reabierta» cuando se vuelve a cotizar para CAMBIAR DE PROVEEDOR desde
+ * «indicar método de pago»: el proveedor nuevo aún no existe (se escoge en la nueva cotización),
+ * así que solo se guarda el anterior; la nueva elección queda en el evento «OC creada» que sigue.
+ */
+export function extrasReaperturaOc(d: DatosReaperturaOc): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    proveedorAnteriorId: d.anterior?.id ?? null,
+    proveedorAnterior: textoProveedor(d.anterior),
+    cambio_proveedor: true,
+  };
+  const motivo = (d.motivo ?? '').trim();
+  if (motivo) out.motivo = motivo;
+  if (d.desde) out.desde = d.desde;
+  if (d.confirmadaPor) out.confirmada_por = d.confirmadaPor;
+  if (d.confirmadaEn) out.confirmada_en = d.confirmadaEn;
+  if (d.total != null) out.total = d.total;
+  if (d.moneda) out.moneda = d.moneda;
+  return out;
+}
+
+/**
+ * Línea de tiempo del evento «oc_reabierta» con cambio de proveedor:
+ * « · proveedor anterior: A · motivo». '' si no es un cambio de proveedor (p. ej. «Modificar OC»).
+ */
+export function lineaReaperturaOc(h: Evento, resolver: (id: string) => ProveedorRef | null): string {
+  if (!h.cambio_proveedor) return '';
+  const id = str(h.proveedorAnteriorId);
+  const ant = str(h.proveedorAnterior) || (id ? textoProveedor(resolver(id)) : '');
+  const motivo = str(h.motivo);
+  return `${ant && ant !== '—' ? ` · proveedor anterior: ${ant}` : ''}${motivo ? ` · ${motivo}` : ''}`;
+}
