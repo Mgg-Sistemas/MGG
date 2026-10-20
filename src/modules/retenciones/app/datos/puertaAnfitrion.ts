@@ -8,7 +8,7 @@
 
 import { listRetencionesHechas, listRetencionesPendientes } from '../../retenciones.repository';
 import {
-  anularRetencion, getConfigRetencion, listConceptos, listRetenciones, registrarRetencion,
+  adjuntarComprobante, anularRetencion, getConfigRetencion, listConceptos, listRetenciones, registrarRetencion,
 } from '../../retencionesFiscal.repository';
 import type { PuertaRetenciones } from './puerta';
 
@@ -20,5 +20,6 @@ export const puertaAnfitrion: PuertaRetenciones = {
   config: () => getConfigRetencion(),
   conceptos: (soloActivos) => listConceptos(soloActivos),
   registrar: (input) => registrarRetencion(input),
+  adjuntarComprobante: (id, archivo) => adjuntarComprobante(id, archivo),
   anular: (id, motivo) => anularRetencion(id, motivo),
 };

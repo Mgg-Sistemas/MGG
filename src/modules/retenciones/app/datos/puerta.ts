@@ -44,6 +44,8 @@ export interface PuertaRetenciones {
   config(): Promise<ConfigRetencion>;
   conceptos(soloActivos?: boolean): Promise<ConceptoRetencion[]>;
   registrar(input: NuevaRetencion): Promise<RetencionPracticada>;
+  /** Adjunta el comprobante (PDF o imagen) a una retención ya registrada. */
+  adjuntarComprobante(id: string, archivo: File): Promise<void>;
   anular(id: string, motivo: string): Promise<void>;
 }
 

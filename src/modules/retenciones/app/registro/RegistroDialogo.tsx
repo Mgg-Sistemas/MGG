@@ -19,6 +19,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { toast } from '@/shared/ui/Toast';
 import { parseDecimal } from '@/shared/ui/DecimalInput';
 import { money } from '@/shared/lib/format';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -89,6 +90,7 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada }: Prop
   const [tocado, setTocado] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
+  const [archivo, setArchivo] = useState<File | null>(null);
 
   const delImpuesto = conceptos.filter((c) => c.tipo === imp);
   const iva = parseDecimal(ivaTxt);
@@ -101,6 +103,8 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada }: Prop
     fecha: !fecha ? 'Indique la fecha de la factura.' : fecha > hoyIso() ? 'La fecha de la factura no puede ser posterior a hoy.' : null,
     iva: imp === 'iva' && (iva == null || iva < 0) ? 'Indique el IVA de la factura (0 si no tiene).' : null,
     base: imp === 'iva' && (base == null || base <= 0) ? 'Indique la base imponible de la factura.' : null,
+    // La misma regla que adjuntarComprobante: PDF o imagen.
+    archivo: archivo && archivo.type && archivo.type !== 'application/pdf' && !archivo.type.startsWith('image/') ? 'El comprobante debe ser PDF o imagen.' : null,
   };
   lineas.forEach((l, i) => {
     if (!conLineas) return;
@@ -154,6 +158,7 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada }: Prop
       actor: user?.email ?? 'sistema', actorName: appUser?.nombre ?? null,
     };
     const hechas: string[] = [];
+    const sinAdjunto: string[] = [];
     try {
       for (let i = 0; i < resultados.length; i++) {
         const r = resultados[i];
@@ -176,9 +181,12 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada }: Prop
             baseImponible: Math.round(r.base * 100) / 100, porcentaje: r.pct ?? 0, sustraendo: r.sustraendo, montoRetenido: r.magnitud,
           };
         }
-        await puerta.registrar(input);
+        const registrada = await puerta.registrar(input);
         hechas.push(imp === 'iva' ? 'IVA' : `línea ${i + 1}`);
+        // Como hoy: el comprobante se adjunta después; si no sube, la retención queda y se avisa.
+        if (archivo) await puerta.adjuntarComprobante(registrada.id, archivo).catch(() => sinAdjunto.push(hechas[hechas.length - 1]));
       }
+      if (sinAdjunto.length) toast(`La retención quedó, pero el adjunto no subió (${sinAdjunto.join(', ')}).`, 'error');
       onRegistrada();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'No se pudo registrar.';
@@ -242,6 +250,12 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada }: Prop
                 <input className="texto" type="date" value={fecha} max={hoyIso()} onChange={(e) => setFecha(e.target.value)} aria-invalid={!!err('fecha')} />
                 {fecha && !err('fecha') && <small className="muted">Período {periodoDe(fecha)}{imp === 'iva' ? ` · quincena ${quincenaDe(fecha)}` : ''}</small>}
                 {err('fecha') && <small className="v8-reg-error">{err('fecha')}</small>}
+              </label>
+              <label className="campo">
+                <span>Comprobante (PDF o imagen)</span>
+                <input className="texto" type="file" accept="application/pdf,image/*" onChange={(e) => setArchivo(e.target.files?.[0] ?? null)} aria-invalid={!!errores.archivo} />
+                {archivo && !errores.archivo && <small className="muted">{archivo.name}</small>}
+                {errores.archivo && <small className="v8-reg-error">{errores.archivo}</small>}
               </label>
               {imp === 'iva' && (
                 <>
