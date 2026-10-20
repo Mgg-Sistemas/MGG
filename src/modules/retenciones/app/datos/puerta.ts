@@ -17,6 +17,7 @@ import type { RetencionItem } from '../../retenciones.repository';
 import type { FiltroRetenciones, NuevaRetencion, RetencionPracticada } from '../../retencionesFiscal.repository';
 import type { ConceptoRetencion, ConfigRetencion } from '../../retencionesCalculo';
 import type { ArchivoFactura, RetenidoAlPagar } from '../pantalla/porRealizarExtras';
+import type { Declaracion, PasoInicial, PeriodoRetencion } from './periodos';
 
 export type { RetencionItem, RetencionPracticada, FiltroRetenciones, NuevaRetencion, ConfigRetencion, ConceptoRetencion, ArchivoFactura, RetenidoAlPagar };
 
@@ -65,6 +66,18 @@ export interface PuertaRetenciones {
   archivosDeDocumentos?(docs: { kind: string; id: string }[]): Promise<Map<string, ArchivoFactura[]>>;
   /** «🖨 Imprimir lista / PDF» del Libro: lo filtrado, con el PDF de hoy. Sin él, el botón no se muestra. */
   imprimirLibro?(filas: RetencionPracticada[], rango: { desde: string; hasta: string }): Promise<void>;
+  /** Los períodos de declaración (retencion_periodos_v); null si la base de Retenciones no los tiene. */
+  periodos?(): Promise<PeriodoRetencion[] | null>;
+  /** La fecha de corte del paso inicial de cada impuesto (null = falta). */
+  pasoInicial?(impuestos: readonly string[]): Promise<Record<string, string | null>>;
+  /** Marca el período como declarado; devuelve cuántas retenciones pasaron a «Declarada». */
+  declararPeriodo?(id: string, d: Declaracion): Promise<number>;
+  /** Reabre un período declarado, con motivo; devuelve cuántas volvieron a «Registrada». */
+  reabrirPeriodo?(id: string, motivo: string): Promise<number>;
+  /** Guarda el paso inicial de un impuesto y genera sus períodos. */
+  guardarPasoInicial?(tipo: string, p: PasoInicial): Promise<void>;
+  /** Días antes del vencimiento en que una declaración pasa a «por vencer». */
+  umbralDeclaraciones?(): Promise<number>;
   /** La dirección del proveedor, para el comprobante impreso (proveedores.direccion). Sin él, la hoja la deja en blanco. */
   direccionProveedor?(id: string): Promise<string>;
 }
