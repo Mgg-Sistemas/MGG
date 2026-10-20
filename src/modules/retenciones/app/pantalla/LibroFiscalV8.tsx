@@ -7,13 +7,17 @@
    al N° …» o «Reemplazada por el N° …» (v6PintarLibro, l. 4692-4720). «Anular»
    aparece solo si la pantalla recibe con qué anular. «📎 Factura» lee el
    archivo de Compras por la puerta. «Por imprimir / Impreso», «Historial» y el
-   aviso de IVA cambiado esperan a sus datos y no se muestran.
+   aviso de IVA cambiado esperan a sus datos y no se muestran. Arriba, la barra
+   «🖨 Imprimir lista / PDF» (v7BarraImprimirLista) con CSV y Excel de lo filtrado.
    ============================================================ */
 
 import { useMemo, useState } from 'react';
+import { toast } from '@/shared/ui/Toast';
 import { money } from '@/shared/lib/format';
 import { paginar, TAMANO_PAGINA_INICIAL } from '../listas/paginador';
-import type { RetencionPracticada } from '../datos/puerta';
+import { usePuerta, type RetencionPracticada } from '../datos/puerta';
+import { descargarCsv, descargarExcel, rangoDeFilas, tablaLibro } from './exportarLibro';
+import './rv8-por-realizar.css';
 import { AccionesRetencion } from './AccionesRetencion';
 import { BotonFactura } from './BotonFactura';
 import { BarraLista } from './BarraLista';
@@ -44,6 +48,21 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar }: Props) {
   const { filas, pagina: pag } = paginar(xs, pagina, tamano);
   const archivos = useArchivosFactura(useMemo(() => filas.map((r) => ({ kind: r.docKind, id: r.docId })), [filas]));
   const cambiar = (x: Partial<FiltroLibro>) => { setF((v) => ({ ...v, ...x })); setPagina(1); };
+  const puerta = usePuerta();
+  const [imprimiendo, setImprimiendo] = useState(false);
+  const rango = rangoDeFilas(xs);
+  const nombre = rango ? `libro-retenciones-${rango.desde}-a-${rango.hasta}` : 'libro-retenciones';
+  const imprimir = () => {
+    if (!puerta.imprimirLibro || !rango) return;
+    setImprimiendo(true);
+    puerta.imprimirLibro(xs, rango)
+      .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo generar el libro en PDF.', 'error'))
+      .finally(() => setImprimiendo(false));
+  };
+  const excel = () => {
+    descargarExcel(tablaLibro(xs), `Libro de retenciones · ${xs.length} retención(es)`, `${nombre}.xlsx`)
+      .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel.', 'error'));
+  };
 
   return (
     <>
@@ -60,6 +79,16 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar }: Props) {
         onOrden={(v) => cambiar({ orden: v as OrdenLista })}
         onQuitar={() => cambiar({ q: '', impuesto: '', mes: '', estado: '' })}
       />
+      <div className="rv8-v7-lista-barra">
+        <div className="rv8-v7-imprimir-lista">
+          {puerta.imprimirLibro && (
+            <button type="button" className="rv8-btn" disabled={!xs.length || imprimiendo} onClick={imprimir}>🖨 Imprimir lista / PDF</button>
+          )}
+          <button type="button" className="rv8-btn" disabled={!xs.length} onClick={() => descargarCsv(tablaLibro(xs), `${nombre}.csv`)}>CSV</button>
+          <button type="button" className="rv8-btn" disabled={!xs.length} onClick={excel}>Excel</button>
+          <span className="rv8-huella">Sale lo que muestra la lista, con sus filtros. Cada retención se imprime como su comprobante, con «🖨 Comprobante».</span>
+        </div>
+      </div>
       <div className="lista-sis v8-libro">
         <div className="fila-sis cab">
           <span>Fecha</span><span>Comprobante</span><span>Impuesto</span><span>Proveedor</span><span>Factura</span><span className="n">Retenido</span><span>Estado</span><span />
