@@ -3,13 +3,13 @@
 
    El dlg-perfil de la maqueta (v8, l. 1469), con sus dos pestañas (v8-14,
    punto 4): «Perfil fiscal» (tipo de contribuyente, tipo de persona y
-   residencia con su categoría, actividad, licencia con su historial) y
-   «Retenciones» (el análisis del proveedor con su gráfica y su tendencia).
-   El perfil vive en la base de Retenciones (paquete 05): hasta que exista, el
-   diálogo no aparece en producción; en local se ve con su estructura, sin
-   datos guardados y con la marca 2.1 en lo que espera a la base. Las piezas
-   que la maqueta pide y la base todavía no tiene (varias actividades con su
-   «hasta»; tipo, emisión y vigencia de la licencia) van desactivadas.
+   residencia con su categoría, sus actividades con la principal y su «hasta»,
+   la licencia con tipo, emisión, vigencia, aviso e historial) y «Retenciones»
+   (el análisis del proveedor con su gráfica y su tendencia).
+   El perfil vive en la base de Retenciones: paquete 05 de la v2.2 y, en espera,
+   v8p-03 (licencias y sus tipos), v8p-04 (actividades) y v8p-05 (vista y
+   avisos). Hasta que existan, el diálogo no aparece en producción; en local se
+   edita sin guardar y «Guardar perfil» va desactivado con la marca 2.1.
    ============================================================ */
 
 import { useMemo, useRef, useState, type KeyboardEvent } from 'react';
@@ -26,9 +26,15 @@ import {
   type AtajoPerfil, type BorradorPerfil, type CambioLicencia, type PerfilProveedor, type Residencia, type TipoContribuyente, type TipoPersona,
 } from './perfilProveedor';
 import '../pantalla/reportes/rv8-analisis.css';
+import {
+  UMBRAL_LICENCIAS, anadirActividad, cerrarActividad, elegirPrincipal, estadoLicencia, principalDe, validarLicencia, venceDesdeEmision,
+  type ActividadProveedor,
+} from './actividadesLicencia';
+import { fechaVe } from '../impresion/numeros';
 import './rv8-perfil.css';
 
-const FALTA_EN_BASE = 'Pendiente en la base de Retenciones: no está en el paquete 2.1';
+/** Un tipo de licencia (retencion_licencia_tipos). */
+export interface TipoLicencia { id: string; nombre: string; activo: boolean; vigenciaMeses: number | null }
 
 export interface ProveedorPerfil {
   id: string;
@@ -45,6 +51,18 @@ export interface PropsPerfil {
   perfil?: PerfilProveedor | null;
   /** Los cambios del número de licencia (retencion_licencia_historial), el más reciente primero. */
   historialLicencia?: CambioLicencia[];
+  /** Sus actividades (retencion_proveedor_actividades, v8p-04). */
+  actividades?: ActividadProveedor[];
+  /** Las actividades que se pueden añadir (el catálogo del ISAE). Sin él, se escribe el código. */
+  catalogoActividades?: { codigo: string; texto: string }[];
+  /** El catálogo «Tipos de licencia» (retencion_licencia_tipos, v8p-03). */
+  tiposLicencia?: TipoLicencia[];
+  /** Tipo, emisión y vigencia de su licencia (retencion_proveedor_licencias, v8p-03). */
+  licencia?: { tipoId: string | null; emision: string | null; vence: string | null } | null;
+  /** Días de aviso antes del vencimiento (retenciones.avisos.umbrales.licencias). */
+  umbralLicencias?: number;
+  /** «Ver en Vencimientos». */
+  onVerVencimientos?: () => void;
   /** Admin o escritura en Retenciones (la política «retencion_perfil update permiso»). */
   puedeEditar?: boolean;
   /** Para la pestaña «Retenciones»: las retenciones del libro. */
@@ -62,7 +80,33 @@ export function PerfilProveedorDialogo(props: PropsPerfil) {
   return <Dialogo {...props} />;
 }
 
-function Dialogo({ proveedor, perfil = null, historialLicencia = [], puedeEditar = false, libro = [], pestanaInicial = 'perfil', onCorregirProveedor, onAbrirReportes, onCerrar }: PropsPerfil) {
+function Dialogo({
+  proveedor, perfil = null, historialLicencia = [], actividades = [], catalogoActividades = [], tiposLicencia = [], licencia = null,
+  umbralLicencias = UMBRAL_LICENCIAS, onVerVencimientos, puedeEditar = false, libro = [], pestanaInicial = 'perfil', onCorregirProveedor, onAbrirReportes, onCerrar,
+}: PropsPerfil) {
+  const hoyIso = new Date().toLocaleDateString('en-CA');
+  const [acts, setActsBase] = useState<ActividadProveedor[]>(actividades);
+  const [nuevaAct, setNuevaAct] = useState('');
+  const [errorAct, setErrorAct] = useState<string | null>(null);
+  const [cerrando, setCerrando] = useState<number | null>(null);
+  const [hastaNueva, setHastaNueva] = useState('');
+  const setActs = (xs: ActividadProveedor[]) => { setActsBase(xs); setErrorAct(null); };
+  const anadir = () => {
+    const r = anadirActividad(acts, nuevaAct, hoyIso);
+    if (!r.ok) { setErrorAct(r.error); return; }
+    setActs(r.actividades); setNuevaAct('');
+  };
+  const catalogo = new Map(catalogoActividades.map((c) => [c.codigo, c.texto]));
+  const textoActividad = (c: string) => (c === SIN_ACTIVIDAD_MUNICIPIO ? 'Sin establecimiento en el municipio · No aplica' : catalogo.get(c) ?? c);
+  const [lic, setLic] = useState({ tipoId: licencia?.tipoId ?? '', emision: licencia?.emision ?? '', vence: licencia?.vence ?? '' });
+  const cambiarLic = (c: Partial<typeof lic>) => setLic((x) => {
+    const y = { ...x, ...c };
+    // La vigencia se propone desde la emisión con los meses del tipo, solo si está vacía
+    if (!y.vence && (c.emision || c.tipoId)) y.vence = venceDesdeEmision(y.emision, tiposLicencia.find((t) => t.id === y.tipoId)?.vigenciaMeses ?? null) ?? '';
+    return y;
+  });
+  const estLic = estadoLicencia(lic.vence || null, hoyIso, umbralLicencias);
+  const errorLic = validarLicencia(lic.emision, lic.vence);
   const [pestana, setPestana] = useState(pestanaInicial);
   const tabPerfil = useRef<HTMLButtonElement>(null);
   const tabRet = useRef<HTMLButtonElement>(null);
@@ -75,7 +119,7 @@ function Dialogo({ proveedor, perfil = null, historialLicencia = [], puedeEditar
   const persona = personaDe(tipo, residencia);
   const cat = textoCategoria(persona);
   const sug = sugerenciaRif(proveedor.rif);
-  const errores = validarPerfil({ ...b, persona });
+  const errores = validarPerfil({ ...b, persona, actividadCodigo: principalDe(acts)?.codigo ?? '' });
   const cambiar = (c: Partial<BorradorPerfil>) => setB((x) => ({ ...x, ...c }));
 
   const ir = (p: 'perfil' | 'retenciones') => { setPestana(p); (p === 'perfil' ? tabPerfil : tabRet).current?.focus(); };
@@ -144,32 +188,69 @@ function Dialogo({ proveedor, perfil = null, historialLicencia = [], puedeEditar
             {cat.categoria ? <>Categoría (resulta de lo anterior): <b>{cat.categoria}</b>{cat.falta && <>. <span className="rv8-pf-falta">{cat.falta}</span></>}</> : SIN_CATEGORIA}
           </p>
 
-          <div className="rv8-pf-campo"><span>Actividad económica (ISAE)</span>
-            <div className="rv8-pf-fila">
-              <input className="texto" value={b.actividadCodigo === SIN_ACTIVIDAD_MUNICIPIO ? '' : b.actividadCodigo} placeholder="Código, como 3.2.14.04"
-                aria-label="Código de la actividad" disabled={!editable || b.actividadCodigo === SIN_ACTIVIDAD_MUNICIPIO}
-                onChange={(e) => cambiar({ actividadCodigo: e.target.value })} />
-              <label><input type="checkbox" checked={b.actividadCodigo === SIN_ACTIVIDAD_MUNICIPIO} disabled={!editable}
-                onChange={(e) => cambiar({ actividadCodigo: e.target.checked ? SIN_ACTIVIDAD_MUNICIPIO : '' })} /> Sin establecimiento en el municipio (No aplica)</label>
-            </div>
-            <span className="rv8-con-marca">
-              <button type="button" className="btn btn-ghost" disabled>Añadir otra actividad…</button><MarcaPaquete21 texto={FALTA_EN_BASE} />
-            </span>
-            <span className="rv8-pf-huella">Sin actividad: el ISAE queda «Por definir».</span>
+          <div className="rv8-pf-campo"><span>Actividades económicas (ISAE)</span>
+            {acts.length ? (
+              <div className="rv8-pf-acts">
+                {acts.map((x, i) => (
+                  <div key={`${x.codigo}-${i}`} className={`rv8-pf-act${x.hasta && x.hasta < hoyIso ? ' vencida' : ''}`}>
+                    <label><input type="radio" name="pf-principal" checked={x.principal} disabled={!editable || !!x.hasta} onChange={() => setActs(elegirPrincipal(acts, i))} /> Principal</label>
+                    <span>{textoActividad(x.codigo)}{x.hasta ? ` · hasta ${fechaVe(x.hasta)}` : ''}</span>
+                    {editable && !x.hasta ? (
+                      cerrando === i ? (
+                        <span className="rv8-pf-fila">
+                          <input className="fecha" type="date" aria-label="Fecha «hasta» de la actividad" value={hastaNueva} onChange={(e) => setHastaNueva(e.target.value)} />
+                          <button type="button" className="mini" disabled={!hastaNueva} onClick={() => { setActs(cerrarActividad(acts, i, hastaNueva)); setCerrando(null); }}>Cerrar</button>
+                          <button type="button" className="mini" onClick={() => setCerrando(null)}>Cancelar</button>
+                        </span>
+                      ) : <button type="button" className="mini" onClick={() => { setCerrando(i); setHastaNueva(hoyIso); }}>Cerrar (fecha «hasta»)</button>
+                    ) : <span />}
+                  </div>
+                ))}
+              </div>
+            ) : <p className="rv8-pf-huella">Sin actividades: el ISAE queda «Por definir».</p>}
+            {editable && (
+              <span className="rv8-pf-fila">
+                {catalogoActividades.length ? (
+                  <select className="select" aria-label="Añadir actividad" value={nuevaAct} onChange={(e) => setNuevaAct(e.target.value)}>
+                    <option value="">Añadir actividad…</option>
+                    {catalogoActividades.map((c) => <option key={c.codigo} value={c.codigo}>{c.texto}</option>)}
+                    <option value={SIN_ACTIVIDAD_MUNICIPIO}>Sin establecimiento en el municipio</option>
+                  </select>
+                ) : (
+                  <input className="texto" aria-label="Añadir actividad (código)" placeholder="Código, como 3.2.14.04" value={nuevaAct} onChange={(e) => setNuevaAct(e.target.value)} />
+                )}
+                <button type="button" className="btn btn-ghost" disabled={!nuevaAct} onClick={anadir}>Añadir</button>
+              </span>
+            )}
+            {errorAct && <span className="rv8-pf-falta" role="alert">{errorAct}</span>}
+            <span className="rv8-pf-huella">En el registro se propone la última usada; si no hay, la principal. «Sin establecimiento en el municipio»: No aplica.</span>
           </div>
 
           <div className="rv8-pf-caja"><b style={{ fontSize: '.85rem' }}>Licencia de actividad económica</b>
             <label className="rv8-pf-campo"><span>Número (de la ficha del proveedor)</span>
               <input className="texto" value={b.licenciaActividad} disabled={!editable} onChange={(e) => cambiar({ licenciaActividad: e.target.value })} />
             </label>
-            <p className="rv8-pf-huella">Dato compartido con Compras. {historialLicencia.length ? 'Cambios del número:' : 'Sin cambios del número registrados.'}</p>
+            <p className="rv8-pf-huella">Dato compartido con Compras. {historialLicencia.length ? 'Cambios:' : 'Sin cambios registrados.'}</p>
             {historialLicencia.length > 0 && <ul className="rv8-pf-historial">{historialLicencia.map((c, i) => <li key={i}>{textoLicenciaHistorial(c)}</li>)}</ul>}
             <div className="rv8-pf-fila">
-              <label className="rv8-pf-campo"><span>Tipo</span><select className="select" disabled><option>No registrado</option></select></label>
-              <label className="rv8-pf-campo"><span>Emisión</span><input className="fecha" type="date" disabled /></label>
-              <label className="rv8-pf-campo"><span>Vigencia</span><input className="fecha" type="date" disabled /></label>
-              <MarcaPaquete21 texto={FALTA_EN_BASE} />
+              <label className="rv8-pf-campo"><span>Tipo</span>
+                <select className="select" value={lic.tipoId} disabled={!editable} onChange={(e) => cambiarLic({ tipoId: e.target.value })}>
+                  <option value="">No registrado</option>
+                  {tiposLicencia.filter((t) => t.activo || t.id === lic.tipoId).map((t) => <option key={t.id} value={t.id}>{t.nombre}</option>)}
+                </select>
+              </label>
+              <label className="rv8-pf-campo"><span>Emisión</span><input className="fecha" type="date" value={lic.emision} disabled={!editable} onChange={(e) => cambiarLic({ emision: e.target.value })} /></label>
+              <label className="rv8-pf-campo"><span>Vigencia</span><input className="fecha" type="date" value={lic.vence} disabled={!editable} onChange={(e) => cambiarLic({ vence: e.target.value })} /></label>
             </div>
+            <div className="rv8-pf-campo"><span>Aviso de vencimiento</span>
+              <span className="rv8-pf-fila">
+                <span className={`rv8-pf-estado e-${estLic.estado}`}>{estLic.texto}</span>
+                {lic.vence && <span className="rv8-pf-huella">Aviso con {umbralLicencias} días.</span>}
+                {onVerVencimientos && <button type="button" className="mini" onClick={onVerVencimientos}>Ver en Vencimientos</button>}
+              </span>
+            </div>
+            {estLic.estado === 'vencida' && <p className="rv8-pf-nota alerta">Licencia vencida el {fechaVe(lic.vence)}. Solo es un aviso: no bloquea el registro.</p>}
+            {errorLic && <p className="rv8-pf-falta" role="alert">{errorLic}</p>}
           </div>
 
           {errores.length > 0 && <p className="rv8-pf-nota alerta" role="alert">{errores.join(' ')}</p>}

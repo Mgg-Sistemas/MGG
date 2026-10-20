@@ -34,3 +34,14 @@
   .rv8-pf-ficha { grid-template-columns: 1fr; }
   .rv8-pf-fila > * { flex: 1 1 100%; }
 }
+/* Las actividades (v7-estilos.css: .actividades-perfil y .act) y el estado de la licencia (.v7-lic-estado, sus pills) */
+.rv8-pf-acts { display: flex; flex-direction: column; gap: .3rem; }
+.rv8-pf-act { display: grid; grid-template-columns: max-content 1fr max-content; gap: .6rem; align-items: center; font-size: .82rem; border-bottom: 1px solid var(--border); padding: .2rem 0; }
+.rv8-pf-act.vencida { color: var(--text-muted); }
+.rv8-pf-estado { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .74rem; font-weight: 600; border: 1px solid var(--border); }
+.rv8-pf-estado.e-vencida { color: var(--danger, var(--warning)); border-color: currentColor; }
+.rv8-pf-estado.e-por_vencer { color: var(--warning); border-color: currentColor; }
+.rv8-pf-estado.e-al_dia { color: var(--success, var(--info)); border-color: currentColor; }
+@media (max-width: 640px) {
+  .rv8-pf-act { grid-template-columns: 1fr; }
+}
