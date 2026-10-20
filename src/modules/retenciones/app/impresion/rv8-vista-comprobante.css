@@ -9,3 +9,7 @@
 .rv8-vc-vertical { width: 816px; height: 1055px; }
 .rv8-vc-orientacion { display: inline-flex; gap: .4rem; align-items: center; margin-right: auto; font-size: .82rem; color: var(--text-muted); }
 .rv8-vc-orientacion .btn[aria-pressed="true"] { color: var(--text); border-color: var(--primary-2); }
+/* La relación: a lo largo, con el ancho de su hoja (las filas siguen en las hojas siguientes al imprimir) */
+.rv8-vc-larga { position: relative; background: #fff; }
+.rv8-vc-larga-horizontal { width: 1056px; }
+.rv8-vc-larga-vertical { width: 816px; }
