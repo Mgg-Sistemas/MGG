@@ -17,9 +17,12 @@ import { LibroFiscalV8 } from './LibroFiscalV8';
 import { PorRealizar } from './PorRealizar';
 import { Realizadas } from './Realizadas';
 import { VistaAgrupada } from '../agrupada/VistaAgrupada';
+import { impuestosActivos } from '../agrupada/modeloAgrupada';
+import { CabeceraLocal, PeriodoEnCurso } from './CabeceraLocal';
 import './principal.css';
+import './rv8-principal.css';
 
-type Seccion = 'pendientes' | 'agrupada' | 'hechas' | 'libro';
+type Seccion = 'pendientes' | 'hechas' | 'libro' | 'agrupada';
 
 const DESCRIPCION: Record<Seccion, string> = {
   pendientes: 'OC y compras con retenciones pendientes de registrar.',
@@ -55,6 +58,7 @@ export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar }: P
   }, [puerta]);
   useEffect(() => { cargar(); }, [cargar]);
 
+  const impuestos = useMemo(() => (datos ? impuestosActivos(datos.config, datos.conceptos, datos.libro) : []), [datos]);
   const docs = useMemo(
     () => (datos ? documentosPendientes(datos.pendientes, datos.libro, (it) => impuestosQueAplican(it, datos.config, datos.conceptos)) : []),
     [datos],
@@ -68,14 +72,18 @@ export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar }: P
           <p>{DESCRIPCION[sec]}</p>
         </div>
         <div className="cabeza-acciones">
+          {import.meta.env.DEV && datos && <CabeceraLocal impuestos={impuestos} />}
           {onParametros && <button type="button" className="btn btn-ghost" onClick={onParametros}>⚙ Parámetros</button>}
           <nav className="view-toggle" aria-label="Pantallas del módulo">
             <button type="button" aria-current={sec === 'pendientes' ? 'page' : undefined} onClick={() => setSec('pendientes')}>
               Por realizar{datos ? ` (${docs.length})` : ''}
             </button>
-            <button type="button" aria-current={sec === 'agrupada' ? 'page' : undefined} onClick={() => setSec('agrupada')}>Vista agrupada</button>
             <button type="button" aria-current={sec === 'hechas' ? 'page' : undefined} onClick={() => setSec('hechas')}>Realizadas</button>
             <button type="button" aria-current={sec === 'libro' ? 'page' : undefined} onClick={() => setSec('libro')}>📒 Libro fiscal</button>
+            <button type="button" aria-current={sec === 'agrupada' ? 'page' : undefined} onClick={() => setSec('agrupada')}>Vista agrupada</button>
+            {/* Períodos y Reportes esperan a la base de Retenciones: solo en local, deshabilitados. */}
+            {import.meta.env.DEV && <button type="button" disabled title="Requiere la base de Retenciones (paquete 2.1)">Períodos <span className="rv8-badge-n" /></button>}
+            {import.meta.env.DEV && <button type="button" disabled title="Requiere la base de Retenciones (paquete 2.1)">Reportes</button>}
           </nav>
         </div>
       </header>
@@ -86,6 +94,8 @@ export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar }: P
         </div>
       )}
       {!error && !datos && <p className="muted" role="status">Cargando…</p>}
+
+      {import.meta.env.DEV && datos && <PeriodoEnCurso impuestos={impuestos} />}
 
       {datos && sec === 'pendientes' && <PorRealizar docs={docs} onRegistrar={onRegistrar} />}
 
