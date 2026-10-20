@@ -10,6 +10,7 @@ import { ultimoHorometroEquipo, consumoPorEquipo } from '@/modules/combustible/t
 import { norm } from '@/shared/lib/texto';
 import { pathsDocumentosDeEquipo, borrarArchivosDocumentos } from './maquinariaDocumentos.repository';
 import { pathsFotosDeEquipo, borrarArchivosFotosOrden } from './osFotos.repository';
+import { pathsFotosEquipo } from './fotosEquipo.repository';
 
 export interface MaquinariaEquipo {
   id: string;
@@ -139,11 +140,13 @@ export async function eliminarEquipo(id: string): Promise<void> {
   const archivos = await pathsDocumentosDeEquipo(id).catch(() => [] as string[]);
   // Igual con las fotos de sus órdenes de servicio (bucket maquinaria-os-fotos).
   const fotosOs = await pathsFotosDeEquipo(id).catch(() => [] as string[]);
+  // Y las fotos del equipo (tabla maquinaria_fotos, mismo bucket equipos-docs, 16-10-2026).
+  const fotosEq = await pathsFotosEquipo(id).catch(() => [] as string[]);
   // Borra la bitácora del equipo (mantenimientos) antes que el equipo.
   await supabase.from('maquinaria_mantenimientos').delete().eq('equipo_id', id);
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
-  await borrarArchivosDocumentos(archivos);
+  await borrarArchivosDocumentos([...archivos, ...fotosEq]);
   await borrarArchivosFotosOrden(fotosOs);
 }
 

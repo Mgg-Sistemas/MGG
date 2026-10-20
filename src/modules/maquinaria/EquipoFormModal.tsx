@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
-import { listActivosMaquinaria } from './maquinaria.repository';
+import { listActivosMaquinaria, addCatalogoMaquinaria } from './maquinaria.repository';
+import { gruposVisibles } from './flotaMantenimiento';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
-import { addEquipo, updateEquipo, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo, type MaquinariaEquipoInput } from './maquinariaEquipos.repository';
+import { addEquipo, updateEquipo, type MaquinariaEquipo, type MaquinariaEquipoInput } from './maquinariaEquipos.repository';
 
 const COMBUSTIBLES = ['GASOIL', 'GASOLINA', 'GAS', 'ELÉCTRICO', 'N/A'];
 
@@ -48,6 +49,8 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   const [tipos, setTipos] = useState<string[]>([]);
   const [props, setProps] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
+  // Grupos de Servicio de Mantenimiento: los de siempre + el catálogo; se pueden crear en línea (16-10-2026).
+  const [gruposCat, setGruposCat] = useState<string[]>([]);
   const [combEquipos, setCombEquipos] = useState<string[]>([]);        // solo activos: lo que ofrece el selector
   const [combEquiposTodos, setCombEquiposTodos] = useState<string[]>([]); // todos: para saber si el vinculo existe
   const [ubicaciones, setUbicaciones] = useState<string[]>([]);
@@ -58,6 +61,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     listActivosMaquinaria('tipo_maquinaria').then(setTipos).catch(() => {});
     listActivosMaquinaria('propietario').then(setProps).catch(() => {});
     listActivosMaquinaria('status').then((s) => setStatuses(s.length ? s : ['ACTIVO'])).catch(() => setStatuses(['ACTIVO']));
+    listActivosMaquinaria('grupo_mantenimiento').then(setGruposCat).catch(() => {});
     // Equipos y UBICACIONES se traen del catálogo de Combustible (fuente única).
     // Se guardan DOS listas de equipos a propósito: el desplegable solo ofrece los
     // ACTIVOS (no tiene sentido elegir uno dado de baja), pero para decidir si el
@@ -202,9 +206,18 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
         <div className="form-grid">
           <div className="form-row">
             <label>Grupo · Servicio de Mantenimiento</label>
-            <SearchSelect value={f.grupo_mantenimiento ?? ''} onChange={(v) => set('grupo_mantenimiento', v || null)}
-              options={GRUPOS_MANTENIMIENTO.map((g) => ({ value: g, label: g }))} placeholder="— sin grupo —" />
-            <small className="muted">Agrupa el equipo en el submódulo <strong>Servicio de Mantenimiento</strong> (FLOTA PESADA / VEHÍCULOS DE CARGA / PLANTAS ELÉCTRICAS).</small>
+            <SearchSelect value={f.grupo_mantenimiento ?? ''} allowCreate
+              onChange={(v) => {
+                const g = (v || '').replace(/\s+/g, ' ').trim().toUpperCase();
+                set('grupo_mantenimiento', g || null);
+                // Uno nuevo queda en el catálogo para la próxima vez (y como pestaña en Servicio de Mantenimiento).
+                if (g && !gruposVisibles(gruposCat, [f]).some((x) => x.toUpperCase() === g)) {
+                  addCatalogoMaquinaria('grupo_mantenimiento', g).then(() => setGruposCat((xs) => [...xs, g])).catch(() => {});
+                }
+              }}
+              options={gruposVisibles(gruposCat, [f]).map((g) => ({ value: g, label: g }))}
+              placeholder="— sin grupo —" emptyText="Escribí un grupo nuevo" />
+            <small className="muted">Agrupa el equipo en el submódulo <strong>Servicio de Mantenimiento</strong>. Buscá en la lista o escribí un grupo nuevo (queda guardado).</small>
           </div>
         </div>
 

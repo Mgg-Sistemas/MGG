@@ -259,7 +259,7 @@ async function actualizarUsuarioFila(id: string, input: ActualizarUsuarioInput):
   }
 }
 
-/** Llama a la Edge Function cambiar-correo (solo admin): cambia el correo en Auth
+/** Llama a la Edge Function cambiar-correo (admin o rol con Usuarios escritura/full, nunca sobre un admin): cambia el correo en Auth
  *  (identidad de login) y en la tabla `usuarios` en una sola operación. */
 export async function cambiarCorreoUsuario(userId: string, email: string): Promise<void> {
   const { data, error } = await supabase.functions.invoke<

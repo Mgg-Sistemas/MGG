@@ -116,10 +116,12 @@ import { enviarTrazabilidadAMultiples } from './enviarTrazabilidad';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { cargarHistorialNombres, nombreEnFecha, type CambioNombre, type PersonasMap } from '@/shared/lib/personas';
 import { PendientesPorPagarModal } from './PendientesPorPagarModal';
+import { ReporteComprasModal } from './ReporteComprasModal';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
 import { quienCargo, quienSolicita } from './quienSolicita';
+import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
 
 /* ============================================================
    MGG · Pedidos / Órdenes · Página principal
@@ -276,6 +278,8 @@ export function PedidosPage() {
 
   const [filterText, setFilterText] = useState('');
   const [filterEstado, setFilterEstado] = useState<EstadoOrden | ''>('');
+  // «Realizada por» (16-10-2026): correo del analista que creó la OC ('' = todos los usuarios).
+  const [filterCreador, setFilterCreador] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
     const saved = typeof window !== 'undefined' ? localStorage.getItem(VIEW_KEY) : null;
     return saved === 'lista' ? 'lista' : 'kanban';
@@ -337,6 +341,7 @@ export function PedidosPage() {
   // Unifica TODO lo pendiente de pago (OC, servicios, compras/servicios directos) e indica
   // las CUENTAS A CRÉDITO. El modal lee en vivo (realtime) y adentro genera el PDF.
   const [porPagarOpen, setPorPagarOpen] = useState(false);
+  const [reporteOpen, setReporteOpen] = useState(false);
 
   // Al cerrar cualquier modal, traer lo que haya cambiado mientras estuvo pausado.
   const modalKindPrev = useRef(modal.kind);
@@ -435,29 +440,31 @@ export function PedidosPage() {
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
+  // Órdenes de la pestaña actual (Servicios muestra solo clase='servicio'; el resto, solo productos).
+  const ordenesDePestana = useMemo(
+    () => ordenes.filter((o) => (o.clase === 'servicio') === (scope === 'servicio')),
+    [ordenes, scope],
+  );
+  // Desplegable «Realizada por»: los usuarios que crearon alguna orden de esta pestaña, con su nombre.
+  const nombreDeCorreo = useCallback(
+    (email: string | null | undefined) => (email ? personaMap.get(email.toLowerCase()) : undefined),
+    [personaMap],
+  );
+  const creadores = useMemo(() => opcionesCreador(ordenesDePestana, nombreDeCorreo), [ordenesDePestana, nombreDeCorreo]);
+
   const filteredOrdenes = useMemo(() => {
-    const q = filterText.trim().toLowerCase();
-    return ordenes.filter((o) => {
-      // La pestaña de Servicios muestra solo clase='servicio'; el resto, solo productos.
-      const esServicio = o.clase === 'servicio';
-      if (scope === 'servicio' ? !esServicio : esServicio) return false;
-      if (viewMode === 'lista' && filterEstado && o.estado !== filterEstado) return false;
-      if (q) {
-        const prov = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : undefined;
-        const haystack = [
-          o.codigo,
-          prov?.razon_social,
-          o.solicitante,
-          o.solicitante_email,
-          o.notas,
-        ]
-          .map((v) => (v ?? '').toString().toLowerCase())
-          .join(' | ');
-        if (!haystack.includes(q)) return false;
-      }
-      return true;
+    // El filtro de estado vale en Lista Y en Kanban (17-10-2026: antes en Kanban estaba
+    // deshabilitado y la administradora lo reportó como «no funciona»); en Kanban deja solo esa columna.
+    const porEstado = ordenesDePestana.filter((o) => !(filterEstado && o.estado !== filterEstado));
+    // Buscador ampliado (16-10-2026): por cualquier dato de la orden (código, proveedor,
+    // solicitante, renglones, estado, monto, fecha, método de pago, quién la hizo…) y el
+    // filtro «Realizada por». Ver buscarOrdenes.ts.
+    return filtrarOrdenes(filtrarPorCreador(porEstado, filterCreador), filterText, {
+      proveedor: (o) => (o.proveedor_id ? proveedorMap.get(o.proveedor_id) : undefined),
+      labelMetodo: labelMetodoPago,
+      nombreDe: nombreDeCorreo,
     });
-  }, [ordenes, filterText, filterEstado, viewMode, proveedorMap, scope]);
+  }, [ordenesDePestana, filterText, filterEstado, filterCreador, proveedorMap, nombreDeCorreo]);
 
   function switchView(mode: ViewMode) {
     setViewMode(mode);
@@ -477,7 +484,12 @@ export function PedidosPage() {
     }
   }
 
-  const kanbanCols = scope === 'oc' ? KANBAN_COLS_OC : scope === 'servicio' ? KANBAN_COLS_SERVICIO : KANBAN_COLS_PEDIDOS;
+  const kanbanColsTodas = scope === 'oc' ? KANBAN_COLS_OC : scope === 'servicio' ? KANBAN_COLS_SERVICIO : KANBAN_COLS_PEDIDOS;
+  // Con un estado elegido, el tablero muestra solo esa columna (si el estado no es una
+  // columna de esta pestaña, se muestran todas y el filtro de órdenes igual aplica).
+  const kanbanCols = filterEstado && kanbanColsTodas.some((c) => c.key === filterEstado)
+    ? kanbanColsTodas.filter((c) => c.key === filterEstado)
+    : kanbanColsTodas;
 
   const currentDetail =
     modal.kind === 'detail' ? ordenes.find((o) => o.id === modal.ordenId) ?? null : null;
@@ -509,6 +521,13 @@ export function PedidosPage() {
             title="Ver todo lo pendiente por pagar (OC, servicios, compras/servicios directos) + cuentas a crédito"
           >
             💰 Pendientes por pagar
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => setReporteOpen(true)}
+            title="Reporte por renglón: pendiente por aprobar, cuentas a crédito, por indicar método de pago y por pagar (código, motivo y monto en $ o Bs)"
+          >
+            📊 Reporte por renglón
           </button>
           {scope !== 'compra_directa' && scope !== 'oc_lote' && scope !== 'servicio_directo' && (
             <>
@@ -643,7 +662,7 @@ export function PedidosPage() {
       <div className="filterbar">
         <input
           className="search"
-          placeholder="Buscar por código, proveedor, solicitante…"
+          placeholder="Buscar por código, proveedor, solicitante, ítem, estado, monto, fecha…"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
         />
@@ -652,8 +671,7 @@ export function PedidosPage() {
           style={{ maxWidth: 220 }}
           value={filterEstado}
           onChange={(e) => setFilterEstado(e.target.value as EstadoOrden | '')}
-          disabled={viewMode === 'kanban'}
-          title={viewMode === 'kanban' ? 'Filtro deshabilitado en vista Kanban' : ''}
+          title="Filtra por estado en Kanban (deja solo esa columna) y en Lista"
         >
           <option value="">Todos los estados</option>
           <option value="pendiente">Pendientes</option>
@@ -665,6 +683,20 @@ export function PedidosPage() {
           <option value="recibida">Recibidas</option>
           <option value="finalizada">Finalizadas</option>
           <option value="cancelada">Canceladas</option>
+        </select>
+        {/* Realizada por (16-10-2026): el analista que creó la OC; en Kanban y en Lista. */}
+        <select
+          className="select"
+          style={{ maxWidth: 240 }}
+          value={filterCreador}
+          onChange={(e) => setFilterCreador(e.target.value)}
+          aria-label="Realizada por"
+          title="Ver solo las órdenes realizadas por un usuario"
+        >
+          <option value="">Realizada por: todos los usuarios</option>
+          {creadores.map((c) => (
+            <option key={c.email} value={c.email}>{c.label}</option>
+          ))}
         </select>
         <div className="view-toggle" role="tablist" aria-label="Modo de vista">
           <button
@@ -791,6 +823,7 @@ export function PedidosPage() {
 
       {/* Modal: SOLICITUD DE MERCADO (botón independiente · COCINA · urgente · Víveres y Art. de Limpieza) */}
       {porPagarOpen && <PendientesPorPagarModal onClose={() => setPorPagarOpen(false)} />}
+      {reporteOpen && <ReporteComprasModal onClose={() => setReporteOpen(false)} />}
 
       {modal.kind === 'mercado' && (
         <SolicitudMercadoModal

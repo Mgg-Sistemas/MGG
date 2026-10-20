@@ -189,6 +189,24 @@ export function previewPdfDoc(doc: DocPdf, filename: string): void {
 }
 
 /**
+ * IMPRIME un PDF GENERADO por el sistema (jsPDF) sin pasar por el visor: le embebe
+ * la orden de impresión y lo abre en su pestaña (mismo camino que el botón 🖨 del
+ * visor, ver `imprimirPdfGenerado`). Lo usan los reportes que se piden «imprimir por
+ * sistema»: el botón va en la pantalla y el PDF sale a tamaño real con sus márgenes.
+ */
+export function imprimirPdfDoc(doc: DocPdf): void {
+  let url: string;
+  try {
+    url = URL.createObjectURL(doc.output('blob') as Blob);
+  } catch {
+    return; // sin blob no hay nada que imprimir
+  }
+  // La pestaña ya tiene el archivo cargado; el object URL se libera después.
+  setTimeout(() => URL.revokeObjectURL(url), 5 * 60 * 1000);
+  imprimirPdfGenerado(doc, url);
+}
+
+/**
  * Muestra en el visor un archivo YA SUBIDO (factura/comprobante) desde su URL firmada.
  * Soporta PDF (iframe) e imagen (img). Trae el blob para el botón Descargar; si el
  * fetch falla (CORS/red), cae a abrir en pestaña nueva.

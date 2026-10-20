@@ -18,8 +18,8 @@ import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
 import { crearOrden, ensureUnidadSolicitante } from '@/modules/pedidos/pedidos.repository';
 import { addCategoria, createProducto, siguienteSkuGlobal } from '@/modules/inventario/inventario.repository';
 import { notify } from '@/shared/lib/notify';
-import { BUCKET_DOCUMENTOS } from './maquinariaDocumentos.repository';
 import { listFotosOrden, borrarArchivosFotosOrden } from './osFotos.repository';
+import { listFotosEquipo, urlsFotosEquipo } from './fotosEquipo.repository';
 import type { EstadoEquipo, EstadoOrdenServicio, RepuestoOrden } from './flota';
 import { servicioPorId, piezasNuevas } from './flota';
 export { faltaSalida, faltaCompra } from './flota';
@@ -377,24 +377,20 @@ export async function surtidosDeEquipo(nombreCombustible: string | null | undefi
     .map((r) => ({ id: r.id, fecha: r.fecha, litros: Number(r.litros) || 0, horometro_fin: r.horometro_final, kilometraje: r.kilometraje_final, ubicacion: r.destino, autorizado_por: r.autorizado_por }));
 }
 
-/* ───────── Fotos (las imágenes de los documentos del equipo) ───────── */
+/* ───────── Fotos del equipo (tabla maquinaria_fotos, 16-10-2026) ─────────
+   Antes salían de las IMÁGENES de los documentos (📎): la portada terminaba siendo
+   el RCV. Ahora las fotos tienen su tabla, con orden (0 = portada). */
 
-export interface FotoEquipo { id: string; equipo_id: string; nombre: string; url: string }
+export interface FotoEquipo { id: string; equipo_id: string; nombre: string; url: string; path: string; orden: number; created_at: string; encuadre: 'cubrir' | 'completa' }
 
-/** Imágenes de los documentos (📎) de uno o de todos los equipos, con URL firmada (1 h). */
+/** Fotos de uno o de todos los equipos, portada primero, con URL firmada (1 h). */
 export async function fotosDeEquipos(equipoId?: string): Promise<FotoEquipo[]> {
-  let q = supabase.from('maquinaria_documentos').select('id, equipo_id, nombre, path, mime, slot')
-    .like('mime', 'image/%').order('slot', { ascending: true });
-  if (equipoId) q = q.eq('equipo_id', equipoId);
-  const { data, error } = await q;
-  if (error) throw error;
-  const rows = (data ?? []) as { id: string; equipo_id: string; nombre: string; path: string }[];
+  const rows = await listFotosEquipo(equipoId);
   if (!rows.length) return [];
-  const { data: urls, error: ue } = await supabase.storage.from(BUCKET_DOCUMENTOS).createSignedUrls(rows.map((r) => r.path), 3600);
-  if (ue) throw ue;
-  return rows.flatMap((r, i) => {
-    const url = urls?.[i]?.signedUrl;
-    return url ? [{ id: r.id, equipo_id: r.equipo_id, nombre: r.nombre, url }] : [];
+  const urls = await urlsFotosEquipo(rows.map((r) => r.path));
+  return rows.flatMap((r) => {
+    const url = urls.get(r.path);
+    return url ? [{ id: r.id, equipo_id: r.equipo_id, nombre: r.nombre || r.filename, url, path: r.path, orden: r.orden, created_at: r.created_at, encuadre: r.encuadre === 'completa' ? 'completa' : 'cubrir' }] : [];
   });
 }
 

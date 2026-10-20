@@ -25,10 +25,26 @@ export function grupoPorTipo(tipo: string | null | undefined): string {
   return 'FLOTA PESADA';
 }
 
-/** Grupo efectivo: el asignado en la ficha (si es uno de los grupos) o el deducido del tipo. */
+/**
+ * Grupo efectivo: el asignado en la ficha (CUALQUIERA, desde el 16-10-2026 los grupos se
+ * crean en línea desde la ficha) o, si no tiene, el deducido del tipo.
+ */
 export function grupoDeEquipo(e: { grupo_mantenimiento?: string | null; tipo?: string | null }): string {
   const g = (e.grupo_mantenimiento ?? '').trim();
-  return (GRUPOS_MANTENIMIENTO as readonly string[]).includes(g) ? g : grupoPorTipo(e.tipo);
+  return g || grupoPorTipo(e.tipo);
+}
+
+/** Los grupos que se muestran: los de siempre, los del catálogo y cualquiera que ya tenga un equipo, sin repetir. */
+export function gruposVisibles(catalogo: readonly string[], equipos: ReadonlyArray<{ grupo_mantenimiento?: string | null }>): string[] {
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  for (const g of [...GRUPOS_MANTENIMIENTO, ...catalogo, ...equipos.map((e) => (e.grupo_mantenimiento ?? '').trim())]) {
+    const k = g.trim().toUpperCase();
+    if (!k || vistos.has(k)) continue;
+    vistos.add(k);
+    out.push(g.trim());
+  }
+  return out;
 }
 
 export type EstadoServicio = 'vencido' | 'proximo' | 'al_dia' | 'sin_datos';

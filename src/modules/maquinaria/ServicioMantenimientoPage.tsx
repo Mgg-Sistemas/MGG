@@ -13,14 +13,14 @@ import { FlotaNav } from './FlotaNav';
 import { ResumenMantenimientoModal } from './ResumenMantenimientoModal';
 import { AccionConEquipo } from './AccionConEquipo';
 import { listEquipos, reiniciarMantenimientoDeEquipo, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { listActivosMaquinaria } from './maquinaria.repository';
 import { solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './maquinariaMant.repository';
 import { ordenesAbiertasPorEquipo, lecturasVigentesPorEquipo, type LecturaVigente } from './flota.repository';
 import { ESTADOS_EQUIPO, estadoEfectivo, type AvisoServicio } from './flota';
 import { coincideTexto } from './flotaListados';
 import {
   SIN_GRUPO, ESTADOS_SERVICIO, REGLA_PROXIMO, grupoDeEquipo, infoServicio, compararUrgencia, resumenServicio,
-  type EstadoServicio, type InfoServicio,
-} from './flotaMantenimiento';
+  type EstadoServicio, type InfoServicio, gruposVisibles } from './flotaMantenimiento';
 
 /** Etiqueta del estado de un servicio (alineada con la pestaña Servicios de Pedidos). */
 const SERVICIO_ESTADO_LABEL: Record<string, string> = {
@@ -86,6 +86,8 @@ export function ServicioMantenimientoPage() {
   const [osMap, setOsMap] = useState<Map<string, number>>(new Map());
   const [loading, setLoading] = useState(true);
   const [grupo, setGrupo] = useState<string>(GRUPOS_MANTENIMIENTO[0]);
+  // Grupos del catálogo (desde 16-10-2026 se crean en línea desde la ficha del equipo).
+  const [gruposCat, setGruposCat] = useState<string[]>([]);
   const [filtro, setFiltro] = useState<FiltroServicio>('todos');
   const [q, setQ] = useState('');
   const [bitacora, setBitacora] = useState<MaquinariaEquipo | null>(null);
@@ -96,16 +98,18 @@ export function ServicioMantenimientoPage() {
 
   const cargar = useCallback(async () => {
     try {
-      const [eqs, lecs, sol, os] = await Promise.all([
+      const [eqs, lecs, sol, os, gcat] = await Promise.all([
         listEquipos(),
         lecturasVigentesPorEquipo().catch(() => new Map<string, LecturaVigente>()),
         solicitudesServicioPorEquipo().catch(() => new Map<string, SolicitudServicioEquipo[]>()),
         ordenesAbiertasPorEquipo().catch(() => new Map<string, number>()),
+        listActivosMaquinaria('grupo_mantenimiento').catch(() => [] as string[]),
       ]);
       setEquipos(eqs);
       setLecturas(lecs);
       setSolMap(sol);
       setOsMap(os);
+      setGruposCat(gcat);
     } finally { setLoading(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
@@ -124,10 +128,12 @@ export function ServicioMantenimientoPage() {
     return m;
   }, [equipos, lecturas]);
 
+  // Los grupos visibles: los de siempre + el catálogo + cualquiera que ya use un equipo.
+  const grupos = useMemo(() => gruposVisibles(gruposCat, equipos), [gruposCat, equipos]);
   // Equipos por grupo (el asignado a mano o el deducido del tipo) + los que no caen en ninguno.
   const porGrupo = useMemo(() => {
     const m = new Map<string, MaquinariaEquipo[]>();
-    for (const g of GRUPOS_MANTENIMIENTO) m.set(g, []);
+    for (const g of grupos) m.set(g, []);
     const sinGrupoList: MaquinariaEquipo[] = [];
     for (const e of equipos) {
       const g = grupoDeEquipo(e);
@@ -135,7 +141,7 @@ export function ServicioMantenimientoPage() {
       else sinGrupoList.push(e);
     }
     return { m, sinGrupoList, sinGrupo: sinGrupoList.length };
-  }, [equipos]);
+  }, [equipos, grupos]);
 
   const delGrupo = useMemo(
     () => (grupo === SIN_GRUPO ? porGrupo.sinGrupoList : (porGrupo.m.get(grupo) ?? [])),
@@ -200,7 +206,7 @@ export function ServicioMantenimientoPage() {
 
       {/* Grupos de flota: cada uno con su número de equipos */}
       <div className="flo-fleet flo-grupos" role="tablist" aria-label="Grupo de flota">
-        {GRUPOS_MANTENIMIENTO.map((g) => (
+        {grupos.map((g) => (
           <button key={g} type="button" role="tab" className="tone-primary" aria-selected={grupo === g} aria-pressed={grupo === g} onClick={() => setGrupo(g)}>
             <strong>{porGrupo.m.get(g)?.length ?? 0}</strong><span>{GRUPO_ICON[g] ?? '🔧'} {g}</span>
           </button>

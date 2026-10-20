@@ -1,5 +1,5 @@
 // MGG · Edge Function: resetear-clave
-// Solo admin. Resetea la clave del usuario objetivo a la inicial 'mgg2026', marca
+// La usa el admin o un rol con permiso de Usuarios (escritura/full) en la matriz (17-10-2026). Resetea la clave del usuario objetivo a la inicial 'mgg2026', marca
 // must_change_password=true para forzar el cambio en el próximo login y la devuelve.
 //
 // Antes reseteaba a '123456': con la protección de claves filtradas de Supabase
@@ -26,6 +26,34 @@ function json(body: unknown, status = 200) {
   });
 }
 
+/** Quién puede usar esta función: el rol admin, o un rol con permiso de Usuarios
+ *  (escritura o full) en la matriz de Roles y Permisos; siempre con estado activo.
+ *  Quien no es admin nunca actúa sobre una cuenta admin ni asigna el rol admin
+ *  (17-10-2026, orden de la administradora: antes era solo admin y los roles con
+ *  "full control" no podían hacer nada en Usuarios). */
+async function permisoUsuarios(admin: ReturnType<typeof createClient>, callerId: string) {
+  const { data: callerRow } = await admin
+    .from('usuarios')
+    .select('role, estado')
+    .eq('id', callerId)
+    .maybeSingle();
+  if (!callerRow || callerRow.estado !== 'activo') return { ok: false, esAdmin: false };
+  if (callerRow.role === 'admin') return { ok: true, esAdmin: true };
+  const { data: perm } = await admin
+    .from('roles_permisos')
+    .select('permisos')
+    .eq('role', callerRow.role)
+    .maybeSingle();
+  const u = (perm?.permisos as Record<string, { escritura?: boolean; full?: boolean }> | null)?.usuarios;
+  return { ok: !!(u?.full || u?.escritura), esAdmin: false };
+}
+
+/** true si la cuenta objetivo es admin (quien no es admin no la puede tocar). */
+async function objetivoEsAdmin(admin: ReturnType<typeof createClient>, targetId: string) {
+  const { data } = await admin.from('usuarios').select('role').eq('id', targetId).maybeSingle();
+  return data?.role === 'admin';
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
@@ -36,7 +64,7 @@ serve(async (req) => {
   if (!url || !serviceKey || !anonKey)
     return json({ error: 'Supabase env vars faltantes' }, 500);
 
-  // 1) Validar caller admin
+  // 1) Validar quién llama (admin o permiso de Usuarios)
   const authHeader = req.headers.get('Authorization') ?? '';
   const callerClient = createClient(url, anonKey, {
     global: { headers: { Authorization: authHeader } },
@@ -45,13 +73,9 @@ serve(async (req) => {
   if (!caller?.user) return json({ error: 'No autenticado' }, 401);
 
   const admin = createClient(url, serviceKey);
-  const { data: callerRow } = await admin
-    .from('usuarios')
-    .select('role')
-    .eq('id', caller.user.id)
-    .maybeSingle();
-  if (!callerRow || callerRow.role !== 'admin')
-    return json({ error: 'Solo admin puede resetear claves' }, 403);
+  const quien = await permisoUsuarios(admin, caller.user.id);
+  if (!quien.ok)
+    return json({ error: 'Su rol no tiene permiso de Usuarios para resetear claves' }, 403);
 
   // 2) Validar payload
   let payload: { user_id?: string };
@@ -62,6 +86,8 @@ serve(async (req) => {
   }
   const targetId = payload.user_id;
   if (!targetId) return json({ error: 'user_id requerido' }, 400);
+  if (!quien.esAdmin && (await objetivoEsAdmin(admin, targetId)))
+    return json({ error: 'Solo un administrador puede resetear la clave de otro administrador' }, 403);
 
   // 3) Resetear a la clave inicial
   const clave = CLAVE_INICIAL;

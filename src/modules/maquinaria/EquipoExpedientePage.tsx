@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
@@ -41,6 +41,8 @@ import { OrdenServicioModal } from './OrdenServicioModal';
 import { PedirCompraModal } from './PedirCompraModal';
 import { BitacoraModal } from './BitacoraModal';
 import { DocumentosEquipoModal } from './DocumentosEquipoModal';
+import { subirFotosEquipo, eliminarFotoEquipo, hacerPortadaFoto, cambiarEncuadreFoto } from './fotosEquipo.repository';
+import { MAX_FOTOS_EQUIPO, avisoCupoFotos, cupoFotos } from './fotosEquipo';
 import { EquipoMovimientosModal } from './EquipoMovimientosModal';
 import { EquipoFormModal } from './EquipoFormModal';
 import { LavadoModal } from './LavadoModal';
@@ -182,8 +184,40 @@ export function EquipoExpedientePage() {
   useEffect(() => { setLoading(true); void cargar(); }, [cargar]);
   useRealtime([
     'maquinaria_equipos', 'maquinaria_ordenes_servicio', 'maquinaria_estado_eventos', 'maquinaria_mantenimientos',
-    'maquinaria_documentos', 'maquinaria_lavados', 'maquinaria_lecturas', 'maquinaria_repuestos_equipo', 'ordenes', 'solicitudes_salida', 'combustible_tanque_movimientos',
+    'maquinaria_documentos', 'maquinaria_fotos', 'maquinaria_lavados', 'maquinaria_lecturas', 'maquinaria_repuestos_equipo', 'ordenes', 'solicitudes_salida', 'combustible_tanque_movimientos',
   ], () => { void cargar(); });
+
+  // Fotos del equipo (16-10-2026): subir (cámara o galería), eliminar y elegir la portada.
+  const [subiendoFotos, setSubiendoFotos] = useState(0);
+  const [borrarFoto, setBorrarFoto] = useState<FotoEquipo | null>(null);
+  const portadaInputRef = useRef<HTMLInputElement>(null);
+  const subirFotos = useCallback(async (files: File[]) => {
+    if (!eq || !files.length) return;
+    const { tomar, descartadas } = cupoFotos(fotos.length, files);
+    const aviso = avisoCupoFotos(descartadas);
+    if (aviso) toast(aviso, 'warning');
+    if (!tomar.length) return;
+    setSubiendoFotos(tomar.length);
+    try {
+      const r = await subirFotosEquipo(eq.id, tomar, actor);
+      if (r.subidas) toast(r.subidas === 1 ? 'Foto subida' : `${r.subidas} fotos subidas`, 'success');
+      if (r.fallos.length) toast(`No se pudieron subir ${r.fallos.length} foto(s): ${r.fallos.join('; ')}`, 'error');
+      await cargar();
+    } finally { setSubiendoFotos(0); }
+  }, [eq, fotos.length, actor, cargar]);
+  // Encuadre de la foto en la portada: «cubrir» (recorta para llenar) o «completa» (se ve entera).
+  const alternarEncuadre = useCallback((f: FotoEquipo) => {
+    const nuevo = f.encuadre === 'completa' ? 'cubrir' : 'completa';
+    void cambiarEncuadreFoto(f.id, nuevo)
+      .then(() => { toast(nuevo === 'completa' ? 'La foto se muestra completa' : 'La foto llena la portada (recortada)', 'success'); void cargar(); })
+      .catch((e) => toast(errMsg(e, 'No se pudo cambiar el encuadre'), 'error'));
+  }, [cargar]);
+  const elegirPortada = useCallback((f: FotoEquipo) => {
+    if (!eq) return;
+    void hacerPortadaFoto(eq.id, f.id)
+      .then(() => { toast('Esa foto ahora es la portada', 'success'); void cargar(); })
+      .catch((e) => toast(errMsg(e, 'No se pudo cambiar la portada'), 'error'));
+  }, [eq, cargar]);
 
   const estado = eq ? estadoEfectivo(eq) : 'operativa';
   const avisoH = eq ? avisoServicio(eq.mantenimiento_cada_hrs, horometro, eq.mantenimiento_base_hrs, 'h') : null;
@@ -324,11 +358,22 @@ export function EquipoExpedientePage() {
 
       <div className="flo-hero">
         <div className="flo-media">
-          {foto ? <img src={foto} alt={`${eq.equipo}: ${fotos[0].nombre}`} /> : <div className="sin-foto"><span className="ico">🚜</span><span>Sin foto del equipo</span></div>}
+          {foto ? <img src={foto} alt={`${eq.equipo}: ${fotos[0].nombre}`} style={fotos[0].encuadre === 'completa' ? { objectFit: 'contain', background: '#0b0d10' } : undefined} /> : <div className="sin-foto"><span className="ico">🚜</span><span>Sin foto del equipo</span></div>}
+          {foto && perm.maquinaria && (
+            <button className="fotos-btn" type="button" style={{ right: 'auto', left: '.6rem' }} title="Cambiar cómo se ajusta la foto en la portada"
+              onClick={() => alternarEncuadre(fotos[0])}>
+              ⤢ {fotos[0].encuadre === 'completa' ? 'Ver recortada' : 'Ver completa'}
+            </button>
+          )}
           <div className={`estado tone-${st.tono}`}><Chip tono={st.tono} lg>{st.icon} {st.label}</Chip></div>
-          <button className="fotos-btn" type="button" onClick={() => (fotos.length ? setTab('fotos') : setDocumentos(true))}>
-            📷 {fotos.length ? `${fotos.length} foto(s)` : perm.maquinaria ? 'Agregar foto' : 'Documentos'}
+          {/* Sin foto y con escritura: el botón abre DIRECTO la galería o la cámara del teléfono
+              (el selector nativo ofrece las dos). Con fotos, va a la pestaña Fotos (ahí se elige la portada). */}
+          <button className="fotos-btn" type="button" disabled={subiendoFotos > 0}
+            onClick={() => (fotos.length || !perm.maquinaria ? setTab('fotos') : portadaInputRef.current?.click())}>
+            📷 {subiendoFotos ? 'Subiendo…' : fotos.length ? `${fotos.length} foto(s)` : perm.maquinaria ? 'Subir foto' : 'Fotos'}
           </button>
+          <input ref={portadaInputRef} type="file" accept="image/*" multiple hidden aria-label="Subir foto del equipo"
+            onChange={(e) => { const fs = Array.from(e.currentTarget.files ?? []); e.currentTarget.value = ''; void subirFotos(fs); }} />
         </div>
         <div className="flo-plate">
           <div className="fila"><span className="marca">{eq.marca || 'Sin marca'}</span><span className="prop">{eq.propietario || ''}</span></div>
@@ -420,7 +465,10 @@ export function EquipoExpedientePage() {
           {tab === 'compras' && <TabCompras compras={compras} puedePedidos={perm.pedidos} onVer={setVerCompra} />}
           {tab === 'contador' && <TabContador eq={eq} vigente={vigente} lecturas={lecturas} ultimoSurtido={ultimoSurtido} puede={puede('lectura')} onRegistrar={() => setLecturaOpen(true)}
             puedeEditar={perm.maquinaria} isAdmin={isAdmin} onEditar={setEditarLectura} onBorrar={setBorrarLectura} />}
-          {tab === 'fotos' && <TabFotos fotos={fotos} onDocs={() => setDocumentos(true)} />}
+          {tab === 'fotos' && (
+            <TabFotos fotos={fotos} puedeEditar={perm.maquinaria} subiendo={subiendoFotos} onDocs={() => setDocumentos(true)}
+              onSubir={(fs) => void subirFotos(fs)} onBorrar={setBorrarFoto} onPortada={elegirPortada} onEncuadre={alternarEncuadre} />
+          )}
           {tab === 'ficha' && <TabFicha eq={eq} onPdf={() => void pdfFicha()} />}
         </section>
       </div>
@@ -511,6 +559,19 @@ export function EquipoExpedientePage() {
       )}
       {bitacora && <BitacoraModal equipo={eq} canWrite={perm.maquinaria} actor={actor} actorName={actorName} onClose={() => setBitacora(false)} />}
       {documentos && <DocumentosEquipoModal equipo={eq} canWrite={perm.maquinaria} actor={actor} onClose={() => { setDocumentos(false); void cargar(); }} />}
+      {borrarFoto && (
+        <ConfirmDialog
+          title="Eliminar foto"
+          message={<>Se elimina la foto <strong>{borrarFoto.nombre}</strong> de {eq.equipo}. Se borra el archivo; no se puede deshacer.</>}
+          confirmText="Eliminar" danger
+          onCancel={() => setBorrarFoto(null)}
+          onConfirm={() => {
+            const f = borrarFoto; setBorrarFoto(null);
+            void eliminarFotoEquipo(f).then(() => { toast('Foto eliminada', 'success'); void cargar(); })
+              .catch((e) => toast(errMsg(e, 'No se pudo eliminar la foto'), 'error'));
+          }}
+        />
+      )}
       {movimientos && <EquipoMovimientosModal equipo={eq} onClose={() => setMovimientos(false)} />}
       {editar && <EquipoFormModal equipo={eq} actor={actor} onClose={() => setEditar(false)} onSaved={() => void cargar()} />}
       {confirmMantt && (
@@ -856,15 +917,54 @@ function TabLavados({ lavados, puedeRegistrar, puedeEditar, onNuevo, onEditar, o
   );
 }
 
-function TabFotos({ fotos, onDocs }: { fotos: FotoEquipo[]; onDocs: () => void }) {
+/** Fotos del equipo (16-10-2026): cámara o galería, eliminar y ELEGIR la portada. Los documentos (RCV, placa…) van aparte. */
+function TabFotos({ fotos, puedeEditar, subiendo, onDocs, onSubir, onBorrar, onPortada, onEncuadre }: {
+  fotos: FotoEquipo[]; puedeEditar: boolean; subiendo: number; onDocs: () => void;
+  onSubir: (files: File[]) => void; onBorrar: (f: FotoEquipo) => void; onPortada: (f: FotoEquipo) => void; onEncuadre: (f: FotoEquipo) => void;
+}) {
+  const camaraRef = useRef<HTMLInputElement>(null);
+  const galeriaRef = useRef<HTMLInputElement>(null);
+  const lleno = fotos.length >= MAX_FOTOS_EQUIPO;
+  const recibir = (input: HTMLInputElement) => {
+    const files = Array.from(input.files ?? []);
+    input.value = '';
+    if (files.length) onSubir(files);
+  };
   return (
     <>
-      <button className="btn" style={{ justifyContent: 'center' }} onClick={onDocs}>📎 Documentos del equipo (contrato, catálogo, fotos…)</button>
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        {puedeEditar && !lleno && (
+          <>
+            <button type="button" className="btn btn-primary" disabled={subiendo > 0} onClick={() => camaraRef.current?.click()}>📷 Tomar foto</button>
+            <button type="button" className="btn" disabled={subiendo > 0} onClick={() => galeriaRef.current?.click()}>🖼 Subir de la galería</button>
+            <input ref={camaraRef} type="file" accept="image/*" capture="environment" hidden aria-label="Tomar foto con la cámara" onChange={(e) => recibir(e.currentTarget)} />
+            <input ref={galeriaRef} type="file" accept="image/*" multiple hidden aria-label="Elegir fotos de la galería" onChange={(e) => recibir(e.currentTarget)} />
+          </>
+        )}
+        <button type="button" className="btn btn-ghost" onClick={onDocs}>📎 Documentos (RCV, placa, contrato…)</button>
+        <span className="muted" style={{ fontSize: '.8rem' }}>{subiendo ? `Subiendo ${subiendo} foto(s)…` : `${fotos.length} de ${MAX_FOTOS_EQUIPO} fotos`}</span>
+      </div>
+      {lleno && puedeEditar && <p className="hint muted">Ya tiene las {MAX_FOTOS_EQUIPO} fotos. Elimina una para agregar otra.</p>}
+      {fotos.length > 1 && puedeEditar && <p className="hint muted" style={{ marginTop: '.4rem' }}>La <strong>portada</strong> (marcada con ★) es la que se muestra arriba, en el catálogo y en la ficha PDF. Toca «★ Portada» en otra foto para cambiarla.</p>}
       {fotos.length ? (
-        <div className="flo-fotos">
-          {fotos.map((f) => <figure key={f.id}><a href={f.url} target="_blank" rel="noreferrer"><img src={f.url} alt={f.nombre} loading="lazy" /></a><figcaption>{f.nombre}</figcaption></figure>)}
+        <div className="flo-fotos" style={{ marginTop: '.6rem' }}>
+          {fotos.map((f, i) => (
+            <figure key={f.id} style={i === 0 ? { outline: '2px solid var(--brand, #ff8a00)' } : undefined}>
+              <a href={f.url} target="_blank" rel="noreferrer"><img src={f.url} alt={f.nombre} loading="lazy" /></a>
+              <figcaption style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i === 0 ? '★ Portada · ' : ''}{f.nombre}</span>
+                {puedeEditar && i > 0 && <button type="button" className="btn btn-sm btn-ghost" title="Mostrar esta foto como portada" onClick={() => onPortada(f)}>★ Portada</button>}
+                {puedeEditar && i === 0 && <button type="button" className="btn btn-sm btn-ghost" title="Cambiar cómo se ajusta en la portada" onClick={() => onEncuadre(f)}>⤢ {f.encuadre === 'completa' ? 'Completa' : 'Recortada'}</button>}
+                {puedeEditar && <button type="button" className="btn btn-sm btn-danger" title="Eliminar foto" onClick={() => onBorrar(f)}>🗑</button>}
+              </figcaption>
+            </figure>
+          ))}
         </div>
-      ) : <div className="flo-sec"><EmptyState message="Sin fotos. Sube una imagen (JPG o PNG) en los documentos del equipo: la primera es la foto del expediente y de la ficha PDF." icon="📷" /></div>}
+      ) : (
+        <div className="flo-sec" style={{ marginTop: '.6rem' }}>
+          <EmptyState message={puedeEditar ? 'Sin fotos del equipo. Toma una con la cámara o súbela de la galería: la primera es la portada del expediente, del catálogo y de la ficha PDF. Si la foto está en Documentos, ábrelos y toca «📷 Es foto del equipo».' : 'Sin fotos del equipo.'} icon="📷" />
+        </div>
+      )}
     </>
   );
 }

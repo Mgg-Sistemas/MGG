@@ -82,7 +82,7 @@ export function MaquinariaPage() {
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
   // También vigila los movimientos de combustible (horómetro vigente) y las órdenes de servicio.
-  useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'maquinaria_documentos', 'maquinaria_ordenes_servicio', 'combustible_tanque_movimientos', 'maquinaria_lecturas'], () => { void cargar(); });
+  useRealtime(['maquinaria_equipos', 'maquinaria_catalogos', 'maquinaria_mantenimientos', 'maquinaria_documentos', 'maquinaria_fotos', 'maquinaria_ordenes_servicio', 'combustible_tanque_movimientos', 'maquinaria_lecturas'], () => { void cargar(); });
 
   // Estado, clase y aviso de servicio por equipo. Las lecturas vigentes (horómetro y
   // kilometraje) se traen de Combustible por el equipo vinculado (combustible_equipo);
