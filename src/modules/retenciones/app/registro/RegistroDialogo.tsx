@@ -24,6 +24,7 @@ import { money } from '@/shared/lib/format';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
 import { periodoDe, quincenaDe, type ConceptoRetencion, type ConfigRetencion, type MotivosIvaCien } from '../../retencionesCalculo';
+import { faltaEnLaCarga } from '../../validarCarga';
 import { usePuerta, type NuevaRetencion, type RetencionItem } from '../datos/puerta';
 import { componentesDelDocumento, type DocumentoAnfitrion } from '../logica/componentes';
 import { calcularLinea, type ResultadoCalculo } from '../logica/motor';
@@ -134,6 +135,16 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada }: Prop
   const registrar = async () => {
     setTocado(true);
     if (conErrores || sinCalculo || !config || (imp === 'iva' && !agenteIva)) return;
+    // La misma validación de la carga que la pantalla de hoy (validarCarga.ts).
+    const falta = faltaEnLaCarga({ tipo: imp, facturaNumero: factura, facturaFecha: fecha });
+    if (falta) { setErrorGuardar(falta); return; }
+    // Una línea que da 0 no se registra (registrarRetencion la rechazaría): se dice antes.
+    const enCero = resultados.findIndex((r) => r.estado === 'calculado' && r.magnitud <= 0);
+    if (enCero >= 0) {
+      const r = resultados[enCero];
+      setErrorGuardar(`${conLineas ? `La línea ${enCero + 1}` : 'La retención'} da 0,00${r.estado === 'calculado' && r.nota ? `: ${r.nota}` : '.'} No se registra.`);
+      return;
+    }
     setGuardando(true); setErrorGuardar(null);
     const comun = {
       tipo: imp, direccion: 'practicada' as const, docKind: item.kind, docId: item.id, docCodigo: item.ocCodigo,
@@ -161,7 +172,8 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada }: Prop
           input = {
             ...comun, conceptoId: c?.id ?? null, conceptoNombre: c?.nombre ?? null,
             contraparteSujeto: c && c.sujeto !== 'todos' ? c.sujeto : null,
-            baseImponible: parseDecimal(lineas[i].base) ?? 0, porcentaje: r.pct ?? 0, sustraendo: r.sustraendo, montoRetenido: r.magnitud,
+            // Como hoy: la base que se guarda es la del cálculo (con la porción del concepto ya aplicada).
+            baseImponible: Math.round(r.base * 100) / 100, porcentaje: r.pct ?? 0, sustraendo: r.sustraendo, montoRetenido: r.magnitud,
           };
         }
         await puerta.registrar(input);
