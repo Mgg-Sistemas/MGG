@@ -29,6 +29,7 @@ import {
 } from './realizadasYLibro';
 import { quienYCuando } from './quien';
 import { useArchivosFactura } from './useArchivosFactura';
+import { useVistaComprobante } from '../impresion/useVistaComprobante';
 
 const ORDENES = [{ valor: 'reciente', texto: 'Más reciente primero' }, { valor: 'antiguo', texto: 'Más antiguo primero' }];
 
@@ -51,6 +52,7 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar, onRegistrarRecibida
   const archivos = useArchivosFactura(useMemo(() => filas.map((r) => ({ kind: r.docKind, id: r.docId })), [filas]));
   const cambiar = (x: Partial<FiltroLibro>) => { setF((v) => ({ ...v, ...x })); setPagina(1); };
   const puerta = usePuerta();
+  const hoja = useVistaComprobante(libro);
   const [imprimiendo, setImprimiendo] = useState(false);
   const rango = rangoDeFilas(xs);
   const nombre = rango ? `libro-retenciones-${rango.desde}-a-${rango.hasta}` : 'libro-retenciones';
@@ -114,13 +116,14 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar, onRegistrarRecibida
               <span data-l="Factura">{r.facturaNumero ?? '—'}<small>{r.docCodigo ?? ''}</small></span>
               <span className="n" data-l="Retenido">{money(r.montoRetenido, r.moneda)}</span>
               <span data-l="Estado"><span className={`pill ${ESTADO_CLASE[e]}`}>{ESTADO_TEXTO[e]}</span><small>{quienYCuando(r)}</small></span>
-              <span className="acc"><AccionesRetencion r={r} onAnular={onAnular} onAdjuntar={onAdjuntar} />{archivos && <BotonFactura archivos={archivos.get(`${r.docKind}:${r.docId}`)} nombre={r.facturaNumero ?? ''} />}</span>
+              <span className="acc"><AccionesRetencion r={r} onAnular={onAnular} onAdjuntar={onAdjuntar} onComprobante={hoja.abrir} />{archivos && <BotonFactura archivos={archivos.get(`${r.docKind}:${r.docId}`)} nombre={r.facturaNumero ?? ''} />}</span>
             </div>
           );
         })}
         <Paginador total={xs.length} pagina={pag} tamano={tamano} unidad="retención(es)"
           onPagina={setPagina} onTamano={(t) => { setTamano(t); setPagina(1); }} />
       </div>
+      {hoja.vista}
     </>
   );
 }
