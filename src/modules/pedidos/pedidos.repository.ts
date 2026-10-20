@@ -10,7 +10,7 @@ import { motivoNoCorregible } from './metodoPagoEdicion';
 import { recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
 import { totalDesdePartes } from './impuestosOc';
 import { camposDeEdicion, cambiaProveedorOc, cambiaTexto, cambianNombres, hayCambiosMateriales } from './edicionOc';
-import { errorMotivoCambio, extrasCambioProveedor, type ProveedorRef } from './cambioProveedor';
+import { errorMotivoCambio, extrasCambioProveedor, extrasReaperturaOc, type ProveedorRef } from './cambioProveedor';
 
 /** Nombre y RIF de los proveedores dados (para sellarlos tal cual en la traza). */
 async function refsProveedores(ids: (string | null | undefined)[]): Promise<Map<string, ProveedorRef>> {
@@ -1338,58 +1338,6 @@ export async function corregirMetodoPago(
       }
     }
   }
-  return data as Orden;
-}
-
-/**
- * Reasigna el proveedor de una OC mientras se indica el método de pago. Como cambia
- * el proveedor, la OC NO sigue a pago: vuelve a "Pendiente por aprobación (Gerente
- * General)" (oc_creada) para que el gerente la confirme de nuevo con el nuevo proveedor.
- * Se limpia el método de pago previo (se vuelve a indicar tras la re-confirmación). Los
- * ítems, cantidades y montos se conservan.
- *
- * Traza (20-10-2026): el evento «proveedor_cambiado» guarda quién y cuándo, de quién a
- * quién (nombre y RIF de ese día), el MOTIVO (obligatorio), el total y la confirmación del
- * Gerente que se anula; esa confirmación se limpia de la OC (como al «Editar OC»), el
- * teléfono de administración era del proveedor anterior y también se limpia. Solo en
- * «Confirmada (indicar método de pago)»: una OC ya recibida contra entrega no cambia de proveedor.
- */
-export async function reasignarProveedorAReaprobacion(
-  o: Orden,
-  nuevoProveedorId: string,
-  actorEmail: string,
-  motivo: string,
-): Promise<Orden> {
-  if (o.estado !== 'confirmada_metodo') throw new Error('Solo se cambia el proveedor mientras la OC está pendiente de indicar el método de pago.');
-  const id = (nuevoProveedorId ?? '').trim();
-  if (!id) throw new Error('Indicá el proveedor.');
-  if (id === o.proveedor_id) throw new Error('El proveedor es el mismo; no hay cambio que reaprobar.');
-  const errMotivo = errorMotivoCambio(motivo);
-  if (errMotivo) throw new Error(errMotivo);
-  const refs = await refsProveedores([o.proveedor_id, id]);
-  const patch = {
-    proveedor_id: id,
-    estado: 'oc_creada' as EstadoOrden,
-    oc_aprobada_por: null,
-    oc_aprobada_en: null,
-    numero_administracion: null,
-    metodo_pago: null,
-    metodo_pago_por: null,
-    metodo_pago_en: null,
-    comprobante_tipo: null,
-    retencion_modo: null,
-    historial: appendHistorial(o, 'proveedor_cambiado', actorEmail, extrasCambioProveedor({
-      anterior: (o.proveedor_id ? refs.get(o.proveedor_id) : null) ?? { id: o.proveedor_id },
-      nuevo: refs.get(id) ?? { id },
-      motivo,
-      confirmadaPor: o.oc_aprobada_por ?? null,
-      confirmadaEn: o.oc_aprobada_en ?? null,
-      total: Number(o.total) || 0,
-      moneda: o.moneda ?? null,
-    })),
-  };
-  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
-  if (error) throw error;
   return data as Orden;
 }
 
@@ -2739,12 +2687,26 @@ export async function anularOrden(
  * de ofertas (`aprobada` · Pendiente · cargar ofertas) y reabre todas las ofertas
  * para volver a elegir la ganadora. Limpia el proveedor y la condición ya casados.
  */
+/**
+ * Vuelve a la etapa de ofertas para re-elegir la ganadora. Desde «OC creada» (por aprobar) es
+ * «Modificar OC». Desde «Confirmada (indicar método de pago)» es CAMBIAR DE PROVEEDOR (20-10-2026):
+ * se vuelve a cotizar, se escoge la nueva cotización y el Gerente la confirma de nuevo; ahí el MOTIVO
+ * es obligatorio y el evento «oc_reabierta» deja en la traza quién, cuándo, el proveedor anterior,
+ * el motivo, el total y la confirmación del Gerente que se anula (que también se limpia de la OC,
+ * igual que el teléfono de administración, que era del proveedor anterior).
+ */
 export async function reabrirOcAOfertas(
   o: Orden,
-  actorEmail: string
+  actorEmail: string,
+  motivo?: string,
 ): Promise<Orden> {
-  if (o.estado !== 'oc_creada')
-    throw new Error('Solo se modifica una OC pendiente de aprobación del gerente');
+  if (o.estado !== 'oc_creada' && o.estado !== 'confirmada_metodo')
+    throw new Error('Solo se reabre una OC pendiente de aprobación del gerente o pendiente de indicar el método de pago');
+  const cambioProveedor = o.estado === 'confirmada_metodo';
+  if (cambioProveedor) {
+    const errMotivo = errorMotivoCambio(motivo);
+    if (errMotivo) throw new Error(errMotivo);
+  }
   // Reabrir todas las ofertas (la aceptada y las descartadas) para re-elegir.
   // En una sub-OC (hija) las ofertas viven en la MADRE: se reabre solo la de SU proveedor
   // (las de los demás proveedores respaldan a las otras hijas). Antes se buscaban por el
@@ -2760,13 +2722,25 @@ export async function reabrirOcAOfertas(
     const { error: reopenErr } = await reopen;
     if (reopenErr) throw reopenErr;
   }
+  const refs = cambioProveedor ? await refsProveedores([o.proveedor_id]) : null;
   const patch = {
     estado: 'aprobada' as EstadoOrden,
     proveedor_id: null,
     condiciones_pago: null,
     oc_creada_por: null,
     oc_creada_en: null,
-    historial: appendHistorial(o, 'oc_reabierta', actorEmail, { motivo: 'Modificación: volver a elegir oferta' }),
+    ...(cambioProveedor ? { oc_aprobada_por: null, oc_aprobada_en: null, numero_administracion: null } : {}),
+    historial: appendHistorial(o, 'oc_reabierta', actorEmail, cambioProveedor
+      ? extrasReaperturaOc({
+          anterior: (o.proveedor_id ? refs?.get(o.proveedor_id) : null) ?? { id: o.proveedor_id },
+          motivo,
+          desde: o.estado,
+          confirmadaPor: o.oc_aprobada_por ?? null,
+          confirmadaEn: o.oc_aprobada_en ?? null,
+          total: Number(o.total) || 0,
+          moneda: o.moneda ?? null,
+        })
+      : { motivo: 'Modificación: volver a elegir oferta' }),
   };
   const { data, error } = await supabase
     .from(TABLE)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { errorMotivoCambio, extrasCambioProveedor, lineaCambioProveedor, textoProveedor } from './cambioProveedor';
+import { errorMotivoCambio, extrasCambioProveedor, extrasReaperturaOc, lineaCambioProveedor, lineaReaperturaOc, textoProveedor } from './cambioProveedor';
 
 const A = { id: 'a', razon_social: 'DISTRIBUIDORA EL TORETE J&M, C.A', rif: 'J-506575140' };
 const B = { id: 'b', razon_social: 'CARNICERIA LA ESPERANZA', rif: null };
@@ -62,5 +62,25 @@ describe('lineaCambioProveedor', () => {
     expect(lineaCambioProveedor({ proveedorAnteriorId: 'a' }, buscar)).toBe('');
     expect(lineaCambioProveedor({ proveedorAnteriorId: 'zzz', proveedorNuevoId: 'b' }, buscar)).toBe('');
     expect(lineaCambioProveedor({}, buscar)).toBe('');
+  });
+});
+
+describe('reapertura de la OC para cambiar de proveedor', () => {
+  it('extrasReaperturaOc guarda el proveedor anterior (nombre y RIF), motivo y la confirmación que se anula', () => {
+    const x = extrasReaperturaOc({ anterior: A, motivo: ' Sin existencia ', desde: 'confirmada_metodo', confirmadaPor: 'leydis@mgg.com', total: 1204.88, moneda: 'USD' });
+    expect(x).toMatchObject({
+      proveedorAnteriorId: 'a', proveedorAnterior: 'DISTRIBUIDORA EL TORETE J&M, C.A · J-506575140',
+      cambio_proveedor: true, motivo: 'Sin existencia', desde: 'confirmada_metodo', confirmada_por: 'leydis@mgg.com', total: 1204.88, moneda: 'USD',
+    });
+  });
+  it('lineaReaperturaOc: proveedor anterior y motivo', () => {
+    const h = extrasReaperturaOc({ anterior: A, motivo: 'Sin existencia' });
+    expect(lineaReaperturaOc(h, () => null)).toBe(' · proveedor anterior: DISTRIBUIDORA EL TORETE J&M, C.A · J-506575140 · Sin existencia');
+  });
+  it('lineaReaperturaOc: si solo trae el id, busca el nombre', () => {
+    expect(lineaReaperturaOc({ cambio_proveedor: true, proveedorAnteriorId: 'b' }, buscar)).toBe(' · proveedor anterior: CARNICERIA LA ESPERANZA');
+  });
+  it('«Modificar OC» (sin cambio de proveedor) no agrega nada', () => {
+    expect(lineaReaperturaOc({ motivo: 'Modificación: volver a elegir oferta' }, buscar)).toBe('');
   });
 });
