@@ -6,6 +6,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
+import { errorMotivoCambio, lineaCambioProveedor } from './cambioProveedor';
 import { MAX_MINIMIZADAS, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -1097,13 +1098,14 @@ export function PedidosPage() {
           proveedores={proveedores}
           proveedorActual={modal.orden.proveedor_id ? proveedorMap.get(modal.orden.proveedor_id) ?? null : null}
           onClose={() => setModal({ kind: 'none' })}
-          onSent={async (metodos, soporte, proveedorId, qr, descuentoPago) => {
+          onSent={async (metodos, soporte, proveedorId, qr, descuentoPago, motivoCambio) => {
             try {
               const email = usuario?.email ?? user?.email ?? 'sistema';
               const codigo = modal.orden.oc_codigo ?? modal.orden.codigo;
-              // Si se cambió el proveedor, NO va a pago: vuelve a aprobación del Gerente.
+              // Si se cambió el proveedor, NO va a pago: vuelve a aprobación del Gerente
+              // (con su motivo en la traza).
               if (proveedorId && proveedorId !== modal.orden.proveedor_id) {
-                await reasignarProveedorAReaprobacion(modal.orden, proveedorId, email);
+                await reasignarProveedorAReaprobacion(modal.orden, proveedorId, email, motivoCambio);
                 notify(`OC ${codigo} · proveedor cambiado → vuelve a Pendiente por aprobación (Gerente General)`, 'info', { link: '#/app/pedidos' });
                 setModal({ kind: 'none' });
                 await refresh();
@@ -1491,7 +1493,7 @@ function MetodoPagoModal({
    *  Confirmada pagar y solo se arregla CÓMO se le paga (método y datos del beneficiario). */
   modo?: 'enviar' | 'corregir';
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; numeroAdministracion: string | null }, proveedorId: string, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; numeroAdministracion: string | null }, proveedorId: string, qr: File | null, descuentoPago: number | null, motivoCambio: string) => Promise<void> | void;
 }) {
   // Al corregir se arranca con lo que ya tiene la OC (método, moneda, monto y datos),
   // para que el usuario vea y edite exactamente lo que se cargó.
@@ -1510,6 +1512,10 @@ function MetodoPagoModal({
   // Proveedor de la OC: se puede cambiar acá (la orden ya está aprobada; solo se reasigna).
   const [proveedorId, setProveedorId] = useState<string>(orden.proveedor_id ?? '');
   const proveedorCambiado = !!orden.proveedor_id && proveedorId !== orden.proveedor_id;
+  // Solo se cambia de proveedor en «indicar método de pago»; una OC contra entrega ya recibida no.
+  const puedeCambiarProveedor = orden.estado === 'confirmada_metodo';
+  // Motivo del cambio (obligatorio): queda en la traza de la OC.
+  const [motivoCambio, setMotivoCambio] = useState('');
   // Lista para el selector: activos + el actual (aunque esté inactivo), sin duplicar.
   const proveedoresSel = useMemo(() => {
     const out = [...proveedores];
@@ -1582,7 +1588,12 @@ function MetodoPagoModal({
   async function handleSend() {
     setError(null);
     if (!proveedorId) { setError('Indicá el proveedor.'); return; }
-    // Si cambió el proveedor, la OC vuelve a aprobación del Gerente: no se exige método de pago.
+    // Si cambió el proveedor, la OC vuelve a aprobación del Gerente: no se exige método de pago,
+    // pero sí el MOTIVO (queda en la traza).
+    if (proveedorCambiado) {
+      const errMotivo = errorMotivoCambio(motivoCambio);
+      if (errMotivo) { setError(errMotivo); return; }
+    }
     if (!proveedorCambiado) {
       if (!numeroAdmin.trim()) { setError('Indicá el teléfono de administración del proveedor: se carga una sola vez y queda en su ficha.'); return; }
       if (!telefonoAdministracionValido(numeroAdmin)) { setError('El teléfono de administración no parece un teléfono (mínimo 7 dígitos; se admiten +, espacios, guiones y paréntesis).'); return; }
@@ -1610,7 +1621,7 @@ function MetodoPagoModal({
       // si falla, se avisa y no se manda a pagar sin el dato.
       const numero = numeroAdmin.trim() || null;
       if (!proveedorCambiado && numero && numero !== numeroAdminGuardado) await fijarNumeroAdministracionProveedor(proveedorId, numero);
-      await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, numeroAdministracion: numero }, proveedorId, qr, incluyeDesc && descNum > 0 ? descNum : null);
+      await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, numeroAdministracion: numero }, proveedorId, qr, incluyeDesc && descNum > 0 ? descNum : null, motivoCambio.trim());
     }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
@@ -1650,16 +1661,33 @@ function MetodoPagoModal({
       {!corrigiendo && (
       <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: proveedorCambiado ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
         <div className="card-title" style={{ marginBottom: '.45rem' }}>Proveedor</div>
-        <select className="select" value={proveedorId} onChange={(e) => cambiarProveedor(e.target.value)}>
+        <select className="select" value={proveedorId} disabled={!puedeCambiarProveedor} onChange={(e) => cambiarProveedor(e.target.value)}>
           {!proveedorId && <option value="">— Elegí el proveedor —</option>}
           {proveedoresSel.map((p) => (
             <option key={p.id} value={p.id}>{p.razon_social}{p.rif ? ` · ${p.rif}` : ''}</option>
           ))}
         </select>
-        {proveedorCambiado && (
-          <small className="hint muted" style={{ display: 'block', marginTop: '.4rem', color: 'var(--brand, #ff8a00)' }}>
-            ⚠️ Cambiarás el proveedor de la OC (de <strong>{proveedorActual?.razon_social ?? '—'}</strong>). Al cambiarlo, la OC <strong>vuelve a “Pendiente por aprobación (Gerente General)”</strong> para que el gerente la confirme de nuevo; el método de pago se indicará después. Los ítems y montos se conservan.
+        {!puedeCambiarProveedor && (
+          <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
+            El proveedor ya no se puede cambiar: la OC ya fue recibida.
           </small>
+        )}
+        {proveedorCambiado && (
+          <>
+            <small className="hint muted" style={{ display: 'block', marginTop: '.4rem', color: 'var(--brand, #ff8a00)' }}>
+              ⚠️ Cambiarás el proveedor de la OC (de <strong>{proveedorActual?.razon_social ?? '—'}</strong>). Al cambiarlo, la OC <strong>vuelve a “Pendiente por aprobación (Gerente General)”</strong> para que el gerente la confirme de nuevo; el método de pago se indicará después. Los ítems y montos se conservan. Todo queda en la <strong>trazabilidad</strong> de la OC: quién, cuándo, de quién a quién y el motivo.
+            </small>
+            <div className="form-row" style={{ margin: '.5rem 0 0' }}>
+              <label>Motivo del cambio de proveedor <span className="muted" style={{ fontWeight: 400 }}>(obligatorio)</span></label>
+              <input
+                className="input"
+                value={motivoCambio}
+                onChange={(e) => setMotivoCambio(e.target.value)}
+                placeholder="Ej.: el proveedor no tiene existencia / mejor precio de otro proveedor"
+                maxLength={200}
+              />
+            </div>
+          </>
         )}
       </div>
       )}
@@ -3688,19 +3716,10 @@ function Timeline({
   return (
     <div className="timeline">
       {items.map((h, i) => {
-        const ext = h as EventoHistorial & {
-          proveedorAnteriorId?: string;
-          proveedorNuevoId?: string;
-        };
-        const anterior = ext.proveedorAnteriorId ? proveedorMap.get(ext.proveedorAnteriorId) : null;
-        const nuevo = ext.proveedorNuevoId ? proveedorMap.get(ext.proveedorNuevoId) : null;
-        let extra = '';
-        if (h.motivo) extra = ` · ${h.motivo}`;
-        if (anterior && nuevo) {
-          extra = ` · de ${anterior.razon_social} → ${nuevo.razon_social}${
-            h.motivo ? ' · ' + h.motivo : ''
-          }`;
-        }
+        // Cambio de proveedor: «de A → B · motivo» (lo guardado ese día; si no, por id).
+        const cambio = lineaCambioProveedor(h as unknown as Record<string, unknown>, (id) => proveedorMap.get(id) ?? null);
+        const extra = cambio || (h.motivo ? ` · ${h.motivo}` : '');
+        const anulada = h.evento === 'proveedor_cambiado' ? (h as unknown as { confirmada_por?: string }).confirmada_por : null;
         return (
           <div className="tl-item" key={`${h.at}-${i}`}>
             <div className={`tl-dot ${eventClass(h.evento)}`}></div>
@@ -3709,6 +3728,11 @@ function Timeline({
                 {eventLabel(h.evento)}
                 {extra}
               </div>
+              {anulada && (
+                <div className="tl-meta" style={{ marginTop: '.15rem' }}>
+                  ↩ Vuelve a aprobación del Gerente · se anula la confirmación de {persona(anulada, personaMap)}
+                </div>
+              )}
               {h.documentos && h.documentos.length > 0 && (
                 <div className="tl-meta" style={{ marginTop: '.15rem' }}>
                   📄 Documentos: {h.documentos.join(' · ')}
