@@ -30,6 +30,7 @@ import { usePuerta, type NuevaRetencion, type RetencionItem } from '../datos/pue
 import { componentesDelDocumento, type DocumentoAnfitrion } from '../logica/componentes';
 import { calcularLinea, type ResultadoCalculo } from '../logica/motor';
 import { nombreImpuesto } from '../pantalla/pendientesPorDocumento';
+import type { SemillaRegistro } from '../pantalla/registrarDeNuevo';
 import { contextoDeHoy, filaDeConcepto, reglasDeHoy, SUPUESTOS_IVA, supuestosMarcados } from './reglasDesdeConfig';
 import { textoDelPaso, textoFalta } from './textosCalculo';
 import { revisarRif } from './validarRif';
@@ -42,6 +43,8 @@ interface Props {
   impuesto: string;
   onCerrar: () => void;
   onRegistrada: () => void;
+  /** «Registrar <IMP> de nuevo»: abre con los datos de la factura de la anulada (se pueden corregir). */
+  semilla?: SemillaRegistro;
 }
 
 interface Linea { conceptoId: string; base: string }
@@ -62,7 +65,7 @@ function documentoDe(item: RetencionItem): DocumentoAnfitrion {
 const texto = (n: number | null | undefined) => (n == null ? '' : String(n).replace('.', ','));
 const hoyIso = () => new Date().toLocaleDateString('en-CA');
 
-export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada }: Props) {
+export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semilla }: Props) {
   const puerta = usePuerta();
   const { user } = useSession();
   const { appUser } = usePermissions();
@@ -81,13 +84,13 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada }: Prop
   const comp = useMemo(() => componentesDelDocumento(documentoDe(item)), [item]);
   const baseInicial = comp.montos.subtotal != null ? comp.montos.subtotal - (comp.montos.descuento ?? 0) : null;
 
-  const [factura, setFactura] = useState('');
-  const [control, setControl] = useState('');
-  const [fecha, setFecha] = useState('');
-  const [ivaTxt, setIvaTxt] = useState(texto(comp.montos.iva));
-  const [baseTxt, setBaseTxt] = useState(texto(baseInicial));
+  const [factura, setFactura] = useState(semilla?.factura ?? '');
+  const [control, setControl] = useState(semilla?.control ?? '');
+  const [fecha, setFecha] = useState(semilla?.fecha ?? '');
+  const [ivaTxt, setIvaTxt] = useState(texto(semilla?.iva ?? comp.montos.iva));
+  const [baseTxt, setBaseTxt] = useState(texto(semilla?.base ?? baseInicial));
   const [motivos, setMotivos] = useState<MotivosIvaCien>({});
-  const [lineas, setLineas] = useState<Linea[]>([{ conceptoId: '', base: texto(baseInicial) }]);
+  const [lineas, setLineas] = useState<Linea[]>([{ conceptoId: '', base: texto(semilla?.base ?? baseInicial) }]);
   const [tocado, setTocado] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
@@ -216,6 +219,7 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada }: Prop
     <Modal title="Registrar retención" size="lg" onClose={onCerrar} footer={footer}>
       <div className="ret-v8 v8-registro">
         <p className="v8-reg-sub">{subtitulo}</p>
+        {semilla?.reemplazaA && <p className="v8-reg-aviso">Reemplaza al N° {semilla.reemplazaA} (anulado). Los datos vienen de la retención anulada: revisarlos antes de registrar.</p>}
         {rif.error && <p className="v8-reg-error" role="alert">{rif.error}</p>}
         {rif.aviso && <p className="v8-reg-aviso">{rif.aviso}</p>}
         {errorCarga && <div className="aviso-error" role="alert">No se pudo leer la configuración fiscal: {errorCarga}</div>}
