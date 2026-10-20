@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Retenciones · Impresión · Ver e imprimir un comprobante
+   MGG · Retenciones · Impresión · Ver e imprimir una hoja
 
    «Imprimir desde la página» (decisión del usuario, 16/10): la hoja fiel al
    ejemplar se ve en la vista previa, con la marca «Vista previa · sin
@@ -9,9 +9,10 @@
    La copia que se imprime vive fuera de pantalla en #retenciones-imprimir
    (hojas.css): al imprimir, todo lo demás se oculta con display: none, nunca
    con visibility (si no, salen hojas en blanco).
+   VistaImpresion sirve a los comprobantes y a las relaciones.
    ============================================================ */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Modal } from '@/shared/ui/Modal';
 import { FORMATO_COMPROBANTE, FORMATO_FABRICA } from './formatos';
@@ -34,9 +35,15 @@ export function imprimirHojas(orientacion: Orientacion): void {
   window.print();
 }
 
-export function VistaComprobante({ datos, titulo, onCerrar }: { datos: DatosComprobante; titulo: string; onCerrar: () => void }) {
+/**
+ * La vista previa y la impresión de una hoja. `hoja(orientación)` dibuja la
+ * hoja; `marco` dice si la vista previa va en el marco de una hoja carta
+ * (comprobante) o se desplaza a lo largo (relación).
+ */
+export function VistaImpresion({ titulo, hoja, marco, onCerrar }: {
+  titulo: string; hoja: (o: Orientacion) => ReactNode; marco: boolean; onCerrar: () => void;
+}) {
   const [orientacion, setOrientacion] = useState<Orientacion>('horizontal');
-  const formato = FORMATO_FABRICA[FORMATO_COMPROBANTE[datos.impuesto]];
   // Si se cierra a mitad de una impresión, la página no queda marcada
   useEffect(() => () => { document.documentElement.classList.remove(CLASE); document.body.classList.remove(CLASE); }, []);
 
@@ -58,17 +65,17 @@ export function VistaComprobante({ datos, titulo, onCerrar }: { datos: DatosComp
   return (
     <Modal title={titulo} size="xl" onClose={onCerrar} footer={footer}>
       <div className="rv8-vc-marco">
-        <div className={`hv8-marco rv8-vc-${orientacion}`}>
+        <div className={marco ? `hv8-marco rv8-vc-${orientacion}` : `rv8-vc-larga rv8-vc-larga-${orientacion}`}>
           <div className="marca-agua v8" aria-hidden="true"><span>Vista previa · sin validez para entrega</span></div>
-          <PaginaComprobante datos={datos} formato={formato} orientacion={orientacion} />
+          {hoja(orientacion)}
         </div>
       </div>
-      {createPortal(
-        <div id="retenciones-imprimir" aria-hidden="true">
-          <div className="ri-hoja"><PaginaComprobante datos={datos} formato={formato} orientacion={orientacion} /></div>
-        </div>,
-        document.body,
-      )}
+      {createPortal(<div id="retenciones-imprimir" aria-hidden="true"><div className="ri-hoja">{hoja(orientacion)}</div></div>, document.body)}
     </Modal>
   );
+}
+
+export function VistaComprobante({ datos, titulo, onCerrar }: { datos: DatosComprobante; titulo: string; onCerrar: () => void }) {
+  const formato = FORMATO_FABRICA[FORMATO_COMPROBANTE[datos.impuesto]];
+  return <VistaImpresion titulo={titulo} marco onCerrar={onCerrar} hoja={(o) => <PaginaComprobante datos={datos} formato={formato} orientacion={o} />} />;
 }

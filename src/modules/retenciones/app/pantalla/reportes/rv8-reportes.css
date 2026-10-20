@@ -1,0 +1,42 @@
+/* ============================================================
+   MGG · Retenciones v8 · Reportes
+   Las reglas de la maqueta v8 (.rep-layout, .rep-plantillas, .rep-constructor,
+   .rep-filtros, .chips), con el prefijo rv8-, las variables del tema y sin
+   selectores globales; sacadas con docs/cuaderno/disenos/css_rv8.py. Las
+   propias del módulo van al final.
+   ============================================================ */
+.rv8-chips { display: flex; gap: .35rem; flex-wrap: wrap; }
+.rv8-chip { display: inline-flex; align-items: center; gap: .35rem; min-height: 34px; padding: .3rem .8rem; font-size: .82rem; font-weight: 500; background: var(--bg-1); color: var(--text-muted); border: 1px solid var(--border); border-radius: 999px; cursor: pointer; }
+.rv8-chip:hover { color: var(--text); border-color: var(--border-strong); }
+.rv8-chip[aria-pressed="true"] { background: var(--grad-primary-soft); color: var(--primary-3); border-color: color-mix(in srgb, var(--primary) 50%, transparent); }
+.rv8-rango { display: flex; gap: .4rem; align-items: center; }
+.rv8-rango[hidden] { display: none; }
+@media (max-width: 640px) {
+  .rv8-chip { min-height: 44px; }
+}
+.rv8-rep-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 1rem; align-items: start; }
+.rv8-rep-plantillas { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: .6rem; }
+.rv8-rep-plantillas h4 { margin: .6rem .4rem .3rem; font-size: .74rem; color: var(--text-dim); font-weight: 600; }
+.rv8-rep-plantillas button.rv8-pl { flex: 1; text-align: left; background: transparent; border: 0; border-radius: var(--r-md); padding: .5rem .6rem; color: var(--text); cursor: pointer; min-height: 40px; font-size: .84rem; }
+.rv8-rep-plantillas button.rv8-pl:hover { background: var(--surface-2); }
+.rv8-rep-plantillas button.rv8-pl[aria-current="true"] { background: var(--grad-primary-soft); color: var(--primary-3); }
+.rv8-rep-plantillas .rv8-pl small { display: block; color: var(--text-dim); font-size: .7rem; }
+.rv8-rep-constructor { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: .9rem 1rem; min-width: 0; }
+.rv8-rep-filtros { display: flex; flex-wrap: wrap; gap: .8rem 1.2rem; align-items: flex-start; margin: .8rem 0; }
+@media (max-width: 900px) {
+  .rv8-rep-layout { grid-template-columns: 1fr; }
+}
+.rv8-v8-tabla-scroll { overflow-x: auto; }
+
+/* Propias del módulo */
+.rv8-rep-acciones { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin: .6rem 0; }
+.rv8-cruzada { border-collapse: collapse; font-size: .8rem; min-width: 100%; }
+.rv8-cruzada th, .rv8-cruzada td { padding: .35rem .55rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.rv8-cruzada th { color: var(--text-muted); font-weight: 600; text-align: left; background: var(--bg-1); }
+.rv8-cruzada .n { text-align: right; font-family: var(--font-mono); }
+.rv8-cruzada tr.rv8-total td { font-weight: 700; border-top: 2px solid var(--border-strong); }
+.rv8-cruzada .rv8-fijo { position: sticky; left: 0; background: var(--surface); }
+.rv8-requiere-base { opacity: .55; cursor: not-allowed; border-style: dashed; }
+.rv8-campo { display: flex; flex-direction: column; gap: .35rem; }
+.rv8-campo > span { font-size: .78rem; color: var(--text-muted); font-weight: 600; }
+.rv8-sel { padding: .45rem .7rem; min-height: 34px; background: var(--bg-1); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md); font-size: .85rem; }

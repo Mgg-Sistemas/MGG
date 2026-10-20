@@ -28,6 +28,8 @@ const NUMERICAS = new Set([8, 9, 10, 11]);
 export interface TablaLibro {
   cabecera: string[];
   cuerpo: (string | number)[][];
+  /** Las columnas con montos (por omisión, las del Libro). */
+  numericas?: ReadonlySet<number>;
 }
 
 const fechaDe = (r: RetencionPracticada) => r.facturaFecha ?? r.createdAt.slice(0, 10);
@@ -44,15 +46,16 @@ export function tablaLibro(filas: readonly RetencionPracticada[]): TablaLibro {
   };
 }
 
-const celdaCsv = (v: string | number, i: number): string => {
-  const t = typeof v === 'number' && NUMERICAS.has(i)
+const celdaCsv = (numericas: ReadonlySet<number>) => (v: string | number, i: number): string => {
+  const t = typeof v === 'number' && numericas.has(i)
     ? v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
     : String(v);
   return /[";\r\n]/.test(t) ? `"${t.replace(/"/g, '""')}"` : t;
 };
 
 export function textoCsv(t: TablaLibro): string {
-  const linea = (xs: (string | number)[]) => xs.map(celdaCsv).join(';');
+  const celda = celdaCsv(t.numericas ?? NUMERICAS);
+  const linea = (xs: (string | number)[]) => xs.map(celda).join(';');
   return `\uFEFF${[t.cabecera, ...t.cuerpo].map(linea).join('\r\n')}\r\n`;
 }
 
@@ -89,10 +92,11 @@ export async function descargarExcel(t: TablaLibro, titulo: string, nombre: stri
     };
   };
   const ws = XLSX.utils.aoa_to_sheet([[titulo], [], t.cabecera, ...t.cuerpo]);
-  ws['!cols'] = t.cabecera.map((_, i) => ({ wch: NUMERICAS.has(i) ? 14 : i === 4 ? 34 : 16 }));
+  const numericas = t.numericas ?? NUMERICAS;
+  ws['!cols'] = t.cabecera.map((_, i) => ({ wch: numericas.has(i) ? 14 : i === 4 ? 34 : 16 }));
   const celdas = ws as Record<string, { s?: unknown; z?: string }>;
   t.cabecera.forEach((_, c) => { const x = celdas[XLSX.utils.encode_cell({ r: 2, c })]; if (x) x.s = CABECERA_XLSX; });
-  t.cuerpo.forEach((_, i) => NUMERICAS.forEach((c) => { const x = celdas[XLSX.utils.encode_cell({ r: i + 3, c })]; if (x) x.z = '#,##0.00'; }));
+  t.cuerpo.forEach((_, i) => numericas.forEach((c) => { const x = celdas[XLSX.utils.encode_cell({ r: i + 3, c })]; if (x) x.z = '#,##0.00'; }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Libro');
   previewWorkbook(XLSX, wb, nombre);
