@@ -42,6 +42,7 @@
 .ret-v8 .lista-sis.v8-libro { --cols: .8fr 1.3fr .9fr 1.4fr .9fr .9fr 1fr 2fr; }
 .ret-v8 .lista-sis.v8-libro.sin-acciones { --cols: .8fr 1.3fr .9fr 1.4fr .9fr .9fr 1fr; }
 .ret-v8 .v8-ret-linea { display: block; padding: .15rem 0; }
+.ret-v8 .v8-libro-acciones { display: flex; justify-content: flex-end; margin: .2rem 0 -.2rem; }
 .ret-v8 .v8-ret-acc { display: inline-flex; gap: .3rem; margin-left: .4rem; vertical-align: middle; }
 .ret-v8 .v8-ret-acc .mini { min-height: 32px; padding: .1rem .55rem; }
 .ret-v8 .v8-ret-linea + .v8-ret-linea { border-top: 1px dashed var(--border); margin-top: .2rem; padding-top: .35rem; }

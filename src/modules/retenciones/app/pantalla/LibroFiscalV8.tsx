@@ -36,9 +36,11 @@ interface Props {
   libro: RetencionPracticada[];
   onAnular?: (r: RetencionPracticada) => void;
   onAdjuntar?: (r: RetencionPracticada, archivo: File) => void;
+  /** Abre el registro de una retención de un cliente. Sin ella, el botón no se muestra. */
+  onRegistrarRecibida?: () => void;
 }
 
-export function LibroFiscalV8({ libro, onAnular, onAdjuntar }: Props) {
+export function LibroFiscalV8({ libro, onAnular, onAdjuntar, onRegistrarRecibida }: Props) {
   const [f, setF] = useState<FiltroLibro>(FILTRO_INICIAL);
   const [pagina, setPagina] = useState(1);
   const [tamano, setTamano] = useState<number>(TAMANO_PAGINA_INICIAL);
@@ -66,6 +68,11 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar }: Props) {
 
   return (
     <>
+      {onRegistrarRecibida && (
+        <div className="v8-libro-acciones">
+          <button type="button" className="btn btn-ghost" onClick={onRegistrarRecibida}>+ Registrar una retención de un cliente</button>
+        </div>
+      )}
       <BarraLista
         q={f.q} placeholder="Buscar por N° de comprobante, proveedor, RIF, factura u OC" resultados={xs.length} unidad="retención(es)"
         filtros={[

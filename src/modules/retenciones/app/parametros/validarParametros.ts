@@ -49,7 +49,8 @@ export function validarRegimen(f: FormRegimen): Errores<keyof FormRegimen> {
     pctIvaEspecial: numero(f.pctIvaEspecial, 'el % del art. 5', 0, 100, { minExcluido: true }),
     // La UT en 0 deja al ISLR sin mínimo ni sustraendo: no se acepta (auditoría del 16/10).
     valorUt: numero(f.valorUt, 'el valor de la UT', 0, 1_000_000, { minExcluido: true }),
-    pctIgtf: numero(f.pctIgtf, 'el % del IGTF', 0, 100),
+    // La Ley del IGTF: el Ejecutivo puede moverlo entre el 2 % y el 8 % (comentario de retencion_config).
+    pctIgtf: numero(f.pctIgtf, 'el % del IGTF', 2, 8),
   };
 }
 

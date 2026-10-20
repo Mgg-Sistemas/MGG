@@ -31,6 +31,9 @@ describe('el régimen y los valores compartidos', () => {
   it('un % fuera de 0–100 o con letras, no', () => {
     expect(validarRegimen({ ...ok, pctIvaGeneral: '120' }).pctIvaGeneral).toContain('no puede pasar de 100');
     expect(validarRegimen({ ...ok, pctIgtf: 'tres' }).pctIgtf).toContain('solo números');
+    // El IGTF, entre el 2 % y el 8 %, como dice la ley.
+    expect(validarRegimen({ ...ok, pctIgtf: '1' }).pctIgtf).toContain('mayor o igual a 2');
+    expect(validarRegimen({ ...ok, pctIgtf: '9' }).pctIgtf).toContain('no puede pasar de 8');
   });
 });
 
