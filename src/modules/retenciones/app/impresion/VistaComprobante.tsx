@@ -38,10 +38,13 @@ export function imprimirHojas(orientacion: Orientacion): void {
 /**
  * La vista previa y la impresión de una hoja. `hoja(orientación)` dibuja la
  * hoja; `marco` dice si la vista previa va en el marco de una hoja carta
- * (comprobante) o se desplaza a lo largo (relación).
+ * (comprobante) o se desplaza a lo largo. `previa`, si se da, reemplaza a la
+ * hoja en la pantalla (la relación, cortada en páginas).
  */
-export function VistaImpresion({ titulo, hoja, marco, onCerrar }: {
-  titulo: string; hoja: (o: Orientacion) => ReactNode; marco: boolean; onCerrar: () => void;
+export function VistaImpresion({ titulo, hoja, marco, previa, ejemplo, onCerrar }: {
+  titulo: string; hoja: (o: Orientacion) => ReactNode; marco: boolean; previa?: (o: Orientacion) => ReactNode;
+  /** Datos inventados: la marca «EJEMPLO» en pantalla y también en cada hoja impresa. */
+  ejemplo?: boolean; onCerrar: () => void;
 }) {
   const [orientacion, setOrientacion] = useState<Orientacion>('horizontal');
   // Si se cierra a mitad de una impresión, la página no queda marcada
@@ -65,12 +68,21 @@ export function VistaImpresion({ titulo, hoja, marco, onCerrar }: {
   return (
     <Modal title={titulo} size="xl" onClose={onCerrar} footer={footer}>
       <div className="rv8-vc-marco">
-        <div className={marco ? `hv8-marco rv8-vc-${orientacion}` : `rv8-vc-larga rv8-vc-larga-${orientacion}`}>
-          <div className="marca-agua v8" aria-hidden="true"><span>Vista previa · sin validez para entrega</span></div>
-          {hoja(orientacion)}
-        </div>
+        {previa ? previa(orientacion) : (
+          <div className={marco ? `hv8-marco rv8-vc-${orientacion}` : `rv8-vc-larga rv8-vc-larga-${orientacion}`}>
+            <div className="marca-agua v8" aria-hidden="true"><span>{ejemplo ? 'EJEMPLO' : 'Vista previa · sin validez para entrega'}</span></div>
+            {hoja(orientacion)}
+          </div>
+        )}
       </div>
-      {createPortal(<div id="retenciones-imprimir" aria-hidden="true"><div className="ri-hoja">{hoja(orientacion)}</div></div>, document.body)}
+      {ejemplo && <p className="rv8-vc-ejemplo" role="note">EJEMPLO · solo en local · datos inventados</p>}
+      {createPortal(
+        <div id="retenciones-imprimir" aria-hidden="true">
+          {ejemplo && <div className="rv8-marca-ejemplo"><span>EJEMPLO</span></div>}
+          <div className="ri-hoja">{hoja(orientacion)}</div>
+        </div>,
+        document.body,
+      )}
     </Modal>
   );
 }

@@ -26,7 +26,10 @@ function valor(c: DefColumna, f: FilaRelacion): string {
   return v == null ? '' : String(v);
 }
 
-export function HojaRelacion({ datos: d, orientacion }: { datos: DatosRelacion; orientacion: Orientacion }) {
+/** Una página de la vista previa: un grupo de columnas, sus filas y si cierra con los totales. */
+export interface PaginaHoja { grupo: number; filas: number[]; conTotal: boolean }
+
+export function HojaRelacion({ datos: d, orientacion, pagina }: { datos: DatosRelacion; orientacion: Orientacion; pagina?: PaginaHoja }) {
   const formato = FORMATO_FABRICA[FORMATO_RELACION[d.impuesto]];
   const x = formato.textos, hoja = HOJA_RELACION[d.impuesto];
   const grupos = gruposRelacion(FORMATO_RELACION[d.impuesto], formato);
@@ -37,10 +40,13 @@ export function HojaRelacion({ datos: d, orientacion }: { datos: DatosRelacion; 
   return (
     <div className={`rv8 ${orientacion}`}>
       {grupos.map((g, gi) => {
+        if (pagina && pagina.grupo !== gi) return null;
+        const filas = pagina ? pagina.filas.map((i) => d.filas[i]).filter(Boolean) : d.filas;
+        const conTotal = pagina ? pagina.conTotal : true;
         const ancho = g.reduce((a, c) => a + c.ancho, 0), n = g.length + 1;
         const pct = (w: number) => `${((w / util) * 100).toFixed(3)}%`;
         return (
-          <table key={gi} className={`rv8-t${gi ? ' rv8-salto' : ''}`}
+          <table key={gi} className={`rv8-t${gi && !pagina ? ' rv8-salto' : ''}`}
             style={{ marginLeft: hoja.izq, width: `calc(100% - ${hoja.izq + MARGEN_DERECHO_RELACION}px)` }}>
             <colgroup>
               {g.map((c) => <col key={c.id} style={{ width: pct(c.ancho) }} />)}
@@ -63,13 +69,13 @@ export function HojaRelacion({ datos: d, orientacion }: { datos: DatosRelacion; 
               </tr>
             </thead>
             <tbody>
-              {d.filas.map((f, i) => (
+              {filas.map((f, i) => (
                 <tr key={i} style={{ height: alto(f) }}>
                   {g.map((c) => <td key={c.id} className={c.numero ? 'n' : undefined}>{valor(c, f)}</td>)}
                   <td className="rv8-relleno" />
                 </tr>
               ))}
-              {g.some((c) => c.total) && (
+              {conTotal && g.some((c) => c.total) && (
                 <tr className="rv8-tot">
                   {g.map((c) => <td key={c.id} className="n">{c.total ? n2(d.filas.reduce((a, f) => a + (Number((f as unknown as Record<string, unknown>)[c.id]) || 0), 0)) : ''}</td>)}
                   <td className="rv8-relleno" />
