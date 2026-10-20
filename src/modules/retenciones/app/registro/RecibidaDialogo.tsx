@@ -88,7 +88,7 @@ export function RecibidaDialogo({ onCerrar, onRegistrada }: { onCerrar: () => vo
   return (
     <Modal title="Registrar una retención de un cliente" size="lg" onClose={onCerrar} footer={footer}>
       <div className="ret-v8 v8-registro">
-        <p className="v8-reg-sub">La que nos practicó un cliente al pagarnos. Los datos se copian de su comprobante: no se calculan.</p>
+        <p className="v8-reg-sub">Retención de clientes (la empresa es sujeto retenido). Los datos se copian del comprobante del cliente: no se calculan.</p>
         <div className="v8-reg-campos">
           <label className="campo">
             <span>Impuesto</span>
@@ -99,7 +99,7 @@ export function RecibidaDialogo({ onCerrar, onRegistrada }: { onCerrar: () => vo
           <label className="campo"><span>Cliente</span><input {...campo('cliente')} maxLength={220} />{errorDe('cliente')}</label>
           <label className="campo"><span>RIF del cliente</span><input {...campo('rif', true)} maxLength={14} placeholder="J-12345678-9" />{errorDe('rif')}{!err('rif') && avisoRif && <small className="v8-reg-aviso">{avisoRif}</small>}</label>
           <label className="campo"><span>N° del comprobante del cliente</span><input {...campo('numero', true)} maxLength={24} />{errorDe('numero')}</label>
-          <label className="campo"><span>N° de factura (nuestra)</span><input {...campo('factura')} maxLength={24} />{errorDe('factura')}</label>
+          <label className="campo"><span>N° de factura de la empresa</span><input {...campo('factura')} maxLength={24} />{errorDe('factura')}</label>
           <label className="campo"><span>N° de control</span><input {...campo('control')} maxLength={24} />{errorDe('control')}</label>
           <label className="campo">
             <span>Fecha de la factura</span>
