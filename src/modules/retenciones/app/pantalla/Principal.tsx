@@ -5,8 +5,9 @@
    por pestaña, la fila de accesos y las pestañas de siempre (Por realizar,
    Realizadas y Libro fiscal). Lo que depende de datos que la base aún no
    tiene no se muestra: la tira «Período en curso», los chips de
-   Vencimientos, Otro sistema e Impresión, y las pestañas Vista agrupada,
-   Períodos y Reportes (capacidades de la puerta en false).
+   Vencimientos, Otro sistema e Impresión, y las pestañas Períodos y
+   Reportes (capacidades de la puerta en false). La Vista agrupada, en
+   agrupada/VistaAgrupada.tsx.
    ============================================================ */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -15,12 +16,14 @@ import { documentosPendientes, impuestosQueAplican } from './pendientesPorDocume
 import { LibroFiscalV8 } from './LibroFiscalV8';
 import { PorRealizar } from './PorRealizar';
 import { Realizadas } from './Realizadas';
+import { VistaAgrupada } from '../agrupada/VistaAgrupada';
 import './principal.css';
 
-type Seccion = 'pendientes' | 'hechas' | 'libro';
+type Seccion = 'pendientes' | 'agrupada' | 'hechas' | 'libro';
 
 const DESCRIPCION: Record<Seccion, string> = {
   pendientes: 'OC y compras con retenciones pendientes de registrar.',
+  agrupada: 'Cada factura con su retención por impuesto: lo pendiente, lo registrado y lo que no aplica.',
   hechas: 'Facturas con retenciones registradas y sus comprobantes.',
   libro: 'Libro fiscal: una fila por retención.',
 };
@@ -70,6 +73,7 @@ export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar }: P
             <button type="button" aria-current={sec === 'pendientes' ? 'page' : undefined} onClick={() => setSec('pendientes')}>
               Por realizar{datos ? ` (${docs.length})` : ''}
             </button>
+            <button type="button" aria-current={sec === 'agrupada' ? 'page' : undefined} onClick={() => setSec('agrupada')}>Vista agrupada</button>
             <button type="button" aria-current={sec === 'hechas' ? 'page' : undefined} onClick={() => setSec('hechas')}>Realizadas</button>
             <button type="button" aria-current={sec === 'libro' ? 'page' : undefined} onClick={() => setSec('libro')}>📒 Libro fiscal</button>
           </nav>
@@ -84,6 +88,11 @@ export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar }: P
       {!error && !datos && <p className="muted" role="status">Cargando…</p>}
 
       {datos && sec === 'pendientes' && <PorRealizar docs={docs} onRegistrar={onRegistrar} />}
+
+      {datos && sec === 'agrupada' && (
+        <VistaAgrupada pendientes={datos.pendientes} libro={datos.libro} config={datos.config} conceptos={datos.conceptos}
+          onRegistrar={onRegistrar} onAnular={onAnular} onAdjuntar={onAdjuntar} />
+      )}
 
       {datos && sec === 'hechas' && <Realizadas libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} />}
 
