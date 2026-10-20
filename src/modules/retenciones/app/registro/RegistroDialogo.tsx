@@ -32,6 +32,7 @@ import { calcularLinea, type ResultadoCalculo } from '../logica/motor';
 import { nombreImpuesto } from '../pantalla/pendientesPorDocumento';
 import { contextoDeHoy, filaDeConcepto, reglasDeHoy, SUPUESTOS_IVA, supuestosMarcados } from './reglasDesdeConfig';
 import { textoDelPaso, textoFalta } from './textosCalculo';
+import { revisarRif } from './validarRif';
 import './registro.css';
 
 type Impuesto = 'iva' | 'islr' | 'municipal';
@@ -97,7 +98,9 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada }: Prop
   const base = parseDecimal(baseTxt);
 
   // Los errores de cada campo (se muestran al tocar «Registrar» o al escribir).
+  const rif = revisarRif(item.proveedorRif);
   const errores: Record<string, string | null> = {
+    rif: rif.error,
     factura: !factura.trim() ? 'Indique el N° de la factura.' : factura.trim().length > 20 ? 'El N° de factura no puede pasar de 20 caracteres.' : null,
     control: imp === 'iva' && !control.trim() ? 'Indique el N° de control de la factura.' : null,
     fecha: !fecha ? 'Indique la fecha de la factura.' : fecha > hoyIso() ? 'La fecha de la factura no puede ser posterior a hoy.' : null,
@@ -213,6 +216,8 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada }: Prop
     <Modal title="Registrar retención" size="lg" onClose={onCerrar} footer={footer}>
       <div className="ret-v8 v8-registro">
         <p className="v8-reg-sub">{subtitulo}</p>
+        {rif.error && <p className="v8-reg-error" role="alert">{rif.error}</p>}
+        {rif.aviso && <p className="v8-reg-aviso">{rif.aviso}</p>}
         {errorCarga && <div className="aviso-error" role="alert">No se pudo leer la configuración fiscal: {errorCarga}</div>}
         {!config && !errorCarga && <p className="muted" role="status">Cargando la configuración fiscal…</p>}
         {config && imp === 'iva' && !agenteIva && (
