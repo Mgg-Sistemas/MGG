@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  huellaPerfil, partesDePersona, personaDe, rangoPerfil, sugerenciaRif, textoCategoria, textoLicenciaHistorial, validarPerfil,
+  filaPerfil, huellaPerfil, partesDePersona, personaDe, rangoPerfil, sugerenciaRif, textoCategoria, textoLicenciaHistorial, validarPerfil,
   type BorradorPerfil,
 } from './perfilProveedor';
 
@@ -37,6 +37,11 @@ describe('el perfil fiscal del proveedor (maqueta v8-4 §7 y v7-3; tabla retenci
     expect(validarPerfil({ ...vacio, actividadCodigo: '1.2.3.4.5.6.7' })).toHaveLength(1);
     expect(validarPerfil({ ...vacio, actividadCodigo: '3.a' })).toHaveLength(1);
     expect(validarPerfil({ ...vacio, licenciaActividad: '   ' })).toEqual([]);
+  });
+  it('la fila que se guarda: vacío → null; la actividad no va (la pone la base desde la principal, v8p-04)', () => {
+    expect(filaPerfil('p1', { ...vacio, tipoContribuyente: 'especial', persona: 'pn_residente', actividadCodigo: '1.1', numeroId: '  ' })).toEqual({
+      proveedor_id: 'p1', tipo_contribuyente: 'especial', persona: 'pn_residente', sujeto_100_portal: false, numero_id: null,
+    });
   });
   it('la huella: quién y cuándo, o sin modificaciones', () => {
     expect(huellaPerfil(null, null)).toBe('Perfil sin modificaciones registradas.');

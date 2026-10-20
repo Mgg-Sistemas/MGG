@@ -28,13 +28,13 @@ import {
 import '../pantalla/reportes/rv8-analisis.css';
 import {
   UMBRAL_LICENCIAS, anadirActividad, cerrarActividad, elegirPrincipal, estadoLicencia, principalDe, validarLicencia, venceDesdeEmision,
-  type ActividadProveedor,
+  type ActividadProveedor, type TipoLicencia,
 } from './actividadesLicencia';
+import type { CambiosPerfil } from '../datos/perfilProveedor';
 import { fechaVe } from '../impresion/numeros';
 import './rv8-perfil.css';
 
-/** Un tipo de licencia (retencion_licencia_tipos). */
-export interface TipoLicencia { id: string; nombre: string; activo: boolean; vigenciaMeses: number | null }
+export type { TipoLicencia };
 
 export interface ProveedorPerfil {
   id: string;
@@ -73,17 +73,24 @@ export interface PropsPerfil {
   /** «Abrir en Reportes (Retenido por proveedor y período)». */
   onAbrirReportes?: (rango: [string, string]) => void;
   onCerrar: () => void;
+  /** La base ya tiene el perfil (capacidades.perfilProveedor): el diálogo se muestra también en producción. */
+  disponible?: boolean;
+  /** Guarda por la puerta. Sin él, «Guardar perfil» va desactivado con la marca 2.1. */
+  onGuardar?: (c: CambiosPerfil) => Promise<void>;
 }
 
 export function PerfilProveedorDialogo(props: PropsPerfil) {
-  if (!import.meta.env.DEV) return null;
+  if (!import.meta.env.DEV && !props.disponible) return null;
   return <Dialogo {...props} />;
 }
 
 function Dialogo({
   proveedor, perfil = null, historialLicencia = [], actividades = [], catalogoActividades = [], tiposLicencia = [], licencia = null,
   umbralLicencias = UMBRAL_LICENCIAS, onVerVencimientos, puedeEditar = false, libro = [], pestanaInicial = 'perfil', onCorregirProveedor, onAbrirReportes, onCerrar,
+  onGuardar,
 }: PropsPerfil) {
+  const [guardando, setGuardando] = useState(false);
+  const [errorGuardar, setErrorGuardar] = useState<string | null>(null);
   const hoyIso = new Date().toLocaleDateString('en-CA');
   const [acts, setActsBase] = useState<ActividadProveedor[]>(actividades);
   const [nuevaAct, setNuevaAct] = useState('');
@@ -129,12 +136,31 @@ function Dialogo({
     ir(pestana === 'perfil' ? 'retenciones' : 'perfil');
   };
 
+  const guardar = () => {
+    if (!onGuardar) return;
+    setGuardando(true); setErrorGuardar(null);
+    const v = (s: string) => s || null;
+    onGuardar({
+      borrador: { ...b, persona }, actividadesAntes: actividades, actividades: acts,
+      licenciaAntes: licencia ? { tipoId: licencia.tipoId, emision: licencia.emision, vence: licencia.vence } : null,
+      licencia: { tipoId: v(lic.tipoId), emision: v(lic.emision), vence: v(lic.vence) },
+      numeroLeido: perfil?.licenciaActividad ?? null,
+    })
+      .then(onCerrar)
+      .catch((e: unknown) => setErrorGuardar(e instanceof Error ? e.message : 'No se pudo guardar el perfil.'))
+      .finally(() => setGuardando(false));
+  };
+
   const footer = (
     <>
       <button type="button" className="btn btn-ghost" onClick={onCerrar}>{pestana === 'perfil' ? 'Cancelar' : 'Cerrar'}</button>
       {pestana === 'perfil' && (
         <span className="rv8-con-marca">
-          <button type="button" className="btn btn-primary" disabled>Guardar perfil</button><MarcaPaquete21 />
+          {onGuardar ? (
+            <button type="button" className="btn btn-primary" disabled={!editable || guardando || errores.length > 0 || !!errorLic} onClick={guardar}>
+              {guardando ? 'Guardando…' : 'Guardar perfil'}
+            </button>
+          ) : <><button type="button" className="btn btn-primary" disabled>Guardar perfil</button><MarcaPaquete21 /></>}
         </span>
       )}
     </>
@@ -157,7 +183,7 @@ function Dialogo({
           <dl className="rv8-pf-ficha" aria-label="Datos de la ficha del proveedor (solo lectura)">
             <dt>Razón social</dt><dd>{proveedor.razonSocial}</dd>
             <dt>RIF</dt><dd className="mono">{proveedor.rif}</dd>
-            <dt>Dirección fiscal (va en el comprobante)</dt><dd>{proveedor.direccion || '—'}</dd>
+            <dt>Dirección fiscal (va en el comprobante)</dt><dd>{perfil?.direccion ?? proveedor.direccion ?? '—'}</dd>
             {onCorregirProveedor && (
               <dd className="enlace"><button type="button" className="mini" onClick={onCorregirProveedor}>Corregir en Proveedores</button> <span className="muted">· datos de solo lectura en este módulo</span></dd>
             )}
@@ -254,6 +280,7 @@ function Dialogo({
           </div>
 
           {errores.length > 0 && <p className="rv8-pf-nota alerta" role="alert">{errores.join(' ')}</p>}
+          {errorGuardar && <p className="rv8-pf-nota alerta" role="alert">{errorGuardar}</p>}
           <p className="rv8-pf-nota">{NOTA_PROPUESTA}</p>
           <p className="rv8-pf-huella">{huellaPerfil(perfil?.actualizadoPor ?? null, perfil?.actualizadoEn ?? null)}</p>
           <p className="rv8-pf-huella">Edición: administración, o roles con permiso de escritura en Retenciones.</p>

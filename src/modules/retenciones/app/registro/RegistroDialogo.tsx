@@ -17,7 +17,7 @@
    «Registrar» queda bloqueado mientras haya alguno.
    ============================================================ */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { parseDecimal } from '@/shared/ui/DecimalInput';
@@ -36,6 +36,7 @@ import { textoDelPaso, textoFalta } from './textosCalculo';
 import { revisarRif } from './validarRif';
 import { textoNumeroComprobante } from './numeroComprobante';
 import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
+import { PerfilFiscal } from '../perfil/PerfilFiscal';
 import './registro.css';
 import './rv8-registro.css';
 
@@ -71,7 +72,10 @@ const hoyIso = () => new Date().toLocaleDateString('en-CA');
 export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semilla }: Props) {
   const puerta = usePuerta();
   const { user } = useSession();
-  const { appUser } = usePermissions();
+  const { appUser, can } = usePermissions();
+  // El perfil fiscal: en local, o cuando la base lo tenga (capacidades.perfilProveedor)
+  const [perfilAbierto, setPerfilAbierto] = useState(false);
+  const cerrarPerfil = useCallback(() => setPerfilAbierto(false), []);
   const imp = impuesto as Impuesto;
   const conLineas = imp === 'islr' || imp === 'municipal';
 
@@ -205,6 +209,7 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
     }
   };
 
+  const conPerfil = import.meta.env.DEV || puerta.capacidades.perfilProveedor;
   const err = (k: string) => (tocado || k.startsWith('base') || k.startsWith('concepto') ? errores[k] : null);
   // Como la maqueta (abrirRegistrar): «Factura N · Proveedor · Documento», o «Documento … · Proveedor · factura por indicar».
   const subtitulo = factura.trim()
@@ -222,6 +227,7 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
   );
 
   return (
+    <>
     <Modal title="Registrar retención" size="lg" onClose={onCerrar} footer={footer}>
       <div className="ret-v8 v8-registro">
         <p className="v8-reg-sub">{subtitulo}</p>
@@ -359,10 +365,21 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
             )}
             {imp === 'iva' && resultados[0]?.estado === 'sin_dato' && <p className="v8-reg-error">{textoFalta(resultados[0])}</p>}
             {resultados.flatMap((r) => (r.estado === 'calculado' ? r.avisos : [])).map((a, i) => <p key={i} className="v8-reg-aviso">{a}</p>)}
+            {conPerfil && item.proveedorId && !sinCalculo && total <= 0 && (
+              <p className="v8-reg-aviso" role="alert">
+                El cálculo da {money(total, item.moneda)}: no se registra una retención en cero. Revise el perfil fiscal del proveedor.{' '}
+                <button type="button" className="mini" onClick={() => setPerfilAbierto(true)}>Perfil fiscal del proveedor</button>
+              </p>
+            )}
             {errorGuardar && <div className="aviso-error" role="alert">{errorGuardar}</div>}
           </>
         )}
       </div>
     </Modal>
+    {perfilAbierto && item.proveedorId && (
+      <PerfilFiscal proveedor={{ id: item.proveedorId, razonSocial: item.proveedorNombre ?? '—', rif: item.proveedorRif ?? '—', direccion: null }}
+        puedeEditar={can('retenciones', 'escritura')} onCerrar={cerrarPerfil} />
+    )}
+    </>
   );
 }
