@@ -19,10 +19,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { money } from '@/shared/lib/format';
 import { toast } from '@/shared/ui/Toast';
 import { paginar, TAMANO_PAGINA_INICIAL } from '../listas/paginador';
-import { usePuerta, type ArchivoFactura, type RetencionItem, type RetenidoAlPagar } from '../datos/puerta';
+import { usePuerta, type RetencionItem, type RetenidoAlPagar } from '../datos/puerta';
 import { BarraLista } from './BarraLista';
 import { Paginador } from './Paginador';
 import { filtrarPendientes, nombreImpuesto, opcionesImpuesto, type DocumentoPendiente, type OrdenPendientes } from './pendientesPorDocumento';
+import { BotonFactura } from './BotonFactura';
 import { archivosFactura, avisoDeDocumento, itemDelRetenido } from './porRealizarExtras';
 import './rv8-por-realizar.css';
 
@@ -59,9 +60,7 @@ export function PorRealizar({ docs, onRegistrar, onVerOc, onVerAgrupada }: Props
       .filter((a): a is { item: RetencionItem; texto: string } => !!a.texto && !descartados.has(`${a.item.kind}:${a.item.id}`)),
     [docs, descartados],
   );
-  const abrir = puerta.verFactura;
-  const verFactura = abrir ? (a: ArchivoFactura) => abrir.call(puerta, a) : null;
-  const conAcciones = !!(onRegistrar || verFactura || onVerOc || onVerAgrupada || import.meta.env.DEV);
+  const conAcciones = !!(onRegistrar || puerta.verFactura || onVerOc || onVerAgrupada || import.meta.env.DEV);
 
   return (
     <>
@@ -90,7 +89,6 @@ export function PorRealizar({ docs, onRegistrar, onVerOc, onVerAgrupada }: Props
           <div className="vacio"><p>{docs.length ? 'Ningún documento coincide con la búsqueda o los filtros.' : 'No hay retenciones por realizar.'}</p></div>
         )}
         {filas.map(({ item, registradas, pendientes }) => {
-          const archivos = archivosFactura(item);
           return (
             <div key={`${item.kind}-${item.id}`} className="fila-sis">
               <span data-l="OC o compra" className="mono">
@@ -115,14 +113,7 @@ export function PorRealizar({ docs, onRegistrar, onVerOc, onVerAgrupada }: Props
                       Gestionada en otro sistema…
                     </button>
                   )}
-                  {verFactura && (archivos.length
-                    ? (
-                      <button type="button" className="mini" aria-label={`Ver el archivo de la factura de ${item.ocCodigo ?? 'el documento'}`}
-                        onClick={() => { verFactura(archivos[0]).catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo abrir la factura.', 'error')); }}>
-                        📎 Factura
-                      </button>
-                    )
-                    : <button type="button" className="mini" disabled title="Sin archivo de factura en Compras" aria-label="Sin archivo de factura en Compras">📎 Sin archivo</button>)}
+                  <BotonFactura archivos={archivosFactura(item)} nombre={item.ocCodigo ?? ''} />
                   {onVerOc && item.kind === 'oc' && <button type="button" className="mini" onClick={() => onVerOc(item)}>Ver OC</button>}
                   {onVerAgrupada && <button type="button" className="mini" onClick={() => onVerAgrupada(item)}>Ver en vista agrupada</button>}
                 </span>

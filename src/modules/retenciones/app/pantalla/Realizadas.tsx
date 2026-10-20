@@ -7,9 +7,10 @@
    «🖨 <IMP>» por cada comprobante practicado, «+ Nota de crédito» y «Ver en
    vista agrupada». Una anulada dice si la reemplazó otra o si el impuesto
    quedó pendiente.
+   «📎 Factura» lee el archivo de Compras por la puerta (useArchivosFactura).
    «+ Nota de crédito» necesita la base de Retenciones (paquete 2.1): solo en
-   local, desactivado y con su marca. «Imprimir lista», el filtro «Origen»,
-   «Registrar <IMP> de nuevo» y «📎 Factura» esperan a sus datos y no se muestran.
+   local, desactivado y con su marca. «Imprimir lista», el filtro «Origen» y
+   «Registrar <IMP> de nuevo» esperan a sus datos y no se muestran.
    ============================================================ */
 
 import { useMemo, useState, type CSSProperties } from 'react';
@@ -18,6 +19,7 @@ import { toast } from '@/shared/ui/Toast';
 import { paginar, TAMANO_PAGINA_INICIAL } from '../listas/paginador';
 import { usePuerta, type RetencionPracticada } from '../datos/puerta';
 import { AccionesRetencion } from './AccionesRetencion';
+import { BotonFactura } from './BotonFactura';
 import { BarraLista } from './BarraLista';
 import { Paginador } from './Paginador';
 import { nombreImpuesto } from './pendientesPorDocumento';
@@ -26,6 +28,7 @@ import {
   type FacturaRealizada, type FiltroLibro, type OrdenLista,
 } from './realizadasYLibro';
 import { quienYCuando } from './quien';
+import { useArchivosFactura } from './useArchivosFactura';
 import './rv8-por-realizar.css';
 
 const ORDENES = [{ valor: 'reciente', texto: 'Más reciente primero' }, { valor: 'antiguo', texto: 'Más antiguo primero' }];
@@ -48,6 +51,7 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada }: {
   const facturas = useMemo(() => facturasRealizadas(libro, f), [libro, f]);
   const { filas, pagina: pag } = paginar(facturas, pagina, tamano);
   const cambiar = (x: Partial<FiltroLibro>) => { setF((v) => ({ ...v, ...x })); setPagina(1); };
+  const archivos = useArchivosFactura(useMemo(() => filas.map((x) => ({ kind: x.todas[0].docKind, id: x.todas[0].docId })), [filas]));
   const comprobante = (r: RetencionPracticada) => () => {
     puerta.verComprobante(r).catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante.', 'error'));
   };
@@ -99,6 +103,7 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada }: {
                 {import.meta.env.DEV && ivaRegistrado && x.direccion === 'practicada' && (
                   <button type="button" className="mini rv8-requiere-base" disabled title={MARCA_BASE} aria-label={`+ Nota de crédito (${MARCA_BASE})`}>+ Nota de crédito</button>
                 )}
+                {archivos && <BotonFactura archivos={archivos.get(`${x.todas[0].docKind}:${x.todas[0].docId}`)} nombre={x.facturaNumero ?? ''} />}
                 {onVerAgrupada && <button type="button" className="mini" onClick={() => onVerAgrupada(x)}>Ver en vista agrupada</button>}
               </span>
             </div>

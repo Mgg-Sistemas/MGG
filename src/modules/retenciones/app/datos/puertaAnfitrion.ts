@@ -14,7 +14,7 @@ import {
 } from '../../retencionesFiscal.repository';
 import { urlAdjuntoCompra } from '@/modules/pedidos/compras.repository';
 import type { PuertaRetenciones } from './puerta';
-import { listRetenidoSinRegistrar } from './retenidoAlPagar';
+import { listArchivosDeDocumentos, listRetenidoSinRegistrar } from './retenidoAlPagar';
 
 export const puertaAnfitrion: PuertaRetenciones = {
   capacidades: { reglas: false, periodos: false, otroSistema: false, impresiones: false, reportes: false },
@@ -44,4 +44,5 @@ export const puertaAnfitrion: PuertaRetenciones = {
     await previewFileUrl(url, a.nombre, 'Factura');
   },
   retenidoSinRegistrar: () => listRetenidoSinRegistrar(),
+  archivosDeDocumentos: (docs) => listArchivosDeDocumentos(docs),
 };

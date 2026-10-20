@@ -5,9 +5,9 @@
    fecha, el comprobante, el impuesto, el proveedor, la factura, lo
    retenido y su estado (con quién y cuándo). Bajo el comprobante, «Reemplaza
    al N° …» o «Reemplazada por el N° …» (v6PintarLibro, l. 4692-4720). «Anular»
-   aparece solo si la pantalla recibe con qué anular. «Por imprimir / Impreso»,
-   «📎 Factura», «Historial» y el aviso de IVA cambiado esperan a sus datos y no
-   se muestran.
+   aparece solo si la pantalla recibe con qué anular. «📎 Factura» lee el
+   archivo de Compras por la puerta. «Por imprimir / Impreso», «Historial» y el
+   aviso de IVA cambiado esperan a sus datos y no se muestran.
    ============================================================ */
 
 import { useMemo, useState } from 'react';
@@ -15,6 +15,7 @@ import { money } from '@/shared/lib/format';
 import { paginar, TAMANO_PAGINA_INICIAL } from '../listas/paginador';
 import type { RetencionPracticada } from '../datos/puerta';
 import { AccionesRetencion } from './AccionesRetencion';
+import { BotonFactura } from './BotonFactura';
 import { BarraLista } from './BarraLista';
 import { Paginador } from './Paginador';
 import { nombreImpuesto } from './pendientesPorDocumento';
@@ -23,6 +24,7 @@ import {
   type FiltroLibro, type OrdenLista,
 } from './realizadasYLibro';
 import { quienYCuando } from './quien';
+import { useArchivosFactura } from './useArchivosFactura';
 
 const ORDENES = [{ valor: 'reciente', texto: 'Más reciente primero' }, { valor: 'antiguo', texto: 'Más antiguo primero' }];
 
@@ -40,6 +42,7 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar }: Props) {
   const xs = useMemo(() => filasLibro(libro, f), [libro, f]);
   const enlaces = useMemo(() => enlacesDeReemplazo(libro), [libro]);
   const { filas, pagina: pag } = paginar(xs, pagina, tamano);
+  const archivos = useArchivosFactura(useMemo(() => filas.map((r) => ({ kind: r.docKind, id: r.docId })), [filas]));
   const cambiar = (x: Partial<FiltroLibro>) => { setF((v) => ({ ...v, ...x })); setPagina(1); };
 
   return (
@@ -75,7 +78,7 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar }: Props) {
               <span data-l="Factura">{r.facturaNumero ?? '—'}<small>{r.docCodigo ?? ''}</small></span>
               <span className="n" data-l="Retenido">{money(r.montoRetenido, r.moneda)}</span>
               <span data-l="Estado"><span className={`pill ${ESTADO_CLASE[e]}`}>{ESTADO_TEXTO[e]}</span><small>{quienYCuando(r)}</small></span>
-              <span className="acc"><AccionesRetencion r={r} onAnular={onAnular} onAdjuntar={onAdjuntar} /></span>
+              <span className="acc"><AccionesRetencion r={r} onAnular={onAnular} onAdjuntar={onAdjuntar} />{archivos && <BotonFactura archivos={archivos.get(`${r.docKind}:${r.docId}`)} nombre={r.facturaNumero ?? ''} />}</span>
             </div>
           );
         })}

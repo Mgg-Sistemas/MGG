@@ -58,6 +58,33 @@ export function archivosFactura(item: RetencionItem): ArchivoFactura[] {
   return o?.factura_path ? [{ origen: 'oc', path: o.factura_path, nombre: o.factura_nombre || 'factura' }] : [];
 }
 
+/** Una fila de Compras tal como llega de la base. */
+type FilaCompras = Record<string, unknown>;
+
+/**
+ * Los archivos de la factura por documento («oc:<id>» o «compra_directa:<id>»),
+ * desde las filas de Compras. Para Realizadas y el Libro, cuyas filas no traen
+ * el documento. Una compra vieja sin `facturas` usa su `adjunto_path`.
+ */
+export function archivosDeFilas(ocs: readonly FilaCompras[], compras: readonly FilaCompras[]): Map<string, ArchivoFactura[]> {
+  const m = new Map<string, ArchivoFactura[]>();
+  for (const o of ocs) {
+    if (typeof o.factura_path === 'string' && o.factura_path) {
+      m.set(`oc:${String(o.id)}`, [{ origen: 'oc', path: o.factura_path, nombre: typeof o.factura_nombre === 'string' && o.factura_nombre ? o.factura_nombre : 'factura' }]);
+    }
+  }
+  for (const c of compras) {
+    const lista = Array.isArray(c.facturas) ? (c.facturas as { path?: unknown; filename?: unknown }[]) : [];
+    let xs: ArchivoFactura[] = lista.filter((f) => typeof f?.path === 'string' && f.path)
+      .map((f) => ({ origen: 'compra' as const, path: String(f.path), nombre: typeof f.filename === 'string' && f.filename ? f.filename : 'factura' }));
+    if (!xs.length && typeof c.adjunto_path === 'string' && c.adjunto_path) {
+      xs = [{ origen: 'compra', path: c.adjunto_path, nombre: typeof c.adjunto_nombre === 'string' && c.adjunto_nombre ? c.adjunto_nombre : 'factura' }];
+    }
+    if (xs.length) m.set(`compra_directa:${String(c.id)}`, xs);
+  }
+  return m;
+}
+
 /* ───────── Lo retenido al pagar, sin registrar (C1) ───────── */
 
 export type DocConRetencion = 'oc' | 'compra_directa' | 'servicio_directo';
