@@ -10,6 +10,8 @@
    dejaría el archivo huérfano.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { textoDeError } from '@/shared/lib/errores';
+import { subirConReintento } from '@/shared/lib/storageReintento';
 import { comprimirImagen, cargarImagenDesdeBlob, nombreJpg } from '@/shared/lib/comprimirImagen';
 import { errorFotoLista, errorFotoOriginal, OBJETIVO_BYTES_FOTO, rutaFotoOrden } from './osFotos';
 
@@ -90,8 +92,15 @@ export async function subirFotoOrden(ordenId: string, file: File, actor: string 
   const problema = errorFotoLista(file);
   if (problema) throw new Error(problema);
   const path = rutaFotoOrden(ordenId, `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, file.name);
-  const { error: ue } = await supabase.storage.from(BUCKET_OS_FOTOS).upload(path, file, { upsert: false, contentType: file.type });
-  if (ue) throw ue;
+  // Con reintento ante los 520/503 intermitentes del Storage (ver storageReintento.ts).
+  try {
+    await subirConReintento(async () => {
+      const { error: ue } = await supabase.storage.from(BUCKET_OS_FOTOS).upload(path, file, { upsert: false, contentType: file.type });
+      if (ue) throw ue;
+    });
+  } catch (e) {
+    throw new Error(textoDeError(e, 'No se pudo subir la foto de la orden.'));
+  }
   const { data, error } = await supabase.from(TABLA_OS_FOTOS).insert({
     orden_id: ordenId,
     path,

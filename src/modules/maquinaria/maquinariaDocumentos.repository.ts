@@ -7,6 +7,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { textoDeError } from '@/shared/lib/errores';
+import { subirConReintento } from '@/shared/lib/storageReintento';
 import { MAX_DOCS_EQUIPO, limpiarNombreDoc, nombreArchivoSeguro, nombreDescarga, validarArchivoDoc } from './documentosEquipo';
 
 export const BUCKET_DOCS_EQUIPO = 'equipos-docs';
@@ -84,10 +85,17 @@ export async function contarDocumentosPorEquipo(): Promise<Map<string, number>> 
 async function subirArchivo(equipoId: string, slot: number, file: File): Promise<string> {
   const nonce = `${Date.now().toString(36)}${Math.floor(Math.random() * 1e9).toString(36)}`;
   const path = `${equipoId}/${slot}-${nonce}-${nombreArchivoSeguro(file.name)}`;
-  const { error } = await supabase.storage.from(BUCKET_DOCS_EQUIPO).upload(path, file, {
-    contentType: file.type || 'application/pdf', upsert: false,
-  });
-  if (error) throw new Error(textoDeError(error, 'No se pudo subir el archivo.'));
+  // Con reintento ante los 520/503 intermitentes del Storage (ver storageReintento.ts).
+  try {
+    await subirConReintento(async () => {
+      const { error } = await supabase.storage.from(BUCKET_DOCS_EQUIPO).upload(path, file, {
+        contentType: file.type || 'application/pdf', upsert: false,
+      });
+      if (error) throw error;
+    });
+  } catch (e) {
+    throw new Error(textoDeError(e, 'No se pudo subir el archivo.'));
+  }
   return path;
 }
 

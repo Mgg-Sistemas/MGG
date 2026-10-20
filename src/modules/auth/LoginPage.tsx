@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signIn, signOutLocal } from './authStore';
 import { isSupabaseConfigured, supabase } from '@/shared/lib/supabase';
-import { decidirEntradaAlLogin, ESPERA_MAXIMA_MS } from './entradaAlLogin';
+import { verificarSesionAlAbrir } from './entradaAlLogin';
 import { entrarConBiometria, biometriaDisponible } from './webauthn.repository';
 
 export function LoginPage() {
@@ -39,27 +39,19 @@ export function LoginPage() {
   // es COMPARTIDO entre pestañas: abrir el login en otra pestaña —o recargarlo—
   // mataba la sesión de la pestaña donde el usuario estaba trabajando. Para
   // entrar con otro usuario está «Cerrar sesión», que es explícito.
-  const didCleanRef = useRef(false);
+  // Cada montaje verifica de nuevo (ver verificarSesionAlAbrir): un candado de
+  // «ya verifiqué» colgaba el login en el servidor local, por el modo estricto.
   const [verificando, setVerificando] = useState(isSupabaseConfigured);
   useEffect(() => {
-    if (didCleanRef.current) return;
-    didCleanRef.current = true;
     if (!isSupabaseConfigured) { setVerificando(false); return; }
-    let vivo = true;
-    // Red de seguridad: pase lo que pase, el formulario aparece.
-    const tope = setTimeout(() => { if (vivo) setVerificando(false); }, ESPERA_MAXIMA_MS);
-    supabase.auth.getSession()
-      .then(({ data }) => {
-        if (!vivo) return;
-        if (decidirEntradaAlLogin(data.session) === 'entrar') { navigate('/app', { replace: true }); return; }
-        // Sin sesión válida: acá sí conviene limpiar restos (token vencido),
-        // porque no hay ninguna otra pestaña con sesión a la que perjudicar.
-        signOutLocal().catch(() => {});
-        setVerificando(false);
-      })
-      .catch(() => { if (vivo) setVerificando(false); })
-      .finally(() => clearTimeout(tope));
-    return () => { vivo = false; clearTimeout(tope); };
+    return verificarSesionAlAbrir({
+      leerSesion: () => supabase.auth.getSession(),
+      entrar: () => navigate('/app', { replace: true }),
+      mostrarFormulario: () => setVerificando(false),
+      // Sin sesión válida: acá sí conviene limpiar restos (token vencido),
+      // porque no hay ninguna otra pestaña con sesión a la que perjudicar.
+      limpiarRestos: () => { signOutLocal().catch(() => {}); },
+    });
   }, [navigate]);
 
   async function handleSubmit(e: FormEvent) {

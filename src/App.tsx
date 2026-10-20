@@ -42,8 +42,7 @@ const RepuestosComprasPage = lazyReload(() => import('./modules/maquinaria/Repue
 const ChoferesPage = lazyReload(() => import('./modules/choferes/ChoferesPage').then((m) => ({ default: m.ChoferesPage })));
 const VentasPage = lazyReload(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
 const TesoreriaPage = lazyReload(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
-const RetencionesPage = lazyReload(() => import('./modules/retenciones/RetencionesPage').then((m) => ({ default: m.RetencionesPage })));
-// Retenciones v8 en construcción: solo en la rama de integración, solo para el administrador (no va a main hasta estar completa).
+// Retenciones: la pantalla v8 reemplaza al módulo de antes (orden del usuario, 20/10/2026). No va a main hasta estar completa.
 const RetencionesV8 = lazyReload(() => import('./modules/retenciones/app/RetencionesV8').then((m) => ({ default: m.RetencionesV8 })));
 const RecepcionesPage = lazyReload(() => import('./modules/recepciones/RecepcionesPage').then((m) => ({ default: m.RecepcionesPage })));
 const RrhhPage = lazyReload(() => import('./modules/rrhh/RrhhPage').then((m) => ({ default: m.RrhhPage })));
@@ -176,8 +175,8 @@ export function App() {
           <Route path="choferes" element={<RequireModule module="choferes"><Suspense fallback={<PageLoader />}><ChoferesPage /></Suspense></RequireModule>} />
           <Route path="ventas" element={<RequireModule module="ventas"><Suspense fallback={<PageLoader />}><VentasPage /></Suspense></RequireModule>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />
-          <Route path="retenciones" element={<RequireModule module="retenciones"><Suspense fallback={<PageLoader />}><RetencionesPage /></Suspense></RequireModule>} />
-          <Route path="retenciones/nueva" element={<RequireModule module="retenciones"><Suspense fallback={<PageLoader />}><RetencionesV8 /></Suspense></RequireModule>} />
+          <Route path="retenciones" element={<RequireModule module="retenciones"><Suspense fallback={<PageLoader />}><RetencionesV8 /></Suspense></RequireModule>} />
+          <Route path="retenciones/nueva" element={<Navigate to="/app/retenciones" replace />} />
           <Route path="recepciones" element={<RequireModule module="recepciones"><Suspense fallback={<PageLoader />}><RecepcionesPage /></Suspense></RequireModule>} />
           <Route path="rrhh" element={<RequireModule module="rrhh"><Suspense fallback={<PageLoader />}><RrhhPage /></Suspense></RequireModule>} />
           <Route path="asignaciones" element={<RequireModule module="asignaciones"><Suspense fallback={<PageLoader />}><AsignacionesPage /></Suspense></RequireModule>} />
