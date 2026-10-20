@@ -19,6 +19,7 @@ import { toast } from '@/shared/ui/Toast';
 import { usePuerta, type ConceptoRetencion, type RetencionPracticada } from '../../datos/puerta';
 import { datosRelacion } from '../../impresion/datosRelacion';
 import { HojaRelacion } from '../../impresion/HojaRelacion';
+import { PreviaRelacion } from '../../impresion/PreviaRelacion';
 import type { Impuesto } from '../../impresion/tipos';
 import { VistaImpresion } from '../../impresion/VistaComprobante';
 import { descargarCsv, descargarExcel, tablaLibro } from '../exportarLibro';
@@ -186,7 +187,8 @@ export function Reportes({ libro }: { libro: RetencionPracticada[] }) {
       </section>
 
       {vista === 'relacion' && relacion && (
-        <VistaImpresion titulo={nombre} marco={false} onCerrar={() => setVista(null)} hoja={(o) => <HojaRelacion datos={relacion} orientacion={o} />} />
+        <VistaImpresion titulo={nombre} marco={false} onCerrar={() => setVista(null)}
+          hoja={(o) => <HojaRelacion datos={relacion} orientacion={o} />} previa={(o) => <PreviaRelacion datos={relacion} orientacion={o} />} />
       )}
       {vista === 'cruzada' && cruce && (
         <VistaImpresion titulo={nombre} marco={false} onCerrar={() => setVista(null)}
