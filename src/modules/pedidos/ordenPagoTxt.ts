@@ -16,6 +16,8 @@
 import type { Orden, PagoMetodo } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
 import { BANCOS_VE } from '@/shared/lib/bancos';
+import { textoCantidadCompra } from './unidadCompra';
+import { labelCondicionPago } from './ofertas.repository';
 // El enlace y el «compartir» son los MISMOS de Combustible/Alimentación: una sola implementación
 // del «no wa.me» y de la hoja de compartir del teléfono.
 export { enlaceWhatsapp, puedeCompartir, compartirMovimiento } from '@/modules/combustible/mensajeMovimiento';
@@ -89,8 +91,30 @@ export function saldoPendiente(orden: Pick<Orden, 'total' | 'abonado_total'>): n
   return resto > 0 ? Math.round(resto * 100) / 100 : 0;
 }
 
+/**
+ * Las personas de la orden, ya con su nombre (la página los saca del mapa de usuarios).
+ * Quien paga —y quien aprueba— quiere saber a quién preguntarle: quién pidió, quién la
+ * autorizó (el Gerente General o la Jefa de Administración) y qué analista de compras la llevó.
+ * Lo que falte no sale: no se escribe un «—» donde no hay nadie.
+ */
+export interface PersonasOrden {
+  solicita?: string | null;
+  autorizo?: string | null;
+  analista?: string | null;
+}
+
+/** Los renglones de las personas, en el orden de lectura: quién pide, quién lo lleva, quién autorizó. */
+function lineasPersonas(p: PersonasOrden | undefined): string[] {
+  const limpio = (v: string | null | undefined) => (v ?? '').trim();
+  const L: string[] = [];
+  if (limpio(p?.solicita)) L.push(`🙋 *Solicita:* ${limpio(p?.solicita)}`);
+  if (limpio(p?.analista)) L.push(`🛒 *Analista de compras:* ${limpio(p?.analista)}`);
+  if (limpio(p?.autorizo)) L.push(`👔 *Autorizó:* ${limpio(p?.autorizo)}`);
+  return L;
+}
+
 /** El texto completo. Se exporta aparte para poder probarlo sin tocar el navegador. */
-export function textoOrdenPago(orden: Orden, proveedorNombre: string): string {
+export function textoOrdenPago(orden: Orden, proveedorNombre: string, personas?: PersonasOrden): string {
   const mon = (orden.moneda ?? 'USD').toUpperCase() === 'BS' ? 'Bs' : '$';
   const detalle = detalleTxt(orden);
   const nota = (orden.notas ?? '').trim();
@@ -100,6 +124,7 @@ export function textoOrdenPago(orden: Orden, proveedorNombre: string): string {
   L.push(`🏭 *Proveedor:* ${proveedorNombre || '—'}`);
   if (detalle) L.push(`📝 *Detalle:* ${detalle}`);
   if (nota) L.push(`📌 *Nota:* ${nota.replace(/\s*\r?\n\s*/g, ' ')}`);
+  L.push(...lineasPersonas(personas));
   L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}`);
   // En una cuenta abierta lo que se va a pagar hoy NO es el total: es el saldo.
   // Mandar solo el total invita a pagar de más, así que el abonado y lo que
@@ -111,4 +136,40 @@ export function textoOrdenPago(orden: Orden, proveedorNombre: string): string {
   }
   L.push(...bloquePago(orden.metodo_pago, Number(orden.total) || 0, mon));
   return L.join('\n'); // saltos simples: WhatsApp los respeta
+}
+
+/** Cuántos productos se listan en el mensaje de aprobación antes de mandar al PDF de la OC. */
+export const MAX_PRODUCTOS_APROBACION = 15;
+
+/**
+ * El mensaje para pedirle la aprobación al Gerente General (20-10-2026): la OC está en
+ * «Pendiente por aprobación» y él decide viendo lo esencial —qué es, quién la pide y la lleva,
+ * qué productos, qué condición y cuánto—. No lleva método de pago (todavía no se indica) ni
+ * «Autorizó» (todavía no hay quien). Mismas reglas de emojis que el de pagar: sin selector U+FE0F.
+ */
+export function textoOrdenAprobacion(orden: Orden, proveedorNombre: string, personas?: PersonasOrden): string {
+  const mon = (orden.moneda ?? 'USD').toUpperCase() === 'BS' ? 'Bs' : '$';
+  const detalle = detalleTxt(orden);
+  const nota = (orden.notas ?? '').trim();
+  const productos = (orden.items ?? []).filter((i) => i.comprar !== false);
+
+  const L: string[] = [];
+  L.push(`🔹 *ORDEN:* ${orden.oc_codigo ?? orden.codigo}`);
+  L.push('⏳ *Pendiente por aprobación · Gerente General*');
+  if (orden.urgente) L.push('🚨 *URGENTE*');
+  L.push(`🏭 *Proveedor:* ${proveedorNombre || '—'}`);
+  if (detalle) L.push(`📝 *Detalle:* ${detalle}`);
+  if (nota) L.push(`📌 *Nota:* ${nota.replace(/\s*\r?\n\s*/g, ' ')}`);
+  L.push(...lineasPersonas({ solicita: personas?.solicita, analista: personas?.analista }));
+  if (productos.length) {
+    L.push(`📦 *Productos (${productos.length}):*`);
+    productos.slice(0, MAX_PRODUCTOS_APROBACION).forEach((it, i) => {
+      const importe = Math.round((Number(it.cantidad) || 0) * (Number(it.precio) || 0) * 100) / 100;
+      L.push(`${i + 1}. ${it.nombre} — ${textoCantidadCompra(it, Number(it.cantidad) || 0)} · ${montoTxt(importe, mon)}`);
+    });
+    if (productos.length > MAX_PRODUCTOS_APROBACION) L.push(`   • … y ${productos.length - MAX_PRODUCTOS_APROBACION} más (mirá la OC en PDF)`);
+  }
+  if (orden.condiciones_pago) L.push(`📋 *Condición:* ${labelCondicionPago(orden.condiciones_pago)}`);
+  L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}`);
+  return L.join('\n');
 }

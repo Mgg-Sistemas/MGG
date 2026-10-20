@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { textoOrdenPago, montoTxt, bancoTxt, detalleTxt, saldoPendiente, enlaceWhatsapp } from './ordenPagoTxt';
+import { textoOrdenPago, montoTxt, bancoTxt, detalleTxt, saldoPendiente, enlaceWhatsapp, textoOrdenAprobacion } from './ordenPagoTxt';
 import type { Orden } from '@/shared/lib/types';
 
 /** La orden del ejemplo que dio el usuario: calzado para el motorizado. */
@@ -187,5 +187,79 @@ describe('una orden a crédito manda el saldo, no el total', () => {
     const t = textoOrdenPago({ ...CREDITO, abonado_total: 0 } as Orden, 'AGROCHICKEN C.A');
     expect(t).not.toContain('Abonado');
     expect(t).not.toContain('Saldo pendiente');
+  });
+});
+
+describe('quién solicita, quién autorizó y el analista de compras', () => {
+  const personas = { solicita: 'JAIME CAMPO', analista: 'NAZARET SALAZAR', autorizo: 'LEYDIS RENGEL' };
+
+  it('el mensaje de pago los trae, entre la nota y el total', () => {
+    const l = textoOrdenPago(base, 'MAXI SHOES', personas).split('\n');
+    const i = l.indexOf('🙋 *Solicita:* JAIME CAMPO');
+    expect(i).toBeGreaterThan(-1);
+    expect(l[i + 1]).toBe('🛒 *Analista de compras:* NAZARET SALAZAR');
+    expect(l[i + 2]).toBe('👔 *Autorizó:* LEYDIS RENGEL');
+    expect(l[i + 3]).toBe('💵 *Total:* $79,00');
+  });
+
+  it('lo que falta no sale ni deja un guion', () => {
+    const l = textoOrdenPago(base, 'MAXI SHOES', { solicita: 'JAIME CAMPO', analista: null, autorizo: '  ' });
+    expect(l).toContain('🙋 *Solicita:* JAIME CAMPO');
+    expect(l).not.toContain('Analista de compras');
+    expect(l).not.toContain('Autorizó');
+    expect(textoOrdenPago(base, 'MAXI SHOES')).not.toContain('🙋');
+  });
+
+  it('también en una cuenta a crédito', () => {
+    const t = textoOrdenPago({ ...base, abonado_total: 20 } as Orden, 'MAXI SHOES', personas);
+    expect(t).toContain('👔 *Autorizó:* LEYDIS RENGEL');
+    expect(t).toContain('🔺 *Saldo pendiente:* $59,00');
+  });
+
+  it('sin selector U+FE0F ni unión invisible', () => {
+    expect(/\uFE0F|\u200D/.test(textoOrdenPago(base, 'MAXI SHOES', personas))).toBe(false);
+  });
+});
+
+describe('textoOrdenAprobacion · para pedirle la aprobación al Gerente', () => {
+  const pend = { ...base, estado: 'oc_creada', metodo_pago: null, condiciones_pago: 'contado', urgente: false } as unknown as Orden;
+  const personas = { solicita: 'JAIME CAMPO', analista: 'NAZARET SALAZAR', autorizo: 'NO DEBE SALIR' };
+
+  it('lleva orden, estado, proveedor, detalle, personas, productos, condición y total', () => {
+    const l = textoOrdenAprobacion(pend, 'MAXI SHOES', personas).split('\n');
+    expect(l[0]).toBe('🔹 *ORDEN:* OC-2026-0130');
+    expect(l[1]).toBe('⏳ *Pendiente por aprobación · Gerente General*');
+    expect(l).toContain('🏭 *Proveedor:* MAXI SHOES');
+    expect(l).toContain('🙋 *Solicita:* JAIME CAMPO');
+    expect(l).toContain('🛒 *Analista de compras:* NAZARET SALAZAR');
+    expect(l).toContain('📦 *Productos (1):*');
+    expect(l.find((x) => x.startsWith('1. BOTAS'))).toContain('$79,00');
+    expect(l).toContain('📋 *Condición:* Pago de Contado');
+    expect(l[l.length - 1]).toBe('💵 *Total:* $79,00');
+  });
+
+  it('todavía nadie autorizó ni hay método de pago: no los menciona', () => {
+    const t = textoOrdenAprobacion(pend, 'MAXI SHOES', personas);
+    expect(t).not.toContain('Autorizó');
+    expect(t).not.toContain('NO DEBE SALIR');
+    expect(t).not.toContain('Pago móvil');
+    expect(t).not.toContain('método de pago');
+  });
+
+  it('una urgente lo dice', () => {
+    expect(textoOrdenAprobacion({ ...pend, urgente: true } as Orden, 'X')).toContain('🚨 *URGENTE*');
+    expect(textoOrdenAprobacion(pend, 'X')).not.toContain('URGENTE');
+  });
+
+  it('no lista lo que no se compra, y con muchísimos productos corta y manda al PDF', () => {
+    const items = Array.from({ length: 20 }, (_, i) => ({ sku: `S${i}`, nombre: `PROD ${i}`, cantidad: 1, precio: 1, unidad: 'UND' }));
+    const t = textoOrdenAprobacion({ ...pend, items: [...items, { sku: 'NO', nombre: 'NO SE COMPRA', cantidad: 1, precio: 5, comprar: false }] } as unknown as Orden, 'X');
+    expect(t).toContain('📦 *Productos (20):*');
+    expect(t).not.toContain('NO SE COMPRA');
+    expect(t).toContain('… y 5 más (mirá la OC en PDF)');
+  });
+
+  it('sin selector ni unión invisible: llega bien a WhatsApp', () => {
+    expect(/\uFE0F|\u200D/.test(textoOrdenAprobacion({ ...pend, urgente: true, notas: 'x' } as Orden, 'X', personas))).toBe(false);
   });
 });
