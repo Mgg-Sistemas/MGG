@@ -13,9 +13,11 @@
    · Ajustes avanzados › Régimen y valores compartidos (retencion_config) y
      el catálogo de conceptos de cada impuesto (retencion_conceptos): alta,
      edición, activar y desactivar.
-   Motivos, entes y logos, perfiles, licencias, firma, otro sistema, avisos,
-   reglas, períodos, numeración y formatos esperan a sus tablas y no se
-   muestran.
+   Las tarjetas siguen la maqueta (v8-2-ajustes.js, pintarInicioPa): en
+   Ajustes, las ocho de ORDEN_AJUSTES; en Ajustes avanzados, el aviso, la
+   cadena y los dos grupos «Cada impuesto» y «De toda la empresa». Las que
+   esperan a sus tablas (paquete 2.1) se ven solo en local, desactivadas y
+   marcadas; en producción no aparecen (secciones.ts).
    ============================================================ */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -26,9 +28,11 @@ import { labelSujeto, type ConceptoRetencion, type ConfigRetencion } from '../..
 import { usePuerta } from '../datos/puerta';
 import { nombreImpuesto } from '../pantalla/pendientesPorDocumento';
 import { EditorConcepto, EditorEmpresa, EditorRegimen } from './editores';
+import { AVISO_AVANZADOS, CADENA, MARCA_BASE, seccionesDe, type Seccion } from './secciones';
 import './parametros.css';
+import './rv8-parametros.css';
 
-type Vista = 'portada' | 'empresa' | 'avanzados' | 'regimen' | `conceptos:${string}`;
+type Vista = 'portada' | 'empresa' | 'avanzados' | 'impuestos' | 'regimen' | `conceptos:${string}`;
 
 const pct = (n: number) => `${n.toLocaleString('es-VE', { maximumFractionDigits: 4 })} %`;
 const ut = (n: number) => (n > 0 ? `Bs ${n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : 'Sin cargar');
@@ -37,12 +41,14 @@ interface Props {
   onCerrar: () => void;
   /** Con escritura en Retenciones, cada sección se edita. Sin ella, solo se consulta. */
   puedeEditar?: boolean;
+  /** Abre directamente una sección (el aviso de régimen abre «regimen»). */
+  vistaInicial?: Vista;
 }
 
-export function Parametros({ onCerrar, puedeEditar = false }: Props) {
+export function Parametros({ onCerrar, puedeEditar = false, vistaInicial = 'portada' }: Props) {
   const puerta = usePuerta();
   const { user } = useSession();
-  const [vista, setVista] = useState<Vista>('portada');
+  const [vista, setVista] = useState<Vista>(vistaInicial);
   const [config, setConfig] = useState<ConfigRetencion | null>(null);
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -71,6 +77,25 @@ export function Parametros({ onCerrar, puedeEditar = false }: Props) {
   };
 
   const tiposConCatalogo = [...new Set(conceptos.map((c) => c.tipo as string))];
+  const local = import.meta.env.DEV;
+  const resumen = (s: Seccion, c: ConfigRetencion): string => {
+    if (s.clave === 'empresa') return `${c.rif ? `RIF ${c.rif}` : 'RIF sin cargar'}${c.razonSocial ? ` · ${c.razonSocial}` : ''}`;
+    if (s.clave === 'impuestos') return `${tiposConCatalogo.length} impuesto(s) con conceptos · ${conceptos.filter((x) => x.activo).length} concepto(s) activo(s)`;
+    if (s.clave === 'regimen') return c.esContribuyenteEspecial ? 'Contribuyente especial' : 'No es contribuyente especial';
+    if (s.clave === 'valores') return `UT ${ut(c.valorUt)} · IVA ${pct(c.pctIvaGeneral)} · IGTF ${pct(c.pctIgtf)}`;
+    return '';
+  };
+  const tarjeta = (s: Seccion, c: ConfigRetencion) => (s.vista
+    ? (
+      <button key={s.clave} type="button" className="v7-pa-btn" onClick={() => ir(s.vista as Vista)}>
+        <span className="t">{s.titulo}</span><span className="d">{s.linea}</span><span className="r">{resumen(s, c)}</span>
+      </button>
+    )
+    : (
+      <button key={s.clave} type="button" className="v7-pa-btn rv8-requiere-base" disabled title={MARCA_BASE} aria-label={`${s.titulo} (${MARCA_BASE})`}>
+        <span className="t">{s.titulo}</span><span className="d">{s.linea}</span><span className="r">{MARCA_BASE}</span>
+      </button>
+    ));
   const volver = (a: Vista) => <button type="button" className="v7-volver" onClick={() => ir(a)}>‹ Volver</button>;
   const botonEditar = (que: string) => (puedeEditar && editando == null
     ? <button type="button" className="mini v8-pa-editar" onClick={() => setEditando(que)}>Editar</button> : null);
@@ -90,20 +115,13 @@ export function Parametros({ onCerrar, puedeEditar = false }: Props) {
 
         {config && vista === 'portada' && (
           <>
-            <p className="huella v7-capa-d">Configuración del módulo, en dos capas: Ajustes y Ajustes avanzados.</p>
             <h3 className="v7-capa-t">Ajustes</h3>
             <p className="huella v7-capa-d">Mantenimiento de todos los días. No cambian cuánto se retiene, cómo se numera ni cuándo se declara.</p>
-            <div className="v7-pa-grid">
-              <button type="button" className="v7-pa-btn" onClick={() => ir('empresa')}>
-                <span className="t">Datos de la empresa</span>
-                <span className="d">Los datos del agente de retención que van en cada comprobante.</span>
-                <span className="r">{config.rif ? `RIF ${config.rif}` : 'RIF sin cargar'}{config.razonSocial ? ` · ${config.razonSocial}` : ''}</span>
-              </button>
-            </div>
+            <div className="v7-pa-grid">{seccionesDe('ajustes', local).map((x) => tarjeta(x, config))}</div>
             <button type="button" className="v7-pa-avanzados" onClick={() => ir('avanzados')}>
               <span className="t">Ajustes avanzados</span>
-              <span className="d">Lo de toda la empresa (régimen y valores compartidos) y el catálogo de conceptos de cada impuesto.</span>
-              <span className="r">Cambian cálculos · {1 + tiposConCatalogo.length} sección(es)</span>
+              <span className="d">Cada impuesto con su regla, período, numeración y formato; y lo de toda la empresa: régimen, valores compartidos e interruptores generales.</span>
+              <span className="r">Cambian cálculos, números o fechas de declaración · {seccionesDe('impuesto', local).length + seccionesDe('empresa', local).length} secciones</span>
             </button>
           </>
         )}
@@ -128,15 +146,25 @@ export function Parametros({ onCerrar, puedeEditar = false }: Props) {
 
         {config && vista === 'avanzados' && (
           <>
-            {volver('portada')}
-            <h3 className="v7-sec-t">Ajustes avanzados</h3>
-            <p className="huella">Cambian cálculos, números o fechas de declaración.</p>
+            <button type="button" className="v7-volver" onClick={() => ir('portada')}>← Parámetros</button>
+            <div className="rv8-v7-aviso-avanzado" role="note"><b>Ajustes avanzados.</b> {AVISO_AVANZADOS}</div>
+            <figure className="rv8-v8-cadena">
+              <ol>{CADENA.map(([t, d]) => <li key={t}><b>{t}</b><span>{d}</span></li>)}</ol>
+              <figcaption>Cada eslabón depende del anterior. Lo de la empresa se configura una vez y lo usan varios impuestos; lo demás está en la ficha de cada impuesto.</figcaption>
+            </figure>
+            <h4 className="v7-capa-t">Cada impuesto</h4>
+            <div className="v7-pa-grid">{seccionesDe('impuesto', local).map((x) => tarjeta(x, config))}</div>
+            <h4 className="v7-capa-t">De toda la empresa</h4>
+            <div className="v7-pa-grid">{seccionesDe('empresa', local).map((x) => tarjeta(x, config))}</div>
+          </>
+        )}
+
+        {config && vista === 'impuestos' && (
+          <>
+            {volver('avanzados')}
+            <h3 className="v7-sec-t">Impuestos y reglas</h3>
+            <p className="huella">Hoy, el catálogo de conceptos de cada impuesto, con el que se elige el % de cada línea.</p>
             <div className="v7-pa-grid">
-              <button type="button" className="v7-pa-btn" onClick={() => ir('regimen')}>
-                <span className="t">Régimen y valores compartidos</span>
-                <span className="d">La condición de agente de retención y los valores que usan varios impuestos.</span>
-                <span className="r">{config.esContribuyenteEspecial ? 'Contribuyente especial' : 'No es contribuyente especial'} · UT {ut(config.valorUt)}</span>
-              </button>
               {tiposConCatalogo.map((t) => {
                 const xs = conceptos.filter((c) => c.tipo === t);
                 return (
@@ -154,7 +182,7 @@ export function Parametros({ onCerrar, puedeEditar = false }: Props) {
         {config && vista === 'regimen' && (
           <>
             {volver('avanzados')}
-            <h3 className="v7-sec-t">Régimen y valores compartidos {botonEditar('regimen')}</h3>
+            <h3 className="v7-sec-t">Régimen fiscal y valores compartidos {botonEditar('regimen')}</h3>
             {editando === 'regimen'
               ? <EditorRegimen config={config} onGuardar={guardarConfig} onCancelar={() => setEditando(null)} />
               : (
@@ -175,7 +203,7 @@ export function Parametros({ onCerrar, puedeEditar = false }: Props) {
           const enEdicion = editando && editando !== 'nuevo' ? xs.find((c) => c.id === editando) ?? null : null;
           return (
             <>
-              {volver('avanzados')}
+              {volver('impuestos')}
               <h3 className="v7-sec-t">
                 Conceptos de {nombreImpuesto(t)}{' '}
                 {puedeEditar && editando == null && <button type="button" className="mini v8-pa-editar" onClick={() => setEditando('nuevo')}>+ Nuevo concepto</button>}
