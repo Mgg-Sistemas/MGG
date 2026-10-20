@@ -10,6 +10,12 @@
 .ret-v8 .page-head h1 { margin: 0; }
 .ret-v8 .page-head p { margin: .25rem 0 0; color: var(--text-muted); }
 .ret-v8 .cabeza-acciones { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; }
+/* La app pone la cabecera en columna en ≤ 900 px y empuja .view-toggle a la derecha (margin-left: auto):
+   la maqueta la deja en fila que se envuelve, con el título y las pestañas a la izquierda. */
+.ret-v8 .page-head { flex-direction: row; }
+.ret-v8 .view-toggle { margin-left: 0; }
+/* El aviso del régimen: el texto se encoge y «Configurar el régimen» queda a la derecha en la misma línea */
+.ret-v8 .rv8-aviso-reg > span { flex: 1 1 20rem; min-width: 0; }
 
 /* Pestañas del módulo */
 .ret-v8 .view-toggle { display: inline-flex; background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--r-md); padding: 3px; max-width: 100%; overflow-x: auto; }

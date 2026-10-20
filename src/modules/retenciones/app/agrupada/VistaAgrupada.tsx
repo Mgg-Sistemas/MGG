@@ -19,6 +19,7 @@ import { nf, paginar, TAMANO_PAGINA_INICIAL } from '../listas/paginador';
 import type { ConceptoRetencion, ConfigRetencion, RetencionItem, RetencionPracticada } from '../datos/puerta';
 import { AccionesRetencion } from '../pantalla/AccionesRetencion';
 import { Paginador } from '../pantalla/Paginador';
+import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
 import { impuestosQueAplican, nombreImpuesto } from '../pantalla/pendientesPorDocumento';
 import { fechaVe } from '../pantalla/realizadasYLibro';
 import {
@@ -30,7 +31,6 @@ import { PorImpuesto } from './PorImpuesto';
 import './rv8-agrupada.css';
 
 /** Una marca discreta, solo en local, para lo que espera a la base de Retenciones. */
-const RequiereBase = () => (import.meta.env.DEV ? <span className="rv8-marca21" title="Requiere la base de Retenciones (paquete 2.1)">2.1</span> : null);
 
 const FECHAS: [FiltroFecha, string][] = [['quincena', 'Quincena actual'], ['mes', 'Mes actual'], ['pasado', 'Mes anterior'], ['todo', 'Todas'], ['rango', 'Rango…']];
 const DIRECCIONES: ['practicada' | 'recibida' | '', string][] = [['practicada', 'A proveedores'], ['recibida', 'De clientes'], ['', 'Todas']];
@@ -184,7 +184,7 @@ export function VistaAgrupada({ foco, onQuitarFoco, pendientes, libro, config, c
             {import.meta.env.DEV && vista === 'factura' && filtroActivo && conPendientes > 0 && (
               <div className="rv8-v8-sel-filtro">
                 <button type="button" className="btn rv8-requiere-base" disabled title="Requiere la base de Retenciones (paquete 2.1)">Seleccionar las {nf(conPendientes)} factura(s) del filtro</button>
-                <span className="rv8-huella">Las que tienen impuestos pendientes o ya marcados, en todas las páginas.</span> <RequiereBase />
+                <span className="rv8-huella">Las que tienen impuestos pendientes o ya marcados, en todas las páginas.</span> <MarcaPaquete21 />
               </div>
             )}
             {porProveedor(filas).map(([p, fs]) => (
@@ -339,7 +339,7 @@ function Proveedor({ fs, todas, conResumen, impuestos, e, abierto, onPlegar, ...
     <section className="rv8-proveedor">
       <header>
         <h3>{f0.proveedorNombre}<span className="rv8-rif">{f0.proveedorRif ?? ''}</span></h3>
-        {f0.dir === 'recibida' ? <span className="rv8-perfil"><span className="rv8-etq">Cliente</span></span> : import.meta.env.DEV && <span className="rv8-perfil"><button type="button" className="rv8-mini rv8-requiere-base" disabled title="Requiere la base de Retenciones (paquete 2.1)">Perfil fiscal</button><RequiereBase /></span>}
+        {f0.dir === 'recibida' ? <span className="rv8-perfil"><span className="rv8-etq">Cliente</span></span> : import.meta.env.DEV && <span className="rv8-perfil"><button type="button" className="rv8-mini rv8-requiere-base" disabled title="Requiere la base de Retenciones (paquete 2.1)">Perfil fiscal</button><MarcaPaquete21 /></span>}
         <span className="rv8-resumen">{resumen}</span>
       </header>
       {porDocumento(visibles).map(([doc, xs]) => <Documento key={doc} xs={xs} todas={todas} impuestos={impuestos} e={e} {...acc} />)}

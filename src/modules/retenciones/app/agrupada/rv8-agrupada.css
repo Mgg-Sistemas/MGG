@@ -284,3 +284,11 @@
 .rv8-v8-selfac input { width: 18px; height: 18px; cursor: pointer; }
 .rv8-factura:has(.rv8-v8-selfac) { padding-left: 2.1rem; }
 .rv8-v8-sel-filtro { display: flex; flex-wrap: wrap; gap: .5rem .8rem; align-items: center; margin: 0 0 .6rem; }
+
+/* Propias del módulo */
+/* El selector de impuesto del teléfono: otras hojas rv8- (cargadas después) vuelven a poner .rv8-campo en flex;
+   con dos clases gana en todos los anchos y solo se ve en ≤ 640 px, como la maqueta. */
+.rv8-campo.rv8-v7-sel-movil { display: none; }
+@media (max-width: 640px) {
+  .rv8-campo.rv8-v7-sel-movil { display: flex; }
+}

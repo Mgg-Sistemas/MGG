@@ -16,6 +16,7 @@ import { nf, paginar, TAMANO_PAGINA_INICIAL } from '../listas/paginador';
 import type { RetencionItem } from '../datos/puerta';
 import { AccionesRetencion } from '../pantalla/AccionesRetencion';
 import { Paginador } from '../pantalla/Paginador';
+import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
 import { nombreImpuesto } from '../pantalla/pendientesPorDocumento';
 import { fechaVe } from '../pantalla/realizadasYLibro';
 import {
@@ -24,7 +25,6 @@ import {
 } from './modeloAgrupada';
 
 const MAX_GRUPO = 10;
-const RequiereBase = () => (import.meta.env.DEV ? <span className="rv8-marca21" title="Requiere la base de Retenciones (paquete 2.1)">2.1</span> : null);
 const montos = (m: Record<string, number>) => Object.entries(m).map(([mon, v]) => money(v, mon)).join(' + ');
 
 interface Props {
@@ -143,7 +143,7 @@ export function PorImpuesto({ enBase, k, onRegistrar }: Props) {
           <span className="rv8-v7-sel-acc">
             <button type="button" className="btn btn-ghost" onClick={() => setSeleccion(new Set())}>Quitar selección ({nf(seleccion.size)})</button>
             <button type="button" className="btn" disabled>Emitir comprobante agrupado…</button>
-            <RequiereBase />
+            <MarcaPaquete21 />
           </span>
         </div>
       )}

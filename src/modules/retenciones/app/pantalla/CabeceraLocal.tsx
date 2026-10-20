@@ -11,6 +11,7 @@
    ============================================================ */
 
 import { nombreImpuesto } from './pendientesPorDocumento';
+import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
 
 const MARCA = 'Requiere la base de Retenciones (paquete 2.1)';
 
@@ -20,14 +21,15 @@ export function CabeceraLocal({ impuestos }: { impuestos: string[] }) {
   const nombres = impuestos.map(nombreImpuesto);
   return (
     <>
-      <button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>Vencimientos <span className="rv8-badge-alerta">—</span></button>
-      <button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>En otro sistema <span className="rv8-badge-alerta">—</span></button>
+      <span className="rv8-con-marca"><button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>Vencimientos <span className="rv8-badge-alerta">—</span></button><MarcaPaquete21 /></span>
+      <span className="rv8-con-marca"><button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>En otro sistema <span className="rv8-badge-alerta">—</span></button><MarcaPaquete21 /></span>
       {nombres.length > 0 && (
-        <button type="button" className="btn btn-ghost rv8-v8-convive rv8-requiere-base" disabled title={MARCA}>
+        <span className="rv8-con-marca"><button type="button" className="btn btn-ghost rv8-v8-convive rv8-requiere-base" disabled title={MARCA}>
           {lista(nombres)} {nombres.length > 1 ? 'conviven' : 'convive'} con otro sistema
-        </button>
+        </button><MarcaPaquete21 /></span>
       )}
-      <button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>Pendientes de impresión y entrega <span className="rv8-badge-alerta">—</span></button>
+      {/* BotonPendientesImpresion (Secundario) va aquí cuando impresion/pendientesImpresion.ts deje de chocar por mayúsculas con PendientesImpresion.tsx (TS1149). */}
+      <span className="rv8-con-marca"><button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>Pendientes de impresión y entrega <span className="rv8-badge-alerta">—</span></button><MarcaPaquete21 /></span>
     </>
   );
 }
