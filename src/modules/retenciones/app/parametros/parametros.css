@@ -1,0 +1,34 @@
+/* ============================================================
+   MGG · Retenciones v8 · ⚙ Parámetros
+   Del panel de la maqueta v8 (dos capas, tarjetas y fichas). Bajo .ret-v8.
+   ============================================================ */
+
+.ret-v8.v8-parametros { display: flex; flex-direction: column; gap: .3rem; }
+.ret-v8 .v7-capa-t { margin: .4rem 0 0; font-size: 1rem; }
+.ret-v8 .v7-capa-d { margin: .1rem 0 0; }
+.ret-v8 .v7-pa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: .65rem; margin: .5rem 0 1rem; }
+.ret-v8 .v7-pa-btn, .ret-v8 .v7-pa-avanzados { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: .3rem; padding: .85rem .95rem; border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--grad-surface); min-height: 112px; }
+.ret-v8 .v7-pa-btn:hover { border-color: rgba(255,138,0,0.6); }
+.ret-v8 .v7-pa-btn:focus-visible, .ret-v8 .v7-pa-avanzados:focus-visible, .ret-v8 .v7-volver:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.ret-v8 .v7-pa-btn .t, .ret-v8 .v7-pa-avanzados .t { font-weight: 700; font-size: .98rem; color: var(--text); }
+.ret-v8 .v7-pa-btn .d, .ret-v8 .v7-pa-avanzados .d { font-size: .8rem; color: var(--text-muted); line-height: 1.4; }
+.ret-v8 .v7-pa-btn .r { margin-top: auto; font-size: .76rem; color: var(--primary-3); }
+.ret-v8 .v7-pa-avanzados { width: 100%; min-height: 0; border-left: 4px solid var(--warning); background: rgba(245,177,51,0.06); position: relative; padding-right: 2.6rem; }
+.ret-v8 .v7-pa-avanzados::after { content: '›'; position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); font-size: 1.6rem; color: var(--warning); }
+.ret-v8 .v7-pa-avanzados .r { font-size: .76rem; color: #ffd99a; }
+.ret-v8 .v7-volver { all: unset; cursor: pointer; font-size: .84rem; color: var(--primary-3); padding: .3rem 0; min-height: 24px; }
+.ret-v8 .v7-volver:hover { text-decoration: underline; }
+.ret-v8 .v7-sec-t { margin: .3rem 0 .4rem; font-size: 1.05rem; }
+.ret-v8 .v7-que { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: .3rem .8rem; margin: 0 0 .7rem; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-1); font-size: .82rem; }
+.ret-v8 .v7-que dt { color: var(--text-muted); font-weight: 600; }
+.ret-v8 .v7-que dd { margin: 0; }
+.ret-v8 .lista-sis.v8-pa-conceptos { --cols: .6fr 2fr 1.2fr .5fr .5fr 1.3fr .7fr; }
+.ret-v8 .pill.inactivo { color: var(--text-muted); }
+.v8-pa-pie { margin-right: auto; }
+
+@media (max-width: 640px) {
+  .ret-v8 .v7-pa-grid { grid-template-columns: 1fr; }
+  .ret-v8 .v7-pa-btn { min-height: 0; }
+  .ret-v8 .v7-que { grid-template-columns: 1fr; gap: .1rem; }
+  .ret-v8 .v7-que dd { margin-bottom: .35rem; }
+}
