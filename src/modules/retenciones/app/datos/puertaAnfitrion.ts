@@ -6,7 +6,8 @@
    la amplía; las pantallas no cambian, porque solo conocen PuertaRetenciones.
    ============================================================ */
 
-import { listRetencionesHechas, listRetencionesPendientes } from '../../retenciones.repository';
+import { previewFileUrl } from '@/shared/lib/reportPreview';
+import { listRetencionesHechas, listRetencionesPendientes, urlRetencion } from '../../retenciones.repository';
 import {
   adjuntarComprobante, anularRetencion, getConfigRetencion, listConceptos, listRetenciones, registrarRetencion,
 } from '../../retencionesFiscal.repository';
@@ -21,5 +22,14 @@ export const puertaAnfitrion: PuertaRetenciones = {
   conceptos: (soloActivos) => listConceptos(soloActivos),
   registrar: (input) => registrarRetencion(input),
   adjuntarComprobante: (id, archivo) => adjuntarComprobante(id, archivo),
+  // Lo mismo que hace hoy el Libro fiscal (LibroFiscal.tsx, verComprobante y verAdjunto).
+  verComprobante: async (r) => {
+    const [config, { verComprobanteRetencionPdf }] = await Promise.all([getConfigRetencion(), import('../../comprobanteRetencionPdf')]);
+    await verComprobanteRetencionPdf(r, config);
+  },
+  verArchivo: async (r) => {
+    if (!r.comprobantePath) throw new Error('La retención no tiene archivo adjunto.');
+    await previewFileUrl(await urlRetencion(r.comprobantePath), r.comprobanteNombre ?? 'comprobante', 'Comprobante de retención');
+  },
   anular: (id, motivo) => anularRetencion(id, motivo),
 };

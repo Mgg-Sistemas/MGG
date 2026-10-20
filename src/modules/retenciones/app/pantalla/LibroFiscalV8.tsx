@@ -12,6 +12,7 @@ import { useMemo, useState } from 'react';
 import { money } from '@/shared/lib/format';
 import { paginar, TAMANO_PAGINA_INICIAL } from '../listas/paginador';
 import type { RetencionPracticada } from '../datos/puerta';
+import { AccionesRetencion } from './AccionesRetencion';
 import { BarraLista } from './BarraLista';
 import { Paginador } from './Paginador';
 import { nombreImpuesto } from './pendientesPorDocumento';
@@ -26,9 +27,10 @@ const ORDENES = [{ valor: 'reciente', texto: 'Más reciente primero' }, { valor:
 interface Props {
   libro: RetencionPracticada[];
   onAnular?: (r: RetencionPracticada) => void;
+  onAdjuntar?: (r: RetencionPracticada, archivo: File) => void;
 }
 
-export function LibroFiscalV8({ libro, onAnular }: Props) {
+export function LibroFiscalV8({ libro, onAnular, onAdjuntar }: Props) {
   const [f, setF] = useState<FiltroLibro>(FILTRO_INICIAL);
   const [pagina, setPagina] = useState(1);
   const [tamano, setTamano] = useState<number>(TAMANO_PAGINA_INICIAL);
@@ -52,9 +54,9 @@ export function LibroFiscalV8({ libro, onAnular }: Props) {
         onOrden={(v) => cambiar({ orden: v as OrdenLista })}
         onQuitar={() => cambiar({ q: '', impuesto: '', mes: '', estado: '' })}
       />
-      <div className={`lista-sis v8-libro${onAnular ? '' : ' sin-acciones'}`}>
+      <div className="lista-sis v8-libro">
         <div className="fila-sis cab">
-          <span>Fecha</span><span>Comprobante</span><span>Impuesto</span><span>Proveedor</span><span>Factura</span><span className="n">Retenido</span><span>Estado</span>{onAnular && <span />}
+          <span>Fecha</span><span>Comprobante</span><span>Impuesto</span><span>Proveedor</span><span>Factura</span><span className="n">Retenido</span><span>Estado</span><span />
         </div>
         {filas.length === 0 && (
           <div className="vacio"><p>{libro.length ? 'Ninguna retención coincide con la búsqueda o los filtros.' : 'Todavía no hay retenciones en el libro.'}</p></div>
@@ -70,9 +72,7 @@ export function LibroFiscalV8({ libro, onAnular }: Props) {
               <span data-l="Factura">{r.facturaNumero ?? '—'}<small>{r.docCodigo ?? ''}</small></span>
               <span className="n" data-l="Retenido">{money(r.montoRetenido, r.moneda)}</span>
               <span data-l="Estado"><span className={`pill ${ESTADO_CLASE[e]}`}>{ESTADO_TEXTO[e]}</span><small>{quienYCuando(r)}</small></span>
-              {onAnular && (
-                <span className="acc">{e === 'registrada' && <button type="button" className="mini" onClick={() => onAnular(r)}>Anular</button>}</span>
-              )}
+              <span className="acc"><AccionesRetencion r={r} onAnular={onAnular} onAdjuntar={onAdjuntar} /></span>
             </div>
           );
         })}

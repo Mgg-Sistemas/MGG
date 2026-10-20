@@ -14,6 +14,7 @@
 
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
+import { toast } from '@/shared/ui/Toast';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { PuertaContext, type RetencionItem, type RetencionPracticada } from './datos/puerta';
 import { puertaAnfitrion } from './datos/puertaAnfitrion';
@@ -36,7 +37,12 @@ export function RetencionesV8() {
       <Principal key={lectura}
         onParametros={() => setParametros(true)}
         onRegistrar={puedeEscribir ? (item, impuesto) => setRegistrar({ item, impuesto }) : undefined}
-        onAnular={puedeEscribir ? (r) => setAnular(r) : undefined} />
+        onAnular={puedeEscribir ? (r) => setAnular(r) : undefined}
+        onAdjuntar={puedeEscribir ? (r, archivo) => {
+          puertaAnfitrion.adjuntarComprobante(r.id, archivo)
+            .then(() => { toast('Comprobante adjuntado.', 'success'); setLectura((n) => n + 1); })
+            .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo adjuntar el comprobante.', 'error'));
+        } : undefined} />
       {parametros && <Parametros onCerrar={() => setParametros(false)} />}
       {anular && (
         <AnularDialogo retencion={anular} onCerrar={() => setAnular(null)}

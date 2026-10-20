@@ -11,6 +11,7 @@ import { useMemo, useState } from 'react';
 import { money } from '@/shared/lib/format';
 import { paginar, TAMANO_PAGINA_INICIAL } from '../listas/paginador';
 import type { RetencionPracticada } from '../datos/puerta';
+import { AccionesRetencion } from './AccionesRetencion';
 import { BarraLista } from './BarraLista';
 import { Paginador } from './Paginador';
 import { nombreImpuesto } from './pendientesPorDocumento';
@@ -22,7 +23,11 @@ import { quienYCuando } from './quien';
 
 const ORDENES = [{ valor: 'reciente', texto: 'Más reciente primero' }, { valor: 'antiguo', texto: 'Más antiguo primero' }];
 
-export function Realizadas({ libro, onAnular }: { libro: RetencionPracticada[]; onAnular?: (r: RetencionPracticada) => void }) {
+export function Realizadas({ libro, onAnular, onAdjuntar }: {
+  libro: RetencionPracticada[];
+  onAnular?: (r: RetencionPracticada) => void;
+  onAdjuntar?: (r: RetencionPracticada, archivo: File) => void;
+}) {
   const [f, setF] = useState<FiltroLibro>(FILTRO_INICIAL);
   const [pagina, setPagina] = useState(1);
   const [tamano, setTamano] = useState<number>(TAMANO_PAGINA_INICIAL);
@@ -63,9 +68,7 @@ export function Realizadas({ libro, onAnular }: { libro: RetencionPracticada[]; 
                   <span key={r.id} className="v8-ret-linea">
                     {nombreImpuesto(r.tipo)} · {money(r.montoRetenido, r.moneda)} · N° {r.numeroComprobante ?? 'sin número'}{' '}
                     <span className={`pill ${ESTADO_CLASE[e]}`}>{ESTADO_TEXTO[e]}</span>
-                    {onAnular && e === 'registrada' && (
-                      <button type="button" className="mini v8-ret-anular" onClick={() => onAnular(r)} aria-label={`Anular ${nombreImpuesto(r.tipo)} N° ${r.numeroComprobante ?? ''}`}>Anular</button>
-                    )}
+                    <span className="v8-ret-acc"><AccionesRetencion r={r} onAnular={onAnular} onAdjuntar={onAdjuntar} corto /></span>
                     <small>{quienYCuando(r)}</small>
                   </span>
                 );

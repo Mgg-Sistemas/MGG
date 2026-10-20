@@ -42,7 +42,8 @@
 .ret-v8 .lista-sis.v8-libro { --cols: .8fr 1.3fr .9fr 1.4fr .9fr .9fr 1fr 2fr; }
 .ret-v8 .lista-sis.v8-libro.sin-acciones { --cols: .8fr 1.3fr .9fr 1.4fr .9fr .9fr 1fr; }
 .ret-v8 .v8-ret-linea { display: block; padding: .15rem 0; }
-.ret-v8 .v8-ret-anular { margin-left: .4rem; min-height: 32px; padding: .1rem .55rem; }
+.ret-v8 .v8-ret-acc { display: inline-flex; gap: .3rem; margin-left: .4rem; vertical-align: middle; }
+.ret-v8 .v8-ret-acc .mini { min-height: 32px; padding: .1rem .55rem; }
 .ret-v8 .v8-ret-linea + .v8-ret-linea { border-top: 1px dashed var(--border); margin-top: .2rem; padding-top: .35rem; }
 .ret-v8 .fila-sis { display: grid; grid-template-columns: var(--cols); gap: .6rem; align-items: center; padding: .55rem 1rem; border-top: 1px solid var(--border); font-size: .82rem; }
 .ret-v8 .fila-sis.cab { color: var(--text-muted); font-size: .72rem; font-weight: 600; background: var(--bg-1); border-top: 0; }
