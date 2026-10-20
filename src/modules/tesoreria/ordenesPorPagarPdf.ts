@@ -26,13 +26,12 @@ export async function descargarResumenPorPagarPdf(
   directos: DirectoFila[] = [],
   creditos: OrdenPorPagar[] = [], // OC a crédito (cuenta abierta): se listan aparte, saldo pendiente
 ): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, { labelMetodoPago }, { resumenDatosPago }] = await Promise.all([
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, { textoPagoOrden, textoPagoDirecto }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
-    import('@/modules/pedidos/pedidos.repository'),
-    import('@/shared/ui/DatosPagoFields'),
+    import('@/modules/pedidos/pendientesPorPagarReporte'),
   ]);
   const tasaHoy = await getTasaHoy().catch(() => null);
   const tasa = Number(tasaHoy?.usd) || 0;
@@ -56,28 +55,10 @@ export async function descargarResumenPorPagarPdf(
      Este PDF lo usa Tesorería para pagar: sin el banco, la cédula y el número de
      cuenta hay que abrir la OC una por una para poder emitir la transferencia.
      Una OC puede tener VARIAS patas (multipago): se listan todas, una por línea. */
-  const pagoDe = (r: OrdenPorPagar): string => {
-    const patas = r.orden.metodo_pago ?? [];
-    if (!patas.length) return 'Esperando método de pago';
-    return patas
-      .map((m) => {
-        const monto = Number(m.monto) || 0;
-        const cab = `${labelMetodoPago(m.metodo)} · ${m.moneda ?? ''} ${monto.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`.trim();
-        const datos = resumenDatosPago(m.metodo, (m.datos ?? {}) as Record<string, string>)
-          .split('·').map((s) => s.trim()).filter(Boolean).join(' · ');
-        return datos ? `${cab}\n   ${datos}` : cab;
-      })
-      .join('\n');
-  };
-
+  const pagoDe = (r: OrdenPorPagar): string => textoPagoOrden(r.orden);
   /* Una compra o un servicio directo todavía no tiene método: se elige al pagarlo
-     en Tesorería. Lo único que sí hay que decir acá es si el dinero lo puso una
-     persona externa, porque entonces el pago es un REINTEGRO a esa persona. */
-  const pagoDirecto = (d: DirectoFila): string => (
-    d.pagoExterno
-      ? `REINTEGRO a externo${d.pagoExternoDatos ? `\n   ${d.pagoExternoDatos}` : ''}`
-      : 'Se define al pagar'
-  );
+     en Tesorería (o es un REINTEGRO si el dinero lo puso una persona externa). */
+  const pagoDirecto = textoPagoDirecto;
 
   // ── Segmentos ──
   const ocRows = rows.filter((r) => r.orden.clase !== 'servicio');

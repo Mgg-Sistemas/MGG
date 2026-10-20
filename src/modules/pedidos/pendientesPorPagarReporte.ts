@@ -6,12 +6,15 @@
    Excel y el mensaje de WhatsApp (20-10-2026), así los tres dicen siempre lo mismo.
    Los emojis van SIN el selector U+FE0F (WhatsApp se lo come y llega un cuadrito).
    ============================================================ */
-import type { OrdenPorPagar } from './pedidos.repository';
+import { labelMetodoPago, type OrdenPorPagar } from './pedidos.repository';
 import type { DirectoFila } from './DirectosPorPagarModal';
+import { resumenDatosPago } from '@/shared/ui/DatosPagoFields';
+import type { Orden } from '@/shared/lib/types';
 
 export type SegmentoKey = 'compras_directas' | 'ordenes' | 'servicios' | 'servicios_directos';
 
-export interface FilaPorPagar { codigo: string; nombre: string; detalle: string; montoUsd: number }
+/** `pago` = cómo se paga con los datos del beneficiario (varias líneas; ver textoPagoOrden). */
+export interface FilaPorPagar { codigo: string; nombre: string; pago: string; montoUsd: number }
 export interface SegmentoPorPagar {
   key: SegmentoKey;
   titulo: string;
@@ -23,7 +26,7 @@ export interface SegmentoPorPagar {
   pastelTexto: string;
   filas: FilaPorPagar[];
 }
-export interface FilaCredito { codigo: string; nombre: string; abonado: number; total: number; saldo: number }
+export interface FilaCredito { codigo: string; nombre: string; pago: string; abonado: number; total: number; saldo: number }
 export interface ReportePorPagar {
   segmentos: SegmentoPorPagar[];
   totalUsd: number;
@@ -59,11 +62,11 @@ export function armarReportePorPagar(
 
   const deOrden = (r: OrdenPorPagar): FilaPorPagar => ({
     codigo: r.orden.oc_codigo ?? r.orden.codigo, nombre: r.proveedorNombre,
-    detalle: r.esperandoMetodo ? 'Esperando método' : 'Lista para pagar',
+    pago: textoPagoOrden(r.orden),
     montoUsd: Number(r.montoAPagar) || 0,
   });
   const deDirecto = (d: DirectoFila): FilaPorPagar => ({
-    codigo: d.codigo, nombre: d.titulo, detalle: d.detalle || '—',
+    codigo: d.codigo, nombre: d.titulo, pago: textoPagoDirecto(d),
     montoUsd: esBsMoneda(d.moneda) ? bsAUsd(Number(d.total) || 0, tasa) : (Number(d.total) || 0),
   });
 
@@ -78,10 +81,39 @@ export function armarReportePorPagar(
   const credito = creditos.map((r): FilaCredito => {
     const total = Number(r.montoAPagar) || 0;
     const abonado = Math.max(0, Number(r.orden.abonado_total) || 0);
-    return { codigo: r.orden.oc_codigo ?? r.orden.codigo, nombre: r.proveedorNombre, abonado, total, saldo: Math.max(0, round2(total - abonado)) };
+    return { codigo: r.orden.oc_codigo ?? r.orden.codigo, nombre: r.proveedorNombre, pago: textoPagoOrden(r.orden), abonado, total, saldo: Math.max(0, round2(total - abonado)) };
   });
   const creditoTotal = credito.reduce((a, f) => a + f.saldo, 0);
   return { segmentos, totalUsd, credito, creditoTotal, tasa: Number(tasa) || 0, pendientes: rows.length + directos.length };
+}
+
+/**
+ * Cómo se paga una OC, con los datos del beneficiario (20-10-2026; es lo mismo que dice el PDF).
+ * Tesorería paga desde el reporte: sin el banco, la cédula y la cuenta habría que abrir cada OC.
+ * Una OC puede tener VARIAS patas (multipago): una por bloque; la línea de datos va con sangría.
+ */
+export function textoPagoOrden(orden: Pick<Orden, 'metodo_pago'>): string {
+  const patas = orden.metodo_pago ?? [];
+  if (!patas.length) return 'Esperando método de pago';
+  return patas
+    .map((m) => {
+      const monto = Number(m.monto) || 0;
+      const cab = `${labelMetodoPago(m.metodo)} · ${m.moneda ?? ''} ${monto.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`.trim();
+      const datos = resumenDatosPago(m.metodo, (m.datos ?? {}) as Record<string, string>)
+        .split('·').map((x) => x.trim()).filter(Boolean).join(' · ');
+      return datos ? `${cab}\n   ${datos}` : cab;
+    })
+    .join('\n');
+}
+
+/**
+ * Una compra o un servicio directo todavía no tiene método (se elige al pagar en Tesorería);
+ * lo único que hay que decir es si el dinero lo puso una persona externa: entonces es un REINTEGRO.
+ */
+export function textoPagoDirecto(d: Pick<DirectoFila, 'pagoExterno' | 'pagoExternoDatos'>): string {
+  return d.pagoExterno
+    ? `REINTEGRO a externo${d.pagoExternoDatos ? `\n   ${d.pagoExternoDatos}` : ''}`
+    : 'Se define al pagar';
 }
 
 /** Subtotal en $ de un segmento. */

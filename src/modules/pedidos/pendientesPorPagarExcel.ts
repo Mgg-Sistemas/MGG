@@ -32,13 +32,13 @@ async function construirLibro(rep: ReportePorPagar, tasaFecha: string | null): P
     ['PENDIENTES POR PAGAR · MGG'],
     [`${rep.pendientes} pendiente(s)${rep.credito.length ? ` · ${rep.credito.length} a crédito` : ''} · ${dateTime(new Date().toISOString())} · ${rep.tasa > 0 ? `Tasa BCV: Bs ${rep.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} por $${tasaFecha ? ` (${tasaFecha})` : ''}` : 'Sin tasa BCV'}`],
     [],
-    ['#', 'CÓDIGO', 'PROVEEDOR / CONCEPTO', 'DETALLE', 'MONTO $', 'MONTO Bs'],
+    ['#', 'CÓDIGO', 'PROVEEDOR / CONCEPTO', 'MÉTODO DE PAGO / DATOS', 'MONTO $', 'MONTO Bs'],
   ];
   const marcas: Marca[] = [{ fila: 0, tipo: 'titulo' }, { fila: 1, tipo: 'subtitulo' }, { fila: 3, tipo: 'encabezado' }];
   for (const s of rep.segmentos) {
     marcas.push({ fila: aoa.length, tipo: 'grupo', fondo: s.pastel, letra: s.pastelTexto });
     aoa.push([`${s.emoji} ${s.titulo} · ${s.filas.length}`]);
-    s.filas.forEach((f, i) => aoa.push([i + 1, f.codigo, f.nombre, f.detalle, f.montoUsd, bs(f.montoUsd)]));
+    s.filas.forEach((f, i) => aoa.push([i + 1, f.codigo, f.nombre, f.pago, f.montoUsd, bs(f.montoUsd)]));
     const sub = subtotalSegmento(s);
     marcas.push({ fila: aoa.length, tipo: 'subtotal', fondo: s.pastel, letra: s.pastelTexto });
     aoa.push(['', '', '', `TOTAL ${s.titulo}`, sub, bs(sub)]);
@@ -52,8 +52,9 @@ async function construirLibro(rep: ReportePorPagar, tasaFecha: string | null): P
     marcas.push({ fila: aoa.length, tipo: 'grupo', fondo: CREDITO_ESTILO.pastel, letra: CREDITO_ESTILO.pastelTexto });
     aoa.push([`${CREDITO_ESTILO.emoji} ${CREDITO_ESTILO.titulo} · ${rep.credito.length}`]);
     marcas.push({ fila: aoa.length, tipo: 'encabezado' });
-    aoa.push(['#', 'CÓDIGO', 'PROVEEDOR', 'ABONOS', 'SALDO $', 'SALDO Bs']);
-    rep.credito.forEach((c, i) => aoa.push([i + 1, c.codigo, c.nombre, `Abonado $ ${c.abonado.toFixed(2)} de $ ${c.total.toFixed(2)}`, c.saldo, bs(c.saldo)]));
+    aoa.push(['#', 'CÓDIGO', 'PROVEEDOR · ABONOS', 'MÉTODO DE PAGO / DATOS', 'SALDO $', 'SALDO Bs']);
+    rep.credito.forEach((c, i) => aoa.push([i + 1, c.codigo, `${c.nombre}
+Abonado $ ${c.abonado.toFixed(2)} de $ ${c.total.toFixed(2)}`, c.pago, c.saldo, bs(c.saldo)]));
     marcas.push({ fila: aoa.length, tipo: 'subtotal', fondo: CREDITO_ESTILO.pastel, letra: CREDITO_ESTILO.pastelTexto });
     aoa.push(['', '', '', 'TOTAL A CRÉDITO (saldo pendiente)', rep.creditoTotal, bs(rep.creditoTotal)]);
   }
@@ -61,7 +62,7 @@ async function construirLibro(rep: ReportePorPagar, tasaFecha: string | null): P
   const ws = XLSX.utils.aoa_to_sheet(aoa);
   const w = ws as Record<string, unknown>;
   const cellAt = (r: number, c: number) => (ws as Record<string, Celda>)[XLSX.utils.encode_cell({ r, c })];
-  w['!cols'] = [{ wch: 5 }, { wch: 18 }, { wch: 44 }, { wch: 40 }, { wch: 16 }, { wch: 18 }];
+  w['!cols'] = [{ wch: 5 }, { wch: 18 }, { wch: 40 }, { wch: 58 }, { wch: 16 }, { wch: 18 }];
   const merges: unknown[] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: COLUMNAS - 1 } }, { s: { r: 1, c: 0 }, e: { r: 1, c: COLUMNAS - 1 } }];
   for (const m of marcas) {
     if (m.tipo === 'grupo') {
@@ -86,6 +87,17 @@ async function construirLibro(rep: ReportePorPagar, tasaFecha: string | null): P
     }
     const c0 = cellAt(r, 0);
     if (c0 && typeof c0.v === 'number') c0.s = { ...(c0.s as object ?? {}), alignment: { horizontal: 'center' } };
+  }
+  // Proveedor y MÉTODO DE PAGO / DATOS en varias líneas (cada pata del multipago y su beneficiario).
+  for (const m of marcas) {
+    if (m.tipo !== 'encabezado' && m.tipo !== 'titulo') continue;
+  }
+  for (let r = 4; r < aoa.length; r++) {
+    if (marcas.some((m) => m.fila === r)) continue;
+    for (const c of [2, 3]) {
+      const cell = cellAt(r, c);
+      if (cell && typeof cell.v === 'string') cell.s = { ...(cell.s as object ?? {}), alignment: { vertical: 'top', wrapText: true } };
+    }
   }
 
   // ── Hoja 2 · Resumen ──

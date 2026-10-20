@@ -14,6 +14,9 @@ export { enlaceWhatsapp, puedeCompartir, compartirMovimiento };
 
 /** Cuántas filas se listan por segmento antes de mandar al Excel o al PDF. */
 export const MAX_POR_SEGMENTO_WHATSAPP = 30;
+/** Antes del método de pago (todavía sin elegir lleva el reloj de arena). */
+const EMOJI_METODO = '🏦';
+const EMOJI_ESPERA = '⏳';
 const MAX_TEXTO = 60;
 
 const corto = (s: string, max = MAX_TEXTO): string => {
@@ -21,6 +24,17 @@ const corto = (s: string, max = MAX_TEXTO): string => {
   if (!t || t === '—') return '';
   return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
 };
+
+/**
+ * El método de pago con sus datos, DEBAJO de la fila (sangría de tres espacios). No se recorta:
+ * quien paga necesita el banco, la cédula y la cuenta completos. Las líneas de datos ya vienen con sangría.
+ */
+function lineasPago(pago: string): string[] {
+  return String(pago ?? '').split('\n').filter((l) => l.trim()).map((l, i) => {
+    if (i > 0 && l.startsWith('   ')) return `   ${l.trim()}`;
+    return `   ${/^Esperando/.test(l) ? EMOJI_ESPERA : EMOJI_METODO} ${l.trim()}`;
+  });
+}
 
 /** «$ 1.204,88 (Bs 44.000,00)»; sin tasa, solo en $. */
 function montoDoble(usd: number, tasa: number): string {
@@ -50,8 +64,7 @@ export function mensajePendientesPorPagar(
     const visibles = s.filas.slice(0, max);
     visibles.forEach((f, i) => {
       const quien = [f.codigo, corto(f.nombre)].filter(Boolean).join(' · ');
-      const det = corto(f.detalle, 40);
-      lineas.push(`${i + 1}. ${quien}${det ? ` · ${det}` : ''} — ${montoDoble(f.montoUsd, rep.tasa)}`);
+      lineas.push(`${i + 1}. ${quien} — ${montoDoble(f.montoUsd, rep.tasa)}`, ...lineasPago(f.pago));
     });
     if (s.filas.length > visibles.length) lineas.push(`   • … y ${s.filas.length - visibles.length} más (mirá el Excel o el PDF)`);
     lineas.push(`*Subtotal:* ${montoDoble(subtotalSegmento(s), rep.tasa)}`);
@@ -62,7 +75,7 @@ export function mensajePendientesPorPagar(
   if (rep.credito.length) {
     lineas.push('', `${CREDITO_ESTILO.emoji} *CUENTAS A CRÉDITO · ${rep.credito.length}* (saldo pendiente, aparte del total)`);
     rep.credito.slice(0, max).forEach((c, i) => {
-      lineas.push(`${i + 1}. ${[c.codigo, corto(c.nombre)].filter(Boolean).join(' · ')} — saldo ${montoDoble(c.saldo, rep.tasa)} (abonado ${fmtMonto(c.abonado, 'USD')} de ${fmtMonto(c.total, 'USD')})`);
+      lineas.push(`${i + 1}. ${[c.codigo, corto(c.nombre)].filter(Boolean).join(' · ')} — saldo ${montoDoble(c.saldo, rep.tasa)} (abonado ${fmtMonto(c.abonado, 'USD')} de ${fmtMonto(c.total, 'USD')})`, ...lineasPago(c.pago));
     });
     if (rep.credito.length > max) lineas.push(`   • … y ${rep.credito.length - max} más (mirá el Excel o el PDF)`);
     lineas.push(`*Total a crédito:* ${montoDoble(rep.creditoTotal, rep.tasa)}`);
