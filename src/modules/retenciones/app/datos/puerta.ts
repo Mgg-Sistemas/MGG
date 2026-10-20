@@ -46,6 +46,10 @@ export interface PuertaRetenciones {
   registrar(input: NuevaRetencion): Promise<RetencionPracticada>;
   /** Adjunta el comprobante (PDF o imagen) a una retención ya registrada. */
   adjuntarComprobante(id: string, archivo: File): Promise<void>;
+  /** Abre el comprobante de una retención practicada (el PDF de hoy). */
+  verComprobante(r: RetencionPracticada): Promise<void>;
+  /** Abre el archivo adjunto de una retención (comprobante subido o el PDF del cliente). */
+  verArchivo(r: RetencionPracticada): Promise<void>;
   anular(id: string, motivo: string): Promise<void>;
 }
 

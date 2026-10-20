@@ -32,11 +32,13 @@ interface Props {
   onRegistrar?: (item: RetencionItem, impuesto: string) => void;
   /** Anula una retención del libro. Sin ella, «Anular» no se muestra. */
   onAnular?: (r: RetencionPracticada) => void;
+  /** Adjunta el archivo a una retención. Sin ella, «Adjuntar» no se muestra. */
+  onAdjuntar?: (r: RetencionPracticada, archivo: File) => void;
 }
 
 interface Datos { pendientes: RetencionItem[]; libro: RetencionPracticada[] }
 
-export function Principal({ onParametros, onRegistrar, onAnular }: Props) {
+export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar }: Props) {
   const puerta = usePuerta();
   const [sec, setSec] = useState<Seccion>('pendientes');
   const [datos, setDatos] = useState<Datos | null>(null);
@@ -80,9 +82,9 @@ export function Principal({ onParametros, onRegistrar, onAnular }: Props) {
 
       {datos && sec === 'pendientes' && <PorRealizar docs={docs} onRegistrar={onRegistrar} />}
 
-      {datos && sec === 'hechas' && <Realizadas libro={datos.libro} />}
+      {datos && sec === 'hechas' && <Realizadas libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} />}
 
-      {datos && sec === 'libro' && <LibroFiscalV8 libro={datos.libro} onAnular={onAnular} />}
+      {datos && sec === 'libro' && <LibroFiscalV8 libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} />}
     </main>
   );
 }
