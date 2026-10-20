@@ -34,6 +34,8 @@ import { useArchivosFactura } from './useArchivosFactura';
 import { useVistaComprobante } from '../impresion/useVistaComprobante';
 import { EjemploImpresion } from '../impresion/EjemploImpresion';
 import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
+import { NotaCreditoDialogo } from './NotaCreditoDialogo';
+import { puedeNotaCredito } from './notaCredito';
 import './rv8-por-realizar.css';
 
 const ORDENES = [{ valor: 'reciente', texto: 'Más reciente primero' }, { valor: 'antiguo', texto: 'Más antiguo primero' }];
@@ -58,6 +60,7 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
   const cambiar = (x: Partial<FiltroLibro>) => { setF((v) => ({ ...v, ...x })); setPagina(1); };
   const archivos = useArchivosFactura(useMemo(() => filas.map((x) => ({ kind: x.todas[0].docKind, id: x.todas[0].docId })), [filas]));
   const hoja = useVistaComprobante(libro);
+  const [nota, setNota] = useState<RetencionPracticada | null>(null);
   const comprobante = (r: RetencionPracticada) => () => {
     hoja.abrir(r).catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante.', 'error'));
   };
@@ -85,7 +88,7 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
         )}
         {filas.map((x) => {
           const imprimibles = x.retenciones.filter((r) => r.direccion === 'practicada' && r.numeroComprobante && !r.anulada);
-          const ivaRegistrado = x.todas.some((r) => r.direccion === 'practicada' && r.tipo === 'iva' && !r.anulada);
+          const ivaNc = x.todas.find(puedeNotaCredito);
           return (
             <div key={x.clave} className="fila-sis">
               <span data-l="OC o compra" className="mono">{x.docCodigo ?? '—'}</span>
@@ -112,8 +115,8 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
                     🖨 {nombreImpuesto(r.tipo)}
                   </button>
                 ))}
-                {import.meta.env.DEV && ivaRegistrado && x.direccion === 'practicada' && (
-                  <span className="rv8-con-marca"><button type="button" className="mini rv8-requiere-base" disabled>+ Nota de crédito</button><MarcaPaquete21 /></span>
+                {import.meta.env.DEV && ivaNc && (
+                  <span className="rv8-con-marca"><button type="button" className="mini" onClick={() => setNota(ivaNc)}>+ Nota de crédito</button><MarcaPaquete21 /></span>
                 )}
                 {archivos && <BotonFactura archivos={archivos.get(`${x.todas[0].docKind}:${x.todas[0].docId}`)} nombre={x.facturaNumero ?? ''} />}
                 {onVerAgrupada && <button type="button" className="mini" onClick={() => onVerAgrupada(x)}>Ver en vista agrupada</button>}
@@ -125,6 +128,7 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
           onPagina={setPagina} onTamano={(t) => { setTamano(t); setPagina(1); }} />
       </div>
       {hoja.vista}
+      {nota && <NotaCreditoDialogo factura={nota} onCerrar={() => setNota(null)} />}
     </>
   );
 }
