@@ -16,7 +16,6 @@
 import type { Orden, PagoMetodo } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
 import { BANCOS_VE } from '@/shared/lib/bancos';
-import { textoCantidadCompra } from './unidadCompra';
 import { labelCondicionPago } from './ofertas.repository';
 // El enlace y el «compartir» son los MISMOS de Combustible/Alimentación: una sola implementación
 // del «no wa.me» y de la hoja de compartir del teléfono.
@@ -138,13 +137,10 @@ export function textoOrdenPago(orden: Orden, proveedorNombre: string, personas?:
   return L.join('\n'); // saltos simples: WhatsApp los respeta
 }
 
-/** Cuántos productos se listan en el mensaje de aprobación antes de mandar al PDF de la OC. */
-export const MAX_PRODUCTOS_APROBACION = 15;
-
 /**
  * El mensaje para pedirle la aprobación al Gerente General (20-10-2026): la OC está en
  * «Pendiente por aprobación» y él decide viendo lo esencial —qué es, quién la pide y la lleva,
- * qué productos, qué condición y cuánto—. No lleva método de pago (todavía no se indica) ni
+ * cuántos productos, qué condición y cuánto—. No lleva método de pago (todavía no se indica) ni
  * «Autorizó» (todavía no hay quien). Mismas reglas de emojis que el de pagar: sin selector U+FE0F.
  */
 export function textoOrdenAprobacion(orden: Orden, proveedorNombre: string, personas?: PersonasOrden): string {
@@ -161,14 +157,8 @@ export function textoOrdenAprobacion(orden: Orden, proveedorNombre: string, pers
   if (detalle) L.push(`📝 *Detalle:* ${detalle}`);
   if (nota) L.push(`📌 *Nota:* ${nota.replace(/\s*\r?\n\s*/g, ' ')}`);
   L.push(...lineasPersonas({ solicita: personas?.solicita, analista: personas?.analista }));
-  if (productos.length) {
-    L.push(`📦 *Productos (${productos.length}):*`);
-    productos.slice(0, MAX_PRODUCTOS_APROBACION).forEach((it, i) => {
-      const importe = Math.round((Number(it.cantidad) || 0) * (Number(it.precio) || 0) * 100) / 100;
-      L.push(`${i + 1}. ${it.nombre} — ${textoCantidadCompra(it, Number(it.cantidad) || 0)} · ${montoTxt(importe, mon)}`);
-    });
-    if (productos.length > MAX_PRODUCTOS_APROBACION) L.push(`   • … y ${productos.length - MAX_PRODUCTOS_APROBACION} más (mirá la OC en PDF)`);
-  }
+  // Solo CUÁNTOS productos son (pedido del 20-10-2026): el detalle de cada uno se ve en la OC.
+  if (productos.length) L.push(`📦 *Productos:* ${productos.length}`);
   if (orden.condiciones_pago) L.push(`📋 *Condición:* ${labelCondicionPago(orden.condiciones_pago)}`);
   L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}`);
   return L.join('\n');

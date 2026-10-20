@@ -2804,7 +2804,7 @@ function OrdenDetailModal({
           <button className="btn btn-ghost" onClick={onEditarOc} title="Antes de aprobarla se corrige todo: unidad y persona que solicita, motivo, finalidad, proveedor, productos (marca, cantidad, precio), descuento, IVA e IGTF, condición y nota">✎ Editar OC (todo)</button>
           <button className="btn btn-ghost" onClick={onModificar} title="Volver a la etapa de ofertas para re-elegir la oferta ganadora">↩ Re-elegir oferta</button>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
-          {botonWhatsapp(textoAprobacion, '💬 WhatsApp para aprobar', 'Mandar la OC por WhatsApp al Gerente General para su aprobación: orden, proveedor, quién la pide y el analista, productos, condición y total')}
+          {botonWhatsapp(textoAprobacion, '💬 WhatsApp para aprobar', 'Mandar la OC por WhatsApp al Gerente General para su aprobación: orden, proveedor, quién la pide y el analista, cuántos productos son, condición y total')}
           <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (queda en estado Anulada)">⊘ Anular OC</button>
         </>
       )}
