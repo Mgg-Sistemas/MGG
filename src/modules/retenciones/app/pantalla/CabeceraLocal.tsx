@@ -20,22 +20,21 @@ export function CabeceraLocal({ impuestos }: { impuestos: string[] }) {
   const nombres = impuestos.map(nombreImpuesto);
   return (
     <>
-      <button type="button" className="btn btn-ghost rv8-chip-impresion" disabled title={MARCA}>Vencimientos <span className="rv8-badge-alerta">—</span></button>
-      <button type="button" className="btn btn-ghost rv8-chip-impresion" disabled title={MARCA}>En otro sistema <span className="rv8-badge-alerta">—</span></button>
+      <button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>Vencimientos <span className="rv8-badge-alerta">—</span></button>
+      <button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>En otro sistema <span className="rv8-badge-alerta">—</span></button>
       {nombres.length > 0 && (
-        <button type="button" className="btn btn-ghost rv8-v8-convive" disabled title={MARCA}>
+        <button type="button" className="btn btn-ghost rv8-v8-convive rv8-requiere-base" disabled title={MARCA}>
           {lista(nombres)} {nombres.length > 1 ? 'conviven' : 'convive'} con otro sistema
         </button>
       )}
-      <button type="button" className="btn btn-ghost rv8-chip-impresion" disabled title={MARCA}>Pendientes de impresión y entrega <span className="rv8-badge-alerta">—</span></button>
-      <span className="rv8-huella">{MARCA.toLowerCase()}</span>
+      <button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>Pendientes de impresión y entrega <span className="rv8-badge-alerta">—</span></button>
     </>
   );
 }
 
 export function PeriodoEnCurso({ impuestos }: { impuestos: string[] }) {
   return (
-    <section className="rv8-periodos-curso" aria-label="Período en curso por impuesto">
+    <section className="rv8-periodos-curso" aria-label="Período en curso por impuesto" title={MARCA}>
       <div className="rv8-v8-curso">
         <button type="button" className="rv8-v8-curso-venc" disabled aria-label="Sin períodos vencidos: ver Períodos"><b>Sin</b><span>vencidos</span></button>
         <span className="rv8-v8-curso-t" id="rv8-curso-t">Período en curso</span>
@@ -46,7 +45,6 @@ export function PeriodoEnCurso({ impuestos }: { impuestos: string[] }) {
         </ul>
         <button type="button" className="rv8-v8-curso-todos" disabled aria-label={`Ver los ${impuestos.length} impuestos en Períodos`}>Ver todo ({impuestos.length})</button>
       </div>
-      <span className="rv8-huella">{MARCA.toLowerCase()}</span>
     </section>
   );
 }

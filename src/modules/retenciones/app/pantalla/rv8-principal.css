@@ -79,3 +79,10 @@
 .rv8-v8-curso.rv8-abierto .rv8-v8-curso-t { line-height: 34px; }
 .rv8-v8-curso-todos:focus-visible { outline: 2px solid var(--primary-2); outline-offset: 2px; }
 .rv8-v8-convive { font-size: .76rem; color: var(--text-muted); border-style: dashed; }
+
+/* Propias del módulo */
+/* Lo que espera a la base de Retenciones (paquete 2.1): solo en local, deshabilitado, con borde de puntos y su title */
+.rv8-requiere-base { border-style: dashed; opacity: .55; cursor: not-allowed; white-space: nowrap; }
+.rv8-aviso-local { margin: 0 0 .6rem; }
+/* La pastilla «2.1» (con title): la misma clase que el componente común MarcaPaquete21 */
+.rv8-marca21 { display: inline-block; margin-left: .3rem; padding: 0 .35rem; border: 1px dashed var(--border-strong); border-radius: 999px; font-size: .64rem; font-weight: 600; line-height: 1.5; color: var(--text-dim); vertical-align: middle; cursor: help; }

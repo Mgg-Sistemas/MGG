@@ -143,6 +143,8 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
       )}
       {!error && !datos && <p className="muted" role="status">Cargando…</p>}
 
+      {/* En local, un solo aviso; cada pieza que espera a la base lleva su pastilla «2.1». */}
+      {import.meta.env.DEV && datos && <p className="rv8-huella rv8-aviso-local">En local: lo marcado con «2.1» o deshabilitado y con borde de puntos requiere la base de Retenciones (paquete 2.1).</p>}
       {import.meta.env.DEV && datos && <PeriodoEnCurso impuestos={impuestos} />}
 
       {datos && sec === 'pendientes' && <PorRealizar docs={docs} onRegistrar={onRegistrar} onVerOc={onVerOc} onVerAgrupada={verDocumento} />}
