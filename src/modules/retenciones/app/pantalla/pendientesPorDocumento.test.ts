@@ -74,10 +74,11 @@ describe('Por realizar: qué impuestos aplican (bug del 20/10: «Pendiente» vac
     expect(d.pendientes).toEqual(['iva', 'islr', 'municipal']);
   });
 
-  it('el IVA aplica si la empresa es agente y el documento tiene IVA, o no se sabe; no a una OC en divisas sin IVA', () => {
+  it('el IVA aplica si la empresa es agente y el documento tiene IVA, o no se sabe; solo un 0 escrito lo descarta', () => {
     expect(impuestosQueAplican(conIva(160), CONFIG_RETENCION_DEFECTO, [])).toEqual(['iva']);
     expect(impuestosQueAplican(conIva(null, { moneda: 'Bs' }), CONFIG_RETENCION_DEFECTO, [])).toEqual(['iva']);
-    expect(impuestosQueAplican(conIva(null, { moneda: 'USD' }), CONFIG_RETENCION_DEFECTO, [])).toEqual([]);
+    // La moneda de la OC no cuenta: «USD» es su valor por defecto (bug del 20/10, «no sale ningún IVA»).
+    expect(impuestosQueAplican(conIva(null, { moneda: 'USD' }), CONFIG_RETENCION_DEFECTO, [])).toEqual(['iva']);
     expect(impuestosQueAplican(conIva(0), CONFIG_RETENCION_DEFECTO, [])).toEqual([]);
     expect(impuestosQueAplican(conIva(160), { ...CONFIG_RETENCION_DEFECTO, esContribuyenteEspecial: false }, [])).toEqual([]);
   });

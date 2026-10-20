@@ -44,19 +44,23 @@ const porOrden = (a: string, b: string) => {
   return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.localeCompare(b);
 };
 
-/** El IVA del documento: el de la compra o el de la OC; una OC en divisas no lleva IVA. null = no se sabe. */
+/**
+ * El IVA del documento: el de la compra o el de la OC. null = no se sabe
+ * (en las OC el blanco no distingue «sin IVA» de «nadie lo cargó»): el IVA
+ * en blanco se pide al registrar (decisión del usuario del 16/10). La
+ * moneda de la OC no dice nada: «USD» es su valor por defecto.
+ */
 function ivaDelDocumento(item: RetencionItem): number | null {
   if (item.kind === 'compra_directa' && item.compra) return Number(item.compra.iva) || 0;
   const iva = item.orden?.iva;
-  if (iva != null) return Number(iva) || 0;
-  return item.moneda === 'USD' ? 0 : null;
+  return iva == null ? null : Number(iva) || 0;
 }
 
 /**
  * Los impuestos que aplican a un documento, con la configuración y el
  * catálogo de hoy:
  * · IVA, si la empresa es contribuyente especial y el documento tiene IVA
- *   (o no se sabe: el registro lo pide);
+ *   (o no se sabe: el registro lo pide). Solo un IVA en 0 escrito lo descarta;
  * · ISLR e ISAE, si hay conceptos activos de ese impuesto en el catálogo.
  */
 export function impuestosQueAplican(item: RetencionItem, config: ConfigRetencion, conceptos: readonly ConceptoRetencion[]): string[] {
