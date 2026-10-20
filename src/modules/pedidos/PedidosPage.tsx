@@ -5,6 +5,9 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
+import { errorMotivoCambio, lineaCambioProveedor, lineaReaperturaOc } from './cambioProveedor';
+import { MAX_MINIMIZADAS, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { opcionesCategoria } from '@/modules/inventario/opcionesCategoria';
@@ -73,7 +76,6 @@ import {
   adjuntarComprobanteOc,
   indicarMetodoPago,
   corregirMetodoPago,
-  reasignarProveedorAReaprobacion,
   METODOS_PAGO,
   labelMetodoPago,
   listCatalogoPedido,
@@ -189,6 +191,7 @@ function eventLabel(ev: string): string {
       oc_creada: 'OC creada (oferta elegida)',
       oc_editada: 'OC editada',
       nota_editada: 'Nota de la OC editada',
+      oc_reabierta: 'OC reabierta · volver a cotizar y re-elegir oferta',
       oc_reabierta_edicion: 'OC modificada · vuelve a aprobación del Gerente',
       confirmada_metodo: 'OC confirmada · indicar método de pago',
       confirmada_por_recibir: 'OC confirmada · pendiente por recepción',
@@ -218,6 +221,7 @@ function eventClass(ev: string): string {
       oc_creada: 'info',
       oc_editada: 'info',
       nota_editada: 'info',
+      oc_reabierta: 'warn',
       oc_reabierta_edicion: 'warn',
       confirmada_metodo: 'info',
       anticipo: 'info',
@@ -494,6 +498,37 @@ export function PedidosPage() {
   const currentDetail =
     modal.kind === 'detail' ? ordenes.find((o) => o.id === modal.ordenId) ?? null : null;
 
+  // Pestañas minimizadas (20-10-2026): el detalle de una orden se minimiza a la barra de abajo
+  // para abrir otra; viven SOLO en este módulo (al salir, AppShell avisa y se pierden).
+  const tituloMin = (o: Orden) => `Orden ${o.codigo}${o.urgente ? ' · 🚨' : ''}`;
+  function minimizarDetalle() {
+    if (!currentDetail) return;
+    const r = minimizar('Pedidos / Compras', '/app/pedidos', { id: currentDetail.id, titulo: tituloMin(currentDetail) });
+    if (r === 'lleno') {
+      toast(`Ya tienes ${MAX_MINIMIZADAS} pestañas minimizadas (el máximo). Restaura o descarta una para minimizar esta.`, 'warning');
+      return;
+    }
+    setModal({ kind: 'none' });
+  }
+  async function restaurarMinimizada(id: string) {
+    let o = ordenes.find((x) => x.id === id) ?? null;
+    if (!o) {
+      // La lista cargada ya no la trae (otra sesión la movió o la borró): se pide por su id.
+      try { o = await getOrdenById(id); } catch { o = null; }
+      if (!o) { quitarMinimizada(id); toast('Esa orden ya no existe.', 'warning'); return; }
+      const nueva = o;
+      setOrdenes((prev) => (prev.some((x) => x.id === nueva.id) ? prev : [...prev, nueva]));
+    }
+    // Con otro detalle abierto, ese ocupa el lugar de la restaurada en la barra (no se pierde).
+    if (currentDetail && currentDetail.id !== id) intercambiarMinimizada(id, { id: currentDetail.id, titulo: tituloMin(currentDetail) });
+    else quitarMinimizada(id);
+    setModal({ kind: 'detail', ordenId: id });
+  }
+  // Si la orden se abre por otro camino (lista, buscador) deja de estar «minimizada».
+  useEffect(() => { if (modal.kind === 'detail') quitarMinimizada(modal.ordenId); }, [modal]);
+  // Al salir del módulo (con el aviso o por otro camino) la barra se pierde.
+  useEffect(() => () => vaciarMinimizadas(), []);
+
   return (
     <div>
       <div className="page-head">
@@ -744,9 +779,12 @@ export function PedidosPage() {
       </>
       )}
 
+      <DockMinimizadas onRestaurar={(id) => { void restaurarMinimizada(id); }} bloqueado={modal.kind !== 'none' && modal.kind !== 'detail'} />
+
       {/* Modal: detalle */}
       {modal.kind === 'detail' && currentDetail && (
         <OrdenDetailModal
+          onMinimizar={minimizarDetalle}
           orden={currentDetail}
           proveedor={currentDetail.proveedor_id ? proveedorMap.get(currentDetail.proveedor_id) ?? null : null}
           proveedorMap={proveedorMap}
@@ -1058,21 +1096,21 @@ export function PedidosPage() {
       {modal.kind === 'metodo-pago' && (
         <MetodoPagoModal
           orden={modal.orden}
-          proveedores={proveedores}
           proveedorActual={modal.orden.proveedor_id ? proveedorMap.get(modal.orden.proveedor_id) ?? null : null}
           onClose={() => setModal({ kind: 'none' })}
-          onSent={async (metodos, soporte, proveedorId, qr, descuentoPago) => {
+          // Cambiar de proveedor = volver a cotizar: la OC regresa a «cargar ofertas» (con su motivo en la traza).
+          onReabrir={async (motivo) => {
+            const email = usuario?.email ?? user?.email ?? 'sistema';
+            await reabrirOcAOfertas(modal.orden, email, motivo);
+            notify(`OC ${modal.orden.oc_codigo ?? modal.orden.codigo} · cambio de proveedor: vuelve a «cargar ofertas» para escoger nueva cotización`, 'info', { link: '#/app/pedidos' });
+            setModal({ kind: 'none' });
+            await refresh();
+            setOffersReloadKey((k) => k + 1);
+          }}
+          onSent={async (metodos, soporte, qr, descuentoPago) => {
             try {
               const email = usuario?.email ?? user?.email ?? 'sistema';
               const codigo = modal.orden.oc_codigo ?? modal.orden.codigo;
-              // Si se cambió el proveedor, NO va a pago: vuelve a aprobación del Gerente.
-              if (proveedorId && proveedorId !== modal.orden.proveedor_id) {
-                await reasignarProveedorAReaprobacion(modal.orden, proveedorId, email);
-                notify(`OC ${codigo} · proveedor cambiado → vuelve a Pendiente por aprobación (Gerente General)`, 'info', { link: '#/app/pedidos' });
-                setModal({ kind: 'none' });
-                await refresh();
-                return;
-              }
               await indicarMetodoPago(modal.orden, metodos, email, soporte, qr, descuentoPago);
               const extra = soporte.comprobanteTipo === 'factura' ? ' · enviada también a Retenciones' : '';
               notify(`OC ${codigo} enviada para pagar · disponible en Tesorería${extra}`, 'success', { link: '#/app/tesoreria' });
@@ -1090,7 +1128,6 @@ export function PedidosPage() {
       {modal.kind === 'corregir-metodo-pago' && (
         <MetodoPagoModal
           orden={modal.orden}
-          proveedores={proveedores}
           proveedorActual={modal.orden.proveedor_id ? proveedorMap.get(modal.orden.proveedor_id) ?? null : null}
           modo="corregir"
           onClose={() => setModal({ kind: 'none' })}
@@ -1442,20 +1479,21 @@ function fmtMonto(n: number, moneda: string): string {
 
 function MetodoPagoModal({
   orden,
-  proveedores,
   proveedorActual,
   modo = 'enviar',
   onClose,
   onSent,
+  onReabrir,
 }: {
   orden: Orden;
-  proveedores: Proveedor[];
   proveedorActual: Proveedor | null;
   /** 'enviar' = indicar el método y mandar a pagar. 'corregir' = la OC ya está en
    *  Confirmada pagar y solo se arregla CÓMO se le paga (método y datos del beneficiario). */
   modo?: 'enviar' | 'corregir';
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; numeroAdministracion: string | null }, proveedorId: string, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; numeroAdministracion: string | null }, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
+  /** «Cambiar de proveedor»: reabre las cotizaciones de la OC (con su motivo) para escoger otra. Solo al enviar. */
+  onReabrir?: (motivo: string) => Promise<void> | void;
 }) {
   // Al corregir se arranca con lo que ya tiene la OC (método, moneda, monto y datos),
   // para que el usuario vea y edite exactamente lo que se cargó.
@@ -1471,23 +1509,21 @@ function MetodoPagoModal({
   const [error, setError] = useState<string | null>(null);
   // Datos de pago del proveedor ya guardados (para precargar por método).
   const [datosGuardados, setDatosGuardados] = useState<Record<string, DatosPago>>({});
-  // Proveedor de la OC: se puede cambiar acá (la orden ya está aprobada; solo se reasigna).
-  const [proveedorId, setProveedorId] = useState<string>(orden.proveedor_id ?? '');
-  const proveedorCambiado = !!orden.proveedor_id && proveedorId !== orden.proveedor_id;
-  // Lista para el selector: activos + el actual (aunque esté inactivo), sin duplicar.
-  const proveedoresSel = useMemo(() => {
-    const out = [...proveedores];
-    if (proveedorActual && !out.some((p) => p.id === proveedorActual.id)) out.unshift(proveedorActual);
-    return out;
-  }, [proveedores, proveedorActual]);
+  const proveedorId = orden.proveedor_id ?? '';
+  // CAMBIAR DE PROVEEDOR (20-10-2026): no se cambia a dedo, se vuelve a COTIZAR: la OC regresa a
+  // «cargar ofertas», se agrega la nueva cotización y se escoge la ganadora; después el Gerente la
+  // confirma de nuevo. Solo en «indicar método de pago» (una OC contra entrega ya recibida no).
+  const puedeCambiarProveedor = !corrigiendo && orden.estado === 'confirmada_metodo' && !!onReabrir;
+  const [reabriendo, setReabriendo] = useState(false);
+  // Motivo (obligatorio): queda en la traza de la OC.
+  const [motivoCambio, setMotivoCambio] = useState('');
   // TELÉFONO de administración del PROVEEDOR (14-10-2026): el número de teléfono de la
   // administración del proveedor (a quien se le avisa del pago / se le pide la factura).
   // Es obligatorio y se pide UNA vez: la primera OC que se manda a pagar lo carga y queda
   // en la ficha del proveedor; las siguientes lo traen precargado (se puede corregir).
   // Cada OC guarda su copia y la ven Tesorería (al pagar) y Retenciones (certificados).
   // (Columna `numero_administracion`: nació como "número" y resultó ser un teléfono.)
-  const provSel = proveedoresSel.find((p) => p.id === proveedorId) ?? null;
-  const numeroAdminGuardado = provSel?.numero_administracion ?? '';
+  const numeroAdminGuardado = proveedorActual?.numero_administracion ?? '';
   const [numeroAdmin, setNumeroAdmin] = useState<string>(orden.numero_administracion || numeroAdminGuardado);
   useEffect(() => { setNumeroAdmin(orden.numero_administracion || numeroAdminGuardado); }, [proveedorId, numeroAdminGuardado, orden.numero_administracion]);
   // Contra entrega: ya se recibió y verificó; se confirma la Nota de entrega antes de pagar.
@@ -1516,12 +1552,6 @@ function MetodoPagoModal({
     listDatosPago(proveedorId).then(setDatosGuardados).catch(() => setDatosGuardados({}));
   }, [proveedorId]);
 
-  // Al cambiar de proveedor, los datos de cuenta cargados ya no aplican: se reinician los métodos.
-  function cambiarProveedor(id: string) {
-    setProveedorId(id);
-    setLegs([{ metodo: 'divisas_efectivo', moneda: monedaPorMetodo('divisas_efectivo'), monto: 0 }]);
-  }
-
   function setLeg(i: number, patch: Partial<PagoMetodo>) {
     setLegs((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   }
@@ -1546,26 +1576,32 @@ function MetodoPagoModal({
   async function handleSend() {
     setError(null);
     if (!proveedorId) { setError('Indicá el proveedor.'); return; }
-    // Si cambió el proveedor, la OC vuelve a aprobación del Gerente: no se exige método de pago.
-    if (!proveedorCambiado) {
-      if (!numeroAdmin.trim()) { setError('Indicá el teléfono de administración del proveedor: se carga una sola vez y queda en su ficha.'); return; }
-      if (!telefonoAdministracionValido(numeroAdmin)) { setError('El teléfono de administración no parece un teléfono (mínimo 7 dígitos; se admiten +, espacios, guiones y paréntesis).'); return; }
-      if (!validos.length) { setError('Indicá al menos un método de pago.'); return; }
-      // En multipago, cada método/moneda debe llevar su monto (es el reparto que define la OC).
-      if (esMultipago && validos.some((l) => !((l.monto ?? 0) > 0))) {
-        setError('En multipago, indicá el monto por cada método/moneda.'); return;
-      }
-      if (esContraEntrega && !corrigiendo && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
-      if (incluyeDesc) {
-        if (descNum <= 0) { setError('Indicá el monto del descuento o desmarcá «El pago incluye descuento».'); return; }
-        if (descNum > baseTotal) { setError('El descuento no puede superar el total de la OC.'); return; }
-      }
-      // Validar datos del proveedor en los métodos que los requieren.
-      for (const l of validos) {
-        if (requiereDatos(l.metodo)) {
-          const err = validarDatosPago(l.metodo, l.datos ?? {});
-          if (err) { setError(`${METODOS_PAGO.find((m) => m.value === l.metodo)?.label}: ${err}`); return; }
-        }
+    // Cambiar de proveedor: no se indica método de pago; se reabren las cotizaciones (con su MOTIVO, que queda en la traza).
+    if (reabriendo) {
+      const errMotivo = errorMotivoCambio(motivoCambio);
+      if (errMotivo) { setError(errMotivo); return; }
+      setSaving(true);
+      try { await onReabrir?.(motivoCambio.trim()); }
+      catch (e) { setError(e instanceof Error ? e.message : 'No se pudo reabrir la cotización'); setSaving(false); }
+      return;
+    }
+    if (!numeroAdmin.trim()) { setError('Indicá el teléfono de administración del proveedor: se carga una sola vez y queda en su ficha.'); return; }
+    if (!telefonoAdministracionValido(numeroAdmin)) { setError('El teléfono de administración no parece un teléfono (mínimo 7 dígitos; se admiten +, espacios, guiones y paréntesis).'); return; }
+    if (!validos.length) { setError('Indicá al menos un método de pago.'); return; }
+    // En multipago, cada método/moneda debe llevar su monto (es el reparto que define la OC).
+    if (esMultipago && validos.some((l) => !((l.monto ?? 0) > 0))) {
+      setError('En multipago, indicá el monto por cada método/moneda.'); return;
+    }
+    if (esContraEntrega && !corrigiendo && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
+    if (incluyeDesc) {
+      if (descNum <= 0) { setError('Indicá el monto del descuento o desmarcá «El pago incluye descuento».'); return; }
+      if (descNum > baseTotal) { setError('El descuento no puede superar el total de la OC.'); return; }
+    }
+    // Validar datos del proveedor en los métodos que los requieren.
+    for (const l of validos) {
+      if (requiereDatos(l.metodo)) {
+        const err = validarDatosPago(l.metodo, l.datos ?? {});
+        if (err) { setError(`${METODOS_PAGO.find((m) => m.value === l.metodo)?.label}: ${err}`); return; }
       }
     }
     setSaving(true);
@@ -1573,8 +1609,8 @@ function MetodoPagoModal({
       // El número queda en la ficha del proveedor (si es nuevo o cambió) ANTES del envío:
       // si falla, se avisa y no se manda a pagar sin el dato.
       const numero = numeroAdmin.trim() || null;
-      if (!proveedorCambiado && numero && numero !== numeroAdminGuardado) await fijarNumeroAdministracionProveedor(proveedorId, numero);
-      await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, numeroAdministracion: numero }, proveedorId, qr, incluyeDesc && descNum > 0 ? descNum : null);
+      if (numero && numero !== numeroAdminGuardado) await fijarNumeroAdministracionProveedor(proveedorId, numero);
+      await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, numeroAdministracion: numero }, qr, incluyeDesc && descNum > 0 ? descNum : null);
     }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
@@ -1588,7 +1624,7 @@ function MetodoPagoModal({
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
           <button className="btn btn-primary" onClick={handleSend} disabled={saving}>
-            {saving ? 'Guardando…' : corrigiendo ? '💾 Guardar corrección' : proveedorCambiado ? '↩ Reenviar a aprobación del Gerente' : '💳 Enviar para Pagar'}
+            {saving ? 'Guardando…' : corrigiendo ? '💾 Guardar corrección' : reabriendo ? '↩ Reabrir cotizaciones' : '💳 Enviar para Pagar'}
           </button>
         </>
       }
@@ -1609,27 +1645,51 @@ function MetodoPagoModal({
       )}
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
-      {/* Proveedor: la OC ya está aprobada; acá se puede reasignar a otro proveedor (solo cambia el proveedor).
-          Al CORREGIR no se muestra: cambiar de proveedor devolvería la OC a aprobación y la sacaría de Tesorería. */}
+      {/* Proveedor: se muestra el actual; cambiarlo = volver a cotizar (ver puedeCambiarProveedor).
+          Al CORREGIR no aparece: reabrir las cotizaciones sacaría la OC de Tesorería. */}
       {!corrigiendo && (
-      <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: proveedorCambiado ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+      <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: reabriendo ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
         <div className="card-title" style={{ marginBottom: '.45rem' }}>Proveedor</div>
-        <select className="select" value={proveedorId} onChange={(e) => cambiarProveedor(e.target.value)}>
-          {!proveedorId && <option value="">— Elegí el proveedor —</option>}
-          {proveedoresSel.map((p) => (
-            <option key={p.id} value={p.id}>{p.razon_social}{p.rif ? ` · ${p.rif}` : ''}</option>
-          ))}
-        </select>
-        {proveedorCambiado && (
-          <small className="hint muted" style={{ display: 'block', marginTop: '.4rem', color: 'var(--brand, #ff8a00)' }}>
-            ⚠️ Cambiarás el proveedor de la OC (de <strong>{proveedorActual?.razon_social ?? '—'}</strong>). Al cambiarlo, la OC <strong>vuelve a “Pendiente por aprobación (Gerente General)”</strong> para que el gerente la confirme de nuevo; el método de pago se indicará después. Los ítems y montos se conservan.
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+          <strong>{proveedorActual?.razon_social ?? '—'}</strong>
+          {proveedorActual?.rif && <span className="muted mono">{proveedorActual.rif}</span>}
+          {puedeCambiarProveedor && !reabriendo && (
+            <button type="button" className="btn btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => setReabriendo(true)}
+              title="Volver a cotizar: se reabren las ofertas para escoger otra cotización">
+              🔁 Cambiar de proveedor (volver a cotizar)
+            </button>
+          )}
+        </div>
+        {reabriendo && (
+          <>
+            <small className="hint muted" style={{ display: 'block', marginTop: '.5rem', color: 'var(--brand, #ff8a00)' }}>
+              ⚠️ Para cambiar de proveedor se <strong>vuelve a cotizar</strong>: la OC regresa a <strong>“Pendiente · cargar ofertas”</strong>, se reabren las ofertas para que cargues la <strong>nueva cotización</strong> y escojas la ganadora, y después el <strong>Gerente General la confirma de nuevo</strong>. La confirmación actual se anula y el método de pago se indica al final. Todo queda en la <strong>trazabilidad</strong> de la OC: quién, cuándo, el proveedor anterior y el motivo.
+            </small>
+            <div className="form-row" style={{ margin: '.5rem 0 0' }}>
+              <label>Motivo del cambio de proveedor <span className="muted" style={{ fontWeight: 400 }}>(obligatorio)</span></label>
+              <input
+                className="input"
+                value={motivoCambio}
+                onChange={(e) => setMotivoCambio(e.target.value)}
+                placeholder="Ej.: el proveedor no tiene existencia / mejor precio de otro proveedor"
+                maxLength={200}
+              />
+            </div>
+            <button type="button" className="btn btn-ghost" style={{ marginTop: '.5rem' }} onClick={() => { setReabriendo(false); setMotivoCambio(''); setError(null); }} disabled={saving}>
+              No cambiar de proveedor
+            </button>
+          </>
+        )}
+        {!puedeCambiarProveedor && orden.estado !== 'confirmada_metodo' && (
+          <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
+            El proveedor ya no se puede cambiar: la OC ya fue recibida.
           </small>
         )}
       </div>
       )}
 
       {/* Teléfono de administración del proveedor (14-10-2026): lo ven Tesorería y Retenciones. */}
-      {!proveedorCambiado && (
+      {!reabriendo && (
         <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: numeroAdmin.trim() ? 'var(--border)' : 'var(--warning)' }}>
           <div className="card-title" style={{ marginBottom: '.45rem' }}>📞 Teléfono de administración del proveedor <span className="muted" style={{ fontWeight: 400 }}>(obligatorio)</span></div>
           <input className="input mono" type="tel" value={numeroAdmin} maxLength={40} placeholder="Ej. 0414-1234567 o +58 412 1234567"
@@ -1643,9 +1703,9 @@ function MetodoPagoModal({
         </div>
       )}
 
-      {proveedorCambiado ? (
+      {reabriendo ? (
         <div className="card" style={{ margin: 0, padding: '.85rem 1rem', borderColor: 'var(--brand, #ff8a00)' }}>
-          <strong>No hace falta indicar el método de pago.</strong> Al cambiar el proveedor, la OC vuelve a aprobación del Gerente; el método se indicará cuando él la confirme de nuevo.
+          <strong>No hace falta indicar el método de pago.</strong> Al volver a cotizar, el método se indicará cuando el Gerente confirme de nuevo la OC con la cotización que escojas.
         </div>
       ) : (
       <>
@@ -2405,6 +2465,8 @@ const KanbanCard = memo(function KanbanCard({
    ───────────────────────────────────────────── */
 interface OrdenDetailModalProps {
   orden: Orden;
+  /** Minimiza el detalle a la barra de abajo (máx. 3 pestañas). */
+  onMinimizar: () => void;
   proveedor: Proveedor | null;
   proveedorMap: Map<string, Proveedor>;
   personaMap: Map<string, string>;
@@ -2445,6 +2507,7 @@ interface OrdenDetailModalProps {
 }
 function OrdenDetailModal({
   orden: o,
+  onMinimizar,
   proveedor,
   proveedorMap,
   personaMap,
@@ -2868,7 +2931,7 @@ function OrdenDetailModal({
 
   return (
     <>
-    <Modal title={`Orden ${o.codigo}${o.urgente ? ' · 🚨 URGENTE' : ''}`} size="lg" onClose={onClose} footer={buttons}>
+    <Modal title={`Orden ${o.codigo}${o.urgente ? ' · 🚨 URGENTE' : ''}`} size="lg" onClose={onClose} onMinimizar={onMinimizar} footer={buttons}>
       {o.urgente && (
         <div className="card" style={{ borderColor: 'var(--danger)', background: 'rgba(239,68,68,.08)', margin: '0 0 .75rem', padding: '.5rem .8rem', fontWeight: 700, color: 'var(--danger)' }}>
           🚨 ORDEN URGENTE — solicitud marcada como prioritaria.
@@ -3649,19 +3712,12 @@ function Timeline({
   return (
     <div className="timeline">
       {items.map((h, i) => {
-        const ext = h as EventoHistorial & {
-          proveedorAnteriorId?: string;
-          proveedorNuevoId?: string;
-        };
-        const anterior = ext.proveedorAnteriorId ? proveedorMap.get(ext.proveedorAnteriorId) : null;
-        const nuevo = ext.proveedorNuevoId ? proveedorMap.get(ext.proveedorNuevoId) : null;
-        let extra = '';
-        if (h.motivo) extra = ` · ${h.motivo}`;
-        if (anterior && nuevo) {
-          extra = ` · de ${anterior.razon_social} → ${nuevo.razon_social}${
-            h.motivo ? ' · ' + h.motivo : ''
-          }`;
-        }
+        // Cambio de proveedor: «de A → B · motivo» (lo guardado ese día; si no, por id).
+        const reg = h as unknown as Record<string, unknown>;
+        const buscarProv = (id: string) => proveedorMap.get(id) ?? null;
+        const cambio = h.evento === 'oc_reabierta' && reg.cambio_proveedor ? lineaReaperturaOc(reg, buscarProv) : lineaCambioProveedor(reg, buscarProv);
+        const extra = cambio || (h.motivo ? ` · ${h.motivo}` : '');
+        const anulada = reg.confirmada_por ? String(reg.confirmada_por) : null;
         return (
           <div className="tl-item" key={`${h.at}-${i}`}>
             <div className={`tl-dot ${eventClass(h.evento)}`}></div>
@@ -3670,6 +3726,11 @@ function Timeline({
                 {eventLabel(h.evento)}
                 {extra}
               </div>
+              {anulada && (
+                <div className="tl-meta" style={{ marginTop: '.15rem' }}>
+                  ↩ {h.evento === 'oc_reabierta' ? 'Vuelve a cotizar' : 'Vuelve a aprobación del Gerente'} · se anula la confirmación de {persona(anulada, personaMap)}
+                </div>
+              )}
               {h.documentos && h.documentos.length > 0 && (
                 <div className="tl-meta" style={{ marginTop: '.15rem' }}>
                   📄 Documentos: {h.documentos.join(' · ')}

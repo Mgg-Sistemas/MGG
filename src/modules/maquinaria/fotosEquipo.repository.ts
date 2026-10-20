@@ -7,6 +7,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { textoDeError } from '@/shared/lib/errores';
+import { subirConReintento } from '@/shared/lib/storageReintento';
 import { BUCKET_DOCS_EQUIPO, type DocumentoEquipo } from './maquinariaDocumentos.repository';
 import { prepararFotoOrden } from './osFotos.repository';
 import { errorFotoLista } from './osFotos';
@@ -59,8 +60,18 @@ export async function subirFotoEquipo(equipoId: string, file: File, actor: strin
   const actuales = await listFotosEquipo(equipoId);
   if (actuales.length >= MAX_FOTOS_EQUIPO) throw new Error(`El equipo ya tiene las ${MAX_FOTOS_EQUIPO} fotos. Elimina una para agregar otra.`);
   const path = rutaFotoEquipo(equipoId, `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`, file.name);
-  const { error: ue } = await supabase.storage.from(BUCKET_DOCS_EQUIPO).upload(path, file, { upsert: false, contentType: file.type });
-  if (ue) throw new Error(textoDeError(ue, 'No se pudo subir la foto.'));
+  // Subida con reintento (20-10-2026): el Storage de Supabase tira 520/503 de
+  // forma INTERMITENTE y supabase-js no reintenta un POST. Si el fallo es cosa
+  // del servidor o de la red se repite hasta 3 veces; si es cosa nuestra
+  // (permisos, política, peso) se lanza el error original con su explicación.
+  try {
+    await subirConReintento(async () => {
+      const { error: ue } = await supabase.storage.from(BUCKET_DOCS_EQUIPO).upload(path, file, { upsert: false, contentType: file.type });
+      if (ue) throw ue;
+    });
+  } catch (e) {
+    throw new Error(textoDeError(e, 'No se pudo subir la foto.'));
+  }
   const orden = actuales.length ? Math.max(...actuales.map((f) => f.orden)) + 1 : 0;
   const { data, error } = await supabase.from(TABLA_FOTOS_EQUIPO).insert({
     equipo_id: equipoId, path, filename: file.name || 'foto.jpg', mime: file.type || null, size_bytes: file.size, orden, created_by: actor,
