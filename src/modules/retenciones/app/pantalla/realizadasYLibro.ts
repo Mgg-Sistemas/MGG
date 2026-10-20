@@ -77,7 +77,10 @@ export interface FacturaRealizada {
   direccion: RetencionPracticada['direccion'];
   facturaNumero: string | null;
   fecha: string;
+  /** Las que pasan el filtro: las que se muestran. */
   retenciones: RetencionPracticada[];
+  /** Todas las de la factura, para decir si una anulada quedó reemplazada. */
+  todas: RetencionPracticada[];
 }
 
 /**
@@ -102,10 +105,25 @@ export function facturasRealizadas(libro: readonly RetencionPracticada[], f: Fil
       clave, docCodigo: r0.docCodigo, contraparteNombre: r0.contraparteNombre, contraparteRif: r0.contraparteRif,
       direccion: r0.direccion, facturaNumero: r0.facturaNumero, fecha: fechaDe(r0),
       retenciones: visibles.sort((a, b) => a.tipo.localeCompare(b.tipo)),
+      todas: rs,
     });
   }
   out.sort((a, b) => (f.orden === 'reciente' ? b.fecha.localeCompare(a.fecha) : a.fecha.localeCompare(b.fecha)));
   return out;
+}
+
+/**
+ * El estado de una retención dentro de su factura, como en la maqueta: una
+ * anulada dice si la reemplazó otra del mismo impuesto o si ese impuesto
+ * quedó pendiente.
+ */
+export function textoEstadoEnFactura(r: RetencionPracticada, todas: readonly RetencionPracticada[]): string {
+  const e = estadoDe(r);
+  if (e !== 'anulada') return ESTADO_TEXTO[e];
+  const viva = todas.find((x) => x.id !== r.id && x.tipo === r.tipo && !x.anulada);
+  return viva
+    ? `Anulada · reemplazada por el N° ${viva.numeroComprobante ?? 'sin número'}`
+    : `Anulada · el ${nombreImpuesto(r.tipo)} de esta factura está pendiente`;
 }
 
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
