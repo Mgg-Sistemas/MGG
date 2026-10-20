@@ -26,7 +26,11 @@ import { VistaImpresion } from '../../impresion/VistaComprobante';
 import { descargarCsv, descargarExcel, tablaLibro } from '../exportarLibro';
 import { nombreImpuesto } from '../pendientesPorDocumento';
 import { cruzada, etiquetaColumna, tablaCruzada, type Grano } from './cruzada';
+import { Modal } from '@/shared/ui/Modal';
+import { serieProveedor } from './analisis';
+import { GraficaProveedor } from './GraficaProveedor';
 import './rv8-reportes.css';
+import './rv8-analisis.css';
 
 type Plantilla = 'libro' | 'rel_iva' | 'rel_islr' | 'rel_isae' | 'cruzada';
 type Atajo = 'mes' | 'mes_anterior' | 'ultimos_6' | 'ultimos_12' | 'rango';
@@ -69,6 +73,7 @@ export function Reportes({ libro }: { libro: RetencionPracticada[] }) {
   const [empresa, setEmpresa] = useState('');
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
   const [vista, setVista] = useState<'relacion' | 'cruzada' | null>(null);
+  const [analisis, setAnalisis] = useState<{ clave: string; nombre: string; rif: string } | null>(null);
   useEffect(() => {
     Promise.all([puerta.config(), puerta.conceptos(false)])
       .then(([c, cs]) => { setEmpresa(c.razonSocial ?? ''); setConceptos(cs); })
@@ -183,7 +188,7 @@ export function Reportes({ libro }: { libro: RetencionPracticada[] }) {
               <button type="button" className="btn" disabled={!cruce.filas.length} onClick={() => { const t = tablaDelCruce(); if (t) descargarCsv(t, `${archivo}.csv`); }}>CSV</button>
               <button type="button" className="btn" disabled={!cruce.filas.length} onClick={() => { const t = tablaDelCruce(); if (t) descargarExcel(t, nombre, `${archivo}.xlsx`).catch(fallo('No se pudo generar el Excel.')); }}>Excel</button>
             </div>
-            <div className="rv8-v8-tabla-scroll"><TablaCruzada cruce={cruce} moneda={moneda} /></div>
+            <div className="rv8-v8-tabla-scroll"><TablaCruzada cruce={cruce} moneda={moneda} onProveedor={setAnalisis} /></div>
           </>
         )}
       </section>
@@ -191,6 +196,12 @@ export function Reportes({ libro }: { libro: RetencionPracticada[] }) {
       {vista === 'relacion' && relacion && (
         <VistaImpresion titulo={nombre} marco={false} onCerrar={() => setVista(null)}
           hoja={(o) => <HojaRelacion datos={relacion} orientacion={o} />} previa={(o) => <PreviaRelacion datos={relacion} orientacion={o} />} />
+      )}
+      {analisis && (
+        <Modal title={`Análisis · ${analisis.nombre}`} size="xl" onClose={() => setAnalisis(null)}>
+          <p className="huella">{analisis.rif} · {tipos.map(nombreImpuesto).join(', ')} · del {desde} al {hasta} · {moneda === 'USD' ? '$' : 'Bs'}</p>
+          <GraficaProveedor id="analisis-prov" moneda={moneda} serie={serieProveedor(libro, analisis.clave, { desde, hasta, grano, moneda, tipos })} />
+        </Modal>
       )}
       {vista === 'cruzada' && cruce && (
         <VistaImpresion titulo={nombre} marco={false} onCerrar={() => setVista(null)}
@@ -200,7 +211,11 @@ export function Reportes({ libro }: { libro: RetencionPracticada[] }) {
   );
 }
 
-function TablaCruzada({ cruce, moneda }: { cruce: NonNullable<ReturnType<typeof cruzada>>; moneda: string }) {
+function TablaCruzada({ cruce, moneda, onProveedor }: {
+  cruce: NonNullable<ReturnType<typeof cruzada>>; moneda: string;
+  /** Tocar un proveedor abre su análisis (maqueta R3-19.3). Sin ella, el nombre es texto. */
+  onProveedor?: (p: { clave: string; nombre: string; rif: string }) => void;
+}) {
   const m = (v: number) => (v ? money(v, moneda) : '·');
   return (
     <table className="rv8-cruzada">
@@ -210,7 +225,10 @@ function TablaCruzada({ cruce, moneda }: { cruce: NonNullable<ReturnType<typeof 
       <tbody>
         {cruce.filas.map((f) => (
           <tr key={f.clave}>
-            <td className="rv8-fijo">{f.nombre}<br /><small className="muted">{f.rif}</small></td>
+            <td className="rv8-fijo">
+              {onProveedor ? <button type="button" className="rv8-prov" onClick={() => onProveedor(f)}>{f.nombre}</button> : f.nombre}
+              <br /><small className="muted">{f.rif}</small>
+            </td>
             {cruce.columnas.map((k) => <td key={k} className="n">{m(f.celdas[k] ?? 0)}</td>)}
             <td className="n"><b>{m(f.total)}</b></td>
           </tr>
