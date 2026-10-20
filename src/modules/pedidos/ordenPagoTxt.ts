@@ -1,14 +1,24 @@
 /* ============================================================
-   MGG · Compras · TXT de una orden confirmada para pagar
-   Formato corto, pensado para pegarlo en WhatsApp: los `*` de los
+   MGG · Compras · Mensaje de WhatsApp de una orden para pagar
+   Antes era un .txt que se bajaba y se pegaba a mano; desde el 20-10-2026
+   sale directo por WhatsApp, como los movimientos de Combustible (el botón
+   «💬 WhatsApp para pagar» del detalle). Formato corto: los `*` de los
    rótulos son las negritas de WhatsApp. Lleva lo justo para emitir
    el pago —qué orden, a quién, por qué, cuánto y cómo— sin el
    listado de renglones: quien paga no lo necesita.
-   Solo por botón: nunca se descarga solo.
+
+   ⚠ TODOS los emojis son de COLOR POR SÍ MISMOS, sin el selector U+FE0F:
+   WhatsApp normaliza el texto del enlace y se lleva ese selector puesto, y
+   del otro lado llega un cuadrito (ver combustible/mensajeMovimiento.ts).
+   Por eso la nota lleva 📌 y no 🗒️. La prueba lo verifica.
+   Solo por botón: nunca se envía solo.
    ============================================================ */
 import type { Orden, PagoMetodo } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
 import { BANCOS_VE } from '@/shared/lib/bancos';
+// El enlace y el «compartir» son los MISMOS de Combustible/Alimentación: una sola implementación
+// del «no wa.me» y de la hoja de compartir del teléfono.
+export { enlaceWhatsapp, puedeCompartir, compartirMovimiento } from '@/modules/combustible/mensajeMovimiento';
 
 /** `$79,00` · `Bs 4.500,00`. El símbolo va pegado; «Bs» necesita el espacio. */
 export function montoTxt(n: number | null | undefined, moneda = '$'): string {
@@ -89,7 +99,7 @@ export function textoOrdenPago(orden: Orden, proveedorNombre: string): string {
   L.push(`🔹 *ORDEN:* ${orden.oc_codigo ?? orden.codigo}`);
   L.push(`🏭 *Proveedor:* ${proveedorNombre || '—'}`);
   if (detalle) L.push(`📝 *Detalle:* ${detalle}`);
-  if (nota) L.push(`🗒️ *Nota:* ${nota.replace(/\s*\r?\n\s*/g, ' ')}`);
+  if (nota) L.push(`📌 *Nota:* ${nota.replace(/\s*\r?\n\s*/g, ' ')}`);
   L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}`);
   // En una cuenta abierta lo que se va a pagar hoy NO es el total: es el saldo.
   // Mandar solo el total invita a pagar de más, así que el abonado y lo que
@@ -100,20 +110,5 @@ export function textoOrdenPago(orden: Orden, proveedorNombre: string): string {
     L.push(`🔺 *Saldo pendiente:* ${montoTxt(saldoPendiente(orden), mon)}`);
   }
   L.push(...bloquePago(orden.metodo_pago, Number(orden.total) || 0, mon));
-  return L.join('\r\n'); // CRLF: se abre en el Bloc de notas sin quedar todo en una línea
-}
-
-/** Baja el .txt de la orden. Se llama SOLO desde el botón del detalle. */
-export function descargarOrdenPagoTxt(orden: Orden, proveedorNombre: string): void {
-  const texto = textoOrdenPago(orden, proveedorNombre);
-  // BOM para que Windows abra el archivo con los acentos y los emojis bien.
-  const blob = new Blob([`\uFEFF${texto}`], { type: 'text/plain;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `${(orden.oc_codigo ?? orden.codigo).replace(/[^\w.-]+/g, '_')}-pago.txt`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return L.join('\n'); // saltos simples: WhatsApp los respeta
 }
