@@ -20,6 +20,7 @@ import { usePuerta, type ConceptoRetencion, type RetencionPracticada } from '../
 import { datosRelacion } from '../../impresion/datosRelacion';
 import { HojaRelacion } from '../../impresion/HojaRelacion';
 import { PreviaRelacion } from '../../impresion/PreviaRelacion';
+import { EjemploImpresion } from '../../impresion/EjemploImpresion';
 import type { Impuesto } from '../../impresion/tipos';
 import { VistaImpresion } from '../../impresion/VistaComprobante';
 import { descargarCsv, descargarExcel, tablaLibro } from '../exportarLibro';
@@ -115,6 +116,7 @@ export function Reportes({ libro }: { libro: RetencionPracticada[] }) {
 
       <section className="rv8-rep-constructor">
         <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{nombre}</h2>
+        <EjemploImpresion />
         <div className="rv8-rep-filtros">
           <label className="rv8-campo"><span>Período del reporte</span>
             <select className="rv8-sel" value={atajo} onChange={(e) => setAtajo(e.target.value as Atajo)}>

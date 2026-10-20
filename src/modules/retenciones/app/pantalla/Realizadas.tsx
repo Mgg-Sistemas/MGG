@@ -32,6 +32,7 @@ import { quienYCuando } from './quien';
 import { puedeRegistrarDeNuevo } from './registrarDeNuevo';
 import { useArchivosFactura } from './useArchivosFactura';
 import { useVistaComprobante } from '../impresion/useVistaComprobante';
+import { EjemploImpresion } from '../impresion/EjemploImpresion';
 import './rv8-por-realizar.css';
 
 const ORDENES = [{ valor: 'reciente', texto: 'Más reciente primero' }, { valor: 'antiguo', texto: 'Más antiguo primero' }];
@@ -76,6 +77,7 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
         onOrden={(v) => cambiar({ orden: v as OrdenLista })}
         onQuitar={() => cambiar({ q: '', impuesto: '', mes: '', estado: '' })}
       />
+      <EjemploImpresion />
       <div className="lista-sis v8-realizadas" style={COLUMNAS}>
         <div className="fila-sis cab"><span>OC o compra</span><span>Proveedor</span><span>Factura</span><span>Retenciones</span><span /></div>
         {filas.length === 0 && (

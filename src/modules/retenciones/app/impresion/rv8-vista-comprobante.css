@@ -13,3 +13,14 @@
 .rv8-vc-larga { position: relative; background: #fff; }
 .rv8-vc-larga-horizontal { width: 1056px; }
 .rv8-vc-larga-vertical { width: 816px; }
+
+/* El ejemplo de impresión (solo en local): la marca «EJEMPLO», también en cada hoja impresa (position: fixed se repite en cada página) */
+.rv8-vc-ejemplo { margin: .5rem 0 0; font-size: .8rem; font-weight: 700; color: var(--danger); }
+.rv8-marca-ejemplo { display: none; }
+@media print {
+  #retenciones-imprimir .rv8-marca-ejemplo { display: flex; position: fixed; inset: 0; z-index: 5; align-items: center; justify-content: center; pointer-events: none; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  #retenciones-imprimir .rv8-marca-ejemplo span { transform: rotate(-24deg); font: 700 140px/1 Arial, sans-serif; color: rgba(200, 0, 0, .16); letter-spacing: .08em; }
+}
+.rv8-ejemplo-imp { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .4rem 0; }
+.rv8-ejemplo-imp small { color: var(--text-muted); font-weight: 400; }
+.rv8-ejemplo-opciones { display: inline-flex; flex-wrap: wrap; gap: .4rem; }
