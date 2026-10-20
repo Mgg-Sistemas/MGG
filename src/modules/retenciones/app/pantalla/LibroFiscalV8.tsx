@@ -3,9 +3,11 @@
 
    Traslado de `v6PintarLibro` de la maqueta: una fila por retención con la
    fecha, el comprobante, el impuesto, el proveedor, la factura, lo
-   retenido y su estado (con quién y cuándo). «Anular» aparece solo si la
-   pantalla recibe con qué anular; «🖨 Comprobante», «Historial» y el
-   aviso de IVA cambiado esperan a sus datos y no se muestran.
+   retenido y su estado (con quién y cuándo). Bajo el comprobante, «Reemplaza
+   al N° …» o «Reemplazada por el N° …» (v6PintarLibro, l. 4692-4720). «Anular»
+   aparece solo si la pantalla recibe con qué anular. «Por imprimir / Impreso»,
+   «📎 Factura», «Historial» y el aviso de IVA cambiado esperan a sus datos y no
+   se muestran.
    ============================================================ */
 
 import { useMemo, useState } from 'react';
@@ -17,7 +19,7 @@ import { BarraLista } from './BarraLista';
 import { Paginador } from './Paginador';
 import { nombreImpuesto } from './pendientesPorDocumento';
 import {
-  ESTADO_CLASE, ESTADO_TEXTO, FILTRO_INICIAL, estadoDe, fechaVe, filasLibro, opcionesLibro, textoDireccion,
+  ESTADO_CLASE, ESTADO_TEXTO, FILTRO_INICIAL, enlacesDeReemplazo, estadoDe, fechaVe, filasLibro, opcionesLibro, textoDireccion,
   type FiltroLibro, type OrdenLista,
 } from './realizadasYLibro';
 import { quienYCuando } from './quien';
@@ -36,6 +38,7 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar }: Props) {
   const [tamano, setTamano] = useState<number>(TAMANO_PAGINA_INICIAL);
   const opciones = useMemo(() => opcionesLibro(libro), [libro]);
   const xs = useMemo(() => filasLibro(libro, f), [libro, f]);
+  const enlaces = useMemo(() => enlacesDeReemplazo(libro), [libro]);
   const { filas, pagina: pag } = paginar(xs, pagina, tamano);
   const cambiar = (x: Partial<FiltroLibro>) => { setF((v) => ({ ...v, ...x })); setPagina(1); };
 
@@ -66,7 +69,7 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar }: Props) {
           return (
             <div key={r.id} className="fila-sis">
               <span data-l="Fecha">{fechaVe(r.facturaFecha ?? r.createdAt)}</span>
-              <span data-l="Comprobante" className="mono">{r.numeroComprobante ?? '—'}</span>
+              <span data-l="Comprobante" className="mono">{r.numeroComprobante ?? '—'}{enlaces.has(r.id) && <small>{enlaces.get(r.id)}</small>}</span>
               <span data-l="Impuesto">{nombreImpuesto(r.tipo)}<small>{textoDireccion(r)}</small></span>
               <span data-l="Proveedor">{r.contraparteNombre ?? '—'}<small>{r.contraparteRif ?? ''}</small></span>
               <span data-l="Factura">{r.facturaNumero ?? '—'}<small>{r.docCodigo ?? ''}</small></span>
