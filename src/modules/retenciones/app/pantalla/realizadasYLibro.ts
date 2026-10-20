@@ -126,6 +126,32 @@ export function textoEstadoEnFactura(r: RetencionPracticada, todas: readonly Ret
     : `Anulada · el ${nombreImpuesto(r.tipo)} de esta factura está pendiente`;
 }
 
+/**
+ * Los enlaces de reemplazo del Libro, como en la maqueta: en la misma factura
+ * y el mismo impuesto, la anulada dice qué número la reemplazó y la viva, a
+ * cuál reemplaza (la anulada más reciente anterior a ella).
+ */
+export function enlacesDeReemplazo(libro: readonly RetencionPracticada[]): Map<string, string> {
+  const grupos = new Map<string, RetencionPracticada[]>();
+  for (const r of libro) {
+    if (!r.facturaNumero) continue;
+    const clave = `${r.docKind}:${r.docId ?? ''}:${r.facturaNumero}:${r.tipo}:${r.direccion}`;
+    const xs = grupos.get(clave);
+    if (xs) xs.push(r); else grupos.set(clave, [r]);
+  }
+  const out = new Map<string, string>();
+  const num = (r: RetencionPracticada) => r.numeroComprobante ?? 'sin número';
+  for (const xs of grupos.values()) {
+    const viva = xs.find((r) => !r.anulada);
+    const anuladas = xs.filter((r) => r.anulada).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    if (!viva || !anuladas.length) continue;
+    for (const a of anuladas) out.set(a.id, `Reemplazada por el N° ${num(viva)}`);
+    const previa = anuladas.filter((a) => a.createdAt <= viva.createdAt).at(-1) ?? anuladas.at(-1);
+    if (previa) out.set(viva.id, `Reemplaza al N° ${num(previa)}`);
+  }
+  return out;
+}
+
 const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
 
 /** Las opciones de los filtros, con lo que hay en el libro. */

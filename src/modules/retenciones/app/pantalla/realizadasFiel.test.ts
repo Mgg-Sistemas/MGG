@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RetencionPracticada } from '../datos/puerta';
-import { FILTRO_INICIAL, facturasRealizadas, textoEstadoEnFactura } from './realizadasYLibro';
+import { FILTRO_INICIAL, enlacesDeReemplazo, facturasRealizadas, textoEstadoEnFactura } from './realizadasYLibro';
 
 // Datos inventados.
 let n = 0;
@@ -40,5 +40,22 @@ describe('Realizadas: el estado de cada retención dentro de su factura (maqueta
     const [fila] = facturasRealizadas([vieja, nueva], { ...FILTRO_INICIAL, estado: 'anulada' });
     expect(fila.retenciones.map((x) => x.id)).toEqual([vieja.id]);
     expect(fila.todas.map((x) => x.id)).toEqual([vieja.id, nueva.id]);
+  });
+});
+
+describe('Libro fiscal: los enlaces de reemplazo bajo el comprobante (maqueta v6PintarLibro)', () => {
+  it('la anulada dice por cuál se reemplazó, y la nueva, a cuál reemplaza', () => {
+    const vieja = r({ docId: 'oc-7', anulada: true, numeroComprobante: '20261000000030', createdAt: '2026-10-03T10:00:00' });
+    const nueva = r({ docId: 'oc-7', numeroComprobante: '20261000000034', createdAt: '2026-10-04T10:00:00' });
+    const m = enlacesDeReemplazo([vieja, nueva]);
+    expect(m.get(vieja.id)).toBe('Reemplazada por el N° 20261000000034');
+    expect(m.get(nueva.id)).toBe('Reemplaza al N° 20261000000030');
+  });
+
+  it('sin otra del mismo impuesto y factura, no hay enlace', () => {
+    const sola = r({ docId: 'oc-8', anulada: true });
+    const otroImpuesto = r({ docId: 'oc-8', tipo: 'islr' });
+    const m = enlacesDeReemplazo([sola, otroImpuesto]);
+    expect(m.size).toBe(0);
   });
 });
