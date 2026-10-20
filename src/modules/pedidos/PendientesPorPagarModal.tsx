@@ -24,6 +24,9 @@ function bs(n: number | null | undefined): string {
   return `Bs ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
+/** El método y sus datos van en varias líneas (cada pata del multipago y su beneficiario). */
+const PAGO_CELDA = { fontSize: '.8rem', fontWeight: 600, whiteSpace: 'pre-line' as const };
+
 export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<OrdenPorPagar[]>([]);
@@ -133,7 +136,7 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
                 <tr>
                   <th style={{ width: 92 }}>CÓDIGO</th>
                   <th>PROVEEDOR / CONCEPTO</th>
-                  <th>DETALLE</th>
+                  <th>MÉTODO DE PAGO / DATOS</th>
                   <th style={{ textAlign: 'right' }}>MONTO $</th>
                   <th style={{ textAlign: 'right' }}>MONTO Bs</th>
                 </tr>
@@ -143,7 +146,7 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
                   <tr key={`${f.codigo}-${i}`}>
                     <td className="mono">{f.codigo}</td>
                     <td>{f.nombre}</td>
-                    <td className="muted" style={{ fontSize: '.78rem' }}>{f.detalle}</td>
+                    <td style={PAGO_CELDA}>{f.pago}</td>
                     {montoCell(f.montoUsd)}
                   </tr>
                 ))}
@@ -176,11 +179,12 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.82rem' }}>
             <thead>
-              <tr><th colSpan={5} style={{ background: '#dc2626', color: '#fff', fontWeight: 700 }}>CUENTAS A CRÉDITO · se saldan con abonos</th></tr>
+              <tr><th colSpan={6} style={{ background: '#dc2626', color: '#fff', fontWeight: 700 }}>CUENTAS A CRÉDITO · se saldan con abonos</th></tr>
               <tr>
                 <th style={{ width: 92 }}>CÓDIGO</th>
                 <th>PROVEEDOR</th>
                 <th>ABONOS</th>
+                <th>MÉTODO DE PAGO / DATOS</th>
                 <th style={{ textAlign: 'right' }}>SALDO $</th>
                 <th style={{ textAlign: 'right' }}>SALDO Bs</th>
               </tr>
@@ -191,13 +195,14 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
                   <td className="mono">{f.codigo}</td>
                   <td>{f.nombre}</td>
                   <td className="muted" style={{ fontSize: '.78rem' }}>Abonado {usd(f.abonado)} de {usd(f.total)}</td>
+                  <td style={PAGO_CELDA}>{f.pago}</td>
                   {montoCell(f.saldo)}
                 </tr>
               ))}
             </tbody>
             <tfoot>
               <tr style={{ background: '#dc2626', color: '#fff' }}>
-                <td colSpan={3} style={{ textAlign: 'right', fontWeight: 700 }}>TOTAL A CRÉDITO (saldo pendiente)</td>
+                <td colSpan={4} style={{ textAlign: 'right', fontWeight: 700 }}>TOTAL A CRÉDITO (saldo pendiente)</td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{usd(credTotal)}</td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{tasa > 0 ? bs(aBs(credTotal, tasa)) : '—'}</td>
               </tr>
