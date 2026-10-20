@@ -7,7 +7,7 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
 import { errorMotivoCambio, lineaCambioProveedor, lineaReaperturaOc } from './cambioProveedor';
-import { compartirMovimiento, enlaceWhatsapp, puedeCompartir, textoOrdenPago } from './ordenPagoTxt';
+import { compartirMovimiento, enlaceWhatsapp, puedeCompartir, textoOrdenAprobacion, textoOrdenPago } from './ordenPagoTxt';
 import { MAX_MINIMIZADAS, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -2692,23 +2692,35 @@ function OrdenDetailModal({
      bajaba y se pegaba a mano. Ahora el mismo texto, con sus emojis, sale directo por WhatsApp
      como los movimientos de Combustible: en el teléfono por la hoja de compartir (llega exacto)
      y en la PC por el enlace derecho a api.whatsapp.com (nunca wa.me, que se come los emojis). */
-  const textoPago = () => textoOrdenPago(o, proveedor?.razon_social ?? (o.proveedor_id ? proveedorMap.get(o.proveedor_id)?.razon_social : '') ?? '—');
-  const botonWhatsappPago = (titulo: string) => (
+  const nombreProveedorMsg = () => proveedor?.razon_social ?? (o.proveedor_id ? proveedorMap.get(o.proveedor_id)?.razon_social : '') ?? '—';
+  /* Las personas del mensaje: quién pide, qué analista de compras la lleva (quien creó la OC;
+     si no, quien aprobó la solicitud) y quién la autorizó (la confirmación del Gerente o de la
+     Jefa de Administración). Lo que no exista todavía no sale. */
+  const personasMsg = () => ({
+    solicita: quienSolicita(o),
+    analista: o.oc_creada_por ? persona(o.oc_creada_por, personaMap, o.oc_creada_en)
+      : o.aprobada_por ? persona(o.aprobada_por, personaMap, o.aprobada_en) : null,
+    autorizo: o.oc_aprobada_por ? persona(o.oc_aprobada_por, personaMap, o.oc_aprobada_en) : null,
+  });
+  const textoPago = () => textoOrdenPago(o, nombreProveedorMsg(), personasMsg());
+  const textoAprobacion = () => textoOrdenAprobacion(o, nombreProveedorMsg(), personasMsg());
+  const botonWhatsapp = (texto: () => string, etiqueta: string, titulo: string) => (
     <a
       className="btn btn-ghost"
-      href={enlaceWhatsapp(textoPago())}
+      href={enlaceWhatsapp(texto())}
       target="_blank"
       rel="noopener noreferrer"
       title={titulo}
       onClick={(e) => {
         if (!puedeCompartir()) return;
         e.preventDefault();
-        void compartirMovimiento(textoPago());
+        void compartirMovimiento(texto());
       }}
     >
-      💬 WhatsApp para pagar
+      {etiqueta}
     </a>
   );
+  const botonWhatsappPago = (titulo: string) => botonWhatsapp(textoPago, '💬 WhatsApp para pagar', titulo);
   /* La solicitud aprobada en PDF, para mandarla a cotizar: lleva los materiales
      con su medida y cantidad, y la columna de precio EN BLANCO. Se genera solo
      con este botón. */
@@ -2792,6 +2804,7 @@ function OrdenDetailModal({
           <button className="btn btn-ghost" onClick={onEditarOc} title="Antes de aprobarla se corrige todo: unidad y persona que solicita, motivo, finalidad, proveedor, productos (marca, cantidad, precio), descuento, IVA e IGTF, condición y nota">✎ Editar OC (todo)</button>
           <button className="btn btn-ghost" onClick={onModificar} title="Volver a la etapa de ofertas para re-elegir la oferta ganadora">↩ Re-elegir oferta</button>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
+          {botonWhatsapp(textoAprobacion, '💬 WhatsApp para aprobar', 'Mandar la OC por WhatsApp al Gerente General para su aprobación: orden, proveedor, quién la pide y el analista, productos, condición y total')}
           <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (queda en estado Anulada)">⊘ Anular OC</button>
         </>
       )}
