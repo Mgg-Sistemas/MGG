@@ -76,6 +76,8 @@ export function VistaAgrupada({ pendientes, libro, config, conceptos, onRegistra
   };
   const limpiar = () => cambiar({ q: '', fecha: 'todo', provs: new Set(), imp: new Set(impuestos), dir: '', est: '', cuenta: null, sel: null });
 
+  const filtroActivo = !!(e.q || e.provs.size || e.dir || e.fecha !== 'todo');
+  const conPendientes = enBase.filter((f) => f.dir === 'practicada' && impuestos.some((k) => faltaEn(f.casillas[k].estado))).length;
   const nFiltros = [e.fecha !== 'todo', impuestos.some((k) => !e.imp.has(k)), !!e.dir, !!e.est, e.provs.size > 0].filter(Boolean).length;
 
   return (
@@ -169,8 +171,12 @@ export function VistaAgrupada({ pendientes, libro, config, conceptos, onRegistra
                 ? `${nf(lista.length)} factura(s) sin retenciones aplicables. Cada casilla indica el motivo.`
                 : `${nf(lista.length)} factura(s). Las facturas sin retenciones aplicables figuran en «Sin retención».`}
             </p>
-            {import.meta.env.DEV && vista === 'factura' && (
-              <div className="rv8-v8-sel-filtro"><button type="button" className="btn" disabled>Seleccionar las facturas del filtro</button><RequiereBase /></div>
+            {/* «Gestionada en otro sistema» (v8-8-facturas.js): espera a la base; solo en local. */}
+            {import.meta.env.DEV && vista === 'factura' && filtroActivo && conPendientes > 0 && (
+              <div className="rv8-v8-sel-filtro">
+                <button type="button" className="btn" disabled>Seleccionar las {nf(conPendientes)} factura(s) del filtro</button>
+                <span className="rv8-huella">Las que tienen impuestos pendientes o ya marcados, en todas las páginas.</span> <RequiereBase />
+              </div>
             )}
             {porProveedor(filas).map(([p, fs]) => (
               <Proveedor key={p} fs={fs} todas={facturas} conResumen={vista === 'factura'} impuestos={impuestos} e={e}
@@ -357,13 +363,25 @@ function Documento({ xs, todas, impuestos, e, ...acc }: AccionesProps & { xs: Fa
 function Factura({ f, impuestos, e, ...acc }: AccionesProps & { f: FacturaAgrupada; impuestos: string[]; e: EstadoVista }) {
   const ret = retenidoDe(f);
   const n = impuestos.length;
+  // La selección por factura (v8-8-facturas.js): solo las practicadas con algo pendiente, y solo en local.
+  const seleccionable = import.meta.env.DEV && f.dir === 'practicada' && impuestos.some((k) => faltaEn(f.casillas[k].estado));
   const titulo = f.num != null || f.dir !== 'practicada'
     ? `Factura ${f.num ?? '—'}`
     : <>Factura por indicar <span className="rv8-doc-pend">(el N° se escribe al registrar)</span></>;
   return (
     <article className="rv8-factura" aria-label={`Factura ${f.num ?? 'por indicar'} de ${f.proveedorNombre}`}>
+      {seleccionable && (
+        <label className="rv8-v8-selfac" title="Requiere la base de Retenciones (paquete 2.1)">
+          <input type="checkbox" disabled aria-label={`Seleccionar la factura ${f.num ?? f.docCodigo ?? ''} de ${f.proveedorNombre}`} />
+        </label>
+      )}
       <div>
         <div className="rv8-num">{titulo}</div>
+        {seleccionable && (
+          <div className="rv8-meta rv8-v8-meta-acc">
+            <button type="button" className="rv8-mini" disabled title="Requiere la base de Retenciones (paquete 2.1)">Marcar la factura como gestionada en otro sistema…</button>
+          </div>
+        )}
         <div className="rv8-meta">{fechaVe(f.fecha)} · <span className="rv8-doc">{f.docCodigo ?? '—'}</span>{f.total != null ? ` · ${money(f.total, f.moneda)}` : ''}</div>
         {f.dir === 'recibida' && <div className="rv8-meta">Retención de clientes (la empresa es sujeto retenido)</div>}
       </div>
