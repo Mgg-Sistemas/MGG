@@ -1,13 +1,20 @@
 /* ============================================================
-   MGG · Retenciones v8 · Pantalla principal (esqueleto)
+   MGG · Retenciones v8 · Pantalla principal
 
-   Primer corte para que la ruta se vea con datos reales mientras la pieza A
-   traslada la maqueta (cabecera, tira de período, pestañas, paginador,
-   filtros). Solo muestra lo que ya funciona.
+   Traslado de la maqueta v8 (35cbb02b): la cabecera con su descripción
+   por pestaña, la fila de accesos y las pestañas de siempre (Por realizar,
+   Realizadas y Libro fiscal). Lo que depende de datos que la base aún no
+   tiene no se muestra: la tira «Período en curso», los chips de
+   Vencimientos, Otro sistema e Impresión, y las pestañas Vista agrupada,
+   Períodos y Reportes (capacidades de la puerta en false).
    ============================================================ */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { money } from '@/shared/lib/format';
 import { usePuerta, type RetencionItem, type RetencionPracticada } from '../datos/puerta';
+import { documentosPendientes, nombreImpuesto } from './pendientesPorDocumento';
+import { PorRealizar } from './PorRealizar';
+import './principal.css';
 
 type Seccion = 'pendientes' | 'hechas' | 'libro';
 
@@ -17,56 +24,79 @@ const DESCRIPCION: Record<Seccion, string> = {
   libro: 'Libro fiscal: una fila por retención.',
 };
 
-export function Principal() {
+interface Props {
+  /** Abre ⚙ Parámetros. Sin ella, el acceso no se muestra. */
+  onParametros?: () => void;
+  /** Abre el registro de una retención. Sin ella, los botones «Registrar» no se muestran. */
+  onRegistrar?: (item: RetencionItem, impuesto: string) => void;
+}
+
+interface Datos { pendientes: RetencionItem[]; hechas: RetencionItem[]; libro: RetencionPracticada[] }
+
+export function Principal({ onParametros, onRegistrar }: Props) {
   const puerta = usePuerta();
   const [sec, setSec] = useState<Seccion>('pendientes');
-  const [pendientes, setPendientes] = useState<RetencionItem[] | null>(null);
-  const [hechas, setHechas] = useState<RetencionItem[] | null>(null);
-  const [libro, setLibro] = useState<RetencionPracticada[] | null>(null);
+  const [datos, setDatos] = useState<Datos | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const cargar = useCallback(() => {
+    setError(null);
     Promise.all([puerta.pendientes(), puerta.hechas(), puerta.libro()])
-      .then(([p, h, l]) => { setPendientes(p); setHechas(h); setLibro(l); })
+      .then(([pendientes, hechas, libro]) => setDatos({ pendientes, hechas, libro }))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'No se pudieron leer las retenciones.'));
   }, [puerta]);
+  useEffect(() => { cargar(); }, [cargar]);
 
-  const filas = sec === 'pendientes' ? pendientes : sec === 'hechas' ? hechas : null;
+  const docs = useMemo(() => (datos ? documentosPendientes(datos.pendientes, datos.libro) : []), [datos]);
+
   return (
-    <main className="page">
+    <main className="page ret-v8">
       <header className="page-head">
         <div>
           <h1>🧾 Retenciones</h1>
-          <p className="muted">{DESCRIPCION[sec]}</p>
+          <p>{DESCRIPCION[sec]}</p>
         </div>
-        <nav className="view-toggle" aria-label="Pantallas del módulo">
-          <button aria-current={sec === 'pendientes' ? 'page' : undefined} onClick={() => setSec('pendientes')}>Por realizar{pendientes ? ` (${pendientes.length})` : ''}</button>
-          <button aria-current={sec === 'hechas' ? 'page' : undefined} onClick={() => setSec('hechas')}>Realizadas</button>
-          <button aria-current={sec === 'libro' ? 'page' : undefined} onClick={() => setSec('libro')}>📒 Libro fiscal</button>
-        </nav>
+        <div className="cabeza-acciones">
+          {onParametros && <button type="button" className="btn btn-ghost" onClick={onParametros}>⚙ Parámetros</button>}
+          <nav className="view-toggle" aria-label="Pantallas del módulo">
+            <button type="button" aria-current={sec === 'pendientes' ? 'page' : undefined} onClick={() => setSec('pendientes')}>
+              Por realizar{datos ? ` (${docs.length})` : ''}
+            </button>
+            <button type="button" aria-current={sec === 'hechas' ? 'page' : undefined} onClick={() => setSec('hechas')}>Realizadas</button>
+            <button type="button" aria-current={sec === 'libro' ? 'page' : undefined} onClick={() => setSec('libro')}>📒 Libro fiscal</button>
+          </nav>
+        </div>
       </header>
-      {error && <p className="error" role="alert">{error}</p>}
-      {!error && sec !== 'libro' && (
+
+      {error && (
+        <div className="aviso-error" role="alert">
+          No se pudieron leer las retenciones: {error} <button type="button" className="mini" onClick={cargar}>Reintentar</button>
+        </div>
+      )}
+      {!error && !datos && <p className="muted" role="status">Cargando…</p>}
+
+      {datos && sec === 'pendientes' && <PorRealizar docs={docs} onRegistrar={onRegistrar} />}
+
+      {datos && sec === 'hechas' && (
         <div className="table-wrap">
           <table className="table">
             <thead><tr><th>OC o compra</th><th>Proveedor</th><th style={{ textAlign: 'right' }}>Total</th></tr></thead>
             <tbody>
-              {!filas && <tr><td colSpan={3} className="muted">Cargando…</td></tr>}
-              {filas?.map((it) => (
-                <tr key={`${it.kind}-${it.id}`}><td className="mono">{it.ocCodigo ?? '—'}</td><td>{it.proveedorNombre}</td><td className="mono" style={{ textAlign: 'right' }}>{it.moneda} {it.total.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</td></tr>
+              {datos.hechas.map((it) => (
+                <tr key={`${it.kind}-${it.id}`}><td className="mono">{it.ocCodigo ?? '—'}</td><td>{it.proveedorNombre}</td><td className="mono" style={{ textAlign: 'right' }}>{money(it.total, it.moneda)}</td></tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
-      {!error && sec === 'libro' && (
+
+      {datos && sec === 'libro' && (
         <div className="table-wrap">
           <table className="table">
             <thead><tr><th>Fecha</th><th>Comprobante</th><th>Impuesto</th><th>Proveedor</th><th style={{ textAlign: 'right' }}>Retenido</th></tr></thead>
             <tbody>
-              {!libro && <tr><td colSpan={5} className="muted">Cargando…</td></tr>}
-              {libro?.map((r) => (
-                <tr key={r.id}><td>{r.facturaFecha ?? "—"}</td><td className="mono">{r.numeroComprobante ?? '—'}</td><td>{r.tipo}</td><td>{r.contraparteNombre ?? '—'}</td><td className="mono" style={{ textAlign: 'right' }}>{r.moneda} {r.montoRetenido.toLocaleString('es-VE', { minimumFractionDigits: 2 })}</td></tr>
+              {datos.libro.map((r) => (
+                <tr key={r.id}><td>{r.facturaFecha ?? '—'}</td><td className="mono">{r.numeroComprobante ?? '—'}</td><td>{nombreImpuesto(r.tipo)}</td><td>{r.contraparteNombre ?? '—'}</td><td className="mono" style={{ textAlign: 'right' }}>{money(r.montoRetenido, r.moneda)}</td></tr>
               ))}
             </tbody>
           </table>
