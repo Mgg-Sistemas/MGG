@@ -15,6 +15,7 @@ import {
 import { urlAdjuntoCompra } from '@/modules/pedidos/compras.repository';
 import { resumenLibro, totalesPorMoneda } from '../../retencionesCalculo';
 import type { PuertaRetenciones } from './puerta';
+import { declararPeriodo, guardarPasoInicial, listPasoInicial, listPeriodos, reabrirPeriodo, umbralDeclaraciones } from './periodos';
 import { direccionDeProveedor, listArchivosDeDocumentos, listRetenidoSinRegistrar } from './retenidoAlPagar';
 
 export const puertaAnfitrion: PuertaRetenciones = {
@@ -48,6 +49,13 @@ export const puertaAnfitrion: PuertaRetenciones = {
   archivosDeDocumentos: (docs) => listArchivosDeDocumentos(docs),
   direccionProveedor: (id) => direccionDeProveedor(id),
   // Lo mismo que hace hoy el Libro fiscal (LibroFiscal.tsx, verLibroFiscalPdf con su resumen y un total por moneda).
+  // Los períodos (paquete 07 de la base de Retenciones): sin él, periodos() da null y la pestaña no se muestra.
+  periodos: () => listPeriodos(),
+  pasoInicial: (ks) => listPasoInicial(ks),
+  declararPeriodo: (id, d) => declararPeriodo(id, d),
+  reabrirPeriodo: (id, motivo) => reabrirPeriodo(id, motivo),
+  guardarPasoInicial: (tipo, p) => guardarPasoInicial(tipo, p),
+  umbralDeclaraciones: () => umbralDeclaraciones(),
   imprimirLibro: async (filas, rango) => {
     const [config, { verLibroFiscalPdf }] = await Promise.all([getConfigRetencion(), import('../../libroFiscalPdf')]);
     const fila = (r: (typeof filas)[number]) => ({ tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada });

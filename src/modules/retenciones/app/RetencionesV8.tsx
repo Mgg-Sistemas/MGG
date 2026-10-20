@@ -46,6 +46,18 @@ export function RetencionesV8() {
         onConfigurarRegimen={() => setParametros('regimen')}
         onRegistrar={puedeEscribir ? (item, impuesto, semilla) => setRegistrar({ item, impuesto, semilla }) : undefined}
         onVerOc={puedeVerOc ? setVerOc : undefined}
+        onDeclararPeriodo={puedeEscribir && puertaAnfitrion.declararPeriodo ? async (p, d) => {
+          const n = await puertaAnfitrion.declararPeriodo!(p.id, d);
+          toast(`Período declarado: ${n} retención(es) pasaron a «Declarada».`, 'success'); setLectura((x) => x + 1);
+        } : undefined}
+        onPasoInicial={puedeEscribir && puertaAnfitrion.guardarPasoInicial ? async (k, p) => {
+          await puertaAnfitrion.guardarPasoInicial!(k, p);
+          toast('Paso inicial guardado: el impuesto ya tiene sus períodos.', 'success'); setLectura((x) => x + 1);
+        } : undefined}
+        onReabrirPeriodo={puedeEscribir && puertaAnfitrion.reabrirPeriodo ? async (p, motivo) => {
+          const n = await puertaAnfitrion.reabrirPeriodo!(p.id, motivo);
+          toast(`Período reabierto: ${n} retención(es) volvieron a «Registrada».`, 'success'); setLectura((x) => x + 1);
+        } : undefined}
         onAnular={puedeEscribir ? (r) => setAnular(r) : undefined}
         onRegistrarRecibida={puedeEscribir ? () => setRecibida(true) : undefined}
         onAdjuntar={puedeEscribir ? (r, archivo) => {
