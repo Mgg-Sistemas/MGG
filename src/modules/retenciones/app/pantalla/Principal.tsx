@@ -34,11 +34,13 @@ interface Props {
   onAnular?: (r: RetencionPracticada) => void;
   /** Adjunta el archivo a una retención. Sin ella, «Adjuntar» no se muestra. */
   onAdjuntar?: (r: RetencionPracticada, archivo: File) => void;
+  /** Registra una retención de un cliente. Sin ella, el botón del Libro no se muestra. */
+  onRegistrarRecibida?: () => void;
 }
 
 interface Datos { pendientes: RetencionItem[]; libro: RetencionPracticada[]; config: ConfigRetencion; conceptos: ConceptoRetencion[] }
 
-export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar }: Props) {
+export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar, onRegistrarRecibida }: Props) {
   const puerta = usePuerta();
   const [sec, setSec] = useState<Seccion>('pendientes');
   const [datos, setDatos] = useState<Datos | null>(null);
@@ -87,7 +89,7 @@ export function Principal({ onParametros, onRegistrar, onAnular, onAdjuntar }: P
 
       {datos && sec === 'hechas' && <Realizadas libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} />}
 
-      {datos && sec === 'libro' && <LibroFiscalV8 libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} />}
+      {datos && sec === 'libro' && <LibroFiscalV8 libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} onRegistrarRecibida={onRegistrarRecibida} />}
     </main>
   );
 }
