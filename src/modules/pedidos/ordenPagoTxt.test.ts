@@ -232,8 +232,7 @@ describe('textoOrdenAprobacion · para pedirle la aprobación al Gerente', () =>
     expect(l).toContain('🏭 *Proveedor:* MAXI SHOES');
     expect(l).toContain('🙋 *Solicita:* JAIME CAMPO');
     expect(l).toContain('🛒 *Analista de compras:* NAZARET SALAZAR');
-    expect(l).toContain('📦 *Productos (1):*');
-    expect(l.find((x) => x.startsWith('1. BOTAS'))).toContain('$79,00');
+    expect(l).toContain('📦 *Productos:* 1');
     expect(l).toContain('📋 *Condición:* Pago de Contado');
     expect(l[l.length - 1]).toBe('💵 *Total:* $79,00');
   });
@@ -251,12 +250,22 @@ describe('textoOrdenAprobacion · para pedirle la aprobación al Gerente', () =>
     expect(textoOrdenAprobacion(pend, 'X')).not.toContain('URGENTE');
   });
 
-  it('no lista lo que no se compra, y con muchísimos productos corta y manda al PDF', () => {
-    const items = Array.from({ length: 20 }, (_, i) => ({ sku: `S${i}`, nombre: `PROD ${i}`, cantidad: 1, precio: 1, unidad: 'UND' }));
-    const t = textoOrdenAprobacion({ ...pend, items: [...items, { sku: 'NO', nombre: 'NO SE COMPRA', cantidad: 1, precio: 5, comprar: false }] } as unknown as Orden, 'X');
-    expect(t).toContain('📦 *Productos (20):*');
-    expect(t).not.toContain('NO SE COMPRA');
-    expect(t).toContain('… y 5 más (mirá la OC en PDF)');
+  it('de los productos dice SOLO cuántos son: no los lista ni pone sus montos', () => {
+    const items = Array.from({ length: 6 }, (_, i) => ({ sku: `S${i}`, nombre: `PROD ${i}`, cantidad: 3, precio: 1.5, unidad: 'KG' }));
+    const t = textoOrdenAprobacion({ ...pend, items } as unknown as Orden, 'X');
+    expect(t).toContain('📦 *Productos:* 6');
+    expect(t).not.toContain('PROD 0');
+    expect(t).not.toContain('1. ');
+    expect(t).not.toContain('$4,50');
+  });
+
+  it('cuenta solo lo que se compra, y sin productos no pone el renglón', () => {
+    const items = [
+      { sku: 'A', nombre: 'UNO', cantidad: 1, precio: 1 },
+      { sku: 'B', nombre: 'NO SE COMPRA', cantidad: 1, precio: 5, comprar: false },
+    ];
+    expect(textoOrdenAprobacion({ ...pend, items } as unknown as Orden, 'X')).toContain('📦 *Productos:* 1');
+    expect(textoOrdenAprobacion({ ...pend, items: [] } as unknown as Orden, 'X')).not.toContain('Productos');
   });
 
   it('sin selector ni unión invisible: llega bien a WhatsApp', () => {
