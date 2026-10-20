@@ -80,7 +80,7 @@ export function Principal({ onParametros, onRegistrar, onAnular }: Props) {
 
       {datos && sec === 'pendientes' && <PorRealizar docs={docs} onRegistrar={onRegistrar} />}
 
-      {datos && sec === 'hechas' && <Realizadas libro={datos.libro} />}
+      {datos && sec === 'hechas' && <Realizadas libro={datos.libro} onAnular={onAnular} />}
 
       {datos && sec === 'libro' && <LibroFiscalV8 libro={datos.libro} onAnular={onAnular} />}
     </main>

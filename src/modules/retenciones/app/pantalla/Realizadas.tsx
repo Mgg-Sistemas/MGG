@@ -22,7 +22,7 @@ import { quienYCuando } from './quien';
 
 const ORDENES = [{ valor: 'reciente', texto: 'Más reciente primero' }, { valor: 'antiguo', texto: 'Más antiguo primero' }];
 
-export function Realizadas({ libro }: { libro: RetencionPracticada[] }) {
+export function Realizadas({ libro, onAnular }: { libro: RetencionPracticada[]; onAnular?: (r: RetencionPracticada) => void }) {
   const [f, setF] = useState<FiltroLibro>(FILTRO_INICIAL);
   const [pagina, setPagina] = useState(1);
   const [tamano, setTamano] = useState<number>(TAMANO_PAGINA_INICIAL);
@@ -63,6 +63,9 @@ export function Realizadas({ libro }: { libro: RetencionPracticada[] }) {
                   <span key={r.id} className="v8-ret-linea">
                     {nombreImpuesto(r.tipo)} · {money(r.montoRetenido, r.moneda)} · N° {r.numeroComprobante ?? 'sin número'}{' '}
                     <span className={`pill ${ESTADO_CLASE[e]}`}>{ESTADO_TEXTO[e]}</span>
+                    {onAnular && e === 'registrada' && (
+                      <button type="button" className="mini v8-ret-anular" onClick={() => onAnular(r)} aria-label={`Anular ${nombreImpuesto(r.tipo)} N° ${r.numeroComprobante ?? ''}`}>Anular</button>
+                    )}
                     <small>{quienYCuando(r)}</small>
                   </span>
                 );

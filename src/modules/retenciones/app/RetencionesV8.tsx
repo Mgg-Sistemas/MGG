@@ -15,16 +15,18 @@
 import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { PuertaContext, type RetencionItem } from './datos/puerta';
+import { PuertaContext, type RetencionItem, type RetencionPracticada } from './datos/puerta';
 import { puertaAnfitrion } from './datos/puertaAnfitrion';
 import { Principal } from './pantalla/Principal';
 import { Parametros } from './parametros/Parametros';
+import { AnularDialogo } from './registro/AnularDialogo';
 import { RegistroDialogo } from './registro/RegistroDialogo';
 
 export function RetencionesV8() {
   const { isAdmin, loading, can } = usePermissions();
   const [registrar, setRegistrar] = useState<{ item: RetencionItem; impuesto: string } | null>(null);
   const [parametros, setParametros] = useState(false);
+  const [anular, setAnular] = useState<RetencionPracticada | null>(null);
   const [lectura, setLectura] = useState(0);
   if (loading) return <div className="p-8 muted">Cargando…</div>;
   if (!isAdmin) return <Navigate to="/app/retenciones" replace />;
@@ -33,8 +35,13 @@ export function RetencionesV8() {
     <PuertaContext.Provider value={puertaAnfitrion}>
       <Principal key={lectura}
         onParametros={() => setParametros(true)}
-        onRegistrar={puedeEscribir ? (item, impuesto) => setRegistrar({ item, impuesto }) : undefined} />
+        onRegistrar={puedeEscribir ? (item, impuesto) => setRegistrar({ item, impuesto }) : undefined}
+        onAnular={puedeEscribir ? (r) => setAnular(r) : undefined} />
       {parametros && <Parametros onCerrar={() => setParametros(false)} />}
+      {anular && (
+        <AnularDialogo retencion={anular} onCerrar={() => setAnular(null)}
+          onAnulada={() => { setAnular(null); setLectura((n) => n + 1); }} />
+      )}
       {registrar && (
         <RegistroDialogo
           item={registrar.item} impuesto={registrar.impuesto}
