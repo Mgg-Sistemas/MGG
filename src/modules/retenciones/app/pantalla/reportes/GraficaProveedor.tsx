@@ -15,7 +15,8 @@
      datos a la vista (el contraste del tema claro lo exige).
    ============================================================ */
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+import { useAncho } from '../../impresion/useAncho';
 import { money } from '@/shared/lib/format';
 import { nombreImpuesto } from '../pendientesPorDocumento';
 import { abreviar, ejeLimpio, tendencia, type SerieProveedor } from './analisis';
@@ -25,12 +26,15 @@ const ORDEN_CATALOGO: Record<string, number> = { iva: 0, islr: 1, municipal: 2, 
 const TRAMAS = [null, 'r45', 'r135', null, null, null];
 const claseImp = (k: string) => (ORDEN_CATALOGO[k] ?? 5) % 6;
 
-export function GraficaProveedor({ serie: s, moneda, ancho = 760, id }: { serie: SerieProveedor; moneda: string; ancho?: number; id: string }) {
+export function GraficaProveedor({ serie: s, moneda, id }: { serie: SerieProveedor; moneda: string; id: string }) {
   const [activa, setActiva] = useState<number | null>(null);
+  // Como la maqueta: el ancho del diálogo, entre 300 y 800 px
+  const raiz = useRef<HTMLDivElement>(null);
+  const ancho = Math.max(300, Math.min(800, useAncho(raiz, 760) - 24));
   const m = (v: number) => money(v, moneda);
   const tend = tendencia(s.por.map((x) => x.tot));
   const n = s.por.length;
-  if (!s.nRet || !n) return <p className="rv8-g-res">Sin retenciones a este proveedor en el rango.</p>;
+  if (!s.nRet || !n) return <div ref={raiz}><p className="rv8-g-res">Sin retenciones a este proveedor en el rango.</p></div>;
 
   const izq = 52, paso = Math.max(12, Math.min(56, Math.floor((ancho - 64) / n))), barra = Math.min(24, Math.max(6, Math.round(paso * 0.6)));
   const H = 204, top = 22, alto = H - top - 40, W = izq + n * paso + 10;
@@ -46,7 +50,7 @@ export function GraficaProveedor({ serie: s, moneda, ancho = 760, id }: { serie:
   const punto = activa != null ? s.por[activa] : null;
 
   return (
-    <div className="rv8-analisis">
+    <div className="rv8-analisis" ref={raiz}>
       <p className="rv8-g-res">Total retenido: <b>{m(s.total)}</b> en {s.nRet} retención(es), con retenciones en {con} de {n} período(s).</p>
       <ul className="rv8-g-leyenda" aria-label="Total por impuesto">
         {s.ks.map((k) => (

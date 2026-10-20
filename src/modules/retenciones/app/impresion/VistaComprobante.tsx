@@ -12,12 +12,13 @@
    VistaImpresion sirve a los comprobantes y a las relaciones.
    ============================================================ */
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Modal } from '@/shared/ui/Modal';
 import { FORMATO_COMPROBANTE, FORMATO_FABRICA } from './formatos';
 import { PaginaComprobante } from './HojasComprobante';
 import type { DatosComprobante, Orientacion } from './tipos';
+import { escalaPara, useAncho } from './useAncho';
 import './hojas.css';
 import './rv8-vista-comprobante.css';
 
@@ -47,6 +48,8 @@ export function VistaImpresion({ titulo, hoja, marco, previa, ejemplo, onCerrar 
   ejemplo?: boolean; onCerrar: () => void;
 }) {
   const [orientacion, setOrientacion] = useState<Orientacion>('horizontal');
+  const caja = useRef<HTMLDivElement>(null);
+  const escala = escalaPara(useAncho(caja, 1056), orientacion === 'vertical' ? 816 : 1056);
   // Si se cierra a mitad de una impresión, la página no queda marcada
   useEffect(() => () => { document.documentElement.classList.remove(CLASE); document.body.classList.remove(CLASE); }, []);
 
@@ -67,9 +70,17 @@ export function VistaImpresion({ titulo, hoja, marco, previa, ejemplo, onCerrar 
 
   return (
     <Modal title={titulo} size="xl" onClose={onCerrar} footer={footer}>
-      <div className="rv8-vc-marco">
-        {previa ? previa(orientacion) : (
-          <div className={marco ? `hv8-marco rv8-vc-${orientacion}` : `rv8-vc-larga rv8-vc-larga-${orientacion}`}>
+      <div className="rv8-vc-marco" ref={caja}>
+        {previa ? previa(orientacion) : marco ? (
+          // La hoja carta, reducida al ancho disponible (en el teléfono, entera a la vista)
+          <div className="rv8-vc-escalada" style={{ width: (orientacion === 'vertical' ? 816 : 1056) * escala, height: (orientacion === 'vertical' ? 1055 : 815) * escala }}>
+            <div className={`hv8-marco rv8-vc-${orientacion}`} style={{ transform: `scale(${escala})`, transformOrigin: 'top left' }}>
+              <div className="marca-agua v8" aria-hidden="true"><span>{ejemplo ? 'EJEMPLO' : 'Vista previa · sin validez para entrega'}</span></div>
+              {hoja(orientacion)}
+            </div>
+          </div>
+        ) : (
+          <div className={`rv8-vc-larga rv8-vc-larga-${orientacion}`}>
             <div className="marca-agua v8" aria-hidden="true"><span>{ejemplo ? 'EJEMPLO' : 'Vista previa · sin validez para entrega'}</span></div>
             {hoja(orientacion)}
           </div>

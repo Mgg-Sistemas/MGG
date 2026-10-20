@@ -24,3 +24,10 @@
 .rv8-ejemplo-imp { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin: .4rem 0; }
 .rv8-ejemplo-imp small { color: var(--text-muted); font-weight: 400; }
 .rv8-ejemplo-opciones { display: inline-flex; flex-wrap: wrap; gap: .4rem; }
+
+/* La hoja escalada: ocupa su tamaño reducido; en el teléfono, sin margen de más (maqueta: @media 640) */
+.rv8-vc-escalada { position: relative; overflow: hidden; margin: 0 auto; }
+@media (max-width: 640px) {
+  .rv8-vc-marco { padding: .25rem; max-height: none; }
+  .rv8-vc-orientacion { width: 100%; }
+}

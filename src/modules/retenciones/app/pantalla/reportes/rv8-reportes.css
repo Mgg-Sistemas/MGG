@@ -40,3 +40,9 @@
 .rv8-campo { display: flex; flex-direction: column; gap: .35rem; }
 .rv8-campo > span { font-size: .78rem; color: var(--text-muted); font-weight: 600; }
 .rv8-sel { padding: .45rem .7rem; min-height: 34px; background: var(--bg-1); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md); font-size: .85rem; }
+@media (max-width: 640px) {
+  .rv8-rep-constructor { padding: .7rem .75rem; }
+  .rv8-rep-filtros .rv8-campo { flex: 1 1 100%; }
+  .rv8-rep-acciones .btn { flex: 1 1 auto; min-height: 44px; }
+  .rv8-rango { flex-wrap: wrap; }
+}
