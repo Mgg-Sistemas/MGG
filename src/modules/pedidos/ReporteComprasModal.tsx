@@ -17,13 +17,15 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { agruparReporte, fmtMonto, totalesPorMoneda, totalesTexto, COLOR_TOTAL, COLOR_TOTAL_TEXTO, type FilaReporteCompras } from './comprasReporte';
 import { listReporteCompras } from './comprasReporte.repository';
-import { compartirMovimiento, enlaceWhatsapp, mensajeReporteCompras, puedeCompartir } from './comprasReporteMensaje';
+import { mensajeReporteCompras } from './comprasReporteMensaje';
+import { MensajeWhatsappModal } from './MensajeWhatsappModal';
 
 export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [filas, setFilas] = useState<FilaReporteCompras[]>([]);
   const [genPdf, setGenPdf] = useState(false);
   const [genExcel, setGenExcel] = useState(false);
+  const [avisar, setAvisar] = useState(false);
   const [imprimiendo, setImprimiendo] = useState(false);
 
   const cargar = useCallback(async () => {
@@ -69,11 +71,6 @@ export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
     finally { setImprimiendo(false); }
   }
 
-  async function copiar() {
-    try { await navigator.clipboard.writeText(mensaje); toast('Mensaje copiado', 'success'); }
-    catch { toast('No se pudo copiar solo. Mantené presionado el texto para copiarlo.', 'warning'); }
-  }
-
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
@@ -83,17 +80,10 @@ export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
       <button className="btn btn-ghost" onClick={() => void verExcel()} disabled={genExcel || vacio}>
         {genExcel ? 'Generando…' : '📊 Excel'}
       </button>
-      {/* En el teléfono el mensaje va por la hoja de compartir (llega exacto, con sus
-          emojis); en la PC, el enlace derecho a api.whatsapp.com (nunca wa.me). */}
-      <a className="btn btn-ghost" href={enlaceWhatsapp(mensaje)} target="_blank" rel="noopener noreferrer"
-        onClick={(e) => {
-          if (vacio) { e.preventDefault(); return; }
-          if (!puedeCompartir()) return;
-          e.preventDefault();
-          void compartirMovimiento(mensaje);
-        }}>
+      {/* Abre la ventana «Avisar» (la de Combustible): el mensaje a la vista, «Copiar» y «Enviar por WhatsApp». */}
+      <button className="btn btn-ghost" onClick={() => setAvisar(true)} disabled={vacio}>
         💬 WhatsApp
-      </a>
+      </button>
       <button className="btn btn-primary" onClick={() => void imprimir()} disabled={imprimiendo || vacio}>
         {imprimiendo ? 'Enviando…' : '🖨 Imprimir'}
       </button>
@@ -169,16 +159,7 @@ export function ReporteComprasModal({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {/* El mismo mensaje que se manda por WhatsApp, con sus emojis, a la vista. */}
-      {!loading && !vacio && (
-        <details style={{ marginTop: '.9rem' }}>
-          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>💬 Mensaje para WhatsApp (con emojis)</summary>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '.5rem 0' }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => void copiar()}>📋 Copiar mensaje</button>
-          </div>
-          <pre className="surt-mensaje">{mensaje}</pre>
-        </details>
-      )}
+      {avisar && <MensajeWhatsappModal titulo="Avisar · Reporte de compras por renglón" texto={mensaje} onClose={() => setAvisar(false)} />}
     </Modal>
   );
 }
