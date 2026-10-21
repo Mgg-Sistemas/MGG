@@ -36,7 +36,6 @@ export async function descargarProveedoresPdf(
   const impresoIso = opts.impresoIso ?? impresoLegacy;
   const keys = opts.keys && opts.keys.length ? opts.keys : CAMPOS_POR_DEFECTO;
   const orientacion: OrientacionPdf = opts.orientacion ?? 'auto';
-  const actividades = opts.actividades ?? [];
 
   const [{ jsPDF }, { default: autoTable }, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'),
@@ -54,20 +53,19 @@ export async function descargarProveedoresPdf(
 
   if (esLegacy) {
     const filasLegacy = datos as FilaProveedor[];
-    head = ['RIF', 'RAZÓN SOCIAL', 'CONTACTO / TELÉFONO', 'EMAIL', 'ACTIVIDAD ECONÓMICA', 'CATEGORÍAS', 'ESTADO'];
+    head = ['RIF', 'RAZÓN SOCIAL', 'CONTACTO / TELÉFONO', 'EMAIL', 'CATEGORÍAS', 'ESTADO'];
     filas = filasLegacy.map((f) => [
       f.rif,
       f.razonSocial,
       [f.contacto, f.telefono && `Tel. ${f.telefono}`, f.telefonoAdmin && `Admin. ${f.telefonoAdmin}`].filter(Boolean).join('\n') || '—',
       f.email || '—',
-      f.actividad || '—',
       f.categorias || '—',
       f.estado,
     ]);
-    anchoTotal = 135;
+    anchoTotal = 115;
   } else {
     const provs = datos as Proveedor[];
-    const res = tablaExportProveedores(provs, keys, actividades);
+    const res = tablaExportProveedores(provs, keys);
     head = res.head;
     filas = res.filas;
     anchoTotal = 6 + campos.reduce((acc, c) => acc + c.ancho, 0);

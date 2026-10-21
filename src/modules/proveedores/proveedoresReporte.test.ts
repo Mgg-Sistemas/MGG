@@ -7,31 +7,24 @@ const base: Proveedor = {
   email: 'ventas@minero.com', direccion: 'Av. Guayana, Puerto Ordaz', actividad_economica: '4752', numero_administracion: '0412-7654321',
   actividad_economica_texto: 'Venta de herramientas', categorias: ['EPP', 'Herramientas'], origen: 'nacional', estado: 'activo', created_at: '2026-01-01',
 };
-const actividades = [{ codigo: '4752', descripcion: 'Comercio al por menor de ferretería', seccion: null } as never];
 
 describe('filasProveedores', () => {
-  it('arma la fila completa, con la actividad legible y las categorías unidas', () => {
-    const [f] = filasProveedores([base], actividades);
+  it('arma la fila completa con las categorías unidas y teléfonos', () => {
+    const [f] = filasProveedores([base]);
     expect(f.rif).toBe('J-12345678-9');
-    expect(f.actividad).toBe('4752 · Comercio al por menor de ferretería — Venta de herramientas');
     expect(f.categorias).toBe('EPP, Herramientas');
     expect(f.telefonoAdmin).toBe('0412-7654321');
     expect(f.origen).toBe('Nacional');
     expect(f.estado).toBe('Activo');
   });
-  it('lo que falta queda vacío (no «null» ni «undefined») y sin lista de actividades sale el código', () => {
-    const [f] = filasProveedores([{ ...base, contacto: null, telefono: undefined, email: null, direccion: null, numero_administracion: null, actividad_economica_texto: null, categorias: [], origen: 'internacional', estado: 'inactivo' }]);
+  it('lo que falta queda vacío (no «null» ni «undefined»)', () => {
+    const [f] = filasProveedores([{ ...base, contacto: null, telefono: undefined, email: null, direccion: null, numero_administracion: null, categorias: [], origen: 'internacional', estado: 'inactivo' }]);
     expect(f.contacto).toBe('');
     expect(f.telefono).toBe('');
     expect(f.email).toBe('');
-    expect(f.actividad).toBe('4752');
     expect(f.categorias).toBe('');
     expect(f.origen).toBe('Internacional');
     expect(f.estado).toBe('Inactivo');
-  });
-  it('sin actividad alguna no deja guiones sueltos', () => {
-    const [f] = filasProveedores([{ ...base, actividad_economica: null, actividad_economica_texto: '  ' }]);
-    expect(f.actividad).toBe('');
   });
   it('respeta el orden recibido', () => {
     const filas = filasProveedores([{ ...base, razon_social: 'B' }, { ...base, razon_social: 'A' }]);

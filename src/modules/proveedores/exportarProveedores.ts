@@ -5,7 +5,7 @@
    proveedoresExcel con vista previa.
    ============================================================ */
 import type { Proveedor } from '@/shared/lib/types';
-import { textoActividad, type ActividadEconomica } from './ciiu';
+import type { ActividadEconomica } from './ciiu';
 
 export interface CampoExportProveedor {
   key: string;
@@ -24,13 +24,6 @@ export const CAMPOS_EXPORT_PROVEEDORES: CampoExportProveedor[] = [
   { key: 'numero_administracion', label: 'Teléfono administración', ancho: 18, valor: (p) => vacio(p.numero_administracion) },
   { key: 'email', label: 'Correo', ancho: 26, valor: (p) => vacio(p.email) },
   { key: 'direccion', label: 'Dirección', ancho: 36, valor: (p) => vacio(p.direccion) },
-  {
-    key: 'actividad_economica',
-    label: 'Actividad económica (CIIU)',
-    ancho: 34,
-    valor: (p, acts) => textoActividad(vacio(p.actividad_economica) || null, acts ?? []),
-  },
-  { key: 'actividad_economica_texto', label: 'Detalle de actividad', ancho: 26, valor: (p) => vacio(p.actividad_economica_texto) },
   { key: 'categorias', label: 'Categorías', ancho: 24, valor: (p) => (p.categorias ?? []).filter(Boolean).join(', ') },
   { key: 'origen', label: 'Origen', ancho: 14, valor: (p) => (p.origen === 'internacional' ? 'Internacional' : 'Nacional') },
   { key: 'estado', label: 'Estado', ancho: 12, valor: (p) => (p.estado === 'activo' ? 'Activo' : 'Inactivo') },
@@ -44,7 +37,6 @@ export const CAMPOS_POR_DEFECTO: string[] = [
   'telefono',
   'numero_administracion',
   'email',
-  'actividad_economica',
   'categorias',
   'estado',
 ];

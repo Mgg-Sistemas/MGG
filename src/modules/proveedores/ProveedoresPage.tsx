@@ -8,7 +8,6 @@ import { notify } from '@/shared/lib/notify';
 import { date, money } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { PREFIJOS_RIF, normalizarRif, partirRif } from '@/shared/lib/rif';
-import { ActividadEconomicaSelect, TextoActividad } from './ActividadEconomicaSelect';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { EstadoGenerico, Orden, Proveedor } from '@/shared/lib/types';
 import {
@@ -124,7 +123,7 @@ export function ProveedoresPage() {
       if (filterEstado && p.estado !== filterEstado) return false;
       if (filterCategoria && !(p.categorias ?? []).includes(filterCategoria)) return false;
       if (q) {
-        const hay = [p.razon_social, p.rif, p.contacto, p.email, p.actividad_economica]
+        const hay = [p.razon_social, p.rif, p.contacto, p.email]
           .map((v) => (v ?? '').toLowerCase())
           .some((v) => v.includes(q));
         if (!hay) return false;
@@ -305,7 +304,6 @@ export function ProveedoresPage() {
                 <th>RIF</th>
                 <th>Razón social</th>
                 <th>Teléfono</th>
-                <th>Actividad</th>
                 <th>Categorías</th>
                 <th>Estado</th>
                 <th></th>
@@ -326,7 +324,6 @@ export function ProveedoresPage() {
                     )}
                   </td>
                   <td className="mono">{p.telefono || '—'}</td>
-                  <td className="mono" title="Código CIIU de la actividad económica">{p.actividad_economica || '—'}</td>
                   <td>
                     <EtiquetasProveedor categorias={p.categorias ?? []} />
                   </td>
@@ -636,16 +633,8 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
         </div>
 
         <div className="form-row">
-          <label>Actividad económica <span className="muted" style={{ fontWeight: 400 }}>(código CIIU del SENIAT)</span></label>
-          <ActividadEconomicaSelect value={form.actividad_economica ?? ''} onChange={(c) => update('actividad_economica', c || null)} />
-        </div>
-        <div className="form-row">
           <label>📞 Teléfono de administración <span className="muted" style={{ fontWeight: 400 }}>(de la administración del proveedor)</span></label>
           <input className="input mono" type="tel" value={form.numero_administracion ?? ''} maxLength={40} onChange={(e) => update('numero_administracion', e.target.value || null)} placeholder="Se pide la primera vez al indicar el método de pago de una OC" />
-        </div>
-        <div className="form-row">
-          <label>Actividad económica (texto) <span className="muted" style={{ fontWeight: 400 }}>(opcional; lo que se escribe en la cotización)</span></label>
-          <input className="input" value={form.actividad_economica_texto ?? ''} maxLength={160} onChange={(e) => update('actividad_economica_texto', e.target.value.toUpperCase() || null)} placeholder="Ej. VENTA AL MAYOR DE VÍVERES" />
         </div>
 
         <div className="form-row">
@@ -766,9 +755,7 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         <DetailRow label="Teléfono" value={proveedor.telefono || '—'} />
         <DetailRow label="Correo" value={proveedor.email || '—'} />
         <DetailRow label="Dirección" value={proveedor.direccion || '—'} />
-        <DetailRow label="Actividad económica" value={<TextoActividad codigo={proveedor.actividad_economica} />} />
         <DetailRow label="📞 Tel. administración" value={proveedor.numero_administracion ? <span className="mono">{proveedor.numero_administracion}</span> : '—'} />
-        {proveedor.actividad_economica_texto && <DetailRow label="Actividad (texto)" value={proveedor.actividad_economica_texto} />}
         <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
         <DetailRow
           label="Categorías"

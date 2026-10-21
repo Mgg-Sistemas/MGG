@@ -35,19 +35,19 @@ export async function descargarCierreDiarioPdf(r: ResumenCierre, impresoIso: str
   doc.text('Período:', MARGEN_PDF, y);
   doc.setFont('helvetica', 'normal');
   doc.text(r.rango.etiqueta, MARGEN_PDF + 52, y);
-  y += 18;
+  y += 22;
   doc.setFont('helvetica', 'bold');
   doc.text('Impreso:', MARGEN_PDF, y);
   doc.setFont('helvetica', 'normal');
   doc.text(fechaReporteTexto(impresoIso), MARGEN_PDF + 52, y);
-  y += 24;
+  y += 28;
 
   const wCant = 110;
   autoTable(doc, {
     startY: y,
     head: [['CONCEPTO', 'CANTIDAD']],
     body: r.items.map((i) => [i.titulo, String(i.cantidad)]),
-    styles: { fontSize: 11, cellPadding: 7, valign: 'middle' },
+    styles: { fontSize: 11, cellPadding: 10, minCellHeight: 28, valign: 'middle' },
     headStyles: { fillColor: [255, 224, 189], textColor: [138, 75, 0], fontStyle: 'bold', halign: 'center' },
     bodyStyles: { textColor: [20, 20, 20] },
     alternateRowStyles: { fillColor: [255, 246, 236] },
@@ -59,13 +59,13 @@ export async function descargarCierreDiarioPdf(r: ResumenCierre, impresoIso: str
   const finalY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? (y + 150);
 
   if (r.analistas && r.analistas.length > 0) {
-    let y2 = finalY + 18;
+    let y2 = finalY + 28;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(255, 138, 0);
     doc.text('ACTIVIDAD POR ANALISTA', MARGEN_PDF, y2);
     doc.setTextColor(0, 0, 0);
-    y2 += 8;
+    y2 += 12;
 
     const wCol = 130;
     autoTable(doc, {
@@ -75,8 +75,8 @@ export async function descargarCierreDiarioPdf(r: ResumenCierre, impresoIso: str
         ...r.analistas.map((a) => [a.nombre, String(a.cotizaciones), String(a.ordenesFinalizadas)]),
         ['TOTAL', String(r.totalCotizaciones ?? 0), String(r.totalFinalizadas ?? 0)],
       ],
-      styles: { fontSize: 9.5, cellPadding: 6, valign: 'middle' },
-      headStyles: { fillColor: [255, 224, 189], textColor: [138, 75, 0], fontStyle: 'bold', halign: 'center', fontSize: 9.5 },
+      styles: { fontSize: 10, cellPadding: 8, minCellHeight: 25, valign: 'middle' },
+      headStyles: { fillColor: [255, 224, 189], textColor: [138, 75, 0], fontStyle: 'bold', halign: 'center', fontSize: 10 },
       bodyStyles: { textColor: [20, 20, 20] },
       alternateRowStyles: { fillColor: [255, 246, 236] },
       tableWidth: CW,

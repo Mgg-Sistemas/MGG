@@ -163,15 +163,20 @@ describe('mensajeCierreDiario · WhatsApp', () => {
   const r = armarCierre({ pedidos: 12, pagadas: 3, pendientesAprobar: ['2026-10-21T15:00:00.000Z', '2026-10-21T16:00:00.000Z'], porPagar: ['2026-10-21T15:00:00.000Z'] }, rango);
   const impreso = '2026-10-21T12:45:00.000Z'; // 8:45 a. m. en Caracas
 
-  it('lleva título, período, fecha y hora de impresión y solo los cuatro títulos con su cantidad', () => {
+  it('lleva título, período, fecha y hora de impresión y solo los cuatro títulos con su cantidad, con espacios entre líneas', () => {
     expect(mensajeCierreDiario(r, impreso).split('\n')).toEqual([
       '📊 *CIERRE DIARIO · COMPRAS*',
+      '',
       '📅 *Período:* Hoy · 21/10/2026',
+      '',
       '🕒 *Impreso:* 21/10/2026 · 8:45 a. m.',
       '',
       '📋 *Total de pedidos:* 12',
+      '',
       '⏳ *Total órdenes pendientes por aprobar:* 2',
+      '',
       '💰 *Total órdenes por pagar:* 1',
+      '',
       '✅ *Total órdenes pagadas:* 3',
       '',
       '_MGG · Mineral Group Guayana_',

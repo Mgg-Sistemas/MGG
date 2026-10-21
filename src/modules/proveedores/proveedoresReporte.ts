@@ -5,7 +5,6 @@
    unidas. El Excel y el PDF usan las mismas filas, así no se contradicen.
    ============================================================ */
 import type { Proveedor } from '@/shared/lib/types';
-import { textoActividad, type ActividadEconomica } from './ciiu';
 
 export interface FilaProveedor {
   rif: string;
@@ -15,7 +14,6 @@ export interface FilaProveedor {
   telefonoAdmin: string;
   email: string;
   direccion: string;
-  actividad: string;
   categorias: string;
   origen: string;
   estado: string;
@@ -31,10 +29,8 @@ export interface FiltrosProveedores {
 const vacio = (v: string | null | undefined): string => (v ?? '').trim();
 
 /** Una fila por proveedor, en el orden recibido. */
-export function filasProveedores(lista: Proveedor[], actividades: ActividadEconomica[] = []): FilaProveedor[] {
+export function filasProveedores(lista: Proveedor[]): FilaProveedor[] {
   return lista.map((p) => {
-    const ciiu = textoActividad(vacio(p.actividad_economica) || null, actividades);
-    const libre = vacio(p.actividad_economica_texto);
     return {
       rif: vacio(p.rif),
       razonSocial: vacio(p.razon_social),
@@ -43,7 +39,6 @@ export function filasProveedores(lista: Proveedor[], actividades: ActividadEcono
       telefonoAdmin: vacio(p.numero_administracion),
       email: vacio(p.email),
       direccion: vacio(p.direccion),
-      actividad: [ciiu, libre].filter(Boolean).join(' — '),
       categorias: (p.categorias ?? []).filter(Boolean).join(', '),
       origen: p.origen === 'internacional' ? 'Internacional' : 'Nacional',
       estado: p.estado === 'activo' ? 'Activo' : 'Inactivo',

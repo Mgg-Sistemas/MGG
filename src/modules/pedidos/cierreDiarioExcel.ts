@@ -47,6 +47,14 @@ async function construirLibro(r: ResumenCierre, impresoIso: string): Promise<{ X
   const cell = (row: number, col: number) => (ws as Record<string, Celda>)[XLSX.utils.encode_cell({ r: row, c: col })];
 
   w['!cols'] = [{ wch: 48 }, { wch: 26 }, { wch: 26 }];
+  w['!rows'] = Array.from({ length: aoa.length }, (_, idx) => {
+    if (idx === 0) return { hpt: 28 };
+    if (idx === 1 || idx === 2) return { hpt: 20 };
+    if (idx === 4 || idx === filaEncabezadoAnalistas) return { hpt: 26 };
+    if (idx === filaSeccionAnalistas) return { hpt: 24 };
+    if (idx === filaTotalAnalistas) return { hpt: 24 };
+    return { hpt: 22 };
+  });
 
   const merges = [
     { s: { r: 0, c: 0 }, e: { r: 0, c: 2 } },

@@ -25,10 +25,6 @@ const base: Proveedor = {
   created_at: '2026-01-01',
 };
 
-const actividades = [
-  { codigo: '0710', descripcion: 'Extracción de minerales de hierro', seccion: 'B' } as never,
-];
-
 describe('exportarProveedores · campos y tabla', () => {
   it('camposElegidosProveedores filtra preservando el orden de definición', () => {
     const elegidos = camposElegidosProveedores(['estado', 'rif']);
@@ -47,17 +43,18 @@ describe('exportarProveedores · campos y tabla', () => {
   });
 
   it('tablaExportProveedores genera encabezado con N° y filas numeradas', () => {
-    const res = tablaExportProveedores([base], ['rif', 'razon_social', 'telefono'], actividades);
+    const res = tablaExportProveedores([base], ['rif', 'razon_social', 'telefono']);
     expect(res.head).toEqual(['N°', 'RIF', 'Razón social', 'Teléfono']);
     expect(res.filas).toEqual([
       ['1', 'J-12345678-9', 'MINERA GUAYANA S.A.', '0414-0001122'],
     ]);
   });
 
-  it('resuelve actividad económica legible con el código CIIU', () => {
-    const res = tablaExportProveedores([base], ['actividad_economica', 'actividad_economica_texto'], actividades);
-    expect(res.filas[0][1]).toBe('0710 · Extracción de minerales de hierro');
-    expect(res.filas[0][2]).toBe('Extracción de minerales');
+  it('formatea categorías y teléfonos correctamente', () => {
+    const res = tablaExportProveedores([base], ['numero_administracion', 'categorias']);
+    expect(res.head).toEqual(['N°', 'Teléfono administración', 'Categorías']);
+    expect(res.filas[0][1]).toBe('0412-3334455');
+    expect(res.filas[0][2]).toBe('Maquinaria, Repuestos');
   });
 
   it('maneja valores vacíos sin nulls ni undefined', () => {

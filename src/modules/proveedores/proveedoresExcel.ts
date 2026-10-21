@@ -25,7 +25,6 @@ async function construirLibro(
 ): Promise<{ XLSX: XlsxLike; wb: unknown; nombre: string }> {
   const impresoIso = opts.impresoIso ?? new Date().toISOString();
   const keys = opts.keys && opts.keys.length ? opts.keys : CAMPOS_POR_DEFECTO;
-  const actividades = opts.actividades ?? [];
   const XLSX = (await import('xlsx-js-style')) as unknown as XlsxLike;
 
   const esLegacy = datos.length > 0 && 'razonSocial' in (datos[0] as object);
@@ -36,8 +35,8 @@ async function construirLibro(
 
   if (esLegacy) {
     const filasLegacy = datos as FilaProveedor[];
-    head = ['RIF', 'RAZÓN SOCIAL', 'CONTACTO', 'TELÉFONO', 'TELÉFONO ADMINISTRACIÓN', 'EMAIL', 'DIRECCIÓN', 'ACTIVIDAD ECONÓMICA', 'CATEGORÍAS', 'ORIGEN', 'ESTADO'];
-    anchos = [16, 38, 24, 16, 18, 30, 40, 40, 30, 14, 11];
+    head = ['RIF', 'RAZÓN SOCIAL', 'CONTACTO', 'TELÉFONO', 'TELÉFONO ADMINISTRACIÓN', 'EMAIL', 'DIRECCIÓN', 'CATEGORÍAS', 'ORIGEN', 'ESTADO'];
+    anchos = [16, 38, 24, 16, 18, 30, 40, 30, 14, 11];
     filas = filasLegacy.map((f) => [
       f.rif,
       f.razonSocial,
@@ -46,7 +45,6 @@ async function construirLibro(
       f.telefonoAdmin,
       f.email,
       f.direccion,
-      f.actividad,
       f.categorias,
       f.origen,
       f.estado,
@@ -54,7 +52,7 @@ async function construirLibro(
   } else {
     const provs = datos as Proveedor[];
     const campos = camposElegidosProveedores(keys);
-    const res = tablaExportProveedores(provs, keys, actividades);
+    const res = tablaExportProveedores(provs, keys);
     head = res.head;
     filas = res.filas;
     anchos = [6, ...campos.map((c) => c.ancho)];

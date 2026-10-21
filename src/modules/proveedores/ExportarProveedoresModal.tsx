@@ -3,7 +3,7 @@
    Casillas para elegir QUÉ datos salen en el reporte (PDF y Excel),
    orientación de la hoja, vista previa y descarga directa.
    ============================================================ */
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import type { Proveedor } from '@/shared/lib/types';
@@ -15,8 +15,6 @@ import {
   tablaExportProveedores,
 } from './exportarProveedores';
 import type { OrientacionPdf } from './proveedoresPdf';
-import { listActividades } from './actividades.repository';
-import type { ActividadEconomica } from './ciiu';
 
 const CLAVE_CAMPOS = 'mgg.proveedores.exportar.campos';
 
@@ -45,19 +43,6 @@ export function ExportarProveedoresModal({
   const [campos, setCampos] = useState<string[]>(camposGuardados);
   const [orientacion, setOrientacion] = useState<OrientacionPdf>('auto');
   const [generando, setGenerando] = useState<'excel' | 'pdf' | null>(null);
-  const [actividades, setActividades] = useState<ActividadEconomica[]>([]);
-
-  useEffect(() => {
-    let vivo = true;
-    listActividades()
-      .then((acts) => {
-        if (vivo) setActividades(acts);
-      })
-      .catch(() => {});
-    return () => {
-      vivo = false;
-    };
-  }, []);
 
   const marcado = (k: string) => campos.includes(k);
   function toggle(k: string) {
@@ -94,14 +79,12 @@ export function ExportarProveedoresModal({
         const { exportarProveedoresExcel } = await import('./proveedoresExcel');
         await exportarProveedoresExcel(proveedoresOrdenados, filtros, {
           keys: campos,
-          actividades,
         });
       } else {
         const { descargarProveedoresPdf } = await import('./proveedoresPdf');
         await descargarProveedoresPdf(proveedoresOrdenados, filtros, {
           keys: campos,
           orientacion,
-          actividades,
         });
       }
     } catch (e) {
@@ -113,8 +96,8 @@ export function ExportarProveedoresModal({
 
   // Muestra de las 3 primeras filas para vista previa
   const muestra = useMemo(() => {
-    return tablaExportProveedores(proveedoresOrdenados.slice(0, 3), campos, actividades);
-  }, [proveedoresOrdenados, campos, actividades]);
+    return tablaExportProveedores(proveedoresOrdenados.slice(0, 3), campos);
+  }, [proveedoresOrdenados, campos]);
 
   return (
     <Modal
