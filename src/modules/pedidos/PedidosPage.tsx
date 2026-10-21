@@ -5,7 +5,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
-import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
 import { errorMotivoCambio, lineaCambioProveedor, lineaReaperturaOc } from './cambioProveedor';
 import { textoOrdenAprobacion, textoOrdenPago } from './ordenPagoTxt';
 import { MensajeWhatsappModal } from './MensajeWhatsappModal';
@@ -505,9 +504,11 @@ export function PedidosPage() {
   // Pestañas minimizadas (20-10-2026): el detalle de una orden se minimiza a la barra de abajo
   // para abrir otra; viven SOLO en este módulo (al salir, AppShell avisa y se pierden).
   const tituloMin = (o: Orden) => `Orden ${o.codigo}${o.urgente ? ' · 🚨' : ''}`;
+  // Restaura desde la barra (que vive en AppShell): siempre la versión más reciente de la función.
+  const restauradorDe = (id: string) => ({ restaurar: () => { void restaurarRef.current(id); }, conVentanaAbierta: true });
   function minimizarDetalle() {
     if (!currentDetail) return;
-    const r = minimizar('Pedidos / Compras', '/app/pedidos', { id: currentDetail.id, titulo: tituloMin(currentDetail) });
+    const r = minimizar('Pedidos / Compras', '/app/pedidos', { id: currentDetail.id, titulo: tituloMin(currentDetail) }, restauradorDe(currentDetail.id));
     if (r === 'lleno') {
       toast(`Ya tienes ${MAX_MINIMIZADAS} pestañas minimizadas (el máximo). Restaura o descarta una para minimizar esta.`, 'warning');
       return;
@@ -515,6 +516,8 @@ export function PedidosPage() {
     setModal({ kind: 'none' });
   }
   async function restaurarMinimizada(id: string) {
+    // Con un formulario abierto (no el detalle) restaurar lo taparía o lo descartaría.
+    if (modal.kind !== 'none' && modal.kind !== 'detail') { toast('Cierra la ventana abierta para restaurar esta pestaña.', 'warning'); return; }
     let o = ordenes.find((x) => x.id === id) ?? null;
     if (!o) {
       // La lista cargada ya no la trae (otra sesión la movió o la borró): se pide por su id.
@@ -524,10 +527,12 @@ export function PedidosPage() {
       setOrdenes((prev) => (prev.some((x) => x.id === nueva.id) ? prev : [...prev, nueva]));
     }
     // Con otro detalle abierto, ese ocupa el lugar de la restaurada en la barra (no se pierde).
-    if (currentDetail && currentDetail.id !== id) intercambiarMinimizada(id, { id: currentDetail.id, titulo: tituloMin(currentDetail) });
+    if (currentDetail && currentDetail.id !== id) intercambiarMinimizada(id, { id: currentDetail.id, titulo: tituloMin(currentDetail) }, restauradorDe(currentDetail.id));
     else quitarMinimizada(id);
     setModal({ kind: 'detail', ordenId: id });
   }
+  const restaurarRef = useRef(restaurarMinimizada);
+  restaurarRef.current = restaurarMinimizada;
   // Si la orden se abre por otro camino (lista, buscador) deja de estar «minimizada».
   useEffect(() => { if (modal.kind === 'detail') quitarMinimizada(modal.ordenId); }, [modal]);
   // Al salir del módulo (con el aviso o por otro camino) la barra se pierde.
@@ -789,8 +794,6 @@ export function PedidosPage() {
       )}
       </>
       )}
-
-      <DockMinimizadas onRestaurar={(id) => { void restaurarMinimizada(id); }} bloqueado={modal.kind !== 'none' && modal.kind !== 'detail'} />
 
       {/* Modal: detalle */}
       {modal.kind === 'detail' && currentDetail && (

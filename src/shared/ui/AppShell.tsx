@@ -20,8 +20,9 @@ import { prefetchRoute } from '@/shared/lib/routePrefetch';
 import { ensureSession, heartbeat, endSession } from '@/modules/usuarios/userSessions.repository';
 import { ayudasOcultas, aplicarAyudas } from '@/shared/lib/ayudas';
 import { asegurarEmpresas } from '@/modules/rrhh/empresas.repository';
-import { intentarSalir, vaciarMinimizadas } from '@/shared/lib/minimizadas';
+import { intentarSalir, registrarModulo, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { AvisoSalidaModulo } from '@/shared/ui/AvisoSalidaModulo';
+import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -537,6 +538,7 @@ export function AppShell() {
       </header>
 
       <AvisoActualizacion />
+      <DockMinimizadas />
       <AvisoSalidaModulo />
 
       <main className="main">
@@ -689,6 +691,8 @@ function NavItem({
       </a>
     );
   }
+  // Así el aviso de salida y la barra saben en qué módulo está cada ventana minimizada.
+  registrarModulo(to, label);
   return (
     // Prefetch del chunk de la página al pasar el mouse o enfocar: el clic abre al instante.
     <NavLink
