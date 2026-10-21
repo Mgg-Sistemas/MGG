@@ -163,15 +163,20 @@ describe('mensajeCierreDiario · WhatsApp', () => {
   const r = armarCierre({ pedidos: 12, pagadas: 3, pendientesAprobar: ['2026-10-21T15:00:00.000Z', '2026-10-21T16:00:00.000Z'], porPagar: ['2026-10-21T15:00:00.000Z'] }, rango);
   const impreso = '2026-10-21T12:45:00.000Z'; // 8:45 a. m. en Caracas
 
-  it('lleva título, período, fecha y hora de impresión y solo los cuatro títulos con su cantidad', () => {
+  it('lleva título, período, fecha y hora de impresión y solo los cuatro títulos con su cantidad, con espacios entre líneas', () => {
     expect(mensajeCierreDiario(r, impreso).split('\n')).toEqual([
       '📊 *CIERRE DIARIO · COMPRAS*',
+      '',
       '📅 *Período:* Hoy · 21/10/2026',
+      '',
       '🕒 *Impreso:* 21/10/2026 · 8:45 a. m.',
       '',
       '📋 *Total de pedidos:* 12',
+      '',
       '⏳ *Total órdenes pendientes por aprobar:* 2',
+      '',
       '💰 *Total órdenes por pagar:* 1',
+      '',
       '✅ *Total órdenes pagadas:* 3',
       '',
       '_MGG · Mineral Group Guayana_',
@@ -201,5 +206,96 @@ describe('Excel del cierre diario', () => {
     expect(celdas).toContain(1);
     expect(celdas).toContain(0);
     expect(celdas).toContain(3);
+  });
+
+  it('incluye sección de actividad por analista con números', async () => {
+    const { exportarCierreDiarioExcel } = await import('./cierreDiarioExcel');
+    const rango = rangoCierre(filtro(), HOY);
+    const r = armarCierre(
+      {
+        pedidos: 1,
+        pagadas: 1,
+        pendientesAprobar: [],
+        porPagar: [],
+        cotizaciones: [{ id: 'c1', registrada_por_email: 'nazareth@mgg.com', registrada_en: '2026-10-21T15:00:00Z' }],
+        finalizadas: [{ id: 'o1', finalizada_por: 'nazareth@mgg.com', finalizada_en: '2026-10-21T16:00:00Z' }],
+        nombresPorEmail: new Map([['nazareth@mgg.com', 'Nazareth']]),
+      },
+      rango,
+    );
+    await exportarCierreDiarioExcel(r, '2026-10-21T12:45:00.000Z');
+    const celdas = Object.entries(capturado.wb!.Sheets['Cierre diario']).filter(([k]) => !k.startsWith('!')).map(([, c]) => c.v);
+    expect(celdas).toContain('ACTIVIDAD POR ANALISTA');
+    expect(celdas).toContain('ANALISTA');
+    expect(celdas).toContain('Nazareth');
+  });
+});
+
+describe('actividad por analista · cotizaciones y órdenes finalizadas', () => {
+  const hoy = rangoCierre(filtro(), HOY);
+
+  it('agrupa cotizaciones y órdenes finalizadas por analista', () => {
+    const r = armarCierre(
+      {
+        pedidos: 5,
+        pagadas: 2,
+        pendientesAprobar: [],
+        porPagar: [],
+        cotizaciones: [
+          { id: '1', registrada_por_email: 'nazareth@mgg.com', registrada_en: '2026-10-21T14:00:00Z' },
+          { id: '2', registrada_por_email: 'nazareth@mgg.com', registrada_en: '2026-10-21T15:00:00Z' },
+          { id: '3', registrada_por_email: 'carlos@mgg.com', registrada_en: '2026-10-21T16:00:00Z' },
+          // Fuera de rango (del día 20)
+          { id: '4', registrada_por_email: 'nazareth@mgg.com', registrada_en: '2026-10-20T14:00:00Z' },
+        ],
+        finalizadas: [
+          { id: '10', finalizada_por: 'nazareth@mgg.com', finalizada_en: '2026-10-21T18:00:00Z' },
+          // Fuera de rango (del día 22)
+          { id: '11', finalizada_por: 'nazareth@mgg.com', finalizada_en: '2026-10-22T10:00:00Z' },
+        ],
+        nombresPorEmail: new Map([
+          ['nazareth@mgg.com', 'Nazareth'],
+          ['carlos@mgg.com', 'Carlos Gómez'],
+        ]),
+      },
+      hoy,
+    );
+
+    expect(r.totalCotizaciones).toBe(3);
+    expect(r.totalFinalizadas).toBe(1);
+    expect(r.analistas).toHaveLength(2);
+
+    const nazareth = r.analistas.find((a) => a.email === 'nazareth@mgg.com');
+    expect(nazareth).toBeDefined();
+    expect(nazareth!.nombre).toBe('Nazareth');
+    expect(nazareth!.cotizaciones).toBe(2);
+    expect(nazareth!.ordenesFinalizadas).toBe(1);
+
+    const carlos = r.analistas.find((a) => a.email === 'carlos@mgg.com');
+    expect(carlos).toBeDefined();
+    expect(carlos!.nombre).toBe('Carlos Gómez');
+    expect(carlos!.cotizaciones).toBe(1);
+    expect(carlos!.ordenesFinalizadas).toBe(0);
+  });
+
+  it('formatea el mensaje de WhatsApp con el desglose por analista', () => {
+    const r = armarCierre(
+      {
+        pedidos: 4,
+        pagadas: 1,
+        pendientesAprobar: [],
+        porPagar: [],
+        cotizaciones: [{ id: '1', registrada_por_email: 'nazareth@mgg.com', registrada_en: '2026-10-21T15:00:00Z' }],
+        finalizadas: [{ id: '2', finalizada_por: 'nazareth@mgg.com', finalizada_en: '2026-10-21T16:00:00Z' }],
+        nombresPorEmail: new Map([['nazareth@mgg.com', 'Nazareth']]),
+      },
+      hoy,
+    );
+
+    const msg = mensajeCierreDiario(r, '2026-10-21T12:45:00.000Z');
+    expect(msg).toContain('👥 *Actividad por analista:*');
+    expect(msg).toContain('• *Nazareth:* 1 cotizaciones realizadas · 1 órdenes finalizadas');
+    expect(msg).toContain('*Total cotizaciones realizadas:* 1');
+    expect(msg).toContain('*Total órdenes finalizadas:* 1');
   });
 });

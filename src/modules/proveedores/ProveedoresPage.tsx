@@ -8,7 +8,6 @@ import { notify } from '@/shared/lib/notify';
 import { date, money } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { PREFIJOS_RIF, normalizarRif, partirRif } from '@/shared/lib/rif';
-import { ActividadEconomicaSelect, TextoActividad } from './ActividadEconomicaSelect';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { EstadoGenerico, Orden, Proveedor } from '@/shared/lib/types';
 import {
@@ -28,8 +27,8 @@ import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import { MultiSelectBuscador } from '@/shared/ui/MultiSelectBuscador';
 import { mismaTaxonomia } from '@/shared/lib/taxonomias';
 import { useSession } from '@/modules/auth/authStore';
-import { listActividades } from './actividades.repository';
-import { filasProveedores, textoFiltros } from './proveedoresReporte';
+import { textoFiltros } from './proveedoresReporte';
+import { ExportarProveedoresModal } from './ExportarProveedoresModal';
 
 type EstadoFilter = '' | EstadoGenerico;
 type CategoriaFilter = string;
@@ -124,7 +123,7 @@ export function ProveedoresPage() {
       if (filterEstado && p.estado !== filterEstado) return false;
       if (filterCategoria && !(p.categorias ?? []).includes(filterCategoria)) return false;
       if (q) {
-        const hay = [p.razon_social, p.rif, p.contacto, p.email, p.actividad_economica]
+        const hay = [p.razon_social, p.rif, p.contacto, p.email]
           .map((v) => (v ?? '').toLowerCase())
           .some((v) => v.includes(q));
         if (!hay) return false;
@@ -168,29 +167,8 @@ export function ProveedoresPage() {
     }
   }
 
-  // Descargas (21-10-2026): el listado que se ve en pantalla, con sus filtros, en PDF o Excel (vista previa).
-  const [exportando, setExportando] = useState<'pdf' | 'excel' | null>(null);
-  async function exportar(tipo: 'pdf' | 'excel') {
-    if (!filtered.length) { toast('No hay proveedores para exportar con estos filtros.', 'warning'); return; }
-    setExportando(tipo);
-    try {
-      // El texto de cada código CIIU; si no carga, se imprime el código.
-      const actividades = await listActividades().catch(() => []);
-      const filas = filasProveedores(filtered, actividades);
-      const filtros = textoFiltros({ texto: filterText, estado: filterEstado, categoria: filterCategoria });
-      if (tipo === 'pdf') {
-        const { descargarProveedoresPdf } = await import('./proveedoresPdf');
-        await descargarProveedoresPdf(filas, filtros);
-      } else {
-        const { exportarProveedoresExcel } = await import('./proveedoresExcel');
-        await exportarProveedoresExcel(filas, filtros);
-      }
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'No se pudo generar el archivo', 'error');
-    } finally {
-      setExportando(null);
-    }
-  }
+  // Descargas: modal para escoger qué mostrar tanto en PDF como en Excel (vista previa).
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   async function handleToggle(p: Proveedor) {
     const nextEstado: EstadoGenerico = p.estado === 'activo' ? 'inactivo' : 'activo';
@@ -228,11 +206,29 @@ export function ProveedoresPage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-          <button className="btn btn-ghost" onClick={() => void exportar('excel')} disabled={exportando !== null || loading} title="Descargar los proveedores que ves (con tus filtros) en Excel">
-            {exportando === 'excel' ? 'Generando…' : '📊 Excel'}
+          <button
+            className="btn btn-ghost"
+            onClick={() => setExportModalOpen(true)}
+            disabled={loading || !filtered.length}
+            title="Descargar proveedores en Excel o PDF eligiendo qué datos mostrar"
+          >
+            ⬇ Descargar datos
           </button>
-          <button className="btn btn-ghost" onClick={() => void exportar('pdf')} disabled={exportando !== null || loading} title="Descargar los proveedores que ves (con tus filtros) en PDF">
-            {exportando === 'pdf' ? 'Generando…' : '📄 PDF'}
+          <button
+            className="btn btn-ghost"
+            onClick={() => setExportModalOpen(true)}
+            disabled={loading || !filtered.length}
+            title="Descargar los proveedores que ves (con tus filtros) en Excel"
+          >
+            📊 Excel
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => setExportModalOpen(true)}
+            disabled={loading || !filtered.length}
+            title="Descargar los proveedores que ves (con tus filtros) en PDF"
+          >
+            📄 PDF
           </button>
           {canWrite && (
             <button className="btn btn-ghost" onClick={() => setGestionCatsOpen(true)} title="Gestionar y renombrar categorías">
@@ -308,7 +304,6 @@ export function ProveedoresPage() {
                 <th>RIF</th>
                 <th>Razón social</th>
                 <th>Teléfono</th>
-                <th>Actividad</th>
                 <th>Categorías</th>
                 <th>Estado</th>
                 <th></th>
@@ -329,7 +324,6 @@ export function ProveedoresPage() {
                     )}
                   </td>
                   <td className="mono">{p.telefono || '—'}</td>
-                  <td className="mono" title="Código CIIU de la actividad económica">{p.actividad_economica || '—'}</td>
                   <td>
                     <EtiquetasProveedor categorias={p.categorias ?? []} />
                   </td>
@@ -409,6 +403,14 @@ export function ProveedoresPage() {
             setConteoCats(c);
           }}
           onClose={() => setGestionCatsOpen(false)}
+        />
+      )}
+
+      {exportModalOpen && (
+        <ExportarProveedoresModal
+          proveedores={filtered}
+          filtros={textoFiltros({ texto: filterText, estado: filterEstado, categoria: filterCategoria })}
+          onClose={() => setExportModalOpen(false)}
         />
       )}
     </div>
@@ -631,16 +633,8 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
         </div>
 
         <div className="form-row">
-          <label>Actividad económica <span className="muted" style={{ fontWeight: 400 }}>(código CIIU del SENIAT)</span></label>
-          <ActividadEconomicaSelect value={form.actividad_economica ?? ''} onChange={(c) => update('actividad_economica', c || null)} />
-        </div>
-        <div className="form-row">
           <label>📞 Teléfono de administración <span className="muted" style={{ fontWeight: 400 }}>(de la administración del proveedor)</span></label>
           <input className="input mono" type="tel" value={form.numero_administracion ?? ''} maxLength={40} onChange={(e) => update('numero_administracion', e.target.value || null)} placeholder="Se pide la primera vez al indicar el método de pago de una OC" />
-        </div>
-        <div className="form-row">
-          <label>Actividad económica (texto) <span className="muted" style={{ fontWeight: 400 }}>(opcional; lo que se escribe en la cotización)</span></label>
-          <input className="input" value={form.actividad_economica_texto ?? ''} maxLength={160} onChange={(e) => update('actividad_economica_texto', e.target.value.toUpperCase() || null)} placeholder="Ej. VENTA AL MAYOR DE VÍVERES" />
         </div>
 
         <div className="form-row">
@@ -761,9 +755,7 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         <DetailRow label="Teléfono" value={proveedor.telefono || '—'} />
         <DetailRow label="Correo" value={proveedor.email || '—'} />
         <DetailRow label="Dirección" value={proveedor.direccion || '—'} />
-        <DetailRow label="Actividad económica" value={<TextoActividad codigo={proveedor.actividad_economica} />} />
         <DetailRow label="📞 Tel. administración" value={proveedor.numero_administracion ? <span className="mono">{proveedor.numero_administracion}</span> : '—'} />
-        {proveedor.actividad_economica_texto && <DetailRow label="Actividad (texto)" value={proveedor.actividad_economica_texto} />}
         <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
         <DetailRow
           label="Categorías"
