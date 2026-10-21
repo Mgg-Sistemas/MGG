@@ -7,7 +7,7 @@ import { toast } from '@/shared/ui/Toast';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { AbonoCredito, EstadoOrden, Orden, Proveedor, Usuario } from '@/shared/lib/types';
-import { labelMetodoPago, listAbonos, listOrdenes, listProveedoresActivos, urlAdjuntoOc } from './pedidos.repository';
+import { comprobantePagoTesoreria, descargarAdjuntoOc, labelMetodoPago, listAbonos, listOrdenes, listProveedoresActivos, urlAdjuntoOc } from './pedidos.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
@@ -372,6 +372,28 @@ function PedidoDetalleModal({ orden, proveedorNombre, onClose }: {
               📄 PDF Orden de Compra
             </button>
           )}
+          {/* Comprobante de pago que adjuntó Tesorería (descarga directa) */}
+          {orden.oc_codigo && (!!orden.pagada_en || orden.estado === 'finalizada' || (Number(orden.abonado_total) || 0) > 0) && (
+            <button
+              className="btn btn-ghost"
+              onClick={async () => {
+                try {
+                  const adj = await comprobantePagoTesoreria(orden);
+                  if (!adj) {
+                    toast('Tesorería no adjuntó comprobante en este pago', 'info');
+                    return;
+                  }
+                  await descargarAdjuntoOc(adj.path, adj.nombre);
+                  toast('Descargando comprobante de Tesorería...', 'success');
+                } catch (e) {
+                  toast(e instanceof Error ? e.message : 'No se pudo descargar el comprobante', 'error');
+                }
+              }}
+              title="Descargar el comprobante de pago que adjuntó Tesorería"
+            >
+              📥 Comprobante de Tesorería
+            </button>
+          )}
           {/* Comprobante de pago (voucher, vista previa): solo si la OC tiene pago
               registrado —pagada o con abonos— (una cuenta a crédito sin abonos no tiene pago aún). */}
           {orden.oc_codigo && (!!orden.pagada_en || (Number(orden.abonado_total) || 0) > 0) && (
@@ -380,11 +402,11 @@ function PedidoDetalleModal({ orden, proveedorNombre, onClose }: {
               🧾 Comprobante de pago
             </button>
           )}
-          {/* Soporte adjunto del pago (lo cargó Tesorería al pagar): mismo botón que en Pedidos. */}
+          {/* Soporte adjunto (factura o nota de entrega / soporte adjunto de la OC). */}
           {orden.factura_path && (
             <button className="btn btn-ghost" onClick={() => void verAdjunto(orden.factura_path!, orden.factura_nombre, 'Comprobante de la OC')}
-              title={orden.factura_nombre ?? 'Soporte adjunto del pago'}>
-              📎 Ver adjunto de pago
+              title={orden.factura_nombre ?? 'Soporte adjunto de la OC'}>
+              📎 {orden.estado === 'finalizada' ? 'Ver factura / soporte' : 'Ver adjunto de pago'}
             </button>
           )}
           {orden.pago_qr_path && (

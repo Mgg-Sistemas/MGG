@@ -1,4 +1,5 @@
 import { cantidadEnUso, costoPorUnidadDeUso, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
+import { elegirComprobanteTesoreria, type RefAdjunto } from './comprobanteTesoreria';
 import { supabase } from '@/shared/lib/supabase';
 import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { bustCache, cachedQuery } from '@/shared/lib/queryCache';
@@ -1471,7 +1472,7 @@ export async function emitirOrdenCompra(o: Orden, actorEmail: string): Promise<O
 
 /* ───────── Pago de la OC desde Tesorería (oc_aprobada → pagada) ───────── */
 
-async function subirAdjuntoOc(ordenId: string, file: File, tipo: 'factura' | 'retencion' | 'qr'): Promise<string> {
+async function subirAdjuntoOc(ordenId: string, file: File, tipo: 'factura' | 'retencion' | 'qr' | 'pago'): Promise<string> {
   const safe = file.name.replace(/[^\w.\-]+/g, '_');
   const path = `${ordenId}/${tipo}-${safe}`;
   const { error } = await supabase.storage.from(BUCKET_OC).upload(path, file, {
@@ -1485,6 +1486,32 @@ export async function urlAdjuntoOc(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET_OC).createSignedUrl(path, 60 * 10);
   if (error) throw error;
   return data.signedUrl;
+}
+
+/**
+ * El comprobante que adjuntó TESORERÍA al pagar la OC (21-10-2026). No se lee de
+ * `factura_path` porque al finalizar o al «Reemplazar factura / nota» el analista lo pisa:
+ * se busca en el historial y, si no está (OC viejas), en la carpeta de la OC.
+ */
+export async function comprobantePagoTesoreria(o: Orden): Promise<RefAdjunto | null> {
+  const desdeHistorial = elegirComprobanteTesoreria(o);
+  if (desdeHistorial) return desdeHistorial;
+  const { data, error } = await supabase.storage.from(BUCKET_OC).list(o.id, { limit: 100 });
+  if (error) throw error;
+  return elegirComprobanteTesoreria(o, (data ?? []).map((f) => ({ name: f.name, created_at: f.created_at })));
+}
+
+/** Descarga un adjunto de la OC con su nombre original (lo pide el usuario con un clic). */
+export async function descargarAdjuntoOc(path: string, nombre: string): Promise<void> {
+  const { data, error } = await supabase.storage.from(BUCKET_OC).createSignedUrl(path, 60 * 10, { download: nombre });
+  if (error) throw error;
+  const a = document.createElement('a');
+  a.href = data.signedUrl;
+  a.download = nombre;
+  a.rel = 'noopener';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 /**
@@ -1747,7 +1774,7 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   // 2) Adjuntos (factura obligatoria por flujo; retención opcional).
   let facturaPath: string | null = null, facturaNombre: string | null = null;
   let retencionPath: string | null = null, retencionNombre: string | null = null;
-  if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
+  if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'pago'); facturaNombre = input.factura.name; }
   if (input.retencion) { retencionPath = await subirAdjuntoOc(o.id, input.retencion, 'retencion'); retencionNombre = input.retencion.name; }
 
   // 3) Cerrar el pago en la orden.
@@ -1763,7 +1790,7 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     // Si la OC es por Factura, al pagar se marca automáticamente en Retenciones.
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
-    historial: appendHistorial(o, 'pagada', input.actorEmail, { oc_codigo: o.oc_codigo, monto, ...camposRetencionReembolso(o, input.retencionMonto, input.reembolsoOrden, input.retencionDetalle),...(comMonto > 0 ? { comision: comMonto, comision_moneda: input.comision?.moneda } : {}), ...(seriales.length ? { seriales } : {}) }),
+    historial: appendHistorial(o, 'pagada', input.actorEmail, { oc_codigo: o.oc_codigo, monto, ...(facturaPath ? { comprobante_path: facturaPath, comprobante_nombre: facturaNombre } : {}), ...camposRetencionReembolso(o, input.retencionMonto, input.reembolsoOrden, input.retencionDetalle),...(comMonto > 0 ? { comision: comMonto, comision_moneda: input.comision?.moneda } : {}), ...(seriales.length ? { seriales } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -1846,7 +1873,7 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
   const comMonto = await egresarComisionOc(o, input.comision, input.actorEmail, input.actorName ?? null);
 
   let facturaPath: string | null = null, facturaNombre: string | null = null;
-  if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'factura'); facturaNombre = input.factura.name; }
+  if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'pago'); facturaNombre = input.factura.name; }
 
   const patch = {
     estado: 'pagada' as EstadoOrden,
@@ -1860,6 +1887,7 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
     ...camposRetencionReembolso(o, input.retencionMonto, input.reembolsoOrden, input.retencionDetalle),
     historial: appendHistorial(o, 'pagada', input.actorEmail, {
       oc_codigo: o.oc_codigo,
+      ...(facturaPath ? { comprobante_path: facturaPath, comprobante_nombre: facturaNombre } : {}),
       multipago: legs.map((l) => ({ moneda: l.moneda, cuenta: l.cuenta, monto: l.monto })),
       ...camposRetencionReembolso(o, input.retencionMonto, input.reembolsoOrden, input.retencionDetalle),
       ...(comMonto > 0 ? { comision: comMonto, comision_moneda: input.comision?.moneda } : {}),
