@@ -95,6 +95,14 @@ describe('qué abono se acepta', () => {
   it('una fecha futura no', () => {
     expect(errorPago(10, 100, '2099-01-01')).toContain('futura');
   });
+
+  it('al editar un abono, el monto disponible incluye lo que ese abono ya cubría', () => {
+    const saldoActual = 30;
+    const abonoEditado = 40;
+    const disponible = saldoActual + abonoEditado;
+    expect(errorPago(70, disponible)).toBeNull();
+    expect(errorPago(75, disponible)).toContain('mayor que lo que se debe');
+  });
 });
 
 describe('el estado de cuenta de una persona', () => {

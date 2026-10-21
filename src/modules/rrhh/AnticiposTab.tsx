@@ -27,7 +27,7 @@ import type { Personal, AnticipoPrestamo, PagoAnticipo } from '@/shared/lib/type
 import { listPersonal } from './personal.repository';
 import {
   listAnticipos, listPagosAnticipos, crearAnticipo, editarAnticipo, eliminarAnticipo,
-  agregarPagoAnticipo, eliminarPagoAnticipo, type AnticipoInput,
+  agregarPagoAnticipo, editarPagoAnticipo, eliminarPagoAnticipo, type AnticipoInput,
 } from './anticipos.repository';
 import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 import { nombreDeCarnet, numeroFicha } from './fichaPersonal';
@@ -74,6 +74,7 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
     // traería los de toda la historia de la empresa para nada.
     const gs = as.length ? await listPagosAnticipos(as.map((a) => a.id)).catch(() => [] as PagoAnticipo[]) : [];
     setPersonal(ps); setLista(as); setPagos(gs);
+    setDetalle((prev) => (prev ? as.find((x) => x.id === prev.id) ?? null : null));
     setLoading(false);
   }, [empresa]);
   useEffect(() => { void recargar(); }, [recargar]);
@@ -571,8 +572,53 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
   const [edMonto, setEdMonto] = useState(String(prestamo.monto_total ?? ''));
   const [edMotivo, setEdMotivo] = useState(prestamo.motivo ?? '');
 
+  const [editandoPago, setEditandoPago] = useState<PagoAnticipo | null>(null);
+  const [edPagoMonto, setEdPagoMonto] = useState('');
+  const [edPagoFecha, setEdPagoFecha] = useState('');
+  const [edPagoOrigen, setEdPagoOrigen] = useState<'manual' | 'historico' | 'nomina'>('manual');
+  const [edPagoNota, setEdPagoNota] = useState('');
+
   const pagado = pagos.reduce((a, p) => a + (Number(p.monto) || 0), 0);
   const debe = Number(prestamo.saldo) || 0;
+
+  function iniciarEdicionPago(p: PagoAnticipo) {
+    setEditandoPago(p);
+    setEdPagoMonto(String(p.monto ?? ''));
+    setEdPagoFecha(p.fecha ? p.fecha.slice(0, 10) : hoyIso());
+    setEdPagoOrigen(p.origen);
+    setEdPagoNota(p.nota ?? '');
+    setErr(null);
+  }
+
+  async function guardarEdicionPago(e: FormEvent) {
+    e.preventDefault();
+    if (!editandoPago) return;
+    const nuevoM = Number(edPagoMonto);
+    if (!Number.isFinite(nuevoM) || nuevoM <= 0) {
+      setErr('El abono tiene que ser mayor que 0.');
+      return;
+    }
+    const disponibleParaEste = debe + (Number(editandoPago.monto) || 0);
+    const malo = errorPago(nuevoM, disponibleParaEste, edPagoFecha);
+    if (malo) { setErr(malo); return; }
+
+    setBusy(true); setErr(null);
+    try {
+      await editarPagoAnticipo(editandoPago.id, {
+        monto: nuevoM,
+        fecha: edPagoFecha,
+        origen: edPagoOrigen,
+        nota: edPagoNota,
+      }, actor, actorName);
+      setEditandoPago(null);
+      toast('Abono editado y sincronizado', 'success');
+      onCambio();
+    } catch (e2) {
+      setErr(e2 instanceof Error ? e2.message : 'No se pudo editar el abono');
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function guardarEdicion(e: FormEvent) {
     e.preventDefault();
@@ -679,6 +725,40 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
         </form>
       )}
 
+      {canWrite && editandoPago && (
+        <form onSubmit={guardarEdicionPago} className="card" style={{ padding: '.6rem .8rem', marginBottom: '.8rem', background: 'var(--bg-2)', borderColor: 'var(--primary)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.4rem' }}>
+            <strong style={{ fontSize: '.88rem' }}>✎ Editar movimiento de abono</strong>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setEditandoPago(null); setErr(null); }}>✕</button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'flex-end' }}>
+            <div className="form-row" style={{ flex: '0 1 140px', margin: 0 }}>
+              <label>Monto</label>
+              <input className="input mono" type="number" min={0} step="any" value={edPagoMonto} onChange={(e) => setEdPagoMonto(e.target.value)} required />
+            </div>
+            <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
+              <label>Fecha</label>
+              <input className="input" type="date" max={hoyIso()} value={edPagoFecha} onChange={(e) => setEdPagoFecha(e.target.value)} required />
+            </div>
+            <div className="form-row" style={{ flex: '0 1 160px', margin: 0 }}>
+              <label>Origen</label>
+              <select className="input" value={edPagoOrigen} onChange={(e) => setEdPagoOrigen(e.target.value as 'manual' | 'historico' | 'nomina')}>
+                <option value="manual">Abono directo</option>
+                <option value="historico">Carga histórica</option>
+                <option value="nomina">Descuento de nómina</option>
+              </select>
+            </div>
+            <div className="form-row" style={{ flex: '1 1 200px', margin: 0 }}>
+              <label>Nota</label>
+              <input className="input" value={edPagoNota} onChange={(e) => setEdPagoNota(e.target.value)} placeholder="Nota / referencia…" />
+            </div>
+            <button type="submit" className="btn btn-primary btn-sm" disabled={busy}>{busy ? '…' : 'Guardar y sincronizar'}</button>
+            <button type="button" className="btn btn-ghost btn-sm" disabled={busy} onClick={() => { setEditandoPago(null); setErr(null); }}>Cancelar</button>
+          </div>
+          <small className="hint muted">Al guardar se actualiza el movimiento y se sincroniza automáticamente el saldo del préstamo.</small>
+        </form>
+      )}
+
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
           <thead><tr><th>Fecha</th><th>Origen</th><th>Nota</th><th style={{ textAlign: 'right' }}>Monto</th>{canWrite && <th></th>}</tr></thead>
@@ -691,13 +771,11 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
                 <td className="muted">{p.nota || '—'}</td>
                 <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(p.monto)}</td>
                 {canWrite && (
-                  <td style={{ textAlign: 'right' }}>
-                    {/* Los de nómina no se borran acá: los generó un pago real
-                        del sueldo y borrarlos diría que se debe plata que sí
-                        se descontó. Eso se revierte anulando ese pago. */}
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => iniciarEdicionPago(p)} title="Editar movimiento (monto, fecha, origen, nota)">✎</button>
                     {p.origen === 'nomina'
-                      ? <span className="muted" title="Se revierte anulando el pago de la nómina" style={{ fontSize: '.78rem' }}>de nómina</span>
-                      : <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setPorBorrar(p)} title="Borrar abono">🗑</button>}
+                      ? <span className="muted" title="Se revierte anulando el pago de la nómina" style={{ fontSize: '.78rem', marginLeft: '.3rem' }}>de nómina</span>
+                      : <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)', marginLeft: '.3rem' }} onClick={() => setPorBorrar(p)} title="Borrar abono">🗑</button>}
                   </td>
                 )}
               </tr>

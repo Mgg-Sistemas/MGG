@@ -221,6 +221,91 @@ export async function agregarPagoAnticipo(
   return data as PagoAnticipo;
 }
 
+export interface EditarPagoInput {
+  monto?: number;
+  fecha?: string | null;
+  origen?: 'manual' | 'historico' | 'nomina';
+  nota?: string | null;
+}
+
+/**
+ * Edita un abono ya registrado (monto, fecha, origen, nota) y sincroniza el saldo
+ * y estado del préstamo asociado.
+ */
+export async function editarPagoAnticipo(
+  pagoId: string,
+  input: EditarPagoInput,
+  actorEmail?: string,
+  actorName?: string | null,
+): Promise<PagoAnticipo> {
+  const { data: act, error: errAct } = await supabase.from(TABLA_PAGOS).select('*').eq('id', pagoId).single();
+  if (errAct || !act) throw new Error('El abono no existe o fue eliminado.');
+  const pagoActual = act as PagoAnticipo;
+
+  const campos: Record<string, unknown> = {};
+
+  if (input.monto !== undefined) {
+    const monto = round2(input.monto);
+    if (monto <= 0) throw new Error('El abono debe ser mayor que 0.');
+    const prestamo = await getAnticipo(pagoActual.anticipo_id);
+    if (!prestamo) throw new Error('El préstamo asociado ya no existe.');
+
+    const todosPagos = await listPagosAnticipos([pagoActual.anticipo_id]);
+    const otrosPagosTotal = todosPagos
+      .filter((p) => p.id !== pagoId)
+      .reduce((acc, p) => acc + (Number(p.monto) || 0), 0);
+
+    const maxPermitido = round2(Number(prestamo.monto_total) - otrosPagosTotal);
+    if (monto > maxPermitido + 0.004) {
+      throw new Error(`El abono supera el saldo restante (${maxPermitido.toLocaleString('es-VE', { minimumFractionDigits: 2 })}).`);
+    }
+    campos.monto = monto;
+  }
+
+  if (input.fecha !== undefined) {
+    const f = (input.fecha ?? '').slice(0, 10);
+    if (!f) throw new Error('Indicá la fecha del abono.');
+    if (f > hoy()) throw new Error('La fecha del abono no puede ser futura.');
+    campos.fecha = f;
+  }
+
+  if (input.origen !== undefined) {
+    campos.origen = input.origen;
+  }
+
+  if (input.nota !== undefined) {
+    campos.nota = input.nota?.trim() || null;
+  }
+
+  if (actorEmail) campos.actor = actorEmail;
+  if (actorName) campos.actor_name = actorName;
+
+  if (Object.keys(campos).length) {
+    const { error } = await supabase.from(TABLA_PAGOS).update(campos).eq('id', pagoId);
+    if (error) throw error;
+  }
+
+  // Sincronizar saldo y estado del préstamo en anticipos_prestamos:
+  try {
+    await supabase.rpc('anticipos_recalcular_saldo', { p_id: pagoActual.anticipo_id });
+  } catch {
+    /* si no existe la RPC, se recalcula directo abajo */
+  }
+
+  const todos = await listPagosAnticipos([pagoActual.anticipo_id]);
+  const suma = round2(todos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0));
+  const prestamo = await getAnticipo(pagoActual.anticipo_id);
+  if (prestamo) {
+    const nuevoSaldo = Math.max(0, round2(Number(prestamo.monto_total) - suma));
+    const nuevoEstado = nuevoSaldo <= 0 ? 'saldado' : 'activo';
+    await supabase.from(TABLE).update({ saldo: nuevoSaldo, estado: nuevoEstado }).eq('id', prestamo.id);
+  }
+
+  const { data: final, error: fErr } = await supabase.from(TABLA_PAGOS).select('*').eq('id', pagoId).single();
+  if (fErr) throw fErr;
+  return final as PagoAnticipo;
+}
+
 /**
  * Borra un abono. El saldo vuelve a subir solo.
  *
@@ -228,13 +313,30 @@ export async function agregarPagoAnticipo(
  * borrarlos dejaría el préstamo diciendo que se debe una plata que sí se
  * descontó del sueldo. Eso se arregla anulando el pago de la nómina.
  */
-export async function eliminarPagoAnticipo(pago: Pick<PagoAnticipo, 'id' | 'origen'>): Promise<void> {
+export async function eliminarPagoAnticipo(pago: Pick<PagoAnticipo, 'id' | 'origen' | 'anticipo_id'>): Promise<void> {
   if (pago.origen === 'nomina') {
     throw new Error('Este abono lo generó un pago de nómina. Para revertirlo, anulá ese pago en la nómina.');
   }
   const { data, error } = await supabase.from(TABLA_PAGOS).delete().eq('id', pago.id).select('id');
   if (error) throw error;
   if (!data?.length) throw new Error('No se pudo borrar: sin permiso o ya no existía.');
+
+  // Sincronizar saldo y estado del préstamo:
+  try {
+    await supabase.rpc('anticipos_recalcular_saldo', { p_id: pago.anticipo_id });
+  } catch {
+    /* si no existe la RPC, se recalcula directo abajo */
+  }
+  if (pago.anticipo_id) {
+    const todos = await listPagosAnticipos([pago.anticipo_id]);
+    const suma = round2(todos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0));
+    const prestamo = await getAnticipo(pago.anticipo_id);
+    if (prestamo) {
+      const nuevoSaldo = Math.max(0, round2(Number(prestamo.monto_total) - suma));
+      const nuevoEstado = nuevoSaldo <= 0 ? 'saldado' : 'activo';
+      await supabase.from(TABLE).update({ saldo: nuevoSaldo, estado: nuevoEstado }).eq('id', prestamo.id);
+    }
+  }
 }
 
 /** Descuenta `monto` del saldo (al pagar un renglón). Marca saldado si llega a 0. */

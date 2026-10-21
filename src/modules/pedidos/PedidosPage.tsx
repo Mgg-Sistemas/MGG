@@ -74,6 +74,8 @@ import {
   enviarCreditoARecepcion,
   listAbonos,
   urlAdjuntoOc,
+  comprobantePagoTesoreria,
+  descargarAdjuntoOc,
   adjuntarComprobanteOc,
   indicarMetodoPago,
   corregirMetodoPago,
@@ -2756,6 +2758,19 @@ function OrdenDetailModal({
       .then(({ descargarComprobantePagoPdf }) => descargarComprobantePagoPdf(o.id))
       .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante de pago', 'error'));
   }
+  async function handleDescargarComprobanteTesoreria() {
+    try {
+      const adj = await comprobantePagoTesoreria(o);
+      if (!adj) {
+        toast('Tesorería no adjuntó comprobante en este pago', 'info');
+        return;
+      }
+      await descargarAdjuntoOc(adj.path, adj.nombre);
+      toast('Descargando comprobante de Tesorería...', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo descargar el comprobante', 'error');
+    }
+  }
 
   const buttons = (
     <>
@@ -2898,6 +2913,12 @@ function OrdenDetailModal({
           💳 Indicar método de pago (pagar lo recibido)
         </button>
       )}
+      {/* Comprobante de pago que adjuntó Tesorería: disponible desde que la OC se pagó y al finalizar */}
+      {(o.pagada_en || isFinalizada || (Number(o.abonado_total) || 0) > 0) && (
+        <button className="btn btn-ghost" onClick={handleDescargarComprobanteTesoreria} title="Descargar el comprobante de pago adjuntado por Tesorería">
+          📥 Comprobante de Tesorería
+        </button>
+      )}
       {/* Comprobante de pago GENERADO (voucher, vista previa): desde que la OC tiene pago
           —pagada o con abonos a crédito— y en el histórico finalizada, aun sin factura (efectivo). */}
       {(o.pagada_en || (Number(o.abonado_total) || 0) > 0) && (
@@ -2905,10 +2926,10 @@ function OrdenDetailModal({
           🧾 Comprobante de pago
         </button>
       )}
-      {/* Comprobante/soporte cargado en Tesorería (factura o nota adjunta), si existe. */}
+      {/* Comprobante/soporte cargado en la OC (factura o nota adjunta), si existe. */}
       {o.factura_path && (
         <button className="btn btn-ghost" onClick={handleComprobante} title={o.factura_nombre ?? 'Soporte adjunto'}>
-          📎 Ver soporte adjunto
+          📎 {isFinalizada ? 'Ver factura / soporte' : 'Ver soporte adjunto'}
         </button>
       )}
       {/* OC pagada y aún no recibida (anticipado/contado): ya se puede recibir.
