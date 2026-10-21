@@ -7,7 +7,8 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
 import { errorMotivoCambio, lineaCambioProveedor, lineaReaperturaOc } from './cambioProveedor';
-import { compartirMovimiento, enlaceWhatsapp, puedeCompartir, textoOrdenAprobacion, textoOrdenPago } from './ordenPagoTxt';
+import { textoOrdenAprobacion, textoOrdenPago } from './ordenPagoTxt';
+import { MensajeWhatsappModal } from './MensajeWhatsappModal';
 import { MAX_MINIMIZADAS, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -2634,6 +2635,8 @@ function OrdenDetailModal({
   // «Cancelar» los devuelve). El ítem en confirmación vive aparte.
   const [skusAEliminar, setSkusAEliminar] = useState<Set<string>>(new Set());
   const [porEliminar, setPorEliminar] = useState<ItemOrden | null>(null);
+  // «Avisar» por WhatsApp (21-10-2026): el mensaje a la vista con «Copiar» y «Enviar por WhatsApp», como en Combustible.
+  const [mensajeWs, setMensajeWs] = useState<{ titulo: string; texto: string } | null>(null);
   function abrirEdicionCant() {
     const d: Record<string, string> = {};
     o.items.forEach((it) => { d[it.sku] = String(it.cantidad ?? 0); });
@@ -2704,23 +2707,13 @@ function OrdenDetailModal({
   });
   const textoPago = () => textoOrdenPago(o, nombreProveedorMsg(), personasMsg());
   const textoAprobacion = () => textoOrdenAprobacion(o, nombreProveedorMsg(), personasMsg());
-  const botonWhatsapp = (texto: () => string, etiqueta: string, titulo: string) => (
-    <a
-      className="btn btn-ghost"
-      href={enlaceWhatsapp(texto())}
-      target="_blank"
-      rel="noopener noreferrer"
-      title={titulo}
-      onClick={(e) => {
-        if (!puedeCompartir()) return;
-        e.preventDefault();
-        void compartirMovimiento(texto());
-      }}
-    >
+  // Abre la ventana «Avisar» (la de Combustible): se ve el mensaje y se elige copiarlo o mandarlo.
+  const botonWhatsapp = (texto: () => string, etiqueta: string, titulo: string, tituloVentana: string) => (
+    <button type="button" className="btn btn-ghost" title={titulo} onClick={() => setMensajeWs({ titulo: tituloVentana, texto: texto() })}>
       {etiqueta}
-    </a>
+    </button>
   );
-  const botonWhatsappPago = (titulo: string) => botonWhatsapp(textoPago, '💬 WhatsApp para pagar', titulo);
+  const botonWhatsappPago = (titulo: string) => botonWhatsapp(textoPago, '💬 WhatsApp para pagar', titulo, `Avisar para pagar · ${o.oc_codigo ?? o.codigo}`);
   /* La solicitud aprobada en PDF, para mandarla a cotizar: lleva los materiales
      con su medida y cantidad, y la columna de precio EN BLANCO. Se genera solo
      con este botón. */
@@ -2804,7 +2797,7 @@ function OrdenDetailModal({
           <button className="btn btn-ghost" onClick={onEditarOc} title="Antes de aprobarla se corrige todo: unidad y persona que solicita, motivo, finalidad, proveedor, productos (marca, cantidad, precio), descuento, IVA e IGTF, condición y nota">✎ Editar OC (todo)</button>
           <button className="btn btn-ghost" onClick={onModificar} title="Volver a la etapa de ofertas para re-elegir la oferta ganadora">↩ Re-elegir oferta</button>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
-          {botonWhatsapp(textoAprobacion, '💬 WhatsApp para aprobar', 'Mandar la OC por WhatsApp al Gerente General para su aprobación: orden, proveedor, quién la pide y el analista, cuántos productos son, condición y total')}
+          {botonWhatsapp(textoAprobacion, '💬 WhatsApp para aprobar', 'Avisar al Gerente General por WhatsApp para su aprobación (ver el mensaje, copiarlo o enviarlo): orden, proveedor, quién la pide y el analista, cuántos productos son, condición y total', `Avisar para aprobar · ${o.oc_codigo ?? o.codigo}`)}
           <button className="btn btn-danger" onClick={onAnular} title="Anular esta OC (queda en estado Anulada)">⊘ Anular OC</button>
         </>
       )}
@@ -3521,6 +3514,7 @@ function OrdenDetailModal({
         personaMap={personaMap}
       />
     </Modal>
+    {mensajeWs && <MensajeWhatsappModal titulo={mensajeWs.titulo} texto={mensajeWs.texto} onClose={() => setMensajeWs(null)} />}
     {enviarOpen && (
       <EnviarPorCorreoModal
         ordenId={o.id}

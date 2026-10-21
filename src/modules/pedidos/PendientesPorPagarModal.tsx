@@ -15,7 +15,8 @@ import { listOrdenesPorPagar, listOrdenesEnCredito, type OrdenPorPagar } from '.
 import { cargarDirectosPorPagar, type DirectoFila } from './DirectosPorPagarModal';
 import { getTasaHoy, aBs } from '@/modules/tesoreria/tasas.repository';
 import { armarReportePorPagar } from './pendientesPorPagarReporte';
-import { compartirMovimiento, enlaceWhatsapp, mensajePendientesPorPagar, puedeCompartir } from './pendientesPorPagarMensaje';
+import { mensajePendientesPorPagar } from './pendientesPorPagarMensaje';
+import { MensajeWhatsappModal } from './MensajeWhatsappModal';
 
 function usd(n: number | null | undefined): string {
   return `$ ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -36,6 +37,7 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
   const [tasaFecha, setTasaFecha] = useState<string | null>(null);
   const [genPdf, setGenPdf] = useState(false);
   const [genExcel, setGenExcel] = useState(false);
+  const [avisar, setAvisar] = useState(false);
 
   const cargar = useCallback(async () => {
     const [r, d, c, t] = await Promise.all([
@@ -78,11 +80,6 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
     finally { setGenExcel(false); }
   }
 
-  async function copiar() {
-    try { await navigator.clipboard.writeText(mensaje); toast('Mensaje copiado', 'success'); }
-    catch { toast('No se pudo copiar solo. Mantené presionado el texto para copiarlo.', 'warning'); }
-  }
-
   const montoCell = (u: number) => (
     <>
       <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{usd(u)}</td>
@@ -96,17 +93,10 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
       <button className="btn btn-ghost" onClick={() => void verExcel()} disabled={genExcel || vacio}>
         {genExcel ? 'Generando…' : '📊 Excel'}
       </button>
-      {/* En el teléfono el mensaje va por la hoja de compartir (llega exacto, con sus emojis);
-          en la PC, el enlace derecho a api.whatsapp.com (nunca wa.me). */}
-      <a className="btn btn-ghost" href={enlaceWhatsapp(mensaje)} target="_blank" rel="noopener noreferrer"
-        onClick={(e) => {
-          if (vacio) { e.preventDefault(); return; }
-          if (!puedeCompartir()) return;
-          e.preventDefault();
-          void compartirMovimiento(mensaje);
-        }}>
+      {/* Abre la ventana «Avisar» (la de Combustible): el mensaje a la vista, «Copiar» y «Enviar por WhatsApp». */}
+      <button className="btn btn-ghost" onClick={() => setAvisar(true)} disabled={vacio}>
         💬 WhatsApp
-      </a>
+      </button>
       <button className="btn btn-primary" onClick={() => void verPdf()} disabled={genPdf || vacio}>
         {genPdf ? 'Generando…' : '📄 Ver PDF (vista previa)'}
       </button>
@@ -211,16 +201,7 @@ export function PendientesPorPagarModal({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {/* El mismo mensaje que se manda por WhatsApp, con sus emojis, a la vista. */}
-      {!loading && !vacio && (
-        <details style={{ marginTop: '.9rem' }}>
-          <summary style={{ cursor: 'pointer', fontWeight: 600 }}>💬 Mensaje para WhatsApp (con emojis)</summary>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', margin: '.5rem 0' }}>
-            <button className="btn btn-ghost btn-sm" onClick={() => void copiar()}>📋 Copiar mensaje</button>
-          </div>
-          <pre className="surt-mensaje">{mensaje}</pre>
-        </details>
-      )}
+      {avisar && <MensajeWhatsappModal titulo="Avisar · Pendientes por pagar" texto={mensaje} onClose={() => setAvisar(false)} />}
     </Modal>
   );
 }
