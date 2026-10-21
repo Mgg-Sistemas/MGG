@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { signIn, signOutLocal } from './authStore';
 import { isSupabaseConfigured, supabase } from '@/shared/lib/supabase';
@@ -39,11 +39,13 @@ export function LoginPage() {
   // es COMPARTIDO entre pestañas: abrir el login en otra pestaña —o recargarlo—
   // mataba la sesión de la pestaña donde el usuario estaba trabajando. Para
   // entrar con otro usuario está «Cerrar sesión», que es explícito.
-  const didCleanRef = useRef(false);
   const [verificando, setVerificando] = useState(isSupabaseConfigured);
+  // OJO: este efecto NO puede protegerse con un «ya corrí» (useRef). En desarrollo React
+  // (StrictMode) monta, desmonta y vuelve a montar: el primer montaje queda cancelado
+  // (`vivo = false`) y, si el segundo no corre, nadie apaga «Verificando tu sesión…» y la
+  // pantalla se queda así para siempre (pasaba en `npm run dev`). Cada corrida es
+  // independiente y su limpieza la cancela; repetir getSession() es inofensivo.
   useEffect(() => {
-    if (didCleanRef.current) return;
-    didCleanRef.current = true;
     if (!isSupabaseConfigured) { setVerificando(false); return; }
     let vivo = true;
     // Red de seguridad: pase lo que pase, el formulario aparece.

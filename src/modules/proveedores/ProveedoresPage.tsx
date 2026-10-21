@@ -28,8 +28,8 @@ import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
 import { MultiSelectBuscador } from '@/shared/ui/MultiSelectBuscador';
 import { mismaTaxonomia } from '@/shared/lib/taxonomias';
 import { useSession } from '@/modules/auth/authStore';
-import { listActividades } from './actividades.repository';
-import { filasProveedores, textoFiltros } from './proveedoresReporte';
+import { textoFiltros } from './proveedoresReporte';
+import { ExportarProveedoresModal } from './ExportarProveedoresModal';
 
 type EstadoFilter = '' | EstadoGenerico;
 type CategoriaFilter = string;
@@ -168,29 +168,8 @@ export function ProveedoresPage() {
     }
   }
 
-  // Descargas (21-10-2026): el listado que se ve en pantalla, con sus filtros, en PDF o Excel (vista previa).
-  const [exportando, setExportando] = useState<'pdf' | 'excel' | null>(null);
-  async function exportar(tipo: 'pdf' | 'excel') {
-    if (!filtered.length) { toast('No hay proveedores para exportar con estos filtros.', 'warning'); return; }
-    setExportando(tipo);
-    try {
-      // El texto de cada código CIIU; si no carga, se imprime el código.
-      const actividades = await listActividades().catch(() => []);
-      const filas = filasProveedores(filtered, actividades);
-      const filtros = textoFiltros({ texto: filterText, estado: filterEstado, categoria: filterCategoria });
-      if (tipo === 'pdf') {
-        const { descargarProveedoresPdf } = await import('./proveedoresPdf');
-        await descargarProveedoresPdf(filas, filtros);
-      } else {
-        const { exportarProveedoresExcel } = await import('./proveedoresExcel');
-        await exportarProveedoresExcel(filas, filtros);
-      }
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'No se pudo generar el archivo', 'error');
-    } finally {
-      setExportando(null);
-    }
-  }
+  // Descargas: modal para escoger qué mostrar tanto en PDF como en Excel (vista previa).
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   async function handleToggle(p: Proveedor) {
     const nextEstado: EstadoGenerico = p.estado === 'activo' ? 'inactivo' : 'activo';
@@ -228,11 +207,29 @@ export function ProveedoresPage() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-          <button className="btn btn-ghost" onClick={() => void exportar('excel')} disabled={exportando !== null || loading} title="Descargar los proveedores que ves (con tus filtros) en Excel">
-            {exportando === 'excel' ? 'Generando…' : '📊 Excel'}
+          <button
+            className="btn btn-ghost"
+            onClick={() => setExportModalOpen(true)}
+            disabled={loading || !filtered.length}
+            title="Descargar proveedores en Excel o PDF eligiendo qué datos mostrar"
+          >
+            ⬇ Descargar datos
           </button>
-          <button className="btn btn-ghost" onClick={() => void exportar('pdf')} disabled={exportando !== null || loading} title="Descargar los proveedores que ves (con tus filtros) en PDF">
-            {exportando === 'pdf' ? 'Generando…' : '📄 PDF'}
+          <button
+            className="btn btn-ghost"
+            onClick={() => setExportModalOpen(true)}
+            disabled={loading || !filtered.length}
+            title="Descargar los proveedores que ves (con tus filtros) en Excel"
+          >
+            📊 Excel
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => setExportModalOpen(true)}
+            disabled={loading || !filtered.length}
+            title="Descargar los proveedores que ves (con tus filtros) en PDF"
+          >
+            📄 PDF
           </button>
           {canWrite && (
             <button className="btn btn-ghost" onClick={() => setGestionCatsOpen(true)} title="Gestionar y renombrar categorías">
@@ -409,6 +406,14 @@ export function ProveedoresPage() {
             setConteoCats(c);
           }}
           onClose={() => setGestionCatsOpen(false)}
+        />
+      )}
+
+      {exportModalOpen && (
+        <ExportarProveedoresModal
+          proveedores={filtered}
+          filtros={textoFiltros({ texto: filterText, estado: filterEstado, categoria: filterCategoria })}
+          onClose={() => setExportModalOpen(false)}
         />
       )}
     </div>

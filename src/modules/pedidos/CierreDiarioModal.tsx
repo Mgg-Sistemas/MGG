@@ -52,8 +52,8 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
   }, [rango]);
 
   useEffect(() => { setCargando(true); void cargar(); }, [cargar]);
-  // Realtime: cada pedido, aprobación o pago cambia las cantidades al instante.
-  useRealtime(['ordenes'], () => { void cargar(); });
+  // Realtime: cada pedido, cotización, aprobación o pago cambia las cantidades al instante.
+  useRealtime(['ordenes', 'ofertas_proveedor'], () => { void cargar(); });
 
   const set = (patch: Partial<FiltroCierre>) => setFiltro((f) => ({ ...f, ...patch }));
 
@@ -94,7 +94,7 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
   );
 
   return (
-    <Modal title="Cierre diario" size="md" onClose={onClose} footer={footer}>
+    <Modal title="Cierre diario" size="lg" onClose={onClose} footer={footer}>
       {/* ── Filtro: día, semana, mes o rango ── */}
       <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.7rem' }} role="tablist" aria-label="Período del cierre">
         {MODOS.map((m) => (
@@ -147,7 +147,7 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
       </div>
 
       {/* ── Resumen: los cuatro títulos con su cantidad ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.7rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.7rem' }}>
         {ITEMS_CIERRE.map((it) => {
           const cantidad = resumen?.items.find((x) => x.key === it.key)?.cantidad;
           return (
@@ -160,6 +160,62 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
             </div>
           );
         })}
+      </div>
+
+      {/* ── Actividad por analista: cotizaciones y órdenes finalizadas ── */}
+      <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.6rem', flexWrap: 'wrap', gap: '.5rem' }}>
+          <div style={{ fontWeight: 700, fontSize: '.95rem' }}>
+            👥 Rendimiento por analista
+          </div>
+          <div style={{ display: 'flex', gap: '.5rem', fontSize: '.8rem' }}>
+            <span className="badge" title="Total de cotizaciones cargadas en el período">
+              Cotizaciones cargadas: <strong>{cargando ? '…' : resumen?.totalCotizaciones ?? 0}</strong>
+            </span>
+            <span className="badge" title="Total de órdenes finalizadas en el período">
+              Órdenes finalizadas: <strong>{cargando ? '…' : resumen?.totalFinalizadas ?? 0}</strong>
+            </span>
+          </div>
+        </div>
+
+        {cargando ? (
+          <div className="muted" style={{ fontSize: '.85rem', padding: '.4rem 0' }}>Cargando analistas…</div>
+        ) : !resumen?.analistas.length ? (
+          <div className="muted" style={{ fontSize: '.85rem', fontStyle: 'italic', padding: '.4rem 0' }}>
+            Sin actividad de analistas registrada en este período.
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.85rem' }}>
+              <thead>
+                <tr>
+                  <th>Analista</th>
+                  <th style={{ textAlign: 'center', width: '180px' }}>Cotizaciones cargadas</th>
+                  <th style={{ textAlign: 'center', width: '180px' }}>Órdenes finalizadas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resumen.analistas.map((a) => (
+                  <tr key={a.email}>
+                    <td>
+                      <strong>{a.nombre}</strong>
+                      <div className="muted" style={{ fontSize: '.74rem' }}>{a.email}</div>
+                    </td>
+                    <td style={{ textAlign: 'center', fontWeight: 600 }}>{a.cotizaciones}</td>
+                    <td style={{ textAlign: 'center', fontWeight: 600 }}>{a.ordenesFinalizadas}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
+                  <td>TOTAL</td>
+                  <td style={{ textAlign: 'center' }}>{resumen.totalCotizaciones}</td>
+                  <td style={{ textAlign: 'center' }}>{resumen.totalFinalizadas}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
       </div>
 
       <small className="hint muted" style={{ display: 'block', marginTop: '.8rem' }}>

@@ -135,9 +135,36 @@ export const ITEMS_CIERRE: { key: ClaveCierre; titulo: string; emoji: string; ay
   { key: 'pagadas', titulo: 'Total órdenes pagadas', emoji: '✅', ayuda: 'Pagadas en el período' },
 ];
 
+export interface ResumenAnalista {
+  email: string;
+  nombre: string;
+  cotizaciones: number;        // total de cotizaciones realizadas/cargadas
+  ordenesFinalizadas: number;  // total de órdenes finalizadas
+}
+
+export interface CotizacionAnalista {
+  id: string;
+  registrada_por_email: string;
+  registrada_en: string | null;
+}
+
+export interface OrdenFinalizadaAnalista {
+  id: string;
+  finalizada_por: string | null;
+  finalizada_en: string | null;
+}
+
+export interface AnalistaBase {
+  email: string;
+  nombre: string;
+}
+
 export interface ResumenCierre {
   rango: RangoCierre;
   items: ItemCierre[];
+  totalCotizaciones: number;
+  totalFinalizadas: number;
+  analistas: ResumenAnalista[];
 }
 
 export interface EntradasCierre {
@@ -149,6 +176,14 @@ export interface EntradasCierre {
   pendientesAprobar: (string | null | undefined)[];
   /** Fecha (ISO) en que cada orden por pagar entró a pago. */
   porPagar: (string | null | undefined)[];
+  /** Cotizaciones registradas en el período. */
+  cotizaciones?: CotizacionAnalista[];
+  /** Órdenes finalizadas en el período. */
+  finalizadas?: OrdenFinalizadaAnalista[];
+  /** Analistas de compras base (activos). */
+  analistasBase?: AnalistaBase[];
+  /** Mapa email -> nombre legible de usuario. */
+  nombresPorEmail?: Map<string, string>;
 }
 
 export function armarCierre(e: EntradasCierre, rango: RangoCierre): ResumenCierre {
@@ -158,7 +193,57 @@ export function armarCierre(e: EntradasCierre, rango: RangoCierre): ResumenCierr
     por_pagar: e.porPagar.filter((f) => enRango(f, rango)).length,
     pagadas: Math.max(0, Math.trunc(Number(e.pagadas) || 0)),
   };
-  return { rango, items: ITEMS_CIERRE.map(({ key, titulo, emoji }) => ({ key, titulo, emoji, cantidad: cantidad[key] })) };
+
+  // Cotizaciones y órdenes finalizadas por analista en el rango
+  const cotsFiltradas = (e.cotizaciones ?? []).filter((c) => enRango(c.registrada_en, rango));
+  const finFiltradas = (e.finalizadas ?? []).filter((o) => enRango(o.finalizada_en, rango));
+
+  const cotsPorEmail = new Map<string, number>();
+  cotsFiltradas.forEach((c) => {
+    const em = (c.registrada_por_email ?? '').trim().toLowerCase();
+    if (!em) return;
+    cotsPorEmail.set(em, (cotsPorEmail.get(em) ?? 0) + 1);
+  });
+
+  const finPorEmail = new Map<string, number>();
+  finFiltradas.forEach((o) => {
+    const em = (o.finalizada_por ?? '').trim().toLowerCase();
+    if (!em) return;
+    finPorEmail.set(em, (finPorEmail.get(em) ?? 0) + 1);
+  });
+
+  // Conjunto de todos los analistas activos o con actividad en el período
+  const emails = new Set<string>();
+  (e.analistasBase ?? []).forEach((a) => {
+    const em = (a.email ?? '').trim().toLowerCase();
+    if (em) emails.add(em);
+  });
+  for (const em of cotsPorEmail.keys()) emails.add(em);
+  for (const em of finPorEmail.keys()) emails.add(em);
+
+  const baseMap = new Map((e.analistasBase ?? []).map((a) => [a.email.toLowerCase(), a.nombre]));
+  const analistas: ResumenAnalista[] = Array.from(emails).map((email) => {
+    const nombre =
+      e.nombresPorEmail?.get(email) ||
+      baseMap.get(email) ||
+      email.split('@')[0] ||
+      email;
+    return {
+      email,
+      nombre,
+      cotizaciones: cotsPorEmail.get(email) ?? 0,
+      ordenesFinalizadas: finPorEmail.get(email) ?? 0,
+    };
+  });
+  analistas.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+
+  return {
+    rango,
+    items: ITEMS_CIERRE.map(({ key, titulo, emoji }) => ({ key, titulo, emoji, cantidad: cantidad[key] })),
+    totalCotizaciones: cotsFiltradas.length,
+    totalFinalizadas: finFiltradas.length,
+    analistas,
+  };
 }
 
 /** Lo mínimo de una orden para saber cuándo entró a su estado actual. */

@@ -47,14 +47,47 @@ export async function descargarCierreDiarioPdf(r: ResumenCierre, impresoIso: str
     startY: y,
     head: [['CONCEPTO', 'CANTIDAD']],
     body: r.items.map((i) => [i.titulo, String(i.cantidad)]),
-    styles: { fontSize: 12, cellPadding: 9, valign: 'middle' },
+    styles: { fontSize: 11, cellPadding: 7, valign: 'middle' },
     headStyles: { fillColor: [255, 224, 189], textColor: [138, 75, 0], fontStyle: 'bold', halign: 'center' },
     bodyStyles: { textColor: [20, 20, 20] },
     alternateRowStyles: { fillColor: [255, 246, 236] },
     tableWidth: CW,
-    columnStyles: { 0: { cellWidth: CW - wCant }, 1: { halign: 'center', cellWidth: wCant, fontStyle: 'bold', fontSize: 15 } },
+    columnStyles: { 0: { cellWidth: CW - wCant }, 1: { halign: 'center', cellWidth: wCant, fontStyle: 'bold', fontSize: 13 } },
     margin: { ...MARGENES_TABLA_PDF },
   });
+
+  const finalY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? (y + 150);
+
+  if (r.analistas && r.analistas.length > 0) {
+    let y2 = finalY + 18;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(255, 138, 0);
+    doc.text('ACTIVIDAD POR ANALISTA', MARGEN_PDF, y2);
+    doc.setTextColor(0, 0, 0);
+    y2 += 8;
+
+    const wCol = 130;
+    autoTable(doc, {
+      startY: y2,
+      head: [['ANALISTA', 'COTIZACIONES CARGADAS', 'ÓRDENES FINALIZADAS']],
+      body: [
+        ...r.analistas.map((a) => [a.nombre, String(a.cotizaciones), String(a.ordenesFinalizadas)]),
+        ['TOTAL', String(r.totalCotizaciones ?? 0), String(r.totalFinalizadas ?? 0)],
+      ],
+      styles: { fontSize: 9.5, cellPadding: 6, valign: 'middle' },
+      headStyles: { fillColor: [255, 224, 189], textColor: [138, 75, 0], fontStyle: 'bold', halign: 'center', fontSize: 9.5 },
+      bodyStyles: { textColor: [20, 20, 20] },
+      alternateRowStyles: { fillColor: [255, 246, 236] },
+      tableWidth: CW,
+      columnStyles: {
+        0: { cellWidth: CW - wCol * 2 },
+        1: { halign: 'center', cellWidth: wCol, fontStyle: 'bold' },
+        2: { halign: 'center', cellWidth: wCol, fontStyle: 'bold' },
+      },
+      margin: { ...MARGENES_TABLA_PDF },
+    });
+  }
 
   doc.setFontSize(8); doc.setTextColor(120, 120, 120); doc.setFont('helvetica', 'normal');
   doc.text(`Impreso ${fechaReporteTexto(impresoIso)} · Órdenes de compra y servicios (no incluye compras ni servicios directos) · Mineral Group Guayana C.A.`, MARGEN_PDF, limiteInferiorPdf(H));
