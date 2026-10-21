@@ -1499,7 +1499,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
 
 /* ───────── Constancia de trabajo (PDF, vista previa) ───────── */
 function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () => void }) {
-  const [dirigidoA, setDirigidoA] = useState('A quien pueda interesar');
+  const [dirigidoA, setDirigidoA] = useState('');
   const [lugar, setLugar] = useState('Puerto Ordaz, Estado Bolívar');
   const [incluirSalario, setIncluirSalario] = useState(true);
   const [generando, setGenerando] = useState(false);
@@ -1512,7 +1512,7 @@ function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () 
   async function generar() {
     setGenerando(true);
     try {
-      await descargarConstanciaTrabajoPdf(persona, { dirigidoA: dirigidoA.trim() || 'A quien pueda interesar', lugar: lugar.trim() || 'Puerto Ordaz, Estado Bolívar', incluirSalario });
+      await descargarConstanciaTrabajoPdf(persona, { dirigidoA: dirigidoA.trim(), lugar: lugar.trim() || 'Puerto Ordaz, Estado Bolívar', incluirSalario });
       onClose();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar la constancia', 'error'); }
     finally { setGenerando(false); }
@@ -1531,8 +1531,8 @@ function ConstanciaModal({ persona, onClose }: { persona: Personal; onClose: () 
         </div>
       )}
       <div className="form-row">
-        <label>Dirigida a</label>
-        <input className="input" value={dirigidoA} onChange={(e) => setDirigidoA(e.target.value)} placeholder="A quien pueda interesar" />
+        <label>Dirigida a (opcional)</label>
+        <input className="input" value={dirigidoA} onChange={(e) => setDirigidoA(e.target.value)} placeholder="Vacío: la constancia no lleva destinatario" />
       </div>
       <div className="form-row">
         <label>Lugar de emisión</label>
