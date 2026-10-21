@@ -50,3 +50,13 @@ describe('cuerpoConstancia · el resto del párrafo no cambia', () => {
     expect(t).not.toMatch(/whatsapp|tel[eé]fono|sello/i);
   });
 });
+
+describe('destinatario de la constancia', () => {
+  it('el código ya no trae «A quien pueda interesar» por defecto', async () => {
+    const { readFileSync } = await import('node:fs');
+    const fuente = readFileSync(new URL('./constanciaTrabajoPdf.ts', import.meta.url), 'utf8');
+    const codigo = fuente.split('\n').filter((l) => !l.trim().startsWith('//') && !l.includes('//')).join('\n');
+    expect(codigo).not.toMatch(/A quien pueda interesar/i);
+    expect(fuente).toMatch(/dirigidoA = ''/);
+  });
+});

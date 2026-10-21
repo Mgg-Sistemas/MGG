@@ -53,12 +53,12 @@ export function cuerpoConstancia(persona: Personal, incluirSalario = true): stri
 
 export interface ConstanciaOpts {
   incluirSalario?: boolean;   // incluir el sueldo mensual en el texto (default true)
-  dirigidoA?: string;         // "A quien pueda interesar" por defecto
+  dirigidoA?: string;         // opcional: sin destinatario no se imprime línea (se quitó «A quien pueda interesar», 21-10-2026)
   lugar?: string;             // lugar de emisión (default Puerto Ordaz)
 }
 
 export async function descargarConstanciaTrabajoPdf(persona: Personal, opts: ConstanciaOpts = {}): Promise<void> {
-  const { incluirSalario = true, dirigidoA = 'A quien pueda interesar', lugar = CIUDAD } = opts;
+  const { incluirSalario = true, dirigidoA = '', lugar = CIUDAD } = opts;
   const [{ jsPDF }, logo] = await Promise.all([import('jspdf'), loadLogoDataUrl().catch(() => null)]);
 
   const doc = new jsPDF({ unit: 'pt', format: 'letter' });
@@ -95,10 +95,12 @@ export async function descargarConstanciaTrabajoPdf(persona: Personal, opts: Con
   doc.line(PAGE_W / 2 - 96, y, PAGE_W / 2 + 96, y);
   y += 30;
 
-  // ── Dirigido a ──
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-  doc.text(`${dirigidoA}:`, MARGIN, y);
-  y += 26;
+  // ── Dirigido a (solo si se escribió un destinatario) ──
+  if (dirigidoA.trim()) {
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(`${dirigidoA.trim()}:`, MARGIN, y);
+    y += 26;
+  }
 
   // ── Cuerpo ──
   const nombre = `${persona.nombre ?? ''} ${persona.apellido ?? ''}`.trim().toUpperCase();
