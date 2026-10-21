@@ -121,6 +121,7 @@ import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { cargarHistorialNombres, nombreEnFecha, type CambioNombre, type PersonasMap } from '@/shared/lib/personas';
 import { PendientesPorPagarModal } from './PendientesPorPagarModal';
 import { ReporteComprasModal } from './ReporteComprasModal';
+import { CierreDiarioModal } from './CierreDiarioModal';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
@@ -348,6 +349,7 @@ export function PedidosPage() {
   // las CUENTAS A CRÉDITO. El modal lee en vivo (realtime) y adentro genera el PDF.
   const [porPagarOpen, setPorPagarOpen] = useState(false);
   const [reporteOpen, setReporteOpen] = useState(false);
+  const [cierreOpen, setCierreOpen] = useState(false);
 
   // Al cerrar cualquier modal, traer lo que haya cambiado mientras estuvo pausado.
   const modalKindPrev = useRef(modal.kind);
@@ -565,6 +567,13 @@ export function PedidosPage() {
             title="Reporte por renglón: pendiente por aprobar, cuentas a crédito, por indicar método de pago y por pagar (código, motivo y monto en $ o Bs)"
           >
             📊 Reporte por renglón
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => setCierreOpen(true)}
+            title="Cierre diario: total de pedidos, órdenes pendientes por aprobar, por pagar y pagadas, filtrable por día, semana, mes o rango; en PDF, Excel y WhatsApp"
+          >
+            📆 Cierre diario
           </button>
           {scope !== 'compra_directa' && scope !== 'oc_lote' && scope !== 'servicio_directo' && (
             <>
@@ -864,6 +873,7 @@ export function PedidosPage() {
       {/* Modal: SOLICITUD DE MERCADO (botón independiente · COCINA · urgente · Víveres y Art. de Limpieza) */}
       {porPagarOpen && <PendientesPorPagarModal onClose={() => setPorPagarOpen(false)} />}
       {reporteOpen && <ReporteComprasModal onClose={() => setReporteOpen(false)} />}
+      {cierreOpen && <CierreDiarioModal onClose={() => setCierreOpen(false)} />}
 
       {modal.kind === 'mercado' && (
         <SolicitudMercadoModal
