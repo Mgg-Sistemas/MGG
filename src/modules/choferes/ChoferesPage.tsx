@@ -35,13 +35,15 @@ import { ViajesTab } from './ViajesTab';
 import { ViaticosTab } from './ViaticosTab';
 import { PagosTab } from './PagosTab';
 import { GuiasTab } from './GuiasTab';
+import { NominaViajesTab } from './NominaViajesTab';
 
-type Vista = 'tablero' | 'expediente' | 'viajes' | 'viaticos' | 'pagos' | 'guias' | 'descansos';
+type Vista = 'tablero' | 'expediente' | 'viajes' | 'nomina' | 'viaticos' | 'pagos' | 'guias' | 'descansos';
 
 const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'tablero', label: 'Tablero', icon: '📊' },
   { key: 'expediente', label: 'Expediente y flota', icon: '🪪' },
   { key: 'viajes', label: 'Rutas y viajes', icon: '🗺' },
+  { key: 'nomina', label: 'Nómina de viajes', icon: '📋' },
   { key: 'viaticos', label: 'Viáticos y caja chica', icon: '💵' },
   { key: 'pagos', label: 'Pagos por viaje', icon: '🧾' },
   { key: 'guias', label: 'Guías', icon: '📑' },
@@ -161,6 +163,7 @@ export function ChoferesPage() {
       {vista === 'tablero' && <TableroTab {...props} irA={(v) => setVista(v)} />}
       {vista === 'expediente' && <ExpedienteTab {...props} />}
       {vista === 'viajes' && <ViajesTab {...props} />}
+      {vista === 'nomina' && <NominaViajesTab {...props} />}
       {vista === 'viaticos' && <ViaticosTab {...props} />}
       {vista === 'pagos' && <PagosTab {...props} />}
       {vista === 'guias' && <GuiasTab {...props} />}

@@ -1125,6 +1125,48 @@ export async function sincronizarModalidadesPagoOrdenes(): Promise<{ actualizada
   }
 }
 
+/**
+ * Sincroniza todas las órdenes finalizadas para que su modalidad de pago, condición y estado reflejen
+ * exactamente lo ejecutado y pagado en Tesorería.
+ */
+export async function sincronizarOrdenesFinalizadas(): Promise<{ actualizadas: number }> {
+  try {
+    const { data: finalizadas, error } = await supabase
+      .from(TABLE)
+      .select('id, codigo, oc_codigo, total, oferta_precio_efectivo, oferta_precio_bcv, metodo_pago, pago_en_divisa, modalidad_pago, estado')
+      .in('estado', ['finalizada', 'recibida', 'pagada']);
+    if (error || !finalizadas || !finalizadas.length) return { actualizadas: 0 };
+    let count = 0;
+    for (const ord of finalizadas) {
+      const ef = Number(ord.oferta_precio_efectivo) || 0;
+      const bcv = Number(ord.oferta_precio_bcv) || 0;
+      const tot = Number(ord.total) || 0;
+      let mod: 'usd' | 'bs' = ord.modalidad_pago as 'usd' | 'bs' || 'usd';
+      if (Array.isArray(ord.metodo_pago) && ord.metodo_pago.length) {
+        const tieneBs = ord.metodo_pago.some((m: any) => m.moneda === 'Bs' || m.metodo === 'transferencia' || m.metodo === 'pago_movil');
+        const tieneUsd = ord.metodo_pago.some((m: any) => m.moneda === 'USD' || m.metodo === 'divisas_efectivo' || m.metodo === 'zelle' || m.metodo === 'binance_usdt');
+        if (tieneBs && !tieneUsd) mod = 'bs';
+        else if (tieneUsd && !tieneBs) mod = 'usd';
+      } else if (bcv > 0 && Math.abs(tot - bcv) < 1) {
+        mod = 'bs';
+      } else if (ef > 0 && Math.abs(tot - ef) < 1) {
+        mod = 'usd';
+      }
+      if (ord.modalidad_pago !== mod || ord.pago_en_divisa !== (mod === 'usd')) {
+        await supabase.from(TABLE).update({
+          modalidad_pago: mod,
+          pago_en_divisa: mod === 'usd',
+        }).eq('id', ord.id);
+        count++;
+      }
+    }
+    return { actualizadas: count };
+  } catch {
+    return { actualizadas: 0 };
+  }
+}
+
+
 /* ───────────── OC multi-proveedor (sub-OC por proveedor) ───────────── */
 
 export interface AsignacionProveedor {

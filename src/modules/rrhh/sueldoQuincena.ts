@@ -263,3 +263,144 @@ export function calcularRecibo(d: DatosRecibo): ReciboCalculado {
 export function lineasConMonto(lineas: LineaRecibo[]): LineaRecibo[] {
   return lineas.filter((l) => l.usd !== 0 || (l.dias ?? 0) > 0);
 }
+
+/* ───────── Monedas de pago de RRHH y conversiones ───────── */
+export const MONEDAS_PAGO_RRHH = ['USD', 'Bs', 'COP', 'EUR'] as const;
+export type MonedaPagoRrhh = (typeof MONEDAS_PAGO_RRHH)[number] | 'VES';
+
+export function simboloMoneda(moneda?: string | null): string {
+  switch ((moneda || '').trim().toUpperCase()) {
+    case 'VES':
+    case 'BS': return 'Bs';
+    case 'COP': return 'COP';
+    case 'EUR': return '€';
+    case 'USD':
+    default:
+      return '$';
+  }
+}
+
+export function etiquetaMonedaPago(moneda?: string | null): string {
+  switch ((moneda || '').trim().toUpperCase()) {
+    case 'VES':
+    case 'BS': return 'Bolívares (Bs) al cambio';
+    case 'COP': return 'Pesos Colombianos (COP)';
+    case 'EUR': return 'Euros (€)';
+    case 'USD':
+    default:
+      return 'Divisas ($ USD)';
+  }
+}
+
+export interface ConversionMonedaPago {
+  moneda: string;
+  simbolo: string;
+  monto: number;
+  esOtraMoneda: boolean;
+  tasa: number;
+  equivalenteUsd: number;
+  textoConversion: string;
+}
+
+/**
+ * Calcula el monto a pagar en la moneda elegida y su conversión/equivalente en $ al cambio.
+ */
+export function calcularConversionMoneda(montoUsd: number, moneda?: string | null, tasa?: number | null): ConversionMonedaPago {
+  const usd = round2(Math.max(0, Number(montoUsd) || 0));
+  const m = (moneda || 'USD').trim() || 'USD';
+  const t = Math.max(0, Number(tasa) || 0);
+  const esOtra = m.toUpperCase() !== 'USD';
+
+  if (m.toUpperCase() === 'BS' || m.toUpperCase() === 'VES') {
+    const monto = t > 0 ? aBs(usd, t) : 0;
+    return {
+      moneda: 'Bs',
+      simbolo: 'Bs',
+      monto,
+      esOtraMoneda: true,
+      tasa: t,
+      equivalenteUsd: usd,
+      textoConversion: t > 0 ? `Bs ${monto.toLocaleString('es-VE', { minimumFractionDigits: 2 })} @ tasa ${t.toLocaleString('es-VE', { minimumFractionDigits: 2 })} = $ ${usd.toLocaleString('es-VE', { minimumFractionDigits: 2 })} al cambio` : '$ ' + usd.toLocaleString('es-VE', { minimumFractionDigits: 2 }),
+    };
+  }
+
+  if (m.toUpperCase() === 'COP') {
+    const monto = t > 0 ? round2(usd * t) : 0;
+    return {
+      moneda: 'COP',
+      simbolo: 'COP',
+      monto,
+      esOtraMoneda: true,
+      tasa: t,
+      equivalenteUsd: usd,
+      textoConversion: t > 0 ? `COP ${monto.toLocaleString('es-CO')} @ tasa ${t} = $ ${usd.toLocaleString('es-VE', { minimumFractionDigits: 2 })} al cambio` : '$ ' + usd.toLocaleString('es-VE', { minimumFractionDigits: 2 }),
+    };
+  }
+
+  if (m.toUpperCase() === 'EUR') {
+    const monto = t > 0 ? round2(usd / t) : usd;
+    return {
+      moneda: 'EUR',
+      simbolo: '€',
+      monto,
+      esOtraMoneda: true,
+      tasa: t || 1,
+      equivalenteUsd: usd,
+      textoConversion: `€ ${monto.toLocaleString('es-VE', { minimumFractionDigits: 2 })} = $ ${usd.toLocaleString('es-VE', { minimumFractionDigits: 2 })} al cambio`,
+    };
+  }
+
+  return {
+    moneda: 'USD',
+    simbolo: '$',
+    monto: usd,
+    esOtraMoneda: esOtra,
+    tasa: 1,
+    equivalenteUsd: usd,
+    textoConversion: `$ ${usd.toLocaleString('es-VE', { minimumFractionDigits: 2 })}`,
+  };
+}
+
+/**
+ * Pasa de un monto en otra moneda a su equivalente en USD al cambio.
+ */
+export function convertirMonedaAUsd(montoMoneda: number, moneda?: string | null, tasa?: number | null): { montoUsd: number; tasa: number; explicacion: string } {
+  const m = (moneda || 'USD').trim().toUpperCase();
+  const cant = round2(Math.max(0, Number(montoMoneda) || 0));
+  const t = Math.max(0, Number(tasa) || 0);
+
+  if (m === 'BS' || m === 'VES') {
+    const usd = t > 0 ? aUsd(cant, t) : 0;
+    return {
+      montoUsd: usd,
+      tasa: t,
+      explicacion: t > 0 ? `Bs ${cant.toLocaleString('es-VE', { minimumFractionDigits: 2 })} ÷ ${t.toLocaleString('es-VE', { minimumFractionDigits: 2 })} = $ ${usd.toLocaleString('es-VE', { minimumFractionDigits: 2 })} al cambio` : '$ 0,00',
+    };
+  }
+
+  if (m === 'COP') {
+    const usd = t > 0 ? round2(cant / t) : 0;
+    return {
+      montoUsd: usd,
+      tasa: t,
+      explicacion: t > 0 ? `COP ${cant.toLocaleString('es-CO')} ÷ ${t} = $ ${usd.toLocaleString('es-VE', { minimumFractionDigits: 2 })} al cambio` : '$ 0,00',
+    };
+  }
+
+  if (m === 'EUR') {
+    const factor = t > 0 ? t : 1.08;
+    const usd = round2(cant * factor);
+    return {
+      montoUsd: usd,
+      tasa: factor,
+      explicacion: `€ ${cant.toLocaleString('es-VE', { minimumFractionDigits: 2 })} × ${factor} = $ ${usd.toLocaleString('es-VE', { minimumFractionDigits: 2 })} al cambio`,
+    };
+  }
+
+  return {
+    montoUsd: cant,
+    tasa: 1,
+    explicacion: `$ ${cant.toLocaleString('es-VE', { minimumFractionDigits: 2 })}`,
+  };
+}
+

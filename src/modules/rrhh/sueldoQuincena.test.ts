@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   CONCEPTOS_DEDUCCION, DIAS_QUINCENA, PORCION_SUELDO, aBs, aUsd, calcularRecibo,
   lineasConMonto, repartirQuincena, repartirSueldo, sueldoDiario,
+  calcularConversionMoneda, convertirMonedaAUsd, MONEDAS_PAGO_RRHH,
 } from './sueldoQuincena';
 
 /* Los números de referencia salen de la planilla real de la 1ª quincena de
@@ -228,3 +229,41 @@ describe('el recibo completo', () => {
     expect(vistos).toEqual(['Días trabajados', 'Días de descanso']);
   });
 });
+
+describe('conversiones multimoneda en RRHH', () => {
+  it('convierte monto en Bs a USD al cambio correctamente', () => {
+    const res = convertirMonedaAUsd(3920, 'Bs', 78.4);
+    expect(res.montoUsd).toBe(50);
+    expect(res.tasa).toBe(78.4);
+    expect(res.explicacion).toContain('$ 50,00 al cambio');
+  });
+
+  it('calcula conversión de USD a Bs al cambio', () => {
+    const conv = calcularConversionMoneda(50, 'Bs', 78.4);
+    expect(conv.moneda).toBe('Bs');
+    expect(conv.monto).toBe(3920);
+    expect(conv.equivalenteUsd).toBe(50);
+    expect(conv.esOtraMoneda).toBe(true);
+  });
+
+  it('calcula conversión de COP a USD y viceversa', () => {
+    const aUsd = convertirMonedaAUsd(200000, 'COP', 4000);
+    expect(aUsd.montoUsd).toBe(50);
+
+    const aCop = calcularConversionMoneda(50, 'COP', 4000);
+    expect(aCop.monto).toBe(200000);
+    expect(aCop.moneda).toBe('COP');
+  });
+
+  it('mantiene USD sin alteraciones', () => {
+    const conv = calcularConversionMoneda(100, 'USD', 78.4);
+    expect(conv.moneda).toBe('USD');
+    expect(conv.monto).toBe(100);
+    expect(conv.esOtraMoneda).toBe(false);
+  });
+
+  it('lista las monedas soportadas en RRHH', () => {
+    expect(MONEDAS_PAGO_RRHH).toEqual(['USD', 'Bs', 'COP', 'EUR']);
+  });
+});
+

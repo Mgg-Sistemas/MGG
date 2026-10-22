@@ -29,8 +29,10 @@ import { money, date as fmtDate } from '@/shared/lib/format';
 import { listadoFlotaPdf } from '@/modules/maquinaria/flotaPdf';
 import { listadoFlotaExcel } from '@/modules/maquinaria/flotaExcel';
 import {
-  ESTADO_VIAJE, TIPO_VIAJE, alertasDocumentos, errorViajeRealizado, progresoParadas, textoRuta,
-  tarifaTotalViaje, totalViajes, horasDiaVolqueta, errorViajesVolqueta, cantidadViajes, datosConductor, type EstadoViaje, type Parada, type TipoViaje,
+  ESTADO_VIAJE, TIPO_VIAJE, CATEGORIAS_VIAJE, categoriaDeViaje, tarifaSugeridaCategoria, viajeEstaPagado,
+  alertasDocumentos, errorViajeRealizado, progresoParadas, textoRuta,
+  tarifaTotalViaje, totalViajes, horasDiaVolqueta, errorViajesVolqueta, cantidadViajes, datosConductor,
+  type EstadoViaje, type Parada, type TipoViaje, type CategoriaViaje,
 } from './choferes';
 import {
   cancelarViaje, crearViaje, editarViaje, eliminarViaje, finalizarViaje, guardarParadas, iniciarViaje,
@@ -132,11 +134,13 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
         : (
           <div className="table-wrap card" style={{ padding: 0 }}>
             <table className="table" style={{ fontSize: '.85rem' }}>
-              <thead><tr><th>N°</th><th>Salida</th><th>Chofer</th><th>Ruta</th><th>Vehículo</th><th>Paradas</th><th style={{ textAlign: 'right' }}>Viajes</th><th style={{ textAlign: 'right' }}>Tarifa</th><th>Estado</th><th></th></tr></thead>
+              <thead><tr><th>N°</th><th>Salida</th><th>Chofer</th><th>Ruta</th><th>Vehículo</th><th>Categoría</th><th>Paradas</th><th style={{ textAlign: 'right' }}>Viajes</th><th style={{ textAlign: 'right' }}>Tarifa</th><th>Estado</th><th></th></tr></thead>
               <tbody>
                 {filas.map((v) => {
                   const e = ESTADO_VIAJE[v.estado];
                   const pr = progresoParadas(v.paradas);
+                  const cat = categoriaDeViaje(v);
+                  const pagado = viajeEstaPagado(v);
                   return (
                     <tr key={v.id}>
                       <td className="mono">{v.numero}{v.tipo_viaje === 'volqueta' && <div className="muted" style={{ fontSize: '.7rem' }}>🚜 Volqueta</div>}</td>
@@ -144,6 +148,18 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
                       <td>{nombreConductor(porId.get(v.chofer_id))}</td>
                       <td>{textoRuta(v)}{v.carga ? <div className="muted" style={{ fontSize: '.75rem' }}>{v.carga}</div> : null}</td>
                       <td style={{ fontSize: '.8rem' }}>{textoVehiculo(vehPorId.get(v.vehiculo_id ?? ''))}</td>
+                      <td style={{ fontSize: '.78rem' }}>
+                        <span className="badge" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>{cat}</span>
+                        {pagado ? (
+                          <div style={{ fontSize: '.7rem', marginTop: 2, color: 'var(--success)', fontWeight: 600 }}>
+                            ✅ Pagado {v.pagado_at ? `(${v.pagado_at.slice(0, 10)})` : ''}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '.7rem', marginTop: 2 }} className="muted">
+                            ⏳ Pendiente pago
+                          </div>
+                        )}
+                      </td>
                       <td className="mono">{pr.total ? `${pr.hechas}/${pr.total}` : '—'}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{v.viajes}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>{money(tarifaTotalViaje(v))}{v.viajes > 1 ? <div className="muted" style={{ fontSize: '.7rem' }}>{money(v.tarifa_usd)} × {v.viajes}</div> : null}</td>
@@ -219,6 +235,7 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
   const [kmLlegada, setKmLlegada] = useState<number | null>(inicial?.km_llegada ?? null);
   // Camión o volqueta (14-10-2026) y cuántos viajes trae la orden.
   const [tipoV, setTipoV] = useState<TipoViaje>(inicial?.tipo_viaje ?? 'camion');
+  const [categoria, setCategoria] = useState<CategoriaViaje>(categoriaDeViaje(inicial));
   const [nViajes, setNViajes] = useState<number | null>(inicial?.viajes ?? 1);
   const [fechaDia, setFechaDia] = useState((inicial ? aDatetimeLocal(inicial.salida_real_at ?? inicial.fecha_salida) : ahoraLocal()).slice(0, 10));
   const volq = tipoV === 'volqueta';
@@ -226,6 +243,13 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
     setTipoV(t);
     // Un día de volqueta casi siempre se carga ya realizado (la hoja se llena al final del día).
     if (t === 'volqueta' && !inicial) setRealizado(true);
+  }
+  function elegirCategoria(c: CategoriaViaje) {
+    setCategoria(c);
+    const sugerida = tarifaSugeridaCategoria(c);
+    if (sugerida > 0 && (tarifa == null || tarifa === 0)) {
+      setTarifa(sugerida);
+    }
   }
 
   const chofer = conductores.find((c) => c.id === choferId) ?? null;
@@ -278,7 +302,7 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
     const input: ViajeInput = {
       chofer_id: choferId, vehiculo_id: vehiculoId || null, origen, destino, paradas: volq ? [] : paradas, carga,
       fecha_salida: salidaF, llegada_prevista: volq ? null : (llegada || null), tarifa_usd: tarifa ?? 0, nota,
-      tipo_viaje: tipoV, viajes: cantidadViajes(nViajes),
+      tipo_viaje: tipoV, categoria_viaje: categoria, viajes: cantidadViajes(nViajes),
       realizado: realizado ? { salida_real_at: salidaF, llegada_real_at: llegadaRealF, km_salida: volq ? null : kmSalida, km_llegada: volq ? null : kmLlegada } : null,
     };
     if (realizado && !volq) {
@@ -355,6 +379,14 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
           <div className="form-row"><label htmlFor="vj-viajes">{volq ? 'Viajes del día' : 'Viajes'}</label>
             <input id="vj-viajes" className="input mono" type="number" min={1} step={1} inputMode="numeric" value={nViajes ?? ''} onChange={(e) => setNViajes(e.target.value === '' ? null : Number(e.target.value))} required />
             <span className="muted" style={{ fontSize: '.75rem' }}>{volq ? 'Cuántos viajes hizo ese día (02, 25, 21…).' : 'Normalmente 1; si fue ida y vuelta varias veces, pon cuántas.'}</span></div>
+          <div className="form-row"><label htmlFor="vj-cat">Categoría de viaje (Monto / Formato)</label>
+            <select id="vj-cat" className="select" value={categoria} onChange={(e) => elegirCategoria(e.target.value as CategoriaViaje)}>
+              {CATEGORIAS_VIAJE.map((c) => (
+                <option key={c.key} value={c.key}>{c.label} (sug. ${c.tarifaSugerida})</option>
+              ))}
+            </select>
+            <span className="muted" style={{ fontSize: '.75rem' }}>Clasifica según el tabulador: VIAJE CORTO, VIAJE LARGO o VIAJE INTERNO.</span>
+          </div>
           <div className="form-row"><label>Tarifa por viaje ($)</label>
             <DecimalInput className="input" value={tarifa} onChange={setTarifa} placeholder="0,00" aria-label="Tarifa por viaje en dólares" />
             <span className="muted" style={{ fontSize: '.75rem' }}>Por viaje{chofer ? ` (su tarifa base: ${money(chofer.tarifa_viaje_usd)})` : ''}{cantidadViajes(nViajes) > 1 ? ` · total ${money((tarifa ?? 0) * cantidadViajes(nViajes))}` : ''}.</span></div>
@@ -411,6 +443,8 @@ function DetalleViajeModal({ viaje: v, conductor, vehiculo, canWrite, onClose, o
       <div className="form-grid" style={{ fontSize: '.88rem' }}>
         <div><span className="muted">Estado</span><div><span className={`badge ${e.clase}`}>{e.icon} {e.label}</span></div></div>
         <div><span className="muted">Tipo · viajes</span><div>{TIPO_VIAJE[v.tipo_viaje].icon} {TIPO_VIAJE[v.tipo_viaje].label} · <span className="mono">{v.viajes}</span> viaje{v.viajes === 1 ? '' : 's'}</div></div>
+        <div><span className="muted">Categoría</span><div><span className="badge" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>{categoriaDeViaje(v)}</span></div></div>
+        <div><span className="muted">Nómina viajes</span><div>{viajeEstaPagado(v) ? <span style={{ color: 'var(--success)', fontWeight: 600 }}>✅ Pagado {v.pagado_at ? `(${v.pagado_at.slice(0, 10)})` : ''}</span> : <span className="muted">⏳ Pendiente de pago</span>}</div></div>
         <div><span className="muted">Chofer</span><div><strong>{nombreConductor(conductor)}</strong></div></div>
         <div><span className="muted">Vehículo</span><div>{textoVehiculo(vehiculo)}</div></div>
         <div><span className="muted">Carga</span><div>{v.carga ?? '—'}</div></div>

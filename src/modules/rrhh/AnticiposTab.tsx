@@ -39,11 +39,15 @@ import {
   type DeudaTrabajador, type FiltroPrestamos,
 } from './prestamos';
 
+import { getTasaHoy } from '../tesoreria/tasas.repository';
+import { MONEDAS_PAGO_RRHH, simboloMoneda, etiquetaMonedaPago, convertirMonedaAUsd, type MonedaPagoRrhh } from './sueldoQuincena';
+import { verReciboPrestamoPdf } from './prestamosPdf';
+
 const hoyIso = () => new Date().toISOString().slice(0, 10);
 
 const VACIO = (): AnticipoInput => ({
   personal_id: '', tipo: 'anticipo', monto_total: 0, cuota_sugerida: null, motivo: '',
-  fecha: hoyIso(), ya_pagado: null,
+  fecha: hoyIso(), ya_pagado: null, moneda: 'USD', monto_original: null, tasa_cambio: null,
 });
 
 export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DEFECTO }: {
@@ -64,6 +68,16 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
   const [detalle, setDetalle] = useState<AnticipoPrestamo | null>(null);
   const [cuentaDe, setCuentaDe] = useState<string | null>(null);
   const [porBorrar, setPorBorrar] = useState<AnticipoPrestamo | null>(null);
+  const [tasaBcv, setTasaBcv] = useState<number | null>(null);
+  const [monedaForm, setMonedaForm] = useState<MonedaPagoRrhh>('USD');
+  const [montoMonedaForm, setMontoMonedaForm] = useState<number | null>(null);
+  const [tasaCambioForm, setTasaCambioForm] = useState<number | null>(null);
+
+  useEffect(() => {
+    void getTasaHoy().then((t) => {
+      if (t.usd) setTasaBcv(t.usd);
+    }).catch(() => null);
+  }, []);
 
   const prestamoActivoExistente = useMemo(() => {
     if (!form.personal_id) return null;
@@ -121,13 +135,30 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!form.personal_id) { setError('Elegí el trabajador.'); return; }
-    if (!(Number(form.monto_total) > 0)) { setError('Indicá el monto.'); return; }
-    if ((form.ya_pagado ?? 0) > Number(form.monto_total)) { setError('Lo ya pagado no puede superar el monto del préstamo.'); return; }
+    let montoTotalUsd = Number(form.monto_total) || 0;
+    if (monedaForm !== 'USD') {
+      const orig = Number(montoMonedaForm) || 0;
+      if (orig <= 0) { setError(`Indicá el monto a entregar en ${etiquetaMonedaPago(monedaForm)}.`); return; }
+      const tasa = Number(tasaCambioForm) || (monedaForm === 'Bs' || monedaForm === 'VES' ? tasaBcv : null);
+      if (!tasa || tasa <= 0) { setError('Indicá una tasa de cambio válida para la conversión.'); return; }
+      montoTotalUsd = convertirMonedaAUsd(orig, monedaForm, tasa).montoUsd;
+    }
+    if (!(montoTotalUsd > 0)) { setError('Indicá el monto.'); return; }
+    if ((form.ya_pagado ?? 0) > montoTotalUsd) { setError('Lo ya pagado no puede superar el monto del préstamo.'); return; }
     setGuardando(true);
     try {
-      await crearAnticipo(form, actor, actorName);
-      toast('Registrado', 'success');
-      setForm(VACIO()); setAbrirForm(false);
+      const inputCompleto: AnticipoInput = {
+        ...form,
+        monto_total: montoTotalUsd,
+        moneda: monedaForm,
+        monto_original: monedaForm === 'USD' ? montoTotalUsd : montoMonedaForm,
+        tasa_cambio: monedaForm === 'USD' ? null : (tasaCambioForm || (monedaForm === 'Bs' || monedaForm === 'VES' ? tasaBcv : null)),
+      };
+      await crearAnticipo(inputCompleto, actor, actorName);
+      toast('Registrado con éxito', 'success');
+      setForm(VACIO());
+      setMonedaForm('USD'); setMontoMonedaForm(null); setTasaCambioForm(null);
+      setAbrirForm(false);
       await recargar();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); }
     finally { setGuardando(false); }
@@ -332,6 +363,23 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
                     </span>
                   </td>
                   <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => {
+                      const p = personaPorId.get(a.personal_id);
+                      if (p) {
+                        void verReciboPrestamoPdf({
+                          tipo: 'entrega',
+                          persona: p,
+                          prestamo: a,
+                          montoUsd: Number(a.monto_total) || 0,
+                          fecha: fechaDePrestamo(a),
+                          moneda: a.moneda,
+                          montoOriginal: a.monto_original,
+                          tasaCambio: a.tasa_cambio,
+                          motivo: a.motivo,
+                          saldoRestante: Number(a.saldo) || 0,
+                        });
+                      }
+                    }} title="Imprimir recibo / comprobante de entrega en PDF">📄 Recibo</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => setDetalle(a)} title="Abonos y detalle">💵 Abonos</button>
                     {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(a)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>}
                   </td>
@@ -384,6 +432,18 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
                 </select>
               </div>
               <div className="form-row">
+                <label>Moneda de entrega</label>
+                <select className="select" value={monedaForm} onChange={(e) => {
+                  const m = e.target.value as MonedaPagoRrhh;
+                  setMonedaForm(m);
+                  if ((m === 'Bs' || m === 'VES') && tasaBcv && !tasaCambioForm) setTasaCambioForm(tasaBcv);
+                }}>
+                  {MONEDAS_PAGO_RRHH.map((m) => (
+                    <option key={m} value={m}>{etiquetaMonedaPago(m)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-row">
                 <label>Fecha en que se dio</label>
                 <input className="input" type="date" max={hoyIso()} value={form.fecha ?? hoyIso()}
                   onChange={(e) => setForm((f) => ({ ...f, fecha: e.target.value }))} />
@@ -393,11 +453,44 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
                     : 'Poné una fecha anterior para cargar un préstamo viejo.'}
                 </small>
               </div>
-              <div className="form-row">
-                <label>Monto total (USD)</label>
-                <input className="input mono" type="number" min={0} step="any" value={form.monto_total || ''} required
-                  onChange={(e) => setForm((f) => ({ ...f, monto_total: Number(e.target.value) || 0 }))} placeholder="0,00" />
-              </div>
+              {monedaForm === 'USD' ? (
+                <div className="form-row">
+                  <label>Monto total (USD)</label>
+                  <input className="input mono" type="number" min={0} step="any" value={form.monto_total || ''} required
+                    onChange={(e) => setForm((f) => ({ ...f, monto_total: Number(e.target.value) || 0 }))} placeholder="0,00" />
+                </div>
+              ) : (
+                <>
+                  <div className="form-row">
+                    <label>Monto a entregar ({simboloMoneda(monedaForm)})</label>
+                    <input className="input mono" type="number" min={0} step="any" value={montoMonedaForm ?? ''} required
+                      onChange={(e) => setMontoMonedaForm(e.target.value === '' ? null : Number(e.target.value))} placeholder="0,00" />
+                  </div>
+                  <div className="form-row">
+                    <label>Tasa de cambio ({simboloMoneda(monedaForm)} por $)</label>
+                    <input className="input mono" type="number" min={0} step="any" value={tasaCambioForm ?? ''} required
+                      onChange={(e) => setTasaCambioForm(e.target.value === '' ? null : Number(e.target.value))} placeholder={(monedaForm === 'Bs' || monedaForm === 'VES') && tasaBcv ? String(tasaBcv) : '0,00'} />
+                    {(monedaForm === 'Bs' || monedaForm === 'VES') && tasaBcv && (
+                      <small className="hint muted">Tasa sugerida hoy: {tasaBcv.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$</small>
+                    )}
+                  </div>
+                  <div className="card" style={{ gridColumn: '1 / -1', background: 'rgba(40, 150, 90, 0.08)', borderLeft: '4px solid var(--success)', padding: '.6rem .8rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
+                      <div>
+                        <span style={{ fontSize: '.75rem', textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--success)', fontWeight: 700 }}>
+                          Conversión en $ al cambio:
+                        </span>
+                        <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--success)' }}>
+                          $ {convertirMonedaAUsd(montoMonedaForm || 0, monedaForm, tasaCambioForm || ((monedaForm === 'Bs' || monedaForm === 'VES') ? tasaBcv : null)).montoUsd.toFixed(2)} USD
+                        </div>
+                      </div>
+                      <div className="muted" style={{ fontSize: '.8rem', textAlign: 'right' }}>
+                        {montoMonedaForm ? `${simboloMoneda(monedaForm)} ${Number(montoMonedaForm).toLocaleString('es-VE', { minimumFractionDigits: 2 })}` : '0,00'} @ {tasaCambioForm || ((monedaForm === 'Bs' || monedaForm === 'VES') ? tasaBcv : '—')}
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
               <div className="form-row">
                 <label>Ya pagado a la fecha (opcional)</label>
                 <input className="input mono" type="number" min={0} step="any" value={form.ya_pagado ?? ''}
@@ -458,8 +551,10 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
       {detalle && (
         <AbonosModal
           prestamo={detalle}
+          persona={personaPorId.get(detalle.personal_id)}
           pagos={pagosDe.get(detalle.id) ?? []}
           nombre={nombreDe(detalle.personal_id)}
+          tasaBcv={tasaBcv}
           canWrite={canWrite} actor={actor} actorName={actorName}
           onClose={() => setDetalle(null)}
           onCambio={() => void recargar()}
@@ -600,14 +695,19 @@ function ListaTrabajadores({ deudas, personaPorId, onPersona }: {
 }
 
 /** Los abonos de UN préstamo: los que hay, y el formulario para cargar otro. */
-function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onClose, onCambio }: {
+function AbonosModal({ prestamo, pagos, nombre, persona, tasaBcv, canWrite, actor, actorName, onClose, onCambio }: {
   prestamo: AnticipoPrestamo;
   pagos: PagoAnticipo[];
   nombre: string;
+  persona?: Personal | null;
+  tasaBcv?: number | null;
   canWrite: boolean; actor: string; actorName: string | null;
   onClose: () => void; onCambio: () => void;
 }) {
   const [monto, setMonto] = useState('');
+  const [monedaAbono, setMonedaAbono] = useState<MonedaPagoRrhh>('USD');
+  const [montoMonedaAbono, setMontoMonedaAbono] = useState('');
+  const [tasaAbono, setTasaAbono] = useState('');
   const [fecha, setFecha] = useState(hoyIso());
   const [nota, setNota] = useState('');
   const [busy, setBusy] = useState(false);
@@ -627,6 +727,42 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
   const pagado = pagos.reduce((a, p) => a + (Number(p.monto) || 0), 0);
   const debe = Number(prestamo.saldo) || 0;
   const entregas = useMemo(() => obtenerEntregas(prestamo), [prestamo]);
+
+  async function imprimirReciboEntrega() {
+    if (!persona) return;
+    try {
+      await verReciboPrestamoPdf({
+        tipo: 'entrega',
+        persona,
+        prestamo,
+        montoUsd: Number(prestamo.monto_total) || 0,
+        fecha: fechaDePrestamo(prestamo),
+        moneda: prestamo.moneda,
+        montoOriginal: prestamo.monto_original,
+        tasaCambio: prestamo.tasa_cambio,
+        motivo: prestamo.motivo,
+        saldoRestante: Number(prestamo.saldo) || 0,
+      });
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el recibo', 'error'); }
+  }
+
+  async function imprimirReciboAbono(p: PagoAnticipo) {
+    if (!persona) return;
+    try {
+      await verReciboPrestamoPdf({
+        tipo: 'abono',
+        persona,
+        prestamo,
+        montoUsd: Number(p.monto) || 0,
+        fecha: p.fecha,
+        moneda: p.moneda,
+        montoOriginal: p.monto_original,
+        tasaCambio: p.tasa_cambio,
+        motivo: p.nota,
+        saldoRestante: Math.max(0, (Number(prestamo.saldo) || 0) - (Number(p.monto) || 0)),
+      });
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el recibo', 'error'); }
+  }
 
   function iniciarEdicionPago(p: PagoAnticipo) {
     setEditandoPago(p);
@@ -683,17 +819,30 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
 
   async function agregar(e: FormEvent) {
     e.preventDefault();
-    const malo = errorPago(monto, debe, fecha);
+    let montoUsd = Number(monto) || 0;
+    if (monedaAbono !== 'USD') {
+      const orig = Number(montoMonedaAbono) || 0;
+      if (orig <= 0) { setErr(`Indicá el monto del abono en ${etiquetaMonedaPago(monedaAbono)}.`); return; }
+      const tasa = Number(tasaAbono) || (monedaAbono === 'VES' ? tasaBcv : null);
+      if (!tasa || tasa <= 0) { setErr('Indicá una tasa de cambio válida para la conversión.'); return; }
+      montoUsd = convertirMonedaAUsd(orig, monedaAbono, tasa).montoUsd;
+    }
+    const malo = errorPago(montoUsd, debe, fecha);
     if (malo) { setErr(malo); return; }
     setBusy(true); setErr(null);
     try {
       await agregarPagoAnticipo({
-        anticipo_id: prestamo.id, monto: Number(monto), fecha,
+        anticipo_id: prestamo.id,
+        monto: montoUsd,
+        fecha,
         origen: fecha < hoyIso() ? 'historico' : 'manual',
         nota,
+        moneda: monedaAbono,
+        monto_original: monedaAbono === 'USD' ? montoUsd : Number(montoMonedaAbono),
+        tasa_cambio: monedaAbono === 'USD' ? null : (Number(tasaAbono) || (monedaAbono === 'VES' ? tasaBcv : null)),
       }, actor, actorName);
-      setMonto(''); setNota(''); setFecha(hoyIso());
-      toast('Abono cargado', 'success');
+      setMonto(''); setMontoMonedaAbono(''); setTasaAbono(''); setNota(''); setFecha(hoyIso());
+      toast('Abono cargado con éxito', 'success');
       onCambio();
     } catch (e2) { setErr(e2 instanceof Error ? e2.message : 'No se pudo cargar el abono'); }
     finally { setBusy(false); }
@@ -715,9 +864,16 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
             total {money(prestamo.monto_total)} · pagado <span style={{ color: 'var(--success)' }}>{money(pagado)}</span> ·{' '}
             debe <strong style={{ color: debe > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(debe)}</strong>
           </div>
-          {canWrite && !editando && (
-            <button className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => setEditando(true)}>✎ Corregir</button>
-          )}
+          <div style={{ marginLeft: 'auto', display: 'flex', gap: '.35rem' }}>
+            {persona && (
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => void imprimirReciboEntrega()} title="Imprimir recibo / comprobante de entrega en PDF">
+                📄 Recibo entrega
+              </button>
+            )}
+            {canWrite && !editando && (
+              <button className="btn btn-sm btn-ghost" onClick={() => setEditando(true)}>✎ Corregir</button>
+            )}
+          </div>
         </div>
         {prestamo.motivo && !editando && <div className="muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>{entregas[0]?.motivo || prestamo.motivo}</div>}
 
@@ -780,20 +936,52 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
       {canWrite && debe > 0 && (
         <form onSubmit={agregar} style={{ marginBottom: '.8rem' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'flex-end' }}>
-            <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
-              <label>Monto del abono</label>
-              <input className="input mono" type="number" min={0} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0,00" required />
+            <div className="form-row" style={{ flex: '0 1 130px', margin: 0 }}>
+              <label>Moneda</label>
+              <select className="select" value={monedaAbono} onChange={(e) => {
+                const m = e.target.value as MonedaPagoRrhh;
+                setMonedaAbono(m);
+                if (m === 'VES' && tasaBcv && !tasaAbono) setTasaAbono(String(tasaBcv));
+              }}>
+                {MONEDAS_PAGO_RRHH.map((m) => (
+                  <option key={m} value={m}>{etiquetaMonedaPago(m)}</option>
+                ))}
+              </select>
             </div>
-            <div className="form-row" style={{ flex: '0 1 160px', margin: 0 }}>
+            {monedaAbono === 'USD' ? (
+              <div className="form-row" style={{ flex: '0 1 140px', margin: 0 }}>
+                <label>Monto (USD)</label>
+                <input className="input mono" type="number" min={0} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0,00" required />
+              </div>
+            ) : (
+              <>
+                <div className="form-row" style={{ flex: '0 1 140px', margin: 0 }}>
+                  <label>Monto ({simboloMoneda(monedaAbono)})</label>
+                  <input className="input mono" type="number" min={0} step="any" value={montoMonedaAbono} onChange={(e) => setMontoMonedaAbono(e.target.value)} placeholder="0,00" required />
+                </div>
+                <div className="form-row" style={{ flex: '0 1 120px', margin: 0 }}>
+                  <label>Tasa ({simboloMoneda(monedaAbono)}/$)</label>
+                  <input className="input mono" type="number" min={0} step="any" value={tasaAbono} onChange={(e) => setTasaAbono(e.target.value)} placeholder={monedaAbono === 'VES' && tasaBcv ? String(tasaBcv) : '0,00'} required />
+                </div>
+              </>
+            )}
+            <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
               <label>Fecha</label>
               <input className="input" type="date" max={hoyIso()} value={fecha} onChange={(e) => setFecha(e.target.value)} />
             </div>
-            <div className="form-row" style={{ flex: '1 1 220px', margin: 0 }}>
+            <div className="form-row" style={{ flex: '1 1 200px', margin: 0 }}>
               <label>Nota (opcional)</label>
               <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Efectivo, transferencia…" />
             </div>
             <button type="submit" className="btn btn-primary" disabled={busy}>{busy ? '…' : '+ Abonar'}</button>
           </div>
+          {monedaAbono !== 'USD' && (
+            <div className="card" style={{ marginTop: '.4rem', background: 'rgba(40, 150, 90, 0.08)', borderLeft: '4px solid var(--success)', padding: '.45rem .65rem' }}>
+              <span style={{ fontSize: '.78rem', fontWeight: 600, color: 'var(--success)' }}>
+                Conversión en $ al cambio: <strong>$ {convertirMonedaAUsd(Number(montoMonedaAbono) || 0, monedaAbono, Number(tasaAbono) || (monedaAbono === 'VES' ? tasaBcv : null)).montoUsd.toFixed(2)} USD</strong> (Máximo a deber: {money(debe)})
+              </span>
+            </div>
+          )}
           <small className="hint muted">Con una fecha anterior queda marcado como carga histórica. Máximo {money(debe)}.</small>
         </form>
       )}
@@ -854,19 +1042,31 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
                 <td className="mono muted">{date(p.fecha)}</td>
                 <td><span className="badge">{labelOrigen(p.origen)}</span></td>
                 <td className="muted">{p.nota || '—'}</td>
-                <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(p.monto)}</td>
+                <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>
+                  {money(p.monto)}
+                  {p.moneda && p.moneda !== 'USD' && p.monto_original ? (
+                    <div className="muted" style={{ fontSize: '.72rem' }}>
+                      {p.moneda} {Number(p.monto_original).toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+                    </div>
+                  ) : null}
+                </td>
                 <td className="muted" style={{ fontSize: '.76rem' }}>
                   {dateTime(p.created_at)}
                   {(p.actor_name || p.actor) && <div style={{ fontWeight: 600 }}>{p.actor_name || p.actor}</div>}
                 </td>
-                {canWrite && (
-                  <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                    <button className="btn btn-sm btn-ghost" onClick={() => iniciarEdicionPago(p)} title="Editar movimiento (monto, fecha, origen, nota)" style={{ marginRight: '.25rem' }}>✏</button>
-                    {p.origen === 'nomina'
-                      ? <span className="muted" title="Se revierte anulando el pago de la nómina" style={{ fontSize: '.78rem', marginLeft: '.3rem' }}>de nómina</span>
-                      : <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setPorBorrar(p)} title="Borrar abono">🗑</button>}
-                  </td>
-                )}
+                <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                  {persona && (
+                    <button type="button" className="btn btn-sm btn-ghost" onClick={() => void imprimirReciboAbono(p)} title="Ver recibo de pago / abono en PDF" style={{ marginRight: '.25rem' }}>📄</button>
+                  )}
+                  {canWrite && (
+                    <>
+                      <button className="btn btn-sm btn-ghost" onClick={() => iniciarEdicionPago(p)} title="Editar movimiento (monto, fecha, origen, nota)" style={{ marginRight: '.25rem' }}>✏</button>
+                      {p.origen === 'nomina'
+                        ? <span className="muted" title="Se revierte anulando el pago de la nómina" style={{ fontSize: '.78rem', marginLeft: '.3rem' }}>de nómina</span>
+                        : <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setPorBorrar(p)} title="Borrar abono">🗑</button>}
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -938,6 +1138,18 @@ function EstadoCuentaModal({ persona, prestamos, pagos, rango, onAbrirPrestamo, 
               {money(r.prestamo.monto_total)} · pagado <span style={{ color: 'var(--success)' }}>{money(r.pagado)}</span> ·{' '}
               debe <strong style={{ color: r.debe > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(r.debe)}</strong>
             </span>
+            <button className="btn btn-sm btn-ghost" onClick={() => void verReciboPrestamoPdf({
+              tipo: 'entrega',
+              persona,
+              prestamo: r.prestamo,
+              montoUsd: Number(r.prestamo.monto_total) || 0,
+              fecha: fechaDePrestamo(r.prestamo),
+              moneda: r.prestamo.moneda,
+              montoOriginal: r.prestamo.monto_original,
+              tasaCambio: r.prestamo.tasa_cambio,
+              motivo: r.prestamo.motivo,
+              saldoRestante: Number(r.debe) || 0,
+            })} title="Imprimir recibo / comprobante de entrega en PDF">📄 Recibo</button>
             <button className="btn btn-sm btn-ghost" onClick={() => onAbrirPrestamo(r.prestamo as AnticipoPrestamo)}>💵 Abonos</button>
           </div>
           {(() => {

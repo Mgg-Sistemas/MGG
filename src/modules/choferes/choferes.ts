@@ -322,6 +322,75 @@ export function errorViajesVolqueta(viajes: number | null | undefined, material:
   return null;
 }
 
+/* ───────── Categorías de viaje y nómina de viajes (planilla) ───────── */
+export const CATEGORIAS_VIAJE = [
+  { key: 'VIAJE CORTO', label: 'Viaje corto', tarifaSugerida: 25 },
+  { key: 'VIAJE LARGO', label: 'Viaje largo', tarifaSugerida: 50 },
+  { key: 'VIAJE INTERNO', label: 'Viaje interno', tarifaSugerida: 1 },
+] as const;
+
+export type CategoriaViaje = (typeof CATEGORIAS_VIAJE)[number]['key'];
+
+export function tarifaSugeridaCategoria(cat: string): number {
+  const c = (cat || '').trim().toUpperCase();
+  if (c.includes('INTERNO')) return 1;
+  if (c.includes('LARGO')) return 50;
+  if (c.includes('CORTO')) return 25;
+  return 0;
+}
+
+/**
+ * Obtiene la categoría de un viaje: la guardada explícitamente o inferida de origen/destino/nota.
+ */
+export function categoriaDeViaje(
+  v?: { categoria_viaje?: string | null; nota?: string | null; origen?: string | null; destino?: string | null; tarifa_usd?: number | null } | null,
+): CategoriaViaje {
+  if (!v) return 'VIAJE CORTO';
+  const cv = (v.categoria_viaje ?? '').trim().toUpperCase();
+  if (cv === 'VIAJE CORTO' || cv === 'VIAJE LARGO' || cv === 'VIAJE INTERNO') return cv as CategoriaViaje;
+  const match = (v.nota ?? '').match(/\[CAT:\s*([^\]]+)\]/i);
+  if (match) {
+    const m = match[1].trim().toUpperCase();
+    if (m === 'VIAJE CORTO' || m === 'VIAJE LARGO' || m === 'VIAJE INTERNO') return m as CategoriaViaje;
+  }
+  const texto = `${v.origen ?? ''} ${v.destino ?? ''} ${v.nota ?? ''}`.toUpperCase();
+  if (texto.includes('INTERNO')) return 'VIAJE INTERNO';
+  const tarifa = Number(v.tarifa_usd) || 0;
+  if (tarifa >= 50) return 'VIAJE LARGO';
+  return 'VIAJE CORTO';
+}
+
+/**
+ * Obtiene información detallada de pago de un viaje.
+ */
+export function infoPagoViaje(
+  v: { pago_id?: string | null; pagado_at?: string | null; nota?: string | null },
+  pagoMap?: Map<string, { pagado_at?: string | null; created_at: string }>,
+): { pagado: boolean; fechaPago: string | null } {
+  if (v.pago_id) {
+    const p = pagoMap?.get(v.pago_id);
+    return { pagado: true, fechaPago: p?.pagado_at ?? p?.created_at ?? null };
+  }
+  if (v.pagado_at) {
+    return { pagado: true, fechaPago: v.pagado_at };
+  }
+  const match = (v.nota ?? '').match(/\[PAGADO:\s*([^\]]+)\]/i);
+  if (match) {
+    return { pagado: true, fechaPago: match[1].trim() };
+  }
+  return { pagado: false, fechaPago: null };
+}
+
+/**
+ * Determina si un viaje está pagado.
+ */
+export function viajeEstaPagado(
+  v: { pago_id?: string | null; pagado_at?: string | null; nota?: string | null },
+  pagoMap?: Map<string, { pagado_at?: string | null; created_at: string }>,
+): boolean {
+  return infoPagoViaje(v, pagoMap).pagado;
+}
+
 /* ───────── Chofer externo (14-10-2026) ─────────
    Un conductor puede no estar en nómina (pago externo por viaje): su expediente
    lleva nombre, apellido, cédula y teléfono propios, sin ficha de RRHH. */

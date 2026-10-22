@@ -1240,6 +1240,12 @@ export interface AnticipoPrestamo {
    * rango y el estado de cuenta van por esta, no por la de carga.
    */
   fecha?: string | null;
+  /** Moneda en que se entregó el préstamo ('USD', 'Bs', 'COP', 'EUR'). */
+  moneda?: string | null;
+  /** Monto en la moneda original (si fue en otra moneda). */
+  monto_original?: number | null;
+  /** Tasa de cambio aplicada al momento de entregar. */
+  tasa_cambio?: number | null;
   creado_por?: string | null;
   actor_name?: string | null;
   created_at: string;
@@ -1257,6 +1263,12 @@ export interface PagoAnticipo {
   anticipo_id: string;
   fecha: string;
   monto: number;
+  /** Moneda del abono ('USD', 'Bs', 'COP', 'EUR'). */
+  moneda?: string | null;
+  /** Monto en la moneda original abonada. */
+  monto_original?: number | null;
+  /** Tasa de cambio al momento de abonar. */
+  tasa_cambio?: number | null;
   /** `nomina` lo generó el pago de un renglón; `historico`, la carga de un préstamo viejo. */
   origen: 'nomina' | 'manual' | 'historico';
   nota?: string | null;

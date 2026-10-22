@@ -128,5 +128,19 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
   // Nota / motivo del servicio (si la cargó el analista).
   if (servicio.nota?.trim()) bloqueTexto('Nota / motivo', servicio.nota.trim());
 
+  // Firmas: Autorizada y Analista que realizó la solicitud
+  const LIMITE = limiteInferiorPdf(pageH);
+  if (blockY + 70 > LIMITE) { doc.addPage(); }
+  doc.setDrawColor(180);
+  doc.line(MARGIN, LIMITE - 56, MARGIN + 200, LIMITE - 56);
+  doc.line(pageW - MARGIN - 200, LIMITE - 56, pageW - MARGIN, LIMITE - 56);
+  doc.setFontSize(9);
+  doc.text('Firma autorizada · MGG', MARGIN, LIMITE - 42);
+  doc.text('Analista que realizó la solicitud', pageW - MARGIN - 100, LIMITE - 42, { align: 'center' });
+  doc.setFont('helvetica', 'bold');
+  const analistaSD = (servicio.actor_name || servicio.solicitante_persona || servicio.actor || servicio.solicitante || 'Analista de Compras').trim();
+  doc.text(analistaSD, pageW - MARGIN - 100, LIMITE - 28, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+
   previewPdfDoc(doc, `servicio-directo-${(servicio.codigo ?? servicio.id.slice(0, 8))}.pdf`);
 }
