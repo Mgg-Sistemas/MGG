@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { textoOrdenPago, montoTxt, bancoTxt, detalleTxt, saldoPendiente, enlaceWhatsapp, textoOrdenAprobacion } from './ordenPagoTxt';
+import { textoOrdenPago, montoTxt, bancoTxt, detalleTxt, saldoPendiente, esCuentaCredito, enlaceWhatsapp, textoOrdenAprobacion } from './ordenPagoTxt';
 import type { Orden } from '@/shared/lib/types';
 
 /** La orden del ejemplo que dio el usuario: calzado para el motorizado. */
@@ -160,6 +160,7 @@ describe('piezas sueltas', () => {
 describe('una orden a crédito manda el saldo, no el total', () => {
   const CREDITO = {
     codigo: 'SP-2026-0129', oc_codigo: 'OC-2026-0140', moneda: 'USD',
+    condiciones_pago: 'credito', estado: 'cuenta_abierta',
     total: 1391.25, abonado_total: 400, motivo: 'ALIMENTACION', finalidad: null,
     notas: null, metodo_pago: null,
   } as unknown as Orden;
@@ -187,6 +188,36 @@ describe('una orden a crédito manda el saldo, no el total', () => {
     const t = textoOrdenPago({ ...CREDITO, abonado_total: 0 } as Orden, 'AGROCHICKEN C.A');
     expect(t).not.toContain('Abonado');
     expect(t).not.toContain('Saldo pendiente');
+  });
+
+  it('en cuentas a crédito NO muestra método de pago (ni vacío ni con patas)', () => {
+    const t = textoOrdenPago(CREDITO, 'DISTRIBUIDORA EL TORETE J&M, C.A');
+    expect(t).not.toContain('💳');
+    expect(t).not.toContain('Pago');
+
+    // Mismo caso del reporte del usuario: orden a crédito sin abonos aún (OC-2026-0188)
+    const tSinAbonos = textoOrdenPago({
+      codigo: 'SP-2026-0180', oc_codigo: 'OC-2026-0188', moneda: 'USD',
+      condiciones_pago: 'credito', estado: 'cuenta_abierta', total: 1204.88,
+      abonado_total: 0, metodo_pago: null,
+    } as unknown as Orden, 'DISTRIBUIDORA EL TORETE J&M, C.A');
+    expect(tSinAbonos).not.toContain('💳');
+    expect(tSinAbonos).not.toContain('(todavía sin método de pago indicado)');
+
+    // Orden con método_pago cargado previamente pero condición crédito: tampoco lo muestra
+    const tConMetodo = textoOrdenPago({
+      ...base,
+      condiciones_pago: 'credito',
+      estado: 'cuenta_abierta',
+    } as unknown as Orden, 'MAXI SHOES');
+    expect(tConMetodo).not.toContain('💳');
+  });
+
+  it('esCuentaCredito detecta créditos por condición, estado o abonos previos', () => {
+    expect(esCuentaCredito({ condiciones_pago: 'credito' })).toBe(true);
+    expect(esCuentaCredito({ estado: 'cuenta_abierta' })).toBe(true);
+    expect(esCuentaCredito({ abonado_total: 100 })).toBe(true);
+    expect(esCuentaCredito({ condiciones_pago: 'contado', estado: 'oc_aprobada', abonado_total: 0 })).toBe(false);
   });
 });
 
