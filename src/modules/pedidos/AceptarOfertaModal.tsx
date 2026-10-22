@@ -54,8 +54,15 @@ interface Props {
    *  (comprarlos de nuevo sería pagar dos veces el mismo producto). */
   skusBloqueados?: Set<string>;
   /** Devuelve los ítems elegidos (uno por producto) + totales en Bs y $ + la observación
-   *  del analista (por qué elige la oferta) y sus adjuntos (imágenes/PDF). */
-  onConfirm: (itemsElegidos: ItemOrden[], bcvTotal: number, usdTotal: number, motivo: string, adjuntos: File[]) => Promise<void> | void;
+   *  del analista (por qué elige la oferta), sus adjuntos y la MODALIDAD DE PAGO escogida ('usd' | 'bs'). */
+  onConfirm: (
+    itemsElegidos: ItemOrden[],
+    bcvTotal: number,
+    usdTotal: number,
+    motivo: string,
+    adjuntos: File[],
+    modalidadPago: 'usd' | 'bs',
+  ) => Promise<void> | void;
   onCancel: () => void;
 }
 
@@ -82,6 +89,10 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloque
   const [adjuntos, setAdjuntos] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // Modalidad de pago elegida por el analista ('usd' | 'bs'):
+  // Se inicializa en 'usd' si hay precio USD disponible (suele tener descuento), o 'bs' si solo hay BCV.
+  const [modalidadSel, setModalidadSel] = useState<'usd' | 'bs'>('usd');
+
   function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const nuevos = Array.from(e.target.files ?? []);
     const validos: File[] = [];
@@ -106,11 +117,37 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloque
   const sinPrecio = bcvTotal <= 0 && usdTotal <= 0;
   const sinSeleccion = elegidos.length === 0;
 
+  // Impuestos y descuentos prorrateados
+  const parteRecorte = useMemo(() => recortarOfertaAHija(oferta, elegidos.map((it) => it.sku)), [oferta, elegidos]);
+  const ivaMontoParte = Number(parteRecorte.iva) || 0;
+  const igtfMontoParte = Number(parteRecorte.igtf) || 0;
+  const descParte = Number(parteRecorte.descuento) || 0;
+  const ajusteParte = Number(parteRecorte.ajuste) || 0;
+  const ivaIncluidoParte = parteRecorte.iva_incluido;
+
+  const conBcv = useMemo(
+    () => montoFinalOferta({ precio_total: bcvTotal, precio_efectivo: null, iva: ivaMontoParte, igtf: igtfMontoParte, descuento: descParte, iva_incluido: ivaIncluidoParte, ajuste: ajusteParte }),
+    [bcvTotal, ivaMontoParte, igtfMontoParte, descParte, ivaIncluidoParte, ajusteParte]
+  );
+  const conUsd = useMemo(
+    () => montoFinalOferta({ precio_total: usdTotal, precio_efectivo: null, iva: ivaMontoParte, igtf: igtfMontoParte, descuento: descParte, iva_incluido: ivaIncluidoParte, ajuste: ajusteParte }),
+    [usdTotal, ivaMontoParte, igtfMontoParte, descParte, ivaIncluidoParte, ajusteParte]
+  );
+
+  const tieneBcv = bcvTotal > 0;
+  const tieneUsd = usdTotal > 0;
+  // Modalidad efectiva según disponibilidad
+  const modalidadEfectiva: 'usd' | 'bs' = !tieneBcv && tieneUsd ? 'usd' : !tieneUsd && tieneBcv ? 'bs' : modalidadSel;
+
+  const totalFinalElegido = modalidadEfectiva === 'usd' ? conUsd.final : conBcv.final;
+  const diferenciaAhorro = tieneBcv && tieneUsd ? Math.round((conBcv.final - conUsd.final) * 100) / 100 : 0;
+  const pctAhorro = tieneBcv && tieneUsd && conBcv.final > 0 ? Math.round((diferenciaAhorro / conBcv.final) * 10000) / 100 : 0;
+
   async function confirmar() {
     if (sinPrecio || sinSeleccion || saving) return;
     setSaving(true);
     try {
-      await onConfirm(elegidos, bcvTotal, usdTotal > 0 ? usdTotal : 0, motivo.trim(), adjuntos);
+      await onConfirm(elegidos, bcvTotal, usdTotal > 0 ? usdTotal : 0, motivo.trim(), adjuntos, modalidadEfectiva);
     } finally {
       setSaving(false);
     }
@@ -121,7 +158,7 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloque
       <button className="btn btn-ghost" onClick={onCancel} disabled={saving}>Cancelar</button>
       <button className="btn btn-primary" onClick={confirmar} disabled={saving || sinPrecio || sinSeleccion}
         title={sinSeleccion ? 'Tildá al menos un producto para comprarle a este proveedor' : undefined}>
-        {saving ? 'Eligiendo…' : `Elegir oferta${elegidos.length ? ` · ${elegidos.length} producto(s)` : ''}`}
+        {saving ? 'Eligiendo…' : `Elegir oferta${elegidos.length ? ` · ${elegidos.length} producto(s)` : ''} · Pagar ${modalidadEfectiva === 'usd' ? money(totalFinalElegido, 'USD') : money(totalFinalElegido, mo)}`}
       </button>
     </>
   );
@@ -157,8 +194,6 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloque
               style={{ margin: 0, padding: '.7rem .8rem', opacity: yaComprado ? 0.5 : (incl ? 1 : 0.6) }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-                  {/* Tildar = se le compra a este proveedor. Destildar = queda pendiente
-                      para comprárselo a otro (vuelve a la bolsa de la OP madre). */}
                   {!yaComprado && (
                     <input
                       type="checkbox"
@@ -228,6 +263,100 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloque
         })}
       </div>
 
+      {/* SELECTOR DE MODALIDAD DE PAGO (Bs a BCV vs $ en Divisa / Efectivo) */}
+      <div className="card" style={{ padding: '.8rem .9rem', marginTop: '.8rem', borderLeft: '4px solid var(--brand, #ff8a00)', background: 'var(--bg-1)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.5rem' }}>
+          <strong style={{ fontSize: '.92rem' }}>🪙 ¿Cómo se va a pagar esta compra?</strong>
+          <span className="badge" style={{ background: modalidadEfectiva === 'usd' ? 'var(--success)' : 'rgba(59,130,246,.15)', color: modalidadEfectiva === 'usd' ? '#fff' : 'var(--primary)', fontWeight: 600 }}>
+            {modalidadEfectiva === 'usd' ? '✓ Seleccionado: Pago en $ (USD / Divisa)' : '✓ Seleccionado: Pago en Bs al cambio (BCV)'}
+          </span>
+        </div>
+        <p className="muted" style={{ fontSize: '.8rem', margin: '0 0 .6rem' }}>
+          Indicá la opción que acordaste con el proveedor. Evita confusiones cuando la cotización muestra un monto en Bs y otro en dólares: la OC y el monto a pagar se generarán con la opción que marques aquí.
+        </p>
+
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '.6rem' }}>
+          {/* Opción A: Pago en USD / Divisa */}
+          <label
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '.35rem',
+              padding: '.7rem .85rem',
+              borderRadius: 8,
+              cursor: tieneUsd ? 'pointer' : 'not-allowed',
+              opacity: tieneUsd ? 1 : 0.5,
+              background: modalidadEfectiva === 'usd' ? 'rgba(16,185,129,.10)' : 'var(--bg-2)',
+              border: `2px solid ${modalidadEfectiva === 'usd' ? 'var(--success)' : 'var(--border)'}`,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                <input
+                  type="radio"
+                  name="modalidad_pago_sel"
+                  value="usd"
+                  checked={modalidadEfectiva === 'usd'}
+                  disabled={!tieneUsd}
+                  onChange={() => setModalidadSel('usd')}
+                />
+                <strong style={{ color: 'var(--success)' }}>Pagar en $ (USD / Divisa)</strong>
+              </div>
+              {diferenciaAhorro > 0 && (
+                <span className="badge success" style={{ fontSize: '.72rem' }}>
+                  −{money(diferenciaAhorro, 'USD')} ({pctAhorro}%)
+                </span>
+              )}
+            </div>
+            <div className="mono" style={{ fontSize: '1.05rem', fontWeight: 700, marginLeft: '1.4rem' }}>
+              {tieneUsd ? money(conUsd.final, 'USD') : '—'}
+            </div>
+            <div className="muted" style={{ fontSize: '.74rem', marginLeft: '1.4rem' }}>
+              {tieneUsd
+                ? `Base ${money(usdTotal, 'USD')}${ivaMontoParte + igtfMontoParte > 0 ? ` + imp. ${money(ivaMontoParte + igtfMontoParte, 'USD')}` : ''}`
+                : 'Esta oferta no cotizó precio en USD'}
+            </div>
+          </label>
+
+          {/* Opción B: Pago en Bs al cambio (tasa BCV) */}
+          <label
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '.35rem',
+              padding: '.7rem .85rem',
+              borderRadius: 8,
+              cursor: tieneBcv ? 'pointer' : 'not-allowed',
+              opacity: tieneBcv ? 1 : 0.5,
+              background: modalidadEfectiva === 'bs' ? 'rgba(59,130,246,.10)' : 'var(--bg-2)',
+              border: `2px solid ${modalidadEfectiva === 'bs' ? 'var(--primary)' : 'var(--border)'}`,
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+                <input
+                  type="radio"
+                  name="modalidad_pago_sel"
+                  value="bs"
+                  checked={modalidadEfectiva === 'bs'}
+                  disabled={!tieneBcv}
+                  onChange={() => setModalidadSel('bs')}
+                />
+                <strong style={{ color: 'var(--primary)' }}>Pagar en Bs al cambio (tasa BCV)</strong>
+              </div>
+            </div>
+            <div className="mono" style={{ fontSize: '1.05rem', fontWeight: 700, marginLeft: '1.4rem' }}>
+              {tieneBcv ? money(conBcv.final, mo) : '—'}
+            </div>
+            <div className="muted" style={{ fontSize: '.74rem', marginLeft: '1.4rem' }}>
+              {tieneBcv
+                ? `Base ${money(bcvTotal, mo)}${ivaMontoParte + igtfMontoParte > 0 ? ` + imp. ${money(ivaMontoParte + igtfMontoParte, mo)}` : ''}`
+                : 'Esta oferta no cotizó precio en Bs'}
+            </div>
+          </label>
+        </div>
+      </div>
+
       {/* Observación del analista: por qué elige esta oferta (la ven Gerente y Tesorería). */}
       <div className="card" style={{ padding: '.7rem .8rem', marginTop: '.8rem', borderLeft: '3px solid var(--primary)' }}>
         <div className="form-row" style={{ margin: 0 }}>
@@ -254,43 +383,34 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloque
         </div>
       </div>
 
-      {/* Totales de lo elegido (se actualizan al cambiar de marca). */}
+      {/* Resumen del total a comprar con la opción seleccionada */}
       <div className="card" style={{ background: 'var(--bg-2)', padding: '.7rem .8rem', marginTop: '.8rem' }}>
-        <div className="card-title" style={{ marginBottom: '.35rem' }}><span>💵 Total a comprar</span></div>
+        <div className="card-title" style={{ marginBottom: '.35rem' }}>
+          <span>💵 Resumen del monto a comprar</span>
+        </div>
         <div className="mono" style={{ fontSize: '.9rem', lineHeight: 1.7 }}>
-          <div>{esBs ? 'Total Bs (BCV)' : 'Total $ (BCV)'}: <strong>{bcvTotal > 0 ? money(bcvTotal, mo) : '—'}</strong></div>
-          <div>{esBs ? 'Total $ (USD)' : 'Total $ efectivo'}: <strong style={{ color: 'var(--success)' }}>{usdTotal > 0 ? money(usdTotal, 'USD') : '—'}</strong></div>
-          {/* Descuento e impuestos van PRORRATEADOS a lo que se está eligiendo: si se le
-              compran solo algunos productos a esta oferta, se lleva la parte que le toca.
-              Es el mismo reparto que hace `aprobarOrdenConOferta`, así que el número de
-              acá es el que va a quedar en la OC. El descuento faltaba y el total salía
-              más alto de lo que se iba a pagar. */}
-          {((Number(oferta.iva) || 0) > 0 || (Number(oferta.igtf) || 0) > 0 || (Number(oferta.descuento) || 0) > 0 || (Number(oferta.ajuste) || 0) !== 0) && (() => {
-            const parte = recortarOfertaAHija(oferta, elegidos.map((it) => it.sku));
-            const iva = Number(parte.iva) || 0;
-            const igtf = Number(parte.igtf) || 0;
-            const desc = Number(parte.descuento) || 0;
-            const ajuste = Number(parte.ajuste) || 0;
-            const incl = parte.iva_incluido;
-            const conBcv = montoFinalOferta({ precio_total: bcvTotal, precio_efectivo: null, iva, igtf, descuento: desc, iva_incluido: incl, ajuste });
-            const conUsd = montoFinalOferta({ precio_total: usdTotal, precio_efectivo: null, iva, igtf, descuento: desc, iva_incluido: incl, ajuste });
-            return (
-              <div style={{ marginTop: '.2rem' }}>
-                {desc > 0 && <span className="badge success" style={{ marginRight: '.35rem' }}>− desc. {money(desc, mo)}</span>}
-                {iva > 0 && <span className="badge" style={{ marginRight: '.35rem' }} title={incl ? 'Los precios ya traen el IVA: se guarda para la retención, no se suma' : undefined}>{incl ? 'IVA incluido' : '+ IVA'} {money(iva, mo)}</span>}
-                {igtf > 0 && <span className="badge" style={{ marginRight: '.35rem' }}>+ IGTF {money(igtf, mo)}</span>}
-                {ajuste !== 0 && <span className="badge" title={parte.ajuste_motivo ?? undefined}>{ajuste > 0 ? '+' : '−'} ajuste {money(Math.abs(ajuste), mo)}</span>}
-                <div style={{ marginTop: '.2rem' }}>
-                  Total a pagar: <strong>{bcvTotal > 0 ? money(conBcv.final, mo) : '—'}</strong>
-                  {usdTotal > 0 && <> · <strong style={{ color: 'var(--success)' }}>{money(conUsd.final, 'USD')}</strong></>}
-                </div>
-                <div className="muted" style={{ fontSize: '.76rem', marginTop: '.15rem' }}>
-                  El total que va a Tesorería ya tiene el descuento restado y los impuestos sumados.
-                  {parte.fraccion < 1 && <> Se le compra el {Math.round(parte.fraccion * 100)}% de esta oferta, así que descuento e impuestos van en esa proporción.</>}
-                </div>
-              </div>
-            );
-          })()}
+          <div>Total cotizado en Bs (BCV): <strong>{bcvTotal > 0 ? money(bcvTotal, mo) : '—'}</strong> {bcvTotal > 0 && <span className="muted">· con imp. {money(conBcv.final, mo)}</span>}</div>
+          <div>Total cotizado en $ (USD): <strong style={{ color: 'var(--success)' }}>{usdTotal > 0 ? money(usdTotal, 'USD') : '—'}</strong> {usdTotal > 0 && <span className="muted">· con imp. {money(conUsd.final, 'USD')}</span>}</div>
+          
+          {(ivaMontoParte > 0 || igtfMontoParte > 0 || descParte > 0 || ajusteParte !== 0) && (
+            <div style={{ marginTop: '.25rem' }}>
+              {descParte > 0 && <span className="badge success" style={{ marginRight: '.35rem' }}>− desc. {money(descParte, mo)}</span>}
+              {ivaMontoParte > 0 && <span className="badge" style={{ marginRight: '.35rem' }} title={ivaIncluidoParte ? 'Los precios ya traen el IVA: se guarda para la retención, no se suma' : undefined}>{ivaIncluidoParte ? 'IVA incluido' : '+ IVA'} {money(ivaMontoParte, mo)}</span>}
+              {igtfMontoParte > 0 && <span className="badge" style={{ marginRight: '.35rem' }}>+ IGTF {money(igtfMontoParte, mo)}</span>}
+              {ajusteParte !== 0 && <span className="badge" title={parteRecorte.ajuste_motivo ?? undefined}>{ajusteParte > 0 ? '+' : '−'} ajuste {money(Math.abs(ajusteParte), mo)}</span>}
+            </div>
+          )}
+
+          <div style={{ marginTop: '.4rem', paddingTop: '.35rem', borderTop: '1px dashed var(--border)', fontSize: '1rem' }}>
+            Total final de la OC a emitir: <strong style={{ color: modalidadEfectiva === 'usd' ? 'var(--success)' : 'var(--primary)' }}>{modalidadEfectiva === 'usd' ? money(conUsd.final, 'USD') : money(conBcv.final, mo)}</strong>
+            <span className="badge" style={{ marginLeft: '.5rem', fontSize: '.75rem' }}>
+              {modalidadEfectiva === 'usd' ? 'Pago en $ (Divisa)' : 'Pago en Bs a tasa BCV'}
+            </span>
+          </div>
+          <div className="muted" style={{ fontSize: '.76rem', marginTop: '.2rem' }}>
+            Este es el monto exacto que se registrará en la Orden de Compra y pasará a aprobación y a Tesorería.
+            {parteRecorte.fraccion < 1 && <> Se le compra el {Math.round(parteRecorte.fraccion * 100)}% de esta oferta, así que descuento e impuestos van en esa proporción.</>}
+          </div>
         </div>
         {sinPrecio && (
           <p style={{ color: 'var(--danger)', fontSize: '.8rem', margin: '.4rem 0 0' }}>

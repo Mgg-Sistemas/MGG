@@ -826,6 +826,8 @@ export async function aprobarOrdenConOferta(
   motivo?: string | null,
   /** Adjuntos (imágenes/PDF) de esa observación, en el bucket de ofertas. */
   motivoAdjuntos?: { path: string; filename: string }[] | null,
+  /** Modalidad de pago seleccionada por el analista: 'usd' = pagar en $ (divisa), 'bs' = pagar en Bs al cambio (tasa BCV). */
+  modalidadPago?: 'usd' | 'bs' | null,
 ): Promise<Orden> {
   if (!['aprobada', 'desistida_proveedor'].includes(o.estado))
     throw new Error('Solo se crea la OC sobre órdenes de pedido aprobadas');
@@ -887,17 +889,12 @@ export async function aprobarOrdenConOferta(
       )
     : null;
   if (recorte) {
-    // Una oferta que no cotiza (o cotiza en $0) alguno de los ítems PROPIOS de la hija NO
-    // sirve para esta hija: si se dejara pasar, ese ítem desaparecería de la sub-OC en
-    // silencio y la madre lo seguiría dando por cubierto. (Los absorbidos son opcionales.)
     const faltan = skusSinCotizar(o.items, recorte.items);
     if (faltan.length) {
       const nombres = faltan.map((sku) => o.items.find((it) => it.sku === sku)?.nombre ?? sku);
       throw new Error(`Esta oferta no cotiza ${nombres.length === 1 ? 'el producto' : 'los productos'} ${nombres.join(', ')} de esta sub-OC. Elegí otra oferta o cargá esos precios primero.`);
     }
   }
-  // Los ítems absorbidos (de la hermana cancelada) solo entran si la oferta los cotiza con
-  // precio: uno en $0 dejaría un renglón sin costo que la madre daría por comprado.
   const propios = new Set(o.items.map((it) => it.sku));
   const itemsHija = recorte ? recorte.items.filter((it) => propios.has(it.sku) || (Number(it.precio) || 0) > 0) : itemsBase;
   const subtotalBase = recorte ? recorte.precio_total : totalBase;
@@ -907,7 +904,6 @@ export async function aprobarOrdenConOferta(
         precio_efectivo: ofRow?.precio_efectivo ?? null, descuento: ofRow?.descuento ?? null, iva: ofRow?.iva ?? null, igtf: ofRow?.igtf ?? null,
         iva_incluido: !!ofRow?.iva_incluido, ajuste: (ofRow?.ajuste as number | null) ?? null, ajuste_motivo: (ofRow?.ajuste_motivo as string | null) ?? null,
       };
-  // Finalidad/área/comprar por SKU: los de la hija, y para los absorbidos los de la madre.
   const origBySku = new Map([...itemsMadre, ...o.items].map((it) => [it.sku, it]));
   const itemsConContexto = itemsHija.map((of) => {
     const orig = origBySku.get(of.sku);
@@ -915,35 +911,28 @@ export async function aprobarOrdenConOferta(
       ? { ...of, finalidad: of.finalidad ?? orig.finalidad, area: of.area ?? orig.area, comprar: of.comprar ?? orig.comprar }
       : of;
   });
-  // Si la oferta trae precio efectivo (descuento), se aplica AUTOMÁTICO a toda la OC:
-  // los ítems se reprecian al efectivo y el total pasa a ser el efectivo (el BCV original
-  // queda en oferta_precio_bcv para mostrar el ahorro). Así el inventario recibe el costo real.
-  // En solo-USD el precio YA es la divisa: no hay "descuento por efectivo" que aplicar.
+
+  // Modalidad de pago elegida por el analista:
+  // - 'usd' = se paga en $ efectivo/divisa → reprecio por efectivo (descuento) aplicado a ítems y total
+  // - 'bs'  = se paga en Bs al cambio a tasa BCV → se conservan los precios cotizados en Bs/BCV
   const efectivoOf = soloUsd ? null : (impuestosBase.precio_efectivo != null ? Number(impuestosBase.precio_efectivo) : null);
-  // Descuento OBTENIDO (negociado): reduce el total de la OC (la factura) sin re-preciar
-  // los ítems → total = Σ ítems − descuento. Se arrastra a la OC para mostrarlo/editarlo.
+  const pagaEnDivisa = modalidadPago != null
+    ? modalidadPago === 'usd'
+    : (soloUsd || (efectivoOf != null && efectivoOf > 0));
+
   const descObt = impuestosBase.descuento != null ? Math.max(0, Math.round(Number(impuestosBase.descuento) * 100) / 100) : 0;
-  // IVA / IGTF (montos) de la oferta: se SUMAN al total de la OC (ya vienen calculados
-  // sobre la factura neta al cargar la oferta). Se arrastran a la OC para mostrarlos.
   const ivaOf = impuestosBase.iva != null ? Math.max(0, Math.round(Number(impuestosBase.iva) * 100) / 100) : 0;
   const igtfOf = impuestosBase.igtf != null ? Math.max(0, Math.round(Number(impuestosBase.igtf) * 100) / 100) : 0;
-  // Precios con el IVA adentro y ajuste declarado (impuestosOc.ts): la OC los hereda tal cual.
   const ivaIncluidoOf = !!impuestosBase.iva_incluido;
   const ajusteOf = Math.round((Number(impuestosBase.ajuste) || 0) * 100) / 100;
   const ajusteMotivoOf = ajusteOf ? (impuestosBase.ajuste_motivo ?? null) : null;
 
-  // Productos en $0 (sin precio en la oferta) NO entran a la OC. Si quedan productos
-  // con precio, se crea la OC solo con esos y la SP madre conserva los $0 en
-  // "Pendiente (cargar ofertas)". Si TODOS están en $0, no se puede crear la OC.
   const aComprar = itemsConContexto.filter((it) => it.comprar !== false);
   const conPrecio = aComprar.filter((it) => (Number(it.precio) || 0) > 0);
   if (!conPrecio.length) {
     throw new Error('No se puede crear la OC: todos los productos están en $0. Cargá al menos un precio antes de aceptar la oferta.');
   }
   if (!esHija && conPrecio.length < aComprar.length) {
-    // Hay productos en $0 → se reparte: OC hija con los que SÍ tienen precio, y la SP
-    // madre queda en "Pendiente (cargar ofertas)" con los productos sin precio.
-    // (Una hija nunca se vuelve a repartir: ya es el reparto.)
     await asignarProveedoresAOrden(o, [{
       proveedorId: ofertaProveedorId,
       items: conPrecio,
@@ -964,7 +953,9 @@ export async function aprobarOrdenConOferta(
     return padre as Orden;
   }
 
-  const repEf = reprecioPorEfectivo(itemsConContexto, efectivoOf);
+  // Si eligió pagar en $ (divisa), re-preciamos ítems al efectivo con descuento.
+  // Si eligió pagar en Bs al cambio (tasa BCV), se mantienen los precios unitarios BCV originales.
+  const repEf = pagaEnDivisa ? reprecioPorEfectivo(itemsConContexto, efectivoOf) : null;
   const subtotalOc = repEf ? repEf.total : subtotalBase;
   // Total de la OC = (Σ ítems − descuento) + IVA (si no viene adentro) + IGTF + ajuste.
   const totalOc = totalDesdePartes({ subtotal: subtotalOc, descuento: descObt, iva: ivaOf, igtf: igtfOf, iva_incluido: ivaIncluidoOf, ajuste: ajusteOf });
@@ -973,6 +964,9 @@ export async function aprobarOrdenConOferta(
     proveedor_id: ofertaProveedorId,
     items: repEf ? repEf.items : itemsConContexto,
     total: totalOc,
+    total_divisa: efectivoOf != null ? Math.round((efectivoOf - descObt + ivaOf + igtfOf + ajusteOf) * 100) / 100 : null,
+    modalidad_pago: modalidadPago ?? (pagaEnDivisa ? 'usd' : 'bs'),
+    pago_en_divisa: pagaEnDivisa,
     descuento_obtenido: descObt || null,
     iva: ivaOf || null,
     igtf: igtfOf || null,
@@ -981,11 +975,9 @@ export async function aprobarOrdenConOferta(
     ajuste_motivo: ajusteMotivoOf,
     oc_codigo: ocCodigo,
     condiciones_pago: (ofRow?.condiciones_pago as string | null) ?? null,
-    // Snapshot de la oferta elegida: datos técnicos/logísticos + precio efectivo (se ven en la OC y su PDF).
     oferta_detalle: (ofRow?.detalle as Orden['oferta_detalle']) ?? null,
     oferta_precio_efectivo: efectivoOf,
-    oferta_precio_bcv: repEf ? repEf.bcv : null,
-    // Observación del analista (por qué eligió la oferta) + adjuntos: la ven Gerente y Tesorería.
+    oferta_precio_bcv: repEf ? repEf.bcv : (subtotalBase || null),
     oferta_motivo: motivo?.trim() || null,
     oferta_motivo_adjuntos: (motivoAdjuntos && motivoAdjuntos.length) ? motivoAdjuntos : null,
     oc_creada_por: actorEmail,
@@ -995,6 +987,9 @@ export async function aprobarOrdenConOferta(
       precio: subtotalBase,
       score: scoreCalculado,
       oc_codigo: ocCodigo,
+      modalidad_pago: modalidadPago ?? (pagaEnDivisa ? 'usd' : 'bs'),
+      pago_en_divisa: pagaEnDivisa,
+      total: totalOc,
     }),
   };
   const { data, error } = await supabase
@@ -1005,6 +1000,129 @@ export async function aprobarOrdenConOferta(
     .single();
   if (error) throw error;
   return data as Orden;
+}
+
+/**
+ * Permite al analista alternar la opción de pago de una OC entre pagar en $ (USD / Divisa)
+ * y pagar en Bs al cambio (tasa BCV).
+ */
+export async function cambiarModalidadPagoOc(
+  o: Orden,
+  nuevaModalidad: 'usd' | 'bs',
+  actorEmail: string,
+): Promise<Orden> {
+  if (!['oc_creada', 'confirmada_metodo'].includes(o.estado)) {
+    throw new Error('Solo se puede cambiar la modalidad de pago mientras la OC no ha sido enviada a Tesorería.');
+  }
+  if (!o.proveedor_id) throw new Error('La orden no tiene proveedor asignado.');
+
+  const { data: ofRow } = await supabase
+    .from('ofertas_proveedor')
+    .select('items, precio_total, precio_efectivo, descuento, iva, igtf, iva_incluido, ajuste, ajuste_motivo')
+    .eq('orden_id', o.parent_orden_id ?? o.id)
+    .eq('proveedor_id', o.proveedor_id)
+    .order('registrada_en', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!ofRow) throw new Error('No se encontró la cotización del proveedor.');
+
+  const itemsOriginales: ItemOrden[] = (ofRow.items as ItemOrden[]) ?? [];
+  const mapOriginalPorSku = new Map(itemsOriginales.map((it) => [it.sku, it]));
+
+  const efectivoOf = ofRow.precio_efectivo != null ? Number(ofRow.precio_efectivo) : null;
+  const descObt = ofRow.descuento != null ? Number(ofRow.descuento) : 0;
+  const ivaOf = ofRow.iva != null ? Number(ofRow.iva) : 0;
+  const igtfOf = ofRow.igtf != null ? Number(ofRow.igtf) : 0;
+  const ivaIncluidoOf = !!ofRow.iva_incluido;
+  const ajusteOf = Number(ofRow.ajuste) || 0;
+
+  let itemsActualizados: ItemOrden[] = [];
+  if (nuevaModalidad === 'usd') {
+    const conPreciosUsd = o.items.map((it) => {
+      const orig = mapOriginalPorSku.get(it.sku);
+      const usdUnit = orig?.precio_usd != null && Number(orig.precio_usd) > 0 ? Number(orig.precio_usd) : null;
+      return usdUnit ? { ...it, precio: usdUnit } : it;
+    });
+    const repEf = reprecioPorEfectivo(conPreciosUsd, efectivoOf);
+    itemsActualizados = repEf ? repEf.items : conPreciosUsd;
+  } else {
+    itemsActualizados = o.items.map((it) => {
+      const orig = mapOriginalPorSku.get(it.sku);
+      const bcvUnit = orig?.precio != null && Number(orig.precio) > 0 ? Number(orig.precio) : it.precio;
+      return { ...it, precio: bcvUnit };
+    });
+  }
+
+  const subtotal = Math.round(itemsActualizados.reduce((s, it) => s + (Number(it.cantidad) || 0) * (Number(it.precio) || 0), 0) * 100) / 100;
+  const totalFinal = totalDesdePartes({
+    subtotal,
+    descuento: descObt,
+    iva: ivaOf,
+    igtf: igtfOf,
+    iva_incluido: ivaIncluidoOf,
+    ajuste: ajusteOf,
+  });
+
+  const patch = {
+    modalidad_pago: nuevaModalidad,
+    pago_en_divisa: nuevaModalidad === 'usd',
+    items: itemsActualizados,
+    total: totalFinal,
+    historial: appendHistorial(o, 'modalidad_pago_cambiada', actorEmail, {
+      modalidad_anterior: o.modalidad_pago ?? (o.pago_en_divisa ? 'usd' : 'bs'),
+      modalidad_nueva: nuevaModalidad,
+      total_anterior: o.total,
+      total_nuevo: totalFinal,
+    }),
+  };
+
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}
+
+/**
+ * Sincroniza las órdenes existentes para que tengan asignada su modalidad_pago y pago_en_divisa.
+ */
+export async function sincronizarModalidadesPagoOrdenes(): Promise<{ actualizadas: number }> {
+  try {
+    const { data: ordenes, error } = await supabase
+      .from(TABLE)
+      .select('id, codigo, oc_codigo, total, oferta_precio_efectivo, oferta_precio_bcv, metodo_pago, pago_en_divisa, modalidad_pago, estado')
+      .not('oc_codigo', 'is', null)
+      .is('modalidad_pago', null);
+    if (error || !ordenes || !ordenes.length) return { actualizadas: 0 };
+    let count = 0;
+    for (const ord of ordenes) {
+      const ef = Number(ord.oferta_precio_efectivo) || 0;
+      const bcv = Number(ord.oferta_precio_bcv) || 0;
+      const tot = Number(ord.total) || 0;
+      let mod: 'usd' | 'bs' = 'usd';
+      if (ef > 0 && Math.abs(tot - ef) < 1) {
+        mod = 'usd';
+      } else if (bcv > 0 && Math.abs(tot - bcv) < 1) {
+        mod = 'bs';
+      } else if (Array.isArray(ord.metodo_pago) && ord.metodo_pago.length) {
+        const tieneBs = ord.metodo_pago.some((m: any) => m.moneda === 'Bs' || m.metodo === 'transferencia' || m.metodo === 'pago_movil');
+        const tieneUsd = ord.metodo_pago.some((m: any) => m.moneda === 'USD' || m.metodo === 'divisas_efectivo' || m.metodo === 'zelle' || m.metodo === 'binance_usdt');
+        if (tieneBs && !tieneUsd) mod = 'bs';
+        else mod = 'usd';
+      } else if (ef > 0 && tot <= ef * 1.25) {
+        mod = 'usd';
+      } else {
+        mod = 'usd';
+      }
+      await supabase.from(TABLE).update({
+        modalidad_pago: mod,
+        pago_en_divisa: mod === 'usd',
+      }).eq('id', ord.id);
+      count++;
+    }
+    return { actualizadas: count };
+  } catch {
+    return { actualizadas: 0 };
+  }
 }
 
 /* ───────────── OC multi-proveedor (sub-OC por proveedor) ───────────── */

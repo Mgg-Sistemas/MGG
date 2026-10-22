@@ -260,7 +260,13 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   ] as Array<[string, string | null | undefined]>).filter(([, v]) => v && String(v).trim()).map(([k, v]) => [k, String(v)] as [string, string]);
   // Precio según forma de pago (siempre que haya descuento por efectivo).
   if (ahorro && precioBcv != null && precioEfe != null) {
+    const modElegida = orden.modalidad_pago === 'usd'
+      ? 'Pago en $ (Divisa / Efectivo)'
+      : orden.modalidad_pago === 'bs'
+        ? 'Pago en Bs al cambio (tasa BCV)'
+        : (orden.pago_en_divisa ? 'Pago en $ (Divisa / Efectivo)' : 'Pago en Bs al cambio (tasa BCV)');
     tecnFilas.push(
+      ['Modalidad de pago elegida', modElegida],
       ['Precio total (BCV)', money(precioBcv)],
       ['Precio en divisa efectivo', money(precioEfe)],
       ['Ahorro por pago en efectivo', `${money(ahorro.diferencia)}  (-${ahorro.pct.toFixed(2)}%)`],

@@ -1004,6 +1004,12 @@ export interface Orden {
   /** Total BCV/general original de la OC cuando se aplicó el descuento por efectivo
    *  (el `total` ya pasa a ser el efectivo). Solo para mostrar el ahorro. */
   oferta_precio_bcv?: number | null;
+  /** Modalidad de pago seleccionada por el analista: 'usd' = pagar en $ efectivo/divisa, 'bs' = pagar en Bs al cambio (tasa BCV). */
+  modalidad_pago?: 'usd' | 'bs' | null;
+  /** true si el analista eligió pagar en $ (divisa). Mantiene compatibilidad con GT. */
+  pago_en_divisa?: boolean | null;
+  /** Total calculado si se paga en divisa / efectivo. */
+  total_divisa?: number | null;
   /** Observación del analista al elegir la oferta (por qué la eligió) + adjuntos
    *  (imágenes/PDF). La ven el Gerente General (al aprobar) y Tesorería (al pagar). */
   oferta_motivo?: string | null;
@@ -1071,6 +1077,9 @@ export interface Orden {
   /** `true` = los precios de los renglones YA traen el IVA (factura de punto de venta):
    *  `iva` se guarda para la retención pero NO suma al total. Ver impuestosOc.ts. */
   iva_incluido?: boolean | null;
+  iva_aplicado?: boolean | null;
+  iva_monto?: number | null;
+  iva_pct?: number | null;
   /** Diferencia declarada frente a la factura que ningún concepto explica (p. ej. redondeo
    *  de precios unitarios); suma al total con su signo. */
   ajuste?: number | null;
