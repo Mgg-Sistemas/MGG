@@ -2,7 +2,9 @@ import { describe, it, expect } from 'vitest';
 import {
   FILTRO_PRESTAMOS_VACIO, deudaPorTrabajador, errorPago, esHistorico, estadoDeCuenta,
   fechaDePrestamo, filtrarPagos, filtrarPrestamos, hayFiltro, labelOrigen, pagosPorPrestamo,
-  rangosRapidos, resumenPrestamos, totalPagado, type PagoBase, type PrestamoBase,
+  rangosRapidos, resumenPrestamos, totalPagado,
+  formatearEntrega, obtenerEntregas, fechasDeEntregas,
+  type PagoBase, type PrestamoBase,
 } from './prestamos';
 
 // Por defecto se cargó el mismo día en que se dio, que es el caso normal. Un
@@ -304,3 +306,68 @@ describe('los rangos rápidos', () => {
       .toMatchObject({ desde: '2028-02-01', hasta: '2028-02-29' });
   });
 });
+
+describe('entregas acumuladas de un préstamo a la misma persona', () => {
+  it('formatea la entrega adicional con fecha, monto y motivo opcional', () => {
+    expect(formatearEntrega('2026-10-22', 50, 'Adelanto')).toBe('[Entrega 2026-10-22: +$50.00 · Adelanto]');
+    expect(formatearEntrega('2026-10-22', 100)).toBe('[Entrega 2026-10-22: +$100.00]');
+  });
+
+  it('un préstamo simple devuelve una sola entrega con la fecha del préstamo', () => {
+    const p = prestamo({ id: 'p1', fecha: '2026-03-10', monto_total: 100, motivo: 'Préstamo inicial' });
+    const entregas = obtenerEntregas(p);
+    expect(entregas).toHaveLength(1);
+    expect(entregas[0]).toEqual({
+      fecha: '2026-03-10',
+      monto: 100,
+      motivo: 'Préstamo inicial',
+    });
+    expect(fechasDeEntregas(p)).toEqual(['2026-03-10']);
+  });
+
+  it('extrae las entregas adicionales acumuladas y calcula el monto inicial correcto', () => {
+    const motivoConEntregas = `Préstamo médico\n${formatearEntrega('2026-04-15', 50, 'Medicinas')}\n${formatearEntrega('2026-05-02', 30, 'Exámenes')}`;
+    const p = prestamo({
+      id: 'p2',
+      fecha: '2026-03-10',
+      monto_total: 180, // 100 inicial + 50 + 30
+      saldo: 180,
+      motivo: motivoConEntregas,
+    });
+
+    const entregas = obtenerEntregas(p);
+    expect(entregas).toHaveLength(3);
+
+    expect(entregas[0]).toEqual({
+      fecha: '2026-03-10',
+      monto: 100,
+      motivo: 'Préstamo médico',
+    });
+    expect(entregas[1]).toEqual({
+      fecha: '2026-04-15',
+      monto: 50,
+      motivo: 'Medicinas',
+    });
+    expect(entregas[2]).toEqual({
+      fecha: '2026-05-02',
+      monto: 30,
+      motivo: 'Exámenes',
+    });
+
+    expect(fechasDeEntregas(p)).toEqual(['2026-03-10', '2026-04-15', '2026-05-02']);
+  });
+
+  it('ordena las entregas por fecha si no estaban en orden cronológico', () => {
+    const motivoDesordenado = `Base\n${formatearEntrega('2026-08-01', 40)}\n${formatearEntrega('2026-06-01', 60)}`;
+    const p = prestamo({
+      id: 'p3',
+      fecha: '2026-05-01',
+      monto_total: 200,
+      motivo: motivoDesordenado,
+    });
+
+    const fechas = fechasDeEntregas(p);
+    expect(fechas).toEqual(['2026-05-01', '2026-06-01', '2026-08-01']);
+  });
+});
+
