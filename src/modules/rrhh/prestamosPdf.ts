@@ -273,3 +273,149 @@ export async function verConsolidadoPrestamosPdf(
 
   await previewPdfDoc(doc, 'prestamos-consolidado.pdf');
 }
+
+/**
+ * Recibo individual de entrega o abono de préstamo/anticipo en PDF.
+ * Imprime el monto en la moneda acordada (Bs, COP, EUR, USD) y
+ * calcula y muestra claramente la conversión en $ al cambio.
+ */
+export async function verReciboPrestamoPdf(opciones: {
+  tipo: 'entrega' | 'abono';
+  persona: Personal;
+  prestamo: PrestamoBase;
+  montoUsd: number;
+  fecha: string;
+  moneda?: string | null;
+  montoOriginal?: number | null;
+  tasaCambio?: number | null;
+  motivo?: string | null;
+  saldoRestante?: number | null;
+}): Promise<void> {
+  const [{ jsPDF }] = await Promise.all([import('jspdf')]);
+  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const M = MARGEN_PDF;
+  const emp = definicionEmpresa(normalizarEmpresa(opciones.persona.empresa));
+
+  const mon = (opciones.moneda || 'USD').toUpperCase();
+  const esOtraMoneda = mon !== 'USD';
+  const montoOrig = opciones.montoOriginal != null && opciones.montoOriginal > 0 ? opciones.montoOriginal : opciones.montoUsd;
+  const tasa = opciones.tasaCambio && opciones.tasaCambio > 0 ? opciones.tasaCambio : null;
+
+  const subtitulo = opciones.tipo === 'entrega'
+    ? `${opciones.prestamo.tipo === 'anticipo' ? 'ANTICIPO' : 'PRESTAMO'} · COMPROBANTE DE ENTREGA`
+    : 'COMPROBANTE DE ABONO / PAGO';
+
+  let y = await encabezado(
+    doc, W, M,
+    'RECIBO DE PAGO DE RRHH',
+    `${emp.razonSocial} · ${subtitulo}`,
+    `Fecha valor: ${fmtDate(opciones.fecha)}`,
+  );
+
+  /* ── Datos del trabajador ── */
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...TINTA);
+  doc.text(textoPdf(`${opciones.persona.nombre} ${opciones.persona.apellido ?? ''}`.trim()), M, y);
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...GRIS);
+  const datos = [
+    numeroFicha(opciones.persona.numero_ficha),
+    opciones.persona.cedula ? `C.I. ${opciones.persona.cedula}` : '',
+    opciones.persona.cargo || 'Sin cargo',
+    opciones.persona.departamento || '',
+  ].filter(Boolean).join(' · ');
+  doc.text(textoPdf(datos), M, y + 14);
+  y += 32;
+
+  /* ── Cajas de montos y conversión ── */
+  const altoCaja = 50;
+  if (esOtraMoneda) {
+    // 3 cajas: Monto en moneda, Tasa, Conversión en $ al cambio
+    const anchoCaja = (anchoUtilPdf(W) - 16) / 3;
+    const simbolo = mon === 'VES' || mon === 'BS' ? 'Bs' : mon === 'EUR' ? '€' : mon === 'COP' ? 'COP $' : mon;
+    const txtMoneda = `${simbolo} ${montoOrig.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const txtTasa = tasa ? `${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${simbolo}/$` : 'Según cambio oficial';
+    const txtUsd = `$ ${opciones.montoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    const cajas: Array<[string, string, [number, number, number]]> = [
+      [`Monto pagado (${mon})`, txtMoneda, TINTA],
+      ['Tasa de cambio', txtTasa, GRIS],
+      ['Conversión en $ al cambio', txtUsd, VERDE],
+    ];
+
+    cajas.forEach(([rotulo, valor, color], i) => {
+      const x = M + i * (anchoCaja + 8);
+      doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.6);
+      doc.setFillColor(250, 250, 250);
+      doc.roundedRect(x, y, anchoCaja, altoCaja, 3, 3, 'FD');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
+      doc.text(textoPdf(rotulo.toUpperCase()), x + anchoCaja / 2, y + 16, { align: 'center' });
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...color);
+      doc.text(textoPdf(valor), x + anchoCaja / 2, y + 36, { align: 'center' });
+    });
+  } else {
+    // 2 cajas: Monto entregado/abonado en USD y Saldo restante
+    const anchoCaja = (anchoUtilPdf(W) - 10) / 2;
+    const txtUsd = `$ ${opciones.montoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const saldo = opciones.saldoRestante != null ? `$ ${opciones.saldoRestante.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
+
+    const cajas: Array<[string, string, [number, number, number]]> = [
+      [opciones.tipo === 'entrega' ? 'Monto entregado (USD)' : 'Monto abonado (USD)', txtUsd, VERDE],
+      ['Saldo pendiente del préstamo', saldo, ROJO],
+    ];
+
+    cajas.forEach(([rotulo, valor, color], i) => {
+      const x = M + i * (anchoCaja + 10);
+      doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.6);
+      doc.setFillColor(250, 250, 250);
+      doc.roundedRect(x, y, anchoCaja, altoCaja, 3, 3, 'FD');
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
+      doc.text(textoPdf(rotulo.toUpperCase()), x + anchoCaja / 2, y + 16, { align: 'center' });
+      doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...color);
+      doc.text(textoPdf(valor), x + anchoCaja / 2, y + 36, { align: 'center' });
+    });
+  }
+  y += altoCaja + 20;
+
+  /* ── Desglose / Motivo ── */
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...NARANJA);
+  doc.text(textoPdf('DETALLES DE LA OPERACIÓN'), M, y);
+  doc.setDrawColor(...NARANJA); doc.setLineWidth(0.6);
+  doc.line(M, y + 3, W - M, y + 3);
+  y += 16;
+
+  const lineasDetalle: string[] = [];
+  if (opciones.motivo) {
+    lineasDetalle.push(`Concepto / Motivo: ${opciones.motivo}`);
+  }
+  lineasDetalle.push(`Tipo de operación: ${opciones.tipo === 'entrega' ? (opciones.prestamo.tipo === 'anticipo' ? 'Entrega de Anticipo' : 'Otorgamiento de Préstamo') : 'Abono / Pago de cuota'}`);
+  lineasDetalle.push(`Fecha de registro: ${fmtDate(opciones.fecha)}`);
+  if (opciones.saldoRestante != null) {
+    lineasDetalle.push(`Saldo deudor resultante: $ ${opciones.saldoRestante.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`);
+  }
+
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...TINTA);
+  for (const ln of lineasDetalle) {
+    doc.text(textoPdf(ln), M, y);
+    y += 14;
+  }
+  y += 10;
+
+  /* ── Texto de conformidad ── */
+  const txtMonedaFinal = esOtraMoneda
+    ? `${montoOrig.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${mon} (equivalentes a $ ${opciones.montoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} al cambio)`
+    : `$ ${opciones.montoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+  const textoDeclaracion = opciones.tipo === 'entrega'
+    ? `Certifico haber recibido a mi entera satisfacción por parte de la empresa la cantidad de ${txtMonedaFinal}, bajo la figura de ${opciones.prestamo.tipo === 'anticipo' ? 'anticipo' : 'préstamo'}. Autorizo su descuento según las condiciones acordadas.`
+    : `Certifico haber realizado el pago / abono por la cantidad de ${txtMonedaFinal} a cuenta del saldo pendiente del préstamo otorgado.`;
+
+  doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(...GRIS);
+  const lineasDecl = doc.splitTextToSize(textoPdf(textoDeclaracion), anchoUtilPdf(W)) as string[];
+  doc.text(lineasDecl, M, y);
+  y += lineasDecl.length * 11 + 20;
+
+  firmas(doc, W, M, H, y);
+  await previewPdfDoc(doc, `recibo-${opciones.tipo}-${(opciones.persona.nombre ?? '').toLowerCase()}.pdf`);
+}
+

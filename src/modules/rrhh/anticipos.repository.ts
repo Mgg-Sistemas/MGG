@@ -60,6 +60,10 @@ export interface AnticipoInput {
    * origen `historico` y la misma fecha, así el saldo arranca donde va.
    */
   ya_pagado?: number | null;
+  /** Moneda del pago (USD, VES/Bs, COP, EUR). Si es otra moneda, monto_total ya debe ser en USD al cambio. */
+  moneda?: string | null;
+  monto_original?: number | null;
+  tasa_cambio?: number | null;
 }
 
 export async function crearAnticipo(input: AnticipoInput, actorEmail?: string, actorName?: string | null): Promise<AnticipoPrestamo> {
@@ -126,21 +130,46 @@ export async function crearAnticipo(input: AnticipoInput, actorEmail?: string, a
     return refrescado ?? existente;
   }
 
-  const { data, error } = await supabase.from(TABLE).insert({
+  const tagMonedaPrestamo = input.moneda && input.moneda !== 'USD' && input.monto_original
+    ? `[Entrega en ${input.moneda}: ${input.monto_original}${input.tasa_cambio ? ` @ ${input.tasa_cambio}` : ''}]`
+    : null;
+  const motivoFinal = [tagMonedaPrestamo, input.motivo?.trim()].filter(Boolean).join(' ') || null;
+
+  const insertPrestamo: Record<string, unknown> = {
     personal_id: input.personal_id,
     tipo: input.tipo,
     monto_total: monto,
-    // El saldo lo recalcula la base a partir de los abonos; se manda el total
-    // para que la fila arranque coherente aunque no haya ningún abono.
     saldo: monto,
     fecha: fecha ?? undefined,
     cuota_sugerida: input.cuota_sugerida != null ? round2(input.cuota_sugerida) : null,
-    motivo: input.motivo?.trim() || null,
+    motivo: motivoFinal,
     creado_por: actorEmail ?? null,
     actor_name: actorName ?? null,
-  }).select('*').single();
-  if (error) throw error;
-  const creado = data as AnticipoPrestamo;
+  };
+  if (input.moneda) insertPrestamo.moneda = input.moneda;
+  if (input.monto_original != null) insertPrestamo.monto_original = input.monto_original;
+  if (input.tasa_cambio != null) insertPrestamo.tasa_cambio = input.tasa_cambio;
+
+  let dataCreada: unknown = null;
+  const { data, error } = await supabase.from(TABLE).insert(insertPrestamo).select('*').single();
+  if (error) {
+    const { data: d2, error: err2 } = await supabase.from(TABLE).insert({
+      personal_id: input.personal_id,
+      tipo: input.tipo,
+      monto_total: monto,
+      saldo: monto,
+      fecha: fecha ?? undefined,
+      cuota_sugerida: input.cuota_sugerida != null ? round2(input.cuota_sugerida) : null,
+      motivo: motivoFinal,
+      creado_por: actorEmail ?? null,
+      actor_name: actorName ?? null,
+    }).select('*').single();
+    if (err2) throw err2;
+    dataCreada = d2;
+  } else {
+    dataCreada = data;
+  }
+  const creado = dataCreada as AnticipoPrestamo;
 
   // Lo ya pagado va como abono, no como un saldo más chico: así queda en el
   // estado de cuenta en vez de desaparecer dentro de un número.
@@ -240,6 +269,9 @@ export interface PagoInput {
   fecha?: string | null;
   origen?: 'manual' | 'historico';
   nota?: string | null;
+  moneda?: string | null;
+  monto_original?: number | null;
+  tasa_cambio?: number | null;
 }
 
 /**
@@ -264,16 +296,39 @@ export async function agregarPagoAnticipo(
     throw new Error(`El abono es mayor que lo que se debe (${restante.toLocaleString('es-VE', { minimumFractionDigits: 2 })}). Si sobra, cargá un préstamo aparte.`);
   }
 
-  const { data, error } = await supabase.from(TABLA_PAGOS).insert({
+  const tagMoneda = input.moneda && input.moneda !== 'USD' && input.monto_original
+    ? `[${input.moneda} ${input.monto_original}${input.tasa_cambio ? ` @ ${input.tasa_cambio}` : ''}]`
+    : null;
+  const notaCombinada = [tagMoneda, input.nota?.trim()].filter(Boolean).join(' ') || null;
+
+  const insertData: Record<string, unknown> = {
     anticipo_id: input.anticipo_id,
     monto,
     fecha,
     origen: input.origen ?? 'manual',
-    nota: input.nota?.trim() || null,
+    nota: notaCombinada,
     actor: actorEmail ?? null,
     actor_name: actorName ?? null,
-  }).select('*').single();
-  if (error) throw error;
+  };
+  if (input.moneda) insertData.moneda = input.moneda;
+  if (input.monto_original != null) insertData.monto_original = input.monto_original;
+  if (input.tasa_cambio != null) insertData.tasa_cambio = input.tasa_cambio;
+
+  const { data, error } = await supabase.from(TABLA_PAGOS).insert(insertData).select('*').single();
+  if (error) {
+    // Si falla por columnas que no existen en Supabase remoto, reintentar con las estándar
+    const { data: d2, error: err2 } = await supabase.from(TABLA_PAGOS).insert({
+      anticipo_id: input.anticipo_id,
+      monto,
+      fecha,
+      origen: input.origen ?? 'manual',
+      nota: notaCombinada,
+      actor: actorEmail ?? null,
+      actor_name: actorName ?? null,
+    }).select('*').single();
+    if (err2) throw err2;
+    return d2 as PagoAnticipo;
+  }
   return data as PagoAnticipo;
 }
 

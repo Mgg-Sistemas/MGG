@@ -126,5 +126,19 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
   // Nota para Tesorería (si la cargó el analista).
   if (compra.nota?.trim()) bloqueTexto('Nota para Tesorería', compra.nota.trim());
 
+  // Firmas: Autorizada y Analista que realizó la solicitud
+  const LIMITE = limiteInferiorPdf(pageH);
+  if (blockY + 70 > LIMITE) { doc.addPage(); }
+  doc.setDrawColor(180);
+  doc.line(MARGIN, LIMITE - 56, MARGIN + 200, LIMITE - 56);
+  doc.line(pageW - MARGIN - 200, LIMITE - 56, pageW - MARGIN, LIMITE - 56);
+  doc.setFontSize(9);
+  doc.text('Firma autorizada · MGG', MARGIN, LIMITE - 42);
+  doc.text('Analista que realizó la solicitud', pageW - MARGIN - 100, LIMITE - 42, { align: 'center' });
+  doc.setFont('helvetica', 'bold');
+  const analistaCD = (compra.actor_name || compra.actor || 'Analista de Compras').trim();
+  doc.text(analistaCD, pageW - MARGIN - 100, LIMITE - 28, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+
   previewPdfDoc(doc, `compra-directa-${(compra.codigo ?? compra.id.slice(0, 8))}.pdf`);
 }

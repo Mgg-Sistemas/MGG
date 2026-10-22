@@ -82,6 +82,7 @@ import {
   corregirMetodoPago,
   cambiarModalidadPagoOc,
   sincronizarModalidadesPagoOrdenes,
+  sincronizarOrdenesFinalizadas,
   METODOS_PAGO,
   labelMetodoPago,
   listCatalogoPedido,
@@ -377,9 +378,10 @@ export function PedidosPage() {
     };
   }, [refresh, user?.id]);
 
-  // Sincronizar automáticamente órdenes existentes para que tengan su modalidad_pago asignada
+  // Sincronizar automáticamente órdenes existentes y finalizadas
   useEffect(() => {
     sincronizarModalidadesPagoOrdenes().catch(() => {});
+    sincronizarOrdenesFinalizadas().catch(() => {});
   }, []);
 
   // Abrir el detalle de una orden desde el buscador global (?detalle=ID).

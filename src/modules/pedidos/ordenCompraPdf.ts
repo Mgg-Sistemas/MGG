@@ -512,12 +512,23 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     } catch { /* firma opcional */ }
   }
 
+  // Analista / solicitante que realizó la solicitud
+  const analistaNombre = (
+    orden.ci_solicitante?.trim()
+    || (orden.solicitante_email ? persona(orden.solicitante_email, orden.created_at) : '')
+    || orden.solicitante?.trim()
+    || 'Analista de Compras'
+  ).trim();
+
   doc.setDrawColor(180);
   doc.line(MARGIN, LIMITE - 56, MARGIN + 200, LIMITE - 56);
   doc.line(PAGE_W - MARGIN - 200, LIMITE - 56, PAGE_W - MARGIN, LIMITE - 56);
   doc.setFontSize(9);
   doc.text(aprobadaPorGG ? firmaLabel : 'Firma autorizada · MGG', MARGIN, LIMITE - 42);
-  doc.text('Recibido por proveedor', PAGE_W - MARGIN, LIMITE - 42, { align: 'right' });
+  doc.text('Analista que realizó la solicitud', PAGE_W - MARGIN - 100, LIMITE - 42, { align: 'center' });
+  doc.setFont('helvetica', 'bold');
+  doc.text(analistaNombre, PAGE_W - MARGIN - 100, LIMITE - 28, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   doc.setTextColor(120);
   doc.text(

@@ -83,6 +83,10 @@ export interface Viaje {
   tipo_viaje: TipoViaje;
   /** Cuántos viajes trae la orden (la hoja de volqueta: «25 viajes escombros»). 1 en los de camión. */
   viajes: number;
+  /** Categoría del viaje: 'VIAJE CORTO', 'VIAJE LARGO', 'VIAJE INTERNO' */
+  categoria_viaje?: string | null;
+  /** Si fue pagado directamente o por fecha, la fecha de pago registrada */
+  pagado_at?: string | null;
   nota: string | null;
   liquidado_at: string | null;
   liquidado_por: string | null;
@@ -262,8 +266,13 @@ export async function listFlota(): Promise<VehiculoFlota[]> {
 /* ───────────── Viajes ───────────── */
 
 function normViaje(v: Record<string, unknown>): Viaje {
+  const nota = v.nota as string | null;
+  const matchCat = (nota ?? '').match(/\[CAT:\s*([^\]]+)\]/i);
+  const matchPag = (nota ?? '').match(/\[PAGADO:\s*([^\]]+)\]/i);
   return {
     ...(v as unknown as Viaje),
+    categoria_viaje: (v.categoria_viaje as string | null) || (matchCat ? matchCat[1].trim().toUpperCase() : null),
+    pagado_at: (v.pagado_at as string | null) || (matchPag ? matchPag[1].trim() : null),
     paradas: Array.isArray(v.paradas) ? (v.paradas as Parada[]) : [],
     tarifa_usd: Number(v.tarifa_usd) || 0,
     tipo_viaje: tipoViajeDe(v.tipo_viaje),
@@ -293,6 +302,10 @@ export interface ViajeInput {
   llegada_prevista?: string | null;
   tarifa_usd?: number | null;
   nota?: string | null;
+  /** Categoría del viaje: 'VIAJE CORTO', 'VIAJE LARGO', 'VIAJE INTERNO' */
+  categoria_viaje?: string | null;
+  /** Si entra como pagado o fecha de pago */
+  pagado_at?: string | null;
   /** Viaje ya realizado (12-10-2026): entra directo como finalizado con sus horas y km reales. */
   realizado?: ViajeRealizado | null;
   tipo_viaje?: TipoViaje;
@@ -329,7 +342,17 @@ function filaViaje(i: ViajeInput) {
     km_salida: r.km_salida ?? null,
     km_llegada: r.km_llegada ?? null,
   } : {};
-  return {
+
+  const notaOriginal = limpio(i.nota) || '';
+  let notaFinal = notaOriginal;
+  if (i.categoria_viaje && !notaFinal.includes('[CAT:')) {
+    notaFinal = `${notaFinal ? notaFinal + ' ' : ''}[CAT: ${i.categoria_viaje.trim().toUpperCase()}]`;
+  }
+  if (i.pagado_at && !notaFinal.includes('[PAGADO:')) {
+    notaFinal = `${notaFinal ? notaFinal + ' ' : ''}[PAGADO: ${i.pagado_at.slice(0, 10)}]`;
+  }
+
+  const base: Record<string, unknown> = {
     ...realizado,
     chofer_id: i.chofer_id,
     vehiculo_id: i.vehiculo_id || null,
@@ -342,23 +365,107 @@ function filaViaje(i: ViajeInput) {
     tarifa_usd: Math.max(0, r2(i.tarifa_usd)),
     tipo_viaje: tipoViajeDe(i.tipo_viaje),
     viajes: cantidadViajes(i.viajes),
-    nota: limpio(i.nota),
+    nota: limpio(notaFinal),
   };
+  if (i.categoria_viaje) base.categoria_viaje = i.categoria_viaje.trim().toUpperCase();
+  if (i.pagado_at) base.pagado_at = new Date(i.pagado_at).toISOString();
+  return base;
 }
 
 export async function crearViaje(i: ViajeInput, actor: string, actorName: string | null): Promise<Viaje> {
-  const { data, error } = await supabase.from(T_VIAJES).insert({ ...filaViaje(i), created_by: actor, actor_name: actorName }).select('*').single();
-  if (error) throw err(error, 'No se pudo crear la orden de ruta.');
-  return normViaje(data as Record<string, unknown>);
+  const f = filaViaje(i);
+  try {
+    const { data, error } = await supabase.from(T_VIAJES).insert({ ...f, created_by: actor, actor_name: actorName }).select('*').single();
+    if (error) throw error;
+    return normViaje(data as Record<string, unknown>);
+  } catch (primero) {
+    // Si falla porque no existen aún las columnas categoria_viaje o pagado_at, reintenta sin ellas (quedan en nota)
+    const sinCols = { ...f };
+    delete sinCols.categoria_viaje;
+    delete sinCols.pagado_at;
+    const { data, error } = await supabase.from(T_VIAJES).insert({ ...sinCols, created_by: actor, actor_name: actorName }).select('*').single();
+    if (error) throw err(error, 'No se pudo crear la orden de ruta.');
+    return normViaje(data as Record<string, unknown>);
+  }
 }
 
 /** Programado o en ruta se editan libremente; un finalizado solo se corrige mientras no esté liquidado ni en un recibo. */
 export async function editarViaje(id: string, i: ViajeInput): Promise<void> {
-  const { data, error } = await supabase.from(T_VIAJES).update(filaViaje(i)).eq('id', id)
-    .in('estado', ['programado', 'en_ruta', 'finalizado']).is('liquidado_at', null).is('pago_id', null).select('id');
-  if (error) throw err(error, 'No se pudo guardar la orden de ruta.');
-  if (!data?.length) throw new Error('Ese viaje ya está liquidado o tiene recibo; reabre la liquidación antes de corregirlo.');
+  const f = filaViaje(i);
+  try {
+    const { data, error } = await supabase.from(T_VIAJES).update(f).eq('id', id)
+      .in('estado', ['programado', 'en_ruta', 'finalizado']).is('liquidado_at', null).is('pago_id', null).select('id');
+    if (error) throw error;
+    if (!data?.length) throw new Error('Ese viaje ya está liquidado o tiene recibo; reabre la liquidación antes de corregirlo.');
+  } catch (primero) {
+    const sinCols = { ...f };
+    delete sinCols.categoria_viaje;
+    delete sinCols.pagado_at;
+    const { data, error } = await supabase.from(T_VIAJES).update(sinCols).eq('id', id)
+      .in('estado', ['programado', 'en_ruta', 'finalizado']).is('liquidado_at', null).is('pago_id', null).select('id');
+    if (error) throw err(error, 'No se pudo guardar la orden de ruta.');
+    if (!data?.length) throw new Error('Ese viaje ya está liquidado o tiene recibo; reabre la liquidación antes de corregirlo.');
+  }
 }
+
+/**
+ * Marca como pagados todos los viajes finalizados hasta la fecha de corte indicada.
+ */
+export async function marcarViajesPagadosHastaFecha(opts: {
+  choferId?: string;
+  fechaHasta: string; // YYYY-MM-DD
+  fechaPago?: string; // YYYY-MM-DD
+  actor?: string;
+}): Promise<{ actualizados: number }> {
+  const fHasta = opts.fechaHasta.slice(0, 10);
+  const fPago = (opts.fechaPago || new Date().toISOString()).slice(0, 10);
+
+  let q = supabase.from(T_VIAJES).select('id, nota, fecha_salida, llegada_real_at, pago_id, pagado_at')
+    .eq('estado', 'finalizado')
+    .is('pago_id', null)
+    .lte('fecha_salida', `${fHasta}T23:59:59`);
+  if (opts.choferId) q = q.eq('chofer_id', opts.choferId);
+
+  const { data: viajes, error } = await q;
+  if (error) throw err(error, 'No se pudieron consultar los viajes para marcar pago.');
+  if (!viajes || !viajes.length) return { actualizados: 0 };
+
+  let count = 0;
+  for (const v of viajes) {
+    const nota = v.nota as string | null;
+    const matchPag = (nota ?? '').match(/\[PAGADO:\s*([^\]]+)\]/i);
+    if (!v.pagado_at && !matchPag) {
+      const nuevaNota = `${nota ? nota.trim() + ' ' : ''}[PAGADO: ${fPago}]`;
+      const updateData: Record<string, unknown> = { nota: nuevaNota };
+      try {
+        await supabase.from(T_VIAJES).update({ ...updateData, pagado_at: new Date(fPago).toISOString() }).eq('id', v.id);
+      } catch {
+        await supabase.from(T_VIAJES).update(updateData).eq('id', v.id);
+      }
+      count++;
+    }
+  }
+  return { actualizados: count };
+}
+
+/**
+ * Desmarca el estado de pagado de viajes específicos para que vuelvan a quedar pendientes.
+ */
+export async function desmarcarViajesPagados(viajeIds: string[]): Promise<void> {
+  if (!viajeIds.length) return;
+  for (const id of viajeIds) {
+    const { data: v } = await supabase.from(T_VIAJES).select('nota').eq('id', id).single();
+    if (v) {
+      const notaLimpiada = (v.nota || '').replace(/\[PAGADO:\s*[^\]]+\]/gi, '').trim() || null;
+      try {
+        await supabase.from(T_VIAJES).update({ pagado_at: null, nota: notaLimpiada }).eq('id', id);
+      } catch {
+        await supabase.from(T_VIAJES).update({ nota: notaLimpiada }).eq('id', id);
+      }
+    }
+  }
+}
+
 
 function errorEnRuta(e: { code?: string; message?: string }, respaldo: string): Error {
   if (e.code === '23505' && /chofer_en_ruta/.test(e.message ?? '')) return new Error('Ese chofer ya está en ruta en otro viaje. Finaliza ese viaje primero.');
