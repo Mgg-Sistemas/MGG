@@ -21,20 +21,21 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
-import { money, date } from '@/shared/lib/format';
+import { money, date, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Personal, AnticipoPrestamo, PagoAnticipo } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
 import {
   listAnticipos, listPagosAnticipos, crearAnticipo, editarAnticipo, eliminarAnticipo,
-  agregarPagoAnticipo, editarPagoAnticipo, eliminarPagoAnticipo, type AnticipoInput,
+  agregarPagoAnticipo, editarPagoAnticipo, eliminarPagoAnticipo,
+  sincronizarPrestamosDuplicadosAutomatico, type AnticipoInput,
 } from './anticipos.repository';
 import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 import { nombreDeCarnet, numeroFicha } from './fichaPersonal';
 import {
   FILTRO_PRESTAMOS_VACIO, deudaPorTrabajador, errorPago, esHistorico, estadoDeCuenta,
   fechaDePrestamo, filtrarPagos, filtrarPrestamos, hayFiltro, labelOrigen, pagosPorPrestamo,
-  rangosRapidos, resumenPrestamos, obtenerEntregas,
+  rangosRapidos, resumenPrestamos, obtenerEntregas, unificarPrestamosActivos,
   type DeudaTrabajador, type FiltroPrestamos,
 } from './prestamos';
 
@@ -71,16 +72,28 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
 
   const recargar = useCallback(async () => {
     setLoading(true);
-    const [ps, as] = await Promise.all([
+    const [ps, asRaw] = await Promise.all([
       listPersonal(false, empresa).catch((e) => { toast(e instanceof Error ? e.message : 'No se pudo cargar el personal', 'error'); return [] as Personal[]; }),
       listAnticipos(undefined, false, empresa).catch(() => [] as AnticipoPrestamo[]),
     ]);
-    // Los abonos se piden después, ya sabiendo de qué préstamos: sin filtrar
-    // traería los de toda la historia de la empresa para nada.
+
+    // Unificación automática inmediata en memoria (sin requerir que el usuario presione ningún botón)
+    const as = unificarPrestamosActivos(asRaw);
+
+    // Los abonos se piden después, ya sabiendo de qué préstamos
     const gs = as.length ? await listPagosAnticipos(as.map((a) => a.id)).catch(() => [] as PagoAnticipo[]) : [];
     setPersonal(ps); setLista(as); setPagos(gs);
     setDetalle((prev) => (prev ? as.find((x) => x.id === prev.id) ?? null : null));
     setLoading(false);
+
+    // Sincronización automática de persistencia en la base de datos si hay duplicados
+    void sincronizarPrestamosDuplicadosAutomatico(empresa).then((hubo) => {
+      if (hubo) {
+        void listAnticipos(undefined, false, empresa).then((refrescados) => {
+          setLista(unificarPrestamosActivos(refrescados));
+        });
+      }
+    });
   }, [empresa]);
   useEffect(() => { void recargar(); }, [recargar]);
   useRealtime(['anticipos_prestamos', 'anticipos_pagos', 'personal'], () => { void recargar(); });
@@ -708,32 +721,6 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
         </div>
         {prestamo.motivo && !editando && <div className="muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>{entregas[0]?.motivo || prestamo.motivo}</div>}
 
-        {entregas.length > 1 && !editando && (
-          <div style={{ marginTop: '.65rem', paddingTop: '.6rem', borderTop: '1px solid var(--border)' }}>
-            <div className="muted" style={{ fontSize: '.76rem', textTransform: 'uppercase', fontWeight: 700, marginBottom: '.35rem', letterSpacing: '.04em' }}>
-              Entregas / Préstamos otorgados ({entregas.length})
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
-              {entregas.map((ent, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.83rem', background: 'var(--bg-0)', padding: '.3rem .55rem', borderRadius: '4px', border: '1px solid var(--border)' }}>
-                  <div>
-                    <span className="mono" style={{ fontWeight: 600 }}>{date(ent.fecha)}</span>
-                    <span className="muted" style={{ marginLeft: '.5rem', fontSize: '.8rem' }}>
-                      {ent.motivo ? ent.motivo : (i === 0 ? 'Monto inicial' : 'Entrega adicional')}
-                    </span>
-                  </div>
-                  <span className="mono" style={{ fontWeight: 700, color: 'var(--primary)' }}>
-                    {money(ent.monto)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Corregir el préstamo. Con carga histórica, equivocarse en la fecha o
-            en el monto es lo más probable que pase, y sin esto habría que
-            borrar todo y volver a cargar los abonos uno por uno. */}
         {editando && (
           <form onSubmit={guardarEdicion} style={{ marginTop: '.5rem' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'flex-end' }}>
@@ -756,6 +743,35 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
           </form>
         )}
       </div>
+
+      {entregas.length > 1 && !editando && (
+        <div style={{ marginTop: '.8rem', marginBottom: '.8rem' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', textTransform: 'uppercase', fontSize: '.84rem', letterSpacing: '.04em' }}>
+            <span>HISTORIAL DE ENTREGAS DEL PRÉSTAMO <span className="badge">{entregas.length}</span></span>
+            <span className="mono" style={{ fontSize: '.86rem', fontWeight: 700 }}>TOTAL: {money(prestamo.monto_total)}</span>
+          </div>
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.84rem' }}>
+              <thead>
+                <tr>
+                  <th style={{ textTransform: 'uppercase', fontSize: '.76rem', letterSpacing: '.04em' }}>Fecha entrega</th>
+                  <th style={{ textTransform: 'uppercase', fontSize: '.76rem', letterSpacing: '.04em' }}>Concepto / Motivo de la entrega</th>
+                  <th style={{ textAlign: 'right', textTransform: 'uppercase', fontSize: '.76rem', letterSpacing: '.04em' }}>Monto entregado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {entregas.map((e, idx) => (
+                  <tr key={idx}>
+                    <td className="mono" style={{ whiteSpace: 'nowrap' }}>{date(e.fecha)}</td>
+                    <td className="muted">{e.motivo || '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{money(e.monto)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Fuera de los dos formularios: un error al corregir con el préstamo ya
           saldado no tendría dónde mostrarse, porque el de abonar no se dibuja. */}
@@ -816,23 +832,39 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
         </form>
       )}
 
+      <div className="card-title" style={{ margin: '.8rem 0 .4rem', textTransform: 'uppercase', fontSize: '.84rem', letterSpacing: '.04em' }}>
+        ABONOS <span className="badge">{pagos.length}</span>
+      </div>
       <div className="table-wrap">
-        <table className="table" style={{ fontSize: '.85rem' }}>
-          <thead><tr><th>Fecha</th><th>Origen</th><th>Nota</th><th style={{ textAlign: 'right' }}>Monto</th>{canWrite && <th></th>}</tr></thead>
+        <table className="table" style={{ fontSize: '.84rem' }}>
+          <thead>
+            <tr>
+              <th style={{ textTransform: 'uppercase', fontSize: '.76rem', letterSpacing: '.04em' }}>Fecha</th>
+              <th style={{ textTransform: 'uppercase', fontSize: '.76rem', letterSpacing: '.04em' }}>Origen</th>
+              <th style={{ textTransform: 'uppercase', fontSize: '.76rem', letterSpacing: '.04em' }}>Nota</th>
+              <th style={{ textAlign: 'right', textTransform: 'uppercase', fontSize: '.76rem', letterSpacing: '.04em' }}>Monto</th>
+              <th style={{ textTransform: 'uppercase', fontSize: '.76rem', letterSpacing: '.04em' }}>Cargado</th>
+              {canWrite && <th style={{ textAlign: 'center', textTransform: 'uppercase', fontSize: '.76rem', letterSpacing: '.04em' }}>Acciones</th>}
+            </tr>
+          </thead>
           <tbody>
-            {!pagos.length && <tr><td colSpan={5}><EmptyState message="Todavía no se abonó nada" icon="💵" /></td></tr>}
+            {!pagos.length && <tr><td colSpan={6}><EmptyState message="Todavía no se abonó nada" icon="💵" /></td></tr>}
             {pagos.map((p) => (
               <tr key={p.id}>
                 <td className="mono muted">{date(p.fecha)}</td>
                 <td><span className="badge">{labelOrigen(p.origen)}</span></td>
                 <td className="muted">{p.nota || '—'}</td>
                 <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(p.monto)}</td>
+                <td className="muted" style={{ fontSize: '.76rem' }}>
+                  {dateTime(p.created_at)}
+                  {(p.actor_name || p.actor) && <div style={{ fontWeight: 600 }}>{p.actor_name || p.actor}</div>}
+                </td>
                 {canWrite && (
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
-                    <button className="btn btn-sm btn-ghost" onClick={() => iniciarEdicionPago(p)} title="Editar movimiento (monto, fecha, origen, nota)">✎</button>
+                  <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    <button className="btn btn-sm btn-ghost" onClick={() => iniciarEdicionPago(p)} title="Editar movimiento (monto, fecha, origen, nota)" style={{ marginRight: '.25rem' }}>✏</button>
                     {p.origen === 'nomina'
                       ? <span className="muted" title="Se revierte anulando el pago de la nómina" style={{ fontSize: '.78rem', marginLeft: '.3rem' }}>de nómina</span>
-                      : <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)', marginLeft: '.3rem' }} onClick={() => setPorBorrar(p)} title="Borrar abono">🗑</button>}
+                      : <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setPorBorrar(p)} title="Borrar abono">🗑</button>}
                   </td>
                 )}
               </tr>

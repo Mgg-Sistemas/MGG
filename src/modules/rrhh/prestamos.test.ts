@@ -3,7 +3,8 @@ import {
   FILTRO_PRESTAMOS_VACIO, deudaPorTrabajador, errorPago, esHistorico, estadoDeCuenta,
   fechaDePrestamo, filtrarPagos, filtrarPrestamos, hayFiltro, labelOrigen, pagosPorPrestamo,
   rangosRapidos, resumenPrestamos, totalPagado,
-  formatearEntrega, obtenerEntregas, fechasDeEntregas,
+  formatearEntrega, obtenerEntregas, fechasDeEntregas, unificarPrestamosActivos,
+  agregarEntregaAMotivo, normalizarFechaIso, parsearMontoTexto,
   type PagoBase, type PrestamoBase,
 } from './prestamos';
 
@@ -309,8 +310,8 @@ describe('los rangos rápidos', () => {
 
 describe('entregas acumuladas de un préstamo a la misma persona', () => {
   it('formatea la entrega adicional con fecha, monto y motivo opcional', () => {
-    expect(formatearEntrega('2026-10-22', 50, 'Adelanto')).toBe('[Entrega 2026-10-22: +$50.00 · Adelanto]');
-    expect(formatearEntrega('2026-10-22', 100)).toBe('[Entrega 2026-10-22: +$100.00]');
+    expect(formatearEntrega('2026-10-22', 50, 'Adelanto')).toBe('[Entrega 2026-10-22 · $ 50.00]: Adelanto');
+    expect(formatearEntrega('2026-10-22', 100)).toBe('[Entrega 2026-10-22 · $ 100.00]');
   });
 
   it('un préstamo simple devuelve una sola entrega con la fecha del préstamo', () => {
@@ -369,5 +370,81 @@ describe('entregas acumuladas de un préstamo a la misma persona', () => {
     const fechas = fechasDeEntregas(p);
     expect(fechas).toEqual(['2026-05-01', '2026-06-01', '2026-08-01']);
   });
+
+  it('extrae entregas formateadas con el estilo de la captura [Entrega DD-MM-AAAA · $ X,XX]: Motivo', () => {
+    const motivoCaptura = `[Entrega 09-06-2026 · $ 1.200,00]: PRESTAMO EN USDT AUTORIZADO POR CHELI\n[Entrega 23-08-2026 · $ 550,00]: "PAGO PRÉSTAMO KEIMER GT AUTORIZADO POR SRA WENDY MONTO= 550$ 23-08-26"`;
+    const p = prestamo({
+      id: 'captura-1',
+      fecha: '2026-06-09',
+      monto_total: 1750,
+      saldo: 1350,
+      motivo: motivoCaptura,
+    });
+
+    const entregas = obtenerEntregas(p);
+    expect(entregas).toHaveLength(2);
+    expect(entregas[0].fecha).toBe('2026-06-09');
+    expect(entregas[0].monto).toBe(1200);
+    expect(entregas[0].motivo).toContain('CHELI');
+
+    expect(entregas[1].fecha).toBe('2026-08-23');
+    expect(entregas[1].monto).toBe(550);
+    expect(entregas[1].motivo).toContain('WENDY');
+  });
+
+  it('unificarPrestamosActivos consolida automáticamente si un trabajador tiene más de dos préstamos activos', () => {
+    const p1 = prestamo({
+      id: 'prest-1',
+      personal_id: 'trabajador-a',
+      monto_total: 1200,
+      saldo: 900,
+      fecha: '2026-06-09',
+      motivo: 'PRESTAMO EN USDT AUTORIZADO POR CHELI',
+    });
+    const p2 = prestamo({
+      id: 'prest-2',
+      personal_id: 'trabajador-a',
+      monto_total: 550,
+      saldo: 450,
+      fecha: '2026-08-23',
+      motivo: 'PAGO PRÉSTAMO KEIMER GT AUTORIZADO POR SRA WENDY',
+    });
+    const pOtro = prestamo({
+      id: 'prest-3',
+      personal_id: 'trabajador-b',
+      monto_total: 300,
+      saldo: 300,
+      fecha: '2026-07-01',
+    });
+
+    const unificados = unificarPrestamosActivos([p1, p2, pOtro]);
+    // Debería quedar 1 solo préstamo para trabajador-a y 1 para trabajador-b
+    expect(unificados).toHaveLength(2);
+
+    const deTrabajadorA = unificados.find((u) => u.personal_id === 'trabajador-a')!;
+    expect(deTrabajadorA).toBeDefined();
+    expect(deTrabajadorA.monto_total).toBe(1750); // 1200 + 550
+    expect(deTrabajadorA.saldo).toBe(1350); // 900 + 450
+
+    const entregas = obtenerEntregas(deTrabajadorA);
+    expect(entregas).toHaveLength(2);
+    expect(entregas[0].monto).toBe(1200);
+    expect(entregas[0].fecha).toBe('2026-06-09');
+    expect(entregas[1].monto).toBe(550);
+    expect(entregas[1].fecha).toBe('2026-08-23');
+  });
+
+  it('normaliza fechas y parsea montos en formatos variados', () => {
+    expect(normalizarFechaIso('23-08-2026')).toBe('2026-08-23');
+    expect(normalizarFechaIso('2026-08-23')).toBe('2026-08-23');
+    expect(parsearMontoTexto('$ 1.200,00')).toBe(1200);
+    expect(parsearMontoTexto('550')).toBe(550);
+
+    const motivo = agregarEntregaAMotivo('Inicial', '2026-01-01', 100, { fecha: '2026-02-01', monto: 50, motivo: 'Segunda entrega' });
+    expect(motivo).toContain('[Entrega 2026-01-01 · $ 100.00]: Inicial');
+    expect(motivo).toContain('[Entrega 2026-02-01 · $ 50.00]: Segunda entrega');
+  });
 });
+
+
 
