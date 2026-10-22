@@ -7,6 +7,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { AnticipoPrestamo, PagoAnticipo } from '@/shared/lib/types';
 import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
+import { formatearEntrega } from './prestamos';
 
 const TABLE = 'anticipos_prestamos';
 const TABLA_PAGOS = 'anticipos_pagos';
@@ -69,6 +70,61 @@ export async function crearAnticipo(input: AnticipoInput, actorEmail?: string, a
   if (fecha && fecha > hoy()) throw new Error('La fecha del préstamo no puede ser futura.');
   const yaPagado = round2(input.ya_pagado);
   if (yaPagado > monto) throw new Error('Lo ya pagado no puede superar el monto del préstamo.');
+
+  // Si la persona ya tiene un préstamo activo con saldo > 0, se le suma a lo que ya había pedido prestado:
+  const { data: activos, error: errAct } = await supabase
+    .from(TABLE)
+    .select('*')
+    .eq('personal_id', input.personal_id)
+    .eq('estado', 'activo')
+    .gt('saldo', 0)
+    .order('created_at', { ascending: false });
+
+  if (errAct) throw errAct;
+
+  const existente = (activos as AnticipoPrestamo[] | null)?.[0];
+  if (existente) {
+    const nuevoTotal = round2(Number(existente.monto_total) + monto);
+    const nuevoSaldo = round2(Number(existente.saldo) + monto);
+    const tagEntrega = formatearEntrega(fecha ?? hoy(), monto, input.motivo);
+    const motivoCombinado = existente.motivo?.trim()
+      ? `${existente.motivo.trim()}\n${tagEntrega}`
+      : tagEntrega;
+
+    const camposUpdate: Record<string, unknown> = {
+      monto_total: nuevoTotal,
+      saldo: nuevoSaldo,
+      motivo: motivoCombinado,
+    };
+    if (input.cuota_sugerida != null && Number(input.cuota_sugerida) > 0) {
+      camposUpdate.cuota_sugerida = round2(input.cuota_sugerida);
+    }
+
+    const { error: updErr } = await supabase
+      .from(TABLE)
+      .update(camposUpdate)
+      .eq('id', existente.id);
+    if (updErr) throw updErr;
+
+    if (yaPagado > 0) {
+      await agregarPagoAnticipo({
+        anticipo_id: existente.id,
+        monto: yaPagado,
+        fecha: fecha ?? hoy(),
+        origen: 'historico',
+        nota: input.motivo?.trim() ? `Abono de entrega: ${input.motivo.trim()}` : 'Abonado antes de cargarlo al sistema',
+      }, actorEmail, actorName);
+    }
+
+    try {
+      await supabase.rpc('anticipos_recalcular_saldo', { p_id: existente.id });
+    } catch {
+      /* si no existe la función rpc, el saldo ya quedó actualizado arriba */
+    }
+
+    const refrescado = await getAnticipo(existente.id);
+    return refrescado ?? existente;
+  }
 
   const { data, error } = await supabase.from(TABLE).insert({
     personal_id: input.personal_id,

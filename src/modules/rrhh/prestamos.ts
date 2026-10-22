@@ -46,6 +46,67 @@ export function fechaDePrestamo(p: PrestamoBase): string {
   return (p.fecha ?? p.created_at ?? '').slice(0, 10);
 }
 
+export interface EntregaPrestamo {
+  fecha: string;
+  monto: number;
+  motivo?: string;
+}
+
+/** Formatea una entrega adicional para ser guardada dentro del motivo del préstamo. */
+export function formatearEntrega(fecha: string, monto: number, motivo?: string | null): string {
+  const f = fecha.slice(0, 10);
+  const m = Number(monto).toFixed(2);
+  const mot = motivo?.trim() ? ` · ${motivo.trim()}` : '';
+  return `[Entrega ${f}: +$${m}${mot}]`;
+}
+
+/**
+ * Obtiene todas las entregas o desembolsos de un préstamo (la inicial más las adicionales).
+ * Las adicionales se registran con el formato `[Entrega YYYY-MM-DD: +$X.XX · Motivo]`.
+ */
+export function obtenerEntregas(p: PrestamoBase): EntregaPrestamo[] {
+  const fechaIni = fechaDePrestamo(p);
+  const total = n2(p.monto_total);
+  const texto = p.motivo ?? '';
+
+  const regex = /\[Entrega\s+(\d{4}-\d{2}-\d{2}):\s*\+\$?([\d.,]+)(?:\s*·\s*([^\]]*))?\]/g;
+  const adicionales: EntregaPrestamo[] = [];
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(texto)) !== null) {
+    const f = match[1];
+    const montoParsed = parseFloat(match[2].replace(',', '.'));
+    const mot = match[3]?.trim() || undefined;
+    if (f && Number.isFinite(montoParsed) && montoParsed > 0) {
+      adicionales.push({ fecha: f, monto: n2(montoParsed), motivo: mot });
+    }
+  }
+
+  // Motivo base (limpio de las marcas de entregas adicionales)
+  const motivoLimpio = texto.replace(regex, '').trim().replace(/\n{2,}/g, '\n') || undefined;
+
+  if (!adicionales.length) {
+    return [{ fecha: fechaIni, monto: total, motivo: motivoLimpio }];
+  }
+
+  const sumaAdic = adicionales.reduce((acc, a) => acc + a.monto, 0);
+  const montoInicial = Math.max(0, n2(total - sumaAdic));
+
+  const resultado: EntregaPrestamo[] = [
+    { fecha: fechaIni, monto: montoInicial, motivo: motivoLimpio },
+    ...adicionales,
+  ];
+
+  return resultado.sort((a, b) => a.fecha.localeCompare(b.fecha));
+}
+
+/** Devuelve la lista ordenada de fechas en las que se le entregó dinero al trabajador. */
+export function fechasDeEntregas(p: PrestamoBase): string[] {
+  const entregas = obtenerEntregas(p);
+  const fechas = Array.from(new Set(entregas.map((e) => e.fecha).filter(Boolean)));
+  return fechas.sort();
+}
+
 /* ─────────────────── Abonos ─────────────────── */
 
 /** Los abonos de cada préstamo, agrupados por su id. */

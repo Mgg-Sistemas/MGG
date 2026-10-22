@@ -34,7 +34,7 @@ import { nombreDeCarnet, numeroFicha } from './fichaPersonal';
 import {
   FILTRO_PRESTAMOS_VACIO, deudaPorTrabajador, errorPago, esHistorico, estadoDeCuenta,
   fechaDePrestamo, filtrarPagos, filtrarPrestamos, hayFiltro, labelOrigen, pagosPorPrestamo,
-  rangosRapidos, resumenPrestamos,
+  rangosRapidos, resumenPrestamos, obtenerEntregas,
   type DeudaTrabajador, type FiltroPrestamos,
 } from './prestamos';
 
@@ -63,6 +63,11 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
   const [detalle, setDetalle] = useState<AnticipoPrestamo | null>(null);
   const [cuentaDe, setCuentaDe] = useState<string | null>(null);
   const [porBorrar, setPorBorrar] = useState<AnticipoPrestamo | null>(null);
+
+  const prestamoActivoExistente = useMemo(() => {
+    if (!form.personal_id) return null;
+    return lista.find((p) => p.personal_id === form.personal_id && p.estado === 'activo' && Number(p.saldo) > 0) ?? null;
+  }, [form.personal_id, lista]);
 
   const recargar = useCallback(async () => {
     setLoading(true);
@@ -278,6 +283,7 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
             )}
             {!loading && visibles.map((a) => {
               const pagado = (pagosDe.get(a.id) ?? []).reduce((s, p) => s + (Number(p.monto) || 0), 0);
+              const entregas = obtenerEntregas(a);
               return (
                 <tr key={a.id} style={{ opacity: Number(a.saldo) > 0 ? 1 : 0.6 }}>
                   <td>
@@ -288,9 +294,21 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
                   <td>
                     <span className="badge">{a.tipo === 'anticipo' ? 'Anticipo' : 'Préstamo'}</span>
                     {esHistorico(a) && <span className="badge" title="Cargado después de que se dio" style={{ marginLeft: '.25rem' }}>histórico</span>}
+                    {entregas.length > 1 && (
+                      <span className="badge" title={`${entregas.length} entregas otorgadas`} style={{ marginLeft: '.25rem', color: 'var(--primary)', borderColor: 'var(--primary)' }}>
+                        {entregas.length} entregas
+                      </span>
+                    )}
                   </td>
-                  <td className="muted mono">{date(fechaDePrestamo(a))}</td>
-                  <td className="muted">{a.motivo || '—'}</td>
+                  <td className="mono" style={{ whiteSpace: 'nowrap' }}>
+                    <div className="muted">{date(fechaDePrestamo(a))}</div>
+                    {entregas.slice(1).map((ent, idx) => (
+                      <div key={idx} style={{ fontSize: '.75rem', color: 'var(--primary)', marginTop: '.15rem' }} title={`Entrega adicional: ${money(ent.monto)}${ent.motivo ? ` · ${ent.motivo}` : ''}`}>
+                        + {date(ent.fecha)} <span className="muted">({money(ent.monto)})</span>
+                      </div>
+                    ))}
+                  </td>
+                  <td className="muted">{entregas[0]?.motivo || a.motivo || '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(a.monto_total)}</td>
                   <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(pagado)}</td>
                   <td className="mono" style={{ textAlign: 'right', color: Number(a.saldo) > 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 700 }}>{money(a.saldo)}</td>
@@ -313,15 +331,30 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
 
       {/* ── Alta ── */}
       {abrirForm && (
-        <Modal title="Registrar préstamo o anticipo" size="lg" onClose={() => setAbrirForm(false)}
+        <Modal title={prestamoActivoExistente ? 'Sumar al préstamo activo' : 'Registrar préstamo o anticipo'} size="lg" onClose={() => setAbrirForm(false)}
           footer={<>
             <button className="btn btn-ghost" onClick={() => setAbrirForm(false)} disabled={guardando}>Cancelar</button>
             <button type="submit" form="form-anticipo" className="btn btn-primary" disabled={guardando}>
-              {guardando ? 'Guardando…' : '+ Registrar'}
+              {guardando ? 'Guardando…' : prestamoActivoExistente ? '+ Sumar al préstamo activo' : '+ Registrar'}
             </button>
           </>}>
           <form id="form-anticipo" onSubmit={guardar}>
             {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+            {prestamoActivoExistente && (
+              <div className="card" style={{ padding: '.65rem .85rem', marginBottom: '.75rem', background: 'rgba(255, 138, 0, 0.08)', borderLeft: '4px solid var(--warning)' }}>
+                <div style={{ fontWeight: 700, color: 'var(--warning)', fontSize: '.88rem', marginBottom: '.2rem' }}>
+                  ⚠️ Este trabajador ya tiene un préstamo activo
+                </div>
+                <div style={{ fontSize: '.84rem', lineHeight: 1.45 }}>
+                  Tiene un préstamo vigente por <strong>{money(prestamoActivoExistente.monto_total)}</strong> con saldo pendiente de <strong style={{ color: 'var(--danger)' }}>{money(prestamoActivoExistente.saldo)}</strong>.
+                  {Number(form.monto_total) > 0 && (
+                    <div style={{ marginTop: '.35rem' }}>
+                      Al registrar los <strong>{money(form.monto_total)}</strong>, se sumarán acumulando un total de <strong>{money(Number(prestamoActivoExistente.monto_total) + Number(form.monto_total))}</strong> y un saldo pendiente de <strong style={{ color: 'var(--danger)' }}>{money(Number(prestamoActivoExistente.saldo) + Number(form.monto_total) - Number(form.ya_pagado ?? 0))}</strong>. Se registrará la fecha como una nueva entrega.
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
             <div className="form-grid">
               <div className="form-row">
                 <label>Trabajador</label>
@@ -580,6 +613,7 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
 
   const pagado = pagos.reduce((a, p) => a + (Number(p.monto) || 0), 0);
   const debe = Number(prestamo.saldo) || 0;
+  const entregas = useMemo(() => obtenerEntregas(prestamo), [prestamo]);
 
   function iniciarEdicionPago(p: PagoAnticipo) {
     setEditandoPago(p);
@@ -672,7 +706,30 @@ function AbonosModal({ prestamo, pagos, nombre, canWrite, actor, actorName, onCl
             <button className="btn btn-sm btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => setEditando(true)}>✎ Corregir</button>
           )}
         </div>
-        {prestamo.motivo && !editando && <div className="muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>{prestamo.motivo}</div>}
+        {prestamo.motivo && !editando && <div className="muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>{entregas[0]?.motivo || prestamo.motivo}</div>}
+
+        {entregas.length > 1 && !editando && (
+          <div style={{ marginTop: '.65rem', paddingTop: '.6rem', borderTop: '1px solid var(--border)' }}>
+            <div className="muted" style={{ fontSize: '.76rem', textTransform: 'uppercase', fontWeight: 700, marginBottom: '.35rem', letterSpacing: '.04em' }}>
+              Entregas / Préstamos otorgados ({entregas.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem' }}>
+              {entregas.map((ent, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.83rem', background: 'var(--bg-0)', padding: '.3rem .55rem', borderRadius: '4px', border: '1px solid var(--border)' }}>
+                  <div>
+                    <span className="mono" style={{ fontWeight: 600 }}>{date(ent.fecha)}</span>
+                    <span className="muted" style={{ marginLeft: '.5rem', fontSize: '.8rem' }}>
+                      {ent.motivo ? ent.motivo : (i === 0 ? 'Monto inicial' : 'Entrega adicional')}
+                    </span>
+                  </div>
+                  <span className="mono" style={{ fontWeight: 700, color: 'var(--primary)' }}>
+                    {money(ent.monto)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Corregir el préstamo. Con carga histórica, equivocarse en la fecha o
             en el monto es lo más probable que pase, y sin esto habría que
@@ -851,7 +908,21 @@ function EstadoCuentaModal({ persona, prestamos, pagos, rango, onAbrirPrestamo, 
             </span>
             <button className="btn btn-sm btn-ghost" onClick={() => onAbrirPrestamo(r.prestamo as AnticipoPrestamo)}>💵 Abonos</button>
           </div>
-          {r.prestamo.motivo && <div className="muted" style={{ fontSize: '.82rem' }}>{r.prestamo.motivo}</div>}
+          {(() => {
+            const entregas = obtenerEntregas(r.prestamo);
+            const motivoInicial = entregas[0]?.motivo || r.prestamo.motivo;
+            return (
+              <>
+                {motivoInicial && <div className="muted" style={{ fontSize: '.82rem' }}>{motivoInicial}</div>}
+                {entregas.length > 1 && (
+                  <div style={{ fontSize: '.79rem', color: 'var(--primary)', marginTop: '.25rem' }}>
+                    <strong>Entregas otorgadas:</strong>{' '}
+                    {entregas.map((e) => `${date(e.fecha)} (${money(e.monto)}${e.motivo ? `: ${e.motivo}` : ''})`).join(' · ')}
+                  </div>
+                )}
+              </>
+            );
+          })()}
           {!!r.pagos.length && (
             <div className="muted" style={{ fontSize: '.8rem', marginTop: '.3rem' }}>
               {r.pagos.map((p) => `${date(p.fecha)} ${money(p.monto)} (${labelOrigen(p.origen)})`).join(' · ')}

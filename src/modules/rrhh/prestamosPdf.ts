@@ -21,7 +21,7 @@ import type { Personal } from '@/shared/lib/types';
 import { definicionEmpresa, normalizarEmpresa } from './empresa';
 import { numeroFicha } from './fichaPersonal';
 import {
-  estadoDeCuenta, fechaDePrestamo, labelOrigen,
+  estadoDeCuenta, fechaDePrestamo, labelOrigen, obtenerEntregas,
   type DeudaTrabajador, type PagoBase, type PrestamoBase,
 } from './prestamos';
 
@@ -171,11 +171,20 @@ export async function verEstadoCuentaPrestamosPdf(
     doc.line(M, y + 4, W - M, y + 4);
     y += 14;
 
-    if (r.prestamo.motivo) {
+    const entregas = obtenerEntregas(r.prestamo);
+    const motivoInicial = entregas[0]?.motivo || r.prestamo.motivo;
+    if (motivoInicial) {
       doc.setFontSize(8); doc.setTextColor(...GRIS);
-      const lineas = doc.splitTextToSize(textoPdf(r.prestamo.motivo), anchoUtilPdf(W)) as string[];
+      const lineas = doc.splitTextToSize(textoPdf(motivoInicial), anchoUtilPdf(W)) as string[];
       doc.text(lineas, M, y + 6);
       y += lineas.length * 10 + 4;
+    }
+    if (entregas.length > 1) {
+      doc.setFontSize(7.5); doc.setTextColor(...NARANJA);
+      const txtEntregas = 'Entregas otorgadas: ' + entregas.map((e) => `${fmtDate(e.fecha)} (${usd(e.monto)})`).join(' · ');
+      const lineasEnt = doc.splitTextToSize(textoPdf(txtEntregas), anchoUtilPdf(W)) as string[];
+      doc.text(lineasEnt, M, y + 4);
+      y += lineasEnt.length * 9 + 4;
     }
 
     if (r.pagos.length) {
