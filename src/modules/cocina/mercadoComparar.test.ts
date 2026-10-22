@@ -256,6 +256,11 @@ describe('explicarSobrante — cuando en el almacén hay de MÁS', () => {
     const v = d('p', 'X', 'UNIDAD', 10, 5, 2);
     expect(explicarSobrante(v)).toContain('sin quedar registrado');
   });
+
+  it('sin saldo inicial pero con entradas, advierte stock previo o entrada no registrada', () => {
+    const v = d('p', 'X', 'UNIDAD', 0, 5, 2);
+    expect(explicarSobrante(v)).toContain('stock previo sin saldo inicial');
+  });
 });
 
 describe('cicloQueSePisa — no abrir un mercado encima de otro', () => {

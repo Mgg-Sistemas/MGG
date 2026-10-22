@@ -527,7 +527,10 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
                           <td colSpan={8} style={{ paddingTop: 0, fontSize: '.76rem' }}>
                             <span style={{ color: 'var(--warning)' }}>⚠ en inventario hay <strong className="mono">{num(dif.inventario)}</strong></span>
                             {' · '}
-                            {dif.diferencia < 0 ? 'faltan' : 'sobran'} <strong className="mono">{num(Math.abs(dif.diferencia))}</strong> {d.unidad.toLowerCase()}
+                            {Math.abs(dif.diferencia) === 1
+                              ? (dif.diferencia < 0 ? 'falta' : 'sobra')
+                              : (dif.diferencia < 0 ? 'faltan' : 'sobran')}{' '}
+                            <strong className="mono">{num(Math.abs(dif.diferencia))}</strong> {d.unidad.toLowerCase()}
                             {/* Un SOBRANTE no se explica con salidas, así que se mira
                                 la fila del ciclo. El caso grave es el libro en
                                 negativo: no sobra comida, falta una entrada. */}
@@ -963,7 +966,10 @@ function DrillModal({ item, kardex, fechaInicio, inicioAt, fuera, diferencia, on
           <div style={{ marginTop: '.45rem', paddingTop: '.4rem', borderTop: '1px solid var(--border)' }}>
             <span style={{ color: 'var(--warning)' }}>
               ⚠ en inventario hay <strong className="mono">{num(diferencia.inventario)} {item.unidad}</strong>
-              {' · '}{diferencia.diferencia < 0 ? 'faltan' : 'sobran'}{' '}
+              {' · '}
+              {Math.abs(diferencia.diferencia) === 1
+                ? (diferencia.diferencia < 0 ? 'falta' : 'sobra')
+                : (diferencia.diferencia < 0 ? 'faltan' : 'sobran')}{' '}
               <strong className="mono">{num(Math.abs(diferencia.diferencia))} {item.unidad}</strong>
             </span>
             {diferencia.diferencia > 0 && (
