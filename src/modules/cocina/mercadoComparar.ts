@@ -338,6 +338,9 @@ export function explicarSobrante(d: DisponibleItem): string | null {
   if (sinEntradas) {
     return 'el ciclo nunca lo vio entrar: está en el almacén pero no en el mercado';
   }
+  if (d.saldoInicial === 0) {
+    return 'había stock previo sin saldo inicial o entró al almacén sin quedar registrado en el ciclo';
+  }
   return 'entró al almacén sin quedar registrado en el ciclo';
 }
 
