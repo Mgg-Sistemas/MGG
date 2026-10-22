@@ -62,7 +62,7 @@ describe('mensajeReporteCompras', () => {
     const m = mensajeReporteCompras(reporteCompleto(), { fecha: '2026-10-19T17:32:00.000Z' });
     expect(m).toContain('💰 *TOTAL GENERAL*');
     expect(m).toContain('$ 10.045,85  ·  Bs 9.000,00'); // 8268 + 1000 + 250 + 55 + 472,85 (el crédito suma el saldo)
-    expect(m.trim().endsWith('_MGG · Mineral Group Guayana_')).toBe(true);
+    expect(m.trim().endsWith('🏢 *MINERAL GROUP GUAYANA C.A.*')).toBe(true);
   });
 
   it('no escribe los renglones vacíos', () => {

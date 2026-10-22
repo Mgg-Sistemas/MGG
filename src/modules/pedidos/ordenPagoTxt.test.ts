@@ -29,12 +29,13 @@ describe('textoOrdenPago · formato corto para WhatsApp', () => {
       '* Banco: Banco de Venezuela (0102)',
       '* CI/RIF: P1131881',
       '* Tlf: 04249692172',
+      '🏢 *MINERAL GROUP GUAYANA C.A.*',
     ]);
   });
 
-  it('ya no lleva el encabezado, ni los renglones, ni el pie', () => {
+  it('ya no lleva encabezado antiguo ni renglones de materiales, pero sí el pie de empresa al final', () => {
     const t = txt();
-    expect(t).not.toContain('MINERAL GROUP GUAYANA');
+    expect(t.endsWith('🏢 *MINERAL GROUP GUAYANA C.A.*')).toBe(true);
     expect(t).not.toContain('BOTAS');       // el listado de materiales se fue
     expect(t).not.toContain('Generado');
     expect(t).not.toContain('----');
@@ -265,7 +266,8 @@ describe('textoOrdenAprobacion · para pedirle la aprobación al Gerente', () =>
     expect(l).toContain('🛒 *Analista de compras:* NAZARET SALAZAR');
     expect(l).toContain('📦 *Productos:* 1');
     expect(l).toContain('📋 *Condición:* Pago de Contado');
-    expect(l[l.length - 1]).toBe('💵 *Total:* $79,00');
+    expect(l).toContain('💵 *Total:* $79,00');
+    expect(l[l.length - 1]).toBe('🏢 *MINERAL GROUP GUAYANA C.A.*');
   });
 
   it('todavía nadie autorizó ni hay método de pago: no los menciona', () => {

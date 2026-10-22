@@ -74,13 +74,14 @@ export function mensajePendientesPorPagar(
 
   if (rep.credito.length) {
     lineas.push('', `${CREDITO_ESTILO.emoji} *CUENTAS A CRÉDITO · ${rep.credito.length}* (saldo pendiente, aparte del total)`);
+    // En cuentas a crédito no se muestra método de pago: se pagan mediante abonos en Tesorería.
     rep.credito.slice(0, max).forEach((c, i) => {
-      lineas.push(`${i + 1}. ${[c.codigo, corto(c.nombre)].filter(Boolean).join(' · ')} — saldo ${montoDoble(c.saldo, rep.tasa)} (abonado ${fmtMonto(c.abonado, 'USD')} de ${fmtMonto(c.total, 'USD')})`, ...lineasPago(c.pago));
+      lineas.push(`${i + 1}. ${[c.codigo, corto(c.nombre)].filter(Boolean).join(' · ')} — saldo ${montoDoble(c.saldo, rep.tasa)} (abonado ${fmtMonto(c.abonado, 'USD')} de ${fmtMonto(c.total, 'USD')})`);
     });
     if (rep.credito.length > max) lineas.push(`   • … y ${rep.credito.length - max} más (mirá el Excel o el PDF)`);
     lineas.push(`*Total a crédito:* ${montoDoble(rep.creditoTotal, rep.tasa)}`);
   }
 
-  lineas.push('', '_MGG · Mineral Group Guayana_');
+  lineas.push('', '🏢 *MINERAL GROUP GUAYANA C.A.*');
   return lineas.join('\n');
 }

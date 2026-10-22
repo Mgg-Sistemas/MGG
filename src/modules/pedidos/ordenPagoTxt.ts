@@ -95,7 +95,9 @@ export function saldoPendiente(orden: Pick<Orden, 'total' | 'abonado_total'>): n
  * En estas órdenes no se muestra método de pago: se pagan mediante abonos en Tesorería.
  */
 export function esCuentaCredito(orden: Partial<Pick<Orden, 'condiciones_pago' | 'estado' | 'abonado_total'>>): boolean {
-  return orden.condiciones_pago === 'credito'
+  const cond = String(orden.condiciones_pago ?? '').toLowerCase().trim();
+  const esCreditoCond = cond === 'credito' || cond === 'crédito' || cond.includes('credito') || cond.includes('crédito');
+  return esCreditoCond
     || orden.estado === 'cuenta_abierta'
     || (Number(orden.abonado_total) || 0) > 0;
 }
@@ -148,6 +150,7 @@ export function textoOrdenPago(orden: Orden, proveedorNombre: string, personas?:
   if (!esCuentaCredito(orden)) {
     L.push(...bloquePago(orden.metodo_pago, Number(orden.total) || 0, mon));
   }
+  L.push('🏢 *MINERAL GROUP GUAYANA C.A.*');
   return L.join('\n'); // saltos simples: WhatsApp los respeta
 }
 
@@ -175,5 +178,6 @@ export function textoOrdenAprobacion(orden: Orden, proveedorNombre: string, pers
   if (productos.length) L.push(`📦 *Productos:* ${productos.length}`);
   if (orden.condiciones_pago) L.push(`📋 *Condición:* ${labelCondicionPago(orden.condiciones_pago)}`);
   L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}`);
+  L.push('🏢 *MINERAL GROUP GUAYANA C.A.*');
   return L.join('\n');
 }

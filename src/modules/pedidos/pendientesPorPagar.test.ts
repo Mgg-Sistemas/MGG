@@ -128,13 +128,20 @@ describe('mensajePendientesPorPagar', () => {
     expect(m).toContain('   🏦 Se define al pagar'.slice(0, 3)); // sangría de la línea de método
   });
 
-  it('el crédito también muestra cómo se paga', () => {
+  it('el crédito NO muestra método de pago (se paga por abonos en Tesorería)', () => {
     const r = armarReportePorPagar([], [], [oc({ codigo: 'OC-C', nombre: 'PROV', monto: 500, abonado: 120, metodo: [TRANSFERENCIA] })], TASA);
-    expect(mensajePendientesPorPagar(r, { fecha })).toContain('abonado $ 120,00 de $ 500,00)\n   🏦 Transferencia · USD 1.204,88\n   JOSE PEREZ');
+    const m = mensajePendientesPorPagar(r, { fecha });
+    expect(m).toContain('saldo $ 380,00 (Bs 15.200,00) (abonado $ 120,00 de $ 500,00)');
+    expect(m).not.toContain('Transferencia');
+    expect(m).not.toContain('JOSE PEREZ');
   });
 
   it('SIN el selector U+FE0F ni uniones invisibles: si no, WhatsApp muestra un cuadrito', () => {
     expect(/️|‍/.test(mensajePendientesPorPagar(rep(), { fecha }))).toBe(false);
+  });
+
+  it('cierra con el pie de la empresa', () => {
+    expect(mensajePendientesPorPagar(rep(), { fecha }).trim().endsWith('🏢 *MINERAL GROUP GUAYANA C.A.*')).toBe(true);
   });
 
   it('el enlace va derecho a api.whatsapp.com (nunca wa.me) y el texto vuelve exacto', () => {
