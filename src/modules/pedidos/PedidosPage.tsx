@@ -22,6 +22,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { opcionesRecepcion, destinoRecepcionPorUsuario } from '@/modules/inventario/sectorizacion';
 import { esDespiezable } from '@/modules/inventario/despieceRes';
 import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece } from '@/modules/inventario/DespieceResForm';
+import { obtenerInfoModalidadPago } from './modalidadPago';
 import {
   listAlertasMercadoPendientes, marcarTodasAtendidas, type AlertaMercado,
 } from '@/modules/cocina/alertasMercado.repository';
@@ -2494,35 +2495,41 @@ const KanbanCard = memo(function KanbanCard({
           <span style={{ color: 'var(--warning)' }}>· Pendiente {(orden.anticipo_moneda ?? orden.moneda ?? 'USD') === (orden.moneda ?? 'USD') ? money(Math.max(0, Number(orden.total) - Number(orden.anticipo_monto)), orden.moneda) : 'crédito'}</span>
         </div>
       )}
-      <div className="foot" style={{ alignItems: 'flex-start' }}>
-        {/* Si el total no suma lo que suman sus partes, se marca acá mismo. El monto
-            de la tarjeta es el que mira todo el mundo y es el que va a Tesorería:
-            un descuadre invisible se paga (caso SP-2026-0098-1-1, $ 71,42 de más). */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
-          <span className="total" title={avisoCuadre ?? undefined} style={avisoCuadre ? { color: 'var(--warning)' } : undefined}>
-            {avisoCuadre && '⚠ '}{money(orden.total, orden.moneda)}
-          </span>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap', marginTop: '.15rem' }}>
-            {orden.modalidad_pago === 'usd' || orden.pago_en_divisa ? (
-              <span className="badge success" style={{ fontSize: '.64rem', padding: '.05rem .35rem' }}
-                title={orden.oferta_precio_bcv ? `Cotización en Bs: ${money(orden.oferta_precio_bcv, orden.moneda)} · El analista eligió pagar en $` : 'El analista eligió pagar en $'}>
-                💵 Pago en $
-              </span>
-            ) : orden.modalidad_pago === 'bs' ? (
-              <span className="badge" style={{ fontSize: '.64rem', padding: '.05rem .35rem', background: 'rgba(59,130,246,.15)', color: 'var(--primary)' }}
-                title="El analista eligió pagar en Bs al cambio a tasa BCV">
-                🏦 Pago en Bs (BCV)
-              </span>
-            ) : null}
-            {orden.oferta_precio_bcv != null && (orden.modalidad_pago === 'usd' || orden.pago_en_divisa) && Math.abs(Number(orden.oferta_precio_bcv) - Number(orden.total)) > 1 && (
-              <span className="muted mono" style={{ fontSize: '.68rem' }} title="Monto cotizado a tasa BCV">
-                (BCV {money(orden.oferta_precio_bcv, orden.moneda)})
-              </span>
-            )}
-          </div>
-        </div>
+      <div className="foot">
+        <span className="total" title={avisoCuadre ?? undefined} style={avisoCuadre ? { color: 'var(--warning)' } : undefined}>
+          {avisoCuadre && '⚠ '}{money(orden.total, orden.moneda)}
+        </span>
         <span className="when" title={dateTime(orden.created_at)}>{relTime(orden.created_at)}</span>
       </div>
+      {orden.proveedor_id && (() => {
+        const modInfo = obtenerInfoModalidadPago(orden);
+        return (
+          <div style={{ marginTop: '.25rem', display: 'flex', flexDirection: 'column', gap: '.1rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap' }}>
+              {modInfo.esDivisa ? (
+                <span className="badge" style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e', border: '1px solid rgba(34, 197, 94, 0.3)', fontSize: '.64rem', padding: '.05rem .35rem', fontWeight: 700 }}>
+                  💵 Pago en $ (Divisa)
+                </span>
+              ) : (
+                <span className="badge" style={{ background: 'rgba(59, 130, 246, 0.15)', color: '#3b82f6', border: '1px solid rgba(59, 130, 246, 0.3)', fontSize: '.64rem', padding: '.05rem .35rem', fontWeight: 700 }}>
+                  🏦 Pago en Bs (BCV)
+                </span>
+              )}
+            </div>
+            {modInfo.esDivisa && modInfo.precioBcv != null && modInfo.precioBcv > Number(orden.total) && (
+              <div className="muted" style={{ fontSize: '.68rem', lineHeight: 1.25 }} title="Cotización original a tasa BCV vs pago en divisa">
+                Cotiz. BCV: <span className="mono">{money(modInfo.precioBcv, orden.moneda ?? 'USD')}</span> → en $: <strong style={{ color: '#22c55e' }}>{money(orden.total, orden.moneda ?? 'USD')}</strong>
+                {modInfo.ahorro != null && modInfo.ahorro > 0 && <span style={{ color: 'var(--success, #22c55e)', marginLeft: '.2rem' }}>(-{money(modInfo.ahorro, orden.moneda ?? 'USD')})</span>}
+              </div>
+            )}
+            {!modInfo.esDivisa && modInfo.precioDivisa != null && modInfo.precioDivisa < Number(orden.total) && (
+              <div className="muted" style={{ fontSize: '.68rem', lineHeight: 1.25 }} title="Opción en divisa si se paga en efectivo/divisa">
+                Opción en $: <span className="mono">{money(modInfo.precioDivisa, orden.moneda ?? 'USD')}</span>
+              </div>
+            )}
+          </div>
+        );
+      })()}
       {((orden.iva_aplicado && (Number(orden.iva_monto) || 0) > 0) || (Number(orden.iva) || 0) > 0) && (
         <div className="muted mono" style={{ fontSize: '.7rem', marginTop: '.15rem' }} title="El total ya incluye el IVA">
           incl. IVA{Number(orden.iva_pct) > 0 ? ` ${Number(orden.iva_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%` : ''} · {money(Number(orden.iva_monto || orden.iva), orden.moneda ?? 'USD')}
