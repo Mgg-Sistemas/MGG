@@ -49,49 +49,120 @@ export function fechaDePrestamo(p: PrestamoBase): string {
 export interface EntregaPrestamo {
   fecha: string;
   monto: number;
-  motivo?: string;
+  motivo?: string | null;
+}
+
+export function normalizarFechaIso(f: string): string {
+  const s = f.trim();
+  if (/^\d{4}[-/]\d{2}[-/]\d{2}$/.test(s)) return s.replace(/\//g, '-');
+  const m = s.match(/^(\d{2})[-/](\d{2})[-/](\d{4})$/);
+  if (m) return `${m[3]}-${m[2]}-${m[1]}`;
+  return s;
+}
+
+export function parsearMontoTexto(s: string | undefined): number {
+  if (!s) return 0;
+  const limpio = s.replace(/[$USDT\s]/gi, '').trim();
+  if (limpio.includes(',') && limpio.includes('.')) {
+    if (limpio.indexOf('.') < limpio.indexOf(',')) {
+      return Number(limpio.replace(/\./g, '').replace(',', '.')) || 0;
+    } else {
+      return Number(limpio.replace(/,/g, '')) || 0;
+    }
+  }
+  if (limpio.includes(',')) {
+    return Number(limpio.replace(',', '.')) || 0;
+  }
+  return Number(limpio) || 0;
 }
 
 /** Formatea una entrega adicional para ser guardada dentro del motivo del préstamo. */
 export function formatearEntrega(fecha: string, monto: number, motivo?: string | null): string {
-  const f = fecha.slice(0, 10);
+  const f = normalizarFechaIso(fecha);
   const m = Number(monto).toFixed(2);
-  const mot = motivo?.trim() ? ` · ${motivo.trim()}` : '';
-  return `[Entrega ${f}: +$${m}${mot}]`;
+  const mot = motivo?.trim() ? `: ${motivo.trim()}` : '';
+  return `[Entrega ${f} · $ ${m}]${mot}`;
+}
+
+export function agregarEntregaAMotivo(
+  motivoActual: string | null | undefined,
+  fechaBase: string,
+  montoBase: number,
+  nuevaEntrega: EntregaPrestamo,
+): string {
+  const actual = (motivoActual ?? '').trim();
+  const f = normalizarFechaIso(nuevaEntrega.fecha);
+  const m = Number(nuevaEntrega.monto).toFixed(2);
+  const desc = nuevaEntrega.motivo?.trim() ? `: ${nuevaEntrega.motivo.trim()}` : '';
+  const lineaNueva = `[Entrega ${f} · $ ${m}]${desc}`;
+
+  if (/\[(?:Entrega\s+)?(?:\d{2}[-/]\d{2}[-/]\d{4}|\d{4}[-/]\d{2}[-/]\d{2})/i.test(actual)) {
+    return `${actual}\n${lineaNueva}`;
+  }
+
+  const fBase = normalizarFechaIso(fechaBase);
+  const mBase = Number(montoBase).toFixed(2);
+  const lineaInicial = `[Entrega ${fBase} · $ ${mBase}]: ${actual || 'Préstamo inicial'}`;
+  return `${lineaInicial}\n${lineaNueva}`;
 }
 
 /**
  * Obtiene todas las entregas o desembolsos de un préstamo (la inicial más las adicionales).
- * Las adicionales se registran con el formato `[Entrega YYYY-MM-DD: +$X.XX · Motivo]`.
+ * Admite formatos:
+ * - `[Entrega 23-08-2026 · $ 550,00]: Motivo`
+ * - `[Entrega 2026-10-22: +$50.00 · Motivo]`
  */
 export function obtenerEntregas(p: PrestamoBase): EntregaPrestamo[] {
   const fechaIni = fechaDePrestamo(p);
   const total = n2(p.monto_total);
-  const texto = p.motivo ?? '';
+  const texto = (p.motivo ?? '').trim();
 
-  const regex = /\[Entrega\s+(\d{4}-\d{2}-\d{2}):\s*\+\$?([\d.,]+)(?:\s*·\s*([^\]]*))?\]/g;
+  if (!texto) {
+    return [{ fecha: fechaIni, monto: total, motivo: null }];
+  }
+
+  // Patrón 1: [Entrega 23-08-2026 · $ 550,00]: Motivo (o sin motivo)
+  const patron1 = /\[(?:Entrega\s+)?(\d{2}[-/]\d{2}[-/]\d{4}|\d{4}[-/]\d{2}[-/]\d{2})(?:\s*·\s*\$?\s*([\d.,]+))?\](?::\s*|\s*-\s*|\s*·\s*)?([^\n\r]*)/gi;
+  // Patrón 2: [Entrega 2026-10-22: +$50.00 · Motivo]
+  const patron2 = /\[Entrega\s+(\d{4}-\d{2}-\d{2}|\d{2}[-/]\d{2}[-/]\d{4}):\s*\+\$?([\d.,]+)(?:\s*·\s*([^\]]*))?\]/gi;
+
   const adicionales: EntregaPrestamo[] = [];
-  let match: RegExpExecArray | null;
+  let m: RegExpExecArray | null;
 
-  while ((match = regex.exec(texto)) !== null) {
-    const f = match[1];
-    const montoParsed = parseFloat(match[2].replace(',', '.'));
-    const mot = match[3]?.trim() || undefined;
-    if (f && Number.isFinite(montoParsed) && montoParsed > 0) {
-      adicionales.push({ fecha: f, monto: n2(montoParsed), motivo: mot });
+  while ((m = patron1.exec(texto)) !== null) {
+    const f = normalizarFechaIso(m[1]);
+    const monto = m[2] ? parsearMontoTexto(m[2]) : 0;
+    const mot = m[3]?.trim() || null;
+    if (f) adicionales.push({ fecha: f, monto: n2(monto), motivo: mot });
+  }
+
+  if (!adicionales.length) {
+    while ((m = patron2.exec(texto)) !== null) {
+      const f = normalizarFechaIso(m[1]);
+      const monto = m[2] ? parsearMontoTexto(m[2]) : 0;
+      const mot = m[3]?.trim() || null;
+      if (f) adicionales.push({ fecha: f, monto: n2(monto), motivo: mot });
     }
   }
 
-  // Motivo base (limpio de las marcas de entregas adicionales)
-  const motivoLimpio = texto.replace(regex, '').trim().replace(/\n{2,}/g, '\n') || undefined;
+  const motivoLimpio = texto
+    .replace(patron1, '')
+    .replace(patron2, '')
+    .trim()
+    .replace(/\n{2,}/g, '\n') || null;
 
   if (!adicionales.length) {
     return [{ fecha: fechaIni, monto: total, motivo: motivoLimpio }];
   }
 
+  // Si todas las entregas ya suman el total o ya están estructuradas:
   const sumaAdic = adicionales.reduce((acc, a) => acc + a.monto, 0);
-  const montoInicial = Math.max(0, n2(total - sumaAdic));
+  if (Math.abs(sumaAdic - total) < 0.05 && adicionales.length > 0) {
+    return adicionales.sort((a, b) => a.fecha.localeCompare(b.fecha));
+  }
 
+  // Si falta la entrega inicial:
+  const montoInicial = Math.max(0, n2(total - sumaAdic));
   const resultado: EntregaPrestamo[] = [
     { fecha: fechaIni, monto: montoInicial, motivo: motivoLimpio },
     ...adicionales,
@@ -105,6 +176,83 @@ export function fechasDeEntregas(p: PrestamoBase): string[] {
   const entregas = obtenerEntregas(p);
   const fechas = Array.from(new Set(entregas.map((e) => e.fecha).filter(Boolean)));
   return fechas.sort();
+}
+
+export interface AnticipoUnificado<T extends PrestamoBase = PrestamoBase> extends PrestamoBase {
+  prestamoOriginal: T;
+  ids: string[];
+  entregas: EntregaPrestamo[];
+  todasLasFechas: string[];
+}
+
+/**
+ * Unifica automáticamente préstamos de un mismo trabajador si tiene más de uno activo.
+ * Agrupa por `personal_id` sumando capitales y saldos, y consolidando el historial de entregas.
+ */
+export function unificarPrestamosActivos<T extends PrestamoBase>(lista: readonly T[]): T[] {
+  const grupos = new Map<string, T[]>();
+
+  for (const p of lista ?? []) {
+    // Solo agrupamos los que están activos con saldo > 0
+    if (p.estado === 'activo' && n2(p.saldo) > 0) {
+      const arr = grupos.get(p.personal_id) ?? [];
+      arr.push(p);
+      grupos.set(p.personal_id, arr);
+    }
+  }
+
+  const unificados: T[] = [];
+  const procesadosIds = new Set<string>();
+
+  for (const [personalId, items] of grupos.entries()) {
+    if (items.length <= 1) continue;
+
+    // Ordenar cronológicamente (el más antiguo primero)
+    const ordenados = [...items].sort((a, b) =>
+      fechaDePrestamo(a).localeCompare(fechaDePrestamo(b)) || (a.created_at ?? '').localeCompare(b.created_at ?? '')
+    );
+
+    const principal = ordenados[0];
+    const todasLasEntregas: EntregaPrestamo[] = [];
+    let montoTotal = 0;
+    let saldoTotal = 0;
+
+    for (const item of ordenados) {
+      procesadosIds.add(item.id);
+      const ents = obtenerEntregas(item);
+      todasLasEntregas.push(...ents);
+      montoTotal = n2(montoTotal + n2(item.monto_total));
+      saldoTotal = n2(saldoTotal + n2(item.saldo));
+    }
+
+    todasLasEntregas.sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+    // Formatear motivo consolidado
+    const nuevoMotivo = todasLasEntregas
+      .map((e) => `[Entrega ${e.fecha} · $ ${e.monto.toFixed(2)}]: ${e.motivo || 'Préstamo'}`)
+      .join('\n');
+
+    const consolidado: T = {
+      ...principal,
+      personal_id: personalId,
+      monto_total: montoTotal,
+      saldo: saldoTotal,
+      motivo: nuevoMotivo,
+      fecha: todasLasEntregas[0]?.fecha || fechaDePrestamo(principal),
+    };
+
+    unificados.push(consolidado);
+  }
+
+  // Devolver los no duplicados + los unificados
+  const resultado: T[] = [];
+  for (const p of lista ?? []) {
+    if (procesadosIds.has(p.id)) continue;
+    resultado.push(p);
+  }
+  resultado.push(...unificados);
+
+  return resultado.sort((a, b) => fechaDePrestamo(b).localeCompare(fechaDePrestamo(a)));
 }
 
 /* ─────────────────── Abonos ─────────────────── */

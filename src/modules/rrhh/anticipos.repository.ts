@@ -7,7 +7,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { AnticipoPrestamo, PagoAnticipo } from '@/shared/lib/types';
 import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
-import { formatearEntrega } from './prestamos';
+import { formatearEntrega, obtenerEntregas } from './prestamos';
 
 const TABLE = 'anticipos_prestamos';
 const TABLA_PAGOS = 'anticipos_pagos';
@@ -410,3 +410,74 @@ export async function eliminarAnticipo(id: string): Promise<void> {
   if (error) throw error;
   if (!data || data.length === 0) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
 }
+
+/**
+ * Detecta y sincroniza automáticamente en la base de datos a cualquier trabajador
+ * que tenga más de un préstamo activo abierto, unificándolos en uno solo con el
+ * historial completo de entregas y reasignando sus abonos sin requerir acción manual.
+ */
+export async function sincronizarPrestamosDuplicadosAutomatico(empresa: Empresa = EMPRESA_POR_DEFECTO): Promise<boolean> {
+  try {
+    const { data, error } = await supabase.from(TABLE).select('*')
+      .eq('empresa', empresa).eq('estado', 'activo').gt('saldo', 0)
+      .order('created_at', { ascending: true });
+    if (error || !data?.length) return false;
+
+    const lista = data as AnticipoPrestamo[];
+    const grupos = new Map<string, AnticipoPrestamo[]>();
+    for (const a of lista) {
+      const arr = grupos.get(a.personal_id) ?? [];
+      arr.push(a);
+      grupos.set(a.personal_id, arr);
+    }
+
+    let huboCambios = false;
+
+    for (const [, items] of grupos.entries()) {
+      if (items.length <= 1) continue;
+
+      huboCambios = true;
+      const principal = items[0];
+      const secundarios = items.slice(1);
+      const secIds = secundarios.map((s) => s.id);
+
+      // 1. Reasignar todos los abonos de los préstamos secundarios al principal:
+      await supabase.from(TABLA_PAGOS).update({ anticipo_id: principal.id }).in('anticipo_id', secIds);
+
+      // 2. Extraer todas las entregas combinadas
+      const todasLasEntregas = items.flatMap((item) => obtenerEntregas(item));
+      todasLasEntregas.sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+      const montoTotal = round2(items.reduce((acc, it) => acc + (Number(it.monto_total) || 0), 0));
+      const motivoConsolidado = todasLasEntregas
+        .map((e) => `[Entrega ${e.fecha} · $ ${e.monto.toFixed(2)}]: ${e.motivo || 'Préstamo'}`)
+        .join('\n');
+
+      // 3. Marcar secundarios como saldados
+      await supabase.from(TABLE).update({
+        estado: 'saldado',
+        saldo: 0,
+        motivo: 'Consolidado automáticamente en préstamo activo',
+      }).in('id', secIds);
+
+      // 4. Calcular suma de abonos para el saldo real
+      const todosPagos = await listPagosAnticipos([principal.id]);
+      const sumaPagos = round2(todosPagos.reduce((acc, p) => acc + (Number(p.monto) || 0), 0));
+      const nuevoSaldo = Math.max(0, round2(montoTotal - sumaPagos));
+      const nuevoEstado = nuevoSaldo <= 0 ? 'saldado' : 'activo';
+
+      await supabase.from(TABLE).update({
+        monto_total: montoTotal,
+        saldo: nuevoSaldo,
+        estado: nuevoEstado,
+        motivo: motivoConsolidado,
+        fecha: todasLasEntregas[0]?.fecha || principal.fecha,
+      }).eq('id', principal.id);
+    }
+
+    return huboCambios;
+  } catch {
+    return false;
+  }
+}
+
