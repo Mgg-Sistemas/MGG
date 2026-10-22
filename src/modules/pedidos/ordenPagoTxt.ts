@@ -91,6 +91,16 @@ export function saldoPendiente(orden: Pick<Orden, 'total' | 'abonado_total'>): n
 }
 
 /**
+ * Determina si la orden corresponde a una cuenta a crédito (abonos abiertos).
+ * En estas órdenes no se muestra método de pago: se pagan mediante abonos en Tesorería.
+ */
+export function esCuentaCredito(orden: Partial<Pick<Orden, 'condiciones_pago' | 'estado' | 'abonado_total'>>): boolean {
+  return orden.condiciones_pago === 'credito'
+    || orden.estado === 'cuenta_abierta'
+    || (Number(orden.abonado_total) || 0) > 0;
+}
+
+/**
  * Las personas de la orden, ya con su nombre (la página los saca del mapa de usuarios).
  * Quien paga —y quien aprueba— quiere saber a quién preguntarle: quién pidió, quién la
  * autorizó (el Gerente General o la Jefa de Administración) y qué analista de compras la llevó.
@@ -133,7 +143,11 @@ export function textoOrdenPago(orden: Orden, proveedorNombre: string, personas?:
     L.push(`✅ *Abonado:* ${montoTxt(abonado, mon)}`);
     L.push(`🔺 *Saldo pendiente:* ${montoTxt(saldoPendiente(orden), mon)}`);
   }
-  L.push(...bloquePago(orden.metodo_pago, Number(orden.total) || 0, mon));
+  // En cuentas a crédito no se muestra método de pago (se paga por abonos en Tesorería;
+  // no lleva método fijo ni se muestra «todavía sin método de pago indicado»).
+  if (!esCuentaCredito(orden)) {
+    L.push(...bloquePago(orden.metodo_pago, Number(orden.total) || 0, mon));
+  }
   return L.join('\n'); // saltos simples: WhatsApp los respeta
 }
 
