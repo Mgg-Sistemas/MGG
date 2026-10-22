@@ -1071,6 +1071,9 @@ export interface Orden {
   iva?: number | null;
   /** IGTF (monto) de la oferta elegida, copiado a la OC: ya está incluido en `total`. */
   igtf?: number | null;
+  igtf_aplicado?: boolean | null;
+  igtf_monto?: number | null;
+  igtf_pct?: number | null;
   /** Número con el que la administración del PROVEEDOR identifica este cobro/factura
    *  (14-10-2026). Se carga al indicar el método de pago; lo ven Tesorería y Retenciones. */
   numero_administracion?: string | null;
@@ -1428,13 +1431,21 @@ export interface OfertaProveedor {
   /** Precio total si se paga en divisa efectivo (descuento por pago en efectivo).
    *  Si está cargado y es menor al BCV, la comparativa muestra la diferencia y el % de ahorro. */
   precio_efectivo?: number | null;
+  /** Alias para compatibilidad con módulo de compras GT. */
+  precio_divisa?: number | null;
   /** Descuento (sobre el total BCV) aplicado a la cotización: BCV total = subtotal − descuento. */
   descuento?: number | null;
   /** IVA (monto) de la oferta: se calcula sobre la factura neta (subtotal − descuento)
    *  y se SUMA al total a pagar. null/0 = la oferta no lleva IVA. */
   iva?: number | null;
+  iva_aplicado?: boolean | null;
+  iva_monto?: number | null;
+  iva_pct?: number | null;
   /** IGTF (monto) de la oferta: se suma al total a pagar (típico en pagos en divisas). */
   igtf?: number | null;
+  igtf_aplicado?: boolean | null;
+  igtf_monto?: number | null;
+  igtf_pct?: number | null;
   /** `true` = los precios cotizados ya traen el IVA: `iva` se guarda pero no suma. */
   iva_incluido?: boolean | null;
   /** Diferencia declarada frente a la factura (redondeos); suma al total con su signo. */

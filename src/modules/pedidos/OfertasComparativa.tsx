@@ -448,7 +448,15 @@ export function OfertasComparativa({
                       <div>
                         <strong>{prov?.razon_social ?? '—'}</strong>{' '}
                         {recomendada && <span className="badge primary" style={{ marginLeft: '.4rem' }}>★ Recomendada</span>}
-                        {aceptada && <span className="badge success" style={{ marginLeft: '.4rem' }}>Aceptada</span>}
+                        {aceptada && (
+                          <span
+                            className="badge success"
+                            style={{ marginLeft: '.4rem' }}
+                            title={orden.pago_en_divisa ? 'Aceptada para pagar en Divisa ($)' : 'Aceptada para pagar en Bs a tasa BCV'}
+                          >
+                            Aceptada · {orden.pago_en_divisa ? '💵 Pago en $' : '🏦 Pago en Bs'}
+                          </span>
+                        )}
                       </div>
                       <div style={{ marginTop: '.2rem', display: 'flex', gap: '.25rem', flexWrap: 'wrap', alignItems: 'center' }}>
                         {s.mejorPrecio && <span className="badge info">Mejor precio</span>}
