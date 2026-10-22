@@ -38,7 +38,12 @@ export function fechaVe(iso: string | null | undefined): string {
 /** La fecha de la fila: la de la factura o, si falta, la del registro. */
 const fechaDe = (r: RetencionPracticada): string => r.facturaFecha ?? r.createdAt.slice(0, 10);
 
-export type OrdenLista = 'reciente' | 'antiguo';
+export type OrdenLista = 'reciente' | 'antiguo' | 'proveedor';
+
+/** Las opciones del orden, como la maqueta (v8-3-listas.js:207 y :257). */
+export const ORDENES_LISTA: { valor: OrdenLista; texto: string }[] = [
+  { valor: 'reciente', texto: 'Más reciente primero' }, { valor: 'antiguo', texto: 'Más antiguo primero' }, { valor: 'proveedor', texto: 'Proveedor (A–Z)' },
+];
 
 export interface FiltroLibro {
   q: string;
@@ -61,6 +66,7 @@ const buscaRetencion = (r: RetencionPracticada, q: string): boolean =>
 
 const porFecha = (orden: OrdenLista) => (a: RetencionPracticada, b: RetencionPracticada) => {
   const c = fechaDe(a).localeCompare(fechaDe(b)) || a.createdAt.localeCompare(b.createdAt);
+  if (orden === 'proveedor') return (a.contraparteNombre ?? '').localeCompare(b.contraparteNombre ?? '', 'es') || -c;
   return orden === 'reciente' ? -c : c;
 };
 
@@ -108,7 +114,9 @@ export function facturasRealizadas(libro: readonly RetencionPracticada[], f: Fil
       todas: rs,
     });
   }
-  out.sort((a, b) => (f.orden === 'reciente' ? b.fecha.localeCompare(a.fecha) : a.fecha.localeCompare(b.fecha)));
+  out.sort((a, b) => (f.orden === 'proveedor'
+    ? (a.contraparteNombre ?? '').localeCompare(b.contraparteNombre ?? '', 'es') || b.fecha.localeCompare(a.fecha)
+    : f.orden === 'reciente' ? b.fecha.localeCompare(a.fecha) : a.fecha.localeCompare(b.fecha)));
   return out;
 }
 
