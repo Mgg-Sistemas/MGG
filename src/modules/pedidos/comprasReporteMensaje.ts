@@ -93,7 +93,7 @@ export function mensajeReporteCompras(
     lineas.push('', '💰 *TOTAL GENERAL*', total);
   }
 
-  lineas.push('', '_MGG · Mineral Group Guayana_');
+  lineas.push('', '🏢 *MINERAL GROUP GUAYANA C.A.*');
   return lineas.join('\n');
 }
 
