@@ -211,7 +211,15 @@ export function OfertasComparativa({
    * Se persisten en la oferta (items + totales recalculados) para que la OC y el
    * ahorro por efectivo cuadren, y luego se acepta y se crea la OC.
    */
-  async function confirmarAceptacion(s: ScoredOferta, itemsElegidos: ItemOrden[], bcvTotal: number, usdTotal: number, motivo: string, adjuntosFiles: File[]) {
+  async function confirmarAceptacion(
+    s: ScoredOferta,
+    itemsElegidos: ItemOrden[],
+    bcvTotal: number,
+    usdTotal: number,
+    motivo: string,
+    adjuntosFiles: File[],
+    modalidadPago: 'usd' | 'bs' = 'usd',
+  ) {
     if (!itemsElegidos.some((it) => (Number(it.precio) || 0) > 0 || (Number(it.precio_usd) || 0) > 0)) {
       toast('Cargá al menos un precio: las marcas elegidas están en $0.', 'error');
       return;
@@ -221,10 +229,11 @@ export function OfertasComparativa({
       const motivoAdjuntos = adjuntosFiles.length
         ? await subirAdjuntosOferta(orden.id, s.oferta.proveedor_id, adjuntosFiles)
         : [];
-      // Monto final = total BCV; si la oferta es SOLO en USD (sin BCV), el total USD
-      // es el monto final. El efectivo solo es descuento cuando además hay BCV.
-      const montoFinal = bcvTotal > 0 ? bcvTotal : usdTotal;
-      const efectivo = bcvTotal > 0 && usdTotal > 0 ? usdTotal : null;
+      // Monto final según modalidad elegida por el analista
+      const montoFinal = modalidadPago === 'usd'
+        ? (usdTotal > 0 ? usdTotal : bcvTotal)
+        : (bcvTotal > 0 ? bcvTotal : usdTotal);
+      const efectivo = modalidadPago === 'usd' && usdTotal > 0 ? usdTotal : null;
       // Colapso de MARCAS: si un producto venía cotizado en varias marcas, la oferta se
       // queda con la elegida. OJO: solo se colapsan las marcas de los productos que se
       // COMPRAN; los demás renglones de la oferta se conservan intactos. Antes se
@@ -282,8 +291,9 @@ export function OfertasComparativa({
         actorEmail,
         motivo || null,
         motivoAdjuntos.length ? motivoAdjuntos : null,
+        modalidadPago,
       );
-      notify('Oferta elegida · pendiente por aprobación del Gerente General', 'success', { link: '#/app/pedidos' });
+      notify(`Oferta elegida · ${modalidadPago === 'usd' ? 'pago en $ (divisa)' : 'pago en Bs (BCV)'} · pendiente por aprobación`, 'success', { link: '#/app/pedidos' });
       onAccepted();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo elegir la oferta', 'error');
@@ -472,8 +482,21 @@ export function OfertasComparativa({
                             )}
                             {ahorro && (
                               <div style={{ fontSize: '.75rem', marginTop: '.15rem', whiteSpace: 'nowrap' }}>
-                                <span style={{ color: 'var(--success)' }}>{money(final, mo)}</span>{' '}
-                                <span className="badge success" title={`Ahorro ${money(ahorro.diferencia, mo)} (${money(s.oferta.precio_total, mo)} BCV − ${money(efe)} efectivo)`}>−{ahorro.pct.toFixed(2)}%</span>
+                                <span style={{ color: 'var(--success)' }}>Divisa: {money(efe, 'USD')}</span>{' '}
+                                <span className="badge success" title={`Ahorro ${money(ahorro.diferencia, mo)} (${money(s.oferta.precio_total, mo)} BCV − ${money(efe)} efectivo)`}>−{money(ahorro.diferencia, mo)} ({ahorro.pct.toFixed(2)}%)</span>
+                              </div>
+                            )}
+                            {aceptada && (
+                              <div style={{ marginTop: '.25rem' }}>
+                                {orden.modalidad_pago === 'usd' || orden.pago_en_divisa ? (
+                                  <span className="badge success" style={{ fontSize: '.7rem', padding: '.1rem .35rem' }} title="El analista eligió pagar en $ (divisa/efectivo)">
+                                    ✓ Opción elegida: Pago en $ (Divisa)
+                                  </span>
+                                ) : orden.modalidad_pago === 'bs' ? (
+                                  <span className="badge" style={{ fontSize: '.7rem', padding: '.1rem .35rem', background: 'rgba(59,130,246,.15)', color: 'var(--primary)' }} title="El analista eligió pagar en Bs al cambio (tasa BCV)">
+                                    ✓ Opción elegida: Pago en Bs al cambio (BCV)
+                                  </span>
+                                ) : null}
                               </div>
                             )}
                           </>
@@ -702,7 +725,7 @@ export function OfertasComparativa({
           proveedorNombre={proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'}
           moneda={orden.moneda}
           skusBloqueados={skusAjenos}
-          onConfirm={(items, bcv, usd, motivo, files) => confirmarAceptacion(confirmando, items, bcv, usd, motivo, files)}
+          onConfirm={(items, bcv, usd, motivo, files, mod) => confirmarAceptacion(confirmando, items, bcv, usd, motivo, files, mod)}
           onCancel={() => setConfirmando(null)}
         />
       )}

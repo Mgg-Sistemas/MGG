@@ -79,6 +79,8 @@ import {
   adjuntarComprobanteOc,
   indicarMetodoPago,
   corregirMetodoPago,
+  cambiarModalidadPagoOc,
+  sincronizarModalidadesPagoOrdenes,
   METODOS_PAGO,
   labelMetodoPago,
   listCatalogoPedido,
@@ -373,6 +375,11 @@ export function PedidosPage() {
       cancelled = true;
     };
   }, [refresh, user?.id]);
+
+  // Sincronizar automáticamente órdenes existentes para que tengan su modalidad_pago asignada
+  useEffect(() => {
+    sincronizarModalidadesPagoOrdenes().catch(() => {});
+  }, []);
 
   // Abrir el detalle de una orden desde el buscador global (?detalle=ID).
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1660,6 +1667,29 @@ function MetodoPagoModal({
         varios (<strong>multipago</strong>); en ese caso <strong>indicá cuánto va por cada método/moneda</strong>. Con un solo método, el monto lo define Tesorería al pagar. Al enviar pasa a <strong>Confirmada pagar</strong> y aparece en Tesorería.
       </p>
       )}
+
+      {/* Opción de pago escogida por el analista */}
+      {(orden.modalidad_pago || orden.pago_en_divisa || orden.oferta_precio_bcv != null) && (
+        <div className="card" style={{ margin: '0 0 .75rem', padding: '.65rem .85rem', borderLeft: '4px solid var(--brand, #ff8a00)', background: 'var(--bg-1)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem' }}>
+            <span style={{ fontWeight: 600 }}>Opción de pago elegida por el analista:</span>
+            {orden.modalidad_pago === 'usd' || orden.pago_en_divisa ? (
+              <span className="badge success" style={{ fontWeight: 600, fontSize: '.8rem' }}>
+                💵 Pago en $ (USD / Divisa) · {money(orden.total, 'USD')}
+              </span>
+            ) : (
+              <span className="badge" style={{ fontWeight: 600, fontSize: '.8rem', background: 'rgba(59,130,246,.15)', color: 'var(--primary)' }}>
+                🏦 Pago en Bs al cambio (tasa BCV) · {money(orden.total, orden.moneda ?? 'USD')}
+              </span>
+            )}
+          </div>
+          {orden.oferta_precio_bcv != null && (orden.modalidad_pago === 'usd' || orden.pago_en_divisa) && Math.abs(Number(orden.oferta_precio_bcv) - Number(orden.total)) > 1 && (
+            <div className="muted" style={{ fontSize: '.76rem', marginTop: '.25rem' }}>
+              La cotización original a tasa BCV marcaba <strong>{money(orden.oferta_precio_bcv, orden.moneda)}</strong>, pero el analista acordó pagar en dólares (<strong>{money(orden.total, 'USD')}</strong>).
+            </div>
+          )}
+        </div>
+      )}
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
       {/* Proveedor: se muestra el actual; cambiarlo = volver a cotizar (ver puedeCambiarProveedor).
@@ -2464,15 +2494,40 @@ const KanbanCard = memo(function KanbanCard({
           <span style={{ color: 'var(--warning)' }}>· Pendiente {(orden.anticipo_moneda ?? orden.moneda ?? 'USD') === (orden.moneda ?? 'USD') ? money(Math.max(0, Number(orden.total) - Number(orden.anticipo_monto)), orden.moneda) : 'crédito'}</span>
         </div>
       )}
-      <div className="foot">
+      <div className="foot" style={{ alignItems: 'flex-start' }}>
         {/* Si el total no suma lo que suman sus partes, se marca acá mismo. El monto
             de la tarjeta es el que mira todo el mundo y es el que va a Tesorería:
             un descuadre invisible se paga (caso SP-2026-0098-1-1, $ 71,42 de más). */}
-        <span className="total" title={avisoCuadre ?? undefined} style={avisoCuadre ? { color: 'var(--warning)' } : undefined}>
-          {avisoCuadre && '⚠ '}{money(orden.total, orden.moneda)}
-        </span>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start' }}>
+          <span className="total" title={avisoCuadre ?? undefined} style={avisoCuadre ? { color: 'var(--warning)' } : undefined}>
+            {avisoCuadre && '⚠ '}{money(orden.total, orden.moneda)}
+          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap', marginTop: '.15rem' }}>
+            {orden.modalidad_pago === 'usd' || orden.pago_en_divisa ? (
+              <span className="badge success" style={{ fontSize: '.64rem', padding: '.05rem .35rem' }}
+                title={orden.oferta_precio_bcv ? `Cotización en Bs: ${money(orden.oferta_precio_bcv, orden.moneda)} · El analista eligió pagar en $` : 'El analista eligió pagar en $'}>
+                💵 Pago en $
+              </span>
+            ) : orden.modalidad_pago === 'bs' ? (
+              <span className="badge" style={{ fontSize: '.64rem', padding: '.05rem .35rem', background: 'rgba(59,130,246,.15)', color: 'var(--primary)' }}
+                title="El analista eligió pagar en Bs al cambio a tasa BCV">
+                🏦 Pago en Bs (BCV)
+              </span>
+            ) : null}
+            {orden.oferta_precio_bcv != null && (orden.modalidad_pago === 'usd' || orden.pago_en_divisa) && Math.abs(Number(orden.oferta_precio_bcv) - Number(orden.total)) > 1 && (
+              <span className="muted mono" style={{ fontSize: '.68rem' }} title="Monto cotizado a tasa BCV">
+                (BCV {money(orden.oferta_precio_bcv, orden.moneda)})
+              </span>
+            )}
+          </div>
+        </div>
         <span className="when" title={dateTime(orden.created_at)}>{relTime(orden.created_at)}</span>
       </div>
+      {((orden.iva_aplicado && (Number(orden.iva_monto) || 0) > 0) || (Number(orden.iva) || 0) > 0) && (
+        <div className="muted mono" style={{ fontSize: '.7rem', marginTop: '.15rem' }} title="El total ya incluye el IVA">
+          incl. IVA{Number(orden.iva_pct) > 0 ? ` ${Number(orden.iva_pct).toLocaleString('es-VE', { maximumFractionDigits: 2 })}%` : ''} · {money(Number(orden.iva_monto || orden.iva), orden.moneda ?? 'USD')}
+        </div>
+      )}
     </div>
   );
 });
@@ -3129,6 +3184,68 @@ function OrdenDetailModal({
           </div>
         );
       })()}
+      {o.oc_codigo && (o.modalidad_pago || o.pago_en_divisa || o.oferta_precio_efectivo != null) && (
+        <div className="detail-row">
+          <div className="k">Modalidad de pago</div>
+          <div className="v" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+            {o.modalidad_pago === 'usd' || o.pago_en_divisa ? (
+              <span className="badge success" style={{ fontSize: '.82rem', padding: '.2rem .5rem', fontWeight: 600 }}>
+                💵 Pago en $ (USD / Divisa) · {money(o.total, 'USD')}
+              </span>
+            ) : (
+              <span className="badge" style={{ fontSize: '.82rem', padding: '.2rem .5rem', fontWeight: 600, background: 'rgba(59,130,246,.15)', color: 'var(--primary)' }}>
+                🏦 Pago en Bs al cambio (tasa BCV) · {money(o.total, o.moneda ?? 'USD')}
+              </span>
+            )}
+            {o.oferta_precio_bcv != null && (o.modalidad_pago === 'usd' || o.pago_en_divisa) && Math.abs(Number(o.oferta_precio_bcv) - Number(o.total)) > 1 && (
+              <span className="muted" style={{ fontSize: '.8rem' }}>
+                (Cotización original a tasa BCV: <strong>{money(o.oferta_precio_bcv, o.moneda)}</strong>)
+              </span>
+            )}
+            {['oc_creada', 'confirmada_metodo'].includes(o.estado) && canManageProcurement && (
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: '.3rem' }}>
+                {o.modalidad_pago === 'usd' || o.pago_en_divisa ? (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '.75rem' }}
+                    onClick={async () => {
+                      try {
+                        await cambiarModalidadPagoOc(o, 'bs', actorEmail);
+                        notify('Modalidad cambiada a Pago en Bs al cambio (tasa BCV)', 'success');
+                        await onAcceptedOffer();
+                      } catch (e) {
+                        toast(e instanceof Error ? e.message : 'Error al cambiar', 'error');
+                      }
+                    }}
+                    title="Cambiar para pagar en Bs a tasa BCV"
+                  >
+                    🔄 Cambiar a Pago en Bs (BCV)
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '.75rem', color: 'var(--success)' }}
+                    onClick={async () => {
+                      try {
+                        await cambiarModalidadPagoOc(o, 'usd', actorEmail);
+                        notify('Modalidad cambiada a Pago en $ (USD / Divisa)', 'success');
+                        await onAcceptedOffer();
+                      } catch (e) {
+                        toast(e instanceof Error ? e.message : 'Error al cambiar', 'error');
+                      }
+                    }}
+                    title="Cambiar para pagar en $ (USD / Divisa)"
+                  >
+                    🔄 Cambiar a Pago en $ (Divisa)
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
       {(o.oferta_motivo || (o.oferta_motivo_adjuntos && o.oferta_motivo_adjuntos.length > 0)) && (
         <div className="detail-row">
           <div className="k">📝 Motivo de elección</div>
