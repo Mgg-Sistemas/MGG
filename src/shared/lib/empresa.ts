@@ -15,9 +15,13 @@ export const EMPRESA_NOMBRE = 'MINERAL GROUP GUAYANA C.A.';
 /** RIF fiscal, para el membrete de los documentos formales. */
 export const EMPRESA_RIF = 'J-50221930-7';
 
+/** Domicilio fiscal para comprobantes y libros fiscales. */
+export const EMPRESA_DOMICILIO = 'Zona Industrial Los Pinos, Puerto Ordaz, Estado Bolívar';
+
 export interface IdentidadEmpresa {
   nombre: string;
   rif: string;
+  domicilio?: string;
 }
 
 /** Identidad de la empresa: MGG por defecto; otra nómina trae la suya. */

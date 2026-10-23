@@ -962,6 +962,8 @@ export interface Orden {
   codigo: string;
   /** 'producto' (compra normal) | 'servicio' (recarga de gas, mantenimiento…). Falta = 'producto'. */
   clase?: 'producto' | 'servicio' | null;
+  /** Alias de clase usado en algunos submódulos */
+  tipo?: 'producto' | 'servicio' | null;
   oc_codigo?: string | null;
   /** Si es una OC hija (sub-OC por proveedor), apunta a su OP padre. */
   parent_orden_id?: string | null;
@@ -973,6 +975,8 @@ export interface Orden {
   ci_solicitante?: string | null;
   items: ItemOrden[];
   total: number;
+  /** Moneda en que está expresado total ('USD' o 'Bs'). */
+  total_moneda?: string | null;
   estado: EstadoOrden;
   /** Moneda de la orden (la usan los Servicios: 'USD' o 'Bs'). Por defecto 'USD'. */
   moneda?: string | null;
@@ -1025,6 +1029,9 @@ export interface Orden {
   caja_mov_id?: string | null;
   factura_path?: string | null;
   factura_nombre?: string | null;
+  factura_recepcion_path?: string | null;
+  factura_recepcion_nombre?: string | null;
+  retencion_aplicada?: boolean | null;
   retencion_path?: string | null;
   retencion_nombre?: string | null;
   /** Imagen / QR de pago (ej. QR de Binance) cargado al indicar el método; Tesorería lo escanea al pagar. */

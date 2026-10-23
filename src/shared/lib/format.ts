@@ -12,6 +12,13 @@ export function money(n: number | null | undefined, moneda?: string | null): str
   return '$ ' + monto;
 }
 
+/** Formatea un monto en SU moneda: 'Bs' muestra "Bs …"; cualquier otra (o vacío) "$ …". */
+export function montoMoneda(n: number | null | undefined, moneda: string | null | undefined): string {
+  if (n == null || isNaN(n as number)) return '—';
+  const v = Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return moneda === 'Bs' ? `Bs ${v}` : `$ ${v}`;
+}
+
 /** Precio UNITARIO: 2 decimales como mínimo y hasta 4 si el proveedor cotizó 10,2648 (que 105 × 10,26 no contradiga el total). */
 export function moneyUnit(n: number | null | undefined, moneda?: string | null): string {
   if (n == null || isNaN(n as number)) return '—';

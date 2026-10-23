@@ -1,0 +1,441 @@
+/* ============================================================
+   Golden Touch · Libro fiscal · Estilos v8
+   Complementa libroFiscal.css. Prefijo lfv8- para no chocar.
+   Usa variables de theme.css (marca naranja --primary).
+   ============================================================ */
+
+/* ── Residencia fiscal (C.7, v8 §4.8) ── */
+.lfv8-res { display: flex; flex-direction: column; gap: .4rem; }
+.lfv8-res fieldset { border: 0; padding: 0; margin: 0; }
+.lfv8-res fieldset legend { font-size: .7rem; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--text-muted); margin-bottom: .3rem; }
+.lfv8-res fieldset label { margin-right: .9rem; cursor: pointer; }
+.lfv8-categoria { font-size: .85rem; color: var(--text); margin-top: .2rem; }
+.lfv8-sugerencia { font-size: .74rem; color: var(--text-muted); font-style: italic; }
+
+/* ── Factura de Compras al lado del registro (C.7, v8 §4.6) ── */
+.lfv8-fa-grid { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 1rem; }
+.lfv8-visor-barra { display: flex; flex-wrap: wrap; gap: .4rem .7rem; align-items: center; margin-bottom: .5rem; font-size: .8rem; }
+.lfv8-visor-arch { display: inline-flex; gap: .3rem; align-items: center; }
+.lfv8-zoom { display: inline-flex; gap: .3rem; align-items: center; }
+.lfv8-visor-img { max-height: 62vh; overflow: auto; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: #e9ecef; }
+.lfv8-visor-img img { display: block; margin: 0 auto; }
+.lfv8-visor-pdf { width: 100%; height: 62vh; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: #fff; }
+.lfv8-reg-grid { display: block; }
+dialog.lfv8-lado { width: min(1240px, calc(100vw - 32px)); }
+dialog.lfv8-lado .lfv8-reg-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 1rem; align-items: start; }
+dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
+.lfv8-reg-form { display: flex; flex-direction: column; gap: .8rem; }
+.lfv8-reg-lado .lfv8-visor-img,
+.lfv8-reg-lado .lfv8-visor-pdf { max-height: 58vh; height: 58vh; }
+.lfv8-reg-factura { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+@media (max-width: 760px) {
+  .lfv8-fa-grid { grid-template-columns: 1fr; }
+  dialog.lfv8-lado .lfv8-reg-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Plegar: botón expandir/contraer (C.8, v8 §6.1) ── */
+.lfv8-plegable { display: inline-flex; align-items: center; gap: .4rem; min-height: 36px; padding: 0 .3rem; border: 0; background: transparent; color: inherit; font: inherit; cursor: pointer; }
+.lfv8-plegable::before { content: '\25B8'; color: var(--text-muted); transition: transform .15s; }
+.lfv8-plegable[aria-expanded="true"]::before { transform: rotate(90deg); }
+.lfv8-plegable-n { font-size: .8rem; font-weight: 400; color: var(--text-muted); }
+.lfv8-plegable:focus-visible { outline: 2px solid var(--primary-2); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .lfv8-plegable::before { transition: none; } }
+
+/* ── Barra de selección para declarar en bloque (C.4 / 8.2) ── */
+.lfv8-selbar { display: flex; flex-wrap: wrap; gap: .5rem .8rem; align-items: center; padding: .5rem .7rem; border: 1px solid var(--primary); border-radius: var(--r-md); background: var(--grad-primary-soft, rgba(255,138,0,.06)); font-size: .85rem; margin-bottom: .6rem; }
+.lfv8-selbar-count { font-weight: 700; }
+.lfv8-sel-row td { background: rgba(255, 138, 0, .07); }
+
+/* ── Motivo del 0 % (4.10) ── */
+.lfv8-motivo-0 { display: flex; flex-direction: column; gap: .3rem; margin-top: .4rem; }
+.lfv8-motivo-0 label { font-size: .78rem; font-weight: 600; color: var(--warning); }
+.lfv8-motivo-0 textarea { min-height: 56px; resize: vertical; }
+
+/* ── Vista previa de relaciones en pantalla (C.11, v8 §16.3) ── */
+.lfv8-relp { display: grid; gap: 14px; justify-items: center; background: #e6e8eb; padding: 14px; border-radius: 6px; }
+.lfv8-relp-hoja { margin: 0; }
+.lfv8-relp-caja { background: #fff; box-shadow: 0 1px 4px rgba(0, 0, 0, .28); overflow: hidden; }
+.lfv8-relp-escala { transform-origin: top left; }
+.lfv8-relp-hoja figcaption { text-align: center; font-size: .74rem; color: #444; margin-top: .3rem; }
+
+/* ── Orientación de impresión (C.3, v8 §1.7) ── */
+.lfv8-orient { display: inline-flex; gap: .7rem; align-items: center; border: 0; padding: 0; margin: 0; font-size: .82rem; }
+.lfv8-orient legend { float: left; font-weight: 600; margin-right: .5rem; padding: 0; }
+.lfv8-orient label { display: inline-flex; gap: .3rem; align-items: center; min-height: 32px; cursor: pointer; }
+
+/* ── Impresión (C.3) ── */
+@media print {
+  .lfv8-selbar,
+  .lfv8-orient,
+  .lfv8-motivo-0 { display: none !important; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   v8 · Vista agrupada — tarjetas, chips, view-switch, proveedores
+   Calca visual de docs/cuaderno/disenos/v8-retenciones/
+   Prefijo lfv8- para no chocar con libroFiscal.css (.lf-*)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ── Tarjetas de impuesto (totales) ── */
+.lfv8-totales { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: .75rem; margin-bottom: .5rem; }
+.lfv8-total-imp { background: var(--grad-surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: .8rem .9rem; }
+.lfv8-total-imp h2 { margin: 0 0 .5rem; font-size: 1rem; font-weight: 700; display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
+.lfv8-total-imp h2 span { font-size: .78rem; font-weight: 500; color: var(--text-muted); }
+.lfv8-total-imp .lfv8-botones { display: flex; gap: .35rem; flex-wrap: wrap; }
+.lfv8-cuenta { display: inline-flex; align-items: center; gap: .3rem; min-height: 34px; padding: .25rem .6rem; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--bg-1); color: var(--text-muted); cursor: pointer; font-size: .8rem; }
+.lfv8-cuenta strong { font-family: var(--font-mono); color: var(--text); }
+.lfv8-cuenta.falta { border-color: rgba(245,177,51,0.5); color: #ffcc66; }
+.lfv8-cuenta.falta strong { color: #ffcc66; }
+.lfv8-cuenta.pd { border-color: rgba(74,168,255,0.4); color: #7fc1ff; }
+.lfv8-cuenta.pd strong { color: #7fc1ff; }
+.lfv8-cuenta[aria-pressed="true"] { background: var(--grad-primary); color: #1a0e00; border-color: transparent; box-shadow: var(--glow-primary); }
+.lfv8-cuenta[aria-pressed="true"] strong { color: #1a0e00; }
+.lfv8-cuenta:disabled { opacity: .45; cursor: default; }
+
+/* ── Filtros (contenedor) ── */
+.lfv8-filtros { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: .8rem .9rem; margin-bottom: 1rem; }
+.lfv8-filtros-cuerpo { display: flex; flex-wrap: wrap; gap: .9rem 1.4rem; align-items: flex-start; }
+.lfv8-campo { display: flex; flex-direction: column; gap: .35rem; }
+.lfv8-campo > span { font-size: .78rem; color: var(--text-muted); font-weight: 600; }
+
+/* ── Chips ── */
+.lfv8-chips { display: flex; gap: .35rem; flex-wrap: wrap; }
+.lfv8-chip { display: inline-flex; align-items: center; gap: .35rem; min-height: 34px; padding: .3rem .8rem; font-size: .82rem; font-weight: 500; background: var(--bg-1); color: var(--text-muted); border: 1px solid var(--border); border-radius: 999px; cursor: pointer; }
+.lfv8-chip:hover { color: var(--text); border-color: var(--border-strong); }
+.lfv8-chip[aria-pressed="true"] { background: var(--grad-primary-soft); color: var(--primary-3); border-color: rgba(255,138,0,0.5); }
+
+/* ── Barra de vista y view-switch ── */
+.lfv8-barra-vista { display: flex; justify-content: space-between; align-items: center; gap: .75rem; flex-wrap: wrap; margin-bottom: .75rem; }
+.lfv8-view-switch { display: inline-flex; gap: .25rem; padding: .25rem; background: var(--bg-2); border: 1px solid var(--border); border-radius: 999px; }
+.lfv8-view-switch button { background: transparent; border: 0; color: var(--text-muted); padding: .5rem 1.1rem; border-radius: 999px; font-size: .85rem; font-weight: 600; cursor: pointer; min-height: 38px; }
+.lfv8-view-switch button[aria-pressed="true"] { background: var(--grad-primary); color: #1a0e00; box-shadow: var(--glow-primary); }
+.lfv8-activos { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; font-size: .82rem; }
+.lfv8-activo { display: inline-flex; align-items: center; gap: .3rem; padding: .2rem .3rem .2rem .65rem; border-radius: 999px; background: var(--surface-3); border: 1px solid var(--border-strong); }
+.lfv8-activo button { background: transparent; border: 0; color: var(--text-muted); cursor: pointer; width: 26px; height: 26px; border-radius: 50%; }
+.lfv8-activo button:hover { color: var(--text); background: var(--surface-2); }
+
+/* ── Proveedor (tarjeta agrupadora) ── */
+.lfv8-proveedor { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); margin-bottom: .9rem; overflow: hidden; }
+.lfv8-proveedor > header { display: flex; justify-content: space-between; gap: .5rem 1rem; flex-wrap: wrap; align-items: center; padding: .7rem 1rem; background: var(--bg-2); border-bottom: 1px solid var(--border); }
+.lfv8-proveedor > header h3 { margin: 0; font-size: 1rem; }
+.lfv8-proveedor > header .lfv8-rif { color: var(--text-muted); font-family: var(--font-mono); font-size: .8rem; margin-left: .5rem; font-weight: 400; }
+.lfv8-proveedor > header .lfv8-resumen { font-size: .8rem; color: var(--text-muted); width: 100%; }
+.lfv8-proveedor > header .lfv8-resumen b { color: #ffcc66; font-weight: 600; }
+
+/* ── Factura (fila dentro de proveedor) ── */
+.lfv8-factura { display: grid; grid-template-columns: minmax(170px, 1fr) minmax(0, 2.8fr) minmax(110px, .6fr); gap: 1rem; align-items: center; padding: .75rem 1rem; border-top: 1px solid var(--border); }
+.lfv8-proveedor > header + .lfv8-factura { border-top: 0; }
+.lfv8-factura .lfv8-num { font-family: var(--font-mono); font-size: .95rem; font-weight: 600; }
+.lfv8-factura .lfv8-meta { font-size: .78rem; color: var(--text-muted); }
+.lfv8-factura .lfv8-doc { font-family: var(--font-mono); color: var(--primary-2); }
+.lfv8-factura .lfv8-tot { text-align: right; }
+.lfv8-factura .lfv8-tot small { display: block; font-size: .72rem; color: var(--text-muted); }
+.lfv8-factura .lfv8-tot span { font-family: var(--font-mono); font-weight: 600; }
+
+/* ── Tira de casillas ── */
+.lfv8-tira { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: .4rem; }
+
+/* ── Casilla (una retención por impuesto) ── */
+.lfv8-casilla { border-radius: var(--r-md); border: 1px solid var(--border); background: var(--bg-1); padding: .45rem .55rem; display: flex; flex-direction: column; gap: .1rem; min-height: 78px; font-size: .8rem; }
+.lfv8-casilla .lfv8-imp { font-size: .72rem; font-weight: 700; color: var(--text-muted); display: flex; justify-content: space-between; gap: .3rem; align-items: baseline; }
+.lfv8-casilla .lfv8-origen { font-weight: 500; color: var(--text-dim); font-size: .68rem; }
+.lfv8-casilla .lfv8-est { font-weight: 600; }
+.lfv8-casilla .lfv8-monto { font-family: var(--font-mono); }
+.lfv8-casilla .lfv8-comp { font-family: var(--font-mono); font-size: .7rem; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lfv8-casilla .lfv8-por { font-size: .74rem; color: var(--text-muted); }
+.lfv8-casilla .lfv8-por b { color: var(--text); font-weight: 600; }
+.lfv8-casilla .lfv8-acciones { margin-top: auto; display: flex; gap: .3rem; flex-wrap: wrap; padding-top: .25rem; }
+.lfv8-mini { min-height: 28px; padding: .1rem .55rem; font-size: .74rem; font-weight: 600; border-radius: var(--r-sm); border: 1px solid var(--border-strong); background: transparent; color: var(--text-muted); cursor: pointer; }
+.lfv8-mini:hover { color: var(--text); border-color: var(--text-muted); }
+.lfv8-mini.registrar { border-color: rgba(245,177,51,0.6); color: #ffcc66; }
+.lfv8-mini.registrar:hover { background: rgba(245,177,51,0.15); color: #fff; }
+
+/* casilla: variantes por estado */
+.lfv8-casilla.ok { border-color: rgba(41,192,129,0.45); background: rgba(41,192,129,0.08); }
+.lfv8-casilla.ok .lfv8-est { color: #5fdca9; }
+.lfv8-casilla.declarada { border-color: rgba(74,168,255,0.4); background: rgba(74,168,255,0.07); }
+.lfv8-casilla.declarada .lfv8-est { color: #7fc1ff; }
+.lfv8-casilla.falta { border-color: rgba(245,177,51,0.55); background: rgba(245,177,51,0.08); }
+.lfv8-casilla.falta .lfv8-est { color: #ffcc66; }
+.lfv8-casilla.anulada { border-color: rgba(239,79,94,0.5); background: rgba(239,79,94,0.07); }
+.lfv8-casilla.anulada .lfv8-est { color: #ff8a96; }
+.lfv8-casilla.anulada .lfv8-monto { text-decoration: line-through; color: var(--text-dim); }
+.lfv8-casilla.nc { background: transparent; border-color: var(--border); color: var(--text-muted); }
+.lfv8-casilla.nc .lfv8-est { color: var(--text-muted); font-weight: 500; }
+.lfv8-casilla.pd { border-style: dashed; border-color: rgba(74,168,255,0.45); background: transparent; }
+.lfv8-casilla.pd .lfv8-est { color: #7fc1ff; }
+
+/* ── Vista por impuesto (columnas) ── */
+.lfv8-columnas { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: .9rem; align-items: start; }
+.lfv8-columna { background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
+.lfv8-columna > header { padding: .7rem .9rem; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
+.lfv8-columna > header h3 { margin: 0; font-size: 1rem; }
+.lfv8-columna h4 { margin: 0; padding: .55rem .9rem .3rem; font-size: .78rem; color: var(--text-muted); font-weight: 600; }
+.lfv8-item { display: grid; grid-template-columns: 1fr auto; gap: .55rem; align-items: start; padding: .55rem .9rem; border-top: 1px solid var(--border); }
+.lfv8-item .lfv8-quien { font-size: .82rem; }
+.lfv8-item .lfv8-quien small { display: block; color: var(--text-muted); font-size: .74rem; }
+.lfv8-item .lfv8-cuanto { text-align: right; font-size: .8rem; }
+.lfv8-item .lfv8-cuanto .lfv8-monto { font-family: var(--font-mono); }
+.lfv8-pill { display: inline-block; padding: .05rem .5rem; border-radius: 999px; font-size: .7rem; font-weight: 600; border: 1px solid var(--border-strong); color: var(--text-muted); }
+.lfv8-pill.falta { color: #ffcc66; border-color: rgba(245,177,51,0.5); }
+.lfv8-pill.anulada { color: #ff8a96; border-color: rgba(239,79,94,0.5); }
+.lfv8-pill.ok { color: #5fdca9; border-color: rgba(41,192,129,0.45); }
+.lfv8-pill.declarada { color: #7fc1ff; border-color: rgba(74,168,255,0.45); }
+
+/* ── Ver restantes (botón en proveedor) ── */
+.lfv8-ver-restantes { display: block; width: 100%; text-align: left; padding: .6rem 1rem; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--primary-2); cursor: pointer; font-size: .82rem; }
+.lfv8-ver-restantes:hover { background: rgba(255,138,0,0.04); }
+
+/* ── Vacío y contadores ── */
+.lfv8-vacio { text-align: center; padding: 2.5rem 1rem; border: 1px dashed var(--border-strong); border-radius: var(--r-lg); color: var(--text-muted); }
+.lfv8-vacio button { margin-top: .8rem; }
+.lfv8-contador { font-size: .82rem; color: var(--text-muted); margin: 0 0 .5rem; }
+.lfv8-nota { font-size: .78rem; color: var(--text-dim); margin: 0 0 1rem; }
+.lfv8-acciones-libro { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
+
+/* ── Búsqueda estilo v8 ── */
+.lfv8-buscar { position: relative; margin-bottom: 1rem; }
+.lfv8-buscar label { display: block; font-size: .78rem; color: var(--text-muted); font-weight: 600; margin-bottom: .35rem; }
+.lfv8-buscar input { width: 100%; padding: .85rem 1rem .85rem 2.6rem; font-size: 1rem; background: var(--bg-1); color: var(--text); border: 1px solid var(--border-strong); border-radius: var(--r-lg); }
+.lfv8-buscar input:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 3px rgba(255,138,0,0.15); }
+.lfv8-buscar .lfv8-lupa { position: absolute; left: .95rem; bottom: .8rem; color: var(--text-dim); font-size: 1.1rem; pointer-events: none; }
+
+/* ── Rango de fechas ── */
+.lfv8-rango { display: flex; gap: .4rem; align-items: center; }
+.lfv8-rango[hidden] { display: none; }
+.lfv8-fecha { padding: .45rem .7rem; min-height: 34px; background: var(--bg-1); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md); font-size: .85rem; }
+.lfv8-select { padding: .45rem .7rem; min-height: 34px; background: var(--bg-1); color: var(--text); border: 1px solid var(--border); border-radius: var(--r-md); font-size: .85rem; }
+
+/* ── Paginador v8 ── */
+.lfv8-paginador { display: flex; justify-content: space-between; align-items: center; gap: .75rem; flex-wrap: wrap; margin: .5rem 0 1rem; font-size: .82rem; color: var(--text-muted); }
+
+/* ── Cabecera v8: chips de acción y período en curso ── */
+.lfv8-cabeza-acciones { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: .75rem; }
+.lfv8-cabeza-acciones .btn { font-size: .82rem; }
+.lfv8-badge-alerta { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; padding: 0 .35rem; font-size: .72rem; font-weight: 700; border-radius: 999px; background: var(--danger, #ef4f5e); color: #fff; margin-left: .3rem; }
+.lfv8-badge-n { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; padding: 0 .35rem; font-size: .72rem; font-weight: 700; border-radius: 999px; background: var(--surface-3); color: var(--text); margin-left: .3rem; }
+
+.lfv8-per-curso { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; padding: .6rem .8rem; background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--r-lg); margin-bottom: .75rem; font-size: .82rem; }
+.lfv8-per-curso-badge { display: inline-flex; align-items: center; gap: .3rem; padding: .25rem .65rem; border-radius: var(--r-md); font-size: .78rem; font-weight: 600; border: 1px solid rgba(239,79,94,0.5); color: #ff8a96; }
+.lfv8-per-curso-label { font-weight: 600; color: var(--text-muted); margin-right: .3rem; }
+.lfv8-per-chip { display: inline-flex; align-items: center; gap: .4rem; padding: .35rem .75rem; border-radius: var(--r-md); border: 1px solid var(--border-strong); background: var(--bg-2); font-size: .8rem; }
+.lfv8-per-chip b { font-weight: 700; }
+.lfv8-per-chip .muted { font-size: .74rem; color: var(--text-muted); }
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  .lfv8-totales { grid-template-columns: 1fr; gap: .5rem; }
+  .lfv8-filtros-cuerpo { flex-direction: column; align-items: stretch; }
+  .lfv8-view-switch { width: 100%; }
+  .lfv8-view-switch button { flex: 1; padding: .5rem .4rem; min-height: 44px; }
+  .lfv8-factura { grid-template-columns: 1fr; gap: .55rem; }
+  .lfv8-factura .lfv8-tot { text-align: left; display: flex; gap: .5rem; align-items: baseline; }
+  .lfv8-factura .lfv8-tot small { display: inline; }
+  .lfv8-tira.cuatro { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .lfv8-casilla { min-height: 84px; }
+  .lfv8-cuenta, .lfv8-chip { min-height: 44px; }
+  .lfv8-columnas { grid-template-columns: 1fr; }
+  .lfv8-buscar input { font-size: .95rem; padding-left: 2.2rem; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   v8 · Parámetros — tarjetas en dos capas (Ajustes / Avanzados)
+   Calca visual del modal de la maqueta v8.
+   ═══════════════════════════════════════════════════════════════ */
+.lfv8-pa-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: .65rem; margin: .5rem 0 1rem; }
+.lfv8-pa-btn { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: .3rem; padding: .85rem .95rem; border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--grad-surface); min-height: 112px; width: 100%; text-align: left; }
+.lfv8-pa-btn:hover { border-color: rgba(255,138,0,0.6); }
+.lfv8-pa-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.lfv8-pa-btn .lfv8-pa-t { font-weight: 700; font-size: .98rem; color: var(--text); }
+.lfv8-pa-btn .lfv8-pa-d { font-size: .8rem; color: var(--text-muted); line-height: 1.4; }
+.lfv8-pa-btn .lfv8-pa-r { margin-top: auto; font-size: .76rem; color: var(--primary-3); }
+.lfv8-pa-avanzados { all: unset; box-sizing: border-box; cursor: pointer; display: flex; flex-direction: column; gap: .3rem; padding: .85rem .95rem; border: 1px solid var(--border-strong); border-radius: var(--r-md); width: 100%; text-align: left; border-left: 4px solid var(--warning); background: rgba(245,177,51,0.06); position: relative; padding-right: 2.6rem; }
+.lfv8-pa-avanzados::after { content: '\203A'; position: absolute; right: 1rem; top: 50%; transform: translateY(-50%); font-size: 1.6rem; color: var(--warning); }
+.lfv8-pa-avanzados:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.lfv8-pa-avanzados .lfv8-pa-t { font-weight: 700; font-size: .98rem; color: var(--text); }
+.lfv8-pa-avanzados .lfv8-pa-d { font-size: .8rem; color: var(--text-muted); line-height: 1.4; }
+.lfv8-pa-avanzados .lfv8-pa-r { font-size: .76rem; color: #ffd99a; }
+.lfv8-pa-capa-t { margin: .2rem 0 0; font-size: 1rem; font-weight: 700; }
+.lfv8-pa-capa-d { margin: .1rem 0 0; font-size: .82rem; color: var(--text-muted); }
+.lfv8-pa-volver { all: unset; cursor: pointer; font-size: .84rem; color: var(--primary-3); padding: .3rem 0; min-height: 24px; }
+.lfv8-pa-volver:hover { text-decoration: underline; }
+.lfv8-pa-volver:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.lfv8-pa-sec-t { margin: .3rem 0 .4rem; font-size: 1.05rem; font-weight: 700; }
+.lfv8-pa-que { display: grid; grid-template-columns: 9.5rem minmax(0, 1fr); gap: .3rem .8rem; margin: 0 0 .7rem; padding: .6rem .75rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-1); font-size: .82rem; }
+.lfv8-pa-que dt { color: var(--text-muted); font-weight: 600; }
+.lfv8-pa-que dd { margin: 0; }
+.lfv8-pa-aviso { padding: .5rem .75rem; border: 1px solid rgba(245,177,51,0.4); border-radius: var(--r-md); background: rgba(245,177,51,0.06); font-size: .82rem; color: #ffd99a; margin-bottom: .6rem; }
+.lfv8-pa-placeholder { text-align: center; padding: 2rem 1rem; color: var(--text-muted); font-size: .85rem; border: 1px dashed var(--border-strong); border-radius: var(--r-md); }
+@media (max-width: 640px) {
+  .lfv8-pa-grid { grid-template-columns: 1fr; }
+  .lfv8-pa-btn { min-height: 0; }
+  .lfv8-pa-que { grid-template-columns: 1fr; gap: .1rem; }
+  .lfv8-pa-que dd { margin-bottom: .35rem; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   v8 · Reportes — plantillas, filtros y vista previa
+   Calca visual de docs/cuaderno/disenos/v8-retenciones/
+   ═══════════════════════════════════════════════════════════════ */
+.lfv8-rep-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); gap: 1rem; align-items: start; }
+.lfv8-rep-plantillas { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: .6rem; }
+.lfv8-rep-plantillas h4 { margin: .6rem .4rem .3rem; font-size: .74rem; color: var(--text-dim); font-weight: 600; text-transform: uppercase; letter-spacing: .04em; }
+.lfv8-rep-pl { all: unset; box-sizing: border-box; display: block; width: 100%; text-align: left; border-radius: var(--r-md); padding: .5rem .6rem; color: var(--text); cursor: pointer; min-height: 40px; font-size: .84rem; }
+.lfv8-rep-pl:hover { background: var(--surface-2); }
+.lfv8-rep-pl[aria-current="true"] { background: var(--grad-primary-soft); color: var(--primary-3); }
+.lfv8-rep-pl small { display: block; color: var(--text-dim); font-size: .7rem; }
+.lfv8-rep-constructor { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); padding: .9rem 1rem; min-width: 0; }
+.lfv8-rep-filtros { display: flex; flex-wrap: wrap; gap: .8rem 1.2rem; align-items: flex-start; margin: .8rem 0; }
+.lfv8-rep-filtros .lfv8-campo { min-width: 160px; }
+.lfv8-rep-acciones { display: flex; flex-wrap: wrap; gap: .4rem; margin: .8rem 0 .4rem; }
+.lfv8-rep-vista {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 1rem;
+  overflow-x: auto;
+  min-height: 120px;
+  box-shadow: var(--shadow-sm);
+}
+.lfv8-rep-vista .table {
+  background: transparent;
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.lfv8-rep-vista .table thead th {
+  background: var(--surface-2);
+  color: var(--text-dim);
+  border-bottom: 1px solid var(--border);
+  font-size: .74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  padding: .65rem .8rem;
+  white-space: nowrap;
+}
+.lfv8-rep-vista .table tbody td {
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
+  padding: .65rem .8rem;
+  font-size: .82rem;
+  background: transparent;
+}
+.lfv8-rep-vista .table tbody tr:hover td {
+  background: rgba(255, 138, 0, 0.05);
+}
+.lfv8-rep-fila-total td {
+  font-weight: 700 !important;
+  background: rgba(255, 138, 0, 0.12) !important;
+  color: var(--primary-3, #ffb347) !important;
+  border-top: 2px solid var(--primary, #ff8a00) !important;
+  border-bottom: 2px solid var(--primary, #ff8a00) !important;
+}
+
+.lfv8-check-firma {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  font-size: .82rem;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  padding: .35rem .65rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  transition: all .15s ease;
+}
+.lfv8-check-firma:hover:not(.lfv8-check-firma-disabled) {
+  border-color: var(--primary);
+  background: var(--surface-2);
+}
+.lfv8-check-firma input[type="checkbox"] {
+  accent-color: var(--primary);
+  cursor: pointer;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+.lfv8-check-firma.lfv8-check-firma-disabled {
+  opacity: .5;
+  cursor: not-allowed;
+  border-style: dashed;
+}
+.lfv8-check-firma.lfv8-check-firma-disabled input {
+  cursor: not-allowed;
+}
+
+.lfv8-rep-columnas { display: flex; flex-wrap: wrap; gap: .2rem .9rem; font-size: .8rem; margin: .4rem 0; }
+.lfv8-rep-columnas label { display: inline-flex; gap: .3rem; align-items: center; min-height: 30px; cursor: pointer; }
+.lfv8-rep-columnas input { accent-color: var(--primary); }
+.lfv8-rep-orient { display: inline-flex; gap: .7rem; align-items: center; border: 0; padding: 0; margin: .4rem 0 0; font-size: .82rem; }
+.lfv8-rep-orient legend { float: left; font-weight: 600; margin-right: .5rem; padding: 0; }
+.lfv8-rep-orient label { display: inline-flex; gap: .3rem; align-items: center; min-height: 32px; cursor: pointer; }
+.lfv8-rep-progreso { font-size: .8rem; color: var(--text-muted); margin: .6rem 0 .3rem; }
+@media (max-width: 900px) { .lfv8-rep-layout { grid-template-columns: 1fr; } }
+@media (max-width: 640px) { .lfv8-rep-filtros { flex-direction: column; } .lfv8-rep-filtros .lfv8-campo { min-width: 0; width: 100%; } }
+
+/* ═══════════════════════════════════════════════════════════════
+   v8 · Por realizar — grid table, pills, tarjeta-pagar, alertas
+   ═══════════════════════════════════════════════════════════════ */
+.lfv8-sis { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg); overflow: hidden; }
+.lfv8-sis-fila { display: grid; grid-template-columns: var(--cols); gap: .6rem; align-items: center; padding: .55rem 1rem; border-top: 1px solid var(--border); font-size: .82rem; }
+.lfv8-sis-cab { display: grid; grid-template-columns: var(--cols); gap: .6rem; align-items: center; padding: .55rem 1rem; color: var(--text-dim); font-size: .72rem; font-weight: 600; background: var(--bg-1, var(--surface-2)); text-transform: uppercase; letter-spacing: .03em; }
+.lfv8-sis-fila .n { font-family: var(--font-mono, monospace); text-align: right; }
+.lfv8-sis-acc { display: flex; gap: .3rem; flex-wrap: wrap; justify-content: flex-end; }
+.lfv8-sis-fila small { display: block; color: var(--text-dim); font-size: .72rem; }
+.lfv8-sis-vacio { padding: 2rem 1rem; text-align: center; color: var(--text-dim); font-size: .84rem; border-top: 1px solid var(--border); }
+.lfv8-sis-pag { display: flex; justify-content: space-between; align-items: center; padding: .5rem 1rem; border-top: 1px solid var(--border); font-size: .8rem; color: var(--text-dim); }
+.lfv8-sis-pag-btns { display: flex; gap: .3rem; }
+
+.lfv8-pill { display: inline-block; padding: .05rem .5rem; border-radius: 999px; font-size: .7rem; font-weight: 600; border: 1px solid var(--border); color: var(--text-dim); }
+.lfv8-pill.falta { color: #ffcc66; border-color: rgba(245,177,51,0.5); }
+.lfv8-pill.ok { color: var(--success); border-color: color-mix(in srgb, var(--success) 50%, transparent); }
+
+.lfv8-btn-reg { border-color: rgba(245,177,51,0.6); color: #ffcc66; }
+.lfv8-btn-reg:hover { background: rgba(245,177,51,0.15); color: #fff; }
+
+.lfv8-pagar { border: 1px solid rgba(74,168,255,0.45); background: rgba(74,168,255,0.06); border-radius: var(--r-md); padding: .6rem .75rem; margin-bottom: .8rem; display: flex; flex-direction: column; gap: .3rem; }
+.lfv8-pagar h3 { margin: 0; font-size: .9rem; }
+.lfv8-pagar-fila { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; padding: .25rem 0; font-size: .82rem; }
+.lfv8-pagar-acc { display: inline-flex; gap: .35rem; align-items: center; flex-wrap: wrap; }
+.lfv8-pagar-acc select { min-height: 32px; width: auto; }
+
+.lfv8-alerta-media { border: 1px solid rgba(245,177,51,0.55); background: rgba(245,177,51,0.08); color: #ffd99a; border-radius: var(--r-md); padding: .5rem .7rem; font-size: .8rem; margin-bottom: .5rem; display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
+
+.lfv8-barra { display: flex; flex-direction: column; gap: .5rem; margin: .4rem 0 .6rem; }
+.lfv8-buscar { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .8rem; }
+.lfv8-buscar-q { flex: 1 1 300px; max-width: 560px; min-height: 40px; }
+.lfv8-barra-res { font-size: .8rem; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+.lfv8-barra-filtros { display: flex; flex-wrap: wrap; gap: .5rem .8rem; align-items: flex-end; }
+.lfv8-barra-filtros .lfv8-campo { min-width: 170px; }
+
+.lfv8-huella { font-size: .74rem; color: var(--text-dim); margin: .2rem 0 .4rem; }
+
+@media (max-width: 640px) {
+  .lfv8-sis-fila { grid-template-columns: 1fr 1fr; }
+  .lfv8-sis-cab { display: none; }
+  .lfv8-sis-fila [data-l]::before { content: attr(data-l) ': '; color: var(--text-dim); font-size: .72rem; }
+  .lfv8-sis-fila .n { text-align: left; }
+  .lfv8-sis-acc { grid-column: 1 / -1; justify-content: flex-start; }
+  .lfv8-buscar-q { flex-basis: 100%; max-width: none; }
+  .lfv8-barra-filtros .lfv8-campo { min-width: 100%; }
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   v8 · Períodos — filtros por impuesto, atención, timeline
+   ═══════════════════════════════════════════════════════════════ */
+.lfv8-periodos-filtros { display: flex; flex-wrap: wrap; gap: .8rem 1.2rem; align-items: flex-end; margin-bottom: .8rem; }
+.lfv8-periodos-filtros .lfv8-campo { min-width: 140px; }
+.lfv8-atencion { border: 1px solid var(--border); border-radius: var(--r-lg); padding: .6rem 1rem; margin-bottom: 1rem; background: var(--surface); }
+.lfv8-atencion summary { font-size: .9rem; cursor: pointer; min-height: 40px; line-height: 40px; font-weight: 600; }
+.lfv8-atencion-fila { display: grid; grid-template-columns: 80px 1fr 1fr 1fr auto; gap: .6rem; align-items: center; padding: .5rem 0; border-top: 1px solid var(--border); font-size: .82rem; }
+.lfv8-atencion-fila strong { font-size: .9rem; }
+.lfv8-atencion-venc { color: #ffcc66; font-weight: 600; font-size: .8rem; }
+@media (max-width: 640px) {
+  .lfv8-atencion-fila { grid-template-columns: 1fr; gap: .2rem; }
+  .lfv8-periodos-filtros { flex-direction: column; }
+  .lfv8-periodos-filtros .lfv8-campo { min-width: 0; width: 100%; }
+}

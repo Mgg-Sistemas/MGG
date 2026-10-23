@@ -7,8 +7,20 @@
    ============================================================ */
 import { previewPdfDoc, previewFileUrl, previewWorkbook } from './reportPreview';
 
+export interface PreviewPdfOpciones {
+  extraControls?: (ctx: {
+    bar: HTMLElement;
+    updatePdf: (nuevoDoc: any) => void;
+    close: () => void;
+  }) => void;
+}
+
 /** Muestra un PDF (jsPDF) en el visor del sistema. */
-export function previewPdf(doc: { output: (type: string) => unknown }, filename: string): void {
+export function previewPdf(
+  doc: { output: (type: string) => unknown },
+  filename: string,
+  _opciones?: PreviewPdfOpciones,
+): void {
   previewPdfDoc(doc, filename);
 }
 

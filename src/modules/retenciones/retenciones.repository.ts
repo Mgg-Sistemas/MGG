@@ -1,27 +1,19 @@
 /* ============================================================
-   MGG · Retenciones fiscales (Supabase)
+   Golden Touch · Retenciones fiscales (Supabase)
    Cuando al indicar el método de pago de una OC se elige soporte
-   "Factura", la orden entra a Retenciones. Acá se cargan los
+   "Factura", la orden entra a Retenciones. Aquí se cargan los
    comprobantes fiscales (IVA / ISLR / Municipal) y se finaliza la
    retención. La marca de pago la pone Tesorería automáticamente al
-   pagar la OC. Las de "Nota de entrega" NO pasan por acá (van directo
+   pagar la OC. Las de "Nota de entrega" NO pasan por aquí (van directo
    a Tesorería).
    Archivos en el bucket `compras-oc` (mismo de factura/retención de OC).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Orden } from '@/shared/lib/types';
-import { listComprasConRetencion, type CompraDirecta } from '@/modules/pedidos/compras.repository';
-import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
-import { monedaDeOrden } from './monedaOrden';
+import { fechaDesdeAgenteRetencion } from '@/modules/libroFiscal/agenteCondiciones.repository';
 
 const TABLE = 'ordenes';
 const BUCKET = 'compras-oc';
-
-function fmtMonto(n: number | null | undefined, moneda: string): string {
-  const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return moneda === 'Bs' ? `Bs ${v}` : `$ ${v}`;
-}
 
 export type TipoRetencion = 'iva' | 'islr' | 'municipal';
 export const TIPOS_RETENCION: { key: TipoRetencion; label: string }[] = [
@@ -36,137 +28,78 @@ export function labelRetencionModo(v?: string | null): string {
     : '—';
 }
 
-/**
- * Fila unificada del módulo Retenciones: puede ser una OC o una compra directa.
- * Los campos de display quedan pre-calculados para que la página no ramifique.
- */
 export interface RetencionItem {
-  kind: 'oc' | 'compra_directa';
-  id: string;
-  ocCodigo: string | null;      // N°OC (OC) o código CD (compra directa)
-  opCodigo: string | null;      // OP (OC) o null (compra directa)
-  /** Número con el que la administración del proveedor identifica el cobro (se carga al indicar el método de pago, 14-10-2026). */
-  numeroAdministracion?: string | null;
+  orden: Orden;
   proveedorNombre: string;
-  /** Datos que el comprobante de retención necesita del sujeto retenido. */
-  proveedorId: string | null;
-  proveedorRif: string | null;
-  condicionLabel: string;       // condición de pago (OC) o "Compra directa"
-  retencionLabel: string;       // modo de retención (OC) o "16% IVA · Bs X" (compra directa)
-  moneda: string;
-  /** La OC trae una moneda que Retenciones no maneja (ver monedaOrden.ts). */
-  avisoMoneda?: string | null;
-  total: number;
-  tesoreria: 'pagada' | 'por_pagar' | 'na';
-  finalizada: boolean;
-  finalizadaEn: string | null;
-  tiposComprobante: TipoRetencion[];   // comprobantes cargados (para el filtro por tipo)
-  // Registro subyacente según el tipo (lo usa el modal de detalle).
-  orden?: Orden;
-  compra?: CompraDirecta;
 }
 
-/** Proveedor por id: el nombre para mostrar y el RIF, que el comprobante pide. */
-export interface ProveedorBreve { nombre: string; rif: string | null; numeroAdministracion: string | null }
-
-async function mapProveedores(): Promise<Map<string, ProveedorBreve>> {
-  // Por páginas (N3): pasadas las 1.000 filas, Supabase corta sin avisar. Un error sigue dando
-  // el mapa vacío, como antes: Tesorería no cambia.
-  const data = await todasLasFilas<Record<string, unknown>>((d, h) =>
-    supabase.from('proveedores').select('id, razon_social, rif, numero_administracion').order('id').range(d, h)).catch(() => []);
-  return new Map(data.map((p) => [
-    p.id as string,
-    { nombre: (p.razon_social as string) ?? '—', rif: (p.rif as string) ?? null, numeroAdministracion: (p.numero_administracion as string | null) ?? null },
-  ]));
+async function mapProveedores(): Promise<Map<string, string>> {
+  const { data } = await supabase.from('proveedores').select('id, razon_social');
+  return new Map((data ?? []).map((p) => [p.id as string, p.razon_social as string]));
 }
 
-// OC que entran a Retenciones: las de soporte Factura, y las Notas de entrega que
-// tengan un comprobante cargado (factura/nota subida desde la OC finalizada).
-const FILTRO_COMPROBANTE = 'comprobante_tipo.eq.factura,and(comprobante_tipo.eq.nota_entrega,factura_path.not.is.null)';
+/**
+ * Fecha en que la empresa obtuvo la designación/permiso para retener.
+ * Por defecto '2026-10-01' si no hay configuración en el Régimen fiscal.
+ */
+export const FECHA_PERMISO_RETENCION = '2026-10-01';
 
-function ocToItem(o: Orden, pm: Map<string, ProveedorBreve>): RetencionItem {
-  const prov = o.proveedor_id ? pm.get(o.proveedor_id as string) : undefined;
-  const mon = monedaDeOrden(o.moneda);
-  return {
-    kind: 'oc', id: o.id,
-    ocCodigo: o.oc_codigo ?? null, opCodigo: o.codigo,
-    // El de la OC (copiado al indicar el método de pago); si no, el de la ficha del proveedor.
-    numeroAdministracion: ((o as { numero_administracion?: string | null }).numero_administracion || prov?.numeroAdministracion) ?? null,
-    proveedorNombre: prov?.nombre || '—',
-    proveedorId: (o.proveedor_id as string) ?? null,
-    proveedorRif: prov?.rif ?? null,
-    condicionLabel: labelCondicionPago(o.condiciones_pago),
-    retencionLabel: labelRetencionModo(o.retencion_modo),
-    moneda: mon.moneda, avisoMoneda: mon.aviso, total: Number(o.total) || 0,
-    tesoreria: o.retencion_pagada ? 'pagada' : 'por_pagar',
-    finalizada: !!o.retencion_finalizada, finalizadaEn: o.retencion_finalizada_en ?? null,
-    tiposComprobante: comprobantesDeOrden(o).map((c) => c.tipo),
-    orden: o,
-  };
+/** Comprueba si una orden corresponde al período con autorización de retención (a partir de la fecha de designación). */
+export function ordenAplicaRetencion(o: Orden, fechaCorte: string = FECHA_PERMISO_RETENCION): boolean {
+  const f = (o.oc_emitida_en || o.oc_creada_en || o.created_at || '').slice(0, 10);
+  return f >= fechaCorte;
 }
 
-function compraToItem(c: CompraDirecta, pm: Map<string, ProveedorBreve>): RetencionItem {
-  const prov = c.proveedor_id ? pm.get(c.proveedor_id) : undefined;
-  return {
-    kind: 'compra_directa', id: c.id,
-    ocCodigo: c.codigo, opCodigo: null,
-    numeroAdministracion: prov?.numeroAdministracion ?? null,
-    proveedorNombre: c.proveedor_nombre || prov?.nombre || '—',
-    proveedorId: c.proveedor_id ?? null,
-    proveedorRif: prov?.rif ?? null,
-    condicionLabel: 'Compra directa',
-    retencionLabel: `${c.retencion_pct}% IVA · ${fmtMonto(c.retencion_monto, c.moneda)}`,
-    moneda: c.moneda || 'Bs', total: Number(c.gasto) || 0,
-    tesoreria: c.estado === 'por_pagar' ? 'por_pagar' : 'pagada',
-    finalizada: !!c.retencion_finalizada, finalizadaEn: c.retencion_finalizada_en ?? null,
-    tiposComprobante: c.retencion_iva_path ? ['iva'] : [],
-    compra: c,
-  };
-}
-
-/** Retenciones por realizar: OC con comprobante + compras directas con retención, sin finalizar. */
+/** Retenciones por realizar: OC con soporte Factura O con factura del proveedor cargada
+ *  (al finalizar la OC), aún sin finalizar la retención. Solo a partir de la vigencia del régimen. */
 export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
-  const [data, pm, compras] = await Promise.all([
-    todasLasFilas<Orden>((d, h) => supabase.from(TABLE).select('*')
-      .or(FILTRO_COMPROBANTE)
+  const [desdeAgente, { data, error }, pm] = await Promise.all([
+    fechaDesdeAgenteRetencion(),
+    supabase.from(TABLE).select('*')
+      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
       .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
-      .order('metodo_pago_en', { ascending: true }).order('id').range(d, h)),
+      .gte('created_at', '2026-09-25T00:00:00Z')
+      .order('created_at', { ascending: true }),
     mapProveedores(),
-    listComprasConRetencion(false).catch(() => [] as CompraDirecta[]),
   ]);
-  const ocs = data.map((o) => ocToItem(o, pm));
-  return [...ocs, ...compras.map((c) => compraToItem(c, pm))];
+  if (error) throw error;
+  return (data ?? [])
+    .filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente))
+    .map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
 }
 
-/** Retenciones ya finalizadas (comprobantes cargados). */
+/** Retenciones ya finalizadas (comprobantes cargados). Solo a partir de la vigencia del régimen. */
 export async function listRetencionesHechas(): Promise<RetencionItem[]> {
-  const [data, pm, compras] = await Promise.all([
-    todasLasFilas<Orden>((d, h) => supabase.from(TABLE).select('*')
-      .or(FILTRO_COMPROBANTE)
+  const [desdeAgente, { data, error }, pm] = await Promise.all([
+    fechaDesdeAgenteRetencion(),
+    supabase.from(TABLE).select('*')
+      .eq('comprobante_tipo', 'factura')
       .eq('retencion_finalizada', true)
-      .order('retencion_finalizada_en', { ascending: false }).order('id').range(d, h)),
+      .gte('created_at', '2026-09-25T00:00:00Z')
+      .order('retencion_finalizada_en', { ascending: false }),
     mapProveedores(),
-    listComprasConRetencion(true).catch(() => [] as CompraDirecta[]),
   ]);
-  const items = [...data.map((o) => ocToItem(o, pm)), ...compras.map((c) => compraToItem(c, pm))];
-  // Historial ordenado por fecha de finalización (desc).
-  return items.sort((a, b) => (b.finalizadaEn ?? '').localeCompare(a.finalizadaEn ?? ''));
+  if (error) throw error;
+  return (data ?? [])
+    .filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente))
+    .map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
 }
 
 export async function contarRetencionesPendientes(): Promise<number> {
-  const [{ count, error }, compras] = await Promise.all([
+  const [desdeAgente, { data, error }] = await Promise.all([
+    fechaDesdeAgenteRetencion(),
     supabase.from(TABLE)
-      .select('id', { count: 'exact', head: true })
-      .or(FILTRO_COMPROBANTE)
-      .or('retencion_finalizada.is.null,retencion_finalizada.eq.false'),
-    listComprasConRetencion(false).catch(() => [] as CompraDirecta[]),
+      .select('id, created_at, oc_creada_en, oc_emitida_en')
+      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
+      .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
+      .gte('created_at', '2026-09-25T00:00:00Z'),
   ]);
   if (error) throw error;
-  return (count ?? 0) + compras.length;
+  return (data ?? []).filter((o) => ordenAplicaRetencion(o as unknown as Orden, desdeAgente)).length;
 }
 
 async function subirComprobante(ordenId: string, tipo: TipoRetencion, file: File): Promise<{ path: string; nombre: string }> {
-  const safe = file.name.replace(/[^\w.\-]+/g, '_');
+  const safe = file.name.replace(/[^\w.-]+/g, '_');
   const path = `${ordenId}/retencion_${tipo}_${safe}`;
   const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
     upsert: true, contentType: file.type || 'application/pdf',
@@ -192,7 +125,7 @@ export async function finalizarRetencion(input: {
   actor: string;
 }): Promise<void> {
   const entries = (Object.entries(input.archivos) as [TipoRetencion, File | undefined][]).filter(([, f]) => !!f);
-  if (!entries.length) throw new Error('Cargue al menos un comprobante de retención (IVA, ISLR o Municipal).');
+  if (!entries.length) throw new Error('Carga al menos un comprobante de retención (IVA, ISLR o Municipal).');
   for (const [, f] of entries) {
     const file = f as File;
     if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) {
@@ -209,8 +142,13 @@ export async function finalizarRetencion(input: {
     patch[`retencion_${tipo}_path`] = path;
     patch[`retencion_${tipo}_nombre`] = nombre;
   }
-  const { error } = await supabase.from(TABLE).update(patch).eq('id', input.orden.id);
+  // Sin permiso sobre la OC (o si la OC ya no existe) la base no toca ninguna fila y no
+  // da error: se pide la fila de vuelta para no dar por finalizada una retención que no quedó.
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', input.orden.id).select('id');
   if (error) throw error;
+  if (!data?.length) {
+    throw new Error('No se pudo finalizar la retención: no tienes permiso sobre esta OC o la OC ya no existe. Los comprobantes quedaron subidos; se pueden volver a cargar.');
+  }
 }
 
 /** Comprobantes cargados en una OC (para mostrar/descargar en Retenciones y Tesorería). */

@@ -1,73 +1,59 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// Simula Supabase: cada respuesta trae como mucho 1.000 filas (su tope por defecto) y respeta
-// `.range()`. Los filtros (`.or`, `.eq`) y el orden se ignoran: las filas ya vienen como las
-// devolvería la base. Datos inventados.
-const { tablas, consulta } = vi.hoisted(() => {
-  const tablas: Record<string, Record<string, unknown>[]> = {};
-  function consulta(tabla: string) {
-    let desde = 0;
-    let hasta = 999;
-    const q: Record<string, unknown> = {};
-    const mismo = () => q;
-    Object.assign(q, {
-      select: mismo, or: mismo, eq: mismo, order: mismo,
-      range: (d: number, h: number) => { desde = d; hasta = h; return q; },
-      then: (ok: (v: unknown) => unknown, mal: (e: unknown) => unknown) => {
-        const filas = tablas[tabla] ?? [];
-        const fin = Math.min(hasta, desde + 999);
-        return Promise.resolve({ data: filas.slice(desde, fin + 1), error: null }).then(ok, mal);
-      },
-    });
-    return q;
-  }
-  return { tablas, consulta };
-});
-vi.mock('@/shared/lib/supabase', () => ({ supabase: { from: (t: string) => consulta(t) } }));
-vi.mock('@/modules/pedidos/compras.repository', () => ({ listComprasConRetencion: async () => [] }));
-vi.mock('@/modules/pedidos/ofertas.repository', () => ({ labelCondicionPago: () => 'Contado' }));
+/* Supabase falso: el update de la OC devuelve lo que se ponga y anota lo que se le pidió. */
+let respuestaUpdate: { data: unknown; error: unknown } = { data: [], error: null };
+const metodos: unknown[][] = [];
+const subidas: string[] = [];
 
-import { listRetencionesHechas, listRetencionesPendientes } from './retenciones.repository';
+function consulta() {
+  const q: Record<string, unknown> = new Proxy({}, {
+    get(_t, prop) {
+      if (prop === 'then') return (ok: (v: unknown) => unknown, ko: (e: unknown) => unknown) => Promise.resolve(respuestaUpdate).then(ok, ko);
+      return (...args: unknown[]) => { metodos.push([prop, ...args]); return q; };
+    },
+  });
+  return q;
+}
 
-const ordenes = (n: number, extra: Record<string, unknown> = {}) =>
-  Array.from({ length: n }, (_, i) => ({ id: `oc-${i + 1}`, codigo: `OP-${i + 1}`, oc_codigo: `OC-${i + 1}`, proveedor_id: `p-${i + 1}`, total: 1, ...extra }));
-const proveedores = (n: number) =>
-  Array.from({ length: n }, (_, i) => ({ id: `p-${i + 1}`, razon_social: `Proveedor de prueba ${i + 1}`, rif: `X-${i + 1}` }));
+vi.mock('@/shared/lib/supabase', () => ({
+  supabase: {
+    from: () => consulta(),
+    storage: { from: () => ({ upload: async (path: string) => { subidas.push(path); return { error: null }; } }) },
+  },
+}));
 
-describe('Retenciones no se corta en las 1.000 filas de Supabase (N3)', () => {
-  beforeEach(() => { for (const k of Object.keys(tablas)) delete tablas[k]; });
+import { finalizarRetencion } from './retenciones.repository';
+import type { Orden } from '@/shared/lib/types';
 
-  it('Por realizar trae todas las OC, aunque pasen de 1.000, en el orden de la base', async () => {
-    tablas.ordenes = ordenes(1500);
-    tablas.proveedores = proveedores(10);
-    const r = await listRetencionesPendientes();
-    expect(r).toHaveLength(1500);
-    expect(r[0].id).toBe('oc-1');
-    expect(r[1499].id).toBe('oc-1500');
+// Datos inventados.
+const orden = { id: 'oc-1' } as unknown as Orden;
+const pdf = () => new File(['x'], 'comprobante.pdf', { type: 'application/pdf' });
+
+beforeEach(() => { metodos.length = 0; subidas.length = 0; respuestaUpdate = { data: [], error: null }; });
+
+describe('finalizar la retención de una OC', () => {
+  it('pide la fila de vuelta y finaliza cuando el update la toca', async () => {
+    respuestaUpdate = { data: [{ id: 'oc-1' }], error: null };
+    await finalizarRetencion({ orden, archivos: { iva: pdf() }, actor: 'prueba@ejemplo.com' });
+    expect(subidas).toHaveLength(1);
+    expect(metodos).toContainEqual(['eq', 'id', 'oc-1']);
+    expect(metodos).toContainEqual(['select', 'id']);
+    expect(metodos.find((m) => m[0] === 'update')?.[1]).toMatchObject({ retencion_finalizada: true, retencion_iva_nombre: 'comprobante.pdf' });
   });
 
-  it('Realizadas trae todas las OC finalizadas, aunque pasen de 1.000', async () => {
-    tablas.ordenes = ordenes(1200, { retencion_finalizada: true });
-    tablas.proveedores = proveedores(10);
-    expect(await listRetencionesHechas()).toHaveLength(1200);
+  it('sin permiso o sin OC (0 filas) avisa en vez de dar por finalizada', async () => {
+    respuestaUpdate = { data: [], error: null };
+    await expect(finalizarRetencion({ orden, archivos: { iva: pdf() }, actor: 'prueba@ejemplo.com' }))
+      .rejects.toThrow('No se pudo finalizar la retención');
   });
 
-  it('una OC en Bs sale en Bs, no como $; sin moneda, en USD como antes', async () => {
-    tablas.ordenes = [
-      { id: 'oc-bs', codigo: 'OP-1', oc_codigo: 'OC-1', proveedor_id: 'p-1', total: 1160, moneda: 'Bs' },
-      { id: 'oc-usd', codigo: 'OP-2', oc_codigo: 'OC-2', proveedor_id: 'p-1', total: 50 },
-    ];
-    tablas.proveedores = proveedores(1);
-    const [bs, usd] = await listRetencionesPendientes();
-    expect(bs).toMatchObject({ moneda: 'Bs', avisoMoneda: null });
-    expect(usd).toMatchObject({ moneda: 'USD', avisoMoneda: null });
+  it('un error de la base se propaga', async () => {
+    respuestaUpdate = { data: null, error: new Error('fallo de red') };
+    await expect(finalizarRetencion({ orden, archivos: { iva: pdf() }, actor: 'prueba@ejemplo.com' })).rejects.toThrow('fallo de red');
   });
 
-  it('el nombre y el RIF salen aunque el proveedor esté pasada la fila 1.000', async () => {
-    tablas.ordenes = [{ id: 'oc-x', codigo: 'OP-X', oc_codigo: 'OC-X', proveedor_id: 'p-1250', total: 1 }];
-    tablas.proveedores = proveedores(1300);
-    const [it0] = await listRetencionesPendientes();
-    expect(it0.proveedorNombre).toBe('Proveedor de prueba 1250');
-    expect(it0.proveedorRif).toBe('X-1250');
+  it('sin comprobantes no toca la base', async () => {
+    await expect(finalizarRetencion({ orden, archivos: {}, actor: 'prueba@ejemplo.com' })).rejects.toThrow('al menos un comprobante');
+    expect(metodos).toHaveLength(0);
   });
 });

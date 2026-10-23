@@ -152,3 +152,21 @@ export async function loadLogoDataUrl(): Promise<string> {
     URL.revokeObjectURL(objectUrl);
   }
 }
+
+export const LOGO_PDF_PROPORCION = 1;
+
+export function anchoLogoPdf(caja: number): number {
+  return caja * LOGO_PDF_PROPORCION;
+}
+
+export function dibujarLogoPdf(doc: any, dataUrl: string, x: number, y: number, caja: number): void {
+  try {
+    doc.addImage(dataUrl, 'JPEG', x, y, caja, caja);
+  } catch {
+    /* logo opcional */
+  }
+}
+
+export async function loadLogoPdfDataUrl(): Promise<string> {
+  return loadLogoDataUrl();
+}
