@@ -255,18 +255,21 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
     }
   }
 
-  // Viajes candidatos en el rango del cierre (ordenados por fecha cronológica ascendente)
+  // Viajes candidatos en el rango del cierre (ordenados por fecha cronológica ascendente):
+  // Incluye todos los viajes pendientes hasta la fecha de corte. Si quedaron viajes no pagados
+  // en cierres anteriores (o saldo remanente), pasan automáticamente a este nuevo cierre.
   const viajesCandidatosCierre = useMemo(() => {
     if (!modalPagarLote) return [];
     return filasConDetalle
       .filter((f) => {
+        if (f.pagado) return false;
         if (choferModal && f.choferId !== choferModal) return false;
-        if (fechaDesdeModal && f.fecha < fechaDesdeModal) return false;
         if (fechaCorteModal && f.fecha > fechaCorteModal) return false;
-        return !f.pagado;
+        // Los viajes pendientes anteriores a la fecha de inicio del periodo pasan automáticamente como acumulados
+        return true;
       })
       .sort((a, b) => a.fecha.localeCompare(b.fecha));
-  }, [modalPagarLote, filasConDetalle, choferModal, fechaDesdeModal, fechaCorteModal]);
+  }, [modalPagarLote, filasConDetalle, choferModal, fechaCorteModal]);
 
   const totalViajesCandidatos = useMemo(() => {
     return viajesCandidatosCierre.reduce((a, f) => a + f.viajes, 0);
@@ -350,7 +353,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
 
       // 2. Características de los viajes realizados por el conductor en el corte
       return ch.filas.some((f) => {
-        const num = (f.numero || '').toLowerCase();
+        const num = (f.viaje.numero || '').toLowerCase();
         const prov = (f.proviene || '').toLowerCase();
         const dest = (f.destino || '').toLowerCase();
         const ruta = `${prov} ${dest}`.toLowerCase();
@@ -392,7 +395,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
       const cedula = (dc.cedula || '').toLowerCase();
       const cedulaFmt = dc.cedula ? formatoCI(dc.cedula).toLowerCase() : '';
       const cedulaClean = cedula.replace(/[.\s-]/g, '');
-      const num = (f.numero || '').toLowerCase();
+      const num = (f.viaje.numero || '').toLowerCase();
       const prov = (f.proviene || '').toLowerCase();
       const dest = (f.destino || '').toLowerCase();
       const ruta = `${prov} ${dest}`.toLowerCase();
@@ -534,15 +537,19 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         const gruposRecibo: GrupoChoferNomina[] = [];
         for (const [cId, rows] of mapaGrupos.entries()) {
           const c = porId.get(cId);
-          const total = rows.reduce((a, r) => a + r.totalPagar, 0);
+          const totalPagadoChofer = rows.reduce((a, r) => a + r.totalPagar, 0);
+          const choferObj = choferesEnCorte.find((x) => x.choferId === cId);
+          const totalDisponibleChofer = choferObj?.totalMonto ?? totalPagadoChofer;
+          const pendienteProximo = Math.max(0, totalDisponibleChofer - totalPagadoChofer);
+
           gruposRecibo.push({
             choferId: cId,
             nombre: nombreConductor(c),
             nominaFija: c?.personal?.empresa || c?.empresa_externa || 'MGG',
             filas: rows,
-            totalGeneral: total,
-            totalPagado: total,
-            totalPendiente: 0,
+            totalGeneral: totalPagadoChofer,
+            totalPagado: totalPagadoChofer,
+            totalPendiente: pendienteProximo,
           });
         }
         void generarReciboPagoViajesPdf({
@@ -1011,7 +1018,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
             <div className="form-row">
               <label>Fecha desde (inicio corte)</label>
               <input className="input" type="date" value={fechaDesdeModal} onChange={(e) => setFechaDesdeModal(e.target.value)} />
-              <small className="hint muted">Opcional. Vacío = desde los más antiguos.</small>
+              <small className="hint muted">Opcional. Los viajes no pagados de cortes anteriores pasan automáticamente a este cierre.</small>
             </div>
 
             <div className="form-row">
@@ -1023,6 +1030,14 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
             <div className="form-row" style={{ gridColumn: '1 / -1' }}>
               <label>Fecha de pago</label>
               <input className="input" type="date" value={fechaPagoModal} onChange={(e) => setFechaPagoModal(e.target.value)} required />
+            </div>
+          </div>
+
+          {/* Banner explicativo de acumulación y traspaso automático de pendientes */}
+          <div style={{ marginTop: '.65rem', marginBottom: '.65rem', display: 'flex', alignItems: 'center', gap: '.55rem', background: 'rgba(34, 197, 94, 0.08)', border: '1px solid rgba(34, 197, 94, 0.25)', borderRadius: 'var(--r-sm)', padding: '.45rem .75rem', fontSize: '.78rem', color: 'var(--text)' }}>
+            <span style={{ fontSize: '1.1rem' }}>🔄</span>
+            <div>
+              <strong>Acumulación automática:</strong> Si quedan viajes pendientes sin pagar en este corte, pasan automáticamente al siguiente cierre de viajes para que ningún viaje quede sin saldar.
             </div>
           </div>
 
@@ -1144,6 +1159,14 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                               CI: {ch.cedulaFmt}
                             </span>
                           )}
+                          {(() => {
+                            const cantAnt = ch.filas.filter((f) => fechaDesdeModal && f.fecha < fechaDesdeModal).reduce((a, f) => a + f.viajes, 0);
+                            return cantAnt > 0 ? (
+                              <span style={{ fontSize: '.72rem', color: 'var(--primary)', marginLeft: '.45rem', fontWeight: 600 }}>
+                                (incluye {cantAnt} pendiente{cantAnt > 1 ? 's' : ''} anterior{cantAnt > 1 ? 'es' : ''})
+                              </span>
+                            ) : null;
+                          })()}
                         </div>
                         <div className="mono" style={{ fontSize: '.8rem', color: 'var(--text-muted)' }}>
                           Disponibles: <strong style={{ color: 'var(--primary)' }}>{ch.totalViajes} viajes</strong> ({money(ch.totalMonto)})
@@ -1289,7 +1312,14 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                             />
                           </td>
                           <td className="mono">{fmtDate(f.fecha)}</td>
-                          <td>{f.nombre}</td>
+                          <td>
+                            {f.nombre}
+                            {fechaDesdeModal && f.fecha < fechaDesdeModal && (
+                              <span className="badge" style={{ fontSize: '.64rem', background: 'rgba(255, 138, 0, 0.15)', color: 'var(--primary)', marginLeft: '.35rem', verticalAlign: 'middle' }} title="Viaje pendiente transferido automáticamente de un corte anterior">
+                                ↩ Anterior
+                              </span>
+                            )}
+                          </td>
                           <td>{f.proviene} ➔ {f.destino}</td>
                           <td><span className="badge" style={{ fontSize: '.68rem' }}>{f.observaciones}</span></td>
                           <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>

@@ -261,12 +261,18 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
       startY: y,
       head: [headCols.map((c) => textoPdf(c))],
       body: bodyRows,
-      foot: [[
-        { content: 'TOTAL GENERAL LIQUIDADO:', colSpan: multiVehiculo ? 7 : 6, styles: { halign: 'right', fontStyle: 'bold' } },
-        { content: String(totalViajesChofer), styles: { halign: 'center', fontStyle: 'bold' } },
-        { content: '' },
-        { content: usd(g.totalGeneral), styles: { halign: 'right', fontStyle: 'bold', textColor: NARANJA } },
-      ]],
+      foot: [
+        [
+          { content: 'TOTAL GENERAL LIQUIDADO:', colSpan: multiVehiculo ? 7 : 6, styles: { halign: 'right', fontStyle: 'bold' } },
+          { content: String(totalViajesChofer), styles: { halign: 'center', fontStyle: 'bold' } },
+          { content: '' },
+          { content: usd(g.totalGeneral), styles: { halign: 'right', fontStyle: 'bold', textColor: NARANJA } },
+        ],
+        ...(g.totalPendiente > 0 ? [[
+          { content: 'SALDO PENDIENTE (PASA AL SIGUIENTE CIERRE):', colSpan: multiVehiculo ? 8 : 7, styles: { halign: 'right', fontStyle: 'bold', textColor: [200, 30, 30] } },
+          { content: usd(g.totalPendiente), styles: { halign: 'right', fontStyle: 'bold', textColor: [200, 30, 30] } },
+        ]] : []),
+      ],
       theme: 'grid',
       styles: {
         fontSize: 7.2,
