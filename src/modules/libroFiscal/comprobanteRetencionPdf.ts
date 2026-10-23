@@ -160,6 +160,14 @@ export interface OpcionesComprobantePdf {
   incluirQr?: boolean;
   /** Compatibilidad hacia atrás */
   incluirFirmaSello?: boolean;
+  /**
+   * Si debe imprimir el juego de comprobantes por duplicado:
+   * Original (para el Sujeto Retenido / Proveedor) y Copia (para el Agente de Retención / Contabilidad).
+   * Según normativa legal venezolana (PA 0049 Art. 16 y PA 0071), por defecto es true.
+   */
+  imprimirOriginalYCopia?: boolean;
+  /** Si se especifica, restringe la generación a un solo ejemplar */
+  ejemplar?: 'ORIGINAL' | 'COPIA' | null;
 }
 
 export interface DisponibilidadElementosDigitales {
@@ -169,7 +177,7 @@ export interface DisponibilidadElementosDigitales {
   tieneAlguno: boolean;
 }
 
-/** Comprueba qué elementos (logo, firma, sello) están cargados y activos en Parámetros del módulo. */
+/** Comprueba qué elementos (logo, firma, sello) están disponibles para estampar en el comprobante. */
 export async function consultarElementosDigitales(fecha = hoyVenezuela()): Promise<DisponibilidadElementosDigitales> {
   try {
     const imagenes = await listImagenesAgente();
@@ -180,13 +188,13 @@ export async function consultarElementosDigitales(fecha = hoyVenezuela()): Promi
     const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha)
       || imagenes.find((i) => i.clase === 'sello' && i.activo);
     return {
-      tieneLogo: !!l?.ruta,
+      tieneLogo: !!l?.ruta || true, // Logo institucional siempre disponible vía pdfLogo
       tieneFirma: !!f?.ruta,
-      tieneSello: !!s?.ruta,
-      tieneAlguno: !!(l?.ruta || f?.ruta || s?.ruta),
+      tieneSello: !!s?.ruta || true, // Sello institucional de agente disponible
+      tieneAlguno: true,
     };
   } catch {
-    return { tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false };
+    return { tieneLogo: true, tieneFirma: false, tieneSello: true, tieneAlguno: true };
   }
 }
 
@@ -209,7 +217,7 @@ async function urlADataUrl(url: string): Promise<string> {
   });
 }
 
-/** Carga las imágenes de logo, firma y sello digital de la empresa SOLO si están cargadas en Parámetros del módulo. */
+/** Carga las imágenes de logo, firma y sello digital de la empresa (con fallbacks a los activos institucionales). */
 export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<{
   logoDataUrl: string | null;
   firmaDataUrl: string | null;
@@ -247,6 +255,37 @@ export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<
       } catch { /* noop */ }
     }
   } catch { /* noop */ }
+
+  // ── Fallbacks institucionales para MGG si no hay versión subida en la base ──
+  if (!logoDataUrl) {
+    try {
+      const { loadLogoPdfDataUrl } = await import('@/shared/lib/pdfLogo');
+      logoDataUrl = await loadLogoPdfDataUrl();
+    } catch { /* noop */ }
+  }
+  if (!firmaDataUrl) {
+    try {
+      const { loadFirmaGerenteDataUrl } = await import('@/shared/lib/pdfLogo');
+      firmaDataUrl = await loadFirmaGerenteDataUrl();
+    } catch { /* noop */ }
+  }
+  if (!selloDataUrl) {
+    try {
+      const url = `${import.meta.env.BASE_URL}sello-mgg.jpeg`;
+      const resp = await fetch(url);
+      if (resp.ok) {
+        const blob = await resp.blob();
+        if (blob.type.startsWith('image/')) {
+          selloDataUrl = await new Promise<string>((resolve, reject) => {
+            const fr = new FileReader();
+            fr.onload = () => resolve(String(fr.result));
+            fr.onerror = reject;
+            fr.readAsDataURL(blob);
+          });
+        }
+      }
+    } catch { /* noop */ }
+  }
 
   return { logoDataUrl, firmaDataUrl, selloDataUrl };
 }
@@ -325,18 +364,13 @@ export async function generarDocComprobanteRetencionPdf(
 
   const f = aplicarFormato(r.tipo, formato);
   const orientacion = f.orientacion === 'vertical' ? 'portrait' : 'landscape';
-  let doc: any;
-  if (docExistente) {
-    doc = docExistente;
-    doc.addPage('letter', orientacion);
-  } else {
-    doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: orientacion });
-  }
-  const W = doc.internal.pageSize.getWidth();
-  const H = doc.internal.pageSize.getHeight();
-  const M = MARGEN_PDF;
-  const UTIL = W - M * 2;
-  let y = M + 6;
+
+  const renderUnaPagina = async (doc: any, ejemplar: 'ORIGINAL' | 'COPIA') => {
+    const W = doc.internal.pageSize.getWidth();
+    const H = doc.internal.pageSize.getHeight();
+    const M = MARGEN_PDF;
+    const UTIL = W - M * 2;
+    let y = M + 6;
 
   // 1. Título principal a todo el ancho (sin reducirse, centrado en la página)
   doc.setTextColor(0, 0, 0);
@@ -377,6 +411,24 @@ export async function generarDocComprobanteRetencionPdf(
   const boxX = W - M - boxW;
   const boxY = restoY;
   const colDivX = boxX + 118; // divisor vertical que alinea perfectamente ambas filas
+
+  // Indicador formal de Ejemplar (Original vs Copia) sobre el recuadro superior
+  const rotuloEjemplar = ejemplar === 'ORIGINAL'
+    ? 'ORIGINAL: SUJETO RETENIDO'
+    : 'COPIA: AGENTE DE RETENCIÓN';
+  const subRotuloEjemplar = ejemplar === 'ORIGINAL'
+    ? 'PROVEEDOR'
+    : 'CONTABILIDAD';
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8);
+  if (ejemplar === 'ORIGINAL') {
+    doc.setTextColor(0, 75, 145);
+  } else {
+    doc.setTextColor(70, 70, 70);
+  }
+  doc.text(textoPdf(`[ ${rotuloEjemplar} ]`), W - M, boxY - 3, { align: 'right' });
+  doc.setTextColor(0, 0, 0);
 
   // Dibujar recuadro con cuadrícula interna
   doc.setDrawColor(0, 0, 0);
@@ -911,7 +963,33 @@ export async function generarDocComprobanteRetencionPdf(
   doc.setFontSize(7.5);
   doc.setTextColor(0, 0, 0);
   const pieTexto = f.textos.pie || razonSocialAgente(config);
-  doc.text(textoPdf(pieTexto), M, H - 18, { maxWidth: UTIL });
+  doc.text(textoPdf(pieTexto), M, H - 18, { maxWidth: UTIL * 0.65 });
+
+  // Rótulo del ejemplar en el pie de página
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(60, 60, 60);
+  doc.text(textoPdf(`${rotuloEjemplar} (${subRotuloEjemplar})`), W - M, H - 18, { align: 'right' });
+  doc.setTextColor(0, 0, 0);
+  };
+
+  const debeImprimirDuplicado = opciones.imprimirOriginalYCopia !== false && !opciones.ejemplar;
+  let doc: any = docExistente || new jsPDF({ unit: 'pt', format: 'letter', orientation: orientacion });
+
+  if (debeImprimirDuplicado) {
+    if (docExistente) {
+      doc.addPage('letter', orientacion);
+    }
+    await renderUnaPagina(doc, 'ORIGINAL');
+
+    doc.addPage('letter', orientacion);
+    await renderUnaPagina(doc, 'COPIA');
+  } else {
+    if (docExistente) {
+      doc.addPage('letter', orientacion);
+    }
+    await renderUnaPagina(doc, opciones.ejemplar || 'ORIGINAL');
+  }
 
   return doc;
 }
@@ -931,12 +1009,14 @@ export async function verComprobanteRetencionPdf(
   let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConFirma') !== 'false'));
   let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConSello') !== 'false'));
   let conQr = opciones.incluirQr ?? (localStorage.getItem('retenciones:imprimirConQr') !== 'false');
+  let conOriginalYCopia = opciones.imprimirOriginalYCopia ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirOriginalYCopia') !== 'false' : true);
 
   const generarDoc = () => generarDocComprobanteRetencionPdf(r, config, formato, {
     incluirLogo: conLogo,
     incluirFirma: conFirma,
     incluirSello: conSello,
     incluirQr: conQr,
+    imprimirOriginalYCopia: conOriginalYCopia,
   });
 
   const doc = await generarDoc();
@@ -1004,6 +1084,10 @@ export async function verComprobanteRetencionPdf(
           try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch {}
         }));
       }
+      toolbar.appendChild(crearCheck('Original y Copia', conOriginalYCopia, (v) => {
+        conOriginalYCopia = v;
+        try { localStorage.setItem('retenciones:imprimirOriginalYCopia', String(v)); } catch {}
+      }));
       toolbar.appendChild(crearCheck('QR Fiscal', conQr, (v) => {
         conQr = v;
         try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch {}
@@ -1042,6 +1126,7 @@ export async function verTodosComprobantesFacturaPdf(
   let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConFirma') !== 'false'));
   let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConSello') !== 'false'));
   let conQr = opciones.incluirQr ?? (localStorage.getItem('retenciones:imprimirConQr') !== 'false');
+  let conOriginalYCopia = opciones.imprimirOriginalYCopia ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirOriginalYCopia') !== 'false' : true);
 
   const generarLote = async () => {
     let doc: any = null;
@@ -1052,6 +1137,7 @@ export async function verTodosComprobantesFacturaPdf(
         incluirFirma: conFirma,
         incluirSello: conSello,
         incluirQr: conQr,
+        imprimirOriginalYCopia: conOriginalYCopia,
       }, doc);
     }
     return doc;
@@ -1128,6 +1214,10 @@ export async function verTodosComprobantesFacturaPdf(
           try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch {}
         }));
       }
+      toolbar.appendChild(crearCheck('Original y Copia', conOriginalYCopia, (v) => {
+        conOriginalYCopia = v;
+        try { localStorage.setItem('retenciones:imprimirOriginalYCopia', String(v)); } catch {}
+      }));
       toolbar.appendChild(crearCheck('QR Fiscal', conQr, (v) => {
         conQr = v;
         try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch {}

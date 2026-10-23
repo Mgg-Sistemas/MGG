@@ -18,7 +18,11 @@ function consulta(tabla: string) {
 }
 
 vi.mock('@/shared/lib/supabase', () => ({ supabase: { from: (t: string) => consulta(t), rpc: (...a: unknown[]) => rpc(...a) } }));
-vi.mock('./disponibilidad', () => ({ tablaDisponible: async () => false, r2Disponible: async () => false, v2rDisponible: async () => true }));
+vi.mock('./disponibilidad', () => ({
+  tablaDisponible: async (t?: string) => t === 'retencion_facturas_resumen' || t === 'retencion_decisiones' || t === 'retencion_documentos',
+  r2Disponible: async () => false,
+  v2rDisponible: async () => true,
+}));
 
 import {
   aFacturaResumen, aNoAplica, buscarFacturasRetenibles, listNoAplica, pendientesComoTipos, registrarFacturaSola, retenerDespues, textoBusqueda,

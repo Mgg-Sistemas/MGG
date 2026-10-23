@@ -18,7 +18,7 @@ function consulta(tabla: string) {
 }
 
 vi.mock('@/shared/lib/supabase', () => ({ supabase: { from: (t: string) => consulta(t), rpc: vi.fn() } }));
-vi.mock('@/modules/libroFiscal/disponibilidad', () => ({ p03Disponible: async () => conP03 }));
+vi.mock('@/modules/libroFiscal/disponibilidad', () => ({ p03Disponible: async () => conP03, tablaDisponible: async () => conP03 }));
 
 import { aFacturaDeOrigen, cubrirOrigen, dejarDeCubrir, facturasPorRegistrar, porOrigen } from './documentosOrigen.repository';
 import { TEXTO_ORIGEN_CON_DOCUMENTO, errorBorrarOrigen, exigirSinFacturaRegistrada } from '@/modules/pedidos/origenRegistrado';

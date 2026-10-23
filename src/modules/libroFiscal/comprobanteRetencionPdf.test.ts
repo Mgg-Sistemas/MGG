@@ -4,6 +4,7 @@ import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion } from './retencionesCal
 import type { RetencionPracticada } from './retencionesFiscal.repository';
 import {
   cadenaCanonicoFiscal, calcularSha256Hex, generarQrVerificacion, lineaEquivalenteBs, partesComprobante,
+  generarDocComprobanteRetencionPdf,
 } from './comprobanteRetencionPdf';
 
 // Datos inventados: ninguna empresa, proveedor ni cliente real.
@@ -137,6 +138,27 @@ describe('verificación digital fiscal (PA 0084 / 0093)', () => {
   it('genera un DataURL de código QR válido', async () => {
     const qr = await generarQrVerificacion('SENIAT|PRUEBA');
     expect(qr).toMatch(/^data:image\/png;base64,/);
+  });
+});
+
+describe('impresión de original y copia en comprobantes (PA 0049 Art. 16)', () => {
+  it('genera dos páginas por defecto (Página 1: Original, Página 2: Copia)', async () => {
+    const doc = await generarDocComprobanteRetencionPdf(retencion({}), empresa);
+    expect(doc.internal.getNumberOfPages()).toBe(2);
+  });
+
+  it('permite generar un solo ejemplar cuando se deshabilita el duplicado', async () => {
+    const doc = await generarDocComprobanteRetencionPdf(retencion({}), empresa, null, {
+      imprimirOriginalYCopia: false,
+    });
+    expect(doc.internal.getNumberOfPages()).toBe(1);
+  });
+
+  it('permite generar solo la copia individualmente', async () => {
+    const doc = await generarDocComprobanteRetencionPdf(retencion({}), empresa, null, {
+      ejemplar: 'COPIA',
+    });
+    expect(doc.internal.getNumberOfPages()).toBe(1);
   });
 });
 

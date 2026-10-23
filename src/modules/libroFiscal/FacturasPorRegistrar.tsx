@@ -53,7 +53,15 @@ export function FacturasPorRegistrar({ origenIds, puedeRegistrar, onRegistrar, t
   const base = conViejas ? lista : marcadas;
   const mostradas = base.slice(0, cuantas);
 
-  if (!conP03 || !lista.length) return null;
+  if (!conP03) return null;
+  if (!lista.length) {
+    return (
+      <div style={{ padding: '2rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+        <p style={{ margin: 0, fontSize: '.92rem' }}>No hay facturas de compras pendientes por registrar.</p>
+        <small>Los archivos de factura adjuntos a órdenes de compra aparecerán aquí para cargarse en Retenciones.</small>
+      </div>
+    );
+  }
 
   return (
     <details className="card" style={{ marginTop: '.6rem' }}>

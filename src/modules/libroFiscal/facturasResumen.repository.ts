@@ -148,14 +148,18 @@ export async function retenerDespues(
       p_periodo: opciones.periodo ?? null,
       p_actor_name: opciones.actorName ?? null,
     });
-    if (!error && data) {
+    if (error) {
+      if (error.code === 'P0001' || /RET_/i.test(error.message || '')) {
+        throw errorRetencion(error, 'No se pudo retener sobre la factura.');
+      }
+    } else if (data) {
       const res = (data ?? {}) as { factura?: Record<string, unknown>; lineas?: Record<string, unknown>[] };
       if (res.factura) {
         return { factura: aFacturaCabecera({ ...res.factura, retenciones: res.lineas ?? [] }), lineas: (res.lineas ?? []).map((l) => aRetencion(l)) };
       }
     }
-  } catch {
-    // Si la función RPC no existe en MGG, continuar al fallback
+  } catch (err) {
+    if (err instanceof Error && /no está registrada|RET_/i.test(err.message)) throw err;
   }
 
   // 2. Fallback nativo en MGG: registrar cada línea en retenciones

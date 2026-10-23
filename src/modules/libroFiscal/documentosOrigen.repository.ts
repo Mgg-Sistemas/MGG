@@ -76,12 +76,41 @@ export function semillaDeFacturaOrigen(f: FacturaDeOrigen) {
  */
 export async function facturasPorRegistrar(origenIds?: string[]): Promise<FacturaDeOrigen[]> {
   if (origenIds && !origenIds.length) return [];
-  if (!(await tablaDisponible(V_ESTADO))) return [];
-  let q = supabase.from(V_ESTADO).select('*').eq('registrado', false);
-  if (origenIds) q = q.in('origen_id', origenIds);
-  const { data, error } = await q.order('subido_en');
-  if (error) throw errorRetencion(error, 'No se pudieron leer las facturas por registrar.');
-  return (data ?? []).map((r) => aFacturaDeOrigen(r as Record<string, unknown>));
+  if (await tablaDisponible(V_ESTADO)) {
+    try {
+      let q = supabase.from(V_ESTADO).select('*').eq('registrado', false);
+      if (origenIds) q = q.in('origen_id', origenIds);
+      const { data, error } = await q.order('subido_en');
+      if (!error && data) return data.map((r) => aFacturaDeOrigen(r as Record<string, unknown>));
+    } catch { /* continuar al fallback */ }
+  }
+
+  // Fallback nativo MGG: leer adjuntos_directos de compras/órdenes
+  try {
+    let q = supabase.from('adjuntos_directos').select('*').in('modulo', ['orden_factura', 'compra', 'servicio']);
+    if (origenIds) q = q.in('ref_id', origenIds);
+    const { data, error } = await q.order('created_at', { ascending: false }).limit(50);
+    if (error || !data) return [];
+    return data.map((r: any) => ({
+      adjuntoId: String(r.id),
+      modulo: r.modulo,
+      origen: {
+        tipo: r.modulo === 'orden_factura' ? 'oc' : r.modulo === 'compra' ? 'compra_directa' : 'servicio_directo',
+        id: String(r.ref_id),
+      },
+      bucket: String(r.bucket || 'adjuntos'),
+      path: String(r.path || ''),
+      nombre: String(r.nombre || 'factura'),
+      contentType: r.content_type || null,
+      subidoPor: r.subido_por || null,
+      subidoEn: String(r.created_at || ''),
+      registrado: false,
+      documentos: [],
+      esFactura: r.modulo === 'orden_factura' ? true : (r.es_factura ?? true),
+    }));
+  } catch {
+    return [];
+  }
 }
 
 /** Agrupa por origen: id del origen → sus archivos. */

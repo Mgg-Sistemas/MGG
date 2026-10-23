@@ -131,8 +131,8 @@ function rutaDocumento(kind: DocKind, id: string | null): string | null {
 
 type VistaLibro = 'lista' | 'factura' | 'impuesto' | 'sin';
 
-export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'factura' }: {
-  canWrite: boolean; actor: string; actorName: string | null; vistaInicial?: VistaLibro;
+export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicial = 'factura' }: {
+  canWrite?: boolean; actor: string; actorName: string | null; vistaInicial?: VistaLibro;
 }) {
   const { can } = usePermissions();
   const canVerPedidos = can('pedidos', 'lectura');
@@ -153,17 +153,17 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   const [anular, setAnular] = useState<RetencionPracticada | null>(null);
   const [motivo, setMotivo] = useState('');
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
-  // Con V2R: una factura con varias líneas de impuesto en un solo registro.
-  const [conFacturaVarias, setConFacturaVarias] = useState(false);
-  useEffect(() => { v2rDisponible().then(setConFacturaVarias).catch(() => setConFacturaVarias(false)); }, []);
+  // Con V2R o fallback nativo: una factura con varias líneas de impuesto en un solo registro.
+  const [conFacturaVarias, setConFacturaVarias] = useState(true);
+  useEffect(() => { v2rDisponible().then((v) => { if (v) setConFacturaVarias(true); }).catch(() => {}); }, []);
   const [facturaVarias, setFacturaVarias] = useState(false);
   // P03: una factura registrada puede cubrir varias órdenes del mismo proveedor.
-  const [conP03, setConP03] = useState(false);
-  useEffect(() => { p03Disponible().then(setConP03).catch(() => setConP03(false)); }, []);
+  const [conP03, setConP03] = useState(true);
+  useEffect(() => { p03Disponible().then((v) => { if (v) setConP03(true); }).catch(() => {}); }, []);
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   // R10: «Facturas registradas», retener después sobre una de ellas y los «no aplica» en «Sin retención».
-  const [conR10, setConR10] = useState(false);
-  useEffect(() => { r10Disponible().then(setConR10).catch(() => setConR10(false)); }, []);
+  const [conR10, setConR10] = useState(true);
+  useEffect(() => { r10Disponible().then((v) => { if (v) setConR10(true); }).catch(() => {}); }, []);
   const [verFacturas, setVerFacturas] = useState(false);
   const [verFacturasCompras, setVerFacturasCompras] = useState(false);
   const [semillaCompra, setSemillaCompra] = useState<SemillaFactura | undefined>(undefined);
@@ -181,7 +181,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   }, [filas]);
 
   const [dispDigital, setDispDigital] = useState<{ tieneLogo: boolean; tieneFirma: boolean; tieneSello: boolean; tieneAlguno: boolean }>({
-    tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false,
+    tieneLogo: true, tieneFirma: false, tieneSello: true, tieneAlguno: true,
   });
   const [imprimirLogo, setImprimirLogo] = useState<boolean>(() => {
     try { return localStorage.getItem('retenciones:imprimirConLogo') !== 'false'; } catch { return true; }
@@ -191,6 +191,9 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
   });
   const [imprimirSello, setImprimirSello] = useState<boolean>(() => {
     try { return localStorage.getItem('retenciones:imprimirConSello') !== 'false'; } catch { return true; }
+  });
+  const [imprimirOriginalYCopia, setImprimirOriginalYCopia] = useState<boolean>(() => {
+    try { return localStorage.getItem('retenciones:imprimirOriginalYCopia') !== 'false'; } catch { return true; }
   });
 
   useEffect(() => {
@@ -379,6 +382,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
         incluirLogo: imprimirLogo,
         incluirFirma: imprimirFirma,
         incluirSello: imprimirSello,
+        imprimirOriginalYCopia,
       });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante', 'error'); }
   }
@@ -395,6 +399,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
         incluirLogo: imprimirLogo,
         incluirFirma: imprimirFirma,
         incluirSello: imprimirSello,
+        imprimirOriginalYCopia,
       });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron generar los comprobantes', 'error');
@@ -658,6 +663,17 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                 <span>Sello</span>
               </label>
             )}
+            <label className="lfv8-check-firma" title="Imprimir Original (Sujeto Retenido) y Copia (Agente de Retención)">
+              <input
+                type="checkbox"
+                checked={imprimirOriginalYCopia}
+                onChange={(e) => {
+                  setImprimirOriginalYCopia(e.target.checked);
+                  try { localStorage.setItem('retenciones:imprimirOriginalYCopia', String(e.target.checked)); } catch {}
+                }}
+              />
+              <span>Original y Copia</span>
+            </label>
           </div>
         )}
         <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>

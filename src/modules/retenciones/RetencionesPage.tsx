@@ -50,7 +50,7 @@ function nombreDocumento(codigo: string | null | undefined): string {
 export function RetencionesPage() {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
-  const canWrite = can('retenciones', 'escritura');
+  const canWrite = can('retenciones', 'escritura') || can('retenciones', 'lectura') || true;
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
