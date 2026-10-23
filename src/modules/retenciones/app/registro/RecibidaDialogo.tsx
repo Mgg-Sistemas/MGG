@@ -88,7 +88,11 @@ export function RecibidaDialogo({ onCerrar, onRegistrada }: { onCerrar: () => vo
   return (
     <Modal title="Registrar una retención de un cliente" size="lg" onClose={onCerrar} footer={footer}>
       <div className="ret-v8 v8-registro">
+<<<<<<< HEAD
         <p className="v8-reg-sub">Retención de clientes (la empresa es sujeto retenido). Los datos se copian del comprobante del cliente: no se calculan.</p>
+=======
+        <p className="v8-reg-sub">La que nos practicó un cliente al pagarnos. Los datos se copian de su comprobante: no se calculan.</p>
+>>>>>>> feature/retenciones-v8-recibidas
         <div className="v8-reg-campos">
           <label className="campo">
             <span>Impuesto</span>

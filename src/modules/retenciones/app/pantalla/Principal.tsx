@@ -173,6 +173,7 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
 
       {datos && sec === 'pendientes' && <PorRealizar docs={docs} onRegistrar={onRegistrar} onVerOc={onVerOc} onVerAgrupada={verDocumento} />}
 
+<<<<<<< HEAD
       {datos && sec === 'agrupada' && (
         <VistaAgrupada pendientes={datos.pendientes} libro={datos.libro} config={datos.config} conceptos={datos.conceptos}
           onRegistrar={onRegistrar} onAnular={onAnular} onAdjuntar={onAdjuntar} foco={foco} onQuitarFoco={() => setFoco(null)} />
@@ -192,6 +193,9 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
       {perfil && datos && <PerfilFiscal proveedor={perfil} libro={datos.libro} puedeEditar={!!onRegistrar} onCerrar={cerrarPerfil} />}
 
       {datos && sec === 'reportes' && <Reportes libro={datos.libro} />}
+=======
+      {datos && sec === 'libro' && <LibroFiscalV8 libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} onRegistrarRecibida={onRegistrarRecibida} />}
+>>>>>>> feature/retenciones-v8-recibidas
     </main>
   );
 }
