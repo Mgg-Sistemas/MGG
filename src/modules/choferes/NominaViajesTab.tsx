@@ -17,7 +17,7 @@ import {
   categoriaDeViaje, cantidadViajes, tarifaTotalViaje, infoPagoViaje, calcularSiguientePeriodoCierre,
 } from './choferes';
 import {
-  eliminarViaje, marcarViajesPagadosPorIds, marcarViajesPagadosConCantidades, revertirCierreNomina, type Viaje,
+  eliminarViaje, marcarViajesPagadosConCantidades, revertirCierreNomina, type Conductor, type Viaje,
 } from './choferes.repository';
 import { nombreConductor, type PropsTab } from './ChoferesPage';
 import { generarNominaViajesPdf, type GrupoChoferNomina, type FilaNominaViaje } from './nominaViajesPdf';
@@ -1033,12 +1033,18 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                 className="btn btn-xs"
                 onClick={() => setMostrarDetalleViajesCierre(!mostrarDetalleViajesCierre)}
                 style={{
-                  background: 'rgba(255, 138, 0, 0.15)',
-                  color: '#ff8a00',
+                  background: 'linear-gradient(135deg, #ff8a00, #e05300)',
+                  color: '#fff',
                   border: '1px solid #ff8a00',
                   fontWeight: 700,
                   fontSize: '.82rem',
-                  padding: '.35rem .75rem',
+                  padding: '.35rem .85rem',
+                  borderRadius: 'var(--r-sm, 6px)',
+                  boxShadow: '0 2px 8px rgba(255, 138, 0, 0.35)',
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '.4rem',
                 }}
               >
                 {mostrarDetalleViajesCierre ? '▴ Ocultar lista individual' : `👁 Ver / Seleccionar viajes individuales (${totalViajesALiquidar} de ${totalViajesCandidatos})`}
