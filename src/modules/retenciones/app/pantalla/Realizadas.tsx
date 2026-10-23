@@ -25,7 +25,7 @@ import { BarraLista } from './BarraLista';
 import { Paginador } from './Paginador';
 import { nombreImpuesto } from './pendientesPorDocumento';
 import {
-  ESTADO_CLASE, FILTRO_INICIAL, ORDENES_LISTA, estadoDe, facturasRealizadas, fechaVe, opcionesLibro, textoDireccion, textoEstadoEnFactura,
+  ESTADO_CLASE, FILTRO_INICIAL, ORDENES_LISTA, estadoDe, facturasRealizadas, fechaVe, opcionesLibro, opcionesRealizadas, textoDireccion, textoEstadoEnFactura,
   type FacturaRealizada, type FiltroLibro, type OrdenLista,
 } from './realizadasYLibro';
 import { quienYCuando } from './quien';
@@ -55,7 +55,7 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
   const [f, setF] = useState<FiltroLibro>(FILTRO_INICIAL);
   const [pagina, setPagina] = useState(1);
   const [tamano, setTamano] = useState<number>(TAMANO_PAGINA_INICIAL);
-  const opciones = useMemo(() => opcionesLibro(libro), [libro]);
+  const opciones = useMemo(() => opcionesRealizadas(libro), [libro]);
   const facturas = useMemo(() => facturasRealizadas(libro, f), [libro, f]);
   const { filas, pagina: pag } = paginar(facturas, pagina, tamano);
   const cambiar = (x: Partial<FiltroLibro>) => { setF((v) => ({ ...v, ...x })); setPagina(1); };

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RetencionPracticada } from '../datos/puerta';
-import { FILTRO_INICIAL, facturasRealizadas, filasLibro } from './realizadasYLibro';
+import { FILTRO_INICIAL, facturasRealizadas, filasLibro, opcionesRealizadas } from './realizadasYLibro';
 import { directoPorNumero } from './numeroDirecto';
 
 // Datos inventados.
@@ -46,6 +46,34 @@ describe('las anuladas con número en Realizadas (maqueta v8-3-listas.js:219)', 
     const anulada = r({ numeroComprobante: '20261000000033', anulada: true });
     expect(anulada.numeroComprobante).toBe('20261000000033');
     expect(anulada.anulada).toBe(true);
+  });
+});
+
+describe('el filtro Estado de Realizadas con 4 opciones (maqueta v8-3-listas.js:174)', () => {
+  const xs = [
+    r({ id: 'r1', docId: 'fac-1', facturaNumero: '100', estado: 'registrada', anulada: false }),
+    r({ id: 'r2', docId: 'fac-2', facturaNumero: '200', estado: 'declarada', anulada: false }),
+    r({ id: 'r3', docId: 'fac-3', facturaNumero: '300', tipo: 'iva', estado: 'registrada', anulada: true }),
+    r({ id: 'r4', docId: 'fac-4', facturaNumero: '400', tipo: 'iva', estado: 'registrada', anulada: true }),
+    r({ id: 'r5', docId: 'fac-4', facturaNumero: '400', tipo: 'iva', estado: 'registrada', anulada: false }),
+  ];
+
+  it('cuenta las 4 opciones de estado a nivel de factura', () => {
+    const opc = opcionesRealizadas(xs);
+    const estados = opc.estado.map((e) => [e.valor, e.texto, e.cuenta]);
+    expect(estados).toEqual([
+      ['registrada', 'Registrada', 2],
+      ['declarada', 'Declarada', 1],
+      ['anulada_pend', 'Anulada · pendiente de registrar de nuevo', 1],
+      ['reemplazada', 'Anulada · reemplazada', 1],
+    ]);
+  });
+
+  it('filtra facturas por anulada_pend y por reemplazada', () => {
+    const pend = facturasRealizadas(xs, { ...FILTRO_INICIAL, estado: 'anulada_pend' });
+    expect(pend.map((f) => f.facturaNumero)).toEqual(['300']);
+    const reemp = facturasRealizadas(xs, { ...FILTRO_INICIAL, estado: 'reemplazada' });
+    expect(reemp.map((f) => f.facturaNumero)).toEqual(['400']);
   });
 });
 
