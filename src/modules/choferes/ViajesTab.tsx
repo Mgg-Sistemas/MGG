@@ -32,6 +32,7 @@ import {
   ESTADO_VIAJE, TIPO_VIAJE, CATEGORIAS_VIAJE, categoriaDeViaje, tarifaSugeridaCategoria, viajeEstaPagado,
   alertasDocumentos, errorViajeRealizado, progresoParadas, textoRuta,
   tarifaTotalViaje, totalViajes, horasDiaVolqueta, errorViajesVolqueta, cantidadViajes, datosConductor,
+  tasasDeConductor, clasificarCategoriaPorTasa,
   type EstadoViaje, type Parada, type TipoViaje, type CategoriaViaje,
 } from './choferes';
 import {
@@ -139,7 +140,7 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
                 {filas.map((v) => {
                   const e = ESTADO_VIAJE[v.estado];
                   const pr = progresoParadas(v.paradas);
-                  const cat = categoriaDeViaje(v);
+                  const cat = categoriaDeViaje(v, porId.get(v.chofer_id));
                   const pagado = viajeEstaPagado(v);
                   return (
                     <tr key={v.id}>
@@ -244,23 +245,39 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
     // Un día de volqueta casi siempre se carga ya realizado (la hoja se llena al final del día).
     if (t === 'volqueta' && !inicial) setRealizado(true);
   }
+  const chofer = conductores.find((c) => c.id === choferId) ?? null;
+  const vehiculo = flota.find((v) => v.id === vehiculoId) ?? null;
+  const diaSalida = salida.slice(0, 10);
+  const choferTasas = useMemo(() => tasasDeConductor(chofer), [chofer]);
+
   function elegirCategoria(c: CategoriaViaje) {
     setCategoria(c);
-    const sugerida = tarifaSugeridaCategoria(c);
-    if (sugerida > 0 && (tarifa == null || tarifa === 0)) {
+    const sugerida = tarifaSugeridaCategoria(c, chofer);
+    if (sugerida > 0) {
       setTarifa(sugerida);
     }
   }
 
-  const chofer = conductores.find((c) => c.id === choferId) ?? null;
-  const vehiculo = flota.find((v) => v.id === vehiculoId) ?? null;
-  const diaSalida = salida.slice(0, 10);
-
-  // Al elegir chofer, la tarifa propuesta es la de su expediente (si no se tocó).
+  // Al elegir chofer, la tarifa propuesta es la de su tasa configurada y clasifica de inmediato.
   function elegirChofer(id: string) {
     setChoferId(id);
     const c = conductores.find((x) => x.id === id);
-    if (c && (tarifa == null || tarifa === 0)) setTarifa(c.tarifa_viaje_usd);
+    if (c) {
+      const t = tasasDeConductor(c);
+      if (tarifa == null || tarifa === 0) {
+        setTarifa(t.corto);
+        setCategoria('VIAJE CORTO');
+      } else {
+        const cat = clasificarCategoriaPorTasa(tarifa, c);
+        setCategoria(cat);
+      }
+    }
+  }
+
+  function aplicarTasa(monto: number) {
+    setTarifa(monto);
+    const cat = clasificarCategoriaPorTasa(monto, chofer);
+    setCategoria(cat);
   }
 
   const avisos = useMemo(() => {
@@ -379,17 +396,90 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
           <div className="form-row"><label htmlFor="vj-viajes">{volq ? 'Viajes del día' : 'Viajes'}</label>
             <input id="vj-viajes" className="input mono" type="number" min={1} step={1} inputMode="numeric" value={nViajes ?? ''} onChange={(e) => setNViajes(e.target.value === '' ? null : Number(e.target.value))} required />
             <span className="muted" style={{ fontSize: '.75rem' }}>{volq ? 'Cuántos viajes hizo ese día (02, 25, 21…).' : 'Normalmente 1; si fue ida y vuelta varias veces, pon cuántas.'}</span></div>
-          <div className="form-row"><label htmlFor="vj-cat">Categoría de viaje (Monto / Formato)</label>
-            <select id="vj-cat" className="select" value={categoria} onChange={(e) => elegirCategoria(e.target.value as CategoriaViaje)}>
-              {CATEGORIAS_VIAJE.map((c) => (
-                <option key={c.key} value={c.key}>{c.label} (sug. ${c.tarifaSugerida})</option>
-              ))}
-            </select>
-            <span className="muted" style={{ fontSize: '.75rem' }}>Clasifica según el tabulador: VIAJE CORTO, VIAJE LARGO o VIAJE INTERNO.</span>
+          <div className="form-row" style={{ gridColumn: '1 / -1', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '.75rem', marginTop: '.35rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.4rem' }}>
+              <label style={{ margin: 0, fontWeight: 600, fontSize: '.9rem' }}>💵 Tasa y clasificación del viaje</label>
+              {chofer && (
+                <span className="muted" style={{ fontSize: '.76rem' }}>
+                  Tasas de <strong>{nombreConductor(chofer)}</strong>: Corto ${choferTasas.corto} · Largo ${choferTasas.largo} · Interno ${choferTasas.interno}
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.75rem', alignItems: 'start' }}>
+              <div>
+                <label style={{ fontSize: '.8rem', marginBottom: 3, display: 'block' }}>
+                  Tasa / Tarifa por viaje ($)
+                </label>
+                <DecimalInput
+                  className="input"
+                  value={tarifa}
+                  onChange={(n) => {
+                    setTarifa(n);
+                    const cat = clasificarCategoriaPorTasa(n, chofer);
+                    setCategoria(cat);
+                  }}
+                  placeholder="0,00"
+                  aria-label="Tarifa por viaje en dólares"
+                />
+                <div style={{ display: 'flex', gap: '.3rem', marginTop: '.4rem', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className={`btn btn-xs ${categoria === 'VIAJE CORTO' ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={() => aplicarTasa(choferTasas.corto)}
+                    title={`Aplicar tasa corto ($${choferTasas.corto})`}
+                  >
+                    🚗 Corto (${choferTasas.corto})
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-xs ${categoria === 'VIAJE LARGO' ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={() => aplicarTasa(choferTasas.largo)}
+                    title={`Aplicar tasa largo ($${choferTasas.largo})`}
+                  >
+                    🚚 Largo (${choferTasas.largo})
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-xs ${categoria === 'VIAJE INTERNO' ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={() => aplicarTasa(choferTasas.interno)}
+                    title={`Aplicar tasa interno ($${choferTasas.interno})`}
+                  >
+                    🔄 Interno (${choferTasas.interno})
+                  </button>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="vj-cat" style={{ fontSize: '.8rem', marginBottom: 3, display: 'block' }}>
+                  Tipo de viaje detectado automáticamente
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', minHeight: 38 }}>
+                  <span
+                    className={`badge ${categoria === 'VIAJE LARGO' ? 'info' : categoria === 'VIAJE INTERNO' ? 'warning' : 'primary'}`}
+                    style={{ fontSize: '.88rem', padding: '.35rem .7rem', fontWeight: 700 }}
+                  >
+                    {categoria === 'VIAJE LARGO' ? '🚚 VIAJE LARGO' : categoria === 'VIAJE INTERNO' ? '🔄 VIAJE INTERNO' : '🚗 VIAJE CORTO'}
+                  </span>
+                  <select
+                    id="vj-cat"
+                    className="select"
+                    value={categoria}
+                    onChange={(e) => elegirCategoria(e.target.value as CategoriaViaje)}
+                    style={{ width: 'auto', fontSize: '.8rem', padding: '.2rem .4rem' }}
+                    title="Permite ajustar manualmente la categoría si se requiere"
+                  >
+                    {CATEGORIAS_VIAJE.map((c) => (
+                      <option key={c.key} value={c.key}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <span className="muted" style={{ fontSize: '.75rem', display: 'block', marginTop: 4 }}>
+                  ⚡ Detectado al colocar la tasa ({money(tarifa ?? 0)}){cantidadViajes(nViajes) > 1 ? ` · total ${money((tarifa ?? 0) * cantidadViajes(nViajes))}` : ''}.
+                </span>
+              </div>
+            </div>
           </div>
-          <div className="form-row"><label>Tarifa por viaje ($)</label>
-            <DecimalInput className="input" value={tarifa} onChange={setTarifa} placeholder="0,00" aria-label="Tarifa por viaje en dólares" />
-            <span className="muted" style={{ fontSize: '.75rem' }}>Por viaje{chofer ? ` (su tarifa base: ${money(chofer.tarifa_viaje_usd)})` : ''}{cantidadViajes(nViajes) > 1 ? ` · total ${money((tarifa ?? 0) * cantidadViajes(nViajes))}` : ''}.</span></div>
           {!volq && <div className="form-row" style={{ gridColumn: '1 / -1' }}>
             <label>Puntos de parada (en orden){realizado && <span className="muted" style={{ fontWeight: 400 }}> · en un viaje ya realizado quedan marcadas como cumplidas a la hora de llegada</span>}</label>
             <div className="chf-paradas">
@@ -443,7 +533,7 @@ export function DetalleViajeModal({ viaje: v, conductor, vehiculo, canWrite, onC
       <div className="form-grid" style={{ fontSize: '.88rem' }}>
         <div><span className="muted">Estado</span><div><span className={`badge ${e.clase}`}>{e.icon} {e.label}</span></div></div>
         <div><span className="muted">Tipo · viajes</span><div>{TIPO_VIAJE[v.tipo_viaje].icon} {TIPO_VIAJE[v.tipo_viaje].label} · <span className="mono">{v.viajes}</span> viaje{v.viajes === 1 ? '' : 's'}</div></div>
-        <div><span className="muted">Categoría</span><div><span className="badge" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>{categoriaDeViaje(v)}</span></div></div>
+        <div><span className="muted">Categoría</span><div><span className="badge" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>{categoriaDeViaje(v, conductor)}</span></div></div>
         <div><span className="muted">Nómina viajes</span><div>{viajeEstaPagado(v) ? <span style={{ color: 'var(--success)', fontWeight: 600 }}>✅ Pagado {v.pagado_at ? `(${v.pagado_at.slice(0, 10)})` : ''}</span> : <span className="muted">⏳ Pendiente de pago</span>}</div></div>
         <div><span className="muted">Chofer</span><div><strong>{nombreConductor(conductor)}</strong></div></div>
         <div><span className="muted">Vehículo</span><div>{textoVehiculo(vehiculo)}</div></div>

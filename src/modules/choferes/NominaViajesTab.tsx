@@ -83,7 +83,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
       const veh = vehPorId.get(v.vehiculo_id ?? '');
       const nominaFija = c?.personal?.empresa || c?.empresa_externa || (c?.externo ? 'EXTERNO' : 'MGG');
       const vehiculoTxt = veh?.placa || (veh ? `${veh.marca || ''} ${veh.modelo || ''}`.trim() : '—');
-      const obs = categoriaDeViaje(v);
+      const obs = categoriaDeViaje(v, c);
       const infoPago = infoPagoViaje(v, pagosMap);
       const fSalida = (v.salida_real_at ?? v.fecha_salida).slice(0, 10);
       const nViajes = cantidadViajes(v.viajes);

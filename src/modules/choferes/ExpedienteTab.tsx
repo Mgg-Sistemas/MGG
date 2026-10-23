@@ -23,7 +23,8 @@ import { crearVehiculo, editarVehiculo, eliminarVehiculo, type VehiculoInput } f
 import { filtrarVehiculos, normalizarPlaca } from '@/modules/asignaciones/vehiculos';
 import {
   ESTADO_CHOFER, ESTADO_FLOTA, TIPOS_FLOTA, estadoChofer, estadoVence, iconoFlota, labelTipoFlota,
-  peorEstadoDocumentos, textoEstadoVence, datosConductor, type EstadoFlota, type EstadoVence,
+  peorEstadoDocumentos, textoEstadoVence, datosConductor, tasasDeConductor, observacionesSinTagsTasas,
+  type EstadoFlota, type EstadoVence,
 } from './choferes';
 import {
   crearConductor, editarConductor, eliminarConductor, esCargoDeChofer, importarConductoresDesdeRrhh, setConductorActivo,
@@ -137,7 +138,7 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
               <thead>
                 <tr>
                   <th>Conductor</th><th>Cédula · ficha</th><th>Licencia</th><th>Certificado médico</th><th>Seguro</th>
-                  <th style={{ textAlign: 'right' }}>Tarifa / viaje</th><th>Documentos</th><th>Hoy</th><th></th>
+                  <th style={{ textAlign: 'right' }}>Tasas por viaje</th><th>Documentos</th><th>Hoy</th><th></th>
                 </tr>
               </thead>
               <tbody>
@@ -157,7 +158,18 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
                       </td>
                       <td><BadgeVence vence={c.certificado_medico_vence} hoy={hoy} /></td>
                       <td><BadgeVence vence={c.seguro_vence} hoy={hoy} /></td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{money(c.tarifa_viaje_usd)}</td>
+                      <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        {(() => {
+                          const t = tasasDeConductor(c);
+                          return (
+                            <div style={{ fontSize: '.76rem', lineHeight: 1.3 }}>
+                              <div><span className="muted">Corto:</span> <strong>{money(t.corto)}</strong></div>
+                              <div><span className="muted">Largo:</span> <strong>{money(t.largo)}</strong></div>
+                              <div><span className="muted">Interno:</span> <strong>{money(t.interno)}</strong></div>
+                            </div>
+                          );
+                        })()}
+                      </td>
                       <td>
                         {(() => {
                           const r = resumenDocs.get(c.id);
@@ -229,13 +241,19 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
   actor: string; actorName: string | null; hoy: string; onClose: () => void; onSaved: () => void;
 }) {
   const [personalId, setPersonalId] = useState(inicial?.personal_id ?? '');
+  const tasasIniciales = useMemo(() => tasasDeConductor(inicial), [inicial]);
   const [v, setV] = useState<Omit<ConductorInput, 'personal_id'>>({
     // Chofer externo (14-10-2026): no está en nómina; sus datos viven en el expediente.
     externo: inicial?.externo ?? false, nombre: inicial?.nombre ?? '', apellido: inicial?.apellido ?? '', cedula: inicial?.cedula ?? '',
     telefono: inicial?.telefono ?? '', empresa_externa: inicial?.empresa_externa ?? '',
     licencia_grado: inicial?.licencia_grado ?? '', licencia_numero: inicial?.licencia_numero ?? '',
     licencia_vence: inicial?.licencia_vence ?? '', certificado_medico_vence: inicial?.certificado_medico_vence ?? '',
-    seguro_vence: inicial?.seguro_vence ?? '', tarifa_viaje_usd: inicial?.tarifa_viaje_usd ?? 0, observaciones: inicial?.observaciones ?? '',
+    seguro_vence: inicial?.seguro_vence ?? '',
+    tarifa_viaje_usd: tasasIniciales.corto,
+    tarifa_corto_usd: tasasIniciales.corto,
+    tarifa_largo_usd: tasasIniciales.largo,
+    tarifa_interno_usd: tasasIniciales.interno,
+    observaciones: observacionesSinTagsTasas(inicial?.observaciones),
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -317,9 +335,26 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
           {campoFecha('licencia_vence', 'Licencia')}
           {campoFecha('certificado_medico_vence', 'Certificado médico')}
           {campoFecha('seguro_vence', 'Seguro')}
-          <div className="form-row"><label>Tarifa base por viaje ($)</label>
-            <DecimalInput className="input" value={v.tarifa_viaje_usd ?? 0} disabled={!canWrite} onChange={(n) => set('tarifa_viaje_usd', n ?? 0)} placeholder="0,00" aria-label="Tarifa base por viaje en dólares" />
-            <span className="muted" style={{ fontSize: '.75rem' }}>Se propone al crear cada orden de ruta; ahí se puede cambiar.</span></div>
+          <div className="form-row" style={{ gridColumn: '1 / -1', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '.75rem', marginTop: '.35rem' }}>
+            <div style={{ fontWeight: 600, fontSize: '.9rem', marginBottom: '.25rem' }}>💵 Tasas de pago por viaje ($)</div>
+            <span className="muted" style={{ fontSize: '.75rem', display: 'block', marginBottom: '.6rem' }}>
+              Este chofer manejará sus propias tasas de pago de viajes. Al ingresar la tasa en una orden de ruta, el sistema clasificará automáticamente si es viaje largo, corto o interno.
+            </span>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '.6rem' }}>
+              <div>
+                <label style={{ fontSize: '.8rem', display: 'block', marginBottom: 2 }}>🚗 Viaje corto ($)</label>
+                <DecimalInput className="input" value={v.tarifa_corto_usd ?? 25} disabled={!canWrite} onChange={(n) => { set('tarifa_corto_usd', n ?? 0); set('tarifa_viaje_usd', n ?? 0); }} placeholder="25,00" aria-label="Tasa viaje corto en dólares" />
+              </div>
+              <div>
+                <label style={{ fontSize: '.8rem', display: 'block', marginBottom: 2 }}>🚚 Viaje largo ($)</label>
+                <DecimalInput className="input" value={v.tarifa_largo_usd ?? 50} disabled={!canWrite} onChange={(n) => set('tarifa_largo_usd', n ?? 0)} placeholder="50,00" aria-label="Tasa viaje largo en dólares" />
+              </div>
+              <div>
+                <label style={{ fontSize: '.8rem', display: 'block', marginBottom: 2 }}>🔄 Viaje interno ($)</label>
+                <DecimalInput className="input" value={v.tarifa_interno_usd ?? 1} disabled={!canWrite} onChange={(n) => set('tarifa_interno_usd', n ?? 0)} placeholder="1,00" aria-label="Tasa viaje interno en dólares" />
+              </div>
+            </div>
+          </div>
           <div className="form-row" style={{ gridColumn: '1 / -1' }}><label htmlFor="cond-obs">Observaciones</label>
             <input id="cond-obs" className="input" value={v.observaciones ?? ''} disabled={!canWrite} onChange={(e) => set('observaciones', e.target.value)} placeholder="Restricciones, tipo de vehículo que maneja, etc." /></div>
         </div>

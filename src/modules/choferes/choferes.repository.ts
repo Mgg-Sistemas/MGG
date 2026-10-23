@@ -18,7 +18,10 @@ import type { Personal } from '@/shared/lib/types';
 import { registrarGasto, registrarIngresoCaja } from '@/modules/tesoreria/tesoreria.repository';
 import type { CuentaCaja } from '@/shared/lib/types';
 import type { Vehiculo } from '@/modules/asignaciones/vehiculos.repository';
-import { tipoViajeDe, cantidadViajes, type Liquidacion, type LineaRecibo, type Parada, type ReciboCalculado, type TipoViaje } from './choferes';
+import {
+  tipoViajeDe, cantidadViajes, tasasDeConductor, codificarObservacionesConTasas,
+  type Liquidacion, type LineaRecibo, type Parada, type ReciboCalculado, type TipoViaje, type TasasChofer,
+} from './choferes';
 import { mensajeErrorDocumento, nombreSeguro, validarArchivoDocumento } from '@/modules/rrhh/documentosPersonal';
 
 const T_CONDUCTORES = 'choferes_conductores';
@@ -51,6 +54,9 @@ export interface Conductor {
   certificado_medico_vence: string | null;
   seguro_vence: string | null;
   tarifa_viaje_usd: number;
+  tarifa_corto_usd?: number | null;
+  tarifa_largo_usd?: number | null;
+  tarifa_interno_usd?: number | null;
   observaciones: string | null;
   activo: boolean;
   created_by: string | null;
@@ -176,7 +182,17 @@ const limpio = (s: unknown) => String(s ?? '').replace(/\s+/g, ' ').trim() || nu
 export async function listConductores(): Promise<Conductor[]> {
   const { data, error } = await supabase.from(T_CONDUCTORES).select('*').order('created_at');
   if (error) throw err(error, 'No se pudieron cargar los conductores.');
-  return (data ?? []).map((c) => ({ ...c, externo: !!c.externo, tarifa_viaje_usd: Number(c.tarifa_viaje_usd) || 0 })) as Conductor[];
+  return (data ?? []).map((c) => {
+    const tasas = tasasDeConductor(c as Record<string, unknown>);
+    return {
+      ...c,
+      externo: !!c.externo,
+      tarifa_viaje_usd: Number(c.tarifa_viaje_usd) || tasas.corto,
+      tarifa_corto_usd: tasas.corto,
+      tarifa_largo_usd: tasas.largo,
+      tarifa_interno_usd: tasas.interno,
+    };
+  }) as Conductor[];
 }
 
 export interface ConductorInput {
@@ -194,12 +210,22 @@ export interface ConductorInput {
   certificado_medico_vence?: string | null;
   seguro_vence?: string | null;
   tarifa_viaje_usd?: number | null;
+  tarifa_corto_usd?: number | null;
+  tarifa_largo_usd?: number | null;
+  tarifa_interno_usd?: number | null;
   observaciones?: string | null;
 }
 
 function filaConductor(i: Omit<ConductorInput, 'personal_id'>) {
   const externo = !!i.externo;
   if (externo && !limpio(i.nombre)) throw new Error('Escribe el nombre del chofer externo.');
+
+  const tasaCorto = Math.max(0, r2(i.tarifa_corto_usd ?? i.tarifa_viaje_usd ?? 25));
+  const tasaLargo = Math.max(0, r2(i.tarifa_largo_usd ?? (tasaCorto >= 50 ? tasaCorto : tasaCorto * 2)));
+  const tasaInterno = Math.max(0, r2(i.tarifa_interno_usd ?? 1));
+  const tasas: TasasChofer = { corto: tasaCorto, largo: tasaLargo, interno: tasaInterno };
+  const obsFinal = codificarObservacionesConTasas(i.observaciones, tasas);
+
   return {
     externo,
     nombre: externo ? limpio(i.nombre)?.toUpperCase() ?? null : null,
@@ -212,8 +238,8 @@ function filaConductor(i: Omit<ConductorInput, 'personal_id'>) {
     licencia_vence: i.licencia_vence || null,
     certificado_medico_vence: i.certificado_medico_vence || null,
     seguro_vence: i.seguro_vence || null,
-    tarifa_viaje_usd: Math.max(0, r2(i.tarifa_viaje_usd)),
-    observaciones: limpio(i.observaciones),
+    tarifa_viaje_usd: tasaCorto,
+    observaciones: limpio(obsFinal),
   };
 }
 
