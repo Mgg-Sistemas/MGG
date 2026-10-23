@@ -45,6 +45,7 @@ import { completarRif, formatearRif, rifValido } from '@/shared/lib/rif';
 import { rutaFichaProveedor, textoRifInvalido } from './mensajeRif';
 import { EMPRESA_RIF } from '@/shared/lib/empresa';
 import { razonSocialAgente } from './comprobanteRetencionPdf';
+import { SupuestosIvaAcordeon } from './SupuestosIvaAcordeon';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
@@ -1801,34 +1802,13 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       )}
 
       {direccion === 'practicada' && tipo === 'iva' && (
-        <div className="form-row">
-          {supuestosIva ? (<>
-            <label>¿Aplica un supuesto con su propio porcentaje?</label>
-            {supuestosIva.length === 0 && <small className="hint muted">No hay supuestos vigentes a la fecha de la factura (Parámetros › Supuestos del %).</small>}
-            {supuestosIva.map((s) => (
-              <label key={s.id} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.84rem', marginTop: '.2rem' }}>
-                <input type="checkbox" checked={!!(motivos as Record<string, boolean | undefined>)[s.codigo]}
-                  onChange={(e) => setMotivos({ ...motivos, [s.codigo]: e.target.checked } as MotivosIvaCien)} />
-                {s.texto}{s.pct !== 100 ? ` (${s.pct} %)` : ''}
-              </label>
-            ))}
-          </>) : (<>
-          <label>¿Corresponde retener el 100%? (art. 5)</label>
-          {([
-            ['ivaNoDiscriminado', 'El IVA no está discriminado en la factura'],
-            ['facturaNoCumple', 'La factura no cumple los requisitos de facturación'],
-            ['proveedorNoInscrito', 'El proveedor está sujeto a retención del 100% según el Portal Fiscal, o no está inscrito en el RIF'],
-            ['proveedorNoDomiciliado', 'El proveedor no está domiciliado en el país'],
-            ['metalesPreciosos', 'Compra de metales o piedras preciosas'],
-          ] as Array<[keyof MotivosIvaCien, string]>).map(([k, label]) => (
-            <label key={k} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.84rem', marginTop: '.2rem' }}>
-              <input type="checkbox" checked={!!motivos[k]} onChange={(e) => setMotivos({ ...motivos, [k]: e.target.checked })} />
-              {label}
-            </label>
-          ))}
-          </>)}
-          <small className="hint muted">Sin ninguna marcada se retiene el {config.pctIvaGeneral}%.{supuesto ? ` Con lo marcado: ${supuesto.pct} %.` : ''}</small>
-        </div>
+        <SupuestosIvaAcordeon
+          motivos={motivos as Record<string, boolean | undefined>}
+          supuestosIva={supuestosIva}
+          pctGeneral={config.pctIvaGeneral}
+          pctActual={supuesto?.pct}
+          onChange={(codigo, valor) => setMotivos({ ...motivos, [codigo]: valor } as MotivosIvaCien)}
+        />
       )}
 
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>

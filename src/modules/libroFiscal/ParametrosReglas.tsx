@@ -30,6 +30,7 @@ import { condicionDeForm, formCondicionVacio, formDePaso, valoresDeForm, type Fo
 import { listClavesParametro, parametroEnFecha, r3Disponible } from './parametros.repository';
 import { listClasificaciones, r4Disponible } from './clasificaciones.repository';
 import { listTarifas, r5Disponible } from './tarifas.repository';
+import { ListaChecksAcordeon } from './SupuestosIvaAcordeon';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -207,16 +208,22 @@ function Condiciones({ regla, editable, cat, onCambio }: { regla: ReglaGuardada;
           )}
           {lista && multiple && (
             <div className="form-row" style={{ margin: 0, flex: '1 1 260px' }}>
-              <label>Valores</label>
-              <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-                {lista.map((v) => (
-                  <label key={v} style={{ display: 'inline-flex', gap: '.25rem', alignItems: 'center', fontSize: '.8rem' }}>
-                    <input type="checkbox" checked={f.elegidos.includes(v)}
-                      onChange={(e) => set({ elegidos: e.target.checked ? [...f.elegidos, v] : f.elegidos.filter((x) => x !== v) })} />
-                    {ROTULO_VALOR[f.pieza]?.[v] ?? sinRotulo(v)}
-                  </label>
-                ))}
-              </div>
+              <ListaChecksAcordeon
+                titulo="Valores de la condición"
+                conteoMarcados={f.elegidos.length}
+                conteoTotal={lista.length}
+                inicialAbierto={f.elegidos.length > 0}
+              >
+                <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                  {lista.map((v) => (
+                    <label key={v} style={{ display: 'inline-flex', gap: '.25rem', alignItems: 'center', fontSize: '.8rem', cursor: 'pointer' }}>
+                      <input type="checkbox" checked={f.elegidos.includes(v)}
+                        onChange={(e) => set({ elegidos: e.target.checked ? [...f.elegidos, v] : f.elegidos.filter((x) => x !== v) })} />
+                      {ROTULO_VALOR[f.pieza]?.[v] ?? sinRotulo(v)}
+                    </label>
+                  ))}
+                </div>
+              </ListaChecksAcordeon>
             </div>
           )}
           {f.pieza === 'clasificacion' && (

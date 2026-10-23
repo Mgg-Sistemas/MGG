@@ -25,6 +25,7 @@ import { getConfigRetencion } from './retencionesFiscal.repository';
 import { leerMonto, numeroATexto } from './validarCarga';
 import { fechaCorta } from './parametrosR1';
 import { AYUDA_ORDEN, ROTULO_ORDEN, rotuloAutor, rotuloImpuesto, rotuloMotivo, sinRotulo } from './rotulos';
+import { ListaChecksAcordeon } from './SupuestosIvaAcordeon';
 import type { TipoImpuesto } from './retencionesCalculo';
 
 const IMPUESTOS: Array<{ clave: string; tipo: TipoImpuesto; nombre: string }> = ([
@@ -240,23 +241,29 @@ function EditorFormato({ edicion, hoy, onClose, onHecho }: { edicion: Edicion; h
               ))}
             </div>
           </fieldset>
-          <fieldset style={{ border: 0, padding: 0, margin: '.4rem 0' }}>
-            <legend style={{ fontWeight: 600, fontSize: '.86rem' }}>Columnas de la tabla</legend>
-            <table className="table" style={{ fontSize: '.8rem', width: '100%' }}>
-              <thead><tr><th>Se ve</th><th>Rótulo</th><th>{ROTULO_ORDEN}</th><th>Ancho (pt)</th></tr></thead>
-              <tbody>
-                {columnas.map((c, i) => (
-                  <tr key={c.campo}>
-                    <td><input type="checkbox" checked={c.visible} aria-label={`Mostrar ${c.rotulo}`} onChange={(e) => setColumnas((xs) => xs.map((x, j) => (j === i ? { ...x, visible: e.target.checked } : x)))} /></td>
-                    <td><input className="input" value={c.rotulo} onChange={(e) => setColumnas((xs) => xs.map((x, j) => (j === i ? { ...x, rotulo: e.target.value } : x)))} /></td>
-                    <td><input className="input mono" style={{ width: 60 }} inputMode="numeric" value={c.orden} onChange={(e) => setColumnas((xs) => xs.map((x, j) => (j === i ? { ...x, orden: e.target.value } : x)))} /></td>
-                    <td><input className="input mono" style={{ width: 70 }} inputMode="decimal" value={c.ancho} placeholder="auto" onChange={(e) => setColumnas((xs) => xs.map((x, j) => (j === i ? { ...x, ancho: e.target.value } : x)))} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            <small className="hint muted">{ROTULO_ORDEN}: {AYUDA_ORDEN.charAt(0).toLowerCase()}{AYUDA_ORDEN.slice(1)}</small>
-          </fieldset>
+          <div style={{ margin: '.4rem 0' }}>
+            <ListaChecksAcordeon
+              titulo="Columnas de la tabla del comprobante"
+              conteoMarcados={columnas.filter((c) => c.visible).length}
+              conteoTotal={columnas.length}
+              inicialAbierto={true}
+            >
+              <table className="table" style={{ fontSize: '.8rem', width: '100%' }}>
+                <thead><tr><th>Se ve</th><th>Rótulo</th><th>{ROTULO_ORDEN}</th><th>Ancho (pt)</th></tr></thead>
+                <tbody>
+                  {columnas.map((c, i) => (
+                    <tr key={c.campo}>
+                      <td><input type="checkbox" checked={c.visible} aria-label={`Mostrar ${c.rotulo}`} onChange={(e) => setColumnas((xs) => xs.map((x, j) => (j === i ? { ...x, visible: e.target.checked } : x)))} /></td>
+                      <td><input className="input" value={c.rotulo} onChange={(e) => setColumnas((xs) => xs.map((x, j) => (j === i ? { ...x, rotulo: e.target.value } : x)))} /></td>
+                      <td><input className="input mono" style={{ width: 60 }} inputMode="numeric" value={c.orden} onChange={(e) => setColumnas((xs) => xs.map((x, j) => (j === i ? { ...x, orden: e.target.value } : x)))} /></td>
+                      <td><input className="input mono" style={{ width: 70 }} inputMode="decimal" value={c.ancho} placeholder="auto" onChange={(e) => setColumnas((xs) => xs.map((x, j) => (j === i ? { ...x, ancho: e.target.value } : x)))} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <small className="hint muted">{ROTULO_ORDEN}: {AYUDA_ORDEN.charAt(0).toLowerCase()}{AYUDA_ORDEN.slice(1)}</small>
+            </ListaChecksAcordeon>
+          </div>
         </>
       )}
 

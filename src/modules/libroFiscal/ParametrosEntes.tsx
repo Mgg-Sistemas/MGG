@@ -17,6 +17,7 @@ import { TIPOS_ENTE, fechaCorta, labelClave, labelTipoEnte, territorio } from '.
 import { ImagenRetencion } from './ImagenRetencion';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { rotuloAutor, rotuloMotivo } from './rotulos';
+import { ListaChecksAcordeon } from './SupuestosIvaAcordeon';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
@@ -236,14 +237,20 @@ function EnteModal({ ente, entes, puedeEditar, onClose, onCambio }: {
           </div>
         )}
         <div className="form-row">
-          <label>Impuestos que crea o cobra</label>
-          <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap' }}>
-            {opciones.map(({ clave, nombre }) => (
-              <label key={clave} style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center', fontSize: '.86rem' }}>
-                <input type="checkbox" checked={impuestos.includes(clave)} onChange={() => toggleImp(clave)} /> {nombre ?? labelClave(clave)}
-              </label>
-            ))}
-          </div>
+          <ListaChecksAcordeon
+            titulo="Impuestos que crea o cobra"
+            conteoMarcados={impuestos.length}
+            conteoTotal={opciones.length}
+            inicialAbierto={impuestos.length > 0}
+          >
+            <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap' }}>
+              {opciones.map(({ clave, nombre }) => (
+                <label key={clave} style={{ display: 'inline-flex', gap: '.3rem', alignItems: 'center', fontSize: '.86rem', cursor: 'pointer' }}>
+                  <input type="checkbox" checked={impuestos.includes(clave)} onChange={() => toggleImp(clave)} /> {nombre ?? labelClave(clave)}
+                </label>
+              ))}
+            </div>
+          </ListaChecksAcordeon>
         </div>
         <div className="form-row">
           <label>{ente ? 'Motivo del cambio' : 'Nota del alta'}</label>

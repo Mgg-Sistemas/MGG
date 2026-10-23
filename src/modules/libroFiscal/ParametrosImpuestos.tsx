@@ -28,6 +28,7 @@ import { r7Disponible } from './reglas.repository';
 import { ParametrosReglas } from './ParametrosReglas';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { numeroATexto } from './validarCarga';
+import { ListaChecksAcordeon } from './SupuestosIvaAcordeon';
 import { ENTEROS_IMPUESTO, faltaEnEnteros, leerEntero, normalizarClaveImpuesto, pistaClave } from './parametrosNumeros';
 
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
@@ -283,13 +284,20 @@ function CamposFicha({ ficha, set, entes, conClave = false }: {
           <small className="hint muted">{AYUDA_ORDEN}</small>
         </div>
       </div>
-      <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '.86rem', margin: '.2rem 0 .5rem' }}>
-        <label style={{ display: 'inline-flex', gap: '.3rem' }}><input type="checkbox" checked={ficha.activo} onChange={(e) => set({ activo: e.target.checked })} /> Activo</label>
-        <label style={{ display: 'inline-flex', gap: '.3rem' }}><input type="checkbox" checked={ficha.admitePracticada} onChange={(e) => set({ admitePracticada: e.target.checked })} /> La empresa la practica</label>
-        <label style={{ display: 'inline-flex', gap: '.3rem' }}><input type="checkbox" checked={ficha.admiteSufrida} onChange={(e) => set({ admiteSufrida: e.target.checked })} /> Se la practican a la empresa</label>
-        <label style={{ display: 'inline-flex', gap: '.3rem' }}><input type="checkbox" checked={ficha.agrupa} onChange={(e) => set({ agrupa: e.target.checked })} /> Agrupar comprobantes</label>
-        <label style={{ display: 'inline-flex', gap: '.3rem' }}><input type="checkbox" checked={ficha.numeraOperacion} onChange={(e) => set({ numeraOperacion: e.target.checked })} /> Lleva «Operación N°»</label>
-      </div>
+      <ListaChecksAcordeon
+        titulo="Opciones y comportamiento del impuesto"
+        conteoMarcados={[ficha.activo, ficha.admitePracticada, ficha.admiteSufrida, ficha.agrupa, ficha.numeraOperacion].filter(Boolean).length}
+        conteoTotal={5}
+        inicialAbierto={true}
+      >
+        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '.86rem' }}>
+          <label style={{ display: 'inline-flex', gap: '.3rem', cursor: 'pointer' }}><input type="checkbox" checked={ficha.activo} onChange={(e) => set({ activo: e.target.checked })} /> Activo</label>
+          <label style={{ display: 'inline-flex', gap: '.3rem', cursor: 'pointer' }}><input type="checkbox" checked={ficha.admitePracticada} onChange={(e) => set({ admitePracticada: e.target.checked })} /> La empresa la practica</label>
+          <label style={{ display: 'inline-flex', gap: '.3rem', cursor: 'pointer' }}><input type="checkbox" checked={ficha.admiteSufrida} onChange={(e) => set({ admiteSufrida: e.target.checked })} /> Se la practican a la empresa</label>
+          <label style={{ display: 'inline-flex', gap: '.3rem', cursor: 'pointer' }}><input type="checkbox" checked={ficha.agrupa} onChange={(e) => set({ agrupa: e.target.checked })} /> Agrupar comprobantes</label>
+          <label style={{ display: 'inline-flex', gap: '.3rem', cursor: 'pointer' }}><input type="checkbox" checked={ficha.numeraOperacion} onChange={(e) => set({ numeraOperacion: e.target.checked })} /> Lleva «Operación N°»</label>
+        </div>
+      </ListaChecksAcordeon>
       <div className="card" style={{ margin: '0 0 .5rem' }}>
         <label style={{ display: 'inline-flex', gap: '.3rem', fontSize: '.86rem', fontWeight: 600 }}>
           <input type="checkbox" checked={ficha.numera} onChange={(e) => set({ numera: e.target.checked, serieFormato: e.target.checked ? ficha.serieFormato ?? 'N10' : ficha.serieFormato })} />

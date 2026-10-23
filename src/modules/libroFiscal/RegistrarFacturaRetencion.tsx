@@ -25,7 +25,7 @@ import {
   calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares, fechaTasaBcv,
   labelImpuesto, labelSujeto, motivoCienTexto, motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
-  type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
+  type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
 import { getConfigRetencion, listConceptos, sujetoAGt, tipoAGt, type DocKind } from './retencionesFiscal.repository';
 import { configDeFecha } from './parametros.repository';
@@ -43,6 +43,7 @@ import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
 import { useDescartar } from './confirmarDescartar';
 import { urlFacturaDeOrigen } from './documentosOrigen.repository';
+import { SupuestosIvaAcordeon } from './SupuestosIvaAcordeon';
 import { nombrePeriodo, periodoEstaCerrado, type PeriodoFiscal } from './periodosRetencion.repository';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import {
@@ -106,15 +107,6 @@ interface LineaUI {
   motivos: Record<string, boolean>;
   descripcion: string;
 }
-
-/** Los supuestos del art. 5 (Providencia SNAT/2015/0049) que llevan la retención de IVA al 100 %. */
-const MOTIVOS_IVA_CIEN: Array<[keyof MotivosIvaCien & string, string]> = [
-  ['ivaNoDiscriminado', 'El IVA no está discriminado en la factura'],
-  ['facturaNoCumple', 'La factura no cumple los requisitos de facturación'],
-  ['proveedorNoInscrito', 'El proveedor está sujeto a retención del 100% según el Portal Fiscal, o no está inscrito en el RIF'],
-  ['proveedorNoDomiciliado', 'El proveedor no está domiciliado en el país'],
-  ['metalesPreciosos', 'Compra de metales o piedras preciosas'],
-];
 
 let semilla = 0;
 const nuevaLinea = (over: Partial<LineaUI> = {}): LineaUI => ({
@@ -826,16 +818,13 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                 </div>
               )}
               {direccion === 'practicada' && l.tipo === 'iva' && (
-                <div className="form-row" style={{ margin: '.3rem 0 0' }}>
-                  <label>{supuestosIva ? '¿Aplica un supuesto con su propio porcentaje? (vigentes a la fecha de la factura)' : '¿Corresponde retener el 100%? (Providencia SNAT/2015/0049, art. 5)'}</label>
-                  {(supuestosIva ? supuestosIva.map((x): [string, string] => [x.codigo, `${x.texto}${x.pct !== 100 ? ` (${x.pct} %)` : ''}`]) : MOTIVOS_IVA_CIEN).map(([k, label]) => (
-                    <label key={k} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.84rem', marginTop: '.2rem' }}>
-                      <input type="checkbox" checked={!!l.motivos[k]} onChange={(e) => setLinea(l.id, { motivos: { ...l.motivos, [k]: e.target.checked } })} />
-                      {label}
-                    </label>
-                  ))}
-                  <small className="hint muted">Sin ninguna marcada se retiene el {config.pctIvaGeneral}%.</small>
-                </div>
+                <SupuestosIvaAcordeon
+                  motivos={l.motivos}
+                  supuestosIva={supuestosIva}
+                  pctGeneral={config.pctIvaGeneral}
+                  pctActual={calc.porcentaje}
+                  onChange={(codigo, valor) => setLinea(l.id, { motivos: { ...l.motivos, [codigo]: valor } })}
+                />
               )}
               {noPuede && <small className="hint" style={{ color: 'var(--warning)' }}>{motivoNoPuedePracticar(l.tipo, config)}</small>}
               {!esManual && <small className="hint muted">{calc.explicacion}</small>}
