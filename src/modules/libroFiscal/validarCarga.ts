@@ -57,3 +57,29 @@ export function faltaEnLaCarga(c: { tipo: TipoImpuesto; facturaNumero: string; f
   if (!FECHA.test(c.facturaFecha.trim())) return 'Fecha de la factura requerida: determina el período y la quincena.';
   return null;
 }
+
+/**
+ * Valida el tipo y descripción del documento de respaldo.
+ * Si se indica «Otro documento», es obligatorio describirlo para auditoría.
+ */
+export function validarDocumentoRespaldo(tipoArchivo: string, detalle: string, tieneArchivo: boolean): string | null {
+  if (tieneArchivo && !tipoArchivo.trim()) {
+    return 'Indica qué documento adjuntas (factura, comprobante firmado, nota de entrega u otro).';
+  }
+  if (tipoArchivo === 'Otro documento' && !detalle.trim()) {
+    return 'Describe qué documento de respaldo es (en una auditoría «Otro documento» no especifica el respaldo).';
+  }
+  return null;
+}
+
+/**
+ * Etiqueta del documento para guardarlo en la retención o en el nombre del comprobante.
+ */
+export function etiquetaDocumentoRespaldo(tipoArchivo: string, detalle: string): string {
+  if (tipoArchivo === 'Otro documento') {
+    const d = detalle.trim();
+    return d ? `Otro: ${d}` : 'Otro documento';
+  }
+  return tipoArchivo.trim();
+}
+

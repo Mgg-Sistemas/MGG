@@ -131,6 +131,27 @@ dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
 .lfv8-factura .lfv8-tot { text-align: right; }
 .lfv8-factura .lfv8-tot small { display: block; font-size: .72rem; color: var(--text-muted); }
 .lfv8-factura .lfv8-tot span { font-family: var(--font-mono); font-weight: 600; }
+.lfv8-btn-imprimir-todos {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  margin-top: .35rem;
+  padding: .2rem .55rem;
+  font-size: .72rem;
+  font-weight: 600;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(245, 177, 51, 0.5);
+  background: rgba(245, 177, 51, 0.08);
+  color: #ffcc66;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all .15s ease;
+}
+.lfv8-btn-imprimir-todos:hover {
+  background: rgba(245, 177, 51, 0.22);
+  color: #fff;
+  border-color: #ffcc66;
+}
 
 /* ── Tira de casillas ── */
 .lfv8-tira { display: grid; grid-template-columns: repeat(var(--n, 3), minmax(0, 1fr)); gap: .4rem; }

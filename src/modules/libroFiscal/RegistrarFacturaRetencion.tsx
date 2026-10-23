@@ -168,7 +168,13 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [conR10, setConR10] = useState(false);
   const [documento, setDocumento] = useState<FacturaResumen | null>(null);
   const [soloFactura, setSoloFactura] = useState(false);
-  const [avisoSinDocDescartado, setAvisoSinDocDescartado] = useState(false);
+  const [avisoSinDocDescartado, setAvisoSinDocDescartado] = useState(() => {
+    try { return localStorage.getItem('mgg_aviso_sin_doc_descartado') === 'true'; } catch { return false; }
+  });
+  const descartarAvisoSinDoc = () => {
+    setAvisoSinDocDescartado(true);
+    try { localStorage.setItem('mgg_aviso_sin_doc_descartado', 'true'); } catch {}
+  };
   const [periodoCerrado, setPeriodoCerrado] = useState<PeriodoFiscal | null>(null);
   const [lineas, setLineas] = useState<LineaUI[]>(() => [nuevaLinea({
     tipo: s.tipoInicial ?? 'iva', baseStr: numeroATexto(s.baseImponible ?? 0), ivaStr: numeroATexto(s.iva ?? 0),
@@ -533,20 +539,31 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         </div>
       )}
       {sinDocumento && !documento && !avisoSinDocDescartado && (
-        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.75rem' }}>
-          <small style={{ flex: 1 }}>
-            Esta factura no proviene de una Orden de Compra (OC), un Control de Servicio (CS) ni una Compra Directa. Quedará en el libro fiscal registrada como «Fuera del sistema», por lo que se recomienda indicar en las notas su procedencia u origen.
-          </small>
+        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.75rem', position: 'relative', paddingRight: '2rem' }}>
           <button
             type="button"
-            className="btn btn-sm btn-ghost"
-            style={{ padding: '2px 8px', lineHeight: 1, minHeight: 'auto', fontSize: '.85rem' }}
-            onClick={() => setAvisoSinDocDescartado(true)}
-            title="Descartar aviso"
-            aria-label="Descartar aviso"
+            onClick={descartarAvisoSinDoc}
+            style={{
+              position: 'absolute',
+              top: '6px',
+              right: '8px',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted, #888)',
+              fontSize: '1.1rem',
+              cursor: 'pointer',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              lineHeight: 1,
+            }}
+            title="Descartar este aviso"
+            aria-label="Cerrar aviso"
           >
             ✕
           </button>
+          <small>
+            Esta factura no proviene de una Orden de Compra (OC), un Contrato de Servicio (CS) ni una compra directa. Quedará en el libro fiscal registrada como «Fuera del sistema», por lo que se recomienda indicar en las notas su procedencia u origen.
+          </small>
         </div>
       )}
 

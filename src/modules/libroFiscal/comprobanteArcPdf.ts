@@ -174,25 +174,53 @@ export async function verComprobanteArcPdf(
     logoDataUrl: null, firmaDataUrl: null, selloDataUrl: null,
   }));
 
-  if (opciones.incluirLogo && logoDataUrl) {
+  const tieneLogo = !!(opciones.incluirLogo && logoDataUrl);
+  const logoW = 90;
+  const logoH = 32;
+
+  if (tieneLogo) {
     try {
-      doc.addImage(logoDataUrl, 'PNG', M, y - 4, 110, 36);
+      doc.addImage(logoDataUrl, 'PNG', M, y, logoW, logoH);
     } catch { /* continuar sin logo */ }
   }
 
-  // Título oficial y membrete
+  // Título oficial y membrete (alineado junto al logo o centrado)
+  const xTexto = tieneLogo ? M + logoW + 12 : W / 2;
+  const anchoTexto = tieneLogo ? W - M - xTexto : W - M * 2;
+  const align = tieneLogo ? 'left' : 'center';
+
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
+  doc.setFontSize(10);
   doc.setTextColor(20, 20, 20);
-  doc.text(textoPdf('COMPROBANTE DE RETENCIÓN DE IMPUESTO SOBRE LA RENTA ANUAL (FORMA ARC)'), W / 2, y + 10, { align: 'center' });
+  const lineasTitulo = doc.splitTextToSize(
+    textoPdf('COMPROBANTE DE RETENCIÓN DE IMPUESTO SOBRE LA RENTA ANUAL (FORMA ARC)'),
+    anchoTexto,
+  ) as string[];
+  doc.text(lineasTitulo, xTexto, y + 8, { align });
 
+  let textY = y + 8 + (lineasTitulo.length * 11);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
+  doc.setFontSize(6.8);
   doc.setTextColor(80, 80, 80);
-  doc.text(textoPdf('Artículo 24 del Decreto N° 1.808 · Reglamento Parcial de la Ley de I.S.L.R. en materia de Retenciones'), W / 2, y + 22, { align: 'center' });
-  doc.text(textoPdf(`EJERCICIO FISCAL: ${datos.anio} (Del 01/01/${datos.anio} al 31/12/${datos.anio})`), W / 2, y + 33, { align: 'center' });
+  const lineasSub = doc.splitTextToSize(
+    textoPdf('Artículo 24 del Decreto N° 1.808 · Reglamento Parcial de la Ley de I.S.L.R. en materia de Retenciones'),
+    anchoTexto,
+  ) as string[];
+  doc.text(lineasSub, xTexto, textY, { align });
 
-  y += 46;
+  textY += (lineasSub.length * 8.5) + 1;
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(40, 40, 40);
+  doc.text(
+    textoPdf(`EJERCICIO FISCAL: ${datos.anio} (Del 01/01/${datos.anio} al 31/12/${datos.anio})`),
+    xTexto,
+    textY,
+    { align },
+  );
+
+  y = Math.max(y + (tieneLogo ? logoH : 0), textY) + 12;
+
 
   // Recuadro de Agente y Sujeto
   const boxW = W - M * 2;

@@ -15,7 +15,8 @@ import { supabase } from '@/shared/lib/supabase';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { labelSujeto, type ConfigRetencion } from './retencionesCalculo';
-import type { RetencionPracticada } from './retencionesFiscal.repository';
+import { tipoAGt, type RetencionPracticada } from './retencionesFiscal.repository';
+import { formatoParaImprimir } from './formatos.repository';
 import {
   MARGEN_PDF, fechaPdf, montoPdf, textoPdf,
 } from './pdfComun';
@@ -172,9 +173,12 @@ export interface DisponibilidadElementosDigitales {
 export async function consultarElementosDigitales(fecha = hoyVenezuela()): Promise<DisponibilidadElementosDigitales> {
   try {
     const imagenes = await listImagenesAgente();
-    const l = versionVigente(imagenes.filter((i) => i.clase === 'logo' && i.activo), fecha);
-    const f = versionVigente(imagenes.filter((i) => i.clase === 'firma' && i.activo), fecha);
-    const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha);
+    const l = versionVigente(imagenes.filter((i) => i.clase === 'logo' && i.activo), fecha)
+      || imagenes.find((i) => i.clase === 'logo' && i.activo);
+    const f = versionVigente(imagenes.filter((i) => i.clase === 'firma' && i.activo), fecha)
+      || imagenes.find((i) => i.clase === 'firma' && i.activo);
+    const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha)
+      || imagenes.find((i) => i.clase === 'sello' && i.activo);
     return {
       tieneLogo: !!l?.ruta,
       tieneFirma: !!f?.ruta,
@@ -217,9 +221,12 @@ export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<
 
   try {
     const imagenes = await listImagenesAgente();
-    const l = versionVigente(imagenes.filter((i) => i.clase === 'logo' && i.activo), fecha);
-    const f = versionVigente(imagenes.filter((i) => i.clase === 'firma' && i.activo), fecha);
-    const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha);
+    const l = versionVigente(imagenes.filter((i) => i.clase === 'logo' && i.activo), fecha)
+      || imagenes.find((i) => i.clase === 'logo' && i.activo);
+    const f = versionVigente(imagenes.filter((i) => i.clase === 'firma' && i.activo), fecha)
+      || imagenes.find((i) => i.clase === 'firma' && i.activo);
+    const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha)
+      || imagenes.find((i) => i.clase === 'sello' && i.activo);
 
     if (l?.ruta) {
       try {
@@ -250,6 +257,7 @@ export async function generarDocComprobanteRetencionPdf(
   config: ConfigRetencion,
   formato?: FormatoParaAplicar | null,
   opciones: OpcionesComprobantePdf = {},
+  docExistente?: any,
 ): Promise<any> {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
     import('jspdf'), import('jspdf-autotable'),
@@ -316,7 +324,14 @@ export async function generarDocComprobanteRetencionPdf(
   };
 
   const f = aplicarFormato(r.tipo, formato);
-  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: f.orientacion === 'vertical' ? 'portrait' : 'landscape' });
+  const orientacion = f.orientacion === 'vertical' ? 'portrait' : 'landscape';
+  let doc: any;
+  if (docExistente) {
+    doc = docExistente;
+    doc.addPage('letter', orientacion);
+  } else {
+    doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: orientacion });
+  }
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const M = MARGEN_PDF;
@@ -714,32 +729,56 @@ export async function generarDocComprobanteRetencionPdf(
     const xAgente = M;
     const xCentro = M + anchoCaja + 12;
     const xSujeto = M + (anchoCaja + 12) * 2;
+    const xFinAgente = xAgente + anchoCaja;
 
     // Caja 1: Agente
+    let rotuloFirmaAgente = (f.rotulos.firma_agente || `${agenteTermino}:`).trim();
+    if (/\bde ret(\.|encion|ención)?$/i.test(rotuloFirmaAgente)) {
+      rotuloFirmaAgente = rotuloFirmaAgente.replace(/\bde ret(\.|encion|ención)?$/i, 'de retención');
+    }
     doc.rect(xAgente, firmaY, anchoCaja, altoCajaFirma);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.2);
     doc.setTextColor(0, 0, 0);
-    doc.text(textoPdf(f.rotulos.firma_agente || `${agenteTermino}:`), xAgente + 6, firmaY + 12);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Por', xAgente + 6, firmaY + 23);
-    doc.text(textoPdf(rifAgente), xAgente + 6, firmaY + 34);
+    doc.text(textoPdf(rotuloFirmaAgente), xAgente + 6, firmaY + 12, { maxWidth: anchoCaja - 12 });
 
-    if (conFirma || conSello) {
+    let xEstampasInicio = xFinAgente;
+    if (conFirma && conSello) {
+      const wFirma = 55;
+      const wSello = 40;
+      xEstampasInicio = xFinAgente - (wFirma + wSello + 6) - 6;
       try {
-        const firmaEspacioX = xAgente + 65;
-        const firmaEspacioW = anchoCaja - 70;
-        if (conFirma && conSello) {
-          const wFirma = Math.min(75, firmaEspacioW * 0.55);
-          const wSello = Math.min(55, firmaEspacioW * 0.42);
-          doc.addImage(firmaDataUrl!, 'PNG', firmaEspacioX, firmaY + 4, wFirma, 44);
-          doc.addImage(selloDataUrl!, 'JPEG', firmaEspacioX + wFirma + 2, firmaY + 5, wSello, 42);
-        } else if (conFirma) {
-          doc.addImage(firmaDataUrl!, 'PNG', firmaEspacioX + (firmaEspacioW - 90) / 2, firmaY + 4, 90, 44);
-        } else if (conSello) {
-          doc.addImage(selloDataUrl!, 'JPEG', firmaEspacioX + (firmaEspacioW - 60) / 2, firmaY + 5, 60, 42);
-        }
+        doc.addImage(firmaDataUrl!, 'PNG', xEstampasInicio, firmaY + 4, wFirma, 44);
+        doc.addImage(selloDataUrl!, 'JPEG', xEstampasInicio + wFirma + 6, firmaY + 5, wSello, 42);
       } catch { /* noop */ }
+    } else if (conFirma) {
+      const wFirma = 75;
+      xEstampasInicio = xFinAgente - wFirma - 8;
+      try {
+        doc.addImage(firmaDataUrl!, 'PNG', xEstampasInicio, firmaY + 4, wFirma, 44);
+      } catch { /* noop */ }
+    } else if (conSello) {
+      const wSello = 50;
+      xEstampasInicio = xFinAgente - wSello - 8;
+      try {
+        doc.addImage(selloDataUrl!, 'JPEG', xEstampasInicio, firmaY + 5, wSello, 42);
+      } catch { /* noop */ }
+    }
+
+    const maxTextoAgenteW = (conFirma || conSello)
+      ? Math.max(70, xEstampasInicio - (xAgente + 6) - 6)
+      : anchoCaja - 12;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    const lineasPorAgente = doc.splitTextToSize(`Por ${textoPdf(nombreAgente)}`, maxTextoAgenteW) as string[];
+    if (lineasPorAgente.length > 1) {
+      doc.text(lineasPorAgente[0], xAgente + 6, firmaY + 21);
+      doc.text(lineasPorAgente[1], xAgente + 6, firmaY + 29);
+      doc.text(textoPdf(rifAgente), xAgente + 6, firmaY + 38);
+    } else {
+      doc.text(lineasPorAgente[0] || `Por ${textoPdf(nombreAgente)}`, xAgente + 6, firmaY + 23);
+      doc.text(textoPdf(rifAgente), xAgente + 6, firmaY + 34);
     }
 
     // Caja 2: Verificación Digital (QR + SHA-256)
@@ -770,51 +809,101 @@ export async function generarDocComprobanteRetencionPdf(
     doc.text(`${hashSha256.slice(0, 22)}...`, xTextosQr + 24, firmaY + 42);
 
     // Caja 3: Sujeto Retenido
+    let rotuloFirmaSujeto = (f.rotulos.firma_sujeto || `${sujetoTermino}:`).trim();
+    if (/\bde ret(\.|encion|ención)?$/i.test(rotuloFirmaSujeto)) {
+      rotuloFirmaSujeto = rotuloFirmaSujeto.replace(/\bde ret(\.|encion|ención)?$/i, 'de retención');
+    }
     doc.rect(xSujeto, firmaY, anchoCaja, altoCajaFirma);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.2);
     doc.setTextColor(0, 0, 0);
-    doc.text(textoPdf(f.rotulos.firma_sujeto || `${sujetoTermino}:`), xSujeto + 6, firmaY + 12);
+    doc.text(textoPdf(rotuloFirmaSujeto), xSujeto + 6, firmaY + 12, { maxWidth: anchoCaja - 12 });
     doc.setFont('helvetica', 'normal');
-    doc.text(`Por ${textoPdf(nombreSujeto)}`, xSujeto + 6, firmaY + 23, { maxWidth: anchoCaja - 12 });
-    doc.text(textoPdf(rifSujeto), xSujeto + 6, firmaY + 34);
+    doc.setFontSize(7);
+    const lineasPorSujeto = doc.splitTextToSize(`Por ${textoPdf(nombreSujeto)}`, anchoCaja - 12) as string[];
+    if (lineasPorSujeto.length > 1) {
+      doc.text(lineasPorSujeto[0], xSujeto + 6, firmaY + 21);
+      doc.text(lineasPorSujeto[1], xSujeto + 6, firmaY + 29);
+      doc.text(textoPdf(rifSujeto), xSujeto + 6, firmaY + 38);
+    } else {
+      doc.text(lineasPorSujeto[0] || `Por ${textoPdf(nombreSujeto)}`, xSujeto + 6, firmaY + 23);
+      doc.text(textoPdf(rifSujeto), xSujeto + 6, firmaY + 34);
+    }
   } else {
     // Disposición tradicional en 2 cajas
     const anchoCajaFirma = (UTIL - 16) / 2;
+    const xFinAgente = M + anchoCajaFirma;
+
+    let rotuloFirmaAgente = (f.rotulos.firma_agente || `${agenteTermino}:`).trim();
+    if (/\bde ret(\.|encion|ención)?$/i.test(rotuloFirmaAgente)) {
+      rotuloFirmaAgente = rotuloFirmaAgente.replace(/\bde ret(\.|encion|ención)?$/i, 'de retención');
+    }
     doc.rect(M, firmaY, anchoCajaFirma, altoCajaFirma);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(0, 0, 0);
-    doc.text(textoPdf(f.rotulos.firma_agente || `${agenteTermino}:`), M + 8, firmaY + 12);
-    doc.setFont('helvetica', 'normal');
-    doc.text('Por', M + 8, firmaY + 23);
-    doc.text(textoPdf(rifAgente), M + 8, firmaY + 34);
+    doc.text(textoPdf(rotuloFirmaAgente), M + 8, firmaY + 12, { maxWidth: anchoCajaFirma - 16 });
 
-    if (conFirma || conSello) {
+    let xEstampasInicio = xFinAgente;
+    if (conFirma && conSello) {
+      const wFirma = 85;
+      const wSello = 60;
+      xEstampasInicio = xFinAgente - (wFirma + wSello + 8) - 8;
       try {
-        const firmaEspacioX = M + 85;
-        const firmaEspacioW = anchoCajaFirma - 95;
-        if (conFirma && conSello) {
-          const wFirma = Math.min(100, firmaEspacioW * 0.55);
-          const wSello = Math.min(75, firmaEspacioW * 0.42);
-          doc.addImage(firmaDataUrl!, 'PNG', firmaEspacioX, firmaY + 4, wFirma, 44);
-          doc.addImage(selloDataUrl!, 'JPEG', firmaEspacioX + wFirma + 4, firmaY + 5, wSello, 42);
-        } else if (conFirma) {
-          doc.addImage(firmaDataUrl!, 'PNG', firmaEspacioX + (firmaEspacioW - 120) / 2, firmaY + 4, 120, 44);
-        } else if (conSello) {
-          doc.addImage(selloDataUrl!, 'JPEG', firmaEspacioX + (firmaEspacioW - 80) / 2, firmaY + 5, 80, 42);
-        }
+        doc.addImage(firmaDataUrl!, 'PNG', xEstampasInicio, firmaY + 4, wFirma, 44);
+        doc.addImage(selloDataUrl!, 'JPEG', xEstampasInicio + wFirma + 8, firmaY + 5, wSello, 42);
+      } catch { /* noop */ }
+    } else if (conFirma) {
+      const wFirma = 110;
+      xEstampasInicio = xFinAgente - wFirma - 12;
+      try {
+        doc.addImage(firmaDataUrl!, 'PNG', xEstampasInicio, firmaY + 4, wFirma, 44);
+      } catch { /* noop */ }
+    } else if (conSello) {
+      const wSello = 70;
+      xEstampasInicio = xFinAgente - wSello - 14;
+      try {
+        doc.addImage(selloDataUrl!, 'JPEG', xEstampasInicio, firmaY + 5, wSello, 42);
       } catch { /* noop */ }
     }
 
+    const maxTextoAgenteW = (conFirma || conSello)
+      ? Math.max(90, xEstampasInicio - (M + 8) - 8)
+      : anchoCajaFirma - 16;
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.2);
+    const lineasPorAgente = doc.splitTextToSize(`Por ${textoPdf(nombreAgente)}`, maxTextoAgenteW) as string[];
+    if (lineasPorAgente.length > 1) {
+      doc.text(lineasPorAgente[0], M + 8, firmaY + 21);
+      doc.text(lineasPorAgente[1], M + 8, firmaY + 29);
+      doc.text(textoPdf(rifAgente), M + 8, firmaY + 38);
+    } else {
+      doc.text(lineasPorAgente[0] || `Por ${textoPdf(nombreAgente)}`, M + 8, firmaY + 23);
+      doc.text(textoPdf(rifAgente), M + 8, firmaY + 34);
+    }
+
     const xSujetoFirma = M + anchoCajaFirma + 16;
+    let rotuloFirmaSujeto = (f.rotulos.firma_sujeto || `${sujetoTermino}:`).trim();
+    if (/\bde ret(\.|encion|ención)?$/i.test(rotuloFirmaSujeto)) {
+      rotuloFirmaSujeto = rotuloFirmaSujeto.replace(/\bde ret(\.|encion|ención)?$/i, 'de retención');
+    }
     doc.rect(xSujetoFirma, firmaY, anchoCajaFirma, altoCajaFirma);
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
-    doc.text(textoPdf(f.rotulos.firma_sujeto || `${sujetoTermino}:`), xSujetoFirma + 8, firmaY + 12);
+    doc.setTextColor(0, 0, 0);
+    doc.text(textoPdf(rotuloFirmaSujeto), xSujetoFirma + 8, firmaY + 12, { maxWidth: anchoCajaFirma - 16 });
     doc.setFont('helvetica', 'normal');
-    doc.text(`Por ${textoPdf(nombreSujeto)}`, xSujetoFirma + 8, firmaY + 23, { maxWidth: anchoCajaFirma - 16 });
-    doc.text(textoPdf(rifSujeto), xSujetoFirma + 8, firmaY + 34);
+    doc.setFontSize(7.2);
+    const lineasPorSujeto = doc.splitTextToSize(`Por ${textoPdf(nombreSujeto)}`, anchoCajaFirma - 16) as string[];
+    if (lineasPorSujeto.length > 1) {
+      doc.text(lineasPorSujeto[0], xSujetoFirma + 8, firmaY + 21);
+      doc.text(lineasPorSujeto[1], xSujetoFirma + 8, firmaY + 29);
+      doc.text(textoPdf(rifSujeto), xSujetoFirma + 8, firmaY + 38);
+    } else {
+      doc.text(lineasPorSujeto[0] || `Por ${textoPdf(nombreSujeto)}`, xSujetoFirma + 8, firmaY + 23);
+      doc.text(textoPdf(rifSujeto), xSujetoFirma + 8, firmaY + 34);
+    }
   }
 
   // ── Pie de página con el texto configurado en Parámetros o razón social de la empresa ──
@@ -833,12 +922,14 @@ export async function verComprobanteRetencionPdf(
   formato?: FormatoParaAplicar | null,
   opciones: OpcionesComprobantePdf = {},
 ): Promise<void> {
-  const disp = await consultarElementosDigitales(diaVE(r.createdAt) || hoyVenezuela());
+  const fechaRef = r.facturaFecha || r.createdAt || hoyVenezuela();
+  const fechaFiltro = /^\d{4}-\d{2}-\d{2}$/.test(fechaRef) ? fechaRef : (diaVE(fechaRef) || hoyVenezuela());
+  const disp = await consultarElementosDigitales(fechaFiltro);
 
-  // Preferencias iniciales: solo habilitadas si existen cargadas en Parámetros del módulo
-  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (localStorage.getItem('retenciones:imprimirConLogo') === 'true'));
-  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConFirma') === 'true'));
-  let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConSello') === 'true'));
+  // Preferencias iniciales: habilitadas por defecto si existen cargadas en Parámetros del módulo
+  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (localStorage.getItem('retenciones:imprimirConLogo') !== 'false'));
+  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConFirma') !== 'false'));
+  let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConSello') !== 'false'));
   let conQr = opciones.incluirQr ?? (localStorage.getItem('retenciones:imprimirConQr') !== 'false');
 
   const generarDoc = () => generarDocComprobanteRetencionPdf(r, config, formato, {
@@ -886,6 +977,130 @@ export async function verComprobanteRetencionPdf(
           lbl.style.opacity = '0.6';
           try {
             const nuevoDoc = await generarDoc();
+            updatePdf(nuevoDoc);
+          } finally {
+            lbl.style.opacity = '1';
+          }
+        };
+        lbl.append(chk, document.createTextNode(etiqueta));
+        return lbl;
+      };
+
+      if (disp.tieneLogo) {
+        toolbar.appendChild(crearCheck('Logo', conLogo, (v) => {
+          conLogo = v;
+          try { localStorage.setItem('retenciones:imprimirConLogo', String(v)); } catch {}
+        }));
+      }
+      if (disp.tieneFirma) {
+        toolbar.appendChild(crearCheck('Firma', conFirma, (v) => {
+          conFirma = v;
+          try { localStorage.setItem('retenciones:imprimirConFirma', String(v)); } catch {}
+        }));
+      }
+      if (disp.tieneSello) {
+        toolbar.appendChild(crearCheck('Sello', conSello, (v) => {
+          conSello = v;
+          try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch {}
+        }));
+      }
+      toolbar.appendChild(crearCheck('QR Fiscal', conQr, (v) => {
+        conQr = v;
+        try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch {}
+      }));
+
+      container.appendChild(toolbar);
+
+      const firstBtn = bar.querySelector('button');
+      if (firstBtn) bar.insertBefore(container, firstBtn);
+      else bar.appendChild(container);
+    },
+  });
+}
+
+/**
+ * Genera y visualiza un único PDF con TODOS los comprobantes emitidos de una factura,
+ * permitiendo mandar a imprimir el paquete completo con un solo clic.
+ */
+export async function verTodosComprobantesFacturaPdf(
+  facturaNumero: string,
+  retenciones: RetencionPracticada[],
+  config: ConfigRetencion,
+  opciones: OpcionesComprobantePdf = {},
+): Promise<void> {
+  const activas = retenciones.filter((r) => !r.anulada && r.numeroComprobante);
+  const seleccionadas = activas.length > 0 ? activas : retenciones.filter((r) => r.numeroComprobante);
+  if (!seleccionadas.length) {
+    throw new Error('Esta factura no tiene comprobantes emitidos para imprimir.');
+  }
+
+  const fechaRef = seleccionadas[0]?.facturaFecha || seleccionadas[0]?.createdAt || hoyVenezuela();
+  const fechaFiltro = /^\d{4}-\d{2}-\d{2}$/.test(fechaRef) ? fechaRef : (diaVE(fechaRef) || hoyVenezuela());
+  const disp = await consultarElementosDigitales(fechaFiltro);
+
+  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (localStorage.getItem('retenciones:imprimirConLogo') !== 'false'));
+  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConFirma') !== 'false'));
+  let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConSello') !== 'false'));
+  let conQr = opciones.incluirQr ?? (localStorage.getItem('retenciones:imprimirConQr') !== 'false');
+
+  const generarLote = async () => {
+    let doc: any = null;
+    for (const r of seleccionadas) {
+      const formato = await formatoParaImprimir(tipoAGt(r.tipo), diaVE(r.createdAt) || null, hoyVenezuela());
+      doc = await generarDocComprobanteRetencionPdf(r, config, formato, {
+        incluirLogo: conLogo,
+        incluirFirma: conFirma,
+        incluirSello: conSello,
+        incluirQr: conQr,
+      }, doc);
+    }
+    return doc;
+  };
+
+  const doc = await generarLote();
+  const filename = `comprobantes-factura-${facturaNumero.replace(/[^\w.-]+/g, '_')}.pdf`;
+
+  previewPdf(doc, filename, {
+    extraControls: ({ bar, updatePdf }) => {
+      const container = document.createElement('div');
+      container.style.cssText = 'display:flex;align-items:center;gap:.5rem;margin-left:auto;margin-right:.5rem;flex-wrap:wrap;';
+
+      const infoLote = document.createElement('span');
+      infoLote.style.cssText =
+        'color:#f5b133;font:600 .78rem system-ui;display:inline-flex;align-items:center;gap:.35rem;padding:.35rem .6rem;background:rgba(245,177,51,0.12);border-radius:6px;border:1px solid rgba(245,177,51,0.3);';
+      infoLote.textContent = `Factura ${facturaNumero} · ${seleccionadas.length} comprobante(s)`;
+      container.appendChild(infoLote);
+
+      if (!disp.tieneAlguno) {
+        const aviso = document.createElement('span');
+        aviso.style.cssText =
+          'color:#8b949e;font:500 .78rem system-ui;display:inline-flex;align-items:center;gap:.35rem;padding:.35rem .6rem;background:#161b22;border-radius:6px;border:1px solid #30363d;';
+        aviso.title = 'Para estampar logo, firma o sello, cárgalos en Parámetros › Firma / Sello o Logo.';
+        aviso.textContent = 'Sin logo ni firma en Parámetros';
+        container.appendChild(aviso);
+      }
+
+      const toolbar = document.createElement('div');
+      toolbar.style.cssText = 'display:flex;align-items:center;gap:.4rem;';
+
+      const labelTitulo = document.createElement('span');
+      labelTitulo.style.cssText = 'color:#8b949e;font:600 .78rem system-ui;margin-right:.2rem;';
+      labelTitulo.textContent = 'Imprimir:';
+      toolbar.appendChild(labelTitulo);
+
+      const crearCheck = (etiqueta: string, valor: boolean, onChange: (val: boolean) => void) => {
+        const lbl = document.createElement('label');
+        lbl.style.cssText =
+          'color:#e6edf3;font:500 .82rem system-ui;display:inline-flex;align-items:center;gap:.35rem;cursor:pointer;background:#21262d;padding:.35rem .65rem;border-radius:6px;border:1px solid #30363d;user-select:none;';
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = valor;
+        chk.style.cssText = 'cursor:pointer;accent-color:#ff8a00;width:.95rem;height:.95rem;margin:0;';
+        chk.onchange = async () => {
+          onChange(chk.checked);
+          lbl.style.opacity = '0.6';
+          try {
+            const nuevoDoc = await generarLote();
             updatePdf(nuevoDoc);
           } finally {
             lbl.style.opacity = '1';

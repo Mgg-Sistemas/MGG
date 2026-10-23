@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { faltaEnLaCarga, leerMonto, numeroATexto, textoLeido } from './validarCarga';
+import {
+  etiquetaDocumentoRespaldo, faltaEnLaCarga, leerMonto, numeroATexto, textoLeido,
+  validarDocumentoRespaldo,
+} from './validarCarga';
 
 describe('lo que la carga exige antes de registrar', () => {
   it('sin N° de factura no se registra una retención de IVA, ISLR o municipal', () => {
@@ -84,3 +87,31 @@ describe('números que el sistema pone en un campo', () => {
     expect(textoLeido('12a')).toBeNull();
   });
 });
+
+describe('validación de documento de respaldo y Otro documento', () => {
+  it('con archivo adjunto exige indicar qué documento es', () => {
+    expect(validarDocumentoRespaldo('', '', true)).toContain('Indica qué documento adjuntas');
+    expect(validarDocumentoRespaldo('   ', '', true)).toContain('Indica qué documento adjuntas');
+  });
+
+  it('si se elige «Otro documento», es obligatorio describirlo para auditoría', () => {
+    expect(validarDocumentoRespaldo('Otro documento', '', false)).toContain('Describe qué documento de respaldo es');
+    expect(validarDocumentoRespaldo('Otro documento', '   ', true)).toContain('Describe qué documento de respaldo es');
+    expect(validarDocumentoRespaldo('Otro documento', 'Recibo de caja chica #412', true)).toBeNull();
+    expect(validarDocumentoRespaldo('Otro documento', 'Contrato de comodato', false)).toBeNull();
+  });
+
+  it('los tipos conocidos pasan sin requerir detalle extra', () => {
+    expect(validarDocumentoRespaldo('Factura del proveedor', '', true)).toBeNull();
+    expect(validarDocumentoRespaldo('Comprobante de retención firmado', '', true)).toBeNull();
+    expect(validarDocumentoRespaldo('Nota de entrega', '', true)).toBeNull();
+  });
+
+  it('formatea la etiqueta descriptiva del documento', () => {
+    expect(etiquetaDocumentoRespaldo('Factura del proveedor', '')).toBe('Factura del proveedor');
+    expect(etiquetaDocumentoRespaldo('Otro documento', 'Finiquito laboral')).toBe('Otro: Finiquito laboral');
+    expect(etiquetaDocumentoRespaldo('Otro documento', '  Recibo de caja chica  ')).toBe('Otro: Recibo de caja chica');
+    expect(etiquetaDocumentoRespaldo('Otro documento', '')).toBe('Otro documento');
+  });
+});
+

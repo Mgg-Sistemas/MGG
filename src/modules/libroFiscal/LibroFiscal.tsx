@@ -57,10 +57,11 @@ import {
 import {
   activarConcepto, adjuntarComprobante, anularRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
   guardarConfigRetencion, guardarTiposLicencia, listConceptos, listRetenciones, listTiposLicencia, registrarRetencion, sujetoAGt, tipoAGt,
+  urlComprobante,
   PORCENTAJES_IVA,
   type AlicuotasLocales, type DocKind, type NuevaRetencion, type RetencionPracticada, type TipoLicencia,
 } from './retencionesFiscal.repository';
-import { faltaEnLaCarga, leerMonto, numeroATexto } from './validarCarga';
+import { etiquetaDocumentoRespaldo, faltaEnLaCarga, leerMonto, numeroATexto, validarDocumentoRespaldo } from './validarCarga';
 import { montoEscrito, municipioDeLinea } from './lineasRegistro';
 import { CampoMonto } from './CampoMonto';
 import { formatoParaImprimir, r8Disponible } from './formatos.repository';
@@ -183,7 +184,7 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
     tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false,
   });
   const [imprimirLogo, setImprimirLogo] = useState<boolean>(() => {
-    try { return localStorage.getItem('retenciones:imprimirConLogo') === 'true'; } catch { return false; }
+    try { return localStorage.getItem('retenciones:imprimirConLogo') !== 'false'; } catch { return true; }
   });
   const [imprimirFirma, setImprimirFirma] = useState<boolean>(() => {
     try { return localStorage.getItem('retenciones:imprimirConFirma') !== 'false'; } catch { return true; }
@@ -346,7 +347,11 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
         retenciones: new Map(),
       });
       const fa = fMap.get(fk)!;
-      fa.retenciones.set(r.tipo, r);
+      const actual = fa.retenciones.get(r.tipo);
+      // Priorizar la vigente: si ya hay una no-anulada, no dejar que una anulada la tape.
+      if (!actual || (actual.anulada && !r.anulada)) {
+        fa.retenciones.set(r.tipo, r);
+      }
       if (!fa.documentoId && r.documentoId) fa.documentoId = r.documentoId;
       if (!fa.tipoDocumento && r.tipoDocumento) fa.tipoDocumento = r.tipoDocumento;
       if (!fa.facturaAfectadaNro && r.facturaAfectadaNro) fa.facturaAfectadaNro = r.facturaAfectadaNro;
@@ -371,11 +376,37 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
       const { verComprobanteRetencionPdf } = await import('./comprobanteRetencionPdf');
       const formato = await formatoParaImprimir(tipoAGt(r.tipo), diaVE(r.createdAt) || null, hoyIso());
       await verComprobanteRetencionPdf(r, config, formato, {
-        incluirLogo: imprimirLogo && dispDigital.tieneLogo,
-        incluirFirma: imprimirFirma && dispDigital.tieneFirma,
-        incluirSello: imprimirSello && dispDigital.tieneSello,
+        incluirLogo: imprimirLogo,
+        incluirFirma: imprimirFirma,
+        incluirSello: imprimirSello,
       });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante', 'error'); }
+  }
+
+  async function verComprobantesFactura(f: { num: string; retenciones: Map<any, RetencionPracticada> }) {
+    const retenciones = [...f.retenciones.values()].filter((r) => !r.anulada && r.numeroComprobante);
+    if (!retenciones.length) {
+      toast('No hay comprobantes emitidos para esta factura', 'error');
+      return;
+    }
+    try {
+      const { verTodosComprobantesFacturaPdf } = await import('./comprobanteRetencionPdf');
+      await verTodosComprobantesFacturaPdf(f.num, retenciones, config, {
+        incluirLogo: imprimirLogo,
+        incluirFirma: imprimirFirma,
+        incluirSello: imprimirSello,
+      });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudieron generar los comprobantes', 'error');
+    }
+  }
+
+  async function verAdjuntoRespaldo(r: RetencionPracticada) {
+    if (!r.comprobantePath) return;
+    try {
+      const url = await urlComprobante(r.comprobantePath);
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el documento de respaldo adjunto', 'error'); }
   }
 
   async function verLibroPdf() {
@@ -801,9 +832,42 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                                     Registrar
                                   </button>
                                 )}
-                                <button type="button" className="lfv8-mini" onClick={() => void verComprobante(r)} title="Comprobante">📄</button>
+                                <button type="button" className="lfv8-mini" onClick={() => void verComprobante(r)} title="Comprobante generado">📄</button>
+                                {r.comprobantePath && (
+                                  <button type="button" className="lfv8-mini" onClick={() => void verAdjuntoRespaldo(r)} title={`Ver documento de respaldo adjunto (${r.comprobanteNombre || 'Archivo'})`}>📎</button>
+                                )}
                                 {canWrite && !r.anulada && (
                                   <button type="button" className="lfv8-mini" onClick={() => { setAnular(r); setMotivo(''); }} title="Anular">⊘</button>
+                                )}
+                                {canWrite && r.anulada && (
+                                  <button
+                                    type="button"
+                                    className="lfv8-mini registrar"
+                                    onClick={() => {
+                                      setRegistrar({
+                                        direccion: r.direccion,
+                                        tipoInicial: r.tipo,
+                                        contraparteId: r.contraparteId ?? f.proveedorId,
+                                        contraparteNombre: r.contraparteNombre ?? prov.nombre,
+                                        contraparteRif: r.contraparteRif ?? prov.rif,
+                                        facturaNumero: r.facturaNumero ?? (f.num !== '—' ? f.num : null),
+                                        facturaControl: r.facturaControl,
+                                        facturaFecha: r.facturaFecha ?? f.fecha,
+                                        baseImponible: r.baseImponible || f.total,
+                                        iva: r.impuesto,
+                                        total: f.total,
+                                        moneda: r.moneda,
+                                        docId: r.docId ?? f.docId,
+                                        docKind: r.docKind ?? f.docKind,
+                                        codigo: r.docCodigo ?? f.doc,
+                                        porcentaje: r.porcentaje,
+                                        sustituyeAComprobante: r.numeroComprobante,
+                                      });
+                                    }}
+                                    title={`Reemitir nueva retención de ${t.corto} para esta factura (sustituye a la anulada N° ${r.numeroComprobante || '—'})`}
+                                  >
+                                    + Reemitir
+                                  </button>
                                 )}
                               </span>
                             </div>
@@ -813,6 +877,22 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                       <div className="lfv8-tot">
                         <small>Total retenido</small>
                         <span>{totalRet ? monto(totalRet, 'Bs') : '—'}</span>
+                        {(() => {
+                          const conComp = [...f.retenciones.values()].filter((r) => !r.anulada && r.numeroComprobante);
+                          if (!conComp.length) return null;
+                          return (
+                            <div>
+                              <button
+                                type="button"
+                                className="lfv8-btn-imprimir-todos"
+                                onClick={() => void verComprobantesFactura(f)}
+                                title={`Imprimir en 1 solo PDF los ${conComp.length} comprobante(s) de esta factura`}
+                              >
+                                🖨️ {conComp.length > 1 ? `Imprimir todos (${conComp.length})` : 'Imprimir comprobante'}
+                              </button>
+                            </div>
+                          );
+                        })()}
                       </div>
                     </article>
                     {conP03 && f.documentoId && (
@@ -916,7 +996,10 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                 <span data-l="Comprobante" className="mono" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}>
                   {r.numeroComprobante ?? '—'}
                   {r.numeroComprobante && (
-                    <button type="button" className="lfv8-mini" onClick={() => void verComprobante(r)} title="Ver comprobante">📄</button>
+                    <button type="button" className="lfv8-mini" onClick={() => void verComprobante(r)} title="Ver comprobante generado">📄</button>
+                  )}
+                  {r.comprobantePath && (
+                    <button type="button" className="lfv8-mini" onClick={() => void verAdjuntoRespaldo(r)} title={`Ver respaldo adjunto (${r.comprobanteNombre || 'Archivo'})`}>📎</button>
                   )}
                 </span>
                 <span data-l="Impuesto">{TIPOS_IMPUESTO.find((t) => t.key === r.tipo)?.corto ?? rotuloImpuesto(r.tipo)}<small>{r.direccion === 'recibida' ? 'Recibida' : 'Practicada'}</small></span>
@@ -928,6 +1011,36 @@ export function LibroFiscalView({ canWrite, actor, actorName, vistaInicial = 'fa
                   <span className={`lfv8-pill ${r.anulada ? 'falta' : r.estado === 'declarada' ? 'declarada' : 'ok'}`}>
                     {r.anulada ? 'Anulada' : r.estado === 'declarada' ? 'Declarada' : 'Registrada'}
                   </span>
+                  {canWrite && r.anulada && (
+                    <button
+                      type="button"
+                      className="lfv8-mini registrar"
+                      style={{ marginLeft: '.35rem', verticalAlign: 'middle', padding: '0 .4rem', fontSize: '.7rem' }}
+                      onClick={() => {
+                        setRegistrar({
+                          direccion: r.direccion,
+                          tipoInicial: r.tipo,
+                          contraparteId: r.contraparteId,
+                          contraparteNombre: r.contraparteNombre,
+                          contraparteRif: r.contraparteRif,
+                          facturaNumero: r.facturaNumero,
+                          facturaControl: r.facturaControl,
+                          facturaFecha: r.facturaFecha,
+                          baseImponible: r.baseImponible,
+                          iva: r.impuesto,
+                          moneda: r.moneda,
+                          docId: r.docId,
+                          docKind: r.docKind,
+                          codigo: r.docCodigo,
+                          porcentaje: r.porcentaje,
+                          sustituyeAComprobante: r.numeroComprobante,
+                        });
+                      }}
+                      title={`Reemitir nueva retención de ${rotuloImpuesto(r.tipo)} para esta factura`}
+                    >
+                      + Reemitir
+                    </button>
+                  )}
                 </span>
               </div>
             ))}
@@ -1127,6 +1240,8 @@ export interface SemillaRetencion {
   facturaNumero?: string | null;
   facturaControl?: string | null;
   facturaFecha?: string | null;
+  porcentaje?: number | null;
+  sustituyeAComprobante?: string | null;
 }
 
 export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, onHecho, proveedorIdsPendientes }: {
@@ -1177,14 +1292,24 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [tasaBcv, setTasaBcv] = useState<{ tasa: number | null; nota: string } | null>(null);
   const [baseStr, setBaseStr] = useState(numeroATexto(semilla.baseImponible ?? semilla.total ?? 0));
   const [ivaStr, setIvaStr] = useState(numeroATexto(semilla.iva ?? 0));
-  const [pctStr, setPctStr] = useState('');
+  const [pctStr, setPctStr] = useState(semilla.porcentaje != null ? numeroATexto(semilla.porcentaje) : '');
   const [montoStr, setMontoStr] = useState('');
-  const [observacion, setObservacion] = useState('');
+  const [observacion, setObservacion] = useState(
+    semilla.sustituyeAComprobante ? `Sustituye a la retención anulada N° ${semilla.sustituyeAComprobante}` : ''
+  );
   const [archivo, setArchivo] = useState<File | null>(null);
   // Qué documento se adjunta: en una recibida, el comprobante que entregó el agente; en una practicada, el respaldo.
   const [tipoArchivo, setTipoArchivo] = useState('');
+  const [otroDetalle, setOtroDetalle] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [avisoSinDocDescartado, setAvisoSinDocDescartado] = useState(() => {
+    try { return localStorage.getItem('mgg_aviso_sin_doc_descartado') === 'true'; } catch { return false; }
+  });
+  const descartarAvisoSinDoc = () => {
+    setAvisoSinDocDescartado(true);
+    try { localStorage.setItem('mgg_aviso_sin_doc_descartado', 'true'); } catch {}
+  };
   const { marcarSucio, pedirCierre, dialogo } = useDescartar(onClose, saving);
   // R10: el N° de factura busca entre las facturas ya registradas; al elegir una, se retiene sobre ella.
   const [conR10, setConR10] = useState(false);
@@ -1194,7 +1319,6 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   // La tasa que trae la factura registrada manda sobre la BCV del día.
   const tasaDeFactura = elegida?.tasa != null && elegida.tasa > 0 ? elegida.tasa : null;
   const [periodoCerrado, setPeriodoCerrado] = useState<PeriodoFiscal | null>(null);
-  const [avisoSinDocDescartado, setAvisoSinDocDescartado] = useState(false);
 
   useEffect(() => {
     let vivo = true;
@@ -1418,7 +1542,10 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indica la tasa de cambio para convertir la retención a bolívares.'); return; }
     const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRetencion)) { setError('Indica la fecha de la retención (emisión del comprobante).'); return; }
-    if (archivo && !esManual && !tipoArchivo) { setError('Indica qué documento adjuntas (factura, comprobante firmado, nota de entrega u otro).'); return; }
+    if (!esManual) {
+      const errorDoc = validarDocumentoRespaldo(tipoArchivo, otroDetalle, !!archivo);
+      if (errorDoc) { setError(errorDoc); return; }
+    }
     if (precarga && !precarga.impuestos.includes(tipo)) { setError(`La factura ${precarga.facturaNumero || 'elegida'} ya no tiene ${rotuloImpuesto(tipo)} por retener.`); return; }
     setSaving(true);
     try {
@@ -1448,8 +1575,11 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         sustraendo: esManual ? 0 : calculo.sustraendo,
         montoRetenido: montoFinal,
         // El supuesto del % queda escrito en la retención: es la foto de por qué se retuvo así.
-        observacion: [supuesto && tipo === 'iva' ? `Retención al ${supuesto.pct} %: ${supuesto.texto}` : null, observacion.trim() || null]
-          .filter(Boolean).join(' · ') || null,
+        observacion: [
+          supuesto && tipo === 'iva' ? `Retención al ${supuesto.pct} %: ${supuesto.texto}` : null,
+          tipoArchivo === 'Otro documento' && otroDetalle.trim() ? `Doc. respaldo: ${otroDetalle.trim()}` : null,
+          observacion.trim() || null,
+        ].filter(Boolean).join(' · ') || null,
         actor, actorName,
         regla: !esManual && reglaCalc ? columnasDeRegla(reglaCalc) : null,
       };
@@ -1463,7 +1593,10 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       } else {
         r = await registrarRetencion(nueva, config);
       }
-      if (archivo) await adjuntarComprobante(r.id, archivo, esManual ? 'Comprobante de retención recibido' : tipoArchivo).catch(() => toast('La retención quedó registrada, pero el adjunto no subió: se puede adjuntar después', 'error'));
+      const tipoArchivoFinal = esManual
+        ? 'Comprobante de retención recibido'
+        : etiquetaDocumentoRespaldo(tipoArchivo, otroDetalle);
+      if (archivo) await adjuntarComprobante(r.id, archivo, tipoArchivoFinal).catch(() => toast('La retención quedó registrada, pero el adjunto no subió: se puede adjuntar después', 'error'));
       notify(
         `${labelDireccion(direccion)} · ${labelImpuesto(tipo)} · ${monto(r.montoRetenido, r.moneda)}${r.numeroComprobante ? ` · ${r.numeroComprobante}` : ''}`,
         'success', { link: '#/app/retenciones' },
@@ -1477,7 +1610,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
   return (
     <>
-    <Modal title="Registrar retención" size="lg" onClose={pedirCierre}
+    <Modal title={semilla.sustituyeAComprobante ? `Reemitir retención · sustituye a N° ${semilla.sustituyeAComprobante}` : 'Registrar retención'} size="lg" onClose={pedirCierre}
       footer={
         <>
           {/* El botón no se apaga en silencio: al pulsarlo se dice qué falta, aquí al lado y arriba. */}
@@ -1490,6 +1623,11 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       }>
       <div onChange={marcarSucio}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+      {semilla.sustituyeAComprobante && (
+        <div className="card" style={{ borderColor: 'var(--primary)', background: 'rgba(255, 170, 0, 0.08)', marginBottom: '.75rem', padding: '.6rem .8rem', fontSize: '.84rem' }}>
+          <strong style={{ color: 'var(--primary)' }}>↺ Reemitiendo retención:</strong> Se precargaron los datos de la retención anulada <b>N° {semilla.sustituyeAComprobante}</b>. Ajusta los datos que requieran corrección y registra el nuevo comprobante oficial.
+        </div>
+      )}
 
       {/* La dirección primero: cambia el significado de todo lo demás */}
       <div className="form-row">
@@ -1521,26 +1659,35 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       )}
 
       {sinDocumento && !avisoSinDocDescartado && (
-        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.5rem', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '.75rem' }}>
-          <div style={{ flex: 1 }}>
-            <strong>Sin documento del sistema.</strong>{' '}
-            <small>
-              Esta retención no proviene de una Orden de Compra (OC), un Control de Servicio (CS) ni una Compra Directa (por ejemplo, una factura de otra sede). Se registra de igual forma:
-              escribe abajo los datos de la factura (<b>N° de factura</b>, <b>N° de control</b>, <b>fecha</b> y <b>base imponible</b>),
-              adjunta su documento en <b>«Documento de respaldo»</b> seleccionando «Factura del proveedor», y anota en la <b>observación</b> su procedencia u origen.
-              Quedará en el libro fiscal registrada como «Fuera del sistema». Si la compra sí se encuentra en el sistema, regístrala desde «Por realizar».
-            </small>
-          </div>
+        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.5rem', position: 'relative', paddingRight: '2rem' }}>
           <button
             type="button"
-            className="btn btn-sm btn-ghost"
-            style={{ padding: '2px 8px', lineHeight: 1, minHeight: 'auto', fontSize: '.85rem' }}
-            onClick={() => setAvisoSinDocDescartado(true)}
-            title="Descartar aviso"
-            aria-label="Descartar aviso"
+            onClick={descartarAvisoSinDoc}
+            style={{
+              position: 'absolute',
+              top: '6px',
+              right: '8px',
+              background: 'transparent',
+              border: 'none',
+              color: 'var(--text-muted, #888)',
+              fontSize: '1.1rem',
+              cursor: 'pointer',
+              padding: '2px 6px',
+              borderRadius: '4px',
+              lineHeight: 1,
+            }}
+            title="Descartar este aviso"
+            aria-label="Cerrar aviso"
           >
             ✕
           </button>
+          <strong>Sin documento del sistema.</strong>{' '}
+          <small>
+            Esta retención no proviene de una Orden de Compra (OC), un Contrato de Servicio (CS) ni una compra directa (por ejemplo, una factura de otra sede). Se registra de igual forma:
+            escribe abajo los datos de la factura (<b>N° de factura</b>, <b>N° de control</b>, <b>fecha</b> y <b>base imponible</b>),
+            adjunta su documento en <b>«Documento de respaldo»</b> seleccionando «Factura del proveedor», y anota en la <b>observación</b> su procedencia u origen.
+            Quedará en el libro fiscal registrada como «Fuera del sistema». Si la compra sí se encuentra en el sistema, regístrala desde «Por realizar».
+          </small>
         </div>
       )}
 
@@ -1778,10 +1925,37 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         ) : (
           <>
             <label>Documento de respaldo (PDF o imagen, si lo tienes)</label>
-            <select className="select" value={tipoArchivo} onChange={(e) => setTipoArchivo(e.target.value)} style={{ marginBottom: '.3rem' }}>
+            <select
+              className="select"
+              value={tipoArchivo}
+              onChange={(e) => {
+                const val = e.target.value;
+                setTipoArchivo(val);
+                if (val !== 'Otro documento') setOtroDetalle('');
+              }}
+              style={{ marginBottom: '.3rem' }}
+            >
               <option value="">— ¿Qué documento es? —</option>
               {TIPOS_RESPALDO.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
+            {tipoArchivo === 'Otro documento' && (
+              <div style={{ margin: '.3rem 0 .5rem', padding: '.5rem .6rem', background: 'rgba(255, 170, 0, 0.08)', border: '1px solid var(--primary)', borderRadius: '6px' }}>
+                <label style={{ fontSize: '.78rem', fontWeight: 600, color: 'var(--primary)', display: 'block', marginBottom: '.25rem' }}>
+                  Describe qué documento es (obligatorio para auditoría)
+                </label>
+                <input
+                  className="input"
+                  type="text"
+                  value={otroDetalle}
+                  onChange={(e) => setOtroDetalle(e.target.value)}
+                  placeholder="Ej.: Contrato de comodato, Recibo de caja chica, Finiquito..."
+                  autoFocus
+                />
+                <small className="hint muted" style={{ display: 'block', marginTop: '.2rem' }}>
+                  Describe claramente el documento para que conste en auditorías y en el expediente fiscal.
+                </small>
+              </div>
+            )}
             <small className="hint muted">El comprobante de retención lo genera el sistema al registrar. Aquí se adjunta la factura u otro respaldo.</small>
           </>
         )}
