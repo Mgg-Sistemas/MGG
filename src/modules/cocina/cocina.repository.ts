@@ -102,7 +102,6 @@ export async function listCocinasQueSirven(): Promise<{ cocina: Cocina; almacenN
   if (error) throw error;
   const almById = new Map(almacenes.map((a) => [a.id, a] as const));
   return ((data ?? []) as Cocina[])
-    .filter((c) => !esResguardo(c))
     .map((c) => ({ cocina: c, almacenNombre: c.almacen_id ? almById.get(c.almacen_id)?.nombre ?? null : null }));
 }
 
