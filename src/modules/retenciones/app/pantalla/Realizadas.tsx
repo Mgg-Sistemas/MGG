@@ -18,14 +18,14 @@ import { useMemo, useState, type CSSProperties } from 'react';
 import { money } from '@/shared/lib/format';
 import { toast } from '@/shared/ui/Toast';
 import { paginar, TAMANO_PAGINA_INICIAL } from '../listas/paginador';
-import type { RetencionPracticada } from '../datos/puerta';
+import { usePuerta, type RetencionPracticada } from '../datos/puerta';
 import { AccionesRetencion } from './AccionesRetencion';
 import { BotonFactura } from './BotonFactura';
 import { BarraLista } from './BarraLista';
 import { Paginador } from './Paginador';
 import { nombreImpuesto } from './pendientesPorDocumento';
 import {
-  ESTADO_CLASE, FILTRO_INICIAL, estadoDe, facturasRealizadas, fechaVe, opcionesLibro, textoDireccion, textoEstadoEnFactura,
+  ESTADO_CLASE, FILTRO_INICIAL, ORDENES_LISTA, estadoDe, facturasRealizadas, fechaVe, opcionesLibro, textoDireccion, textoEstadoEnFactura,
   type FacturaRealizada, type FiltroLibro, type OrdenLista,
 } from './realizadasYLibro';
 import { quienYCuando } from './quien';
@@ -36,9 +36,10 @@ import { EjemploImpresion } from '../impresion/EjemploImpresion';
 import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
 import { NotaCreditoDialogo } from './NotaCreditoDialogo';
 import { puedeNotaCredito } from './notaCredito';
+import { BarraImprimirLista } from './BarraImprimirLista';
+import { SaltoDirecto } from './SaltoDirecto';
 import './rv8-por-realizar.css';
 
-const ORDENES = [{ valor: 'reciente', texto: 'Más reciente primero' }, { valor: 'antiguo', texto: 'Más antiguo primero' }];
 /** Las columnas de la maqueta (listaSis de v7PintarHechas). */
 const COLUMNAS = { '--cols': '1fr 1.5fr 1fr 3.2fr 1.4fr' } as CSSProperties;
 
@@ -64,6 +65,13 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
   const comprobante = (r: RetencionPracticada) => () => {
     hoja.abrir(r).catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante.', 'error'));
   };
+  const puerta = usePuerta();
+  // El salto directo: la practicada abre su comprobante; la de un cliente, su PDF
+  const abrir = (r: RetencionPracticada) => {
+    if (r.direccion === 'practicada') { comprobante(r)(); return; }
+    puerta.verArchivo(r).catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante.', 'error'));
+  };
+  const visibles = useMemo(() => facturas.flatMap((x) => x.retenciones), [facturas]);
 
   return (
     <>
@@ -74,12 +82,14 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
           { campo: 'mes', etiqueta: 'Mes', valor: f.mes, opciones: opciones.mes },
           { campo: 'estado', etiqueta: 'Estado', valor: f.estado, opciones: opciones.estado },
         ]}
-        orden={{ valor: f.orden, opciones: ORDENES }}
+        orden={{ valor: f.orden, opciones: ORDENES_LISTA }}
         onQ={(q) => cambiar({ q })}
         onFiltro={(campo, valor) => cambiar({ [campo]: valor } as Partial<FiltroLibro>)}
         onOrden={(v) => cambiar({ orden: v as OrdenLista })}
         onQuitar={() => cambiar({ q: '', impuesto: '', mes: '', estado: '' })}
       />
+      <SaltoDirecto q={f.q} retenciones={libro} onAbrir={abrir} />
+      <BarraImprimirLista filas={visibles} />
       <EjemploImpresion />
       <div className="lista-sis v8-realizadas" style={COLUMNAS}>
         <div className="fila-sis cab"><span>OC o compra</span><span>Proveedor</span><span>Factura</span><span>Retenciones</span><span /></div>

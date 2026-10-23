@@ -7,7 +7,8 @@
    logica/txtIva.ts.
    Solo en local, con su marca propia: el formato está sin cotejar con un TXT
    real hasta que el usuario lo valide con el portal. «Período como el otro
-   sistema» no se guarda (la base no tiene ese interruptor todavía).
+   sistema» arranca con el interruptor retenciones.txt_iva.periodo_como_otro_sistema
+   (BD, v8p-06; sin la fila, apagado); cambiarlo aquí no lo guarda.
    ============================================================ */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -15,6 +16,10 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { usePuerta, type RetencionPracticada } from '../datos/puerta';
 import { COLUMNAS_TXT, lineasTxtIva, nombreTxt, textoTxt } from '../logica/txtIva';
+import { interruptorEncendido } from '../datos/interruptores';
+
+/** El interruptor «Período como el otro sistema» (BD, v8p-06). */
+export const INTERRUPTOR_PERIODO_TXT = 'retenciones.txt_iva.periodo_como_otro_sistema';
 import { MARCA_SIN_COTEJAR, filasTxtDe, periodosTxt, sinTasaTxt, vistaPreviaTxt } from './txtDelLibro';
 import './rv8-txt.css';
 
@@ -44,6 +49,8 @@ function DialogoTxt({ libro, onCerrar }: { libro: readonly RetencionPracticada[]
 
   useEffect(() => {
     let vivo = true;
+    // El interruptor de la base (v8p-06); sin la fila, apagado: el mes del período, como dice el instructivo
+    void interruptorEncendido(INTERRUPTOR_PERIODO_TXT).then((v) => { if (vivo) setComoOtro(v); });
     puerta.config()
       .then((c) => { if (vivo) setEmpresa({ rif: c.rif ?? '', razon: c.razonSocial ?? '' }); })
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo leer la configuración fiscal.', 'error'));
@@ -91,7 +98,8 @@ function DialogoTxt({ libro, onCerrar }: { libro: readonly RetencionPracticada[]
             <span>Período como el otro sistema
               <small>{comoOtro
                 ? `Encendido: el campo 2 lleva el mes siguiente al período (${lineas[0]?.[1] ?? '—'}), como los archivos del otro sistema.`
-                : `Apagado: el campo 2 lleva el mes del período declarado (${p?.periodo ?? '—'}), como dice el instructivo. Encendido, llevaría el mes siguiente.`}</small>
+                : `Apagado: el campo 2 lleva el mes del período declarado (${p?.periodo ?? '—'}), como dice el instructivo. Encendido, llevaría el mes siguiente.`}
+                {' '}Arranca con el valor del interruptor; aquí solo cambia este archivo.</small>
             </span>
           </label>
           {falta && <p className="rv8-txt-falta" role="alert">{falta}</p>}

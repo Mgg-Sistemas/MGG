@@ -16,7 +16,6 @@ import { toast } from '@/shared/ui/Toast';
 import { money } from '@/shared/lib/format';
 import { paginar, TAMANO_PAGINA_INICIAL } from '../listas/paginador';
 import { usePuerta, type RetencionPracticada } from '../datos/puerta';
-import { descargarCsv, descargarExcel, rangoDeFilas, tablaLibro } from './exportarLibro';
 import './rv8-por-realizar.css';
 import { AccionesRetencion } from './AccionesRetencion';
 import { BotonFactura } from './BotonFactura';
@@ -24,16 +23,16 @@ import { BarraLista } from './BarraLista';
 import { Paginador } from './Paginador';
 import { BotonTxtIva } from './TxtIva';
 import { BotonXmlIslr } from './XmlIslr';
+import { BarraImprimirLista } from './BarraImprimirLista';
+import { SaltoDirecto } from './SaltoDirecto';
 import { nombreImpuesto } from './pendientesPorDocumento';
 import {
-  ESTADO_CLASE, ESTADO_TEXTO, FILTRO_INICIAL, enlacesDeReemplazo, estadoDe, fechaVe, filasLibro, opcionesLibro, textoDireccion,
+  ESTADO_CLASE, ESTADO_TEXTO, FILTRO_INICIAL, ORDENES_LISTA, enlacesDeReemplazo, estadoDe, fechaVe, filasLibro, opcionesLibro, textoDireccion,
   type FiltroLibro, type OrdenLista,
 } from './realizadasYLibro';
 import { quienYCuando } from './quien';
 import { useArchivosFactura } from './useArchivosFactura';
 import { useVistaComprobante } from '../impresion/useVistaComprobante';
-
-const ORDENES = [{ valor: 'reciente', texto: 'Más reciente primero' }, { valor: 'antiguo', texto: 'Más antiguo primero' }];
 
 interface Props {
   libro: RetencionPracticada[];
@@ -55,19 +54,10 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar, onRegistrarRecibida
   const cambiar = (x: Partial<FiltroLibro>) => { setF((v) => ({ ...v, ...x })); setPagina(1); };
   const puerta = usePuerta();
   const hoja = useVistaComprobante(libro);
-  const [imprimiendo, setImprimiendo] = useState(false);
-  const rango = rangoDeFilas(xs);
-  const nombre = rango ? `libro-retenciones-${rango.desde}-a-${rango.hasta}` : 'libro-retenciones';
-  const imprimir = () => {
-    if (!puerta.imprimirLibro || !rango) return;
-    setImprimiendo(true);
-    puerta.imprimirLibro(xs, rango)
-      .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo generar el libro en PDF.', 'error'))
-      .finally(() => setImprimiendo(false));
-  };
-  const excel = () => {
-    descargarExcel(tablaLibro(xs), `Libro de retenciones · ${xs.length} retención(es)`, `${nombre}.xlsx`)
-      .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo generar el Excel.', 'error'));
+  // El salto directo: la practicada abre su comprobante; la de un cliente, su PDF
+  const abrir = (r: RetencionPracticada) => {
+    const p = r.direccion === 'practicada' ? hoja.abrir(r) : puerta.verArchivo(r);
+    p.catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante.', 'error'));
   };
 
   return (
@@ -84,24 +74,17 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar, onRegistrarRecibida
           { campo: 'mes', etiqueta: 'Mes', valor: f.mes, opciones: opciones.mes },
           { campo: 'estado', etiqueta: 'Estado', valor: f.estado, opciones: opciones.estado },
         ]}
-        orden={{ valor: f.orden, opciones: ORDENES }}
+        orden={{ valor: f.orden, opciones: ORDENES_LISTA }}
         onQ={(q) => cambiar({ q })}
         onFiltro={(campo, valor) => cambiar({ [campo]: valor } as Partial<FiltroLibro>)}
         onOrden={(v) => cambiar({ orden: v as OrdenLista })}
         onQuitar={() => cambiar({ q: '', impuesto: '', mes: '', estado: '' })}
       />
-      <div className="rv8-v7-lista-barra">
-        <div className="rv8-v7-imprimir-lista">
-          {puerta.imprimirLibro && (
-            <button type="button" className="rv8-btn" disabled={!xs.length || imprimiendo} onClick={imprimir}>🖨 Imprimir lista / PDF</button>
-          )}
-          <button type="button" className="rv8-btn" disabled={!xs.length} onClick={() => descargarCsv(tablaLibro(xs), `${nombre}.csv`)}>CSV</button>
-          <button type="button" className="rv8-btn" disabled={!xs.length} onClick={excel}>Excel</button>
-          <BotonTxtIva libro={libro} />
-          <BotonXmlIslr libro={libro} />
-          <span className="rv8-huella">Sale lo que muestra la lista, con sus filtros. Cada retención se imprime como su comprobante, con «🖨 Comprobante».</span>
-        </div>
-      </div>
+      <SaltoDirecto q={f.q} retenciones={libro} onAbrir={abrir} />
+      <BarraImprimirLista filas={xs}>
+        <BotonTxtIva libro={libro} />
+        <BotonXmlIslr libro={libro} />
+      </BarraImprimirLista>
       <div className="lista-sis v8-libro">
         <div className="fila-sis cab">
           <span>Fecha</span><span>Comprobante</span><span>Impuesto</span><span>Proveedor</span><span>Factura</span><span className="n">Retenido</span><span>Estado</span><span />
