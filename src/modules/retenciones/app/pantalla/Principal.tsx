@@ -24,6 +24,8 @@ import { VistaAgrupada } from '../agrupada/VistaAgrupada';
 import { Periodos } from '../periodos/Periodos';
 import { avisosPeriodos } from '../periodos/modeloPeriodos';
 import type { Declaracion, PasoInicial, PeriodoRetencion } from '../datos/periodos';
+import { DialogoTxt } from './TxtIva';
+import { DialogoXmlIslr } from './XmlIslr';
 import { Reportes } from './reportes/Reportes';
 import { impuestosActivos } from '../agrupada/modeloAgrupada';
 import { BotonVencimientos, CabeceraLocal, PeriodoEnCurso } from './CabeceraLocal';
@@ -96,6 +98,8 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
   const [avisos, setAvisos] = useState<AvisoVencimiento[] | null>(null);
   const [verVenc, setVerVenc] = useState(false);
   const [perInicial, setPerInicial] = useState<{ k: string; est: '' | EstadoFila } | undefined>(undefined);
+  const [txtPeriodo, setTxtPeriodo] = useState<string | null>(null);
+  const [xmlPeriodo, setXmlPeriodo] = useState<string | null>(null);
   const [perfil, setPerfil] = useState<ProveedorPerfil | null>(null);
   const cerrarPerfil = useCallback(() => setPerfil(null), []);
 
@@ -173,7 +177,6 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
 
       {datos && sec === 'pendientes' && <PorRealizar docs={docs} onRegistrar={onRegistrar} onVerOc={onVerOc} onVerAgrupada={verDocumento} />}
 
-<<<<<<< HEAD
       {datos && sec === 'agrupada' && (
         <VistaAgrupada pendientes={datos.pendientes} libro={datos.libro} config={datos.config} conceptos={datos.conceptos}
           onRegistrar={onRegistrar} onAnular={onAnular} onAdjuntar={onAdjuntar} foco={foco} onQuitarFoco={() => setFoco(null)} />
@@ -185,17 +188,28 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
       {datos && sec === 'libro' && <LibroFiscalV8 libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} onRegistrarRecibida={onRegistrarRecibida} />}
 
       {datos && sec === 'periodos' && verPeriodos && (
-        <Periodos key={perInicial ? `${perInicial.k}:${perInicial.est}` : 'todos'} inicial={perInicial} periodos={periodos} paso={paso} impuestos={impuestos} onDeclarar={periodos ? onDeclararPeriodo : undefined} onReabrir={periodos ? onReabrirPeriodo : undefined}
-          onPasoInicial={periodos ? onPasoInicial : undefined} umbral={umbrales.declaraciones} />
+        <Periodos
+          key={perInicial ? `${perInicial.k}:${perInicial.est}` : 'todos'}
+          inicial={perInicial}
+          periodos={periodos}
+          paso={paso}
+          impuestos={impuestos}
+          onDeclarar={periodos ? onDeclararPeriodo : undefined}
+          onReabrir={periodos ? onReabrirPeriodo : undefined}
+          onPasoInicial={periodos ? onPasoInicial : undefined}
+          onDescargarTxt={(p) => setTxtPeriodo(p.quincena ? `${p.periodo}-${p.quincena}` : p.periodo)}
+          onDescargarXml={(p) => setXmlPeriodo(p.periodo)}
+          onVerRetenciones={() => setSec('reportes')}
+          umbral={umbrales.declaraciones}
+        />
       )}
 
       {verVenc && <VencimientosDialogo xs={listaVenc} umbrales={umbrales} conLicencias={avisos != null} onFicha={irFicha} onCerrar={() => setVerVenc(false)} />}
       {perfil && datos && <PerfilFiscal proveedor={perfil} libro={datos.libro} puedeEditar={!!onRegistrar} onCerrar={cerrarPerfil} />}
+      {txtPeriodo && datos && <DialogoTxt libro={datos.libro} periodoInicial={txtPeriodo} onCerrar={() => setTxtPeriodo(null)} />}
+      {xmlPeriodo && datos && <DialogoXmlIslr libro={datos.libro} periodoInicial={xmlPeriodo} onCerrar={() => setXmlPeriodo(null)} />}
 
       {datos && sec === 'reportes' && <Reportes libro={datos.libro} />}
-=======
-      {datos && sec === 'libro' && <LibroFiscalV8 libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} onRegistrarRecibida={onRegistrarRecibida} />}
->>>>>>> feature/retenciones-v8-recibidas
     </main>
   );
 }

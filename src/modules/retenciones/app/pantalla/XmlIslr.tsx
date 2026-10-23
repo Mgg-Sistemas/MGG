@@ -30,14 +30,20 @@ export function BotonXmlIslr({ libro }: { libro: readonly RetencionPracticada[] 
 export function DialogoXmlIslr({
   libro,
   onCerrar,
+  periodoInicial,
 }: {
   libro: readonly RetencionPracticada[];
   onCerrar: () => void;
+  periodoInicial?: string;
 }) {
   const puerta = usePuerta();
   const [empresa, setEmpresa] = useState<{ rif: string; razon: string } | null>(null);
   const periodos = useMemo(() => periodosXml(libro), [libro]);
-  const [periodoSeleccionado, setPeriodoSeleccionado] = useState(periodos[0]?.periodo ?? '');
+  const [periodoSeleccionado, setPeriodoSeleccionado] = useState(
+    () => (periodoInicial && periodos.some((x) => x.periodo === periodoInicial)
+      ? periodoInicial
+      : periodos[0]?.periodo ?? '')
+  );
 
   useEffect(() => {
     let vivo = true;

@@ -40,15 +40,22 @@ interface Props {
   /** Marcar declarado y reabrir. Sin ellas, los botones no se muestran. */
   onDeclarar?: (p: PeriodoRetencion, d: Declaracion) => Promise<void>;
   onReabrir?: (p: PeriodoRetencion, motivo: string) => Promise<void>;
-  /** Guarda el paso inicial de un impuesto. Sin ella, «Indicar el período en curso» no se puede usar. */
-  onPasoInicial?: (k: string, p: PasoInicial) => Promise<void>;
+  /** Descarga el TXT oficial del IVA del período. */
+  onDescargarTxt?: (p: PeriodoRetencion) => void;
+  /** Descarga el XML oficial de ISLR del período. */
+  onDescargarXml?: (p: PeriodoRetencion) => void;
+  /** Lleva a ver las retenciones del período. */
+  onVerRetenciones?: (p: PeriodoRetencion) => void;
   /** Días del aviso «por vencer» (retenciones.avisos.umbrales). */
   umbral: number;
   /** El impuesto y el estado con que abre («Ver el período» desde Vencimientos). */
   inicial?: { k: string; est: '' | EstadoFila };
 }
 
-export function Periodos({ periodos, paso, impuestos, onDeclarar, onReabrir, onPasoInicial, umbral, inicial }: Props) {
+export function Periodos({
+  periodos, paso, impuestos, onDeclarar, onReabrir, onPasoInicial,
+  onDescargarTxt, onDescargarXml, onVerRetenciones, umbral, inicial,
+}: Props) {
   const hoy = hoyIso();
   const ps = useMemo(() => periodos ?? [], [periodos]);
   const [k, setK] = useState(inicial?.k ?? impuestos[0] ?? 'iva');
@@ -143,7 +150,18 @@ export function Periodos({ periodos, paso, impuestos, onDeclarar, onReabrir, onP
                 {a.cuenta.vencido ? <> · <span className="rv8-venc">{a.cuenta.vencido} vencido(s)</span></> : null}
                 {a.cuenta.por_declarar ? ` · ${a.cuenta.por_declarar} por declarar` : ''}{a.cuenta.declarado ? ` · ${a.cuenta.declarado} declarado(s)` : ''}</summary>
               <div className="rv8-per-fila rv8-cab"><span>Período</span><span>Fechas</span><span>Vence</span><span>Estado</span><span className="rv8-n">Retenciones</span><span className="rv8-n">Retenido</span><span>Declaración</span><span /></div>
-              {vis.map((p) => <FilaPeriodo key={p.id} p={p} hoy={hoy} onDeclarar={onDeclarar && (() => setDeclarar(p))} onReabrir={onReabrir && (() => setReabrir(p))} />)}
+              {vis.map((p) => (
+                <FilaPeriodo
+                  key={p.id}
+                  p={p}
+                  hoy={hoy}
+                  onDeclarar={onDeclarar && (() => setDeclarar(p))}
+                  onReabrir={onReabrir && (() => setReabrir(p))}
+                  onDescargarTxt={onDescargarTxt && (() => onDescargarTxt(p))}
+                  onDescargarXml={onDescargarXml && (() => onDescargarXml(p))}
+                  onVerRetenciones={onVerRetenciones && (() => onVerRetenciones(p))}
+                />
+              ))}
               {a.anteriores.length > 0 && (
                 <div className="rv8-per-fila rv8-v7-anterior">
                   <span data-l="Período"><b>{a.anteriores.length} período(s)</b></span>
@@ -172,7 +190,23 @@ export function Periodos({ periodos, paso, impuestos, onDeclarar, onReabrir, onP
 }
 
 /* ───────── Una fila (`v7FilaPeriodo`) ───────── */
-function FilaPeriodo({ p, hoy, onDeclarar, onReabrir }: { p: PeriodoRetencion; hoy: string; onDeclarar?: () => void; onReabrir?: () => void }) {
+function FilaPeriodo({
+  p,
+  hoy,
+  onDeclarar,
+  onReabrir,
+  onDescargarTxt,
+  onDescargarXml,
+  onVerRetenciones,
+}: {
+  p: PeriodoRetencion;
+  hoy: string;
+  onDeclarar?: () => void;
+  onReabrir?: () => void;
+  onDescargarTxt?: () => void;
+  onDescargarXml?: () => void;
+  onVerRetenciones?: () => void;
+}) {
   const e = estadoFila(p);
   const sinops = p.retencionesVigentes === 0;
   const dias = p.vence ? diasEntre(hoy, p.vence) : null;
@@ -195,6 +229,15 @@ function FilaPeriodo({ p, hoy, onDeclarar, onReabrir }: { p: PeriodoRetencion; h
         {e === 'declarado' && onReabrir && <button type="button" className="rv8-mini" onClick={onReabrir}>Reabrir</button>}
         {(e === 'por_declarar' || e === 'vencido') && onDeclarar && <button type="button" className="rv8-mini rv8-registrar" onClick={onDeclarar}>Marcar declarado</button>}
         {e === 'abierto' && <span className="rv8-huella">Se declara al cerrar</span>}
+        {p.tipo === 'iva' && e !== 'abierto' && onDescargarTxt && (
+          <button type="button" className="rv8-mini" onClick={onDescargarTxt}>Descargar TXT</button>
+        )}
+        {p.tipo === 'islr' && e !== 'abierto' && onDescargarXml && (
+          <button type="button" className="rv8-mini" onClick={onDescargarXml}>Descargar XML</button>
+        )}
+        {p.retencionesVigentes > 0 && onVerRetenciones && (
+          <button type="button" className="rv8-mini" onClick={onVerRetenciones}>Ver retenciones</button>
+        )}
       </span>
     </div>
   );

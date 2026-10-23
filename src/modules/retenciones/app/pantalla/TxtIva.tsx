@@ -40,11 +40,17 @@ export function BotonTxtIva({ libro }: { libro: readonly RetencionPracticada[] }
   );
 }
 
-function DialogoTxt({ libro, onCerrar }: { libro: readonly RetencionPracticada[]; onCerrar: () => void }) {
+export function DialogoTxt({ libro, onCerrar, periodoInicial }: {
+  libro: readonly RetencionPracticada[];
+  onCerrar: () => void;
+  periodoInicial?: string;
+}) {
   const puerta = usePuerta();
   const [empresa, setEmpresa] = useState<{ rif: string; razon: string } | null>(null);
   const periodos = useMemo(() => periodosTxt(libro), [libro]);
-  const [clave, setClave] = useState(periodos[0]?.clave ?? '');
+  const [clave, setClave] = useState(() => (periodoInicial && periodos.some((x) => x.clave === periodoInicial)
+    ? periodoInicial
+    : periodos[0]?.clave ?? ''));
   const [comoOtro, setComoOtro] = useState(false);
 
   useEffect(() => {
