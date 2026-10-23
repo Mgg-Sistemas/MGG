@@ -70,7 +70,7 @@ export function EmpresasModal({ empresas, conteo, actor, actorName, onClose, onC
       <div style={{ overflowX: 'auto' }}>
         <table className="table" style={{ width: '100%' }}>
           <thead>
-            <tr><th>Nómina</th><th>Razón social</th><th>RIF</th><th style={{ textAlign: 'right' }}>Activos</th><th>Estado</th><th></th></tr>
+            <tr><th>Nómina</th><th>Razón social</th><th>RIF</th><th>Moneda de pago</th><th style={{ textAlign: 'right' }}>Activos</th><th>Estado</th><th></th></tr>
           </thead>
           <tbody>
             {empresas.map((e) => (
@@ -78,6 +78,7 @@ export function EmpresasModal({ empresas, conteo, actor, actorName, onClose, onC
                 <td><span aria-hidden="true">{e.icono}</span> <strong style={{ color: e.color }}>{e.label}</strong> <span className="muted mono" style={{ fontSize: '.8em' }}>{e.key}</span></td>
                 <td>{e.razonSocial}</td>
                 <td className="mono">{e.rif ?? '—'}</td>
+                <td>{e.monedaPago === 'BRL' ? <span className="badge" title="Los recibos de bonificación salen en $ y en Real brasileño">$ + R$</span> : <span className="muted">$</span>}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{conteo?.[e.key] ?? '—'}</td>
                 <td><span className="badge" style={{ color: e.activa ? 'var(--success)' : 'var(--muted)' }}>{e.activa ? 'Activa' : 'Deshabilitada'}</span></td>
                 <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
@@ -117,6 +118,17 @@ export function EmpresasModal({ empresas, conteo, actor, actorName, onClose, onC
               <input className="input mono" value={form.rif} onChange={(ev) => setForm((f) => ({ ...f, rif: ev.target.value.toUpperCase() }))} placeholder="J-12345678-9" />
             </label>
           </div>
+          <label>Moneda de pago <span className="muted">(de los recibos)</span>
+            <select className="select" value={form.monedaPago} onChange={(ev) => setForm((f) => ({ ...f, monedaPago: ev.target.value === 'BRL' ? 'BRL' : 'USD' }))}>
+              <option value="USD">Dólares ($): recibos como siempre</option>
+              <option value="BRL">Real brasileño (R$): la bonificación sale en $ y en R$</option>
+            </select>
+            <span className="muted" style={{ fontSize: '.8em' }}>
+              {form.monedaPago === 'BRL'
+                ? 'Al cargar la nómina se trae la tasa del Real (hay conversor $ ↔ R$) y el recibo de bonificación lleva las dos monedas y la tasa de cambio.'
+                : 'Los recibos salen como siempre: pago en Bs y bonificación en $.'}
+            </span>
+          </label>
           <label>Razón social <span className="muted">(sale en los recibos y PDF)</span>
             <input className="input" value={form.razonSocial} maxLength={120}
               onChange={(ev) => setForm((f) => ({ ...f, razonSocial: ev.target.value }))} placeholder="Mantenimiento y Transporte Oriente C.A." />

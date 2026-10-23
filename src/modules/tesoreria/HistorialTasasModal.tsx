@@ -4,7 +4,7 @@ import { toast } from '@/shared/ui/Toast';
 import { date } from '@/shared/lib/format';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { TasaCambio, TasaHoy } from '@/shared/lib/types';
-import { getTasaHoy, getTasasMercado, listHistorialTasas, refrescarCop, refrescarTasa, setTasaManual } from './tasas.repository';
+import { getTasaHoy, getTasasMercado, listHistorialTasas, refrescarBrl, refrescarCop, refrescarTasa, setTasaManual, ultimaTasaBrl } from './tasas.repository';
 import { listMonedas } from './monedas';
 
 /** Formatea una tasa (Bs por unidad) con 2 decimales en es-VE. */
@@ -19,16 +19,23 @@ function copUsdFmt(n: number | null | undefined): string {
   return `$ 1 = COP ${Number(n).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
-/** Formatea la tasa de una fila según la moneda (COP en pesos/USD, resto en Bs). */
+/** BRL se cotiza como reales por 1 USD, con 4 decimales (vale ~5 por dólar). */
+function brlUsdFmt(n: number | null | undefined): string {
+  if (n == null) return '—';
+  return `$ 1 = R$ ${Number(n).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}`;
+}
+
+/** Formatea la tasa de una fila según la moneda (COP en pesos/USD, BRL en reales/USD, resto en Bs). */
 function fmtTasa(moneda: string, n: number | null | undefined): string {
-  return moneda === 'COP' ? copUsdFmt(n) : bs(n);
+  return moneda === 'COP' ? copUsdFmt(n) : moneda === 'BRL' ? brlUsdFmt(n) : bs(n);
 }
 
 /** Nombre legible de la fuente de la tasa. */
 function fuenteLabel(f: string | null | undefined): string {
   switch ((f ?? '').toLowerCase()) {
     case 'trm': return 'TRM Colombia';
-    case 'er_api': return 'Respaldo (er-api)';
+    case 'er_api': return 'open.er-api.com';
+    case 'frankfurter': return 'Frankfurter (BCE)';
     case 'bcv': return 'BCV';
     case 'binance_p2p':
     case 'binance': return 'Binance P2P';
@@ -72,6 +79,10 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [busyCop, setBusyCop] = useState(false);
+  const [busyBrl, setBusyBrl] = useState(false);
+  // Real brasileño (reales por 1 USD).
+  const [brlUsd, setBrlUsd] = useState<number | null>(null);
+  useEffect(() => { ultimaTasaBrl().then((t) => setBrlUsd(t?.tasa ?? null)).catch(() => { /* sin conexión */ }); }, []);
   // TRM del COP (pesos por 1 USD).
   const [copUsd, setCopUsd] = useState<number | null>(null);
   useEffect(() => { getTasasMercado().then((m) => setCopUsd(m.copUsd)).catch(() => { /* sin conexión */ }); }, []);
@@ -79,10 +90,10 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
   const [mMoneda, setMMoneda] = useState<string>('USD');
   const [mTasa, setMTasa] = useState('');
   // Monedas con tasa (todas las del sistema menos Bs, que es la base).
-  const [monedasTasa, setMonedasTasa] = useState<string[]>(['USD', 'EUR', 'USDT', 'COP']);
+  const [monedasTasa, setMonedasTasa] = useState<string[]>(['USD', 'EUR', 'USDT', 'COP', 'BRL']);
   useEffect(() => {
     listMonedas()
-      .then((ms) => setMonedasTasa(Array.from(new Set(['USD', 'EUR', ...ms])).filter((m) => m !== 'Bs')))
+      .then((ms) => setMonedasTasa(Array.from(new Set(['USD', 'EUR', ...ms, 'BRL'])).filter((m) => m !== 'Bs')))
       .catch(() => { /* base */ });
   }, []);
 
@@ -110,6 +121,17 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
       await reload();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo actualizar', 'error'); }
     finally { setBusy(false); }
+  }
+
+  async function actualizarBrl() {
+    setBusyBrl(true);
+    try {
+      const r = await refrescarBrl();
+      setBrlUsd(r.tasa);
+      toast(`Real brasileño actualizado: ${brlUsdFmt(r.tasa)}`, 'success');
+      await reload();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo actualizar la tasa del Real', 'error'); }
+    finally { setBusyBrl(false); }
   }
 
   async function actualizarCop() {
@@ -140,6 +162,7 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      <button className="btn btn-ghost" onClick={actualizarBrl} disabled={busyBrl}>{busyBrl ? 'Actualizando…' : '↻ Real (R$)'}</button>
       <button className="btn btn-ghost" onClick={actualizarCop} disabled={busyCop}>{busyCop ? 'Actualizando…' : '↻ TRM COP'}</button>
       <button className="btn btn-primary" onClick={actualizar} disabled={busy}>{busy ? 'Actualizando…' : '↻ Actualizar BCV'}</button>
     </>
@@ -152,6 +175,7 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
           <div><div className="muted" style={{ fontSize: '.72rem' }}>USD (BCV) hoy</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{bs(tasaHoy?.usd)}</strong></div>
           <div><div className="muted" style={{ fontSize: '.72rem' }}>EUR hoy</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{bs(tasaHoy?.eur)}</strong></div>
           <div><div className="muted" style={{ fontSize: '.72rem' }}>COP (TRM Colombia)</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{copUsdFmt(copUsd)}</strong></div>
+          <div><div className="muted" style={{ fontSize: '.72rem' }}>Real brasileño (R$)</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{brlUsdFmt(brlUsd)}</strong></div>
           <div><div className="muted" style={{ fontSize: '.72rem' }}>Fecha</div><strong>{tasaHoy?.fecha ? date(tasaHoy.fecha) : '—'}</strong></div>
         </div>
       </div>
@@ -167,8 +191,8 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
               </select>
             </div>
             <div className="form-row" style={{ margin: 0 }}>
-              <label>{mMoneda === 'COP' ? 'Tasa (COP por $)' : 'Tasa (Bs)'}</label>
-              <input className="input mono" type="number" min={0} step="0.01" value={mTasa} onChange={(e) => setMTasa(e.target.value)} />
+              <label>{mMoneda === 'COP' ? 'Tasa (COP por $)' : mMoneda === 'BRL' ? 'Tasa (R$ por $)' : 'Tasa (Bs)'}</label>
+              <input className="input mono" type="number" min={0} step={mMoneda === 'BRL' ? '0.0001' : '0.01'} value={mTasa} onChange={(e) => setMTasa(e.target.value)} />
             </div>
             <button className="btn btn-sm btn-primary" onClick={guardarManual} disabled={busy}>Guardar</button>
           </div>
