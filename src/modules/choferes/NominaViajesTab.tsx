@@ -12,9 +12,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
-import { money, date as fmtDate } from '@/shared/lib/format';
+import { money, date as fmtDate, formatoCI } from '@/shared/lib/format';
 import {
-  categoriaDeViaje, cantidadViajes, tarifaTotalViaje, infoPagoViaje, calcularSiguientePeriodoCierre,
+  categoriaDeViaje, cantidadViajes, tarifaTotalViaje, infoPagoViaje, calcularSiguientePeriodoCierre, datosConductor,
 } from './choferes';
 import {
   eliminarViaje, marcarViajesPagadosConCantidades, revertirCierreNomina, type Conductor, type Viaje,
@@ -45,6 +45,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
   const [revertiendo, setRevertiendo] = useState(false);
   const [cantViajesPorFila, setCantViajesPorFila] = useState<Record<string, number>>({});
   const [mostrarDetalleViajesCierre, setMostrarDetalleViajesCierre] = useState(false);
+  const [busquedaModalCierre, setBusquedaModalCierre] = useState('');
 
   // Modales operativos de viaje unificados en Nómina de viajes
   const [formViaje, setFormViaje] = useState<Viaje | 'nuevo' | null>(null);
@@ -287,6 +288,9 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
       choferId: string;
       chofer: Conductor | undefined;
       nombre: string;
+      cedula: string | null;
+      cedulaFmt: string;
+      telefono: string | null;
       nominaFija: string;
       filas: FilaNominaViaje[];
       totalViajes: number;
@@ -294,10 +298,14 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
     }[] = [];
     for (const [cId, filas] of map.entries()) {
       const c = porId.get(cId);
+      const dc = datosConductor(c);
       res.push({
         choferId: cId,
         chofer: c,
         nombre: nombreConductor(c),
+        cedula: dc.cedula,
+        cedulaFmt: dc.cedula ? formatoCI(dc.cedula) : '',
+        telefono: dc.telefono,
         nominaFija: c?.personal?.empresa || c?.empresa_externa || (c?.externo ? 'EXTERNO' : 'MGG'),
         filas,
         totalViajes: filas.reduce((a, f) => a + f.viajes, 0),
@@ -306,6 +314,114 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
     }
     return res.sort((a, b) => a.nombre.localeCompare(b.nombre));
   }, [modalPagarLote, viajesCandidatosCierre, porId]);
+
+  // Filtro de búsqueda omni-campo dentro del modal de cierre (busca por todas las características)
+  const choferesEnCorteFiltrados = useMemo(() => {
+    const q = busquedaModalCierre.trim().toLowerCase();
+    if (!q) return choferesEnCorte;
+
+    const qClean = q.replace(/[.\s-]/g, '');
+
+    return choferesEnCorte.filter((ch) => {
+      // 1. Atributos personales del conductor
+      const nombre = (ch.nombre || '').toLowerCase();
+      const nomina = (ch.nominaFija || '').toLowerCase();
+      const cedula = (ch.cedula || '').toLowerCase();
+      const cedulaFmt = (ch.cedulaFmt || '').toLowerCase();
+      const cedulaClean = cedula.replace(/[.\s-]/g, '');
+      const telefono = (ch.telefono || '').toLowerCase();
+      const cargo = (ch.chofer?.personal?.cargo || '').toLowerCase();
+      const ficha = (ch.chofer?.personal?.numero_ficha || '').toLowerCase();
+      const obsConductor = (ch.chofer?.observaciones || '').toLowerCase();
+
+      if (
+        nombre.includes(q) ||
+        nomina.includes(q) ||
+        cedula.includes(q) ||
+        cedulaFmt.includes(q) ||
+        (qClean && cedulaClean.includes(qClean)) ||
+        telefono.includes(q) ||
+        cargo.includes(q) ||
+        ficha.includes(q) ||
+        obsConductor.includes(q)
+      ) {
+        return true;
+      }
+
+      // 2. Características de los viajes realizados por el conductor en el corte
+      return ch.filas.some((f) => {
+        const num = (f.numero || '').toLowerCase();
+        const prov = (f.proviene || '').toLowerCase();
+        const dest = (f.destino || '').toLowerCase();
+        const ruta = `${prov} ${dest}`.toLowerCase();
+        const veh = (f.vehiculo || '').toLowerCase();
+        const obs = (f.observaciones || '').toLowerCase();
+        const fecha = (f.fecha || '').toLowerCase();
+        const totalPagar = String(f.totalPagar || '');
+        const tarifa = String(f.monto || '');
+        const viajesCant = String(f.viajes || '');
+
+        return (
+          num.includes(q) ||
+          prov.includes(q) ||
+          dest.includes(q) ||
+          ruta.includes(q) ||
+          veh.includes(q) ||
+          obs.includes(q) ||
+          fecha.includes(q) ||
+          totalPagar.includes(q) ||
+          tarifa.includes(q) ||
+          viajesCant === q
+        );
+      });
+    });
+  }, [choferesEnCorte, busquedaModalCierre]);
+
+  // Lista detallada de viajes filtrada por el buscador omni-campo
+  const viajesCierreFiltradosDetalle = useMemo(() => {
+    const q = busquedaModalCierre.trim().toLowerCase();
+    if (!q) return viajesCandidatosCierre;
+
+    const qClean = q.replace(/[.\s-]/g, '');
+
+    return viajesCandidatosCierre.filter((f) => {
+      const c = porId.get(f.choferId);
+      const dc = datosConductor(c);
+      const nombre = (f.nombre || '').toLowerCase();
+      const nomina = (f.nominaFija || '').toLowerCase();
+      const cedula = (dc.cedula || '').toLowerCase();
+      const cedulaFmt = dc.cedula ? formatoCI(dc.cedula).toLowerCase() : '';
+      const cedulaClean = cedula.replace(/[.\s-]/g, '');
+      const num = (f.numero || '').toLowerCase();
+      const prov = (f.proviene || '').toLowerCase();
+      const dest = (f.destino || '').toLowerCase();
+      const ruta = `${prov} ${dest}`.toLowerCase();
+      const veh = (f.vehiculo || '').toLowerCase();
+      const obs = (f.observaciones || '').toLowerCase();
+      const fecha = (f.fecha || '').toLowerCase();
+      const totalPagar = String(f.totalPagar || '');
+      const tarifa = String(f.monto || '');
+      const viajesCant = String(f.viajes || '');
+
+      return (
+        nombre.includes(q) ||
+        nomina.includes(q) ||
+        cedula.includes(q) ||
+        cedulaFmt.includes(q) ||
+        (qClean && cedulaClean.includes(qClean)) ||
+        num.includes(q) ||
+        prov.includes(q) ||
+        dest.includes(q) ||
+        ruta.includes(q) ||
+        veh.includes(q) ||
+        obs.includes(q) ||
+        fecha.includes(q) ||
+        totalPagar.includes(q) ||
+        tarifa.includes(q) ||
+        viajesCant === q
+      );
+    });
+  }, [viajesCandidatosCierre, busquedaModalCierre, porId]);
 
   // Al abrir el modal o cambiar conductor/fechas de corte, por defecto todas las órdenes se seleccionan con sus viajes completos
   useEffect(() => {
@@ -912,34 +1028,83 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
 
           {/* Sección de Selección de Viajes por Conductor */}
           <div style={{ marginTop: '.85rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem' }}>
+            {/* Buscador omni-campo por todas las características */}
+            <div style={{ marginBottom: '.65rem', position: 'relative' }}>
+              <input
+                type="text"
+                className="input"
+                value={busquedaModalCierre}
+                onChange={(e) => setBusquedaModalCierre(e.target.value)}
+                placeholder="🔍 Buscar por conductor, cédula, nómina/empresa, ruta, origen, destino, vehículo, N° orden..."
+                style={{
+                  width: '100%',
+                  paddingLeft: '2.1rem',
+                  paddingRight: busquedaModalCierre ? '2.1rem' : '.75rem',
+                  fontSize: '.83rem',
+                  borderRadius: 'var(--r-md)',
+                  background: 'var(--surface-2)',
+                  border: '1px solid var(--border)',
+                }}
+              />
+              <span style={{ position: 'absolute', left: '.65rem', top: '50%', transform: 'translateY(-50%)', opacity: .6, pointerEvents: 'none', fontSize: '.85rem' }}>
+                🔍
+              </span>
+              {busquedaModalCierre && (
+                <button
+                  type="button"
+                  onClick={() => setBusquedaModalCierre('')}
+                  style={{
+                    position: 'absolute',
+                    right: '.55rem',
+                    top: '50%',
+                    transform: 'translateY(-50%)',
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    fontSize: '.9rem',
+                    padding: '2px 6px',
+                  }}
+                  title="Limpiar búsqueda"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem', flexWrap: 'wrap', gap: '.4rem' }}>
               <div style={{ fontSize: '.84rem', fontWeight: 700, color: 'var(--text)' }}>
                 Viajes a pagar por conductor:
+                {busquedaModalCierre && (
+                  <span className="muted" style={{ fontWeight: 400, marginLeft: '.5rem', fontSize: '.78rem' }}>
+                    ({choferesEnCorteFiltrados.length} de {choferesEnCorte.length} encontrados)
+                  </span>
+                )}
               </div>
-              {choferesEnCorte.length > 1 && (
+              {choferesEnCorteFiltrados.length > 1 && (
                 <div style={{ display: 'flex', gap: '.4rem' }}>
                   <button
                     type="button"
                     className="btn btn-xs btn-ghost"
                     onClick={() => {
-                      for (const ch of choferesEnCorte) {
+                      for (const ch of choferesEnCorteFiltrados) {
                         actualizarCantidadChofer(ch.choferId, ch.totalViajes);
                       }
                     }}
                   >
-                    Pagar todos ({totalViajesCandidatos})
+                    Pagar mostrados ({choferesEnCorteFiltrados.reduce((a, ch) => a + ch.totalViajes, 0)})
                   </button>
                   <button
                     type="button"
                     className="btn btn-xs btn-ghost"
                     style={{ color: 'var(--text-muted)' }}
                     onClick={() => {
-                      for (const ch of choferesEnCorte) {
+                      for (const ch of choferesEnCorteFiltrados) {
                         actualizarCantidadChofer(ch.choferId, 0);
                       }
                     }}
                   >
-                    Desmarcar todos
+                    Desmarcar
                   </button>
                 </div>
               )}
@@ -949,9 +1114,18 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
               <div className="muted" style={{ padding: '.8rem', textAlign: 'center', background: 'var(--surface-2)', borderRadius: 'var(--r-md)', fontSize: '.85rem' }}>
                 No hay viajes pendientes en este rango de fechas.
               </div>
+            ) : !choferesEnCorteFiltrados.length ? (
+              <div className="muted" style={{ padding: '.9rem', textAlign: 'center', background: 'var(--surface-2)', borderRadius: 'var(--r-md)', fontSize: '.85rem' }}>
+                No se encontraron conductores ni viajes que coincidan con <strong>"{busquedaModalCierre}"</strong>.
+                <div style={{ marginTop: '.4rem' }}>
+                  <button type="button" className="btn btn-xs btn-ghost" onClick={() => setBusquedaModalCierre('')}>
+                    Limpiar búsqueda
+                  </button>
+                </div>
+              </div>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '.55rem' }}>
-                {choferesEnCorte.map((ch) => {
+                {choferesEnCorteFiltrados.map((ch) => {
                   const cantActualChofer = ch.filas.reduce((a, f) => a + (cantViajesPorFila[f.viaje.id] ?? 0), 0);
                   const montoActualChofer = ch.filas.reduce((a, f) => a + (cantViajesPorFila[f.viaje.id] ?? 0) * f.monto, 0);
                   const cantPendienteChofer = Math.max(0, ch.totalViajes - cantActualChofer);
@@ -965,6 +1139,11 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                           <span className="badge" style={{ marginLeft: '.5rem', fontSize: '.68rem' }}>
                             {ch.nominaFija}
                           </span>
+                          {ch.cedulaFmt && (
+                            <span className="muted mono" style={{ marginLeft: '.5rem', fontSize: '.75rem' }}>
+                              CI: {ch.cedulaFmt}
+                            </span>
+                          )}
                         </div>
                         <div className="mono" style={{ fontSize: '.8rem', color: 'var(--text-muted)' }}>
                           Disponibles: <strong style={{ color: 'var(--primary)' }}>{ch.totalViajes} viajes</strong> ({money(ch.totalMonto)})
@@ -1073,14 +1252,16 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                       <th style={{ width: '32px', textAlign: 'center' }}>
                         <input
                           type="checkbox"
-                          checked={viajesCandidatosCierre.length > 0 && totalViajesALiquidar === totalViajesCandidatos}
+                          checked={viajesCierreFiltradosDetalle.length > 0 && viajesCierreFiltradosDetalle.every((f) => (cantViajesPorFila[f.viaje.id] ?? 0) === f.viajes)}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              const allMap: Record<string, number> = {};
-                              for (const f of viajesCandidatosCierre) allMap[f.viaje.id] = f.viajes;
-                              setCantViajesPorFila(allMap);
+                              const next = { ...cantViajesPorFila };
+                              for (const f of viajesCierreFiltradosDetalle) next[f.viaje.id] = f.viajes;
+                              setCantViajesPorFila(next);
                             } else {
-                              setCantViajesPorFila({});
+                              const next = { ...cantViajesPorFila };
+                              for (const f of viajesCierreFiltradosDetalle) delete next[f.viaje.id];
+                              setCantViajesPorFila(next);
                             }
                           }}
                         />
@@ -1094,7 +1275,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                     </tr>
                   </thead>
                   <tbody>
-                    {viajesCandidatosCierre.map((f) => {
+                    {viajesCierreFiltradosDetalle.map((f) => {
                       const cantFila = cantViajesPorFila[f.viaje.id] ?? 0;
                       const sel = cantFila > 0;
                       const totalFila = cantFila * f.monto;
