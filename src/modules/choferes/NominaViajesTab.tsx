@@ -17,7 +17,7 @@ import {
   categoriaDeViaje, cantidadViajes, tarifaTotalViaje, infoPagoViaje, calcularSiguientePeriodoCierre,
 } from './choferes';
 import {
-  eliminarViaje, marcarViajesPagadosPorIds, revertirCierreNomina, type Viaje,
+  eliminarViaje, marcarViajesPagadosPorIds, marcarViajesPagadosConCantidades, revertirCierreNomina, type Viaje,
 } from './choferes.repository';
 import { nombreConductor, type PropsTab } from './ChoferesPage';
 import { generarNominaViajesPdf, type GrupoChoferNomina, type FilaNominaViaje } from './nominaViajesPdf';
@@ -43,8 +43,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
   // Reversión de cierre y control de cantidad de viajes a liquidar
   const [modalRevertir, setModalRevertir] = useState(false);
   const [revertiendo, setRevertiendo] = useState(false);
-  const [cantViajesCierre, setCantViajesCierre] = useState<number | ''>('');
-  const [viajesSeleccionadosCierre, setViajesSeleccionadosCierre] = useState<Set<string>>(new Set());
+  const [cantViajesPorFila, setCantViajesPorFila] = useState<Record<string, number>>({});
   const [mostrarDetalleViajesCierre, setMostrarDetalleViajesCierre] = useState(false);
 
   // Modales operativos de viaje unificados en Nómina de viajes
@@ -83,6 +82,14 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
     }
     return Array.from(s).sort();
   }, [conductores]);
+
+  // Conductores que tienen al menos un viaje registrado en el sistema
+  const conductoresConViajes = useMemo(() => {
+    const idsConViaje = new Set(viajes.map((v) => v.chofer_id));
+    return conductores
+      .filter((c) => idsConViaje.has(c.id))
+      .sort((a, b) => nombreConductor(a).localeCompare(nombreConductor(b)));
+  }, [conductores, viajes]);
 
   // Transformar viajes a la estructura de la nómina
   const filasConDetalle = useMemo(() => {
@@ -264,63 +271,139 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
     return viajesCandidatosCierre.reduce((a, f) => a + f.viajes, 0);
   }, [viajesCandidatosCierre]);
 
-  // Al abrir el modal o cambiar conductor/fechas de corte, por defecto seleccionar todos los candidatos
+  const totalMontoCandidatos = useMemo(() => {
+    return viajesCandidatosCierre.reduce((a, f) => a + f.totalPagar, 0);
+  }, [viajesCandidatosCierre]);
+
+  // Choferes con viajes pendientes en este corte
+  const choferesEnCorte = useMemo(() => {
+    if (!modalPagarLote) return [];
+    const map = new Map<string, FilaNominaViaje[]>();
+    for (const f of viajesCandidatosCierre) {
+      if (!map.has(f.choferId)) map.set(f.choferId, []);
+      map.get(f.choferId)!.push(f);
+    }
+    const res: {
+      choferId: string;
+      chofer: Conductor | undefined;
+      nombre: string;
+      nominaFija: string;
+      filas: FilaNominaViaje[];
+      totalViajes: number;
+      totalMonto: number;
+    }[] = [];
+    for (const [cId, filas] of map.entries()) {
+      const c = porId.get(cId);
+      res.push({
+        choferId: cId,
+        chofer: c,
+        nombre: nombreConductor(c),
+        nominaFija: c?.personal?.empresa || c?.empresa_externa || (c?.externo ? 'EXTERNO' : 'MGG'),
+        filas,
+        totalViajes: filas.reduce((a, f) => a + f.viajes, 0),
+        totalMonto: filas.reduce((a, f) => a + f.totalPagar, 0),
+      });
+    }
+    return res.sort((a, b) => a.nombre.localeCompare(b.nombre));
+  }, [modalPagarLote, viajesCandidatosCierre, porId]);
+
+  // Al abrir el modal o cambiar conductor/fechas de corte, por defecto todas las órdenes se seleccionan con sus viajes completos
   useEffect(() => {
     if (modalPagarLote) {
-      const ids = new Set(viajesCandidatosCierre.map((f) => f.viaje.id));
-      setViajesSeleccionadosCierre(ids);
-      setCantViajesCierre(viajesCandidatosCierre.reduce((a, f) => a + f.viajes, 0));
+      const init: Record<string, number> = {};
+      for (const f of viajesCandidatosCierre) {
+        init[f.viaje.id] = f.viajes;
+      }
+      setCantViajesPorFila(init);
     }
   }, [modalPagarLote, choferModal, fechaDesdeModal, fechaCorteModal, totalViajesCandidatos]);
 
-  // Aplica la cantidad de viajes deseada seleccionando los primeros cronológicamente
-  const aplicarCantidadViajes = (cant: number) => {
-    let acumulado = 0;
-    const nuevosIds = new Set<string>();
-    for (const f of viajesCandidatosCierre) {
-      if (acumulado < cant) {
-        nuevosIds.add(f.viaje.id);
-        acumulado += f.viajes;
+  // Actualiza la cantidad de viajes a liquidar de un chofer específico (distribuyendo cronológicamente en sus órdenes)
+  const actualizarCantidadChofer = (cId: string, cantDeseada: number) => {
+    const filasChofer = viajesCandidatosCierre
+      .filter((f) => f.choferId === cId)
+      .sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+    let remanentePorAsignar = Math.max(0, cantDeseada);
+    setCantViajesPorFila((prev) => {
+      const next = { ...prev };
+      for (const f of filasChofer) {
+        if (remanentePorAsignar >= f.viajes) {
+          next[f.viaje.id] = f.viajes;
+          remanentePorAsignar -= f.viajes;
+        } else if (remanentePorAsignar > 0) {
+          next[f.viaje.id] = remanentePorAsignar;
+          remanentePorAsignar = 0;
+        } else {
+          next[f.viaje.id] = 0;
+        }
       }
-    }
-    setViajesSeleccionadosCierre(nuevosIds);
-    setCantViajesCierre(cant);
+      return next;
+    });
   };
 
-  const toggleViajeSeleccionado = (id: string) => {
-    const next = new Set(viajesSeleccionadosCierre);
-    if (next.has(id)) next.delete(id);
-    else next.add(id);
-    setViajesSeleccionadosCierre(next);
-    // Sincronizar cantidad
-    const seleccionados = viajesCandidatosCierre.filter((f) => next.has(f.viaje.id));
-    setCantViajesCierre(seleccionados.reduce((a, f) => a + f.viajes, 0));
+  // Modifica la cantidad de viajes a liquidar en una fila puntual de la lista
+  const actualizarViajesFila = (viajeId: string, maxViajes: number, cant: number) => {
+    const seguro = Math.max(0, Math.min(maxViajes, cant));
+    setCantViajesPorFila((prev) => ({
+      ...prev,
+      [viajeId]: seguro,
+    }));
   };
 
-  // Viajes efectivamente seleccionados para liquidar en este cierre
-  const viajesAProcesar = useMemo(() => {
-    return viajesCandidatosCierre.filter((f) => viajesSeleccionadosCierre.has(f.viaje.id));
-  }, [viajesCandidatosCierre, viajesSeleccionadosCierre]);
+  // Alterna inclusión completa de una fila
+  const toggleFila = (viajeId: string, maxViajes: number) => {
+    setCantViajesPorFila((prev) => {
+      const actual = prev[viajeId] ?? 0;
+      return {
+        ...prev,
+        [viajeId]: actual > 0 ? 0 : maxViajes,
+      };
+    });
+  };
 
-  const viajesRestantes = useMemo(() => {
-    return viajesCandidatosCierre.filter((f) => !viajesSeleccionadosCierre.has(f.viaje.id));
-  }, [viajesCandidatosCierre, viajesSeleccionadosCierre]);
+  // Filas efectivas que se van a procesar (con viajes > 0)
+  const filasAProcesar = useMemo(() => {
+    return viajesCandidatosCierre
+      .filter((f) => (cantViajesPorFila[f.viaje.id] ?? 0) > 0)
+      .map((f) => {
+        const cant = cantViajesPorFila[f.viaje.id] ?? f.viajes;
+        return {
+          ...f,
+          viajes: cant,
+          totalPagar: cant * f.monto,
+        };
+      });
+  }, [viajesCandidatosCierre, cantViajesPorFila]);
+
+  const totalViajesALiquidar = useMemo(() => {
+    return filasAProcesar.reduce((a, f) => a + f.viajes, 0);
+  }, [filasAProcesar]);
+
+  const totalMontoALiquidar = useMemo(() => {
+    return filasAProcesar.reduce((a, f) => a + f.totalPagar, 0);
+  }, [filasAProcesar]);
+
+  const totalViajesRestantes = Math.max(0, totalViajesCandidatos - totalViajesALiquidar);
+  const totalMontoRestante = Math.max(0, totalMontoCandidatos - totalMontoALiquidar);
 
   async function ejecutarMarcarPagados() {
-    if (!viajesAProcesar.length) {
+    if (!filasAProcesar.length) {
       toast('No hay viajes seleccionados para liquidar en este cierre', 'error');
       return;
     }
     setGuardandoPago(true);
     try {
-      const viajeIds = viajesAProcesar.map((f) => f.viaje.id);
-      const res = await marcarViajesPagadosPorIds({
-        viajeIds,
+      const items = filasAProcesar.map((f) => ({
+        viajeId: f.viaje.id,
+        viajesAPagar: f.viajes,
+      }));
+      const res = await marcarViajesPagadosConCantidades({
+        items,
         fechaPago: fechaPagoModal,
         actor: actorName || actor,
       });
-      const cantLiquidada = viajesAProcesar.reduce((a, f) => a + f.viajes, 0);
-      toast(`Cierre de nómina completado: se liquidaron ${cantLiquidada} viaje(s) (${res.actualizados} registro(s))`, 'success');
+      toast(`Cierre de nómina completado: se liquidaron ${totalViajesALiquidar} viaje(s) (${res.actualizados} registro(s))`, 'success');
       setModalPagarLote(false);
       await recargar();
 
@@ -328,7 +411,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
       if (res.actualizados > 0) {
         // Construir grupos para el recibo solo con los viajes liquidados
         const mapaGrupos = new Map<string, FilaNominaViaje[]>();
-        for (const f of viajesAProcesar) {
+        for (const f of filasAProcesar) {
           if (!mapaGrupos.has(f.choferId)) mapaGrupos.set(f.choferId, []);
           mapaGrupos.get(f.choferId)!.push({ ...f, pagado: true, fechaPago: fechaPagoModal });
         }
@@ -416,7 +499,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
             <label>Conductor</label>
             <select className="select" value={choferId} onChange={(e) => setChoferId(e.target.value)}>
               <option value="">— Todos los conductores —</option>
-              {conductores.map((c) => <option key={c.id} value={c.id}>{nombreConductor(c)}</option>)}
+              {conductoresConViajes.map((c) => <option key={c.id} value={c.id}>{nombreConductor(c)}</option>)}
             </select>
           </div>
 
@@ -784,13 +867,13 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         <Modal title="🔒 Cierre de Nómina de Viajes" size="lg" onClose={() => setModalPagarLote(false)} footer={
           <>
             <button className="btn btn-ghost" onClick={() => setModalPagarLote(false)} disabled={guardandoPago}>Cancelar</button>
-            <button className="btn btn-primary" onClick={() => void ejecutarMarcarPagados()} disabled={guardandoPago || !fechaCorteModal || !viajesAProcesar.length}>
-              {guardandoPago ? 'Procesando cierre…' : `Confirmar Cierre (${viajesAProcesar.reduce((a, f) => a + f.viajes, 0)} viajes)`}
+            <button className="btn btn-primary" onClick={() => void ejecutarMarcarPagados()} disabled={guardandoPago || !fechaCorteModal || !totalViajesALiquidar}>
+              {guardandoPago ? 'Procesando cierre…' : `Confirmar Cierre (${totalViajesALiquidar} viajes)`}
             </button>
           </>
         }>
           <div style={{ fontSize: '.88rem', marginBottom: '.8rem', lineHeight: 1.5 }}>
-            Establece el rango de fechas para el corte y la cantidad de viajes a liquidar. Al confirmar, los viajes seleccionados quedarán marcados como pagados y se generará el recibo de pago para la firma del chofer.
+            Establece el rango de fechas para el corte y define la cantidad de viajes a liquidar por conductor o individualmente. Al confirmar, los viajes liquidados quedarán saldados y se generará el recibo de pago para la firma del chofer.
           </div>
 
           <div className="form-grid">
@@ -798,7 +881,14 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
               <label>Conductor</label>
               <select className="select" value={choferModal} onChange={(e) => setChoferModal(e.target.value)}>
                 <option value="">— Todos los conductores (Cierre por lote) —</option>
-                {conductores.map((c) => <option key={c.id} value={c.id}>{nombreConductor(c)}</option>)}
+                {conductoresConViajes.map((c) => {
+                  const totalV = viajes.filter(v => v.chofer_id === c.id).reduce((a, v) => a + (v.viajes || 1), 0);
+                  return (
+                    <option key={c.id} value={c.id}>
+                      {nombreConductor(c)} ({totalV} viajes)
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
@@ -814,66 +904,144 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
               <small className="hint muted">Límite de viajes que entran al cierre.</small>
             </div>
 
-            <div className="form-row">
+            <div className="form-row" style={{ gridColumn: '1 / -1' }}>
               <label>Fecha de pago</label>
               <input className="input" type="date" value={fechaPagoModal} onChange={(e) => setFechaPagoModal(e.target.value)} required />
             </div>
+          </div>
 
-            {/* Cantidad de viajes a liquidar */}
-            <div className="form-row">
-              <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>Cantidad de viajes a pagar en este cierre</span>
-                <span className="mono" style={{ fontSize: '.78rem', color: 'var(--primary)' }}>
-                  {totalViajesCandidatos} disponibles
-                </span>
-              </label>
-              <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
-                <input
-                  className="input mono"
-                  type="number"
-                  min={0}
-                  max={totalViajesCandidatos}
-                  value={cantViajesCierre}
-                  onChange={(e) => {
-                    const raw = e.target.value;
-                    if (raw === '') {
-                      setCantViajesCierre('');
-                      setViajesSeleccionadosCierre(new Set());
-                      return;
-                    }
-                    const num = Math.max(0, Math.min(totalViajesCandidatos, Number(raw)));
-                    aplicarCantidadViajes(num);
-                  }}
-                  style={{ fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary)' }}
-                />
-                <button
-                  type="button"
-                  className="btn btn-sm btn-ghost"
-                  onClick={() => aplicarCantidadViajes(totalViajesCandidatos)}
-                  title="Pagar todos los viajes disponibles en este rango"
-                >
-                  Todos ({totalViajesCandidatos})
-                </button>
+          {/* Sección de Selección de Viajes por Conductor */}
+          <div style={{ marginTop: '.85rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem' }}>
+              <div style={{ fontSize: '.84rem', fontWeight: 700, color: 'var(--text)' }}>
+                Viajes a pagar por conductor:
               </div>
-              <small className="hint muted">
-                Se seleccionan automáticamente por orden cronológico (los más antiguos primero).
-              </small>
+              {choferesEnCorte.length > 1 && (
+                <div style={{ display: 'flex', gap: '.4rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-ghost"
+                    onClick={() => {
+                      for (const ch of choferesEnCorte) {
+                        actualizarCantidadChofer(ch.choferId, ch.totalViajes);
+                      }
+                    }}
+                  >
+                    Pagar todos ({totalViajesCandidatos})
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-ghost"
+                    style={{ color: 'var(--text-muted)' }}
+                    onClick={() => {
+                      for (const ch of choferesEnCorte) {
+                        actualizarCantidadChofer(ch.choferId, 0);
+                      }
+                    }}
+                  >
+                    Desmarcar todos
+                  </button>
+                </div>
+              )}
             </div>
+
+            {!choferesEnCorte.length ? (
+              <div className="muted" style={{ padding: '.8rem', textAlign: 'center', background: 'var(--surface-2)', borderRadius: 'var(--r-md)', fontSize: '.85rem' }}>
+                No hay viajes pendientes en este rango de fechas.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.55rem' }}>
+                {choferesEnCorte.map((ch) => {
+                  const cantActualChofer = ch.filas.reduce((a, f) => a + (cantViajesPorFila[f.viaje.id] ?? 0), 0);
+                  const montoActualChofer = ch.filas.reduce((a, f) => a + (cantViajesPorFila[f.viaje.id] ?? 0) * f.monto, 0);
+                  const cantPendienteChofer = Math.max(0, ch.totalViajes - cantActualChofer);
+                  const montoPendienteChofer = Math.max(0, ch.totalMonto - montoActualChofer);
+
+                  return (
+                    <div key={ch.choferId} style={{ padding: '.65rem .85rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 'var(--r-md)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.4rem' }}>
+                        <div>
+                          <strong style={{ fontSize: '.9rem' }}>{ch.nombre}</strong>
+                          <span className="badge" style={{ marginLeft: '.5rem', fontSize: '.68rem' }}>
+                            {ch.nominaFija}
+                          </span>
+                        </div>
+                        <div className="mono" style={{ fontSize: '.8rem', color: 'var(--text-muted)' }}>
+                          Disponibles: <strong style={{ color: 'var(--primary)' }}>{ch.totalViajes} viajes</strong> ({money(ch.totalMonto)})
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                          <label style={{ fontSize: '.78rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>Viajes a pagar:</label>
+                          <input
+                            type="number"
+                            className="input mono"
+                            min={0}
+                            max={ch.totalViajes}
+                            value={cantActualChofer}
+                            onChange={(e) => {
+                              const val = e.target.value === '' ? 0 : Number(e.target.value);
+                              actualizarCantidadChofer(ch.choferId, val);
+                            }}
+                            style={{ width: '85px', fontWeight: 800, fontSize: '1rem', color: 'var(--primary)', textAlign: 'center' }}
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-ghost"
+                          onClick={() => actualizarCantidadChofer(ch.choferId, ch.totalViajes)}
+                          title="Pagar todos los viajes de este conductor"
+                        >
+                          Todos ({ch.totalViajes})
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-xs btn-ghost"
+                          style={{ color: 'var(--text-muted)' }}
+                          onClick={() => actualizarCantidadChofer(ch.choferId, 0)}
+                          title="No pagar viajes a este conductor en este corte"
+                        >
+                          Ninguno (0)
+                        </button>
+                        <div style={{ marginLeft: 'auto', display: 'flex', gap: '.8rem', fontSize: '.8rem' }}>
+                          <span style={{ color: 'var(--success)' }}>
+                            A liquidar: <strong className="mono">{money(montoActualChofer)}</strong> ({cantActualChofer} v.)
+                          </span>
+                          {cantPendienteChofer > 0 && (
+                            <span style={{ color: 'var(--danger)' }}>
+                              Pendiente: <strong className="mono">{money(montoPendienteChofer)}</strong> ({cantPendienteChofer} v.)
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Resumen dinámico del cierre */}
           <div style={{ marginTop: '.85rem', padding: '.75rem .9rem', background: 'var(--surface-2)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
               <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--text)' }}>
-                Balance del corte:
+                Balance global del corte:
               </div>
               <button
                 type="button"
-                className="btn btn-xs btn-ghost"
+                className="btn btn-xs"
                 onClick={() => setMostrarDetalleViajesCierre(!mostrarDetalleViajesCierre)}
-                style={{ fontSize: '.78rem' }}
+                style={{
+                  background: 'rgba(255, 138, 0, 0.15)',
+                  color: '#ff8a00',
+                  border: '1px solid #ff8a00',
+                  fontWeight: 700,
+                  fontSize: '.82rem',
+                  padding: '.35rem .75rem',
+                }}
               >
-                {mostrarDetalleViajesCierre ? '▴ Ocultar lista individual' : `👁 Ver / Seleccionar viajes individuales (${viajesAProcesar.length} de ${viajesCandidatosCierre.length})`}
+                {mostrarDetalleViajesCierre ? '▴ Ocultar lista individual' : `👁 Ver / Seleccionar viajes individuales (${totalViajesALiquidar} de ${totalViajesCandidatos})`}
               </button>
             </div>
 
@@ -881,41 +1049,41 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
               <div style={{ padding: '.5rem .65rem', background: 'rgba(34, 197, 94, 0.08)', borderRadius: 'var(--r-sm)', border: '1px solid rgba(34, 197, 94, 0.25)' }}>
                 <div style={{ color: 'var(--success)', fontWeight: 700, fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.04em' }}>A liquidar en este cierre</div>
                 <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--success)', marginTop: 2 }}>
-                  {money(viajesAProcesar.reduce((a, f) => a + f.totalPagar, 0))}
+                  {money(totalMontoALiquidar)}
                 </div>
                 <div className="muted" style={{ fontSize: '.75rem', marginTop: 2 }}>
-                  {viajesAProcesar.reduce((a, f) => a + f.viajes, 0)} viajes ({viajesAProcesar.length} reg.)
+                  {totalViajesALiquidar} viajes ({filasAProcesar.length} reg.)
                 </div>
               </div>
 
               <div style={{ padding: '.5rem .65rem', background: 'rgba(239, 68, 68, 0.08)', borderRadius: 'var(--r-sm)', border: '1px solid rgba(239, 68, 68, 0.25)' }}>
                 <div style={{ color: 'var(--danger)', fontWeight: 700, fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.04em' }}>Quedarán pendientes</div>
                 <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--danger)', marginTop: 2 }}>
-                  {money(viajesRestantes.reduce((a, f) => a + f.totalPagar, 0))}
+                  {money(totalMontoRestante)}
                 </div>
                 <div className="muted" style={{ fontSize: '.75rem', marginTop: 2 }}>
-                  {viajesRestantes.reduce((a, f) => a + f.viajes, 0)} viajes ({viajesRestantes.length} reg.)
+                  {totalViajesRestantes} viajes restantes
                 </div>
               </div>
             </div>
 
-            {/* Lista individual desplegable con checkboxes */}
+            {/* Lista individual desplegable con inputs de cantidad por viaje y checkboxes */}
             {mostrarDetalleViajesCierre && (
-              <div style={{ marginTop: '.75rem', maxHeight: '240px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
+              <div style={{ marginTop: '.75rem', maxHeight: '280px', overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 'var(--r-sm)' }}>
                 <table className="table" style={{ fontSize: '.78rem', margin: 0 }}>
                   <thead>
                     <tr>
                       <th style={{ width: '32px', textAlign: 'center' }}>
                         <input
                           type="checkbox"
-                          checked={viajesCandidatosCierre.length > 0 && viajesAProcesar.length === viajesCandidatosCierre.length}
+                          checked={viajesCandidatosCierre.length > 0 && totalViajesALiquidar === totalViajesCandidatos}
                           onChange={(e) => {
                             if (e.target.checked) {
-                              setViajesSeleccionadosCierre(new Set(viajesCandidatosCierre.map(f => f.viaje.id)));
-                              setCantViajesCierre(totalViajesCandidatos);
+                              const allMap: Record<string, number> = {};
+                              for (const f of viajesCandidatosCierre) allMap[f.viaje.id] = f.viajes;
+                              setCantViajesPorFila(allMap);
                             } else {
-                              setViajesSeleccionadosCierre(new Set());
-                              setCantViajesCierre(0);
+                              setCantViajesPorFila({});
                             }
                           }}
                         />
@@ -924,28 +1092,48 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                       <th>Chofer</th>
                       <th>Ruta / Movimiento</th>
                       <th>Cat.</th>
-                      <th style={{ textAlign: 'right' }}>Viajes</th>
+                      <th style={{ textAlign: 'right', minWidth: '95px' }}>Viajes a pagar</th>
                       <th style={{ textAlign: 'right' }}>Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {viajesCandidatosCierre.map((f) => {
-                      const sel = viajesSeleccionadosCierre.has(f.viaje.id);
+                      const cantFila = cantViajesPorFila[f.viaje.id] ?? 0;
+                      const sel = cantFila > 0;
+                      const totalFila = cantFila * f.monto;
                       return (
-                        <tr key={f.viaje.id} style={{ background: sel ? 'rgba(255, 138, 0, 0.08)' : undefined, cursor: 'pointer' }} onClick={() => toggleViajeSeleccionado(f.viaje.id)}>
-                          <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
+                        <tr key={f.viaje.id} style={{ background: sel ? 'rgba(255, 138, 0, 0.08)' : undefined }}>
+                          <td style={{ textAlign: 'center' }}>
                             <input
                               type="checkbox"
                               checked={sel}
-                              onChange={() => toggleViajeSeleccionado(f.viaje.id)}
+                              onChange={() => toggleFila(f.viaje.id, f.viaje.viajes)}
                             />
                           </td>
                           <td className="mono">{fmtDate(f.fecha)}</td>
                           <td>{f.nombre}</td>
                           <td>{f.proviene} ➔ {f.destino}</td>
                           <td><span className="badge" style={{ fontSize: '.68rem' }}>{f.observaciones}</span></td>
-                          <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{f.viajes}</td>
-                          <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary)' }}>{money(f.totalPagar)}</td>
+                          <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '.3rem' }}>
+                              <input
+                                type="number"
+                                className="input mono"
+                                min={0}
+                                max={f.viaje.viajes}
+                                value={cantFila}
+                                onChange={(e) => {
+                                  const val = e.target.value === '' ? 0 : Number(e.target.value);
+                                  actualizarViajesFila(f.viaje.id, f.viaje.viajes, val);
+                                }}
+                                style={{ width: '60px', textAlign: 'center', fontWeight: 800, padding: '2px 4px', fontSize: '.85rem', color: 'var(--primary)' }}
+                              />
+                              <span className="muted" style={{ fontSize: '.72rem' }}>/ {f.viaje.viajes}</span>
+                            </div>
+                          </td>
+                          <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: sel ? 'var(--primary)' : 'var(--text-muted)' }}>
+                            {money(totalFila)}
+                          </td>
                         </tr>
                       );
                     })}

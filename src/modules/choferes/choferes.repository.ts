@@ -481,6 +481,98 @@ export async function marcarViajesPagadosHastaFecha(opts: {
 }
 
 /**
+ * Marca viajes como pagados especificando la cantidad exacta de viajes a liquidar por cada orden.
+ * Si una orden se liquida parcialmente (ej. se pagan 10 de 15 viajes), la orden actual se actualiza
+ * con los viajes pagados y se crea una orden remanente con los viajes pendientes restantes.
+ */
+export async function marcarViajesPagadosConCantidades(opts: {
+  items: { viajeId: string; viajesAPagar: number }[];
+  fechaPago?: string; // YYYY-MM-DD
+  actor?: string;
+}): Promise<{ actualizados: number; divididos: number }> {
+  if (!opts.items.length) return { actualizados: 0, divididos: 0 };
+  const fPago = (opts.fechaPago || new Date().toISOString()).slice(0, 10);
+  let count = 0;
+  let divididos = 0;
+
+  for (const item of opts.items) {
+    if (item.viajesAPagar <= 0) continue;
+    const { data: v } = await supabase.from(T_VIAJES).select('*').eq('id', item.viajeId).single();
+    if (!v) continue;
+
+    const viajesOriginales = Number(v.viajes) || 1;
+    const viajesAPagar = Math.min(item.viajesAPagar, viajesOriginales);
+    const nota = v.nota as string | null;
+    const matchPag = (nota ?? '').match(/\[PAGADO:\s*([^\]]+)\]/i);
+    const nuevaNota = matchPag ? (nota ?? '') : `${nota ? nota.trim() + ' ' : ''}[PAGADO: ${fPago}]`;
+
+    if (viajesAPagar >= viajesOriginales) {
+      // Liquidación total de la orden
+      const updateData: Record<string, unknown> = {
+        nota: nuevaNota,
+        pagado_at: new Date(fPago).toISOString(),
+      };
+      try {
+        await supabase.from(T_VIAJES).update(updateData).eq('id', v.id);
+        count++;
+      } catch {
+        await supabase.from(T_VIAJES).update({ nota: nuevaNota }).eq('id', v.id);
+        count++;
+      }
+    } else {
+      // Liquidación parcial: la orden actual queda con los viajes pagados y se crea el remanente pendiente
+      const remanente = viajesOriginales - viajesAPagar;
+      const updateData: Record<string, unknown> = {
+        viajes: viajesAPagar,
+        nota: nuevaNota,
+        pagado_at: new Date(fPago).toISOString(),
+      };
+      try {
+        await supabase.from(T_VIAJES).update(updateData).eq('id', v.id);
+        count++;
+      } catch {
+        await supabase.from(T_VIAJES).update({ viajes: viajesAPagar, nota: nuevaNota }).eq('id', v.id);
+        count++;
+      }
+
+      // Crear registro de viajes pendientes restantes
+      const notaPendiente = (nota || '').replace(/\[PAGADO:\s*[^\]]+\]/gi, '').trim() || null;
+      const clon: Record<string, unknown> = {
+        chofer_id: v.chofer_id,
+        vehiculo_id: v.vehiculo_id,
+        origen: v.origen,
+        destino: v.destino,
+        paradas: v.paradas || [],
+        carga: v.carga,
+        fecha_salida: v.fecha_salida,
+        llegada_prevista: v.llegada_prevista,
+        salida_real_at: v.salida_real_at,
+        llegada_real_at: v.llegada_real_at,
+        km_salida: v.km_salida,
+        km_llegada: v.km_llegada,
+        estado: v.estado,
+        tarifa_usd: v.tarifa_usd,
+        tipo_viaje: v.tipo_viaje,
+        viajes: remanente,
+        nota: notaPendiente,
+        pagado_at: null,
+        pago_id: null,
+        created_by: opts.actor || null,
+        actor_name: opts.actor || null,
+      };
+      if (v.categoria_viaje) clon.categoria_viaje = v.categoria_viaje;
+      try {
+        await supabase.from(T_VIAJES).insert(clon);
+        divididos++;
+      } catch (errIns) {
+        console.error('Error insertando remanente de viaje:', errIns);
+      }
+    }
+  }
+  return { actualizados: count, divididos };
+}
+
+/**
  * Marca como pagados viajes específicos por su lista de IDs.
  */
 export async function marcarViajesPagadosPorIds(opts: {
