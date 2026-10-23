@@ -40,3 +40,12 @@ describe('el salto directo a un N° de comprobante (maqueta v8Directo, v8-3-list
     expect(directoPorNumero('99999999', xs)).toEqual({ tipo: 'ninguno', numero: '99999999' });
   });
 });
+
+describe('las anuladas con número en Realizadas (maqueta v8-3-listas.js:219)', () => {
+  it('las anuladas con comprobante tienen número y estado anulada', () => {
+    const anulada = r({ numeroComprobante: '20261000000033', anulada: true });
+    expect(anulada.numeroComprobante).toBe('20261000000033');
+    expect(anulada.anulada).toBe(true);
+  });
+});
+

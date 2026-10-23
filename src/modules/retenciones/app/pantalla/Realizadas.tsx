@@ -97,7 +97,7 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
           <div className="vacio"><p>{libro.length ? 'Ninguna factura coincide con la búsqueda o los filtros.' : 'Todavía no hay retenciones registradas.'}</p></div>
         )}
         {filas.map((x) => {
-          const imprimibles = x.retenciones.filter((r) => r.direccion === 'practicada' && r.numeroComprobante && !r.anulada);
+          const imprimibles = x.retenciones.filter((r) => r.direccion === 'practicada' && r.numeroComprobante);
           const ivaNc = x.todas.find(puedeNotaCredito);
           return (
             <div key={x.clave} className="fila-sis">
@@ -121,8 +121,10 @@ export function Realizadas({ libro, onAnular, onAdjuntar, onVerAgrupada, onRegis
               </span>
               <span className="acc">
                 {imprimibles.map((r) => (
-                  <button key={r.id} type="button" className="mini" aria-label={`Comprobante N° ${r.numeroComprobante}`} onClick={comprobante(r)}>
-                    🖨 {nombreImpuesto(r.tipo)}
+                  <button key={r.id} type="button" className={`mini ${r.anulada ? 'anulada' : ''}`}
+                    aria-label={`${r.anulada ? 'Ver la anulada' : 'Comprobante'} N° ${r.numeroComprobante}`}
+                    onClick={comprobante(r)}>
+                    {r.anulada ? `Ver anulada ${nombreImpuesto(r.tipo)}` : `🖨 ${nombreImpuesto(r.tipo)}`}
                   </button>
                 ))}
                 {import.meta.env.DEV && ivaNc && (

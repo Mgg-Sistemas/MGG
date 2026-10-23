@@ -26,6 +26,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
 import { periodoDe, quincenaDe, type ConceptoRetencion, type ConfigRetencion, type MotivosIvaCien } from '../../retencionesCalculo';
 import { faltaEnLaCarga } from '../../validarCarga';
+import { mensajeDobleRegistro, retencionYaRegistrada } from '../../dobleRegistro';
 import { usePuerta, type NuevaRetencion, type RetencionItem } from '../datos/puerta';
 import { componentesDelDocumento, type DocumentoAnfitrion } from '../logica/componentes';
 import { calcularLinea, type ResultadoCalculo } from '../logica/motor';
@@ -161,6 +162,22 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
       const r = resultados[enCero];
       setErrorGuardar(`${conLineas ? `La línea ${enCero + 1}` : 'La retención'} da 0,00${r.estado === 'calculado' && r.nota ? `: ${r.nota}` : '.'} No se registra.`);
       return;
+    }
+    // Guarda anti-doble retención (regla: una sola retención vigente por impuesto y factura)
+    try {
+      const existentes = await puerta.libro({ direccion: 'practicada' });
+      const duplicada = retencionYaRegistrada(existentes, {
+        direccion: 'practicada',
+        tipo: imp,
+        contraparteRif: item.proveedorRif,
+        facturaNumero: factura.trim(),
+      });
+      if (duplicada) {
+        setErrorGuardar(mensajeDobleRegistro(duplicada));
+        return;
+      }
+    } catch {
+      // Si falla la lectura del libro, continúa para no bloquear el flujo ante problemas transitorios
     }
     setGuardando(true); setErrorGuardar(null);
     const comun = {
