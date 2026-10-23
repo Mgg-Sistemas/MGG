@@ -10,6 +10,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
+import { tablaDisponible } from './disponibilidad';
 import type { ModuloDirecto } from '@/modules/pedidos/adjuntosDirectos.repository';
 
 const T_PUENTE = 'retencion_documento_origenes';
@@ -75,6 +76,7 @@ export function semillaDeFacturaOrigen(f: FacturaDeOrigen) {
  */
 export async function facturasPorRegistrar(origenIds?: string[]): Promise<FacturaDeOrigen[]> {
   if (origenIds && !origenIds.length) return [];
+  if (!(await tablaDisponible(V_ESTADO))) return [];
   let q = supabase.from(V_ESTADO).select('*').eq('registrado', false);
   if (origenIds) q = q.in('origen_id', origenIds);
   const { data, error } = await q.order('subido_en');
@@ -107,6 +109,7 @@ export interface OrigenSinFactura { origen: Origen; codigo: string | null; desde
  *  Respecto a las órdenes de compra (y recepciones), solo considera las que corresponden al período
  *  en que la empresa es agente de retención. */
 export async function origenesSinFactura(): Promise<OrigenSinFactura[]> {
+  if (!(await tablaDisponible(V_SIN_FACTURA))) return [];
   const [desdeAgente, { data, error }] = await Promise.all([
     fechaDesdeAgenteRetencion(),
     supabase.from(V_SIN_FACTURA).select('*').order('desde', { ascending: true, nullsFirst: false }),
@@ -150,6 +153,7 @@ export function aDocumentoDeOrigen(r: Record<string, unknown>): DocumentoDeOrige
 
 /** Los orígenes que cubre una factura. */
 export async function origenesDeDocumento(documentoId: string): Promise<DocumentoDeOrigen[]> {
+  if (!(await tablaDisponible(V_POR_ORIGEN))) return [];
   const { data, error } = await supabase.from(V_POR_ORIGEN).select('*').eq('documento_id', documentoId);
   if (error) throw errorRetencion(error, 'No se pudo leer qué órdenes cubre la factura.');
   return (data ?? []).map((r) => aDocumentoDeOrigen(r as Record<string, unknown>));
@@ -182,6 +186,9 @@ export async function origenesDelProveedor(proveedorId: string, limite = 60): Pr
 
 /** La factura también cubre otra orden, compra o servicio (del mismo proveedor). */
 export async function cubrirOrigen(documentoId: string, origen: Origen): Promise<string> {
+  if (!(await tablaDisponible(T_PUENTE))) {
+    throw new Error('La función de cubrir múltiples orígenes requiere la tabla retencion_documento_origenes.');
+  }
   const { data, error } = await supabase.from(T_PUENTE).insert({ documento_id: documentoId, [COLUMNA_ORIGEN[origen.tipo]]: origen.id }).select('id');
   if (error) throw errorRetencion(error, 'No se pudo enlazar la factura con la orden.');
   const id = (data as { id: string }[] | null)?.[0]?.id;
@@ -191,6 +198,7 @@ export async function cubrirOrigen(documentoId: string, origen: Origen): Promise
 
 /** Quita un enlace agregado a mano (no el del origen principal ni el que salió de un archivo). */
 export async function dejarDeCubrir(enlace: Pick<DocumentoDeOrigen, 'enlaceId' | 'adjuntoId'>, principal: Origen | null, origen: Origen): Promise<void> {
+  if (!(await tablaDisponible(T_PUENTE))) return;
   if (enlace.adjuntoId) throw new Error('Ese enlace salió del archivo de factura: no se quita.');
   if (principal && principal.tipo === origen.tipo && principal.id === origen.id) throw new Error('Es la orden principal de la factura: no se quita.');
   const { data, error } = await supabase.from(T_PUENTE).delete().eq('id', enlace.enlaceId).select('id');

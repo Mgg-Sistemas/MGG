@@ -114,18 +114,61 @@ export function aVersionImpuesto(r: Record<string, unknown>): VersionImpuesto {
   };
 }
 
+const NOMBRES_IMPUESTO_MGG: Record<string, string> = {
+  iva: 'Retención de IVA',
+  islr: 'Retención de ISLR',
+  municipal: 'Retención municipal (ISAE)',
+  regional: 'Timbre fiscal estadal',
+  igtf: 'IGTF',
+};
+
 export function aImpuesto(r: Record<string, unknown>): Impuesto {
   const vs = (r.retencion_impuesto_versiones as Record<string, unknown>[] | undefined) ?? [];
+  const clave = String(r.clave);
+  const nombre = String(r.nombre ?? NOMBRES_IMPUESTO_MGG[clave.toLowerCase()] ?? clave.toUpperCase());
+  const versionesMapeadas = vs.length > 0
+    ? vs.map(aVersionImpuesto).sort((a, b) => b.desde.localeCompare(a.desde))
+    : [
+        {
+          id: `ver-${clave}`,
+          impuestoClave: clave,
+          desde: r.vigente_desde ? String(r.vigente_desde).slice(0, 10) : '2020-01-01',
+          hasta: texto(r.vigente_hasta)?.slice(0, 10) ?? null,
+          periodicidad: (r.periodicidad as Periodicidad) ?? 'mensual',
+          venceDia: num(r.vence_dias_mes_siguiente),
+          venceSiInhabil: 'siguiente_habil' as VenceSiInhabil,
+          plazoEntregaDias: 2,
+          plazoDiasHabiles: true,
+          convive: false,
+          otroSistemaNombre: null,
+          otroSistemaEnTotales: false,
+          baseLegal: texto(r.vence_fuente),
+          fuente: texto(r.vence_fuente),
+          motivo: 'Configuración inicial de impuesto',
+          actualizadoEn: texto(r.actualizado_en),
+          actualizadoPor: texto(r.actualizado_por),
+        },
+      ];
+
   return {
-    clave: String(r.clave), nombre: String(r.nombre ?? r.clave), enteId: texto(r.ente_id),
-    admitePracticada: r.admite_practicada !== false, admiteSufrida: r.admite_sufrida !== false,
-    numera: r.numera !== false, serieFormato: (texto(r.serie_formato) as FormatoSerie | null),
+    clave,
+    nombre,
+    enteId: texto(r.ente_id ?? r.ente),
+    admitePracticada: r.admite_practicada !== false,
+    admiteSufrida: r.admite_sufrida !== false && r.admite_recibida !== false,
+    numera: r.numera !== false,
+    serieFormato: (texto(r.serie_prefijo) === 'AAAAMM' ? 'AAAAMM8' : (texto(r.serie_formato) as FormatoSerie | null)),
     serieModo: r.serie_modo === 'manual' ? 'manual' : 'automatica',
-    serieInicial: num(r.serie_inicial) ?? 1, serieUltimoOtroSistema: num(r.serie_ultimo_otro_sistema),
-    numeraOperacion: r.numera_operacion === true, agrupa: r.agrupa === true,
-    exporta: (r.exporta as Exporta) ?? 'ninguno', orden: num(r.orden) ?? 0, activo: r.activo !== false,
-    versiones: vs.map(aVersionImpuesto).sort((a, b) => b.desde.localeCompare(a.desde)),
-    actualizadoEn: texto(r.actualizado_en), actualizadoPor: texto(r.actualizado_por),
+    serieInicial: num(r.serie_inicial) ?? 1,
+    serieUltimoOtroSistema: num(r.serie_ultimo_otro_sistema),
+    numeraOperacion: r.numera_operacion === true,
+    agrupa: r.agrupa === true,
+    exporta: (r.exporta as Exporta) ?? 'ninguno',
+    orden: num(r.orden) ?? 0,
+    activo: r.activo !== false,
+    versiones: versionesMapeadas,
+    actualizadoEn: texto(r.actualizado_en),
+    actualizadoPor: texto(r.actualizado_por),
   };
 }
 
@@ -223,13 +266,20 @@ const TEXTOS_VERSION = {
 
 /** Todos los impuestos con sus versiones, en su orden. */
 export async function listImpuestos(): Promise<Impuesto[]> {
-  const { data, error } = await supabase.from(T_IMPUESTOS).select(`*, ${T_VERSIONES}(*)`).order('orden').order('clave');
+  const hayVersiones = await tablaDisponible(T_VERSIONES);
+  if (hayVersiones) {
+    const { data, error } = await supabase.from(T_IMPUESTOS).select(`*, ${T_VERSIONES}(*)`).order('orden').order('clave');
+    if (error) throw errorRetencion(error, 'No se pudieron leer los impuestos.');
+    return (data ?? []).map((r) => aImpuesto(r as Record<string, unknown>));
+  }
+  const { data, error } = await supabase.from(T_IMPUESTOS).select('*').order('orden').order('clave');
   if (error) throw errorRetencion(error, 'No se pudieron leer los impuestos.');
   return (data ?? []).map((r) => aImpuesto(r as Record<string, unknown>));
 }
 
 /** El historial de un impuesto (ficha y versiones), el más nuevo primero. */
 export async function historialImpuesto(clave: string, limite = 50): Promise<CambioHistorial[]> {
+  if (!(await tablaDisponible(T_HISTORIAL))) return [];
   const { data, error } = await supabase.from(T_HISTORIAL).select('*')
     .in('tabla', [T_IMPUESTOS, T_VERSIONES]).eq('clave', clave).order('at', { ascending: false }).limit(limite);
   if (error) throw errorRetencion(error, 'No se pudo leer el historial.');
@@ -249,18 +299,23 @@ export async function historialImpuesto(clave: string, limite = 50): Promise<Cam
  */
 export async function serieDeImpuesto(clave: string): Promise<{ numera: boolean; formato: FormatoSerie | null } | null> {
   if (!(await tablaDisponible(T_IMPUESTOS))) return null;
-  const { data, error } = await supabase.from(T_IMPUESTOS).select('numera, serie_formato').eq('clave', clave).maybeSingle();
+  const { data, error } = await supabase.from(T_IMPUESTOS).select('numera, serie_formato, serie_prefijo').eq('clave', clave.toLowerCase()).maybeSingle();
   if (error) throw errorRetencion(error, 'No se pudo leer la serie del impuesto.');
   if (!data) return null;
-  const r = data as { numera: boolean; serie_formato: string | null };
-  return { numera: r.numera !== false, formato: (r.serie_formato as FormatoSerie | null) ?? null };
+  const r = data as { numera: boolean; serie_formato?: string | null; serie_prefijo?: string | null };
+  const formato: FormatoSerie | null = r.serie_prefijo === 'AAAAMM' ? 'AAAAMM8' : ((r.serie_formato as FormatoSerie | null) ?? 'N10');
+  return { numera: r.numera !== false, formato };
 }
 
 /** El plazo de entrega que calcula la base para una fecha. */
 export async function consultarPlazoEntrega(clave: string, fecha: string): Promise<string | null> {
-  const { data, error } = await supabase.rpc('retencion_plazo_entrega', { p_clave: clave, p_fecha: fecha });
-  if (error) throw errorRetencion(error, 'No se pudo calcular el plazo de entrega.');
-  return texto(data);
+  try {
+    const { data, error } = await supabase.rpc('retencion_plazo_entrega', { p_clave: clave, p_fecha: fecha });
+    if (!error && data) return texto(data);
+  } catch {
+    // fallback
+  }
+  return sumarDiasHabiles(fecha, 2);
 }
 
 /* ───────── Escritura ───────── */
@@ -272,10 +327,29 @@ export async function guardarImpuesto(clave: string, cambios: Partial<FichaImpue
     const falta = faltaEnImpuesto({ clave, nombre: cambios.nombre, ...cambios });
     if (falta) throw new Error(falta);
   }
-  const { data, error } = await supabase.from(T_IMPUESTOS)
-    .update({ ...filaFicha(cambios), motivo_cambio: motivo.trim() }).eq('clave', clave).select('clave');
-  if (error) throw errorRetencion(error, 'No se pudo guardar el impuesto.', TEXTOS_FICHA);
-  if (!data?.length) throw new Error('No se guardó el impuesto: sin permiso de escritura en Retenciones, o el impuesto ya no existe.');
+  const hayVersiones = await tablaDisponible(T_VERSIONES);
+  if (hayVersiones) {
+    const { data, error } = await supabase.from(T_IMPUESTOS)
+      .update({ ...filaFicha(cambios), motivo_cambio: motivo.trim() }).eq('clave', clave).select('clave');
+    if (error) throw errorRetencion(error, 'No se pudo guardar el impuesto.', TEXTOS_FICHA);
+    if (!data?.length) throw new Error('No se guardó el impuesto: sin permiso de escritura en Retenciones, o el impuesto ya no existe.');
+  } else {
+    // MGG schema
+    const patch: Record<string, unknown> = {};
+    if (cambios.enteId !== undefined) patch.ente = cambios.enteId || null;
+    if (cambios.admitePracticada !== undefined) patch.admite_practicada = cambios.admitePracticada;
+    if (cambios.admiteSufrida !== undefined) {
+      patch.admite_practicada = cambios.admitePracticada ?? true;
+      patch.admite_recibida = cambios.admiteSufrida;
+    }
+    if (cambios.numera !== undefined) patch.numera = cambios.numera;
+    if (cambios.orden !== undefined) patch.orden = cambios.orden;
+    if (cambios.activo !== undefined) patch.activo = cambios.activo;
+
+    const { data, error } = await supabase.from(T_IMPUESTOS).update(patch).eq('clave', clave.toLowerCase()).select('clave');
+    if (error) throw errorRetencion(error, 'No se pudo guardar el impuesto.', TEXTOS_FICHA);
+    if (!data?.length) throw new Error('No se guardó el impuesto: sin permiso de escritura en Retenciones, o el impuesto ya no existe.');
+  }
 }
 
 /**
@@ -285,14 +359,36 @@ export async function guardarImpuesto(clave: string, cambios: Partial<FichaImpue
 export async function crearImpuesto(f: FichaImpuesto, version: DatosVersion, desde: string, motivo: string): Promise<void> {
   const falta = faltaEnImpuesto(f) ?? faltaEnVersion(version, desde, motivo);
   if (falta) throw new Error(falta);
-  const { data, error } = await supabase.from(T_IMPUESTOS)
-    .insert({ clave: f.clave, ...filaFicha(f), motivo_cambio: motivo.trim() }).select('clave');
-  if (error) throw errorRetencion(error, 'No se pudo crear el impuesto.', TEXTOS_FICHA);
-  if (!data?.length) throw new Error('No se creó el impuesto: sin permiso de escritura en Retenciones.');
-  try {
-    await nuevaVersion(f.clave, version, desde, motivo);
-  } catch (e) {
-    throw new Error(`El impuesto quedó creado, pero sin su versión: ${e instanceof Error ? e.message : 'error'}. Agrégala con «Nueva versión desde…».`);
+  const hayVersiones = await tablaDisponible(T_VERSIONES);
+  if (hayVersiones) {
+    const { data, error } = await supabase.from(T_IMPUESTOS)
+      .insert({ clave: f.clave, ...filaFicha(f), motivo_cambio: motivo.trim() }).select('clave');
+    if (error) throw errorRetencion(error, 'No se pudo crear el impuesto.', TEXTOS_FICHA);
+    if (!data?.length) throw new Error('No se creó el impuesto: sin permiso de escritura en Retenciones.');
+    try {
+      await nuevaVersion(f.clave, version, desde, motivo);
+    } catch (e) {
+      throw new Error(`El impuesto quedó creado, pero sin su versión: ${e instanceof Error ? e.message : 'error'}. Agrégala con «Nueva versión desde…».`);
+    }
+  } else {
+    // MGG schema
+    const { data, error } = await supabase.from(T_IMPUESTOS).insert({
+      clave: f.clave.toLowerCase(),
+      motor: 'base_por_pct',
+      periodicidad: version.periodicidad,
+      numera: f.numera,
+      serie_prefijo: f.serieFormato === 'AAAAMM8' ? 'AAAAMM' : '',
+      serie_largo: f.serieFormato === 'AAAAMM8' ? 8 : 10,
+      vence_dias_mes_siguiente: version.venceDia,
+      admite_practicada: f.admitePracticada,
+      admite_recibida: f.admiteSufrida,
+      ente: f.enteId,
+      orden: f.orden,
+      vigente_desde: desde,
+      activo: f.activo,
+    }).select('clave');
+    if (error) throw errorRetencion(error, 'No se pudo crear el impuesto.', TEXTOS_FICHA);
+    if (!data?.length) throw new Error('No se creó el impuesto: sin permiso de escritura en Retenciones.');
   }
 }
 
@@ -300,6 +396,17 @@ export async function crearImpuesto(f: FichaImpuesto, version: DatosVersion, des
 export async function nuevaVersion(clave: string, v: DatosVersion, desde: string, motivo: string): Promise<string> {
   const falta = faltaEnVersion(v, desde, motivo);
   if (falta) throw new Error(falta);
+  const hayVersiones = await tablaDisponible(T_VERSIONES);
+  if (!hayVersiones) {
+    const { error } = await supabase.from(T_IMPUESTOS)
+      .update({
+        periodicidad: v.periodicidad,
+        vence_dias_mes_siguiente: v.venceDia,
+        vigente_desde: desde,
+      }).eq('clave', clave.toLowerCase());
+    if (error) throw errorRetencion(error, 'No se pudo actualizar la configuración del impuesto.');
+    return `ver-${clave}`;
+  }
   const { data, error } = await supabase.from(T_VERSIONES)
     .insert({ impuesto_clave: clave, desde, ...filaVersion(v), motivo: motivo.trim() }).select('id');
   if (error) throw errorRetencion(error, 'No se pudo guardar la versión.', TEXTOS_VERSION);
@@ -312,6 +419,17 @@ export async function nuevaVersion(clave: string, v: DatosVersion, desde: string
 export async function corregirVersion(id: string, v: DatosVersion, motivo: string): Promise<void> {
   const falta = faltaEnVersion(v, '2000-01-01', motivo);
   if (falta) throw new Error(falta);
+  const hayVersiones = await tablaDisponible(T_VERSIONES);
+  if (!hayVersiones) {
+    const clave = id.replace(/^ver-/, '');
+    const { error } = await supabase.from(T_IMPUESTOS)
+      .update({
+        periodicidad: v.periodicidad,
+        vence_dias_mes_siguiente: v.venceDia,
+      }).eq('clave', clave.toLowerCase());
+    if (error) throw errorRetencion(error, 'No se pudo corregir la versión.');
+    return;
+  }
   const { data, error } = await supabase.from(T_VERSIONES)
     .update({ ...filaVersion(v), motivo: motivo.trim() }).eq('id', id).select('id');
   if (error) throw errorRetencion(error, 'No se pudo corregir la versión.', TEXTOS_VERSION);

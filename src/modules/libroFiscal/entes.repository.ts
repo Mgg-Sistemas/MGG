@@ -19,7 +19,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
-import { r2Disponible } from './disponibilidad';
+import { r2Disponible, tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { completarRif } from '@/shared/lib/rif';
 import { faltaEnFechaRango } from './parametrosNumeros';
@@ -105,12 +105,13 @@ function aVersion(r: Record<string, unknown>): VersionImagen {
 }
 
 export function aEnte(r: Record<string, unknown>): Ente {
+  const id = String(r.id ?? r.ente ?? '');
   const imps = (r.retencion_ente_impuestos as Record<string, unknown>[] | undefined) ?? [];
   const logos = (r.retencion_ente_logos as Record<string, unknown>[] | undefined) ?? [];
   return {
-    id: String(r.id), nombre: String(r.nombre ?? ''), tipo: (r.tipo as TipoEnte) ?? 'nacional',
+    id, nombre: String(r.nombre ?? ''), tipo: (r.tipo as TipoEnte) ?? 'nacional',
     estado: texto(r.estado), municipio: texto(r.municipio), rif: texto(r.rif),
-    activo: r.activo !== false, desde: String(r.desde ?? ''), hasta: texto(r.hasta), motivo: texto(r.motivo),
+    activo: r.activo !== false, desde: String(r.desde ?? r.created_at ?? '').slice(0, 10), hasta: texto(r.hasta), motivo: texto(r.motivo),
     impuestos: imps.filter((i) => i.activo !== false).map((i) => String(i.impuesto_clave) as ClaveImpuesto)
       .sort(ordenClaves),
     logos: logos.map(aVersion).sort((a, b) => b.desde.localeCompare(a.desde)),
@@ -187,24 +188,63 @@ export const rutaImagenAgente = (clase: ClaseImagenAgente, desde: string, archiv
 
 /** Todos los entes (activos primero), con sus impuestos y las versiones de su logo. */
 export async function listEntes(): Promise<Ente[]> {
-  const { data, error } = await supabase.from(T_ENTES)
-    .select(`*, ${T_ENTE_IMPUESTOS}(*), ${T_ENTE_LOGOS}(*)`)
-    .order('activo', { ascending: false }).order('nombre');
-  if (error) throw errorRetencion(error, 'No se pudieron leer los entes.');
-  const entes = (data ?? []).map((r) => aEnte(r as Record<string, unknown>));
+  const [hayPuente, hayLogos] = await Promise.all([
+    tablaDisponible(T_ENTE_IMPUESTOS),
+    tablaDisponible(T_ENTE_LOGOS),
+  ]);
+  const res = (hayPuente && hayLogos)
+    ? await supabase.from(T_ENTES).select('*, retencion_ente_impuestos(*), retencion_ente_logos(*)').order('activo', { ascending: false }).order('nombre')
+    : await supabase.from(T_ENTES).select('*').order('activo', { ascending: false }).order('nombre');
+  if (res.error) throw errorRetencion(res.error, 'No se pudieron leer los entes.');
+  const entes = (res.data ?? []).map((r) => aEnte(r as Record<string, unknown>));
   if (!(await r2Disponible())) return entes;
-  const { data: imps, error: errImps } = await supabase.from(T_IMPUESTOS).select('clave, ente_id, activo');
-  if (errImps) throw errorRetencion(errImps, 'No se pudieron leer los impuestos de los entes.');
-  const porEnte = impuestosPorEnte((imps ?? []) as { clave: string; ente_id: string | null; activo?: boolean }[]);
+  
+  // En MGG la columna es `ente`; en GT es `ente_id`
+  let imps: { clave: string; ente_id: string | null; activo?: boolean }[] = [];
+  try {
+    const { data: dMgg, error: errMgg } = await supabase.from(T_IMPUESTOS).select('clave, ente, activo');
+    if (!errMgg && dMgg) {
+      imps = dMgg.map((i: { clave: string; ente: string | null; activo?: boolean }) => ({
+        clave: i.clave.toUpperCase(),
+        ente_id: i.ente,
+        activo: i.activo,
+      }));
+    }
+  } catch { /* fallback */ }
+
+  if (!imps.length) {
+    try {
+      const { data: dGt } = await supabase.from(T_IMPUESTOS).select('clave, ente_id, activo');
+      if (dGt) {
+        imps = dGt as { clave: string; ente_id: string | null; activo?: boolean }[];
+      }
+    } catch { /* fallback */ }
+  }
+
+  const porEnte = impuestosPorEnte(imps);
   return entes.map((e) => ({ ...e, impuestos: porEnte.get(e.id) ?? [] }));
 }
 
 /** Los impuestos que se pueden asignar a un ente: con R2, los activos del catálogo con su nombre. */
 export async function opcionesImpuestoEnte(): Promise<{ clave: ClaveImpuesto; nombre: string | null }[]> {
   if (!(await r2Disponible())) return CLAVES_IMPUESTO.map((clave) => ({ clave, nombre: null }));
-  const { data, error } = await supabase.from(T_IMPUESTOS).select('clave, nombre, activo').eq('activo', true).order('orden').order('clave');
-  if (error) throw errorRetencion(error, 'No se pudieron leer los impuestos.');
-  return ((data ?? []) as { clave: string; nombre: string }[]).map((i) => ({ clave: i.clave, nombre: i.nombre }));
+  const nombresDefecto: Record<string, string> = {
+    iva: 'Impuesto al Valor Agregado (IVA)',
+    islr: 'Impuesto Sobre la Renta (ISLR)',
+    municipal: 'Impuesto a las Actividades Económicas (ISAE)',
+    regional: 'Impuesto / Timbre Fiscal Estadal',
+    igtf: 'Impuesto a las Grandes Transacciones Financieras (IGTF)',
+  };
+  try {
+    const { data, error } = await supabase.from(T_IMPUESTOS).select('clave, activo').eq('activo', true).order('orden').order('clave');
+    if (!error && data) {
+      return (data as { clave: string }[]).map((i) => ({
+        clave: i.clave.toUpperCase() as ClaveImpuesto,
+        nombre: nombresDefecto[i.clave.toLowerCase()] ?? i.clave.toUpperCase(),
+      }));
+    }
+  } catch { /* fallback */ }
+  return CLAVES_IMPUESTO.map((clave) => ({ clave, nombre: nombresDefecto[clave.toLowerCase()] ?? clave }));
 }
 
 /** URL firmada (10 minutos) de una imagen del bucket. */
@@ -216,9 +256,11 @@ export async function urlImagen(ruta: string): Promise<string> {
 
 /** La ruta del logo de un ente que vale en una fecha (la de emisión del comprobante). */
 export async function logoEnteVigente(enteId: string, fecha: string): Promise<string | null> {
-  const { data, error } = await supabase.rpc('retencion_ente_logo_vigente', { p_ente: enteId, p_fecha: fecha });
-  if (error) throw errorRetencion(error, 'No se pudo leer el logo del ente.');
-  return texto(data);
+  try {
+    const { data, error } = await supabase.rpc('retencion_ente_logo_vigente', { p_ente: enteId, p_fecha: fecha });
+    if (!error) return texto(data);
+  } catch { /* RPC fallback */ }
+  return null;
 }
 
 /* ───────── Entes ───────── */
@@ -251,6 +293,25 @@ export async function crearEnte(e: EnteNuevo): Promise<string> {
   if (faltaDesde) throw new Error(faltaDesde);
   const rif = leerRifEnte(e.rif);
   if ('error' in rif) throw new Error(rif.error);
+  
+  // Intento en esquema MGG: retencion_entes(ente, nombre, usar_en_comprobante)
+  const clave = nombreSeguro(e.nombre).replace(/-/g, '_');
+  try {
+    const { data: dMgg, error: errMgg } = await supabase.from(T_ENTES).insert({
+      ente: clave,
+      nombre: e.nombre.trim(),
+      usar_en_comprobante: false,
+      activo: true,
+    }).select('ente');
+    if (!errMgg && dMgg?.length) {
+      const id = String((dMgg[0] as { ente: string }).ente);
+      if (e.impuestos.length) {
+        await fijarImpuestosEnte(id, e.impuestos).catch(() => {});
+      }
+      return id;
+    }
+  } catch { /* fallback */ }
+
   const { data, error } = await supabase.from(T_ENTES).insert({
     nombre: e.nombre.trim(), tipo: e.tipo,
     estado: e.tipo === 'nacional' ? null : e.estado?.trim() || null,
@@ -290,8 +351,12 @@ export async function editarEnte(id: string, cambios: Partial<Pick<EnteNuevo, 'n
     const falta = faltaEnEnte({ nombre: cambios.nombre, tipo: cambios.tipo, estado: cambios.estado, municipio: cambios.municipio });
     if (falta) throw new Error(falta);
   }
+  // Intenta por PK `ente` o por `id`
+  const { data: dMgg, error: errMgg } = await supabase.from(T_ENTES).update(patch).eq('ente', id).select('ente');
+  if (!errMgg && dMgg?.length) return;
+
   const { data, error } = await supabase.from(T_ENTES).update(patch).eq('id', id).select('id');
-  if (error) throw errorRetencion(error, 'No se pudo guardar el ente.', TEXTOS_ENTE);
+  if (error) throw errorRetencion(errMgg || error, 'No se pudo guardar el ente.', TEXTOS_ENTE);
   if (!data?.length) throw new Error('No se guardó el ente: sin permiso de escritura en Retenciones, o el ente ya no existe.');
 }
 
@@ -299,9 +364,13 @@ export async function editarEnte(id: string, cambios: Partial<Pick<EnteNuevo, 'n
 export async function activarEnte(id: string, activo: boolean, motivo: string): Promise<void> {
   const m = motivo.trim();
   if (!m) throw new Error(activo ? 'Indica por qué se reactiva el ente.' : 'Indica por qué se desactiva el ente.');
+  const { data: dMgg, error: errMgg } = await supabase.from(T_ENTES)
+    .update({ activo }).eq('ente', id).select('ente');
+  if (!errMgg && dMgg?.length) return;
+
   const { data, error } = await supabase.from(T_ENTES)
     .update({ activo, hasta: activo ? null : hoyIso(), motivo: m }).eq('id', id).select('id');
-  if (error) throw errorRetencion(error, 'No se pudo cambiar el estado del ente.');
+  if (error) throw errorRetencion(errMgg || error, 'No se pudo cambiar el estado del ente.');
   if (!data?.length) throw new Error('No se cambió el ente: sin permiso de escritura en Retenciones, o el ente ya no existe.');
 }
 
@@ -329,11 +398,22 @@ export async function fijarImpuestosEnte(enteId: string, claves: ClaveImpuesto[]
 }
 
 /**
- * Con R2: el ente de cada impuesto es retencion_impuestos.ente_id. Los elegidos
- * pasan a este ente (si eran de otro, cambian); los que eran de este y ya no, quedan sin ente.
+ * Con R2: el ente de cada impuesto es retencion_impuestos.ente (o ente_id).
  */
 async function fijarImpuestosEnteR2(enteId: string, elegidos: string[], motivo: string): Promise<void> {
   const m = motivo.trim() || 'Impuestos del ente';
+  const elegidosMin = elegidos.map((c) => c.toLowerCase());
+  // MGG usa columna `ente`
+  try {
+    if (elegidosMin.length) {
+      await supabase.from(T_IMPUESTOS).update({ ente: enteId }).in('clave', elegidosMin);
+    }
+    let q = supabase.from(T_IMPUESTOS).update({ ente: null }).eq('ente', enteId);
+    if (elegidosMin.length) q = q.not('clave', 'in', `(${elegidosMin.join(',')})`);
+    await q;
+    return;
+  } catch { /* fallback a GT */ }
+
   if (elegidos.length) {
     const { data, error } = await supabase.from(T_IMPUESTOS)
       .update({ ente_id: enteId, motivo_cambio: m }).in('clave', elegidos).select('clave');
@@ -393,6 +473,7 @@ export function aImagenAgente(r: Record<string, unknown>): ImagenAgente {
 
 /** Logo, firma y sello de la empresa, con sus versiones (la más nueva primero). */
 export async function listImagenesAgente(): Promise<ImagenAgente[]> {
+  if (!(await tablaDisponible(T_AGENTE_IMAGENES))) return [];
   const { data, error } = await supabase.from(T_AGENTE_IMAGENES).select('*').order('clase').order('desde', { ascending: false });
   if (error) throw errorRetencion(error, 'No se pudieron leer el logo, la firma y el sello de la empresa.');
   return (data ?? []).map((r) => aImagenAgente(r as Record<string, unknown>));
@@ -413,7 +494,9 @@ export async function subirImagenAgente(clase: ClaseImagenAgente, archivo: File,
 
 /** La ruta del logo, la firma o el sello de la empresa que vale en una fecha. */
 export async function imagenAgenteVigente(clase: ClaseImagenAgente, fecha: string): Promise<string | null> {
-  const { data, error } = await supabase.rpc('retencion_agente_imagen_vigente', { p_clase: clase, p_fecha: fecha });
-  if (error) throw errorRetencion(error, 'No se pudo leer la imagen de la empresa.');
-  return texto(data);
+  try {
+    const { data, error } = await supabase.rpc('retencion_agente_imagen_vigente', { p_clase: clase, p_fecha: fecha });
+    if (!error) return texto(data);
+  } catch { /* RPC fallback */ }
+  return null;
 }

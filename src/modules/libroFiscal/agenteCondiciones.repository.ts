@@ -11,6 +11,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { ClaveImpuesto } from './entes.repository';
 import { errorRetencion } from './erroresRetencion';
+import { tablaDisponible } from './disponibilidad';
 
 const T_CONDICIONES = 'retencion_agente_condiciones';
 
@@ -56,6 +57,7 @@ export function condicionVigente(xs: CondicionRegistrada[], impuesto: ClaveImpue
 
 /** El historial completo, el más nuevo primero. */
 export async function listCondiciones(): Promise<CondicionRegistrada[]> {
+  if (!(await tablaDisponible(T_CONDICIONES))) return [];
   const { data, error } = await supabase.from(T_CONDICIONES).select('*').order('desde', { ascending: false });
   if (error) throw errorRetencion(error, 'No se pudo leer el régimen de la empresa.');
   return (data ?? []).map((r) => aCondicion(r as Record<string, unknown>));

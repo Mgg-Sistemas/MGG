@@ -19,6 +19,7 @@ import type { SujetoRetenido } from './retencionesCalculo';
 import { sujetoDeGt } from './retencionesFiscal.repository';
 import { sujetoDesdePersona, type TipoPersona } from './residenciaSujeto';
 import { errorRetencion } from './erroresRetencion';
+import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { faltaEnCodigo, faltaEnFechaRango, normalizarCodigo } from './parametrosNumeros';
 
@@ -126,9 +127,10 @@ export const pideLicencia = (r: Pick<FilaPerfil, 'licenciaEstado' | 'perfilId'>)
 
 /** Proveedores activos con el estado de su perfil fiscal hoy. */
 export async function listPerfiles(): Promise<FilaPerfil[]> {
+  const tieneEstado = await tablaDisponible(V_ESTADO);
   const [prov, est] = await Promise.all([
     supabase.from('proveedores').select('id, razon_social, rif, telefono, numero_administracion, actividad_economica, estado').order('razon_social'),
-    supabase.from(V_ESTADO).select('*'),
+    tieneEstado ? supabase.from(V_ESTADO).select('*') : Promise.resolve({ data: [], error: null }),
   ]);
   if (prov.error) throw errorRetencion(prov.error, 'No se pudieron leer los proveedores.');
   if (est.error) throw errorRetencion(est.error, 'No se pudo leer el estado de los perfiles fiscales.');
@@ -183,6 +185,7 @@ export function perfilVigente(versiones: PerfilFiscal[], fecha: string = hoyIso(
 
 /** Todas las versiones del perfil de un proveedor, la más nueva primero. */
 export async function versionesPerfil(proveedorId: string): Promise<PerfilFiscal[]> {
+  if (!(await tablaDisponible(T_PERFILES))) return [];
   const { data, error } = await supabase.from(T_PERFILES).select('*').eq('proveedor_id', proveedorId).order('desde', { ascending: false });
   if (error) throw errorRetencion(error, 'No se pudo leer el perfil fiscal.');
   return (data ?? []).map((r) => aPerfil(r as Record<string, unknown>));
@@ -292,6 +295,7 @@ export function aActividad(r: Record<string, unknown>): ActividadContraparte {
 
 /** Las actividades del proveedor: activas primero, la principal arriba. */
 export async function listActividades(proveedorId: string): Promise<ActividadContraparte[]> {
+  if (!(await tablaDisponible(T_ACTIVIDADES))) return [];
   const { data, error } = await supabase.from(T_ACTIVIDADES).select('*').eq('proveedor_id', proveedorId)
     .order('activa', { ascending: false }).order('principal', { ascending: false }).order('desde', { ascending: false });
   if (error) throw errorRetencion(error, 'No se pudieron leer las actividades del proveedor.');

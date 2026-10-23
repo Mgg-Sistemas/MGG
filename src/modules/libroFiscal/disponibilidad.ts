@@ -47,8 +47,7 @@ export function tablaDisponible(nombre: string): Promise<boolean> {
 
 /** R1 aplicado: entes y perfiles de proveedores. */
 export async function r1Disponible(): Promise<boolean> {
-  const [entes, perfiles] = await Promise.all([tablaDisponible('retencion_entes'), tablaDisponible('retencion_contraparte_perfiles')]);
-  return entes && perfiles;
+  return tablaDisponible('retencion_entes');
 }
 
 /** R2 aplicado: el impuesto contenedor. */

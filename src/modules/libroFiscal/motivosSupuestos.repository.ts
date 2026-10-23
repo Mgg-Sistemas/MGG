@@ -52,8 +52,14 @@ const vigencia = (r: Record<string, unknown>): Vigencia => ({
 });
 
 export function aMotivo(r: Record<string, unknown>): MotivoNoAplica {
-  return { ...vigencia(r), id: String(r.id), impuestoClave: texto(r.impuesto_clave), texto: String(r.texto ?? ''),
-    requiereTexto: r.requiere_texto === true, actualizadoPor: texto(r.actualizado_por) };
+  return {
+    ...vigencia(r),
+    id: String(r.id),
+    impuestoClave: texto(r.impuesto_clave ?? r.tipo),
+    texto: String(r.texto ?? ''),
+    requiereTexto: r.requiere_texto === true,
+    actualizadoPor: texto(r.actualizado_por),
+  };
 }
 
 export function aSupuesto(r: Record<string, unknown>): Supuesto {
@@ -111,22 +117,44 @@ export function supuestoRepetido(s: { impuestoClave: string; codigo: string }, l
 /* ───────── Lectura ───────── */
 
 export async function listMotivos(): Promise<MotivoNoAplica[]> {
-  const { data, error } = await supabase.from(T_MOTIVOS).select('*').order('impuesto_clave', { nullsFirst: true }).order('orden').order('texto');
+  try {
+    const { data, error } = await supabase.from(T_MOTIVOS).select('*').order('orden').order('texto');
+    if (!error && data) return data.map((r) => aMotivo(r as Record<string, unknown>));
+  } catch { /* fallback */ }
+  const { data, error } = await supabase.from(T_MOTIVOS).select('*');
   if (error) throw errorRetencion(error, 'No se pudieron leer los motivos.');
   return (data ?? []).map((r) => aMotivo(r as Record<string, unknown>));
 }
 
 export async function listSupuestos(): Promise<Supuesto[]> {
-  const { data, error } = await supabase.from(T_SUPUESTOS).select('*').order('impuesto_clave').order('orden').order('codigo');
+  if (!(await r6Disponible())) return [];
+  const { data, error } = await supabase.from(T_SUPUESTOS).select('*').order('orden').order('codigo');
   if (error) throw errorRetencion(error, 'No se pudieron leer los supuestos.');
   return (data ?? []).map((r) => aSupuesto(r as Record<string, unknown>));
 }
 
 /** Los motivos de «No aplica» que valen para un impuesto en una fecha (los generales incluidos). */
 export async function motivosVigentes(impuesto: string, fecha: string): Promise<MotivoNoAplica[]> {
-  const { data, error } = await supabase.rpc('retencion_motivos_vigentes', { p_impuesto: impuesto, p_fecha: fecha });
-  if (error) throw errorRetencion(error, 'No se pudieron leer los motivos.');
-  return ((data ?? []) as Record<string, unknown>[]).map(aMotivo);
+  try {
+    const { data, error } = await supabase.rpc('retencion_motivos_vigentes', { p_impuesto: impuesto, p_fecha: fecha });
+    if (!error && data) return ((data ?? []) as Record<string, unknown>[]).map(aMotivo);
+  } catch { /* RPC fallback */ }
+
+  const impMin = impuesto.toLowerCase();
+  try {
+    const { data, error } = await supabase.from(T_MOTIVOS).select('*')
+      .or(`tipo.eq.${impMin},tipo.is.null`)
+      .eq('activo', true)
+      .order('orden');
+    if (!error && data) return data.map((r) => aMotivo(r as Record<string, unknown>));
+  } catch { /* fallback */ }
+
+  try {
+    const { data } = await supabase.from(T_MOTIVOS).select('*').eq('activo', true);
+    return ((data ?? []) as Record<string, unknown>[]).map(aMotivo);
+  } catch {
+    return [];
+  }
 }
 
 /** Los supuestos de un impuesto en una fecha. Sin R6, null: la pantalla usa las casillas fijas. */

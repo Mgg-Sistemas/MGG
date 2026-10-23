@@ -18,10 +18,11 @@ import { normalizarRif } from '@/shared/lib/rif';
 import type { DireccionRetencion, SujetoRetenido, TipoImpuesto } from './retencionesCalculo';
 import {
   aRetencion, rolAGt, sujetoAGt, tipoAGt, type DocKind, type RetencionPracticada,
+  type NuevaRetencion, registrarRetencion,
 } from './retencionesFiscal.repository';
 import { errorRetencion } from './erroresRetencion';
 import { configDeFecha } from './parametros.repository';
-import { v2rDisponible } from './disponibilidad';
+import { tablaDisponible, v2rDisponible } from './disponibilidad';
 import { CONFIG_RETENCION_DEFECTO, formatoComprobante } from './retencionesCalculo';
 
 const T_DOCUMENTOS = 'retencion_documentos';
@@ -260,16 +261,87 @@ export async function registrarFactura(factura: FacturaNueva, lineas: LineaFactu
   const vigente = await configDeFecha({ ...CONFIG_RETENCION_DEFECTO, valorUt: factura.valorUt ?? 0 },
     (factura.facturaFecha ?? '').slice(0, 10), lineas.map((l) => l.tipo));
   const conNumero = await numerarSinV2R(factura, lineas);
-  const { data, error } = await supabase.rpc('retencion_factura_registrar', {
-    p_factura: pFacturaDe(factura),
-    p_lineas: conNumero.map((l) => ({ ...pLineaDe(l), valor_ut: utValida(vigente.valorUt) })),
-  });
-  if (error) throw errorLegibleFactura(error);
-  const res = (data ?? {}) as { factura?: Record<string, unknown>; lineas?: Record<string, unknown>[] };
-  if (!res.factura) throw new Error('La base no devolvió la factura registrada.');
+
+  // 1. Intento por la RPC de GT (si estuviera disponible)
+  try {
+    const { data, error } = await supabase.rpc('retencion_factura_registrar', {
+      p_factura: pFacturaDe(factura),
+      p_lineas: conNumero.map((l) => ({ ...pLineaDe(l), valor_ut: utValida(vigente.valorUt) })),
+    });
+    if (!error && data) {
+      const res = data as { factura?: Record<string, unknown>; lineas?: Record<string, unknown>[] };
+      if (res.factura) {
+        return {
+          factura: aFacturaCabecera({ ...res.factura, retenciones: res.lineas ?? [] }),
+          lineas: (res.lineas ?? []).map((l) => aRetencion(l)),
+        };
+      }
+    }
+  } catch {
+    // Si la función RPC no existe en el schema cache (MGG), continuar con fallback
+  }
+
+  // 2. Registro nativo en MGG: cada línea a través de registrarRetencion
+  const lineasRegistradas: RetencionPracticada[] = [];
+  for (const l of conNumero) {
+    const periodo = l.comprobantePeriodo || factura.periodo || (factura.facturaFecha ?? '').slice(0, 7).replace('-', '');
+    const nueva: NuevaRetencion = {
+      tipo: l.tipo,
+      direccion: factura.direccion,
+      docKind: factura.docKind,
+      docId: factura.docId,
+      contraparteId: factura.contraparteId,
+      contraparteRif: factura.contraparteRif,
+      contraparteNombre: factura.contraparteNombre,
+      contraparteSujeto: factura.contraparteSujeto,
+      facturaNumero: factura.facturaNro,
+      facturaControl: factura.facturaControl,
+      facturaFecha: factura.facturaFecha,
+      fechaRetencion: l.fecha ?? factura.facturaFecha,
+      periodo,
+      quincena: l.quincena,
+      numeroComprobante: l.comprobanteNro,
+      conceptoId: l.conceptoCodigo,
+      conceptoNombre: l.conceptoNombre,
+      municipio: l.municipio,
+      moneda: l.moneda || factura.moneda || 'Bs',
+      tasa: l.tasa ?? factura.tasa,
+      baseImponible: l.base,
+      alicuota: l.ivaAlicuota ?? undefined,
+      impuesto: l.ivaMonto ?? undefined,
+      porcentaje: l.porcentaje,
+      sustraendo: l.sustraendo ?? undefined,
+      montoRetenido: l.monto,
+      observacion: l.descripcion || factura.nota,
+      actor: factura.actor,
+      actorName: factura.actorName,
+    };
+    const reg = await registrarRetencion(nueva, vigente);
+    lineasRegistradas.push(reg);
+  }
+
+  const cabeceraSintetica: FacturaCabecera = {
+    id: lineasRegistradas[0]?.id || `sintetica-${Date.now()}`,
+    direccion: factura.direccion,
+    tipoDocumento: factura.tipoDocumento ?? 'factura',
+    documentoAfectadoId: factura.documentoAfectadoId ?? null,
+    facturaAfectadaNro: factura.facturaAfectadaNro ?? null,
+    docKind: factura.docKind,
+    docId: factura.docId ?? null,
+    contraparteRif: factura.contraparteRif ?? null,
+    contraparteNombre: factura.contraparteNombre ?? null,
+    facturaNro: factura.facturaNro ?? null,
+    facturaFecha: factura.facturaFecha ?? null,
+    facturaTotal: factura.facturaTotal ?? null,
+    moneda: factura.moneda || 'Bs',
+    periodo: factura.periodo ?? lineasRegistradas[0]?.periodo ?? null,
+    nota: factura.nota ?? null,
+    createdAt: new Date().toISOString(),
+  };
+
   return {
-    factura: aFacturaCabecera({ ...res.factura, retenciones: res.lineas ?? [] }),
-    lineas: (res.lineas ?? []).map((l) => aRetencion(l)),
+    factura: cabeceraSintetica,
+    lineas: lineasRegistradas,
   };
 }
 
@@ -289,6 +361,7 @@ export interface FiltroFacturas {
  * anidado pasa a «inner» y solo quedan los documentos con líneas del período.
  */
 export async function listFacturas(f: FiltroFacturas = {}): Promise<FacturaConLineas[]> {
+  if (!(await tablaDisponible(T_DOCUMENTOS))) return [];
   let q = supabase.from(T_DOCUMENTOS).select(f.periodo ? '*, retenciones!inner(*)' : '*, retenciones(*)')
     .order('factura_fecha', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false });
@@ -308,6 +381,7 @@ export async function listFacturas(f: FiltroFacturas = {}): Promise<FacturaConLi
 
 /** Cambia los datos de una factura (la base los copia a sus líneas). Con líneas declaradas, solo la nota. */
 export async function actualizarFactura(id: string, cambios: Partial<Pick<FacturaNueva, 'contraparteRif' | 'contraparteNombre' | 'facturaNro' | 'facturaControl' | 'facturaFecha' | 'facturaTotal' | 'nota'>>): Promise<void> {
+  if (!(await tablaDisponible(T_DOCUMENTOS))) return;
   const patch: Record<string, unknown> = {};
   if ('contraparteRif' in cambios) patch.rif = cambios.contraparteRif ? normalizarRif(cambios.contraparteRif) : null;
   if ('contraparteNombre' in cambios) patch.razon_social = cambios.contraparteNombre?.trim() || null;
@@ -327,6 +401,7 @@ export async function actualizarFactura(id: string, cambios: Partial<Pick<Factur
  * con RET_DOCUMENTO_NO_LIBRE. Queda en el historial.
  */
 export async function borrarFacturaLibre(id: string): Promise<void> {
+  if (!(await tablaDisponible(T_DOCUMENTOS))) return;
   const { data, error } = await supabase.from(T_DOCUMENTOS).delete().eq('id', id).select('id');
   if (error) throw errorRetencion(error, 'No se pudo borrar la factura.');
   if (!data?.length) throw new Error('No se borró la factura: sin permiso de Retenciones, o ya no existe.');

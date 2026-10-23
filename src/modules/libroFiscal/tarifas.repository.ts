@@ -19,7 +19,13 @@ const T_TARIFAS = 'retencion_tarifas';
 const T_VERSIONES = 'retencion_tarifa_versiones';
 const T_TRAMOS = 'retencion_tarifa_tramos';
 
-export const r5Disponible = () => tablaDisponible(T_TARIFAS);
+export const r5Disponible = async () => {
+  const [tarifas, versiones] = await Promise.all([
+    tablaDisponible(T_TARIFAS),
+    tablaDisponible(T_VERSIONES),
+  ]);
+  return Boolean(tarifas && versiones);
+};
 
 export type UnidadTarifa = 'UT' | 'Bs';
 export const UNIDADES_TARIFA: UnidadTarifa[] = ['UT', 'Bs'];
@@ -148,6 +154,7 @@ export function aplicarTramos(tramos: Tramo[], unidad: UnidadTarifa, base: numbe
 /* ───────── Lectura ───────── */
 
 export async function listTarifas(): Promise<Tarifa[]> {
+  if (!(await r5Disponible())) return [];
   const { data, error } = await supabase.from(T_TARIFAS).select(`*, ${T_VERSIONES}(*, ${T_TRAMOS}(*))`).order('nombre');
   if (error) throw errorRetencion(error, 'No se pudieron leer las tarifas.');
   return (data ?? []).map((r) => aTarifa(r as Record<string, unknown>));

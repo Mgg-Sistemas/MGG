@@ -68,6 +68,7 @@ export interface NoAplicaNuevo {
 
 /** El documento fiscal practicado de la orden, si ya existe. */
 async function documentoDeOrden(ordenId: string): Promise<string | null> {
+  if (!(await tablaDisponible(V_POR_ORIGEN))) return null;
   const { data, error } = await supabase.from(V_POR_ORIGEN).select('documento_id')
     .eq('origen_tipo', 'oc').eq('origen_id', ordenId).eq('rol', 'practicada').limit(1);
   if (error) throw errorRetencion(error, 'No se pudo leer el documento de la compra.');
@@ -77,6 +78,9 @@ async function documentoDeOrden(ordenId: string): Promise<string | null> {
 /** Marca «no aplica» un impuesto de una orden. Devuelve el id del documento. */
 export async function marcarNoAplica(n: NoAplicaNuevo): Promise<string> {
   if (!n.motivoId && !n.motivoTexto?.trim()) throw new Error('Indica el motivo: por qué no corresponde retener.');
+  if (!(await tablaDisponible('retencion_decisiones'))) {
+    throw new Error('La función de registrar decisiones «no aplica» requiere la tabla retencion_decisiones.');
+  }
   let documentoId = await documentoDeOrden(n.ordenId);
   if (!documentoId) {
     // Sin factura registrada: se registra solo el documento (sin número de comprobante ni N° de factura).

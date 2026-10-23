@@ -14,7 +14,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
 import { configDeFecha } from './parametros.repository';
-import { aRetencion, tipoDeGt } from './retencionesFiscal.repository';
+import { aRetencion, tipoDeGt, registrarRetencion, type RetencionPracticada } from './retencionesFiscal.repository';
 import {
   aFacturaCabecera, numerarSinV2R, pFacturaDe, pLineaDe,
   type FacturaConLineas, type FacturaNueva, type LineaFacturaNueva,
@@ -94,6 +94,7 @@ export interface FiltroFacturas {
 
 /** Facturas registradas (la lista) o retenibles (el buscador), las más nuevas primero. */
 export async function listFacturasResumen(f: FiltroFacturas = {}): Promise<FacturaResumen[]> {
+  if (!(await r10Disponible())) return [];
   let q = supabase.from(V_RESUMEN).select('*');
   if (f.soloRetenibles) q = q.eq('retenible', true);
   if (f.proveedorId) q = q.eq('proveedor_id', f.proveedorId);
@@ -112,6 +113,9 @@ export const buscarFacturasRetenibles = (texto: string, proveedorId?: string | n
 
 /** Registra la factura SOLA (sin líneas): queda pendiente por retener. */
 export async function registrarFacturaSola(factura: FacturaNueva): Promise<FacturaConLineas> {
+  if (!(await tablaDisponible('retencion_documentos'))) {
+    throw new Error('El registro de facturas pendientes requiere el paquete de documentos.');
+  }
   const { data, error } = await supabase.rpc('retencion_factura_registrar', {
     p_factura: { ...pFacturaDe(factura), solo_documento: true },
     p_lineas: [],
@@ -135,16 +139,75 @@ export async function retenerDespues(
   const fecha = (doc.facturaFecha ?? '').slice(0, 10);
   const vigente = await configDeFecha({ ...CONFIG_RETENCION_DEFECTO, valorUt: opciones.valorUt ?? 0 }, fecha, lineas.map((l) => l.tipo));
   const conNumero = await numerarSinV2R({ direccion: doc.direccion, periodo: opciones.periodo ?? undefined, facturaFecha: fecha }, lineas);
-  const { data, error } = await supabase.rpc('retencion_lineas_registrar', {
-    p_documento_id: doc.documentoId,
-    p_lineas: conNumero.map((l) => ({ ...pLineaDe(l), valor_ut: Number(vigente.valorUt) > 0 ? Number(vigente.valorUt) : null })),
-    p_periodo: opciones.periodo ?? null,
-    p_actor_name: opciones.actorName ?? null,
-  });
-  if (error) throw errorRetencion(error, 'No se pudo registrar la retención.');
-  const res = (data ?? {}) as { factura?: Record<string, unknown>; lineas?: Record<string, unknown>[] };
-  if (!res.factura) throw new Error('La base no devolvió la factura.');
-  return { factura: aFacturaCabecera({ ...res.factura, retenciones: res.lineas ?? [] }), lineas: (res.lineas ?? []).map((l) => aRetencion(l)) };
+
+  // 1. Intento por RPC retencion_lineas_registrar si existiera
+  try {
+    const { data, error } = await supabase.rpc('retencion_lineas_registrar', {
+      p_documento_id: doc.documentoId,
+      p_lineas: conNumero.map((l) => ({ ...pLineaDe(l), valor_ut: Number(vigente.valorUt) > 0 ? Number(vigente.valorUt) : null })),
+      p_periodo: opciones.periodo ?? null,
+      p_actor_name: opciones.actorName ?? null,
+    });
+    if (!error && data) {
+      const res = (data ?? {}) as { factura?: Record<string, unknown>; lineas?: Record<string, unknown>[] };
+      if (res.factura) {
+        return { factura: aFacturaCabecera({ ...res.factura, retenciones: res.lineas ?? [] }), lineas: (res.lineas ?? []).map((l) => aRetencion(l)) };
+      }
+    }
+  } catch {
+    // Si la función RPC no existe en MGG, continuar al fallback
+  }
+
+  // 2. Fallback nativo en MGG: registrar cada línea en retenciones
+  const lineasReg: RetencionPracticada[] = [];
+  for (const l of conNumero) {
+    const reg = await registrarRetencion({
+      tipo: l.tipo,
+      direccion: doc.direccion,
+      docKind: 'manual',
+      facturaFecha: fecha,
+      periodo: l.comprobantePeriodo || opciones.periodo || fecha.slice(0, 7).replace('-', ''),
+      quincena: l.quincena,
+      numeroComprobante: l.comprobanteNro,
+      conceptoId: l.conceptoCodigo,
+      conceptoNombre: l.conceptoNombre,
+      municipio: l.municipio,
+      moneda: l.moneda || 'Bs',
+      tasa: l.tasa,
+      baseImponible: l.base,
+      alicuota: l.ivaAlicuota ?? undefined,
+      impuesto: l.ivaMonto ?? undefined,
+      porcentaje: l.porcentaje,
+      sustraendo: l.sustraendo ?? undefined,
+      montoRetenido: l.monto,
+      observacion: l.descripcion,
+      actor: 'sistema',
+      actorName: opciones.actorName,
+    }, vigente);
+    lineasReg.push(reg);
+  }
+
+  return {
+    factura: {
+      id: doc.documentoId,
+      direccion: doc.direccion,
+      tipoDocumento: 'factura',
+      documentoAfectadoId: null,
+      facturaAfectadaNro: null,
+      docKind: 'manual',
+      docId: null,
+      contraparteRif: null,
+      contraparteNombre: null,
+      facturaNro: null,
+      facturaFecha: fecha,
+      facturaTotal: null,
+      moneda: 'Bs',
+      periodo: opciones.periodo ?? null,
+      nota: null,
+      createdAt: new Date().toISOString(),
+    },
+    lineas: lineasReg,
+  };
 }
 
 /* ───────── Libro › «Sin retención»: las decisiones «no aplica» ───────── */
@@ -180,6 +243,7 @@ export function aNoAplica(r: Record<string, unknown>): NoAplicaRegistrado {
 
 /** Las decisiones «no aplica» registradas (las más nuevas primero), en un rango de fechas de la decisión. */
 export async function listNoAplica(f: { desde?: string; hasta?: string } = {}): Promise<NoAplicaRegistrado[]> {
+  if (!(await tablaDisponible('retencion_decisiones'))) return [];
   let q = supabase.from('retencion_decisiones')
     .select('*, retencion_documentos(factura_nro, factura_fecha, razon_social, rif, orden_id, compra_directa_id, servicio_directo_id), retencion_motivos_no_aplica(texto)')
     .eq('decision', 'no_aplica');
