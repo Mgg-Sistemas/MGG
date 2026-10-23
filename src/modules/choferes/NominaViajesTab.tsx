@@ -555,7 +555,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         fechaCorte: fechaCorteModal,
         actor: actorName || actor,
       });
-      toast(`Cierre de nómina completado: se liquidaron ${totalViajesALiquidar} viaje(s) (${res.actualizados} registro(s))`, 'success');
+      toast(`Cierre de viajes completado: se liquidaron ${totalViajesALiquidar} viaje(s) (${res.actualizados} registro(s))`, 'success');
       setModalPagarLote(false);
       if (estadoPagoFiltro === 'pendientes') {
         setEstadoPagoFiltro('');
@@ -728,8 +728,8 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                 setFechaPagoModal(new Date().toISOString().slice(0, 10));
                 setChoferModal(choferId);
                 setModalPagarLote(true);
-              }} title="Cerrar la nómina de viajes por rango de fecha para que queden saldados y generar recibo de pago">
-                🔒 Cierre de Nómina…
+              }} title="Cerrar viajes por rango de fecha para que queden saldados y generar recibo de pago">
+                🔒 CIERRE DE VIAJES
               </button>
             )}
             {canWrite && filasConDetalle.some((f) => f.pagado) && (
@@ -1053,9 +1053,9 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         );
       })}
 
-      {/* ── Modal Cierre de Nómina de Viajes ── */}
+      {/* ── Modal Cierre de Viajes ── */}
       {modalPagarLote && (
-        <Modal title="🔒 Cierre de Nómina de Viajes" size="lg" onClose={() => setModalPagarLote(false)} footer={
+        <Modal title="🔒 Cierre de Viajes" size="lg" onClose={() => setModalPagarLote(false)} footer={
           <>
             <button className="btn btn-ghost" onClick={() => setModalPagarLote(false)} disabled={guardandoPago}>Cancelar</button>
             <button className="btn btn-primary" onClick={() => void ejecutarMarcarPagados()} disabled={guardandoPago || !fechaCorteModal || !totalViajesALiquidar}>
