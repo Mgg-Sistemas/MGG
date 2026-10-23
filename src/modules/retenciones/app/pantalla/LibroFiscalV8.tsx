@@ -23,6 +23,7 @@ import { BotonFactura } from './BotonFactura';
 import { BarraLista } from './BarraLista';
 import { Paginador } from './Paginador';
 import { BotonTxtIva } from './TxtIva';
+import { BotonXmlIslr } from './XmlIslr';
 import { nombreImpuesto } from './pendientesPorDocumento';
 import {
   ESTADO_CLASE, ESTADO_TEXTO, FILTRO_INICIAL, enlacesDeReemplazo, estadoDe, fechaVe, filasLibro, opcionesLibro, textoDireccion,
@@ -97,6 +98,7 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar, onRegistrarRecibida
           <button type="button" className="rv8-btn" disabled={!xs.length} onClick={() => descargarCsv(tablaLibro(xs), `${nombre}.csv`)}>CSV</button>
           <button type="button" className="rv8-btn" disabled={!xs.length} onClick={excel}>Excel</button>
           <BotonTxtIva libro={libro} />
+          <BotonXmlIslr libro={libro} />
           <span className="rv8-huella">Sale lo que muestra la lista, con sus filtros. Cada retención se imprime como su comprobante, con «🖨 Comprobante».</span>
         </div>
       </div>

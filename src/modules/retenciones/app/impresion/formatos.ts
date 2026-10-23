@@ -221,7 +221,9 @@ export const FORMATO_FABRICA: Record<IdDocumento, FormatoDocumento> = {
   comp_islr: {
     nombre: 'Comprobante de retención de ISLR', ejemplar: 'Comprobante de retención de ISLR (1 hoja)', tipo: 'comprobante', impuesto: 'islr', orientacion: 'horizontal', firma: true, logoEnte: false,
     textos: {
-      titulo: 'COMPROBANTE DE RETENCION DE IMPUESTO SOBRE LA RENTA', nroComp: 'NRO. COMPROBANTE', periodo: 'PERÍODO FISCAL', anio: 'AÑO:', mes: 'MES:', fecha: 'FECHA',
+      titulo: 'COMPROBANTE DE RETENCION DE IMPUESTO SOBRE LA RENTA',
+      subtitulo: 'Decreto N° 1.808 · Gaceta Oficial N° 36.203 · Reglamento Parcial de la Ley de ISLR en materia de Retenciones',
+      nroComp: 'NRO. COMPROBANTE', periodo: 'PERÍODO FISCAL', anio: 'AÑO:', mes: 'MES:', fecha: 'FECHA',
       agNombre: 'NOMBRE DEL AGENTE DE RETENCIÓN', agRif: 'REGISTRO DE INFORMACIÓN FISCAL DEL AGENTE DE RETENCIÓN', agDir: 'DIRECCIÓN FISCAL DEL AGENTE DE RETENCIÓN',
       sjNombre: 'NOMBRE Ó RAZON SOCIAL DEL SUJETO RETENIDO', sjRif: 'REGISTRO DE INFORMACIÓN FISCAL DEL SUJETO RETENIDO', sjDir: 'DIRECCIÓN FISCAL DEL SUJETO RETENIDO',
       porConcepto: 'Retención de I.S.L.R. por concepto de:', total: 'Total...', agente: 'Agente de Retención:', sujeto: 'Sujeto Retenido:', por: 'Por',

@@ -153,7 +153,10 @@ export function HojaComprobanteIslr({ datos: d, formato }: PropsHojaComprobante)
     c.id === 'fecha' ? fechaVe(f.fecha) : c.numero || c.id === 'pct' ? n2(Number(valorFila(f, c.id)) || 0) : texto(valorFila(f, c.id));
   return (
     <div className="hv8 hv8-islr">
-      <h1 className="a hv8-tit" style={{ top: 30, left: 110, fontSize: 18 }}>{x.titulo}</h1>
+      <h1 className="a hv8-tit" style={{ top: 22, left: 110, fontSize: 17 }}>{x.titulo}</h1>
+      {x.subtitulo && (
+        <p className="a" style={{ top: 47, left: 110, fontSize: 10, color: '#333', maxWidth: 850 }}>{x.subtitulo}</p>
+      )}
       <div className="a caja" style={{ top: 72, left: 553, width: 430, height: 64 }}>
         <span className="a" style={{ top: 5, left: 6 }}>{x.nroComp}</span>
         <b className="a" style={{ top: 5, left: 229 }}>{d.numero}</b>
