@@ -10,6 +10,7 @@
    tiene de dónde leer y el diálogo solo se ve en local.
    ============================================================ */
 import { aplicarFiltros, buscaEn, type PasaFiltro } from '../listas/filtros';
+import type { RetencionPracticada } from '../datos/puerta';
 
 export type MotivoImpresion = 'sin_imprimir' | 'corregido' | 'sin_entregar';
 
@@ -49,6 +50,28 @@ export interface RetencionImpresion {
 export interface PendienteImpresion {
   r: RetencionImpresion;
   motivo: MotivoImpresion;
+}
+
+/** Convierte una retención practicada del libro en un registro para la lista de impresión. */
+export function deRetencionPracticada(r: RetencionPracticada): RetencionImpresion {
+  return {
+    id: r.id,
+    tipo: r.tipo,
+    direccion: r.direccion,
+    anulada: !!r.anulada,
+    numero: r.numeroComprobante,
+    fecha: r.facturaFecha ?? r.createdAt.slice(0, 10),
+    proveedor: r.contraparteNombre ?? '—',
+    rif: r.contraparteRif ?? '',
+    factura: r.facturaNumero,
+    documento: r.docCodigo,
+    monto: r.montoRetenido,
+    version: 1,
+    impresaEn: null,
+    impresaVersion: null,
+    entregadaEn: null,
+    revisionPendiente: false,
+  };
 }
 
 export interface FiltrosImpresion {

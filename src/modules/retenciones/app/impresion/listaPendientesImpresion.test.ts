@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { filtrarPendientesImpresion, mesesDeFacturas, motivoImpresion, textoMotivo, type RetencionImpresion } from './listaPendientesImpresion';
+import { deRetencionPracticada, filtrarPendientesImpresion, mesesDeFacturas, motivoImpresion, textoMotivo, type RetencionImpresion } from './listaPendientesImpresion';
+import type { RetencionPracticada } from '../datos/puerta';
 
 // Datos inventados, con las columnas del paquete 04 (impresa_*, entregada_*, revision_pendiente).
 const r = (over: Partial<RetencionImpresion> = {}): RetencionImpresion => ({
@@ -35,5 +36,33 @@ describe('los pendientes de impresión y entrega (maqueta v8ItemsImpresion; fich
     expect(mesesDeFacturas(['2026-09-30', '2026-10-02', '2026-10-05', ''])).toEqual([['2026-10', 'Octubre 2026'], ['2026-09', 'Septiembre 2026']]);
     const x = { r: r({ impresaEn: '2026-10-04', impresaVersion: 1 }), motivo: 'sin_entregar' as const };
     expect(textoMotivo(x, (d) => d.split('-').reverse().join('/'))).toBe('Impreso sin entregar el 04/10/2026');
+  });
+  it('convierte RetencionPracticada a RetencionImpresion con deRetencionPracticada', () => {
+    const prac: RetencionPracticada = {
+      id: 'ret-100',
+      tipo: 'iva',
+      direccion: 'practicada',
+      anulada: false,
+      anuladaEn: null,
+      motivoAnulacion: null,
+      numeroComprobante: '20261000000099',
+      facturaFecha: '2026-10-15',
+      facturaNumero: 'FAC-0099',
+      docCodigo: 'OC-0099',
+      montoRetenido: 50.5,
+      contraparteNombre: 'Inversiones Omega C.A.',
+      contraparteRif: 'J-12345678-9',
+      createdAt: '2026-10-15T12:00:00Z',
+    } as unknown as RetencionPracticada;
+    const imp = deRetencionPracticada(prac);
+    expect(imp.id).toBe('ret-100');
+    expect(imp.tipo).toBe('iva');
+    expect(imp.numero).toBe('20261000000099');
+    expect(imp.fecha).toBe('2026-10-15');
+    expect(imp.proveedor).toBe('Inversiones Omega C.A.');
+    expect(imp.rif).toBe('J-12345678-9');
+    expect(imp.monto).toBe(50.5);
+    expect(imp.impresaEn).toBeNull();
+    expect(motivoImpresion(imp)).toBe('sin_imprimir');
   });
 });

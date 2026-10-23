@@ -29,6 +29,8 @@ import { DialogoXmlIslr } from './XmlIslr';
 import { Reportes } from './reportes/Reportes';
 import { impuestosActivos } from '../agrupada/modeloAgrupada';
 import { BotonVencimientos, CabeceraLocal, PeriodoEnCurso } from './CabeceraLocal';
+import { deRetencionPracticada } from '../impresion/listaPendientesImpresion';
+import { useVistaComprobante } from '../impresion/useVistaComprobante';
 import { UMBRALES_DEFECTO, type AvisoVencimiento, type Umbrales } from '../datos/vencimientos';
 import { resumenVencimientos, vencimientos, type Ficha } from '../vencimientos/modeloVencimientos';
 import { VencimientosDialogo } from '../vencimientos/VencimientosDialogo';
@@ -138,6 +140,12 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
     () => (datos ? documentosPendientes(datos.pendientes, datos.libro, (it) => impuestosQueAplican(it, datos.config, datos.conceptos)) : []),
     [datos],
   );
+  const hojaComprobante = useVistaComprobante(datos?.libro ?? []);
+  const retencionesImp = useMemo(() => (datos?.libro ? datos.libro.map(deRetencionPracticada) : []), [datos?.libro]);
+  const onComprobanteImp = useCallback((id: string) => {
+    const r = datos?.libro.find((x) => x.id === id);
+    if (r) void hojaComprobante.abrir(r);
+  }, [datos?.libro, hojaComprobante]);
 
   return (
     <main className="page ret-v8">
@@ -148,7 +156,7 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
           <p>{DESCRIPCION[sec]}</p>
         </div>
         <div className="cabeza-acciones">
-          {import.meta.env.DEV ? datos && <CabeceraLocal impuestos={impuestos} vencimientos={botonVenc} /> : botonVenc}
+          {import.meta.env.DEV ? datos && <CabeceraLocal impuestos={impuestos} vencimientos={botonVenc} retenciones={retencionesImp} onComprobante={onComprobanteImp} /> : botonVenc}
           {onParametros && <button type="button" className="btn btn-ghost" onClick={onParametros}>⚙ Parámetros</button>}
           <nav className="view-toggle" aria-label="Pantallas del módulo">
             <button type="button" aria-current={sec === 'pendientes' ? 'page' : undefined} onClick={() => setSec('pendientes')}>
@@ -210,6 +218,7 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
       {xmlPeriodo && datos && <DialogoXmlIslr libro={datos.libro} periodoInicial={xmlPeriodo} onCerrar={() => setXmlPeriodo(null)} />}
 
       {datos && sec === 'reportes' && <Reportes libro={datos.libro} />}
+      {hojaComprobante.vista}
     </main>
   );
 }

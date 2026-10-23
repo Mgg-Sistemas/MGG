@@ -14,6 +14,7 @@ import type { ReactNode } from 'react';
 import { nombreImpuesto } from './pendientesPorDocumento';
 import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
 import { BotonPendientesImpresion } from '../impresion/PendientesImpresion';
+import type { RetencionImpresion } from '../impresion/listaPendientesImpresion';
 
 const MARCA = 'Requiere la base de Retenciones (paquete 2.1)';
 
@@ -29,7 +30,17 @@ export function BotonVencimientos({ n, rojo, onAbrir }: { n: number; rojo: boole
 }
 
 /** Lo de la cabecera que espera a la base: en local, deshabilitado y marcado. Con `vencimientos`, ese botón ya funciona. */
-export function CabeceraLocal({ impuestos, vencimientos }: { impuestos: string[]; vencimientos?: ReactNode }) {
+export function CabeceraLocal({
+  impuestos,
+  vencimientos,
+  retenciones,
+  onComprobante,
+}: {
+  impuestos: string[];
+  vencimientos?: ReactNode;
+  retenciones?: RetencionImpresion[];
+  onComprobante?: (id: string) => void;
+}) {
   const nombres = impuestos.map(nombreImpuesto);
   return (
     <>
@@ -40,7 +51,7 @@ export function CabeceraLocal({ impuestos, vencimientos }: { impuestos: string[]
           {lista(nombres)} {nombres.length > 1 ? 'conviven' : 'convive'} con otro sistema
         </button><MarcaPaquete21 /></span>
       )}
-      <BotonPendientesImpresion />
+      <BotonPendientesImpresion retenciones={retenciones} onComprobante={onComprobante} />
     </>
   );
 }
