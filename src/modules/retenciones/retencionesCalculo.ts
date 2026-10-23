@@ -331,20 +331,29 @@ export function comprobanteValido(v: string | null | undefined): boolean {
 
 /* ───────────────────────── Resumen ───────────────────────── */
 
-export interface FilaResumen { tipo: TipoImpuesto; monto: number; anulada?: boolean }
+export interface FilaResumen {
+  tipo: TipoImpuesto;
+  monto: number;
+  anulada?: boolean;
+  tipoDocumento?: string | null;
+}
 
-/** Totales por impuesto, sin contar las anuladas. */
+/** Totales por impuesto, sin contar las anuladas. Las notas de crédito restan contablemente. */
 export function totalesPorImpuesto(filas: FilaResumen[]): Record<TipoImpuesto, number> {
   const out = { iva: 0, islr: 0, municipal: 0, regional: 0, igtf: 0 } as Record<TipoImpuesto, number>;
   for (const f of filas) {
     if (f.anulada) continue;
-    out[f.tipo] = r2(out[f.tipo] + n0(f.monto));
+    const factor = f.tipoDocumento === 'nota_credito' ? -1 : 1;
+    out[f.tipo] = r2(out[f.tipo] + n0(f.monto) * factor);
   }
   return out;
 }
 
 export function totalRetenido(filas: FilaResumen[]): number {
-  return r2(filas.filter((f) => !f.anulada).reduce((a, f) => a + n0(f.monto), 0));
+  return r2(filas.filter((f) => !f.anulada).reduce((a, f) => {
+    const factor = f.tipoDocumento === 'nota_credito' ? -1 : 1;
+    return a + n0(f.monto) * factor;
+  }, 0));
 }
 
 /* ═══════════════ La dirección: quién retuvo a quién ═══════════════
@@ -394,6 +403,7 @@ export interface FilaLibro {
   estado?: EstadoRetencion;
   monto: number;
   anulada?: boolean;
+  tipoDocumento?: string | null;
 }
 
 export interface ResumenLibro {
@@ -414,13 +424,15 @@ export interface ResumenLibro {
 /**
  * Los cuatro números de la cabecera del libro. Las anuladas no suman en
  * ninguno: un comprobante anulado no es crédito ni es deuda.
+ * Las notas de crédito restan contablemente de la deuda o anticipo.
  */
 export function resumenLibro(filas: FilaLibro[]): ResumenLibro {
   const out: ResumenLibro = { aFavor: 0, igtfPagado: 0, porEnterar: 0, enterado: 0, registros: 0, anulados: 0 };
   for (const f of filas) {
     if (f.anulada) { out.anulados += 1; continue; }
     out.registros += 1;
-    const m = n0(f.monto);
+    const factor = f.tipoDocumento === 'nota_credito' ? -1 : 1;
+    const m = n0(f.monto) * factor;
     if (f.tipo === 'igtf') { out.igtfPagado = r2(out.igtfPagado + m); continue; }
     if (f.direccion === 'recibida') { out.aFavor = r2(out.aFavor + m); continue; }
     if (f.estado === 'declarada') out.enterado = r2(out.enterado + m);

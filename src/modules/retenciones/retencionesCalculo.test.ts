@@ -206,6 +206,15 @@ describe('resumen del período', () => {
   it('el total tampoco cuenta las anuladas', () => {
     expect(totalRetenido(filas)).toBe(2300);
   });
+
+  it('las notas de crédito restan contablemente del total por impuesto y general', () => {
+    const conNc = [
+      ...filas,
+      { tipo: 'iva' as const, monto: 50, tipoDocumento: 'nota_credito' },
+    ];
+    expect(totalesPorImpuesto(conNc).iva).toBe(150);
+    expect(totalRetenido(conNc)).toBe(2250);
+  });
 });
 
 describe('el libro tiene dos direcciones', () => {
@@ -243,6 +252,19 @@ describe('el libro tiene dos direcciones', () => {
     expect(r.registros).toBe(5);
     expect(r.anulados).toBe(1);
     expect(r.aFavor).not.toBe(1800 + 9999);
+  });
+
+  it('las notas de crédito restan de porEnterar o de aFavor en el resumen del libro', () => {
+    const conNc = [
+      ...filas,
+      // Una nota de crédito practicada que resta 100 de lo retenido por enterar
+      { tipo: 'islr' as const, direccion: 'practicada' as const, estado: 'registrada' as const, monto: 100, tipoDocumento: 'nota_credito' },
+      // Una nota de crédito recibida que resta 200 de lo retenido a favor
+      { tipo: 'iva' as const, direccion: 'recibida' as const, monto: 200, tipoDocumento: 'nota_credito' },
+    ];
+    const r = resumenLibro(conNc);
+    expect(r.porEnterar).toBe(400); // 500 - 100
+    expect(r.aFavor).toBe(1600); // 1800 - 200
   });
 
   it('el mismo monto significa cosas opuestas según quién retuvo', () => {
