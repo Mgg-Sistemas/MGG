@@ -146,7 +146,15 @@ export function SurtidorMovilView() {
     return () => { cancel = true; };
   }, [reloadBase]);
   useEffect(() => { void reloadMovs(selId).catch(() => {}); }, [selId, reloadMovs]);
-  useRealtime(['combustible_tanques', 'combustible_tanque_movimientos', 'combustible_adjuntos', 'combustible_sedes'], () => {
+  useRealtime([
+    'combustible_tanques',
+    'combustible_tanque_movimientos',
+    'combustible_adjuntos',
+    'combustible_sedes',
+    'maquinaria_lecturas',
+    'maquinaria_equipos',
+    'maquinaria_mantenimientos',
+  ], () => {
     void reloadBase().catch(() => {});
     void reloadMovs(selId).catch(() => {});
   });

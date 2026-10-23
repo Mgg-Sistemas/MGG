@@ -20,7 +20,7 @@ import type {
 import { createProducto, listProductos, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { claveEquipo } from './equipoVinculo';
-import { hiEncadenado } from './horometro';
+import { hiEncadenado, resolverHorometroVigente } from './horometro';
 import { errorSurtido } from './saldoTanque';
 
 /** Categoría y unidad con que se da de alta cada combustible en el inventario. */
@@ -1053,68 +1053,173 @@ export async function listTanqueMovimientos(filtros?: { tanqueId?: string; tipo?
   return (data ?? []) as TanqueMovimiento[];
 }
 
-/** Último horómetro final registrado para un equipo (para precargar el HI del próximo movimiento). */
+/**
+ * Último horómetro final registrado para un equipo (para precargar el HI del próximo movimiento).
+ * Sincronizado bidireccionalmente con el módulo de Maquinaria (lecturas, mantenimientos y correcciones).
+ */
 export async function ultimoHorometroEquipo(equipo: string): Promise<number | null> {
   const e = equipo.trim();
   if (!e) return null;
-  // Se compara por CLAVE NORMALIZADA, igual que el resto del cruce. `ilike` cubria
-  // las mayusculas pero no los acentos («Camion NHR») y ademas trataba % y _ del
-  // nombre como comodines, que puede traer el horometro de OTRO equipo.
   const clave = claveEquipo(e);
-  const { data, error } = await supabase
+
+  // 1. Movimiento en Combustible
+  const reqComb = supabase
     .from('combustible_tanque_movimientos')
     .select('equipo, horometro_final')
     .not('horometro_final', 'is', null)
     .order('fecha', { ascending: false });
-  if (error) return null;
-  const fila = ((data ?? []) as Array<{ equipo: string | null; horometro_final: number | null }>)
-    .find((r) => claveEquipo(r.equipo) === clave);
-  return fila?.horometro_final != null ? Number(fila.horometro_final) : null;
+
+  // 2. Lectura vigente consolidada en Maquinaria
+  const reqMaqVig = supabase.rpc('maquinaria_lecturas_vigentes');
+  const reqEquipos = supabase.from('maquinaria_equipos').select('id, equipo, combustible_equipo');
+
+  const [resComb, resMaqVig, resEq] = await Promise.allSettled([reqComb, reqMaqVig, reqEquipos]);
+
+  let combHoro: number | null = null;
+  if (resComb.status === 'fulfilled' && !resComb.value.error) {
+    const fila = ((resComb.value.data ?? []) as Array<{ equipo: string | null; horometro_final: number | null }>)
+      .find((r) => claveEquipo(r.equipo) === clave);
+    if (fila?.horometro_final != null) combHoro = Number(fila.horometro_final);
+  }
+
+  let maqHoro: number | null = null;
+  let esCorreccion = false;
+
+  if (resEq.status === 'fulfilled' && !resEq.value.error) {
+    const equipos = (resEq.value.data ?? []) as Array<{ id: string; equipo: string; combustible_equipo: string | null }>;
+    const eqMatch = equipos.find((x) => claveEquipo(x.combustible_equipo) === clave || claveEquipo(x.equipo) === clave);
+    if (eqMatch) {
+      if (resMaqVig.status === 'fulfilled' && !resMaqVig.value.error) {
+        const vigList = (resMaqVig.value.data ?? []) as Array<{ equipo_id: string; horometro: number | null }>;
+        const v = vigList.find((x) => x.equipo_id === eqMatch.id);
+        if (v?.horometro != null) maqHoro = Number(v.horometro);
+      }
+      // Revisar si la última lectura registrada en maquinaria_lecturas es una corrección o lectura más nueva
+      try {
+        const { data: ultLec } = await supabase
+          .from('maquinaria_lecturas')
+          .select('horometro, es_correccion, fecha')
+          .eq('equipo_id', eqMatch.id)
+          .not('horometro', 'is', null)
+          .order('fecha', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (ultLec?.horometro != null) {
+          if (ultLec.es_correccion) {
+            esCorreccion = true;
+            maqHoro = Number(ultLec.horometro);
+          } else if (maqHoro == null || Number(ultLec.horometro) > maqHoro) {
+            maqHoro = Number(ultLec.horometro);
+          }
+        }
+      } catch {
+        // Ignorar fallas silenciosas en la tabla opcional
+      }
+    }
+  }
+
+  return resolverHorometroVigente(combHoro, maqHoro, esCorreccion);
 }
 
 /**
- * Horómetro VIGENTE de cada equipo (último HF registrado), en un solo viaje.
- * Devuelve Map<nombreEquipo, horómetro>. Lo usa Control de Maquinaria para
- * mostrar las HRS restantes hasta el próximo mantenimiento de cada equipo.
+ * Horómetro VIGENTE de cada equipo (último HF registrado o lectura de Maquinaria), en un solo viaje.
+ * Devuelve Map<nombreEquipo, horómetro>. Lo usa Control de Maquinaria y Combustible para
+ * sincronizar las horas entre módulos.
  */
 export async function horometrosVigentesPorEquipo(): Promise<Map<string, number>> {
-  const { data, error } = await supabase
+  const reqComb = supabase
     .from('combustible_tanque_movimientos')
     .select('equipo, horometro_final, fecha')
     .not('horometro_final', 'is', null)
     .order('fecha', { ascending: false });
-  if (error) throw error;
-  // La clave va NORMALIZADA (sin acentos ni mayúsculas): el nombre se teclea a mano en
-  // los movimientos y cualquier diferencia de formato rompía el cruce con Maquinaria.
+
+  const reqMaqVig = supabase.rpc('maquinaria_lecturas_vigentes');
+  const reqEquipos = supabase.from('maquinaria_equipos').select('id, equipo, combustible_equipo');
+
+  const [resComb, resMaqVig, resEq] = await Promise.allSettled([reqComb, reqMaqVig, reqEquipos]);
+
   const out = new Map<string, number>();
-  for (const r of (data ?? []) as Array<{ equipo: string | null; horometro_final: number | null }>) {
-    const eq = claveEquipo(r.equipo);
-    if (!eq || r.horometro_final == null) continue;
-    if (!out.has(eq)) out.set(eq, Number(r.horometro_final)); // orden desc por fecha: el primero es el vigente
+
+  if (resComb.status === 'fulfilled' && !resComb.value.error) {
+    for (const r of (resComb.value.data ?? []) as Array<{ equipo: string | null; horometro_final: number | null }>) {
+      const eq = claveEquipo(r.equipo);
+      if (!eq || r.horometro_final == null) continue;
+      if (!out.has(eq)) out.set(eq, Number(r.horometro_final));
+    }
   }
+
+  if (resEq.status === 'fulfilled' && !resEq.value.error && resMaqVig.status === 'fulfilled' && !resMaqVig.value.error) {
+    const equipos = (resEq.value.data ?? []) as Array<{ id: string; equipo: string; combustible_equipo: string | null }>;
+    const vigList = (resMaqVig.value.data ?? []) as Array<{ equipo_id: string; horometro: number | null }>;
+    const vigPorId = new Map(vigList.filter((v) => v.horometro != null).map((v) => [v.equipo_id, Number(v.horometro)]));
+
+    for (const eq of equipos) {
+      const hMaq = vigPorId.get(eq.id);
+      if (hMaq == null) continue;
+      const claves = [claveEquipo(eq.combustible_equipo), claveEquipo(eq.equipo)].filter(Boolean);
+      for (const c of claves) {
+        const previo = out.get(c);
+        out.set(c, resolverHorometroVigente(previo, hMaq) ?? hMaq);
+      }
+    }
+  }
+
   return out;
 }
 
 /**
- * Kilometraje VIGENTE de cada equipo (último km registrado en Combustible), en un
- * solo viaje. Map<nombreEquipo, km>. Lo usa Control de Maquinaria para las alertas
- * de mantenimiento por kilometraje.
+ * Kilometraje VIGENTE de cada equipo (sincronizado entre Combustible y Maquinaria).
+ * Map<nombreEquipo, km>.
  */
 export async function kilometrajesVigentesPorEquipo(): Promise<Map<string, number>> {
-  const { data, error } = await supabase
+  const reqComb = supabase
     .from('combustible_tanque_movimientos')
     .select('equipo, kilometraje_final, fecha')
     .not('kilometraje_final', 'is', null)
     .order('fecha', { ascending: false });
-  if (error) throw error;
+
+  const reqMaqVig = supabase.rpc('maquinaria_lecturas_vigentes');
+  const reqEquipos = supabase.from('maquinaria_equipos').select('id, equipo, combustible_equipo');
+
+  const [resComb, resMaqVig, resEq] = await Promise.allSettled([reqComb, reqMaqVig, reqEquipos]);
+
   const out = new Map<string, number>();
-  for (const r of (data ?? []) as Array<{ equipo: string | null; kilometraje_final: number | null }>) {
-    const eq = claveEquipo(r.equipo);
-    if (!eq || r.kilometraje_final == null) continue;
-    if (!out.has(eq)) out.set(eq, Number(r.kilometraje_final)); // desc por fecha: el primero es el vigente
+
+  if (resComb.status === 'fulfilled' && !resComb.value.error) {
+    for (const r of (resComb.value.data ?? []) as Array<{ equipo: string | null; kilometraje_final: number | null }>) {
+      const eq = claveEquipo(r.equipo);
+      if (!eq || r.kilometraje_final == null) continue;
+      if (!out.has(eq)) out.set(eq, Number(r.kilometraje_final));
+    }
   }
+
+  if (resEq.status === 'fulfilled' && !resEq.value.error && resMaqVig.status === 'fulfilled' && !resMaqVig.value.error) {
+    const equipos = (resEq.value.data ?? []) as Array<{ id: string; equipo: string; combustible_equipo: string | null }>;
+    const vigList = (resMaqVig.value.data ?? []) as Array<{ equipo_id: string; kilometraje: number | null }>;
+    const vigPorId = new Map(vigList.filter((v) => v.kilometraje != null).map((v) => [v.equipo_id, Number(v.kilometraje)]));
+
+    for (const eq of equipos) {
+      const kmMaq = vigPorId.get(eq.id);
+      if (kmMaq == null) continue;
+      const claves = [claveEquipo(eq.combustible_equipo), claveEquipo(eq.equipo)].filter(Boolean);
+      for (const c of claves) {
+        const previo = out.get(c);
+        out.set(c, resolverHorometroVigente(previo, kmMaq) ?? kmMaq);
+      }
+    }
+  }
+
   return out;
 }
+
+/** Último kilometraje registrado para un equipo (Combustible / Maquinaria). */
+export async function ultimoKilometrajeEquipo(equipo: string): Promise<number | null> {
+  const e = equipo.trim();
+  if (!e) return null;
+  const mapa = await kilometrajesVigentesPorEquipo();
+  return mapa.get(claveEquipo(e)) ?? null;
+}
+
 
 /** Último contador global (totalizador del surtidor) registrado para un tanque. */
 export async function ultimoContadorTanque(tanqueId: string): Promise<number | null> {

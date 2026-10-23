@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { errorHorometro, hiEncadenado, horasTrabajadas, leerMedidor, textoHorometro } from './horometro';
+import { errorHorometro, hiEncadenado, horasTrabajadas, leerMedidor, resolverHorometroVigente, textoHorometro } from './horometro';
 
 describe('leerMedidor', () => {
   it('toma el número tecleado, con coma o con punto', () => {
@@ -90,3 +90,24 @@ describe('hiEncadenado · el HF anterior es el HI del próximo (al guardar)', ()
     expect(hiEncadenado(null, null)).toBeNull();
   });
 });
+
+describe('resolverHorometroVigente · sincronización Combustible y Maquinaria', () => {
+  it('toma la mayor lectura si ambas son normales (monótono creciente)', () => {
+    expect(resolverHorometroVigente(1000, 1050)).toBe(1050);
+    expect(resolverHorometroVigente(1200, 1050)).toBe(1200);
+  });
+
+  it('respeta corrección explícita desde Maquinaria aunque sea menor', () => {
+    expect(resolverHorometroVigente(1200, 950, true)).toBe(950);
+  });
+
+  it('si solo uno tiene valor toma ese', () => {
+    expect(resolverHorometroVigente(null, 1050)).toBe(1050);
+    expect(resolverHorometroVigente(1200, null)).toBe(1200);
+  });
+
+  it('si ninguno tiene valor devuelve null', () => {
+    expect(resolverHorometroVigente(null, null)).toBeNull();
+  });
+});
+
