@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion } from './retencionesCalculo';
 import type { RetencionPracticada } from './retencionesFiscal.repository';
-import { partesComprobante } from './comprobanteRetencionPdf';
+import { cadenaCanonicoFiscal, calcularSha256Hex, generarQrVerificacion, partesComprobante } from './comprobanteRetencionPdf';
 
 const empresa: ConfigRetencion = {
   ...CONFIG_RETENCION_DEFECTO,
@@ -60,5 +60,30 @@ describe('comprobante de retención · quién es el agente y quién el sujeto', 
       contraparteSujeto: 'pn_residente',
     }), empresa);
     expect(practicada.sujeto).toContain('Persona natural residente');
+  });
+
+  it('genera la cadena canónica fiscal para verificación SENIAT (PA 0084 y 0093)', () => {
+    const r = retencion({
+      tipo: 'iva',
+      numeroComprobante: '20261000000001',
+      contraparteRif: 'J-12345678-9',
+      facturaNumero: 'FAC-001',
+      facturaFecha: '2026-10-05',
+      baseImponible: 1000,
+      montoRetenido: 120,
+      moneda: 'Bs',
+    });
+    const canonico = cadenaCanonicoFiscal(r, empresa);
+    expect(canonico).toBe('SENIAT|RET|IVA|J-50221930-7|20261000000001|2026-10-05|J-12345678-9|FACT:FAC-001|Bs|1000.00|120.00|VALIDA');
+  });
+
+  it('calcula la huella digital SHA-256 en hexadecimal', async () => {
+    const hash = await calcularSha256Hex('SENIAT|TEST');
+    expect(hash).toMatch(/^[0-9a-f]{16,64}$/);
+  });
+
+  it('genera el DataURL del código QR de verificación fiscal', async () => {
+    const qr = await generarQrVerificacion('SENIAT|VALIDACION|QR');
+    expect(qr).toMatch(/^data:image\/png;base64,/);
   });
 });

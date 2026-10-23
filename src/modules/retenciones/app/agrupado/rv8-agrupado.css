@@ -1,0 +1,25 @@
+/* ============================================================
+   MGG · Retenciones v8 · Comprobante agrupado y reabrir
+   Traslado de la maqueta: .rep-doc del dlg-agrupado (v8, l. 1563) y
+   .v8-rb-estados, .v8-rb-efectos, .v8-rb-cambia, .alerta-fuerte, .alerta-media
+   y .alerta-ok de v8-15. Con las variables del tema.
+   ============================================================ */
+.rv8-ag-sub { margin: 0 0 .4rem; font-size: .85rem; color: var(--text-muted); }
+.rv8-ag-nota { margin: .4rem 0; font-size: .8rem; color: var(--text-muted); }
+.rv8-ag-doc { border: 1px solid var(--border); border-radius: var(--r-sm, 6px); padding: .6rem .7rem; margin: .5rem 0; }
+.rv8-ag-doc h3 { margin: 0 0 .3rem; font-size: .95rem; }
+.rv8-ag-doc p { margin: 0 0 .5rem; font-size: .8rem; color: var(--text-muted); }
+.rv8-ag-scroll { overflow-x: auto; }
+.rv8-ag-doc table, .rv8-rb-t { width: 100%; border-collapse: collapse; font-size: .8rem; }
+.rv8-ag-doc th, .rv8-ag-doc td, .rv8-rb-t th, .rv8-rb-t td { padding: .25rem .4rem; border-bottom: 1px solid var(--border); text-align: left; }
+.rv8-ag-doc .n, .rv8-rb-t .n { text-align: right; font-variant-numeric: tabular-nums; }
+.rv8-ag-doc tr.tot td { font-weight: 700; border-top: 2px solid var(--border-strong, var(--border)); }
+.rv8-ag-error { margin: .4rem 0 0; font-size: .8rem; color: var(--danger, var(--warning)); }
+.rv8-rb-estados, .rv8-rb-efectos { margin: .3rem 0 .6rem; padding-left: 1.1rem; font-size: .82rem; }
+.rv8-rb-estados li, .rv8-rb-efectos li { margin: .15rem 0; }
+.rv8-rb-campo { display: flex; flex-direction: column; gap: .35rem; }
+.rv8-rb-campo > span { font-size: .78rem; color: var(--text-muted); font-weight: 600; }
+.rv8-rb-cambia td { color: var(--warning); font-weight: 600; }
+.rv8-rb-fuerte { margin: .5rem 0; padding: .5rem .7rem; border: 1px solid var(--danger, var(--warning)); border-radius: var(--r-sm, 6px); font-size: .84rem; }
+.rv8-rb-media { margin: .5rem 0; padding: .4rem .6rem; border-left: 3px solid var(--warning); font-size: .82rem; }
+.rv8-rb-ok { margin: .5rem 0; padding: .4rem .6rem; border-left: 3px solid var(--success, var(--info)); font-size: .82rem; }

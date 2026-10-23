@@ -1,0 +1,86 @@
+/* ============================================================
+   MGG · Retenciones v8 · Cabecera y Período en curso
+   Las reglas de la maqueta v8 (su <style> y v8-estilos.css), con el prefijo
+   rv8- en cada clase, los colores del tema (theme.css) y sin selectores
+   globales. Generada con docs/cuaderno/disenos → css_rv8.py; las reglas
+   propias del módulo van al final.
+   ============================================================ */
+.rv8-mini { min-height: 28px; padding: .1rem .55rem; font-size: .74rem; font-weight: 600; border-radius: var(--r-sm); border: 1px solid var(--border-strong); background: transparent; color: var(--text-muted); cursor: pointer; }
+.rv8-mini:hover { color: var(--text); border-color: var(--text-muted); }
+.rv8-huella { font-size: .74rem; color: var(--text-dim); }
+@media (max-width: 640px) {
+  .rv8-mini { min-height: 36px; }
+}
+.rv8-badge-n { display: inline-block; min-width: 20px; padding: 0 .4rem; border-radius: 999px; background: color-mix(in srgb, var(--danger) 20%, transparent); color: color-mix(in srgb, var(--danger) 65%, var(--text)); font-size: .72rem; text-align: center; }
+.rv8-badge-n:empty { display: none; }
+.rv8-periodos-curso { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .6rem; margin-bottom: 1rem; }
+.rv8-chip-impresion { display: inline-flex; align-items: center; gap: .35rem; }
+.rv8-badge-alerta { display: inline-block; min-width: 1.4rem; padding: 0 .35rem; border-radius: 999px; background: color-mix(in srgb, var(--warning) 20%, transparent); color: color-mix(in srgb, var(--warning) 60%, var(--text)); font-size: .72rem; font-weight: 700; text-align: center; }
+@media (max-width: 640px) {
+  .rv8-periodos-curso { grid-template-columns: 1fr; gap: .4rem; }
+}
+.rv8-huella { color: var(--text-muted); }
+@media (max-width: 640px), (pointer: coarse) {
+  .rv8-mini { min-height: 40px; padding: .3rem .7rem; }
+}
+.rv8-periodos-curso { display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; margin-bottom: .8rem; grid-template-columns: none; }
+.rv8-badge-alerta.rv8-rojo { background: color-mix(in srgb, var(--danger) 25%, transparent); color: color-mix(in srgb, var(--danger) 40%, var(--text)); }
+.rv8-v8-quien { display: block; font-size: .7rem; color: var(--text-muted); font-weight: 400; line-height: 1.3; }
+@media print {
+  .rv8-v8-quien { display: none !important; }
+}
+.rv8-v8-curso { display: flex; align-items: center; gap: .6rem; height: 52px; padding: 0 .6rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); overflow: hidden; }
+.rv8-v8-curso-venc { flex: 0 0 auto; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-width: 64px; height: 40px; border-radius: var(--r-sm); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-muted); cursor: pointer; font: inherit; line-height: 1.05; }
+.rv8-v8-curso-venc b { font-size: .95rem; }
+.rv8-v8-curso-venc span { font-size: .66rem; }
+.rv8-v8-curso-venc.rv8-rojo { border-color: color-mix(in srgb, var(--danger) 60%, transparent); background: color-mix(in srgb, var(--danger) 14%, transparent); color: color-mix(in srgb, var(--danger) 40%, var(--text)); }
+.rv8-v8-curso-t { flex: 0 0 auto; font-size: .74rem; color: var(--text-muted); }
+.rv8-v8-curso-lista { flex: 1 1 auto; display: flex; gap: .4rem; margin: 0; padding: 0 1.2rem 0 0; list-style: none; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; scrollbar-width: thin; -webkit-mask-image: linear-gradient(to right, var(--bg-0) calc(100% - 28px), transparent); mask-image: linear-gradient(to right, var(--bg-0) calc(100% - 28px), transparent); }
+.rv8-v8-curso-chip { flex: 0 0 auto; scroll-snap-align: start; display: inline-flex; align-items: center; gap: .35rem; height: 34px; padding: 0 .6rem; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface-2); font-size: .78rem; white-space: nowrap; }
+.rv8-v8-curso-chip span { color: var(--text-muted); }
+.rv8-v8-curso-chip.rv8-pronto { border-color: color-mix(in srgb, var(--warning) 60%, transparent); }
+.rv8-v8-curso-chip.rv8-pendiente { border-style: dashed; }
+.rv8-v8-curso-chip .rv8-previo { color: color-mix(in srgb, var(--warning) 60%, var(--text)); }
+.rv8-v8-curso-chip .rv8-v8-quien { display: inline; }
+.rv8-v8-curso-todos { flex: 0 0 auto; height: 34px; padding: 0 .7rem; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: transparent; color: var(--primary-2); cursor: pointer; font: inherit; font-size: .78rem; }
+@media (max-width: 640px) {
+  .rv8-v8-curso-t { display: none; }
+  .rv8-v8-curso { padding: 0 .4rem; gap: .4rem; }
+}
+.rv8-v8-curso.rv8-abierto { height: auto; min-height: 52px; align-items: flex-start; padding-top: 8px; padding-bottom: 8px; }
+.rv8-v8-curso.rv8-abierto .rv8-v8-curso-lista { flex-wrap: wrap; overflow: visible; -webkit-mask-image: none; mask-image: none; padding-right: 0; }
+.rv8-v8-curso.rv8-abierto .rv8-v8-curso-t { line-height: 34px; }
+.rv8-v8-curso-todos:focus-visible { outline: 2px solid var(--primary-2); outline-offset: 2px; }
+.rv8-v8-convive { font-size: .76rem; color: var(--text-muted); border-style: dashed; }
+.rv8-v8-quien { display: block; font-size: .7rem; color: var(--text-muted); font-weight: 400; line-height: 1.3; }
+@media print {
+  .rv8-v8-quien { display: none !important; }
+}
+.rv8-v8-curso { display: flex; align-items: center; gap: .6rem; height: 52px; padding: 0 .6rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); overflow: hidden; }
+.rv8-v8-curso-venc { flex: 0 0 auto; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; min-width: 64px; height: 40px; border-radius: var(--r-sm); border: 1px solid var(--border-strong); background: var(--surface-2); color: var(--text-muted); cursor: pointer; font: inherit; line-height: 1.05; }
+.rv8-v8-curso-venc b { font-size: .95rem; }
+.rv8-v8-curso-venc span { font-size: .66rem; }
+.rv8-v8-curso-venc.rv8-rojo { border-color: color-mix(in srgb, var(--danger) 60%, transparent); background: color-mix(in srgb, var(--danger) 14%, transparent); color: color-mix(in srgb, var(--danger) 40%, var(--text)); }
+.rv8-v8-curso-t { flex: 0 0 auto; font-size: .74rem; color: var(--text-muted); }
+.rv8-v8-curso-lista { flex: 1 1 auto; display: flex; gap: .4rem; margin: 0; padding: 0 1.2rem 0 0; list-style: none; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x proximity; scrollbar-width: thin; -webkit-mask-image: linear-gradient(to right, var(--bg-0) calc(100% - 28px), transparent); mask-image: linear-gradient(to right, var(--bg-0) calc(100% - 28px), transparent); }
+.rv8-v8-curso-chip { flex: 0 0 auto; scroll-snap-align: start; display: inline-flex; align-items: center; gap: .35rem; height: 34px; padding: 0 .6rem; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface-2); font-size: .78rem; white-space: nowrap; }
+.rv8-v8-curso-chip span { color: var(--text-muted); }
+.rv8-v8-curso-chip.rv8-pronto { border-color: color-mix(in srgb, var(--warning) 60%, transparent); }
+.rv8-v8-curso-chip.rv8-pendiente { border-style: dashed; }
+.rv8-v8-curso-chip .rv8-previo { color: color-mix(in srgb, var(--warning) 60%, var(--text)); }
+.rv8-v8-curso-chip .rv8-v8-quien { display: inline; }
+.rv8-v8-curso-todos { flex: 0 0 auto; height: 34px; padding: 0 .7rem; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: transparent; color: var(--primary-2); cursor: pointer; font: inherit; font-size: .78rem; }
+@media (max-width: 640px) {
+  .rv8-v8-curso-t { display: none; }
+  .rv8-v8-curso { padding: 0 .4rem; gap: .4rem; }
+}
+.rv8-v8-curso.rv8-abierto { height: auto; min-height: 52px; align-items: flex-start; padding-top: 8px; padding-bottom: 8px; }
+.rv8-v8-curso.rv8-abierto .rv8-v8-curso-lista { flex-wrap: wrap; overflow: visible; -webkit-mask-image: none; mask-image: none; padding-right: 0; }
+.rv8-v8-curso.rv8-abierto .rv8-v8-curso-t { line-height: 34px; }
+.rv8-v8-curso-todos:focus-visible { outline: 2px solid var(--primary-2); outline-offset: 2px; }
+.rv8-v8-convive { font-size: .76rem; color: var(--text-muted); border-style: dashed; }
+
+/* Propias del módulo */
+/* Lo que espera a la base de Retenciones (paquete 2.1): solo en local, deshabilitado, con borde de puntos y su title */
+.rv8-requiere-base { border-style: dashed; opacity: .55; cursor: not-allowed; white-space: nowrap; }
+.rv8-aviso-local { margin: 0 0 .6rem; }

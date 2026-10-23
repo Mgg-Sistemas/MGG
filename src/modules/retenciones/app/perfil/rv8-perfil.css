@@ -1,0 +1,47 @@
+/* ============================================================
+   MGG · Retenciones v8 · El perfil fiscal del proveedor
+   Traslado de la maqueta: .v8-tabs y .v8-pf-ctrl (v8-estilos.css, l. 400-409),
+   .v8-res y .v8-categoria (l. 261-263), .v8-falta (l. 218), .v7-fs
+   (v7-estilos.css, l. 263-264), la ficha y la nota del diálogo. Con las
+   variables del tema. El diálogo va por portal: las clases son propias.
+   ============================================================ */
+.rv8-pf-tabs { display: flex; gap: .2rem; border-bottom: 1px solid var(--border); margin: -.2rem 0 .8rem; }
+.rv8-pf-tabs [role="tab"] {
+  background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-muted);
+  padding: .55rem .8rem; font: inherit; font-size: .86rem; cursor: pointer; min-height: 44px;
+}
+.rv8-pf-tabs [role="tab"][aria-selected="true"] { color: var(--text); border-bottom-color: var(--primary); font-weight: 600; }
+.rv8-pf-tabs [role="tab"]:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-radius: 4px; }
+.rv8-pf { display: flex; flex-direction: column; gap: .75rem; }
+.rv8-pf-nota { font-size: .8rem; color: var(--text-muted); margin: 0; }
+.rv8-pf-nota.alerta { color: var(--warning); }
+.rv8-pf-ficha { display: grid; grid-template-columns: max-content 1fr; gap: .25rem .8rem; margin: 0; font-size: .85rem; }
+.rv8-pf-ficha dt { color: var(--text-muted); }
+.rv8-pf-ficha dd { margin: 0; }
+.rv8-pf-ficha .enlace { grid-column: 1 / -1; font-size: .8rem; }
+.rv8-pf-campo { display: flex; flex-direction: column; gap: .35rem; }
+.rv8-pf-campo > span { font-size: .78rem; color: var(--text-muted); font-weight: 600; }
+.rv8-pf-fs { border: 1px solid var(--border); border-radius: var(--r-sm, 6px); padding: .4rem .6rem; display: flex; gap: .4rem 1rem; flex-wrap: wrap; font-size: .82rem; margin: 0; }
+.rv8-pf-fs legend { color: var(--text-muted); font-size: .76rem; padding: 0 .3rem; }
+.rv8-pf-categoria { font-size: .85rem; color: var(--text); margin: 0; }
+.rv8-pf-falta { color: var(--warning); font-size: .78rem; }
+.rv8-pf-caja { border: 1px solid var(--border); border-radius: var(--r-sm, 6px); padding: .6rem .7rem; display: flex; flex-direction: column; gap: .5rem; }
+.rv8-pf-fila { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: flex-end; }
+.rv8-pf-huella { color: var(--text-muted); font-size: .78rem; margin: 0; }
+.rv8-pf-historial { margin: 0; padding-left: 1.1rem; font-size: .78rem; color: var(--text-muted); }
+.rv8-pf-ctrl { display: flex; flex-wrap: wrap; gap: .6rem 1rem; margin-bottom: .4rem; }
+@media (max-width: 640px) {
+  .rv8-pf-ficha { grid-template-columns: 1fr; }
+  .rv8-pf-fila > * { flex: 1 1 100%; }
+}
+/* Las actividades (v7-estilos.css: .actividades-perfil y .act) y el estado de la licencia (.v7-lic-estado, sus pills) */
+.rv8-pf-acts { display: flex; flex-direction: column; gap: .3rem; }
+.rv8-pf-act { display: grid; grid-template-columns: max-content 1fr max-content; gap: .6rem; align-items: center; font-size: .82rem; border-bottom: 1px solid var(--border); padding: .2rem 0; }
+.rv8-pf-act.vencida { color: var(--text-muted); }
+.rv8-pf-estado { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: .74rem; font-weight: 600; border: 1px solid var(--border); }
+.rv8-pf-estado.e-vencida { color: var(--danger, var(--warning)); border-color: currentColor; }
+.rv8-pf-estado.e-por_vencer { color: var(--warning); border-color: currentColor; }
+.rv8-pf-estado.e-al_dia { color: var(--success, var(--info)); border-color: currentColor; }
+@media (max-width: 640px) {
+  .rv8-pf-act { grid-template-columns: 1fr; }
+}

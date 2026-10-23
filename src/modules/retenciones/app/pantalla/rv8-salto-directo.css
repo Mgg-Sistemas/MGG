@@ -1,0 +1,8 @@
+/* El salto directo a un N° (maqueta v8-estilos.css:149-150 y :427-428), con las variables del tema */
+.rv8-directo {
+  display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; justify-content: space-between; margin: .4rem 0;
+  padding: .55rem .75rem; border: 1px solid var(--primary); border-radius: var(--r-md, 8px);
+  background: var(--grad-primary-soft, var(--surface-2, var(--surface))); font-size: .85rem;
+}
+.rv8-directo.vacio { border-color: var(--border-strong, var(--border)); background: var(--surface-2, var(--surface)); }
+.rv8-directo-opc { display: flex; flex-wrap: wrap; gap: .4rem; }
