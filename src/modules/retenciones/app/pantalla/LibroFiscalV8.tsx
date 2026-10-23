@@ -23,6 +23,7 @@ import { BarraLista } from './BarraLista';
 import { Paginador } from './Paginador';
 import { BotonTxtIva } from './TxtIva';
 import { BotonXmlIslr } from './XmlIslr';
+import { BotonArcIslr } from './ArcIslr';
 import { BarraImprimirLista } from './BarraImprimirLista';
 import { SaltoDirecto } from './SaltoDirecto';
 import { nombreImpuesto } from './pendientesPorDocumento';
@@ -84,6 +85,7 @@ export function LibroFiscalV8({ libro, onAnular, onAdjuntar, onRegistrarRecibida
       <BarraImprimirLista filas={xs}>
         <BotonTxtIva libro={libro} />
         <BotonXmlIslr libro={libro} />
+        <BotonArcIslr libro={libro} />
       </BarraImprimirLista>
       <div className="lista-sis v8-libro">
         <div className="fila-sis cab">

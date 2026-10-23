@@ -16,7 +16,6 @@ import './rv8-txt.css';
 
 export function BotonXmlIslr({ libro }: { libro: readonly RetencionPracticada[] }) {
   const [abierto, setAbierto] = useState(false);
-  if (!import.meta.env.DEV) return null;
   return (
     <>
       <button type="button" className="btn btn-ghost" onClick={() => setAbierto(true)}>

@@ -29,12 +29,9 @@ export function MarcaSinCotejar() {
 
 export function BotonTxtIva({ libro }: { libro: readonly RetencionPracticada[] }) {
   const [abierto, setAbierto] = useState(false);
-  if (!import.meta.env.DEV) return null;
   return (
     <>
-      <span className="rv8-con-marca">
-        <button type="button" className="btn btn-ghost" onClick={() => setAbierto(true)}>⬇ TXT del IVA</button><MarcaSinCotejar />
-      </span>
+      <button type="button" className="btn btn-ghost" onClick={() => setAbierto(true)}>⬇ TXT del IVA</button>
       {abierto && <DialogoTxt libro={libro} onCerrar={() => setAbierto(false)} />}
     </>
   );
