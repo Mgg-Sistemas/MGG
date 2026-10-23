@@ -20,6 +20,7 @@ import { GraficaProveedor } from '../pantalla/reportes/GraficaProveedor';
 import { serieProveedor } from '../pantalla/reportes/analisis';
 import type { Grano } from '../pantalla/reportes/cruzada';
 import { nombreImpuesto } from '../pantalla/pendientesPorDocumento';
+import { DialogoArcIslr } from '../pantalla/ArcIslr';
 import {
   ATAJOS_PERFIL, NOTA_INACTIVO, NOTA_LECTURA, NOTA_PERFIL, NOTA_PROPUESTA, SIN_ACTIVIDAD_MUNICIPIO, SIN_CATEGORIA, TIPOS_CONTRIBUYENTE,
   borradorDe, huellaPerfil, partesDePersona, personaDe, rangoPerfil, sugerenciaRif, textoCategoria, textoLicenciaHistorial, validarPerfil,
@@ -296,9 +297,12 @@ function PestanaRetenciones({ proveedor, libro, onAbrirReportes }: { proveedor: 
   const [atajo, setAtajo] = useState<AtajoPerfil>('ultimos_12');
   const [grano, setGrano] = useState<Grano>('mes');
   const [moneda, setMoneda] = useState('Bs');
+  const [verArc, setVerArc] = useState(false);
   const [desde, hasta] = rangoPerfil(atajo, new Date());
   const tipos = useMemo(() => [...new Set(libro.map((r) => r.tipo as string))], [libro]);
   const serie = useMemo(() => serieProveedor(libro, proveedor.id, { desde, hasta, grano, moneda, tipos }), [libro, proveedor.id, desde, hasta, grano, moneda, tipos]);
+  const tieneIslr = useMemo(() => libro.some((r) => r.tipo === 'islr' && r.direccion === 'practicada' && !r.anulada && (r.contraparteId === proveedor.id || r.contraparteRif === proveedor.rif)), [libro, proveedor]);
+
   return (
     <div className="rv8-pf" id="pf-panel-ret" role="tabpanel" aria-labelledby="pf-tab-ret">
       <div className="rv8-pf-ctrl">
@@ -320,7 +324,15 @@ function PestanaRetenciones({ proveedor, libro, onAbrirReportes }: { proveedor: 
       </div>
       <p className="rv8-pf-huella">Retenciones practicadas a este proveedor, sin anuladas, por la fecha de la factura, en {moneda === 'USD' ? '$' : 'Bs'}{tipos.length ? ` (${tipos.map(nombreImpuesto).join(', ')})` : ''}.</p>
       <GraficaProveedor id={`perfil-${proveedor.id}`} moneda={moneda} serie={serie} />
-      {onAbrirReportes && <p><button type="button" className="btn btn-ghost" onClick={() => onAbrirReportes([desde, hasta])}>Abrir en Reportes (Retenido por proveedor y período)</button></p>}
+      <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', marginTop: '.6rem' }}>
+        {tieneIslr && (
+          <button type="button" className="btn btn-ghost" onClick={() => setVerArc(true)} title="Emitir comprobante anual ARC de ISLR según Art. 24 Decreto 1.808">
+            📄 Comprobante ARC (ISLR)
+          </button>
+        )}
+        {onAbrirReportes && <button type="button" className="btn btn-ghost" onClick={() => onAbrirReportes([desde, hasta])}>Abrir en Reportes (Retenido por proveedor y período)</button>}
+      </div>
+      {verArc && <DialogoArcIslr libro={libro} proveedorRifInicial={proveedor.rif} onCerrar={() => setVerArc(false)} />}
     </div>
   );
 }
