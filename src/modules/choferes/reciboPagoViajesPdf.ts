@@ -313,7 +313,7 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.6);
     doc.setTextColor(70, 80, 95);
-    const textoConformidad = `Certifico haber recibido a mi entera satisfacción la cantidad de ${usd(g.totalGeneral)} (dólares de los Estados Unidos de América) en concepto de liquidación de ${totalViajesChofer} viaje(s) realizados durante el período indicado (${periodoTxt}), no quedando pendiente ninguna diferencia económica por este concepto. Firmo en señal de plena conformidad.`;
+    const textoConformidad = `Certifico haber recibido a mi entera satisfacción la cantidad de ${usd(g.totalGeneral)} en concepto de liquidación de ${totalViajesChofer} viaje(s) realizados durante el período indicado (${periodoTxt}), no quedando pendiente ninguna diferencia económica por este concepto. Firmo en señal de plena conformidad.`;
     const confLines = doc.splitTextToSize(textoConformidad, CONTENT_W) as string[];
     doc.text(confLines, MARGIN, y);
 
