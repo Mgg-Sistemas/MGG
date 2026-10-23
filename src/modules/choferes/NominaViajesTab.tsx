@@ -35,6 +35,23 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
   const [choferModal, setChoferModal] = useState('');
   const [guardandoPago, setGuardandoPago] = useState(false);
 
+  // Conductores desplegados (por defecto sin mostrar los detalles)
+  const [desplegados, setDesplegados] = useState<Record<string, boolean>>({});
+
+  const toggleDesplegar = (id: string) => {
+    setDesplegados((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const desplegarTodos = () => {
+    const todos: Record<string, boolean> = {};
+    gruposPorChofer.forEach((g) => { todos[g.choferId] = true; });
+    setDesplegados(todos);
+  };
+
+  const colapsarTodos = () => {
+    setDesplegados({});
+  };
+
   const porId = useMemo(() => new Map(conductores.map((c) => [c.id, c])), [conductores]);
   const vehPorId = useMemo(() => new Map(flota.map((v) => [v.id, v])), [flota]);
   const pagosMap = useMemo(() => new Map(pagos.map((p) => [p.id, p])), [pagos]);
@@ -277,6 +294,16 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
           )}
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+            {gruposPorChofer.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-ghost"
+                onClick={Object.values(desplegados).filter(Boolean).length === gruposPorChofer.length ? colapsarTodos : desplegarTodos}
+                title="Desplegar u ocultar los viajes de todos los conductores"
+              >
+                {Object.values(desplegados).filter(Boolean).length === gruposPorChofer.length ? '▴ Colapsar todos' : '▾ Desplegar todos'}
+              </button>
+            )}
             {canWrite && (
               <button className="btn btn-sm btn-primary" onClick={() => {
                 setFechaCorteModal(fechaHasta || new Date().toISOString().slice(0, 10));
@@ -302,91 +329,134 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
       )}
 
       {/* ── Formato visual idéntico a la planilla física ── */}
-      {!loading && gruposPorChofer.map((g) => (
-        <div key={g.choferId} className="card" style={{ padding: 0, marginBottom: '1.2rem', overflow: 'hidden', border: '1px solid var(--border)' }}>
-          {/* Cabecera del conductor */}
-          <div style={{ background: '#182b49', color: '#fff', padding: '.6rem .9rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
-            <div>
-              <strong style={{ fontSize: '.95rem', letterSpacing: '.03em' }}>{g.nombre.toUpperCase()}</strong>
-              <span style={{ marginLeft: '.6rem', fontSize: '.8rem', opacity: .85 }}>NÓMINA FIJA: <strong>{g.nominaFija}</strong></span>
-            </div>
-            <div className="mono" style={{ fontSize: '.88rem' }}>
-              {g.filas.length} registro(s) · {g.filas.reduce((a, f) => a + f.viajes, 0)} viajes
-            </div>
-          </div>
+      {!loading && gruposPorChofer.map((g) => {
+        const abierto = !!desplegados[g.choferId];
+        const totalViajesChofer = g.filas.reduce((a, f) => a + f.viajes, 0);
 
-          <div className="table-wrap">
-            <table className="table" style={{ fontSize: '.84rem', margin: 0 }}>
-              <thead>
-                <tr style={{ background: '#243a5e', color: '#fff' }}>
-                  <th style={{ width: 85, color: '#fff' }}>FECHA</th>
-                  <th style={{ color: '#fff' }}>NOMBRE Y APELLIDO</th>
-                  <th style={{ width: 95, color: '#fff' }}>NÓMINA FIJA</th>
-                  <th style={{ width: 95, color: '#fff' }}>VEHÍCULO</th>
-                  <th style={{ color: '#fff' }}>EQUIPOS / MOVIMIENTOS</th>
-                  <th style={{ color: '#fff' }}>PROVIENE</th>
-                  <th style={{ color: '#fff' }}>DESTINO</th>
-                  <th style={{ textAlign: 'center', width: 65, color: '#fff' }}>VIAJES</th>
-                  <th style={{ textAlign: 'right', width: 80, color: '#fff' }}>MONTO</th>
-                  <th style={{ textAlign: 'right', width: 95, color: '#fff' }}>TOTAL A PAGAR</th>
-                  <th style={{ width: 140, color: '#fff' }}>OBSERVACIONES</th>
-                  <th style={{ textAlign: 'center', width: 110, color: '#fff' }}>ESTADO PAGO</th>
-                </tr>
-              </thead>
-              <tbody>
-                {g.filas.map((f, idx) => (
-                  <tr key={idx} style={{ background: f.pagado ? 'rgba(40, 150, 90, 0.04)' : undefined }}>
-                    <td className="mono" style={{ whiteSpace: 'nowrap' }}>{fmtDate(f.fecha)}</td>
-                    <td style={{ fontWeight: 600 }}>{f.nombre}</td>
-                    <td className="muted">{f.nominaFija}</td>
-                    <td className="mono">{f.vehiculo}</td>
-                    <td>{f.movimiento}</td>
-                    <td className="muted">{f.proviene}</td>
-                    <td className="muted">{f.destino}</td>
-                    <td className="mono" style={{ textAlign: 'center', fontWeight: 700 }}>{f.viajes}</td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{money(f.monto)}</td>
-                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary)' }}>{money(f.totalPagar)}</td>
-                    <td>
-                      <span className={`badge ${f.observaciones === 'VIAJE INTERNO' ? 'warning' : f.observaciones === 'VIAJE LARGO' ? 'info' : 'primary'}`}>
-                        {f.observaciones}
-                      </span>
-                    </td>
-                    <td style={{ textAlign: 'center' }}>
-                      {f.pagado ? (
-                        <span className="badge success" title={`Pagado el ${f.fechaPago ? fmtDate(f.fechaPago) : ''}`}>
-                          ✅ Pagado{f.fechaPago ? ` (${f.fechaPago.slice(8, 10)}/${f.fechaPago.slice(5, 7)})` : ''}
-                        </span>
-                      ) : (
-                        <span className="badge warning">⏳ Por pagar</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              {/* Celda dorada/naranja idéntica a la planilla física */}
-              <tfoot>
-                <tr style={{ background: '#162232', borderTop: '2px solid rgba(255, 138, 0, 0.45)' }}>
-                  <td colSpan={7} style={{ textAlign: 'right', fontWeight: 700, textTransform: 'uppercase', fontSize: '.82rem', letterSpacing: '.05em', color: 'var(--text-muted)' }}>
-                    TOTAL A PAGAR {g.nombre.toUpperCase()}
-                  </td>
-                  <td className="mono" style={{ textAlign: 'center', fontWeight: 800, fontSize: '.92rem', color: 'var(--text)' }}>
-                    {g.filas.reduce((a, f) => a + f.viajes, 0)}
-                  </td>
-                  <td></td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary)' }}>
-                    {money(g.totalGeneral)}
-                  </td>
-                  <td colSpan={2} style={{ fontSize: '.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                    <span>Pagado: <strong className="mono" style={{ color: 'var(--text)' }}>{money(g.totalPagado)}</strong></span>
-                    <span style={{ margin: '0 .45rem', opacity: .4 }}>·</span>
-                    <span>Pendiente: <strong className="mono" style={{ color: g.totalPendiente > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(g.totalPendiente)}</strong></span>
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
+        return (
+          <div key={g.choferId} className="card" style={{ padding: 0, marginBottom: '1rem', overflow: 'hidden', border: '1px solid var(--border)' }}>
+            {/* Cabecera del conductor (desplegable) */}
+            <div
+              onClick={() => toggleDesplegar(g.choferId)}
+              style={{
+                background: '#182b49',
+                color: '#fff',
+                padding: '.65rem .95rem',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '.6rem',
+                cursor: 'pointer',
+                userSelect: 'none',
+              }}
+              title={abierto ? 'Clic para ocultar detalles de viajes' : 'Clic para desplegar detalles de viajes'}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '.85rem', color: 'var(--primary)', display: 'inline-block', transform: abierto ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}>
+                  ▶
+                </span>
+                <strong style={{ fontSize: '.95rem', letterSpacing: '.03em' }}>{g.nombre.toUpperCase()}</strong>
+                <span style={{ fontSize: '.76rem', background: 'rgba(255,255,255,0.12)', padding: '.15rem .5rem', borderRadius: '4px' }}>
+                  NÓMINA FIJA: <strong>{g.nominaFija}</strong>
+                </span>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.9rem', flexWrap: 'wrap' }}>
+                <span className="mono" style={{ fontSize: '.84rem', opacity: .9 }}>
+                  {totalViajesChofer} viajes · {g.filas.length} reg.
+                </span>
+                <span className="mono" style={{ fontSize: '.88rem', color: 'var(--primary)', fontWeight: 700 }}>
+                  Total: {money(g.totalGeneral)}
+                </span>
+                <span className="mono" style={{ fontSize: '.84rem', color: g.totalPendiente > 0 ? '#ff7b7b' : '#69db7c' }}>
+                  Pendiente: {money(g.totalPendiente)}
+                </span>
+                <span
+                  className="btn btn-xs btn-ghost"
+                  style={{ color: '#fff', border: '1px solid rgba(255,255,255,0.25)', pointerEvents: 'none' }}
+                >
+                  {abierto ? 'Ocultar viajes ▴' : 'Ver viajes ▾'}
+                </span>
+              </div>
+            </div>
+
+            {/* Detalles de los viajes (solo al desplegar) */}
+            {abierto && (
+              <div className="table-wrap">
+                <table className="table" style={{ fontSize: '.84rem', margin: 0 }}>
+                  <thead>
+                    <tr style={{ background: '#243a5e', color: '#fff' }}>
+                      <th style={{ width: 85, color: '#fff' }}>FECHA</th>
+                      <th style={{ color: '#fff' }}>NOMBRE Y APELLIDO</th>
+                      <th style={{ width: 95, color: '#fff' }}>NÓMINA FIJA</th>
+                      <th style={{ width: 95, color: '#fff' }}>VEHÍCULO</th>
+                      <th style={{ color: '#fff' }}>EQUIPOS / MOVIMIENTOS</th>
+                      <th style={{ color: '#fff' }}>PROVIENE</th>
+                      <th style={{ color: '#fff' }}>DESTINO</th>
+                      <th style={{ textAlign: 'center', width: 65, color: '#fff' }}>VIAJES</th>
+                      <th style={{ textAlign: 'right', width: 80, color: '#fff' }}>MONTO</th>
+                      <th style={{ textAlign: 'right', width: 95, color: '#fff' }}>TOTAL A PAGAR</th>
+                      <th style={{ width: 140, color: '#fff' }}>OBSERVACIONES</th>
+                      <th style={{ textAlign: 'center', width: 110, color: '#fff' }}>ESTADO PAGO</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {g.filas.map((f, idx) => (
+                      <tr key={idx} style={{ background: f.pagado ? 'rgba(40, 150, 90, 0.04)' : undefined }}>
+                        <td className="mono" style={{ whiteSpace: 'nowrap' }}>{fmtDate(f.fecha)}</td>
+                        <td style={{ fontWeight: 600 }}>{f.nombre}</td>
+                        <td className="muted">{f.nominaFija}</td>
+                        <td className="mono">{f.vehiculo}</td>
+                        <td>{f.movimiento}</td>
+                        <td className="muted">{f.proviene}</td>
+                        <td className="muted">{f.destino}</td>
+                        <td className="mono" style={{ textAlign: 'center', fontWeight: 700 }}>{f.viajes}</td>
+                        <td className="mono" style={{ textAlign: 'right' }}>{money(f.monto)}</td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary)' }}>{money(f.totalPagar)}</td>
+                        <td>
+                          <span className={`badge ${f.observaciones === 'VIAJE INTERNO' ? 'warning' : f.observaciones === 'VIAJE LARGO' ? 'info' : 'primary'}`}>
+                            {f.observaciones}
+                          </span>
+                        </td>
+                        <td style={{ textAlign: 'center' }}>
+                          {f.pagado ? (
+                            <span className="badge success" title={`Pagado el ${f.fechaPago ? fmtDate(f.fechaPago) : ''}`}>
+                              ✅ Pagado{f.fechaPago ? ` (${f.fechaPago.slice(8, 10)}/${f.fechaPago.slice(5, 7)})` : ''}
+                            </span>
+                          ) : (
+                            <span className="badge warning">⏳ Por pagar</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  {/* Celda dorada/naranja idéntica a la planilla física */}
+                  <tfoot>
+                    <tr style={{ background: '#162232', borderTop: '2px solid rgba(255, 138, 0, 0.45)' }}>
+                      <td colSpan={7} style={{ textAlign: 'right', fontWeight: 700, textTransform: 'uppercase', fontSize: '.82rem', letterSpacing: '.05em', color: 'var(--text-muted)' }}>
+                        TOTAL A PAGAR {g.nombre.toUpperCase()}
+                      </td>
+                      <td className="mono" style={{ textAlign: 'center', fontWeight: 800, fontSize: '.92rem', color: 'var(--text)' }}>
+                        {g.filas.reduce((a, f) => a + f.viajes, 0)}
+                      </td>
+                      <td></td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary)' }}>
+                        {money(g.totalGeneral)}
+                      </td>
+                      <td colSpan={2} style={{ fontSize: '.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                        <span>Pagado: <strong className="mono" style={{ color: 'var(--text)' }}>{money(g.totalPagado)}</strong></span>
+                        <span style={{ margin: '0 .45rem', opacity: .4 }}>·</span>
+                        <span>Pendiente: <strong className="mono" style={{ color: g.totalPendiente > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(g.totalPendiente)}</strong></span>
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {/* ── Modal Marcar Pagados hasta Fecha ── */}
       {modalPagarLote && (
