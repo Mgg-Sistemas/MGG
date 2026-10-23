@@ -481,6 +481,70 @@ export async function marcarViajesPagadosHastaFecha(opts: {
 }
 
 /**
+ * Marca como pagados viajes específicos por su lista de IDs.
+ */
+export async function marcarViajesPagadosPorIds(opts: {
+  viajeIds: string[];
+  fechaPago?: string; // YYYY-MM-DD
+  actor?: string;
+}): Promise<{ actualizados: number }> {
+  if (!opts.viajeIds.length) return { actualizados: 0 };
+  const fPago = (opts.fechaPago || new Date().toISOString()).slice(0, 10);
+  let count = 0;
+
+  for (const id of opts.viajeIds) {
+    const { data: v } = await supabase.from(T_VIAJES).select('id, nota, pagado_at').eq('id', id).single();
+    if (v) {
+      const nota = v.nota as string | null;
+      const matchPag = (nota ?? '').match(/\[PAGADO:\s*([^\]]+)\]/i);
+      const nuevaNota = matchPag ? (nota ?? '') : `${nota ? nota.trim() + ' ' : ''}[PAGADO: ${fPago}]`;
+      const updateData: Record<string, unknown> = { nota: nuevaNota, pagado_at: new Date(fPago).toISOString() };
+      try {
+        await supabase.from(T_VIAJES).update(updateData).eq('id', id);
+        count++;
+      } catch {
+        await supabase.from(T_VIAJES).update({ nota: nuevaNota }).eq('id', id);
+        count++;
+      }
+    }
+  }
+  return { actualizados: count };
+}
+
+/**
+ * Revierte el cierre de nómina de viajes (todos o los de un chofer específico).
+ */
+export async function revertirCierreNomina(opts?: {
+  choferId?: string;
+  viajeIds?: string[];
+}): Promise<{ actualizados: number }> {
+  let q = supabase.from(T_VIAJES).select('id, nota');
+  if (opts?.viajeIds && opts.viajeIds.length > 0) {
+    q = q.in('id', opts.viajeIds);
+  } else {
+    q = q.or('pagado_at.not.is.null,nota.ilike.%[PAGADO:%');
+    if (opts?.choferId) q = q.eq('chofer_id', opts.choferId);
+  }
+
+  const { data: viajes, error } = await q;
+  if (error) throw err(error, 'No se pudieron consultar los viajes para revertir pago.');
+  if (!viajes || !viajes.length) return { actualizados: 0 };
+
+  let count = 0;
+  for (const v of viajes) {
+    const notaLimpiada = (v.nota || '').replace(/\[PAGADO:\s*[^\]]+\]/gi, '').trim() || null;
+    try {
+      await supabase.from(T_VIAJES).update({ pagado_at: null, nota: notaLimpiada }).eq('id', v.id);
+      count++;
+    } catch {
+      await supabase.from(T_VIAJES).update({ nota: notaLimpiada }).eq('id', v.id);
+      count++;
+    }
+  }
+  return { actualizados: count };
+}
+
+/**
  * Desmarca el estado de pagado de viajes específicos para que vuelvan a quedar pendientes.
  */
 export async function desmarcarViajesPagados(viajeIds: string[]): Promise<void> {
@@ -497,6 +561,7 @@ export async function desmarcarViajesPagados(viajeIds: string[]): Promise<void> 
     }
   }
 }
+
 
 
 function errorEnRuta(e: { code?: string; message?: string }, respaldo: string): Error {
