@@ -365,19 +365,21 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
               </tbody>
               {/* Celda dorada/naranja idéntica a la planilla física */}
               <tfoot>
-                <tr style={{ background: '#faebd7', borderTop: '2px solid #e0c8a0' }}>
-                  <td colSpan={7} style={{ textAlign: 'right', fontWeight: 800, textTransform: 'uppercase', fontSize: '.84rem', letterSpacing: '.04em' }}>
+                <tr style={{ background: '#162232', borderTop: '2px solid rgba(255, 138, 0, 0.45)' }}>
+                  <td colSpan={7} style={{ textAlign: 'right', fontWeight: 700, textTransform: 'uppercase', fontSize: '.82rem', letterSpacing: '.05em', color: 'var(--text-muted)' }}>
                     TOTAL A PAGAR {g.nombre.toUpperCase()}
                   </td>
-                  <td className="mono" style={{ textAlign: 'center', fontWeight: 800 }}>
+                  <td className="mono" style={{ textAlign: 'center', fontWeight: 800, fontSize: '.92rem', color: 'var(--text)' }}>
                     {g.filas.reduce((a, f) => a + f.viajes, 0)}
                   </td>
                   <td></td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 800, fontSize: '1.05rem', background: '#e89c24', color: '#fff' }}>
+                  <td className="mono" style={{ textAlign: 'right', fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary)' }}>
                     {money(g.totalGeneral)}
                   </td>
-                  <td colSpan={2} style={{ fontSize: '.78rem', color: '#444' }}>
-                    Pagado: <strong>{money(g.totalPagado)}</strong> · Pendiente: <strong style={{ color: g.totalPendiente > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(g.totalPendiente)}</strong>
+                  <td colSpan={2} style={{ fontSize: '.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                    <span>Pagado: <strong className="mono" style={{ color: 'var(--text)' }}>{money(g.totalPagado)}</strong></span>
+                    <span style={{ margin: '0 .45rem', opacity: .4 }}>·</span>
+                    <span>Pendiente: <strong className="mono" style={{ color: g.totalPendiente > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(g.totalPendiente)}</strong></span>
                   </td>
                 </tr>
               </tfoot>
