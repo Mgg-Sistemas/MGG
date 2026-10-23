@@ -1030,21 +1030,12 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
               </div>
               <button
                 type="button"
-                className="btn btn-xs"
+                className="btn btn-xs btn-primary"
                 onClick={() => setMostrarDetalleViajesCierre(!mostrarDetalleViajesCierre)}
                 style={{
-                  background: 'linear-gradient(135deg, #ff8a00, #e05300)',
-                  color: '#fff',
-                  border: '1px solid #ff8a00',
                   fontWeight: 700,
                   fontSize: '.82rem',
                   padding: '.35rem .85rem',
-                  borderRadius: 'var(--r-sm, 6px)',
-                  boxShadow: '0 2px 8px rgba(255, 138, 0, 0.35)',
-                  cursor: 'pointer',
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '.4rem',
                 }}
               >
                 {mostrarDetalleViajesCierre ? '▴ Ocultar lista individual' : `👁 Ver / Seleccionar viajes individuales (${totalViajesALiquidar} de ${totalViajesCandidatos})`}
