@@ -471,19 +471,39 @@ export function categoriaDeViaje(
 export function infoPagoViaje(
   v: { pago_id?: string | null; pagado_at?: string | null; nota?: string | null },
   pagoMap?: Map<string, { pagado_at?: string | null; created_at: string }>,
-): { pagado: boolean; fechaPago: string | null } {
+): {
+  pagado: boolean;
+  fechaPago: string | null;
+  fechaCorteDesde: string | null;
+  fechaCorteHasta: string | null;
+} {
+  let pagado = false;
+  let fechaPago: string | null = null;
+  let fechaCorteDesde: string | null = null;
+  let fechaCorteHasta: string | null = null;
+
   if (v.pago_id) {
     const p = pagoMap?.get(v.pago_id);
-    return { pagado: true, fechaPago: p?.pagado_at ?? p?.created_at ?? null };
+    pagado = true;
+    fechaPago = p?.pagado_at ?? p?.created_at ?? null;
+  } else if (v.pagado_at) {
+    pagado = true;
+    fechaPago = v.pagado_at;
   }
-  if (v.pagado_at) {
-    return { pagado: true, fechaPago: v.pagado_at };
+
+  const matchPag = (v.nota ?? '').match(/\[PAGADO:\s*([^\]]+)\]/i);
+  if (matchPag) {
+    pagado = true;
+    if (!fechaPago) fechaPago = matchPag[1].trim();
   }
-  const match = (v.nota ?? '').match(/\[PAGADO:\s*([^\]]+)\]/i);
-  if (match) {
-    return { pagado: true, fechaPago: match[1].trim() };
+
+  const matchCorte = (v.nota ?? '').match(/\[CORTE:\s*([^\s\]]+)\s*(?:A|AL|-)\s*([^\]]+)\]/i);
+  if (matchCorte) {
+    fechaCorteDesde = matchCorte[1].trim();
+    fechaCorteHasta = matchCorte[2].trim();
   }
-  return { pagado: false, fechaPago: null };
+
+  return { pagado, fechaPago, fechaCorteDesde, fechaCorteHasta };
 }
 
 /**

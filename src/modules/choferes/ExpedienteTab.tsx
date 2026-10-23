@@ -18,6 +18,7 @@ import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { toast } from '@/shared/ui/Toast';
 import { money, date as fmtDate, formatoCI } from '@/shared/lib/format';
 import type { Personal } from '@/shared/lib/types';
+import { supabase } from '@/shared/lib/supabase';
 import { numeroFicha } from '@/modules/rrhh/fichaPersonal';
 import { crearVehiculo, editarVehiculo, eliminarVehiculo, type VehiculoInput } from '@/modules/asignaciones/vehiculos.repository';
 import { filtrarVehiculos, normalizarPlaca } from '@/modules/asignaciones/vehiculos';
@@ -149,7 +150,11 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
                     <tr key={c.id} style={{ opacity: c.activo ? 1 : .6 }}>
                       <td>
                         <strong>{nombreConductor(c)}</strong>{c.externo && <span className="badge" style={{ marginLeft: 6, fontSize: '.65rem' }} title="No está en nómina: pago externo por viaje">🧾 Externo</span>}
-                        <div className="muted" style={{ fontSize: '.75rem' }}>{[dc.cargo, dc.telefono].filter(Boolean).join(' · ')}</div>
+                        {(() => {
+                          const mVeh = (c.observaciones || '').match(/\[VEHICULO:\s*([^\]]+)\]/i);
+                          return mVeh ? <span className="badge" style={{ marginLeft: 6, fontSize: '.68rem', background: 'rgba(255,138,0,0.15)', color: 'var(--primary)', border: '1px solid rgba(255,138,0,0.3)' }} title="Vehículo habitual asignado">🚗 {mVeh[1].trim()}</span> : null;
+                        })()}
+                        <div className="muted" style={{ fontSize: '.75rem' }}>{[dc.cargo, dc.telefono, c.empresa_externa].filter(Boolean).join(' · ')}</div>
                       </td>
                       <td className="mono" style={{ fontSize: '.8rem' }}>{dc.cedula ? formatoCI(dc.cedula) : '—'}<div className="muted">{c.externo ? 'sin ficha' : numeroFicha(c.personal?.numero_ficha)}</div></td>
                       <td>
@@ -255,6 +260,11 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
     tarifa_interno_usd: tasasIniciales.interno,
     observaciones: observacionesSinTagsTasas(inicial?.observaciones),
   });
+  const vehiculoInicial = useMemo(() => {
+    const match = (inicial?.observaciones || '').match(/\[VEHICULO:\s*([^\]]+)\]/i);
+    return match ? match[1].trim() : '';
+  }, [inicial]);
+  const [placaVehiculoExterno, setPlacaVehiculoExterno] = useState(vehiculoInicial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -272,6 +282,34 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
     if (v.externo && !(v.nombre ?? '').trim()) { setError('Escribe el nombre del chofer externo.'); return; }
     setSaving(true);
     try {
+      if (v.externo && placaVehiculoExterno.trim()) {
+        const placaNorm = normalizarPlaca(placaVehiculoExterno);
+        if (placaNorm) {
+          try {
+            const { data: vExistente } = await supabase.from('vehiculos_catalogo').select('id, placa').ilike('placa', placaNorm).maybeSingle();
+            if (!vExistente) {
+              await crearVehiculo({
+                placa: placaNorm,
+                tipo: 'camion',
+                marca: 'EXTERNO',
+                modelo: v.empresa_externa || `${v.nombre} ${v.apellido || ''}`.trim() || 'CONTRATISTA',
+                notas: `Vehículo externo · Chofer: ${v.nombre} ${v.apellido || ''}`.trim(),
+                activo: true,
+                estado_flota: 'operativo',
+              }, actor);
+            }
+          } catch (errVeh) {
+            console.warn('Error registrando vehículo externo:', errVeh);
+          }
+
+          const obsLimpias = (v.observaciones || '').replace(/\[VEHICULO:\s*[^\]]+\]/gi, '').trim();
+          v.observaciones = `${obsLimpias ? obsLimpias + ' ' : ''}[VEHICULO: ${placaNorm}]`.trim();
+        }
+      } else if (v.externo && !placaVehiculoExterno.trim()) {
+        const obsLimpias = (v.observaciones || '').replace(/\[VEHICULO:\s*[^\]]+\]/gi, '').trim();
+        v.observaciones = obsLimpias || null;
+      }
+
       if (inicial) await editarConductor(inicial.id, v);
       else await crearConductor({ personal_id: v.externo ? null : personalId, ...v }, actor, actorName);
       toast(inicial ? 'Expediente guardado' : 'Expediente abierto', 'success');
@@ -315,6 +353,22 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
                 <input id="cond-tlf" className="input" value={v.telefono ?? ''} disabled={!canWrite} onChange={(e) => set('telefono', e.target.value)} placeholder="0414-0000000" /></div>
               <div className="form-row" style={{ gridColumn: '1 / -1' }}><label htmlFor="cond-emp">Empresa / contratista <span className="muted" style={{ fontWeight: 400 }}>· opcional</span></label>
                 <input id="cond-emp" className="input" value={v.empresa_externa ?? ''} disabled={!canWrite} onChange={(e) => set('empresa_externa', e.target.value)} placeholder="Transporte Mata, dueño de la volqueta…" /></div>
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                <label htmlFor="cond-veh-ext">
+                  🚗 Vehículo / Placa externa <span className="muted" style={{ fontWeight: 400 }}>· opcional (ej. A22CYOJ)</span>
+                </label>
+                <input
+                  id="cond-veh-ext"
+                  className="input mono"
+                  value={placaVehiculoExterno}
+                  disabled={!canWrite}
+                  onChange={(e) => setPlacaVehiculoExterno(e.target.value.toUpperCase())}
+                  placeholder="A22CYOJ"
+                />
+                <span className="muted" style={{ fontSize: '.75rem' }}>
+                  Al guardar, se registrará en el catálogo como vehículo externo y se propondrá automáticamente al asignarle viajes.
+                </span>
+              </div>
             </>
           ) : (
             <div className="form-row" style={{ gridColumn: '1 / -1' }}>
@@ -380,7 +434,24 @@ export function FlotaModal({ flota, canWrite, actor, hoy, onClose, onChanged, on
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Placa, marca, modelo, tipo…" style={{ flex: '1 1 240px' }} />
         <span className="muted" style={{ fontSize: '.8rem' }}>{visibles.length} de {flota.length} · compartida con Asignaciones</span>
-        {canWrite && <button className="btn btn-primary" onClick={() => setForm('nuevo')}>＋ Agregar vehículo</button>}
+        {canWrite && (
+          <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-primary" onClick={() => setForm('nuevo')}>＋ Agregar vehículo</button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ color: 'var(--primary)', borderColor: 'var(--primary)' }}
+              onClick={() => setForm({
+                id: '', placa: '', tipo: 'camion', marca: 'EXTERNO', modelo: '', anio: null, color: '',
+                serial_carroceria: '', serial_motor: '', notas: 'Vehículo externo', activo: true,
+                creado_por: actor, created_at: '', updated_at: '', estado_flota: 'operativo', seguro_vence: '', capacidad: '',
+              } as VehiculoFlota)}
+              title="Registrar un camión, chuto o vehículo externo de contratista"
+            >
+              ＋ Vehículo externo
+            </button>
+          </div>
+        )}
       </div>
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
@@ -389,9 +460,13 @@ export function FlotaModal({ flota, canWrite, actor, hoy, onClose, onChanged, on
             {!visibles.length && <tr><td colSpan={7}><EmptyState icon="🚚" message={flota.length ? 'Ningún vehículo coincide' : 'Todavía no hay vehículos en la flota'} /></td></tr>}
             {visibles.map((v) => {
               const ef = ESTADO_FLOTA[(v.estado_flota ?? 'operativo') as EstadoFlota];
+              const esExt = (v.notas || '').toLowerCase().includes('externo') || v.marca === 'EXTERNO';
               return (
                 <tr key={v.id} style={{ opacity: v.activo ? 1 : .55 }}>
-                  <td>{iconoFlota(v.tipo)} <strong>{[v.marca, v.modelo].filter(Boolean).join(' ') || labelTipoFlota(v.tipo)}</strong>{v.anio ? ` ${v.anio}` : ''}{v.color ? <span className="muted"> · {v.color}</span> : null}</td>
+                  <td>
+                    {iconoFlota(v.tipo)} <strong>{[v.marca, v.modelo].filter(Boolean).join(' ') || labelTipoFlota(v.tipo)}</strong>{v.anio ? ` ${v.anio}` : ''}{v.color ? <span className="muted"> · {v.color}</span> : null}
+                    {esExt && <span className="badge warning" style={{ marginLeft: 6, fontSize: '.68rem' }}>EXTERNO</span>}
+                  </td>
                   <td className="mono">{v.placa}</td>
                   <td>{labelTipoFlota(v.tipo)}</td>
                   <td>{v.capacidad ?? '—'}</td>
@@ -424,10 +499,13 @@ export function FlotaModal({ flota, canWrite, actor, hoy, onClose, onChanged, on
 }
 
 function VehiculoFormModal({ inicial, actor, onClose, onSaved }: { inicial: VehiculoFlota | null; actor: string; onClose: () => void; onSaved: () => void }) {
+  const [esExterno, setEsExterno] = useState(
+    inicial?.marca === 'EXTERNO' || (inicial?.notas || '').toLowerCase().includes('externo')
+  );
   const [v, setV] = useState<VehiculoInput>({
-    placa: inicial?.placa ?? '', tipo: inicial?.tipo ?? 'camion', marca: inicial?.marca ?? '', modelo: inicial?.modelo ?? '',
+    placa: inicial?.placa ?? '', tipo: inicial?.tipo ?? 'camion', marca: inicial?.marca ?? (esExterno ? 'EXTERNO' : ''), modelo: inicial?.modelo ?? '',
     anio: inicial?.anio ?? null, color: inicial?.color ?? '', serial_carroceria: inicial?.serial_carroceria ?? '', serial_motor: inicial?.serial_motor ?? '',
-    notas: inicial?.notas ?? '', activo: inicial?.activo ?? true,
+    notas: inicial?.notas ?? (esExterno ? 'Vehículo externo' : ''), activo: inicial?.activo ?? true,
     estado_flota: (inicial?.estado_flota ?? 'operativo') as EstadoFlota, seguro_vence: inicial?.seguro_vence ?? '', capacidad: inicial?.capacidad ?? '',
   });
   const [saving, setSaving] = useState(false);
@@ -437,14 +515,21 @@ function VehiculoFormModal({ inicial, actor, onClose, onSaved }: { inicial: Vehi
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null); setSaving(true);
     try {
-      if (inicial) await editarVehiculo(inicial.id, v); else await crearVehiculo(v, actor);
-      toast(inicial ? 'Vehículo guardado' : `Vehículo ${normalizarPlaca(v.placa)} agregado`, 'success');
+      const vehAEnviar = { ...v };
+      if (esExterno) {
+        if (!vehAEnviar.marca) vehAEnviar.marca = 'EXTERNO';
+        if (!vehAEnviar.notas?.toLowerCase().includes('externo')) {
+          vehAEnviar.notas = `${vehAEnviar.notas ? vehAEnviar.notas + ' ' : ''}Vehículo externo`.trim();
+        }
+      }
+      if (inicial?.id) await editarVehiculo(inicial.id, vehAEnviar); else await crearVehiculo(vehAEnviar, actor);
+      toast(inicial?.id ? 'Vehículo guardado' : `Vehículo ${normalizarPlaca(v.placa)} agregado`, 'success');
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }
   }
 
   return (
-    <Modal title={inicial ? `🚚 ${inicial.placa}` : '🚚 Nuevo vehículo'} size="md" onClose={() => !saving && onClose()} footer={
+    <Modal title={inicial?.id ? `🚚 ${inicial.placa}` : esExterno ? '🚚 Nuevo vehículo externo' : '🚚 Nuevo vehículo'} size="md" onClose={() => !saving && onClose()} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
         <button type="submit" form="veh-form" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button>
@@ -453,14 +538,31 @@ function VehiculoFormModal({ inicial, actor, onClose, onSaved }: { inicial: Vehi
       <form id="veh-form" onSubmit={guardar}>
         {error && <div className="aviso danger" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⛔</span><div>{error}</div></div>}
         <div className="form-grid">
+          <label style={{ display: 'flex', gap: '.4rem', alignItems: 'center', fontSize: '.88rem', gridColumn: '1 / -1', cursor: 'pointer', background: 'rgba(255,138,0,0.08)', padding: '.45rem .6rem', borderRadius: 6, border: '1px solid rgba(255,138,0,0.25)' }}>
+            <input
+              type="checkbox"
+              checked={esExterno}
+              onChange={(e) => {
+                const checked = e.target.checked;
+                setEsExterno(checked);
+                if (checked) {
+                  if (!v.marca) set('marca', 'EXTERNO');
+                  if (!v.notas?.toLowerCase().includes('externo')) {
+                    set('notas', `${v.notas ? v.notas + ' ' : ''}Vehículo externo`.trim());
+                  }
+                }
+              }}
+            />
+            <span><strong>🚚 Vehículo externo / Contratista</strong> <span className="muted">· no pertenece a la flota fija de MGG</span></span>
+          </label>
           <div className="form-row"><label htmlFor="veh-placa">Placa</label>
             <input id="veh-placa" className="input mono" value={v.placa} onChange={(e) => set('placa', e.target.value.toUpperCase())} required placeholder="A12BC3D" /></div>
           <div className="form-row"><label htmlFor="veh-tipo">Tipo</label>
             <select id="veh-tipo" className="select" value={v.tipo ?? 'camion'} onChange={(e) => set('tipo', e.target.value)}>
               {TIPOS_FLOTA.map((t) => <option key={t.key} value={t.key}>{t.icon} {t.label}</option>)}
             </select></div>
-          <div className="form-row"><label htmlFor="veh-marca">Marca</label><input id="veh-marca" className="input" value={v.marca ?? ''} onChange={(e) => set('marca', e.target.value)} placeholder="IVECO" /></div>
-          <div className="form-row"><label htmlFor="veh-modelo">Modelo</label><input id="veh-modelo" className="input" value={v.modelo ?? ''} onChange={(e) => set('modelo', e.target.value)} placeholder="TRAKKER 420" /></div>
+          <div className="form-row"><label htmlFor="veh-marca">Marca</label><input id="veh-marca" className="input" value={v.marca ?? ''} onChange={(e) => set('marca', e.target.value)} placeholder={esExterno ? 'EXTERNO' : 'IVECO'} /></div>
+          <div className="form-row"><label htmlFor="veh-modelo">Modelo / Contratista</label><input id="veh-modelo" className="input" value={v.modelo ?? ''} onChange={(e) => set('modelo', e.target.value)} placeholder={esExterno ? 'Transporte Mata / Batea' : 'TRAKKER 420'} /></div>
           <div className="form-row"><label htmlFor="veh-anio">Año</label>
             <input id="veh-anio" className="input" type="number" min={1950} max={2100} value={v.anio ?? ''} onChange={(e) => set('anio', e.target.value ? Number(e.target.value) : null)} /></div>
           <div className="form-row"><label htmlFor="veh-color">Color</label><input id="veh-color" className="input" value={v.color ?? ''} onChange={(e) => set('color', e.target.value)} /></div>

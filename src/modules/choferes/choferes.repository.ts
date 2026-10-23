@@ -488,10 +488,15 @@ export async function marcarViajesPagadosHastaFecha(opts: {
 export async function marcarViajesPagadosConCantidades(opts: {
   items: { viajeId: string; viajesAPagar: number }[];
   fechaPago?: string; // YYYY-MM-DD
+  fechaDesde?: string; // YYYY-MM-DD
+  fechaCorte?: string; // YYYY-MM-DD
   actor?: string;
 }): Promise<{ actualizados: number; divididos: number }> {
   if (!opts.items.length) return { actualizados: 0, divididos: 0 };
   const fPago = (opts.fechaPago || new Date().toISOString()).slice(0, 10);
+  const tagCorte = (opts.fechaDesde || opts.fechaCorte)
+    ? `[CORTE: ${opts.fechaDesde || 'INICIO'} A ${opts.fechaCorte || fPago}]`
+    : '';
   let count = 0;
   let divididos = 0;
 
@@ -504,7 +509,13 @@ export async function marcarViajesPagadosConCantidades(opts: {
     const viajesAPagar = Math.min(item.viajesAPagar, viajesOriginales);
     const nota = v.nota as string | null;
     const matchPag = (nota ?? '').match(/\[PAGADO:\s*([^\]]+)\]/i);
-    const nuevaNota = matchPag ? (nota ?? '') : `${nota ? nota.trim() + ' ' : ''}[PAGADO: ${fPago}]`;
+    let nuevaNota = nota ?? '';
+    if (!matchPag) {
+      const tags = [tagCorte, `[PAGADO: ${fPago}]`].filter(Boolean).join(' ');
+      nuevaNota = `${nuevaNota ? nuevaNota.trim() + ' ' : ''}${tags}`.trim();
+    } else if (tagCorte && !nuevaNota.includes('[CORTE:')) {
+      nuevaNota = `${tagCorte} ${nuevaNota}`.trim();
+    }
 
     if (viajesAPagar >= viajesOriginales) {
       // Liquidación total de la orden
@@ -535,8 +546,11 @@ export async function marcarViajesPagadosConCantidades(opts: {
         count++;
       }
 
-      // Crear registro de viajes pendientes restantes
-      const notaPendiente = (nota || '').replace(/\[PAGADO:\s*[^\]]+\]/gi, '').trim() || null;
+      // Crear registro de viajes pendientes restantes (limpiando marcas de corte y pago)
+      const notaPendiente = (nota || '')
+        .replace(/\[PAGADO:\s*[^\]]+\]/gi, '')
+        .replace(/\[CORTE:\s*[^\]]+\]/gi, '')
+        .trim() || null;
       const clon: Record<string, unknown> = {
         chofer_id: v.chofer_id,
         vehiculo_id: v.vehiculo_id,
@@ -624,7 +638,10 @@ export async function revertirCierreNomina(opts?: {
 
   let count = 0;
   for (const v of viajes) {
-    const notaLimpiada = (v.nota || '').replace(/\[PAGADO:\s*[^\]]+\]/gi, '').trim() || null;
+    const notaLimpiada = (v.nota || '')
+      .replace(/\[PAGADO:\s*[^\]]+\]/gi, '')
+      .replace(/\[CORTE:\s*[^\]]+\]/gi, '')
+      .trim() || null;
     try {
       await supabase.from(T_VIAJES).update({ pagado_at: null, nota: notaLimpiada }).eq('id', v.id);
       count++;
@@ -644,7 +661,10 @@ export async function desmarcarViajesPagados(viajeIds: string[]): Promise<void> 
   for (const id of viajeIds) {
     const { data: v } = await supabase.from(T_VIAJES).select('nota').eq('id', id).single();
     if (v) {
-      const notaLimpiada = (v.nota || '').replace(/\[PAGADO:\s*[^\]]+\]/gi, '').trim() || null;
+      const notaLimpiada = (v.nota || '')
+        .replace(/\[PAGADO:\s*[^\]]+\]/gi, '')
+        .replace(/\[CORTE:\s*[^\]]+\]/gi, '')
+        .trim() || null;
       try {
         await supabase.from(T_VIAJES).update({ pagado_at: null, nota: notaLimpiada }).eq('id', id);
       } catch {

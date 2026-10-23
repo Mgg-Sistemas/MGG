@@ -27,6 +27,8 @@ export interface FilaNominaViaje {
   observaciones: string;
   pagado: boolean;
   fechaPago: string | null;
+  fechaCorteDesde?: string | null;
+  fechaCorteHasta?: string | null;
   viaje?: any;
 }
 
@@ -38,6 +40,9 @@ export interface GrupoChoferNomina {
   totalGeneral: number;
   totalPagado: number;
   totalPendiente: number;
+  fechaCierre?: string | null;
+  fechaDesde?: string | null;
+  fechaHasta?: string | null;
 }
 
 const NARANJA: [number, number, number] = [217, 83, 30]; // #d9531e

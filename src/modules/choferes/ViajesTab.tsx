@@ -40,6 +40,8 @@ import {
   type Conductor, type VehiculoFlota, type Viaje, type ViajeInput,
 } from './choferes.repository';
 import { FlotaModal } from './ExpedienteTab';
+import { crearVehiculo } from '@/modules/asignaciones/vehiculos.repository';
+import { normalizarPlaca } from '@/modules/asignaciones/vehiculos';
 import { aDatetimeLocal, ahoraLocal, fechaHora, nombreConductor, textoVehiculo, type PropsTab } from './ChoferesPage';
 
 const normal = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -258,6 +260,46 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
     }
   }
 
+  async function seleccionarOCrearVehiculo(val: string) {
+    if (!val) {
+      setVehiculoId('');
+      return;
+    }
+    const existeId = flota.find((v) => v.id === val);
+    if (existeId) {
+      setVehiculoId(val);
+      return;
+    }
+
+    const placaNorm = normalizarPlaca(val);
+    if (!placaNorm) return;
+
+    const existePlaca = flota.find((v) => normalizarPlaca(v.placa) === placaNorm);
+    if (existePlaca) {
+      setVehiculoId(existePlaca.id);
+      return;
+    }
+
+    // Registrar vehículo externo automáticamente en el catálogo
+    try {
+      const nuevo = await crearVehiculo({
+        placa: placaNorm,
+        tipo: tipoV === 'volqueta' ? 'maquinaria' : 'camion',
+        marca: 'EXTERNO',
+        modelo: chofer?.empresa_externa || (chofer ? nombreConductor(chofer) : 'CONTRATISTA'),
+        notas: `Vehículo externo${chofer ? ` · Chofer: ${nombreConductor(chofer)}` : ''}`,
+        activo: true,
+        estado_flota: 'operativo',
+      }, actor);
+
+      flota.push(nuevo);
+      setVehiculoId(nuevo.id);
+      toast(`Vehículo externo ${placaNorm} registrado y asignado a la ruta`, 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo registrar el vehículo externo', 'error');
+    }
+  }
+
   // Al elegir chofer, la tarifa propuesta es la de su tasa configurada y clasifica de inmediato.
   function elegirChofer(id: string) {
     setChoferId(id);
@@ -270,6 +312,15 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
       } else {
         const cat = clasificarCategoriaPorTasa(tarifa, c);
         setCategoria(cat);
+      }
+      // Si el chofer tiene un vehículo externo habitual en sus observaciones (ej. [VEHICULO: A22CYOJ])
+      const matchVeh = (c.observaciones || '').match(/\[VEHICULO:\s*([^\]]+)\]/i);
+      if (matchVeh && !vehiculoId) {
+        const placaFav = normalizarPlaca(matchVeh[1]);
+        const vEnFlota = flota.find((v) => normalizarPlaca(v.placa) === placaFav);
+        if (vEnFlota) {
+          setVehiculoId(vEnFlota.id);
+        }
       }
     }
   }
@@ -369,10 +420,39 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
           <div className="form-row"><label htmlFor="vj-chofer">Chofer</label>
             <SearchSelect id="vj-chofer" value={choferId} onChange={elegirChofer} placeholder="🔍 Buscar chofer…"
               options={activos.map((c) => ({ value: c.id, label: nombreConductor(c), hint: [formatoCI(datosConductor(c).cedula), c.externo ? 'externo' : null, c.licencia_grado ? `Lic. ${c.licencia_grado}` : null].filter(Boolean).join(' · ') }))} /></div>
-          <div className="form-row"><label htmlFor="vj-veh">Vehículo</label>
+          <div className="form-row"><label htmlFor="vj-veh">Vehículo {chofer?.externo ? <span className="muted" style={{ fontWeight: 400 }}>· externo o flota</span> : null}</label>
             <div style={{ display: 'flex', gap: '.35rem' }}>
-              <SearchSelect id="vj-veh" value={vehiculoId} onChange={setVehiculoId} placeholder="🔍 Placa, marca, modelo…" style={{ flex: 1 }}
-                options={flota.filter((v) => v.activo && v.estado_flota !== 'inactivo' || v.id === vehiculoId).map((v) => ({ value: v.id, label: textoVehiculo(v), hint: v.capacidad ?? undefined }))} />
+              <SearchSelect
+                id="vj-veh"
+                value={vehiculoId}
+                onChange={(val) => void seleccionarOCrearVehiculo(val)}
+                placeholder="🔍 Placa, marca, modelo o escribe placa externa…"
+                allowCreate={true}
+                createLabel={(q) => `➕ Registrar vehículo externo «${normalizarPlaca(q)}»`}
+                style={{ flex: 1 }}
+                options={flota
+                  .filter((v) => (v.activo && v.estado_flota !== 'inactivo') || v.id === vehiculoId)
+                  .map((v) => {
+                    const esExt = (v.notas || '').toLowerCase().includes('externo') || v.marca === 'EXTERNO';
+                    return {
+                      value: v.id,
+                      label: `${esExt ? '🚚 [EXTERNO] ' : ''}${textoVehiculo(v)}`,
+                      hint: v.capacidad || (esExt ? 'Externo / Contratista' : undefined),
+                    };
+                  })}
+              />
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  const p = window.prompt('Ingrese la placa del vehículo externo (ej. A22CYOJ):');
+                  if (p) void seleccionarOCrearVehiculo(p);
+                }}
+                title="Cargar rápidamente un vehículo externo por placa"
+                style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}
+              >
+                ＋ Externo
+              </button>
               <button type="button" className="btn btn-ghost" onClick={() => setVerFlota(true)} title="Ver la flota / agregar vehículo">🚚</button>
             </div></div>
           <div className="form-row"><label htmlFor="vj-origen">Origen</label><input id="vj-origen" className="input" value={origen} onChange={(e) => setOrigen(e.target.value)} required placeholder={volq ? 'Playa Escondida' : 'Galpón Los Pinos'} /></div>

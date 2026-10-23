@@ -55,6 +55,7 @@ export function SearchSelect({
   id,
   disabled = false,
   allowCreate = false,
+  createLabel,
   sinPreseleccion = false,
 }: {
   options: SearchOption[];
@@ -67,6 +68,8 @@ export function SearchSelect({
   disabled?: boolean;
   /** Si true, permite escribir un valor que no está en la lista y crearlo (combobox creable). */
   allowCreate?: boolean;
+  /** Función opcional para formatear el texto de la opción de crear (ej. "+ Registrar vehículo externo") */
+  createLabel?: (query: string) => string;
   /**
    * Si true, al enfocar NO queda ninguna opción resaltada, así Enter no elige nada:
    * el evento burbujea y el formulario lo usa para pasar al campo siguiente.
@@ -207,7 +210,7 @@ export function SearchSelect({
                 borderBottom: filtered.length ? '1px solid var(--border, #2a3240)' : undefined,
               }}
             >
-              ➕ Usar «{queryTrim}»
+              {createLabel ? createLabel(queryTrim) : `➕ Usar «${queryTrim}»`}
             </div>
           )}
           {coincidencias.map(({ opcion: o, por }, i) => (

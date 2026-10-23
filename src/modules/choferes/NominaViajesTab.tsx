@@ -122,6 +122,8 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         observaciones: obs,
         pagado: infoPago.pagado,
         fechaPago: infoPago.fechaPago,
+        fechaCorteDesde: infoPago.fechaCorteDesde,
+        fechaCorteHasta: infoPago.fechaCorteHasta,
       };
     });
   }, [viajes, porId, vehPorId, pagosMap]);
@@ -162,6 +164,8 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         observaciones: f.observaciones,
         pagado: f.pagado,
         fechaPago: f.fechaPago,
+        fechaCorteDesde: f.fechaCorteDesde,
+        fechaCorteHasta: f.fechaCorteHasta,
         viaje: f.viaje,
       });
     }
@@ -172,6 +176,30 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
       const totalGeneral = rows.reduce((a, r) => a + r.totalPagar, 0);
       const totalPagado = rows.filter((r) => r.pagado).reduce((a, r) => a + r.totalPagar, 0);
       const totalPendiente = totalGeneral - totalPagado;
+
+      // Extraer datos del cierre si tiene viajes pagados
+      const filasPagadas = rows.filter((r) => r.pagado);
+      let fechaCierre: string | null = null;
+      let fechaDesde: string | null = null;
+      let fechaHasta: string | null = null;
+
+      if (filasPagadas.length > 0) {
+        const fechasPago = filasPagadas.map((r) => r.fechaPago).filter(Boolean) as string[];
+        if (fechasPago.length > 0) {
+          fechaCierre = [...fechasPago].sort().reverse()[0];
+        }
+
+        const conCorte = filasPagadas.find((r) => r.fechaCorteDesde && r.fechaCorteHasta);
+        if (conCorte && conCorte.fechaCorteDesde && conCorte.fechaCorteHasta) {
+          fechaDesde = conCorte.fechaCorteDesde;
+          fechaHasta = conCorte.fechaCorteHasta;
+        } else {
+          const fechasViajes = filasPagadas.map((r) => r.fecha).sort();
+          fechaDesde = fechasViajes[0];
+          fechaHasta = fechasViajes[fechasViajes.length - 1];
+        }
+      }
+
       out.push({
         choferId: cId,
         nombre: nombreConductor(c),
@@ -180,6 +208,9 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         totalGeneral,
         totalPagado,
         totalPendiente,
+        fechaCierre,
+        fechaDesde,
+        fechaHasta,
       });
     }
     return out.sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -520,10 +551,15 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
       const res = await marcarViajesPagadosConCantidades({
         items,
         fechaPago: fechaPagoModal,
+        fechaDesde: fechaDesdeModal || undefined,
+        fechaCorte: fechaCorteModal,
         actor: actorName || actor,
       });
       toast(`Cierre de nómina completado: se liquidaron ${totalViajesALiquidar} viaje(s) (${res.actualizados} registro(s))`, 'success');
       setModalPagarLote(false);
+      if (estadoPagoFiltro === 'pendientes') {
+        setEstadoPagoFiltro('');
+      }
       await recargar();
 
       // Al cerrar nómina, emitir el recibo de pago si se liquidaron viajes
@@ -771,6 +807,33 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                 <span style={{ fontSize: '.76rem', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', padding: '.15rem .5rem', borderRadius: '4px', color: '#cbd5e1' }}>
                   NÓMINA FIJA: <strong>{g.nominaFija}</strong>
                 </span>
+                {g.fechaCierre && (
+                  <span
+                    style={{
+                      fontSize: '.74rem',
+                      background: g.totalPendiente > 0 ? 'rgba(234, 179, 8, 0.15)' : 'rgba(34, 197, 94, 0.15)',
+                      border: g.totalPendiente > 0 ? '1px solid rgba(234, 179, 8, 0.35)' : '1px solid rgba(34, 197, 94, 0.35)',
+                      color: g.totalPendiente > 0 ? '#facc15' : '#4ade80',
+                      padding: '.15rem .55rem',
+                      borderRadius: '4px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '.45rem',
+                      fontWeight: 500,
+                    }}
+                    title={`${g.totalPendiente > 0 ? 'Cierre parcial' : 'Nómina cerrada'} el ${fmtDate(g.fechaCierre)}. Periodo: ${fmtDate(g.fechaDesde)} al ${fmtDate(g.fechaHasta)}`}
+                  >
+                    <span>🔒 Cierre: <strong>{fmtDate(g.fechaCierre)}</strong></span>
+                    {g.fechaDesde && g.fechaHasta && (
+                      <>
+                        <span style={{ opacity: 0.4 }}>|</span>
+                        <span>Inicio: <strong>{fmtDate(g.fechaDesde)}</strong></span>
+                        <span style={{ opacity: 0.4 }}>·</span>
+                        <span>Fin: <strong>{fmtDate(g.fechaHasta)}</strong></span>
+                      </>
+                    )}
+                  </span>
+                )}
               </div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '.85rem', flexWrap: 'wrap' }}>
@@ -816,6 +879,11 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                       <span>🚗 Vehículos utilizados ({listaVehiculos.length}): <strong className="mono" style={{ color: 'var(--text)' }}>{listaVehiculos.join(', ')}</strong></span>
                     ) : (
                       <span>🚗 Vehículo: <em>Sin vehículo registrado</em></span>
+                    )}
+                    {g.fechaCierre && (
+                      <span style={{ marginLeft: '.85rem', color: g.totalPendiente > 0 ? '#facc15' : '#4ade80' }}>
+                        🔒 <strong>Cierre nómina:</strong> {fmtDate(g.fechaCierre)} {g.fechaDesde && g.fechaHasta ? `(Periodo: ${fmtDate(g.fechaDesde)} al ${fmtDate(g.fechaHasta)})` : ''}
+                      </span>
                     )}
                   </div>
                   <div style={{ display: 'flex', gap: '.85rem', flexWrap: 'wrap', alignItems: 'center' }}>
