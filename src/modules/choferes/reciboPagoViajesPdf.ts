@@ -5,19 +5,31 @@
    - Rango de fechas (período de liquidación).
    - Datos del conductor (nombre, cédula, nómina fija).
    - Datos de vehículo(s): si usó un solo vehículo o varios.
-   - Resumen cuantitativo: total viajes, largos, cortos, internos y monto en $.
+   - Resumen cuantitativo: 5 KPIs con franja de color (viajes, largos, cortos, internos, total $).
    - Desglose de rutas, movimientos y tarifas.
-   - Declaración de conformidad y línea de firma del conductor.
+   - Declaración de conformidad.
+   - Firma del conductor única, centrada en el medio y ubicada abajo.
    - Soporta emisión individual o por lote (un recibo por chofer).
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { date as fmtDate } from '@/shared/lib/format';
+import { textoPdf } from '@/shared/lib/textoPdf';
 import type { GrupoChoferNomina } from './nominaViajesPdf';
 import type { Conductor, VehiculoFlota } from './choferes.repository';
 
 const usd = (n: number | null | undefined) =>
   `$ ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+const NARANJA: [number, number, number] = [217, 83, 30]; // #d9531e
+const VERDE: [number, number, number] = [39, 174, 96];
+const AZUL: [number, number, number] = [41, 128, 185];
+const PURPURA: [number, number, number] = [142, 68, 173];
+const TINTA: [number, number, number] = [24, 43, 73];
+const GRIS: [number, number, number] = [100, 110, 125];
+const BORDE: [number, number, number] = [226, 232, 240];
+const FONDO_CARD: [number, number, number] = [255, 255, 255];
+const FONDO_BANNER: [number, number, number] = [254, 252, 248];
 
 export interface ReciboPagoViajesOpts {
   grupos: GrupoChoferNomina[];
@@ -65,7 +77,7 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
-    doc.setTextColor(24, 43, 73);
+    doc.setTextColor(...TINTA);
     doc.text('MINERAL GROUP GUAYANA, C.A.', tx, y + 12);
 
     doc.setFont('helvetica', 'normal');
@@ -74,8 +86,8 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
     doc.text('RIF: J-50143878-0 · SISTEMA DE GESTIÓN Y CONTROL DE LOGÍSTICA', tx, y + 23);
 
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10.5);
-    doc.setTextColor(255, 138, 0);
+    doc.setFontSize(11);
+    doc.setTextColor(...NARANJA);
     doc.text('COMPROBANTE DE PAGO DE VIAJES', tx, y + 36);
 
     // Meta derecha
@@ -86,72 +98,18 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
     doc.setFont('helvetica', 'normal');
     doc.text(`PERÍODO: ${periodoTxt}`, PAGE_W - MARGIN, y + 24, { align: 'right' });
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(40, 160, 90);
+    doc.setTextColor(...VERDE);
     doc.text('ESTADO: SALDADO / PAGADO', PAGE_W - MARGIN, y + 36, { align: 'right' });
 
-    y += 50;
+    y += 46;
 
-    // ── Caja de Datos del Conductor y Vehículo(s) ──
-    const cond = conductoresMap?.get(g.choferId);
-    const cedula = cond?.personal?.cedula || cond?.cedula || '—';
-    const tlf = cond?.personal?.telefono || cond?.telefono || '—';
+    // Línea divisoria decorativa
+    doc.setDrawColor(...BORDE);
+    doc.setLineWidth(0.6);
+    doc.line(MARGIN, y, PAGE_W - MARGIN, y);
+    y += 10;
 
-    // Análisis de vehículos utilizados
-    const vehiculosSet = new Set<string>();
-    g.filas.forEach((f) => {
-      const v = (f.vehiculo || '').trim();
-      if (v && v !== '—') vehiculosSet.add(v);
-    });
-    const listaVehiculos = Array.from(vehiculosSet);
-
-    let textoVehiculo = '—';
-    if (listaVehiculos.length === 1) {
-      const vUnico = listaVehiculos[0];
-      const infoFlota = flotaMap ? Array.from(flotaMap.values()).find((vf) => vf.placa === vUnico) : null;
-      textoVehiculo = infoFlota
-        ? `${vUnico} (${infoFlota.marca || ''} ${infoFlota.modelo || ''})`.trim()
-        : vUnico;
-    } else if (listaVehiculos.length > 1) {
-      textoVehiculo = `${listaVehiculos.join(', ')} (${listaVehiculos.length} vehículos)`;
-    }
-
-    doc.setFillColor(245, 248, 252);
-    doc.setDrawColor(215, 225, 238);
-    doc.roundedRect(MARGIN, y, CONTENT_W, 44, 4, 4, 'FD');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(24, 43, 73);
-    doc.text('CONDUCTOR:', MARGIN + 10, y + 15);
-    doc.text('CÉDULA / RIF:', MARGIN + 10, y + 32);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(20, 20, 20);
-    doc.text(g.nombre.toUpperCase(), MARGIN + 75, y + 15);
-    doc.text(cedula, MARGIN + 75, y + 32);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(24, 43, 73);
-    doc.text('NÓMINA FIJA:', MARGIN + 210, y + 15);
-    doc.text('TELÉFONO:', MARGIN + 210, y + 32);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(20, 20, 20);
-    doc.text(g.nominaFija || 'MGG', MARGIN + 275, y + 15);
-    doc.text(tlf, MARGIN + 275, y + 32);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(24, 43, 73);
-    doc.text(listaVehiculos.length > 1 ? 'VEHÍCULOS:' : 'VEHÍCULO:', MARGIN + 360, y + 15);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(20, 20, 20);
-    const txtVehSplit = doc.splitTextToSize(textoVehiculo, CONTENT_W - 370) as string[];
-    doc.text(txtVehSplit, MARGIN + 420, y + 15);
-
-    y += 52;
-
-    // ── Resumen Cuantitativo de Viajes (Kpis) ──
+    // ── 5 Cajas Resumen (KPI Cards) ──
     const totLargos = g.filas
       .filter((f) => f.observaciones === 'VIAJE LARGO')
       .reduce((a, f) => a + f.viajes, 0);
@@ -175,32 +133,109 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
 
     const totalViajesChofer = g.filas.reduce((a, f) => a + f.viajes, 0);
 
-    autoTable(doc, {
-      startY: y,
-      head: [[
-        'TOTAL VIAJES',
-        'VIAJES LARGOS',
-        'VIAJES CORTOS',
-        'VIAJES INTERNOS',
-        'TOTAL A PAGAR ($)',
-      ]],
-      body: [[
-        `${totalViajesChofer} viajes`,
-        `${totLargos} (${usd(montoLargos)})`,
-        `${totCortos} (${usd(montoCortos)})`,
-        `${totInternos} (${usd(montoInternos)})`,
-        usd(g.totalGeneral),
-      ]],
-      theme: 'grid',
-      styles: { fontSize: 8, halign: 'center', cellPadding: 3.5 },
-      headStyles: { fillColor: [36, 58, 94], textColor: 255, fontStyle: 'bold' },
-      columnStyles: {
-        4: { fontStyle: 'bold', textColor: [217, 119, 6], fontSize: 9.5 },
-      },
-      margin: { left: MARGIN, right: MARGIN },
+    const gapKpi = 6;
+    const anchoKpi = (CONTENT_W - 4 * gapKpi) / 5;
+    const altoKpi = 40;
+
+    const kpiCards: Array<{
+      label: string;
+      valor: string;
+      topColor: [number, number, number];
+      valColor: [number, number, number];
+    }> = [
+      { label: 'TOTAL VIAJES', valor: `${totalViajesChofer} viajes`, topColor: AZUL, valColor: TINTA },
+      { label: 'VIAJES LARGOS', valor: `${totLargos} (${usd(montoLargos)})`, topColor: NARANJA, valColor: TINTA },
+      { label: 'VIAJES CORTOS', valor: `${totCortos} (${usd(montoCortos)})`, topColor: VERDE, valColor: TINTA },
+      { label: 'VIAJES INTERNOS', valor: `${totInternos} (${usd(montoInternos)})`, topColor: PURPURA, valColor: TINTA },
+      { label: 'TOTAL A PAGAR', valor: usd(g.totalGeneral), topColor: NARANJA, valColor: NARANJA },
+    ];
+
+    kpiCards.forEach((c, idx) => {
+      const xKpi = MARGIN + idx * (anchoKpi + gapKpi);
+      doc.setDrawColor(...BORDE);
+      doc.setLineWidth(0.6);
+      doc.setFillColor(...FONDO_CARD);
+      doc.roundedRect(xKpi, y, anchoKpi, altoKpi, 3, 3, 'FD');
+
+      // Franja de color superior
+      doc.setFillColor(...c.topColor);
+      doc.rect(xKpi + 2, y, anchoKpi - 4, 2.5, 'F');
+
+      // Rótulo
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.8);
+      doc.setTextColor(...GRIS);
+      doc.text(textoPdf(c.label), xKpi + anchoKpi / 2, y + 13, { align: 'center' });
+
+      // Cifra
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(c.label === 'TOTAL A PAGAR' ? 10.5 : 9.5);
+      doc.setTextColor(...c.valColor);
+      doc.text(textoPdf(c.valor), xKpi + anchoKpi / 2, y + 29, { align: 'center' });
     });
 
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12;
+    y += altoKpi + 10;
+
+    // ── Banner Card del Conductor y Vehículo(s) ──
+    const cond = conductoresMap?.get(g.choferId);
+    const cedula = cond?.personal?.cedula || cond?.cedula || '—';
+    const tlf = cond?.personal?.telefono || cond?.telefono || '—';
+
+    // Análisis de vehículos utilizados
+    const vehiculosSet = new Set<string>();
+    g.filas.forEach((f) => {
+      const v = (f.vehiculo || '').trim();
+      if (v && v !== '—') vehiculosSet.add(v);
+    });
+    const listaVehiculos = Array.from(vehiculosSet);
+
+    let textoVehiculo = '—';
+    if (listaVehiculos.length === 1) {
+      const vUnico = listaVehiculos[0];
+      const infoFlota = flotaMap ? Array.from(flotaMap.values()).find((vf) => vf.placa === vUnico) : null;
+      textoVehiculo = infoFlota
+        ? `${vUnico} (${infoFlota.marca || ''} ${infoFlota.modelo || ''})`.trim()
+        : vUnico;
+    } else if (listaVehiculos.length > 1) {
+      textoVehiculo = `${listaVehiculos.join(', ')} (${listaVehiculos.length} vehículos)`;
+    }
+
+    const bannerH = 38;
+    doc.setDrawColor(...BORDE);
+    doc.setLineWidth(0.6);
+    doc.setFillColor(...FONDO_BANNER);
+    doc.roundedRect(MARGIN, y, CONTENT_W, bannerH, 3, 3, 'FD');
+
+    // Franja vertical naranja
+    doc.setFillColor(...NARANJA);
+    doc.rect(MARGIN, y, 4, bannerH, 'F');
+
+    // Fila 1: Conductor (izq) y Monto liquidado (der)
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.2);
+    doc.setTextColor(...GRIS);
+    doc.text('CONDUCTOR:', MARGIN + 12, y + 13);
+
+    doc.setFontSize(9.5);
+    doc.setTextColor(...TINTA);
+    doc.text(textoPdf(g.nombre.toUpperCase()), MARGIN + 72, y + 13);
+
+    doc.setFontSize(7.5);
+    doc.setTextColor(...GRIS);
+    doc.text('LIQUIDADO:', PAGE_W - MARGIN - 72, y + 13, { align: 'right' });
+    doc.setFontSize(9.5);
+    doc.setTextColor(...NARANJA);
+    doc.text(textoPdf(usd(g.totalGeneral)), PAGE_W - MARGIN - 10, y + 13, { align: 'right' });
+
+    // Fila 2: Cédula, nómina fija, teléfono y vehículo
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(70, 80, 95);
+    const detalleLinea = `C.I. / RIF: ${cedula}   ·   Nómina: ${g.nominaFija || 'MGG'}   ·   Teléfono: ${tlf}   ·   Vehículo(s): ${textoVehiculo}`;
+    const detalleCorto = doc.splitTextToSize(detalleLinea, CONTENT_W - 24)[0];
+    doc.text(textoPdf(detalleCorto), MARGIN + 12, y + 28);
+
+    y += bannerH + 12;
 
     // ── Tabla de Rutas y Desglose ──
     const multiVehiculo = listaVehiculos.length > 1;
@@ -208,14 +243,14 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
       const base = [
         String(i + 1),
         fmtDate(f.fecha),
-        f.movimiento,
-        f.proviene,
-        f.destino,
-        f.observaciones,
+        f.movimiento || '—',
+        f.proviene || '—',
+        f.destino || '—',
+        f.observaciones || '—',
       ];
-      if (multiVehiculo) base.push(f.vehiculo);
+      if (multiVehiculo) base.push(f.vehiculo || '—');
       base.push(String(f.viajes), usd(f.monto), usd(f.totalPagar));
-      return base;
+      return base.map((c) => textoPdf(c));
     });
 
     const headCols = ['#', 'FECHA', 'MOVIMIENTO / CARGA', 'ORIGEN', 'DESTINO', 'TIPO'];
@@ -224,21 +259,41 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
 
     autoTable(doc, {
       startY: y,
-      head: [headCols],
+      head: [headCols.map((c) => textoPdf(c))],
       body: bodyRows,
       foot: [[
         { content: 'TOTAL GENERAL LIQUIDADO:', colSpan: multiVehiculo ? 7 : 6, styles: { halign: 'right', fontStyle: 'bold' } },
         { content: String(totalViajesChofer), styles: { halign: 'center', fontStyle: 'bold' } },
         { content: '' },
-        { content: usd(g.totalGeneral), styles: { halign: 'right', fontStyle: 'bold', textColor: [217, 119, 6] } },
+        { content: usd(g.totalGeneral), styles: { halign: 'right', fontStyle: 'bold', textColor: NARANJA } },
       ]],
       theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 2.5, valign: 'middle', overflow: 'linebreak' },
-      headStyles: { fillColor: [24, 43, 73], textColor: 255, fontStyle: 'bold', halign: 'center', fontSize: 6.8 },
-      footStyles: { fillColor: [245, 230, 200], textColor: [20, 20, 20], fontStyle: 'bold' },
+      styles: {
+        fontSize: 7.2,
+        cellPadding: 2.8,
+        valign: 'middle',
+        overflow: 'linebreak',
+        lineColor: BORDE,
+        lineWidth: 0.5,
+      },
+      headStyles: {
+        fillColor: NARANJA,
+        textColor: 255,
+        fontStyle: 'bold',
+        halign: 'center',
+        fontSize: 7,
+      },
+      alternateRowStyles: {
+        fillColor: [253, 253, 254],
+      },
+      footStyles: {
+        fillColor: [254, 243, 235],
+        textColor: [20, 20, 20],
+        fontStyle: 'bold',
+      },
       columnStyles: {
         0: { cellWidth: 16, halign: 'center' },
-        1: { cellWidth: 50, halign: 'center' },
+        1: { cellWidth: 52, halign: 'center' },
         [multiVehiculo ? 7 : 6]: { cellWidth: 32, halign: 'center' },
         [multiVehiculo ? 8 : 7]: { cellWidth: 46, halign: 'right' },
         [multiVehiculo ? 9 : 8]: { cellWidth: 55, halign: 'right', fontStyle: 'bold' },
@@ -246,59 +301,45 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
       margin: { left: MARGIN, right: MARGIN },
     });
 
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12;
 
-    // Verificar si queda espacio para la conformidad y las firmas (mínimo 100 pt)
-    if (y + 110 > PAGE_H - MARGIN) {
+    // ── Texto de Conformidad ──
+    const espacioNecesarioFirma = 110;
+    if (y + espacioNecesarioFirma > PAGE_H - MARGIN) {
       doc.addPage();
       y = MARGIN + 20;
     }
 
-    // ── Texto de Conformidad ──
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.8);
-    doc.setTextColor(40, 50, 65);
-    const textoConformidad = `Certifico haber recibido a mi entera satisfacción la cantidad de ${usd(g.totalGeneral)} (dólares de los Estados Unidos de América) en concepto de pago de ${totalViajesChofer} viaje(s) realizados durante el período indicado (${periodoTxt}), no quedando pendiente ninguna diferencia económica por este concepto. Firmo en señal de conformidad.`;
+    doc.setFontSize(7.6);
+    doc.setTextColor(70, 80, 95);
+    const textoConformidad = `Certifico haber recibido a mi entera satisfacción la cantidad de ${usd(g.totalGeneral)} (dólares de los Estados Unidos de América) en concepto de liquidación de ${totalViajesChofer} viaje(s) realizados durante el período indicado (${periodoTxt}), no quedando pendiente ninguna diferencia económica por este concepto. Firmo en señal de plena conformidad.`;
     const confLines = doc.splitTextToSize(textoConformidad, CONTENT_W) as string[];
     doc.text(confLines, MARGIN, y);
 
-    y += confLines.length * 10 + 26;
+    y += confLines.length * 10 + 20;
 
-    // ── Líneas de Firmas ──
-    const sigBoxW = (CONTENT_W - 40) / 2;
+    // ── Firma del Conductor: Justo al medio y abajo ──
+    // Se ubica abajo en la página aprovechando el pie si hay espacio
+    const yFirma = Math.max(y + 30, PAGE_H - MARGIN - 65);
+    const xCentro = PAGE_W / 2;
+    const lineaW = 220;
 
-    // Firma Chofer (Izquierda)
-    const xChofer = MARGIN;
     doc.setDrawColor(120, 130, 145);
-    doc.line(xChofer + 15, y, xChofer + sigBoxW - 15, y);
+    doc.setLineWidth(0.8);
+    doc.line(xCentro - lineaW / 2, yFirma, xCentro + lineaW / 2, yFirma);
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
-    doc.setTextColor(24, 43, 73);
-    doc.text('FIRMA DEL CONDUCTOR', xChofer + sigBoxW / 2, y + 12, { align: 'center' });
+    doc.setTextColor(...TINTA);
+    doc.text('FIRMA DEL CONDUCTOR', xCentro, yFirma + 12, { align: 'center' });
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(60, 70, 80);
-    doc.text(g.nombre.toUpperCase(), xChofer + sigBoxW / 2, y + 23, { align: 'center' });
-    doc.text(`C.I. / RIF: ${cedula}`, xChofer + sigBoxW / 2, y + 33, { align: 'center' });
-    doc.text(`Fecha: ____ / ____ / ________`, xChofer + sigBoxW / 2, y + 43, { align: 'center' });
-
-    // Firma Empresa (Derecha)
-    const xEmpresa = MARGIN + sigBoxW + 40;
-    doc.line(xEmpresa + 15, y, xEmpresa + sigBoxW - 15, y);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(24, 43, 73);
-    doc.text('ADMINISTRACIÓN / TESORERÍA', xEmpresa + sigBoxW / 2, y + 12, { align: 'center' });
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(60, 70, 80);
-    doc.text('MINERAL GROUP GUAYANA, C.A.', xEmpresa + sigBoxW / 2, y + 23, { align: 'center' });
-    doc.text('Sello y Firma Autorizada', xEmpresa + sigBoxW / 2, y + 33, { align: 'center' });
-    doc.text(`Fecha: ${fPagoTxt}`, xEmpresa + sigBoxW / 2, y + 43, { align: 'center' });
+    doc.setFontSize(7.8);
+    doc.setTextColor(50, 60, 75);
+    doc.text(textoPdf(g.nombre.toUpperCase()), xCentro, yFirma + 23, { align: 'center' });
+    doc.text(textoPdf(`C.I. / RIF: ${cedula}`), xCentro, yFirma + 34, { align: 'center' });
+    doc.text('Fecha de recepción: ____ / ____ / ________', xCentro, yFirma + 45, { align: 'center' });
   });
 
   const nombreDoc = grupos.length === 1
