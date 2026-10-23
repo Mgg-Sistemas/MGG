@@ -1,13 +1,9 @@
 /* ============================================================
    MGG · Retenciones · Qué pantalla abre /app/retenciones
 
-   · En local (import.meta.env.DEV), siempre la v8: así se ve cada pieza.
-   · En producción, la v8 solo con el interruptor `retenciones.pantalla_v8`
-     encendido; si no, la pantalla de hoy (RetencionesPage), sin cambios.
-   Así cada pieza verificada puede subir a dev aunque dev llegue a main: en
-   producción no cambia nada hasta encender el interruptor (orden del
-   usuario, 20/10, vía Master: «menos trabas»). La regla de producción
-   funcional se cumple: lo que no está encendido no se ve.
+   · La pantalla v8 sustituye oficialmente al módulo viejo en producción.
+   · Si se requiere volver temporalmente a la versión clásica de emergencia,
+     se puede activar mediante el interruptor `retenciones.usar_modulo_antiguo`.
    ============================================================ */
 
 import { lazy, Suspense, useEffect, useState } from 'react';
@@ -16,20 +12,22 @@ import { interruptorEncendido } from './datos/interruptores';
 const RetencionesV8 = lazy(() => import('./RetencionesV8').then((m) => ({ default: m.RetencionesV8 })));
 const RetencionesPage = lazy(() => import('../RetencionesPage').then((m) => ({ default: m.RetencionesPage })));
 
-export const CLAVE_PANTALLA_V8 = 'retenciones.pantalla_v8';
+export const CLAVE_MODULO_ANTIGUO = 'retenciones.usar_modulo_antiguo';
 
 export function RetencionesEntrada() {
-  const [v8, setV8] = useState<boolean | null>(import.meta.env.DEV ? true : null);
+  const [usarAntiguo, setUsarAntiguo] = useState(false);
+
   useEffect(() => {
-    if (import.meta.env.DEV) return;
     let vivo = true;
-    void interruptorEncendido(CLAVE_PANTALLA_V8).then((x) => { if (vivo) setV8(x); });
+    void interruptorEncendido(CLAVE_MODULO_ANTIGUO).then((x) => {
+      if (vivo && x) setUsarAntiguo(true);
+    });
     return () => { vivo = false; };
   }, []);
-  if (v8 == null) return <div className="p-8 muted">Cargando…</div>;
+
   return (
     <Suspense fallback={<div className="p-8 muted">Cargando…</div>}>
-      {v8 ? <RetencionesV8 /> : <RetencionesPage />}
+      {usarAntiguo ? <RetencionesPage /> : <RetencionesV8 />}
     </Suspense>
   );
 }
