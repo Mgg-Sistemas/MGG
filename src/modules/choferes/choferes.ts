@@ -331,19 +331,126 @@ export const CATEGORIAS_VIAJE = [
 
 export type CategoriaViaje = (typeof CATEGORIAS_VIAJE)[number]['key'];
 
-export function tarifaSugeridaCategoria(cat: string): number {
+export interface TasasChofer {
+  corto: number;
+  largo: number;
+  interno: number;
+}
+
+export const TASAS_DEFAULT: TasasChofer = {
+  corto: 25,
+  largo: 50,
+  interno: 1,
+};
+
+export interface ConductorTasasRef {
+  tarifa_viaje_usd?: number | null;
+  tarifa_corto_usd?: number | null;
+  tarifa_largo_usd?: number | null;
+  tarifa_interno_usd?: number | null;
+  observaciones?: string | null;
+}
+
+/**
+ * Obtiene las tasas propias de pago por viaje de un conductor (corto, largo, interno).
+ */
+export function tasasDeConductor(c?: ConductorTasasRef | null): TasasChofer {
+  if (!c) return { ...TASAS_DEFAULT };
+
+  let corto = Number(c.tarifa_corto_usd);
+  let largo = Number(c.tarifa_largo_usd);
+  let interno = Number(c.tarifa_interno_usd);
+
+  const obs = c.observaciones ?? '';
+  const matchTasas = obs.match(/\[TASAS:\s*corto=([\d.]+),\s*largo=([\d.]+),\s*interno=([\d.]+)\]/i);
+  if (matchTasas) {
+    if (!corto || isNaN(corto)) corto = parseFloat(matchTasas[1]);
+    if (!largo || isNaN(largo)) largo = parseFloat(matchTasas[2]);
+    if (!interno || isNaN(interno)) interno = parseFloat(matchTasas[3]);
+  } else {
+    const mC = obs.match(/\[TASA_CORTO:\s*([\d.]+)\]/i);
+    const mL = obs.match(/\[TASA_LARGO:\s*([\d.]+)\]/i);
+    const mI = obs.match(/\[TASA_INTERNO:\s*([\d.]+)\]/i);
+    if ((!corto || isNaN(corto)) && mC) corto = parseFloat(mC[1]);
+    if ((!largo || isNaN(largo)) && mL) largo = parseFloat(mL[1]);
+    if ((!interno || isNaN(interno)) && mI) interno = parseFloat(mI[1]);
+  }
+
+  const base = Number(c.tarifa_viaje_usd) || 0;
+  if (!corto || isNaN(corto) || corto <= 0) {
+    corto = base > 0 ? base : TASAS_DEFAULT.corto;
+  }
+  if (!largo || isNaN(largo) || largo <= 0) {
+    largo = base >= 50 ? base : (corto ? (corto >= 50 ? corto : corto * 2) : TASAS_DEFAULT.largo);
+    if (largo < corto) largo = corto * 2;
+  }
+  if (!interno || isNaN(interno) || interno <= 0) {
+    interno = TASAS_DEFAULT.interno;
+  }
+
+  return { corto, largo, interno };
+}
+
+/**
+ * Codifica las tasas en la cadena de observaciones sin borrar notas existentes.
+ */
+export function codificarObservacionesConTasas(observacionesLimpias: string | null | undefined, tasas: TasasChofer): string {
+  const limpio = (observacionesLimpias ?? '').replace(/\[TASAS:[^\]]+\]/gi, '').replace(/\[TASA_[A-Z]+:[^\]]+\]/gi, '').trim();
+  const tag = `[TASAS: corto=${tasas.corto}, largo=${tasas.largo}, interno=${tasas.interno}]`;
+  return limpio ? `${limpio} ${tag}` : tag;
+}
+
+/**
+ * Limpia los tags internos de tasas de las observaciones para mostrarlas al usuario.
+ */
+export function observacionesSinTagsTasas(obs: string | null | undefined): string {
+  return (obs ?? '').replace(/\[TASAS:[^\]]+\]/gi, '').replace(/\[TASA_[A-Z]+:[^\]]+\]/gi, '').trim();
+}
+
+/**
+ * Clasifica automáticamente una tarifa / tasa en:
+ * VIAJE CORTO, VIAJE LARGO o VIAJE INTERNO, según la tasa ingresada y las tasas del chofer.
+ */
+export function clasificarCategoriaPorTasa(
+  tarifa: number | null | undefined,
+  chofer?: ConductorTasasRef | null,
+): CategoriaViaje {
+  const monto = Number(tarifa) || 0;
+  if (monto <= 0) return 'VIAJE CORTO';
+
+  const tasas = tasasDeConductor(chofer);
+
+  // 1. Coincidencia exacta con las tasas del chofer
+  if (Math.abs(monto - tasas.interno) < 0.01) return 'VIAJE INTERNO';
+  if (Math.abs(monto - tasas.largo) < 0.01) return 'VIAJE LARGO';
+  if (Math.abs(monto - tasas.corto) < 0.01) return 'VIAJE CORTO';
+
+  // 2. Umbral de viaje interno (valores bajos típicos de cantera / planta)
+  const umbralInterno = Math.max(tasas.interno * 1.5, 5);
+  if (monto <= umbralInterno) return 'VIAJE INTERNO';
+
+  // 3. Umbral de viaje largo: si es mayor o igual al punto medio o la tasa de viaje largo
+  const puntoMedioLargo = tasas.largo > tasas.corto ? (tasas.corto + tasas.largo) / 2 : 50;
+  if (monto >= puntoMedioLargo || monto >= 50) return 'VIAJE LARGO';
+
+  return 'VIAJE CORTO';
+}
+
+export function tarifaSugeridaCategoria(cat: string, chofer?: ConductorTasasRef | null): number {
   const c = (cat || '').trim().toUpperCase();
-  if (c.includes('INTERNO')) return 1;
-  if (c.includes('LARGO')) return 50;
-  if (c.includes('CORTO')) return 25;
+  const tasas = tasasDeConductor(chofer);
+  if (c.includes('INTERNO')) return tasas.interno;
+  if (c.includes('LARGO')) return tasas.largo;
+  if (c.includes('CORTO')) return tasas.corto;
   return 0;
 }
 
 /**
- * Obtiene la categoría de un viaje: la guardada explícitamente o inferida de origen/destino/nota.
+ * Obtiene la categoría de un viaje: la guardada explícitamente o inferida de origen/destino/nota/tarifa.
  */
 export function categoriaDeViaje(
   v?: { categoria_viaje?: string | null; nota?: string | null; origen?: string | null; destino?: string | null; tarifa_usd?: number | null } | null,
+  chofer?: ConductorTasasRef | null,
 ): CategoriaViaje {
   if (!v) return 'VIAJE CORTO';
   const cv = (v.categoria_viaje ?? '').trim().toUpperCase();
@@ -355,9 +462,7 @@ export function categoriaDeViaje(
   }
   const texto = `${v.origen ?? ''} ${v.destino ?? ''} ${v.nota ?? ''}`.toUpperCase();
   if (texto.includes('INTERNO')) return 'VIAJE INTERNO';
-  const tarifa = Number(v.tarifa_usd) || 0;
-  if (tarifa >= 50) return 'VIAJE LARGO';
-  return 'VIAJE CORTO';
+  return clasificarCategoriaPorTasa(v.tarifa_usd, chofer);
 }
 
 /**

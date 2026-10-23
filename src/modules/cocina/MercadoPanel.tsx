@@ -54,8 +54,8 @@ function diaAntes(iso: string): string { const d = new Date(`${iso}T12:00:00`); 
 /** Hora local de un instante ISO: «16:38». */
 function horaDe(iso: string): string { return new Date(iso).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: false }); }
 
-export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre, almacen, canWrite, actor, userEmail, onReload, onEditComida, onDelComida, resguardo = false }: {
-  /** Resguardo: almacena y distribuye, no sirve comidas (sin platos ni costo por plato). */
+export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre, almacen, canWrite, actor, userEmail, onReload, onEditComida, onDelComida, resguardo: _resguardo = false }: {
+  /** Resguardo: almacena y distribuye, ahora también registra consumos como cualquier cocina. */
   resguardo?: boolean;
   resumen: ResumenMercado;
   /** Todos los cortes de esta cocina, del más nuevo al más viejo. Alimenta el selector. */
@@ -245,10 +245,8 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
             nota="− envía, + recibe" color="var(--info)" onVer={setVerCifra} />
           <Cifra clave="disponible" rotulo="= Disponible" valor={num(totales.disponible)}
             nota="saldo + entradas ± traslados" onVer={setVerCifra} />
-          {!resguardo && (
-            <Cifra clave="consumos" rotulo="− Consumo" valor={num(totales.consumos)} nota="servido en comidas"
-              color="var(--danger)" onVer={setVerCifra} />
-          )}
+          <Cifra clave="consumos" rotulo="− Consumo" valor={num(totales.consumos)} nota="servido en comidas"
+            color="var(--danger)" onVer={setVerCifra} />
           {/* Pérdidas, salidas manuales y ajustes a la baja. Sin esta cifra el libro no las
               restaba y cada pérdida aparecía como un faltante contra el inventario. */}
           <Cifra clave="mermas" rotulo="− Mermas / salidas" valor={num(totales.mermas)}
@@ -262,8 +260,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
             en `kpis` y no los mostraba nadie.
             Van en su propia fila y no mezcladas con las de arriba: son otra unidad
             (dinero y platos) y en una sola tira se leerían como si se sumaran. */}
-        {/* El resguardo no sirve platos: esta fila solo diría ceros. */}
-        {!resguardo && <div style={{
+        <div style={{
           marginTop: '.5rem',
           display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '.5rem',
         }}>
@@ -283,7 +280,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
             <Cifra clave="mermasValoradas" rotulo="Mermas valoradas" valor={money(resumen.kpis.mermasValor)}
               nota="aparte del costo por plato" color="var(--warning)" onVer={setVerCifra} />
           )}
-        </div>}
+        </div>
         {/* El contraste con el inventario aparece SOLO si no cuadra. Un «0» que
             tranquiliza ocupa lugar y enseña a no mirar. */}
         {totales.diferencia != null && totales.vieresConDiferencia > 0 && (

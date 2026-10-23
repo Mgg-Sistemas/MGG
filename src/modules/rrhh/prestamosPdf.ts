@@ -25,11 +25,16 @@ import {
   type DeudaTrabajador, type PagoBase, type PrestamoBase,
 } from './prestamos';
 
-const NARANJA: [number, number, number] = [255, 138, 0];
-const GRIS: [number, number, number] = [120, 120, 120];
-const TINTA: [number, number, number] = [40, 40, 40];
-const ROJO: [number, number, number] = [200, 60, 60];
-const VERDE: [number, number, number] = [40, 150, 90];
+const NARANJA: [number, number, number] = [217, 83, 30]; // #d9531e
+const GRIS: [number, number, number] = [100, 116, 139];   // #64748b
+const TINTA: [number, number, number] = [15, 23, 42];     // #0f172a
+const ROJO: [number, number, number] = [220, 38, 38];     // #dc2626
+const VERDE: [number, number, number] = [22, 163, 74];    // #16a34a
+const AZUL: [number, number, number] = [59, 130, 246];    // #3b82f6
+const AMBER: [number, number, number] = [245, 158, 11];   // #f59e0b
+const BORDE: [number, number, number] = [226, 232, 240];  // #e2e8f0
+const FONDO_CARD: [number, number, number] = [255, 255, 255];
+const FONDO_BANNER: [number, number, number] = [254, 252, 248];
 
 const usd = (v: unknown) => `$ ${(Number(v) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -44,51 +49,120 @@ function textoRango(desde?: string | null, hasta?: string | null): string {
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 /** Encabezado común: logo, título, empresa y el rango que se está mirando. */
-async function encabezado(doc: any, W: number, M: number, titulo: string, sub: string, rango: string): Promise<number> {
+async function encabezado(doc: any, W: number, M: number, titulo: string, sub: string, rango: string, detallePersona?: string): Promise<number> {
   const { loadLogoDataUrl } = await import('@/shared/lib/pdfLogo');
   const logo = await loadLogoDataUrl().catch(() => null);
   let y = M;
-  if (logo) { try { doc.addImage(logo, 'JPEG', M, y, 42, 42); } catch { /* el logo es opcional */ } }
-  doc.setTextColor(...NARANJA); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
-  doc.text(textoPdf(titulo), W / 2, y + 14, { align: 'center' });
-  doc.setTextColor(60, 60, 60); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(textoPdf(sub), W / 2, y + 28, { align: 'center' });
-  doc.setFontSize(8); doc.setTextColor(...GRIS);
-  doc.text(textoPdf(`${rango} · emitido el ${fmtDate(new Date().toISOString())}`), W / 2, y + 40, { align: 'center' });
-  return y + 58;
+  if (logo) { try { doc.addImage(logo, 'JPEG', M, y - 2, 42, 42); } catch { /* el logo es opcional */ } }
+  doc.setTextColor(...NARANJA); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
+  doc.text(textoPdf(titulo), W / 2, y + 12, { align: 'center' });
+  doc.setTextColor(51, 65, 85); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+  doc.text(textoPdf(sub), W / 2, y + 25, { align: 'center' });
+  doc.setFontSize(7.5); doc.setTextColor(...GRIS);
+  const linea3 = [detallePersona, rango ? `Período: ${rango}` : '', `Emitido el ${fmtDate(new Date().toISOString())}`].filter(Boolean).join(' · ');
+  doc.text(textoPdf(linea3), W / 2, y + 36, { align: 'center' });
+
+  // Línea sutil divisoria
+  doc.setDrawColor(...BORDE); doc.setLineWidth(0.6);
+  doc.line(M, y + 43, W - M, y + 43);
+
+  return y + 52;
 }
 
 /**
- * Las tres cifras, en tres cajas.
- *
- * Grandes y arriba porque son la respuesta: el resto de la hoja existe para
- * el que las discuta.
+ * 5 cajas métricas con franja de color superior.
  */
-function cajasTotales(doc: any, W: number, M: number, y: number, total: number, pagado: number, debe: number): number {
-  const ancho = (anchoUtilPdf(W) - 16) / 3;
-  const alto = 46;
-  const cajas: Array<[string, number, [number, number, number]]> = [
-    ['Total prestado', total, TINTA],
-    ['Total pagado', pagado, VERDE],
-    ['Debe', debe, debe > 0 ? ROJO : VERDE],
+function cajasTotales5(
+  doc: any, W: number, M: number, y: number,
+  total: number, pagado: number, debe: number,
+  cantPrestamos: number, cantConSaldo: number,
+): number {
+  const gap = 6;
+  const ancho = (anchoUtilPdf(W) - (4 * gap)) / 5;
+  const alto = 42;
+
+  const cajas: Array<{ label: string; valor: string; topColor: [number, number, number]; valColor: [number, number, number] }> = [
+    { label: 'TOTAL PRESTADO', valor: usd(total), topColor: NARANJA, valColor: TINTA },
+    { label: 'TOTAL PAGADO', valor: usd(pagado), topColor: VERDE, valColor: VERDE },
+    { label: 'PENDIENTE', valor: usd(debe), topColor: ROJO, valColor: debe > 0 ? ROJO : VERDE },
+    { label: 'PRÉSTAMOS', valor: String(cantPrestamos), topColor: AZUL, valColor: TINTA },
+    { label: 'CON SALDO', valor: String(cantConSaldo), topColor: AMBER, valColor: cantConSaldo > 0 ? AMBER : VERDE },
   ];
-  cajas.forEach(([rotulo, valor, color], i) => {
-    const x = M + i * (ancho + 8);
-    doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.6);
-    doc.setFillColor(250, 250, 250);
+
+  cajas.forEach((c, i) => {
+    const x = M + i * (ancho + gap);
+    doc.setDrawColor(...BORDE);
+    doc.setLineWidth(0.6);
+    doc.setFillColor(...FONDO_CARD);
     doc.roundedRect(x, y, ancho, alto, 3, 3, 'FD');
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
-    doc.text(textoPdf(rotulo.toUpperCase()), x + ancho / 2, y + 15, { align: 'center' });
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...color);
-    doc.text(textoPdf(usd(valor)), x + ancho / 2, y + 34, { align: 'center' });
+
+    // Franja de color superior
+    doc.setFillColor(...c.topColor);
+    doc.rect(x + 2, y, ancho - 4, 2.5, 'F');
+
+    // Rótulo
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    doc.setTextColor(...GRIS);
+    doc.text(textoPdf(c.label), x + ancho / 2, y + 13, { align: 'center' });
+
+    // Cifra
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(...c.valColor);
+    doc.text(textoPdf(c.valor), x + ancho / 2, y + 31, { align: 'center' });
   });
-  return y + alto + 18;
+
+  return y + alto + 10;
+}
+
+/** Banner con franja naranja izquierda para los datos del trabajador */
+function bannerTrabajador(
+  doc: any, W: number, M: number, y: number,
+  persona: Personal, saldoDebe: number,
+): number {
+  const alto = 34;
+  const ancho = anchoUtilPdf(W);
+
+  doc.setDrawColor(...BORDE);
+  doc.setLineWidth(0.6);
+  doc.setFillColor(...FONDO_BANNER);
+  doc.roundedRect(M, y, ancho, alto, 3, 3, 'FD');
+
+  // Franja vertical naranja
+  doc.setFillColor(...NARANJA);
+  doc.rect(M, y, 4, alto, 'F');
+
+  // Nombre
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(...TINTA);
+  doc.text(textoPdf(`${persona.nombre} ${persona.apellido ?? ''}`.trim().toUpperCase()), M + 10, y + 13);
+
+  // Saldo a la derecha
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.setTextColor(...ROJO);
+  doc.text(textoPdf(`Saldo pendiente: ${usd(saldoDebe)}`), W - M - 8, y + 13, { align: 'right' });
+
+  // Ficha, cédula, cargo, departamento
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...GRIS);
+  const ficha = numeroFicha(persona.numero_ficha);
+  const lineaDatos = [
+    ficha ? `Ficha: ${ficha}` : '',
+    persona.cedula ? `C.I.: ${persona.cedula}` : '',
+    persona.cargo ? `Cargo: ${persona.cargo}` : '',
+    persona.departamento ? `Dpto: ${persona.departamento}` : '',
+  ].filter(Boolean).join(' · ');
+  doc.text(textoPdf(lineaDatos), M + 10, y + 26);
+
+  return y + alto + 10;
 }
 
 /** Pie con la firma de conformidad. Solo en el de una persona. */
 function firmas(doc: any, W: number, M: number, H: number, yActual: number) {
-  // El bloque (firmas + nota) termina justo en el margen inferior de 2 cm. Si lo
-  // de arriba ya llegó hasta ahí, va entero en la hoja siguiente.
   const limite = limiteInferiorPdf(H);
   if (yActual > limite - 60) doc.addPage();
   const y = limite - 44;
@@ -107,10 +181,7 @@ function firmas(doc: any, W: number, M: number, H: number, yActual: number) {
 }
 
 /**
- * Estado de cuenta de UNA persona: cada préstamo con sus abonos.
- *
- * Los abonos van pegados debajo de su préstamo y no en una tabla aparte:
- * separados, nadie puede seguir cuál pagó qué.
+ * Estado de cuenta de UNA persona: diseño moderno con tarjetas KPI y tabla naranja continua.
  */
 export async function verEstadoCuentaPrestamosPdf(
   persona: Personal,
@@ -126,87 +197,130 @@ export async function verEstadoCuentaPrestamosPdf(
   const emp = definicionEmpresa(normalizarEmpresa(persona.empresa));
   const ec = estadoDeCuenta(persona.id, prestamos, pagos);
 
+  const cantPrestamos = ec.renglones.length;
+  const cantConSaldo = ec.renglones.filter((r) => r.debe > 0).length;
+
+  const primerPrestamo = ec.renglones[0]?.prestamo;
+  const fechaPrestamoRef = primerPrestamo ? `Préstamo del ${fmtDate(fechaDePrestamo(primerPrestamo))}` : '';
+
   let y = await encabezado(
     doc, W, M,
-    'ESTADO DE CUENTA · PRESTAMOS Y ANTICIPOS',
-    emp.razonSocial,
+    'ESTADO DE CUENTA · PRÉSTAMO',
+    `${emp.razonSocial} · Nómina ${persona.empresa || 'General'}`,
     textoRango(rango?.desde, rango?.hasta),
+    `${persona.nombre} ${persona.apellido ?? ''}${fechaPrestamoRef ? ` · ${fechaPrestamoRef}` : ''}`,
   );
 
-  /* ── Quién es ── */
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...TINTA);
-  doc.text(textoPdf(`${persona.nombre} ${persona.apellido ?? ''}`.trim()), M, y);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GRIS);
-  const datos = [
-    numeroFicha(persona.numero_ficha),
-    persona.cedula ? `C.I. ${persona.cedula}` : '',
-    persona.cargo || 'Sin cargo',
-    persona.departamento || '',
-  ].filter(Boolean).join(' · ');
-  doc.text(textoPdf(datos), M, y + 13);
-  y += 28;
+  // 1. Tarjetas métricas superiores (5 tarjetas)
+  y = cajasTotales5(doc, W, M, y, ec.total, ec.pagado, ec.debe, cantPrestamos, cantConSaldo);
 
-  y = cajasTotales(doc, W, M, y, ec.total, ec.pagado, ec.debe);
+  // 2. Banner de trabajador con saldo pendiente
+  y = bannerTrabajador(doc, W, M, y, persona, ec.debe);
 
   if (!ec.renglones.length) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(...GRIS);
-    doc.text(textoPdf('Esta persona no tiene prestamos ni anticipos registrados en el periodo.'), M, y);
-    firmas(doc, W, M, H, y);
+    doc.text(textoPdf('Esta persona no tiene préstamos ni anticipos registrados en el período.'), M, y + 15);
+    firmas(doc, W, M, H, y + 40);
     await previewPdfDoc(doc, `estado-cuenta-${(persona.nombre ?? '').toLowerCase()}.pdf`);
     return;
   }
 
-  /* ── Un bloque por préstamo ── */
+  // 3. Tabla continua con cabecera naranja vibrante
+  const tableRows: any[][] = [];
+  const rowTypes: Array<'prestamo' | 'abono'> = [];
+
   for (const r of ec.renglones) {
-    // Que un préstamo no arranque al filo de la hoja y sus abonos queden solos
-    // en la siguiente: se lee mal y se presta a discusión.
-    if (y + 70 > limiteInferiorPdf(H) - 44) { doc.addPage(); y = M + 10; }
-
-    doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...NARANJA);
-    const titulo = `${r.prestamo.tipo === 'anticipo' ? 'ANTICIPO' : 'PRESTAMO'} · ${fmtDate(fechaDePrestamo(r.prestamo))}`;
-    doc.text(textoPdf(titulo), M, y);
-    doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...TINTA);
-    doc.text(textoPdf(`${usd(r.prestamo.monto_total)}  ·  pagado ${usd(r.pagado)}  ·  debe ${usd(r.debe)}`), W - M, y, { align: 'right' });
-    doc.setDrawColor(...NARANJA); doc.setLineWidth(0.6);
-    doc.line(M, y + 4, W - M, y + 4);
-    y += 14;
-
     const entregas = obtenerEntregas(r.prestamo);
-    const motivoInicial = entregas[0]?.motivo || r.prestamo.motivo;
-    if (motivoInicial) {
-      doc.setFontSize(8); doc.setTextColor(...GRIS);
-      const lineas = doc.splitTextToSize(textoPdf(motivoInicial), anchoUtilPdf(W)) as string[];
-      doc.text(lineas, M, y + 6);
-      y += lineas.length * 10 + 4;
-    }
-    if (entregas.length > 1) {
-      doc.setFontSize(7.5); doc.setTextColor(...NARANJA);
-      const txtEntregas = 'Entregas otorgadas: ' + entregas.map((e) => `${fmtDate(e.fecha)} (${usd(e.monto)})`).join(' · ');
-      const lineasEnt = doc.splitTextToSize(textoPdf(txtEntregas), anchoUtilPdf(W)) as string[];
-      doc.text(lineasEnt, M, y + 4);
-      y += lineasEnt.length * 9 + 4;
-    }
+    const fechaTxt = entregas.length > 1
+      ? entregas.map((e) => fmtDate(e.fecha)).join(' · ')
+      : fmtDate(fechaDePrestamo(r.prestamo));
 
-    if (r.pagos.length) {
-      autoTable(doc as any, {
-        startY: y + 4,
-        head: [filaPdf(['Fecha del abono', 'Origen', 'Nota', 'Monto'])],
-        body: r.pagos.map((p) => filaPdf([fmtDate(p.fecha), labelOrigen(p.origen), p.nota ?? '', usd(p.monto)])),
-        theme: 'grid',
-        headStyles: { fillColor: [245, 245, 245], textColor: GRIS, fontSize: 7.5, fontStyle: 'bold', lineColor: [215, 215, 215], lineWidth: 0.4 },
-        bodyStyles: { fontSize: 8, lineColor: [215, 215, 215], lineWidth: 0.4 },
-        columnStyles: { 0: { cellWidth: 95 }, 1: { cellWidth: 85 }, 3: { cellWidth: 80, halign: 'right' } },
-        margin: MARGENES_TABLA_PDF,
-      });
-      y = ((doc as any).lastAutoTable?.finalY ?? y) + 14;
-    } else {
-      doc.setFontSize(8); doc.setTextColor(...GRIS);
-      doc.text(textoPdf('Sin abonos registrados.'), M, y + 10);
-      y += 24;
+    const tipoTxt = `${r.prestamo.tipo === 'anticipo' ? 'Anticipo' : 'Préstamo'}${entregas.length > 1 ? ` (${entregas.length} ent.)` : ''}`;
+
+    const motivoTxt = entregas.length > 1
+      ? entregas.map((e) => `[Entrega ${fmtDate(e.fecha)} · ${usd(e.monto)}]: ${e.motivo || 'Préstamo autorizado'}`).join('\n')
+      : (r.prestamo.motivo || 'Préstamo autorizado');
+
+    tableRows.push([
+      fechaTxt,
+      tipoTxt,
+      motivoTxt,
+      usd(r.prestamo.monto_total),
+      usd(r.pagado),
+      usd(r.debe),
+      r.debe > 0 ? 'Activo' : 'Saldado',
+    ]);
+    rowTypes.push('prestamo');
+
+    for (const p of r.pagos) {
+      tableRows.push([
+        `• ${fmtDate(p.fecha)}`,
+        `• ${labelOrigen(p.origen)}`,
+        p.nota || 'Abono a deuda registrado',
+        '—',
+        usd(p.monto),
+        '—',
+        '—',
+      ]);
+      rowTypes.push('abono');
     }
   }
 
-  firmas(doc, W, M, H, y);
+  autoTable(doc as any, {
+    startY: y,
+    head: [filaPdf(['FECHA', 'TIPO / ORIGEN', 'MOTIVO / NOTA DE ABONO', 'PRESTADO', 'PAGADO', 'SALDO', 'ESTADO'])],
+    body: tableRows.map((r) => filaPdf(r)),
+    theme: 'grid',
+    headStyles: {
+      fillColor: NARANJA,
+      textColor: [255, 255, 255],
+      fontSize: 7.5,
+      fontStyle: 'bold',
+      halign: 'center',
+      valign: 'middle',
+      lineColor: [200, 70, 20],
+      lineWidth: 0.5,
+    },
+    bodyStyles: {
+      fontSize: 7.6,
+      lineColor: BORDE,
+      lineWidth: 0.4,
+      valign: 'middle',
+    },
+    columnStyles: {
+      0: { cellWidth: 72, halign: 'center' },
+      1: { cellWidth: 78, halign: 'left' },
+      2: { cellWidth: 'auto', halign: 'left' },
+      3: { cellWidth: 58, halign: 'right' },
+      4: { cellWidth: 58, halign: 'right' },
+      5: { cellWidth: 58, halign: 'right' },
+      6: { cellWidth: 48, halign: 'center' },
+    },
+    didParseCell: (data: any) => {
+      if (data.section === 'body') {
+        const tipoFila = rowTypes[data.row.index];
+        if (tipoFila === 'prestamo') {
+          data.cell.styles.fontStyle = 'bold';
+          if (data.column.index === 3) data.cell.styles.textColor = TINTA;
+          if (data.column.index === 4) data.cell.styles.textColor = VERDE;
+          if (data.column.index === 5) data.cell.styles.textColor = ROJO;
+          if (data.column.index === 6) data.cell.styles.textColor = AMBER;
+          data.cell.styles.fillColor = [255, 255, 255];
+        } else {
+          data.cell.styles.textColor = [71, 85, 105];
+          if (data.column.index === 4) {
+            data.cell.styles.textColor = VERDE;
+            data.cell.styles.fontStyle = 'bold';
+          }
+          data.cell.styles.fillColor = [250, 252, 254];
+        }
+      }
+    },
+    margin: MARGENES_TABLA_PDF,
+  });
+
+  const finalY = (doc as any).lastAutoTable?.finalY ?? y;
+  firmas(doc, W, M, H, finalY);
   await previewPdfDoc(doc, `estado-cuenta-${(persona.nombre ?? '').toLowerCase()}.pdf`);
 }
 
@@ -237,36 +351,42 @@ export async function verConsolidadoPrestamosPdf(
   const total = deudas.reduce((a, d) => a + d.total, 0);
   const pagado = deudas.reduce((a, d) => a + d.pagado, 0);
   const debe = deudas.reduce((a, d) => a + d.debe, 0);
-  y = cajasTotales(doc, W, M, y, total, pagado, debe);
-
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...GRIS);
+  const totalPrestamos = deudas.reduce((a, d) => a + d.prestamos.length, 0);
   const conSaldo = deudas.filter((d) => d.debe > 0).length;
-  doc.text(
-    textoPdf(`${deudas.length} trabajador(es) con movimientos · ${conSaldo} con saldo pendiente`),
-    M, y,
-  );
-  y += 12;
+
+  y = cajasTotales5(doc, W, M, y, total, pagado, debe, totalPrestamos, conSaldo);
 
   autoTable(doc as any, {
     startY: y,
-    head: [filaPdf(['Trabajador', 'Prestamos', 'Desde', 'Prestado', 'Pagado', 'Debe'])],
+    head: [filaPdf(['TRABAJADOR', 'PRÉSTAMOS', 'DESDE', 'PRESTADO', 'PAGADO', 'SALDO', 'ESTADO'])],
     body: deudas.map((d) => filaPdf([
       d.nombre,
       String(d.prestamos.length),
       d.desde ? fmtDate(d.desde) : '—',
-      usd(d.total), usd(d.pagado), usd(d.debe),
+      usd(d.total),
+      usd(d.pagado),
+      usd(d.debe),
+      d.debe > 0 ? 'Activo' : 'Saldado',
     ])),
-    foot: [filaPdf(['TOTAL', String(deudas.reduce((a, d) => a + d.prestamos.length, 0)), '', usd(total), usd(pagado), usd(debe)])],
+    foot: [filaPdf(['TOTAL GENERAL', String(totalPrestamos), '', usd(total), usd(pagado), usd(debe), conSaldo > 0 ? `${conSaldo} pendientes` : 'Al día'])],
     theme: 'grid',
-    headStyles: { fillColor: [245, 245, 245], textColor: GRIS, fontSize: 7.5, fontStyle: 'bold', lineColor: [215, 215, 215], lineWidth: 0.4 },
-    footStyles: { fillColor: [250, 240, 225], textColor: TINTA, fontSize: 8.5, fontStyle: 'bold', lineColor: [215, 215, 215], lineWidth: 0.4 },
-    bodyStyles: { fontSize: 8.5, lineColor: [215, 215, 215], lineWidth: 0.4 },
+    headStyles: { fillColor: NARANJA, textColor: [255, 255, 255], fontSize: 7.5, fontStyle: 'bold', lineColor: [200, 70, 20], lineWidth: 0.5 },
+    footStyles: { fillColor: [254, 243, 235], textColor: TINTA, fontSize: 8.5, fontStyle: 'bold', lineColor: BORDE, lineWidth: 0.5 },
+    bodyStyles: { fontSize: 8, lineColor: BORDE, lineWidth: 0.4 },
     columnStyles: {
       1: { cellWidth: 58, halign: 'center' },
       2: { cellWidth: 70 },
-      3: { cellWidth: 75, halign: 'right' },
-      4: { cellWidth: 75, halign: 'right' },
-      5: { cellWidth: 75, halign: 'right', fontStyle: 'bold' },
+      3: { cellWidth: 65, halign: 'right' },
+      4: { cellWidth: 65, halign: 'right' },
+      5: { cellWidth: 65, halign: 'right', fontStyle: 'bold' },
+      6: { cellWidth: 55, halign: 'center' },
+    },
+    didParseCell: (data: any) => {
+      if (data.section === 'body') {
+        if (data.column.index === 4) data.cell.styles.textColor = VERDE;
+        if (data.column.index === 5 && deudas[data.row.index]?.debe > 0) data.cell.styles.textColor = ROJO;
+        if (data.column.index === 6) data.cell.styles.textColor = deudas[data.row.index]?.debe > 0 ? AMBER : VERDE;
+      }
     },
     margin: MARGENES_TABLA_PDF,
   });

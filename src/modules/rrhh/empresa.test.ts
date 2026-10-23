@@ -3,10 +3,10 @@ import {
   EMPRESA_POR_DEFECTO, MGG, DATOS_EMPRESA_VACIOS,
   definicionEmpresa, normalizarEmpresa, normalizarCodigoEmpresa, registrarEmpresas, empresasRegistradas,
   validarEmpresa, datosEmpresaLimpios, modoSelectorEmpresas, empresaVigente, empresaGuardada,
-  destinosDeTransferencia, errorDeshabilitarEmpresa, type DefinicionEmpresa,
+  destinosDeTransferencia, errorDeshabilitarEmpresa, monedaPagoValida, pagaEnReal, datosDeEmpresa, type DefinicionEmpresa,
 } from './empresa';
 
-const MTO: DefinicionEmpresa = { key: 'MTO', label: 'MTO', razonSocial: 'Mantenimiento Oriente C.A.', rif: 'J-123456789', icono: '🔧', color: '#3366ff', orden: 1, activa: true };
+const MTO: DefinicionEmpresa = { key: 'MTO', label: 'MTO', razonSocial: 'Mantenimiento Oriente C.A.', rif: 'J-123456789', icono: '🔧', color: '#3366ff', orden: 1, activa: true, monedaPago: 'USD' };
 const VIEJA: DefinicionEmpresa = { ...MTO, key: 'GOMETAL', label: 'GoMetal', razonSocial: 'GoMetales C.A.', orden: 2, activa: false };
 
 describe('empresas de la nómina (14-10-2026)', () => {
@@ -52,8 +52,8 @@ describe('empresas de la nómina (14-10-2026)', () => {
   });
 
   it('manda a la base los datos en limpio (código en mayúsculas, RIF normalizado)', () => {
-    const x = datosEmpresaLimpios({ codigo: 'mto', nombre: ' MTO ', razonSocial: ' Mantenimiento Oriente C.A. ', rif: 'j 12.345.678-9', icono: '', color: '#FF8A00' });
-    expect(x).toEqual({ codigo: 'MTO', nombre: 'MTO', razonSocial: 'Mantenimiento Oriente C.A.', rif: 'J-123456789', icono: '🏢', color: '#ff8a00' });
+    const x = datosEmpresaLimpios({ codigo: 'mto', nombre: ' MTO ', razonSocial: ' Mantenimiento Oriente C.A. ', rif: 'j 12.345.678-9', icono: '', color: '#FF8A00', monedaPago: 'USD' });
+    expect(x).toEqual({ codigo: 'MTO', nombre: 'MTO', razonSocial: 'Mantenimiento Oriente C.A.', rif: 'J-123456789', icono: '🏢', color: '#ff8a00', monedaPago: 'USD' });
   });
 
   it('hasta dos nóminas son pastillas; de tres en adelante, lista buscable', () => {
@@ -78,5 +78,33 @@ describe('empresas de la nómina (14-10-2026)', () => {
     expect(errorDeshabilitarEmpresa(MGG, 0)).toMatch(/principal/);
     expect(errorDeshabilitarEmpresa(MTO, 3)).toMatch(/3 persona/);
     expect(errorDeshabilitarEmpresa(MTO, 0)).toBeNull();
+  });
+});
+
+describe('moneda de pago de la empresa (23-10-2026)', () => {
+  it('solo existen dólares y Real brasileño; cualquier otra cosa es dólares', () => {
+    expect(monedaPagoValida('BRL')).toBe('BRL');
+    expect(monedaPagoValida('USD')).toBe('USD');
+    expect(monedaPagoValida('brl')).toBe('USD');
+    expect(monedaPagoValida(undefined)).toBe('USD');
+    expect(monedaPagoValida(null)).toBe('USD');
+    expect(monedaPagoValida('EUR')).toBe('USD');
+  });
+  it('MGG paga en dólares y las nuevas empiezan en dólares', () => {
+    expect(MGG.monedaPago).toBe('USD');
+    expect(DATOS_EMPRESA_VACIOS.monedaPago).toBe('USD');
+  });
+  it('pagaEnReal lee la empresa del registro; una que no existe cuenta como dólares', () => {
+    registrarEmpresas([MGG, { ...MTO, key: 'BRASIL', monedaPago: 'BRL' }]);
+    expect(pagaEnReal('BRASIL')).toBe(true);
+    expect(pagaEnReal('MGG')).toBe(false);
+    expect(pagaEnReal('NOEXISTE')).toBe(false);
+    expect(pagaEnReal(null)).toBe(false);
+    registrarEmpresas([MGG]);
+  });
+  it('el formulario conserva la moneda al editar y la normaliza al guardar', () => {
+    expect(datosDeEmpresa({ ...MTO, monedaPago: 'BRL' }).monedaPago).toBe('BRL');
+    const x = datosEmpresaLimpios({ ...datosDeEmpresa(MTO), monedaPago: 'xx' as never });
+    expect(x.monedaPago).toBe('USD');
   });
 });

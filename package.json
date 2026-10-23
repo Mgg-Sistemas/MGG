@@ -6,7 +6,7 @@
   "description": "Mineral Group Guayana C.A. · Sistema de Gestión de Inventarios — React + Tailwind + Supabase",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node --max-old-space-size=1536 ./node_modules/typescript/bin/tsc -b && vite build",
     "build:prod": "node scripts/build-prod.mjs",
     "preview": "vite preview",
     "lint": "eslint .",

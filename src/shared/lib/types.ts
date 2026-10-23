@@ -106,7 +106,7 @@ export type MonedaCaja = 'Bs' | 'USD' | 'USDT' | 'COP';
 export type CuentaCaja = 'general' | 'juridica' | 'personal' | (string & {});
 
 /** Moneda con tasa de cambio referenciada (BCV/Binance/TRM). */
-export type MonedaTasa = 'USD' | 'EUR' | 'USDT' | 'COP';
+export type MonedaTasa = 'USD' | 'EUR' | 'USDT' | 'COP' | 'BRL';
 
 /** Saldo de una caja por (cuenta, moneda) con su tasa promedio ponderada.
  *  `moneda` es texto libre: además de las base (Bs/USD/USDT/COP) admite
@@ -1294,6 +1294,10 @@ export interface NominaPeriodo {
   periodo_hasta?: string | null;
   dias_base: number;
   tasa_bcv?: number | null;
+  /** R$ por 1 USD usado al cargar la nómina (solo empresas con moneda de pago Real brasileño). */
+  tasa_brl?: number | null;
+  /** Fecha de esa tasa del Real. */
+  tasa_brl_fecha?: string | null;
   /** 'pagada' = cerrada (pagada en su totalidad): ya no se modifica. */
   estado: 'cargada' | 'en_pago' | 'pagada';
   total_usd: number;
@@ -1360,7 +1364,7 @@ export interface NominaRenglon {
   /** Espejo de `nomina_periodos.eliminado_en` (lo copia la base): la cola de Tesorería lo filtra. */
   eliminado_en?: string | null;
   /** Solo en consultas con join: el período al que pertenece. */
-  periodo?: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv'> | null;
+  periodo?: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv' | 'tasa_brl' | 'tasa_brl_fecha'> | null;
 }
 
 /** Evento administrativo de RRHH (Fase 3): vacaciones, permisos, utilidades, notas. */

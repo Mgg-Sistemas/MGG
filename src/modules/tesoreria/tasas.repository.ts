@@ -15,6 +15,23 @@ export function round2(n: number): number {
   return Math.round((Number(n) || 0) * 100) / 100;
 }
 
+/** Redondeo a 4 decimales: el Real vale ~5 por dólar y con 2 decimales se perdería más del 1 %. */
+export function round4(n: number): number {
+  return Math.round((Number(n) || 0) * 10000) / 10000;
+}
+
+/** Real brasileño = dólares × tasa (R$ por 1 USD). Ej.: 20 $ × 5,0428 = R$ 100,86. */
+export function aReal(usd: number, tasaBrl: number): number {
+  return round2((Number(usd) || 0) * (Number(tasaBrl) || 0));
+}
+
+/** Dólares = Real brasileño ÷ tasa (R$ por 1 USD). */
+export function aDolaresDesdeReal(brl: number, tasaBrl: number): number {
+  const t = Number(tasaBrl) || 0;
+  if (t <= 0) return 0;
+  return round2((Number(brl) || 0) / t);
+}
+
 /** Bs = monto extranjero × tasa BCV. */
 export function aBs(montoExtranjero: number, tasa: number): number {
   return round2((Number(montoExtranjero) || 0) * (Number(tasa) || 0));
@@ -116,7 +133,8 @@ async function ultimaConocida(): Promise<TasaHoy> {
 /** Corrección / carga manual de la tasa de una moneda (admin). Acepta cualquier
  *  moneda registrada (USD/EUR/USDT/COP o personalizada). */
 export async function setTasaManual(input: { moneda: string; tasa: number; fecha?: string }): Promise<void> {
-  const tasa = round2(Number(input.tasa) || 0);
+  // El Real lleva 4 decimales (vale ~5 por dólar); las demás, 2.
+  const tasa = input.moneda === 'BRL' ? round4(Number(input.tasa) || 0) : round2(Number(input.tasa) || 0);
   if (tasa <= 0) throw new Error('La tasa debe ser mayor que 0.');
   const fecha = input.fecha || hoyVE();
 
@@ -140,7 +158,7 @@ export async function setTasaManual(input: { moneda: string; tasa: number; fecha
   }
 
   // USDT/COP cargadas a mano también alimentan el gráfico (serie histórica).
-  const par = input.moneda === 'USDT' ? 'USDT_VES' : input.moneda === 'COP' ? 'COP_USD' : null;
+  const par = input.moneda === 'USDT' ? 'USDT_VES' : input.moneda === 'COP' ? 'COP_USD' : input.moneda === 'BRL' ? 'BRL_USD' : null;
   if (par) await supabase.from('tasa_snapshot').insert({ par, tasa, fuente: 'manual' });
 }
 
@@ -241,6 +259,35 @@ export async function refrescarCop(): Promise<number> {
   if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
   bustTasasCache();
   return data.cop_usd;
+}
+
+/* ───────────── Real brasileño (RRHH) ───────────── */
+
+/** Última tasa guardada del Real (R$ por 1 USD), de cualquier fuente. Sin consultar la API. */
+export async function ultimaTasaBrl(): Promise<{ tasa: number; fecha: string } | null> {
+  return ultimaTasaMoneda('BRL');
+}
+
+/** Fuerza la actualización de la tasa BRL/USD (Edge Function `tasa-brl`, que consulta una API pública). */
+export async function refrescarBrl(): Promise<{ tasa: number; fecha: string }> {
+  const { data, error } = await supabase.functions.invoke<
+    { ok: true; brl_usd: number; fecha: string } | { error: string }
+  >('tasa-brl', { body: {} });
+  if (error) throw new Error(error.message ?? 'No se pudo actualizar la tasa del Real');
+  if (!data || 'error' in data) throw new Error((data as { error?: string })?.error || 'Respuesta inválida');
+  bustTasasCache();
+  return { tasa: data.brl_usd, fecha: data.fecha };
+}
+
+/**
+ * La tasa del Real para hoy. Si la última guardada no es de hoy, la trae de la API; si
+ * la API falla, queda la última conocida (con su fecha) para que se pueda seguir trabajando.
+ */
+export async function getTasaBrl(): Promise<{ tasa: number | null; fecha: string | null }> {
+  const ultima = await ultimaTasaBrl().catch(() => null);
+  if (ultima && ultima.fecha === hoyVE()) return ultima;
+  try { return await refrescarBrl(); } catch { /* sin función o sin red */ }
+  return ultima ?? { tasa: null, fecha: null };
 }
 
 /**

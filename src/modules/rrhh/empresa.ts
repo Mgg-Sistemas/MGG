@@ -17,6 +17,17 @@ export type Empresa = string;
 
 export const EMPRESA_POR_DEFECTO: Empresa = 'MGG';
 
+/** Moneda en que una empresa paga y emite sus recibos (23-10-2026, traído de Golden Touch). */
+export type MonedaPagoEmpresa = 'USD' | 'BRL';
+
+/** Lo que viene de la base → una moneda válida (cualquier otra cosa es dólares). */
+export const monedaPagoValida = (v: unknown): MonedaPagoEmpresa => (v === 'BRL' ? 'BRL' : 'USD');
+
+export const ETIQUETA_MONEDA_PAGO: Record<MonedaPagoEmpresa, string> = {
+  USD: 'Dólares ($)',
+  BRL: 'Real brasileño (R$)',
+};
+
 export interface DefinicionEmpresa {
   key: Empresa;
   /** Cómo se escribe en pantalla (corto): «MGG», «MTO». */
@@ -28,6 +39,8 @@ export interface DefinicionEmpresa {
   color: string;
   orden: number;
   activa: boolean;
+  /** USD: los recibos salen como siempre. BRL: el recibo de bonificación sale en $ y en Real brasileño. */
+  monedaPago: MonedaPagoEmpresa;
 }
 
 export const MGG: DefinicionEmpresa = {
@@ -39,6 +52,7 @@ export const MGG: DefinicionEmpresa = {
   color: '#ff8a00',
   orden: 0,
   activa: true,
+  monedaPago: 'USD',
 };
 
 let registro = new Map<string, DefinicionEmpresa>([[MGG.key, MGG]]);
@@ -78,7 +92,12 @@ export function normalizarEmpresa(v?: unknown): Empresa {
  */
 export function definicionEmpresa(e?: Empresa | string | null): DefinicionEmpresa {
   const key = normalizarEmpresa(e);
-  return registro.get(key) ?? { key, label: key, razonSocial: key, rif: null, icono: '🏢', color: '#ff8a00', orden: 99, activa: true };
+  return registro.get(key) ?? { key, label: key, razonSocial: key, rif: null, icono: '🏢', color: '#ff8a00', orden: 99, activa: true, monedaPago: 'USD' };
+}
+
+/** ¿Esta empresa paga en Real brasileño? (sus recibos de bonificación llevan R$ y la nómina trae la tasa). */
+export function pagaEnReal(e?: Empresa | string | null): boolean {
+  return definicionEmpresa(e).monedaPago === 'BRL';
 }
 
 export interface ConEmpresa { empresa?: Empresa | string | null }
@@ -92,9 +111,10 @@ export interface DatosEmpresa {
   rif: string;
   icono: string;
   color: string;
+  monedaPago: MonedaPagoEmpresa;
 }
 
-export const DATOS_EMPRESA_VACIOS: DatosEmpresa = { codigo: '', nombre: '', razonSocial: '', rif: '', icono: '🏢', color: '#ff8a00' };
+export const DATOS_EMPRESA_VACIOS: DatosEmpresa = { codigo: '', nombre: '', razonSocial: '', rif: '', icono: '🏢', color: '#ff8a00', monedaPago: 'USD' };
 
 /** Qué está mal en el formulario, o null si se puede guardar. */
 export function validarEmpresa(d: DatosEmpresa, existentes: DefinicionEmpresa[], editando: string | null = null): string | null {
@@ -117,11 +137,12 @@ export function datosEmpresaLimpios(d: DatosEmpresa): DatosEmpresa {
     rif: d.rif.trim() ? normalizarRif(d.rif) : '',
     icono: d.icono.trim() || '🏢',
     color: d.color.trim().toLowerCase(),
+    monedaPago: monedaPagoValida(d.monedaPago),
   };
 }
 
 export function datosDeEmpresa(e: DefinicionEmpresa): DatosEmpresa {
-  return { codigo: e.key, nombre: e.label, razonSocial: e.razonSocial, rif: e.rif ?? '', icono: e.icono, color: e.color };
+  return { codigo: e.key, nombre: e.label, razonSocial: e.razonSocial, rif: e.rif ?? '', icono: e.icono, color: e.color, monedaPago: e.monedaPago };
 }
 
 /* ───────── El switch del encabezado ───────── */

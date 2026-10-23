@@ -4,6 +4,7 @@ import {
   progresoParadas, textoConformidadViaje, textoLiquidacion, textoRuta,
   tipoViajeDe, cantidadViajes, tarifaTotalViaje, textoRutaViajes, totalViajes, horasDiaVolqueta, errorViajesVolqueta,
   nombreDeConductor, datosConductor,
+  tasasDeConductor, codificarObservacionesConTasas, observacionesSinTagsTasas, clasificarCategoriaPorTasa, categoriaDeViaje,
 } from './choferes';
 
 const HOY = '2026-10-12';
@@ -154,5 +155,63 @@ describe('chofer externo (sin ficha de RRHH)', () => {
     expect(datosConductor({ externo: true, cedula: '12345', telefono: '0414', empresa_externa: 'Transporte Mata' })).toEqual({ cedula: '12345', telefono: '0414', cargo: 'Chofer externo · Transporte Mata' });
     expect(datosConductor({ personal: { nombre: 'A', cedula: '9', cargo: 'CHOFER' } }).cargo).toBe('CHOFER');
     expect(datosConductor(undefined).cedula).toBeNull();
+  });
+});
+
+describe('tasas de pago de viaje por chofer y clasificación automática', () => {
+  it('obtiene tasas por defecto cuando el chofer no tiene configuración', () => {
+    const t = tasasDeConductor(null);
+    expect(t.corto).toBe(25);
+    expect(t.largo).toBe(50);
+    expect(t.interno).toBe(1);
+  });
+
+  it('usa tarifa_viaje_usd como tasa de corto si no hay otras configuradas', () => {
+    const t = tasasDeConductor({ tarifa_viaje_usd: 30 });
+    expect(t.corto).toBe(30);
+    expect(t.largo).toBe(60);
+    expect(t.interno).toBe(1);
+  });
+
+  it('codifica y extrae tasas en observaciones preservando el texto del usuario', () => {
+    const obsOriginal = 'Maneja volqueta doble eje';
+    const conTasas = codificarObservacionesConTasas(obsOriginal, { corto: 25, largo: 100, interno: 5 });
+    expect(conTasas).toContain('Maneja volqueta doble eje');
+    expect(conTasas).toContain('[TASAS: corto=25, largo=100, interno=5]');
+
+    expect(observacionesSinTagsTasas(conTasas)).toBe('Maneja volqueta doble eje');
+
+    const t = tasasDeConductor({ observaciones: conTasas });
+    expect(t.corto).toBe(25);
+    expect(t.largo).toBe(100);
+    expect(t.interno).toBe(5);
+  });
+
+  it('clasifica automáticamente según la tasa colocada y las tasas del chofer', () => {
+    const chofer = {
+      tarifa_corto_usd: 25,
+      tarifa_largo_usd: 100,
+      tarifa_interno_usd: 1,
+    };
+
+    // Coincidencias exactas
+    expect(clasificarCategoriaPorTasa(25, chofer)).toBe('VIAJE CORTO');
+    expect(clasificarCategoriaPorTasa(100, chofer)).toBe('VIAJE LARGO');
+    expect(clasificarCategoriaPorTasa(1, chofer)).toBe('VIAJE INTERNO');
+
+    // Valores intermedios o aproximados
+    expect(clasificarCategoriaPorTasa(2, chofer)).toBe('VIAJE INTERNO');
+    expect(clasificarCategoriaPorTasa(20, chofer)).toBe('VIAJE CORTO');
+    expect(clasificarCategoriaPorTasa(80, chofer)).toBe('VIAJE LARGO');
+    expect(clasificarCategoriaPorTasa(150, chofer)).toBe('VIAJE LARGO');
+  });
+
+  it('categoriaDeViaje infiere la categoría por la tasa si no viene guardada', () => {
+    const chofer = { tarifa_corto_usd: 25, tarifa_largo_usd: 100, tarifa_interno_usd: 2 };
+    expect(categoriaDeViaje({ tarifa_usd: 100 }, chofer)).toBe('VIAJE LARGO');
+    expect(categoriaDeViaje({ tarifa_usd: 25 }, chofer)).toBe('VIAJE CORTO');
+    expect(categoriaDeViaje({ tarifa_usd: 2 }, chofer)).toBe('VIAJE INTERNO');
+    // Si viene explícita, la respeta
+    expect(categoriaDeViaje({ categoria_viaje: 'VIAJE INTERNO', tarifa_usd: 100 }, chofer)).toBe('VIAJE INTERNO');
   });
 });

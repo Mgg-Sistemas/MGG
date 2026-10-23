@@ -20,6 +20,11 @@
    solo el trabajador, centrada al pie de la hoja; arriba a la derecha va la
    fecha de pago (o de emisión si aún no se pagó) y bajo el nombre el RIF.
 
+   EMPRESAS QUE PAGAN EN REAL BRASILEÑO (23-10-2026, traído de Golden Touch): si la
+   nómina se cargó con la tasa del Real (`tasa_brl`), el recibo 2/2 sale en $ Y en R$:
+   las dos columnas, el neto en las dos monedas y la tasa de cambio usada (1 $ = R$ x).
+   El recibo 1/2 (Bs) no cambia.
+
    Cada recibo entra en UNA carta (datos, desglose, conformidad y firma); si
    algún día no entra, la firma pasa de hoja entera, nunca partida. Los
    seriales de billetes van en el 2/2, que es el que se paga en efectivo.
@@ -37,6 +42,14 @@ function usd(n: number | null | undefined): string {
 function bsStr(n: number | null | undefined): string {
   return 'Bs ' + Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
+/** R$ con coma decimal: «R$ 100,86». */
+export function reales(n: number | null | undefined): string {
+  return 'R$ ' + Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+/** La tasa con sus 4 decimales: «5,0428». */
+export function tasaRealTexto(t: number): string {
+  return Number(t).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
 function labelMotivo(tipo?: string | null): string {
   switch (tipo) {
     case 'vacaciones': return 'Vacaciones';
@@ -47,7 +60,8 @@ function labelMotivo(tipo?: string | null): string {
 }
 
 export interface ReciboMeta {
-  periodo: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv'>;
+  periodo: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv'>
+    & Partial<Pick<NominaPeriodo, 'tasa_brl' | 'tasa_brl_fecha'>>;
   cedulas?: Record<string, string | null | undefined>;   // personal_id -> cédula
 }
 
@@ -62,12 +76,38 @@ export function tituloRecibo(hoja: HojaRecibo): string {
   return 'COMPROBANTE DE PAGO';
 }
 
+/** El recibo de la bonificación pasado a Real brasileño (cada importe redondeado, para que la tabla cuadre). */
+export interface BonoEnReal {
+  /** R$ por 1 USD. */
+  tasa: number;
+  bono: number;
+  /** Cada descuento (préstamos, anticipos…), en el mismo orden que `lineasBono`. */
+  lineas: number[];
+  deduccion: number;
+  neto: number;
+}
+
+/**
+ * La bonificación en R$ a la tasa de la nómina; null si la nómina no trae tasa del Real
+ * (empresa que paga en dólares: el recibo sale como siempre). Los descuentos se redondean uno
+ * por uno y el neto sale de esos importes, así lo que se ve en la tabla suma exacto.
+ */
+export function bonoEnReal(c: ReciboCalculado, tasaBrl?: number | null): BonoEnReal | null {
+  const tasa = Number(tasaBrl);
+  if (!(tasa > 0)) return null;
+  const r2 = (n: number) => Math.round(n * 100) / 100;
+  const bono = r2(c.bonoUsd * tasa);
+  const lineas = c.lineasBono.map((ln) => r2(ln.usd * tasa));
+  const deduccion = r2(lineas.reduce((a, n) => a + n, 0));
+  return { tasa, bono, lineas, deduccion, neto: r2(Math.max(0, bono - deduccion)) };
+}
+
 /**
  * El texto de conformidad de cada recibo. Cada uno certifica SOLO lo que se
  * entrega con él, en su moneda, y nombra al otro para que nadie crea que un
  * recibo es la remuneración completa. El 2/2 cierra con el total de los dos.
  */
-export function textoConformidad(hoja: HojaRecibo, c: ReciboCalculado, periodo = ''): string {
+export function textoConformidad(hoja: HojaRecibo, c: ReciboCalculado, periodo = '', real: BonoEnReal | null = null): string {
   if (hoja === 'sueldo') {
     // SOLO bolívares y con el texto que dictó la administradora (15-10-2026): monto y
     // período; ni equivalente en $, ni tasa, ni mención de la bonificación.
@@ -78,7 +118,11 @@ export function textoConformidad(hoja: HojaRecibo, c: ReciboCalculado, periodo =
   const descuento = c.deduccionBonoUsd > 0
     ? ` (bono de ${usd(c.bonoUsd)} menos ${usd(c.deduccionBonoUsd)} de préstamos y anticipos)`
     : '';
-  return `Certifico haber recibido ${usd(c.bonoNetoUsd)} de bonificación en divisas${descuento} por el período indicado, según este recibo, y firmo en señal de conformidad.`;
+  // Empresa que paga en Real: se certifica también el equivalente y la tasa de cambio usada.
+  const equivalente = real
+    ? ` (equivalente a ${reales(real.neto)} en Real brasileño, a la tasa de cambio de 1 $ = R$ ${tasaRealTexto(real.tasa)})`
+    : '';
+  return `Certifico haber recibido ${usd(c.bonoNetoUsd)} de bonificación en divisas${equivalente}${descuento} por el período indicado, según este recibo, y firmo en señal de conformidad.`;
 }
 
 /**
@@ -220,6 +264,11 @@ function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecib
         : [
             ['Estado', r.estado === 'pagada' ? `Pagado${r.pagada_en ? ' · ' + fmtDate(r.pagada_en) : ''}` : 'Por pagar',
               'Sueldo mensual', usd(r.sueldo_base_mensual)],
+            // Empresa que paga en Real: la forma de pago y la tasa de cambio, a la vista.
+            ...(bonoEnReal(c, meta.periodo.tasa_brl)
+              ? [['Forma de pago', 'Divisas ($) y Real brasileño (R$)',
+                  'Tasa de cambio', `1 $ = R$ ${tasaRealTexto(Number(meta.periodo.tasa_brl))}${meta.periodo.tasa_brl_fecha ? ` (${fmtDate(meta.periodo.tasa_brl_fecha)})` : ''}`]]
+              : []),
           ]),
     ],
     margin: MARGENES_TABLA_PDF,
@@ -237,7 +286,7 @@ function pie(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecibo, c:
   let y = yIni;
 
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-  const lineasConformidad = doc.splitTextToSize(textoConformidad(hoja, c, textoPeriodo(meta, r)), anchoUtilPdf(PAGE_W)) as string[];
+  const lineasConformidad = doc.splitTextToSize(textoConformidad(hoja, c, textoPeriodo(meta, r), hoja === 'bono' ? bonoEnReal(c, meta.periodo.tasa_brl) : null), anchoUtilPdf(PAGE_W)) as string[];
   // Si no entra sobre el margen inferior, la conformidad pasa a la hoja siguiente.
   if (y + 10 + lineasConformidad.length * 10 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN; }
   doc.text(lineasConformidad, MARGIN, y + 10);
@@ -324,23 +373,46 @@ function hojaBono(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalcul
   /* EL BONO: el 80 %, en divisas. De acá se descuentan préstamos y anticipos:
      se prestan en dólares y se cobran en dólares. Si el bono no alcanza, el
      resto baja al recibo 1/2 como «(resto)»; la deuda no se perdona. */
+  // Empresa que paga en Real (23-10-2026): las mismas filas con dos columnas más en R$, el neto en
+  // las dos monedas y la tasa de cambio. Sin tasa del Real, la tabla es la de siempre.
+  const real = bonoEnReal(c, meta.periodo.tasa_brl);
+  const descuentoUsd = (ln: { usd: number }) => (ln.usd ? `- ${usd(ln.usd)}` : usd(0));
+  const filasBono: string[][] = [
+    ['1', 'Bonificación de la quincena (80 % del total acordado)', usd(c.bonoUsd), '', ...(real ? [reales(real.bono), ''] : [])],
+    // Guion ASCII, no el «−» tipográfico: Helvetica del PDF no lo tiene y lo pinta como comilla (09-10-2026).
+    ...c.lineasBono.map((ln, i) => [
+      String(i + 2), `(-) ${ln.concepto}`, '', descuentoUsd(ln),
+      ...(real ? ['', real.lineas[i] ? `- ${reales(real.lineas[i])}` : reales(0)] : []),
+    ]),
+  ];
+  const finBonoFilas: (string | { content: string; colSpan?: number; styles?: { halign: 'right' } })[][] = real
+    ? [
+        ['', 'TOTALES', usd(c.bonoUsd), usd(c.deduccionBonoUsd), reales(real.bono), reales(real.deduccion)],
+        ['', 'BONIFICACIÓN A ENTREGAR EN DIVISAS ($ y R$)', usd(c.bonoNetoUsd), '', reales(real.neto), ''],
+        ['', 'TASA DE CAMBIO', { content: `1 $ = R$ ${tasaRealTexto(real.tasa)}${meta.periodo.tasa_brl_fecha ? ` (${fmtDate(meta.periodo.tasa_brl_fecha)})` : ''}`, colSpan: 4, styles: { halign: 'right' } }],
+      ]
+    : [
+        ['', 'TOTALES', usd(c.bonoUsd), usd(c.deduccionBonoUsd)],
+        ['', 'BONIFICACIÓN A ENTREGAR EN DIVISAS', usd(c.bonoNetoUsd), ''],
+      ];
   autoTable(doc, {
     startY: y,
-    head: [['#', 'CONCEPTO', 'DEVENGADO $', 'DESCUENTO $']],
-    body: [
-      ['1', 'Bonificación de la quincena (80 % del total acordado)', usd(c.bonoUsd), ''],
-      // Guion ASCII, no el «−» tipográfico: Helvetica del PDF no lo tiene y lo pinta como comilla (09-10-2026).
-      ...c.lineasBono.map((ln, i) => [String(i + 2), `(-) ${ln.concepto}`, '', ln.usd ? `- ${usd(ln.usd)}` : usd(0)]),
-    ],
-    foot: [
-      ['', 'TOTALES', usd(c.bonoUsd), usd(c.deduccionBonoUsd)],
-      ['', 'BONIFICACIÓN A ENTREGAR EN DIVISAS', usd(c.bonoNetoUsd), ''],
-    ],
+    head: [real
+      ? ['#', 'CONCEPTO', 'DEVENGADO $', 'DESCUENTO $', 'DEVENGADO R$', 'DESCUENTO R$']
+      : ['#', 'CONCEPTO', 'DEVENGADO $', 'DESCUENTO $']],
+    body: filasBono,
+    foot: finBonoFilas,
     margin: MARGENES_TABLA_PDF,
-    styles: { fontSize: 8.5, cellPadding: 2.5 },
+    styles: { fontSize: real ? 8 : 8.5, cellPadding: 2.5 },
     headStyles: { fillColor: [55, 55, 55], textColor: 255, fontStyle: 'bold', halign: 'center' },
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
-    columnStyles: { 0: { cellWidth: 18, halign: 'center' }, 2: { halign: 'right', cellWidth: 105 }, 3: { halign: 'right', cellWidth: 105 } },
+    columnStyles: real
+      ? {
+          0: { cellWidth: 16, halign: 'center' },
+          2: { halign: 'right', cellWidth: 70 }, 3: { halign: 'right', cellWidth: 70 },
+          4: { halign: 'right', cellWidth: 76 }, 5: { halign: 'right', cellWidth: 76 },
+        }
+      : { 0: { cellWidth: 18, halign: 'center' }, 2: { halign: 'right', cellWidth: 105 }, 3: { halign: 'right', cellWidth: 105 } },
   });
   y = finalY(doc, y) + 6;
 

@@ -8,7 +8,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import {
-  MGG, datosEmpresaLimpios, ordenarEmpresas, registrarEmpresas,
+  MGG, datosEmpresaLimpios, monedaPagoValida, ordenarEmpresas, registrarEmpresas,
   type DatosEmpresa, type DefinicionEmpresa, type Empresa,
 } from './empresa';
 
@@ -17,12 +17,14 @@ const TABLA = 'rrhh_empresas';
 interface FilaEmpresa {
   codigo: string; nombre: string; razon_social: string; rif: string | null;
   icono: string | null; color: string | null; orden: number | null; activa: boolean | null;
+  moneda_pago?: string | null;
 }
 
 function deFila(r: FilaEmpresa): DefinicionEmpresa {
   return {
     key: r.codigo, label: r.nombre, razonSocial: r.razon_social, rif: r.rif || null,
     icono: r.icono || '🏢', color: r.color || '#ff8a00', orden: Number(r.orden) || 0, activa: r.activa !== false,
+    monedaPago: monedaPagoValida(r.moneda_pago),
   };
 }
 
@@ -70,7 +72,7 @@ export async function crearEmpresa(d: DatosEmpresa, actor: string, actorName: st
   const x = datosEmpresaLimpios(d);
   const { error } = await supabase.from(TABLA).insert({
     codigo: x.codigo, nombre: x.nombre, razon_social: x.razonSocial, rif: x.rif || null,
-    icono: x.icono, color: x.color, orden, activa: true, actor, actor_name: actorName,
+    icono: x.icono, color: x.color, moneda_pago: x.monedaPago, orden, activa: true, actor, actor_name: actorName,
   });
   if (error) {
     if (error.code === '23505') throw new Error(`Ya existe una empresa con el código ${x.codigo}.`);
@@ -81,7 +83,7 @@ export async function crearEmpresa(d: DatosEmpresa, actor: string, actorName: st
 export async function actualizarEmpresa(codigo: Empresa, d: DatosEmpresa, actor: string, actorName: string | null): Promise<void> {
   const x = datosEmpresaLimpios(d);
   const { data, error } = await supabase.from(TABLA).update({
-    nombre: x.nombre, razon_social: x.razonSocial, rif: x.rif || null, icono: x.icono, color: x.color,
+    nombre: x.nombre, razon_social: x.razonSocial, rif: x.rif || null, icono: x.icono, color: x.color, moneda_pago: x.monedaPago,
     actor, actor_name: actorName,
   }).eq('codigo', codigo).select('codigo');
   if (error) throw error;
