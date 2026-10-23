@@ -17,7 +17,7 @@ import {
   categoriaDeViaje, cantidadViajes, tarifaTotalViaje, infoPagoViaje,
 } from './choferes';
 import {
-  eliminarViaje, marcarViajePagado, marcarViajesPagadosHastaFecha, type Viaje,
+  eliminarViaje, marcarViajesPagadosHastaFecha, type Viaje,
 } from './choferes.repository';
 import { nombreConductor, type PropsTab } from './ChoferesPage';
 import { generarNominaViajesPdf, type GrupoChoferNomina, type FilaNominaViaje } from './nominaViajesPdf';

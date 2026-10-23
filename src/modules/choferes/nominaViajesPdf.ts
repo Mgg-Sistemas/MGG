@@ -7,7 +7,8 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
-import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
+import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf } from '@/shared/lib/pdfMargen';
+import { textoPdf } from '@/shared/lib/textoPdf';
 import { date as fmtDate } from '@/shared/lib/format';
 
 export interface FilaNominaViaje {

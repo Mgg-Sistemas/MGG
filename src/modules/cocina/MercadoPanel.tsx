@@ -54,8 +54,8 @@ function diaAntes(iso: string): string { const d = new Date(`${iso}T12:00:00`); 
 /** Hora local de un instante ISO: «16:38». */
 function horaDe(iso: string): string { return new Date(iso).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit', hour12: false }); }
 
-export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre, almacen, canWrite, actor, userEmail, onReload, onEditComida, onDelComida, resguardo = false }: {
-  /** Resguardo: almacena y distribuye, no sirve comidas (sin platos ni costo por plato). */
+export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre, almacen, canWrite, actor, userEmail, onReload, onEditComida, onDelComida, resguardo: _resguardo = false }: {
+  /** Resguardo: almacena y distribuye, ahora también registra consumos como cualquier cocina. */
   resguardo?: boolean;
   resumen: ResumenMercado;
   /** Todos los cortes de esta cocina, del más nuevo al más viejo. Alimenta el selector. */

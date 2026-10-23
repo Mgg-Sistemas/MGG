@@ -31,9 +31,7 @@ import {
 import { hoyVE, nombreDeConductor } from './choferes';
 import { TableroTab } from './TableroTab';
 import { ExpedienteTab } from './ExpedienteTab';
-import { ViajesTab } from './ViajesTab';
 import { ViaticosTab } from './ViaticosTab';
-import { PagosTab } from './PagosTab';
 import { GuiasTab } from './GuiasTab';
 import { NominaViajesTab } from './NominaViajesTab';
 
