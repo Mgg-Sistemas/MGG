@@ -131,7 +131,31 @@ async function leerJsonParametros(): Promise<JsonParametros | null> {
 }
 
 export async function getConfigRetencion(): Promise<ConfigRetencion> {
-  return configDeJson(await leerJsonParametros());
+  let mggData: Record<string, unknown> | null = null;
+  try {
+    const res = await supabase.from('retencion_config').select('*').eq('id', true).maybeSingle();
+    mggData = (res.data as Record<string, unknown>) ?? null;
+  } catch {
+    mggData = null;
+  }
+  const json = await leerJsonParametros().catch(() => null);
+  if (mggData) {
+    return {
+      rif: texto(mggData.rif) ?? texto(json?.rif) ?? null,
+      razonSocial: texto(mggData.razon_social) ?? texto(json?.razon_social) ?? null,
+      direccionFiscal: texto(mggData.direccion_fiscal) ?? texto(json?.direccion_fiscal) ?? null,
+      municipio: texto(mggData.municipio) ?? texto(json?.municipio) ?? null,
+      estado: texto(mggData.estado) ?? texto(json?.estado) ?? null,
+      esContribuyenteEspecial: !!mggData.es_contribuyente_especial,
+      esAgenteRetencionIva: json?.agente_retencion_iva != null ? !!json.agente_retencion_iva : !!mggData.es_contribuyente_especial,
+      pctIvaGeneral: n(mggData.pct_iva_general) || 75,
+      pctIvaEspecial: n(mggData.pct_iva_especial) || 100,
+      valorUt: n(mggData.valor_ut),
+      pctIgtf: n(mggData.pct_igtf),
+      licenciaMunicipal: texto(json?.licencia_actividad_numero) ?? texto(json?.licencia_municipal) ?? null,
+    };
+  }
+  return configDeJson(json);
 }
 
 /** La Providencia SNAT/2015/0049 solo admite 75% y 100%: los dos porcentajes son dato, pero no cualquier dato. */
@@ -294,14 +318,54 @@ export function conceptosLocales(j: JsonParametros | null | undefined): Concepto
   ];
 }
 
+export function aConceptoMgg(r: Record<string, unknown>): ConceptoRetencion {
+  const tipoRaw = String(r.tipo ?? 'islr').toLowerCase();
+  const tipo: ConceptoRetencion['tipo'] = (tipoRaw === 'municipal' || tipoRaw === 'regional') ? tipoRaw : 'islr';
+  const sujeto = (['pn_residente', 'pj_domiciliada', 'pn_no_residente', 'pj_no_domiciliada', 'todos'] as const).includes(r.sujeto as SujetoRetenido)
+    ? (r.sujeto as SujetoRetenido)
+    : 'todos';
+  return {
+    id: String(r.id),
+    tipo,
+    codigo: texto(r.codigo),
+    nombre: String(r.nombre ?? r.concepto ?? ''),
+    sujeto,
+    porcentaje: n(r.porcentaje),
+    basePct: n(r.base_pct) || 100,
+    aplicaSustraendo: !!r.aplica_sustraendo,
+    baseMinimaUt: n(r.base_minima_ut),
+    fundamento: texto(r.fundamento ?? r.nota),
+    activo: r.activo !== false,
+    orden: n(r.orden),
+  };
+}
+
 export async function listConceptos(soloActivos = false): Promise<ConceptoRetencion[]> {
-  let q = supabase.from(T_CONCEPTOS).select('codigo, concepto, pjd, pjnd, pnr, pnnr, base_pct, activo, orden, nota')
-    .order('orden', { ascending: true });
-  if (soloActivos) q = q.eq('activo', true);
-  const { data, error } = await q;
-  if (error) throw errorRetencion(error, 'No se pudo leer el catálogo de conceptos.');
-  const islr = (data ?? []).flatMap((r) => conceptosDeFilaGt(r as Record<string, unknown>));
-  return [...islr, ...conceptosLocales(await leerJsonParametros())];
+  // En MGG la tabla es retencion_conceptos (singular, cada fila es un concepto por sujeto)
+  try {
+    let q = supabase.from('retencion_conceptos').select('*').order('orden', { ascending: true });
+    if (soloActivos) q = q.eq('activo', true);
+    const { data, error } = await q;
+    if (!error && data && data.length > 0) {
+      return data.map((r) => aConceptoMgg(r as Record<string, unknown>));
+    }
+  } catch {
+    // Si no está disponible en cache o falla, continúa con fallback
+  }
+  // En GT la tabla es retenciones_conceptos (plural, formato matricial pjd, pjnd...)
+  try {
+    let q = supabase.from(T_CONCEPTOS).select('codigo, concepto, pjd, pjnd, pnr, pnnr, base_pct, activo, orden, nota')
+      .order('orden', { ascending: true });
+    if (soloActivos) q = q.eq('activo', true);
+    const { data, error } = await q;
+    if (!error && data && data.length > 0) {
+      const islr = data.flatMap((r) => conceptosDeFilaGt(r as Record<string, unknown>));
+      return [...islr, ...conceptosLocales(await leerJsonParametros().catch(() => null))];
+    }
+  } catch {
+    // ignorar
+  }
+  return conceptosLocales(await leerJsonParametros().catch(() => null));
 }
 
 /** Separa el id sintético `codigo:SUJETO` del catálogo de GT. */
@@ -316,27 +380,55 @@ export function partirIdConcepto(id: string): { codigo: string; sujeto: SujetoGt
  * El ISAE y el timbre estadal se cambian en Parámetros.
  */
 export async function guardarConcepto(c: Partial<ConceptoRetencion> & { nombre: string; tipo: ConceptoRetencion['tipo'] }): Promise<void> {
+  const hayMgg = await tablaDisponible('retencion_conceptos');
+  if (hayMgg) {
+    const fila = {
+      tipo: c.tipo, codigo: c.codigo ?? null, nombre: c.nombre, sujeto: c.sujeto ?? 'todos',
+      porcentaje: n(c.porcentaje), base_pct: n(c.basePct) || 100,
+      aplica_sustraendo: !!c.aplicaSustraendo, base_minima_ut: n(c.baseMinimaUt),
+      fundamento: c.fundamento ?? null, activo: c.activo !== false, orden: n(c.orden),
+    };
+    const { data, error } = c.id && !c.id.includes(':')
+      ? await supabase.from('retencion_conceptos').update(fila).eq('id', c.id).select('id')
+      : await supabase.from('retencion_conceptos').insert(fila).select('id');
+    if (error) throw errorRetencion(error, 'No se pudo guardar el concepto.');
+    if (!data?.length) throw new Error(SIN_PERMISO);
+    return;
+  }
   if (c.tipo !== 'islr') throw new Error('La alícuota municipal y la estadal se cambian en Parámetros.');
   const codigo = (c.id ? partirIdConcepto(c.id).codigo : c.codigo)?.trim();
   const sujeto = sujetoAGt(c.sujeto);
   if (!codigo) throw new Error('Código del concepto requerido (Decreto 1.808).');
   if (!sujeto) throw new Error('Sujeto requerido: indicar a quién se le aplica el porcentaje.');
-  const { data, error } = await supabase.from(T_CONCEPTOS).upsert({
-    codigo, concepto: c.nombre.trim(), base_pct: n(c.basePct) || 100,
-    [COLUMNA_SUJETO[sujeto]]: n(c.porcentaje), nota: c.fundamento ?? null,
-    ...(c.orden != null ? { orden: n(c.orden) } : {}),
-  }, { onConflict: 'codigo' }).select('codigo');
-  if (error) throw errorRetencion(error, 'No se pudo guardar el concepto.');
-  if (!data?.length) throw new Error(SIN_PERMISO);
+  if (await tablaDisponible(T_CONCEPTOS)) {
+    const { data, error } = await supabase.from(T_CONCEPTOS).upsert({
+      codigo, concepto: c.nombre.trim(), base_pct: n(c.basePct) || 100,
+      [COLUMNA_SUJETO[sujeto]]: n(c.porcentaje), nota: c.fundamento ?? null,
+      ...(c.orden != null ? { orden: n(c.orden) } : {}),
+    }, { onConflict: 'codigo' }).select('codigo');
+    if (error) throw errorRetencion(error, 'No se pudo guardar el concepto.');
+    if (!data?.length) throw new Error(SIN_PERMISO);
+  } else {
+    throw new Error('La tabla de conceptos no está disponible para guardar.');
+  }
 }
 
 /** En GT un concepto se activa o se apaga entero: con todos sus sujetos. */
 export async function activarConcepto(id: string, activo: boolean): Promise<void> {
+  const hayMgg = await tablaDisponible('retencion_conceptos');
+  if (hayMgg && !id.includes(':')) {
+    const { data, error } = await supabase.from('retencion_conceptos').update({ activo }).eq('id', id).select('id');
+    if (error) throw errorRetencion(error, 'No se pudo cambiar el concepto.');
+    if (!data?.length) throw new Error(SIN_PERMISO);
+    return;
+  }
   const { codigo } = partirIdConcepto(id);
   if (id.endsWith(':todos')) throw new Error('La alícuota municipal y la estadal se cambian en Parámetros.');
-  const { data, error } = await supabase.from(T_CONCEPTOS).update({ activo }).eq('codigo', codigo).select('codigo');
-  if (error) throw errorRetencion(error, 'No se pudo cambiar el concepto.');
-  if (!data?.length) throw new Error(SIN_PERMISO);
+  if (await tablaDisponible(T_CONCEPTOS)) {
+    const { data, error } = await supabase.from(T_CONCEPTOS).update({ activo }).eq('codigo', codigo).select('codigo');
+    if (error) throw errorRetencion(error, 'No se pudo cambiar el concepto.');
+    if (!data?.length) throw new Error(SIN_PERMISO);
+  }
 }
 
 /* ───────────────────── El libro de retenciones ─────────────────────
