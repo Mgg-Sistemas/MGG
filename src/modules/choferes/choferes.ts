@@ -521,3 +521,45 @@ export function datosConductor(c: DatosPersonaConductor | null | undefined): { c
   if (c.externo) return { cedula: c.cedula ?? null, telefono: c.telefono ?? null, cargo: `Chofer externo${c.empresa_externa ? ` · ${c.empresa_externa}` : ''}` };
   return { cedula: null, telefono: null, cargo: null };
 }
+
+/**
+ * Calcula el siguiente rango de corte sugerido para cierre de nómina de viajes.
+ * Si el último cierre cerró hasta el 14, el próximo inicia el 15 hasta fin de mes (30/31).
+ * Si el último cierre cerró a fin de mes (28..31), el próximo inicia el 1 del mes siguiente hasta el 14/15.
+ */
+export function calcularSiguientePeriodoCierre(ultimoCorteIso?: string | null): { desde: string; hasta: string } {
+  if (!ultimoCorteIso) {
+    const hoy = new Date();
+    const y = hoy.getFullYear();
+    const m = hoy.getMonth();
+    const d = hoy.getDate();
+    const mm = String(m + 1).padStart(2, '0');
+    if (d <= 15) {
+      return { desde: `${y}-${mm}-01`, hasta: `${y}-${mm}-15` };
+    }
+    const ultimoDia = new Date(y, m + 1, 0).getDate();
+    return { desde: `${y}-${mm}-16`, hasta: `${y}-${mm}-${ultimoDia}` };
+  }
+
+  const [yy, mm, dd] = ultimoCorteIso.slice(0, 10).split('-').map(Number);
+  // Siguiente día calendario
+  const fechaSig = new Date(yy, mm - 1, dd + 1);
+  const sigY = fechaSig.getFullYear();
+  const sigM = fechaSig.getMonth();
+  const sigD = fechaSig.getDate();
+  const sY = String(sigY);
+  const sM = String(sigM + 1).padStart(2, '0');
+  const sD = String(sigD).padStart(2, '0');
+  const desde = `${sY}-${sM}-${sD}`;
+
+  let hasta: string;
+  if (sigD <= 5) {
+    hasta = `${sY}-${sM}-15`;
+  } else {
+    const ultDiaMes = new Date(sigY, sigM + 1, 0).getDate();
+    hasta = `${sY}-${sM}-${ultDiaMes}`;
+  }
+
+  return { desde, hasta };
+}
+

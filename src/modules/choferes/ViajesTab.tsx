@@ -25,7 +25,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { toast } from '@/shared/ui/Toast';
-import { money, date as fmtDate } from '@/shared/lib/format';
+import { money, date as fmtDate, formatoCI } from '@/shared/lib/format';
 import { listadoFlotaPdf } from '@/modules/maquinaria/flotaPdf';
 import { listadoFlotaExcel } from '@/modules/maquinaria/flotaExcel';
 import {
@@ -178,7 +178,7 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
                         {canWrite && v.estado === 'programado' && <button className="btn btn-sm btn-primary" onClick={() => setAccion({ tipo: 'iniciar', viaje: v })} title="Iniciar ruta">▶</button>}
                         {canWrite && v.estado === 'en_ruta' && <button className="btn btn-sm btn-success" onClick={() => setAccion({ tipo: 'finalizar', viaje: v })} title="Finalizar ruta">🏁</button>}
                         {canWrite && (v.estado === 'programado' || v.estado === 'en_ruta') && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setAccion({ tipo: 'cancelar', viaje: v })} title="Cancelar">✖</button>}
-                        {canWrite && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(v)} title={v.pago_id ? 'Está en un recibo: anula el recibo primero' : 'Eliminar'}>🗑</button>}
+                        {canWrite && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(v)} title={v.pago_id ? 'Eliminar viaje pagado' : 'Eliminar'}>🗑</button>}
                       </td>
                     </tr>
                   );
@@ -202,7 +202,7 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
       )}
       {borrar && (
         <ConfirmDialog title={`Eliminar ${borrar.numero}`} danger confirmText="Sí, eliminar"
-          message={<>Se borra la orden <strong>{borrar.numero}</strong> ({textoRuta(borrar)} · {nombreConductor(porId.get(borrar.chofer_id))}{borrar.viajes > 1 ? ` · ${borrar.viajes} viajes` : ''}) con sus paradas y su liquidación. Los viáticos cargados a ese viaje quedan como caja chica del chofer. {borrar.pago_id ? 'Está en un recibo de viaje: primero anula o borra ese recibo.' : 'Esto no se deshace.'}</>}
+          message={<>Se borra la orden <strong>{borrar.numero}</strong> ({textoRuta(borrar)} · {nombreConductor(porId.get(borrar.chofer_id))}{borrar.viajes > 1 ? ` · ${borrar.viajes} viajes` : ''}) con sus paradas y su liquidación. Los viáticos cargados a ese viaje quedan como caja chica del chofer. {borrar.pago_id ? 'Este viaje figura como pagado: al eliminarlo se descontará de los registros. Esto no se deshace.' : 'Esto no se deshace.'}</>}
           onConfirm={() => { void confirmarBorrar(); }} onCancel={() => setBorrar(null)} />
       )}
     </div>
@@ -368,7 +368,7 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
         <div className="form-grid">
           <div className="form-row"><label htmlFor="vj-chofer">Chofer</label>
             <SearchSelect id="vj-chofer" value={choferId} onChange={elegirChofer} placeholder="🔍 Buscar chofer…"
-              options={activos.map((c) => ({ value: c.id, label: nombreConductor(c), hint: [datosConductor(c).cedula, c.externo ? 'externo' : null, c.licencia_grado ? `Lic. ${c.licencia_grado}` : null].filter(Boolean).join(' · ') }))} /></div>
+              options={activos.map((c) => ({ value: c.id, label: nombreConductor(c), hint: [formatoCI(datosConductor(c).cedula), c.externo ? 'externo' : null, c.licencia_grado ? `Lic. ${c.licencia_grado}` : null].filter(Boolean).join(' · ') }))} /></div>
           <div className="form-row"><label htmlFor="vj-veh">Vehículo</label>
             <div style={{ display: 'flex', gap: '.35rem' }}>
               <SearchSelect id="vj-veh" value={vehiculoId} onChange={setVehiculoId} placeholder="🔍 Placa, marca, modelo…" style={{ flex: 1 }}

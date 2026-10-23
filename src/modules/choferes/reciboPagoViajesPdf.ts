@@ -13,7 +13,7 @@
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
-import { date as fmtDate } from '@/shared/lib/format';
+import { date as fmtDate, formatoCI } from '@/shared/lib/format';
 import { textoPdf } from '@/shared/lib/textoPdf';
 import type { GrupoChoferNomina } from './nominaViajesPdf';
 import type { Conductor, VehiculoFlota } from './choferes.repository';
@@ -178,7 +178,7 @@ export async function generarReciboPagoViajesPdf(opts: ReciboPagoViajesOpts): Pr
 
     // ── Banner Card del Conductor y Vehículo(s) ──
     const cond = conductoresMap?.get(g.choferId);
-    const cedula = cond?.personal?.cedula || cond?.cedula || '—';
+    const cedula = formatoCI(cond?.personal?.cedula || cond?.cedula);
     const tlf = cond?.personal?.telefono || cond?.telefono || '—';
 
     // Análisis de vehículos utilizados

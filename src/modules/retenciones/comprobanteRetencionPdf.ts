@@ -11,7 +11,7 @@
 
    Solo vista previa, por botón: acá nunca se descarga nada solo.
    ============================================================ */
-import QRCode from 'qrcode';
+import qrcode from 'qrcode-generator';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { textoPdf } from '@/shared/lib/textoPdf';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf, anchoUtilPdf } from '@/shared/lib/pdfMargen';
@@ -60,12 +60,10 @@ export async function calcularSha256Hex(texto: string): Promise<string> {
 /** Genera la DataURL del código QR para incrustar en el PDF (PA 0084 y 0093). */
 export async function generarQrVerificacion(contenido: string): Promise<string | null> {
   try {
-    return await QRCode.toDataURL(contenido, {
-      errorCorrectionLevel: 'M',
-      margin: 1,
-      width: 140,
-      color: { dark: '#000000', light: '#ffffff' },
-    });
+    const qr = qrcode(0, 'M');
+    qr.addData(unescape(encodeURIComponent(contenido)), 'Byte');
+    qr.make();
+    return qr.createDataURL(4, 1);
   } catch {
     return null;
   }

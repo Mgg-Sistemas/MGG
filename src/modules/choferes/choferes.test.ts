@@ -5,6 +5,7 @@ import {
   tipoViajeDe, cantidadViajes, tarifaTotalViaje, textoRutaViajes, totalViajes, horasDiaVolqueta, errorViajesVolqueta,
   nombreDeConductor, datosConductor,
   tasasDeConductor, codificarObservacionesConTasas, observacionesSinTagsTasas, clasificarCategoriaPorTasa, categoriaDeViaje,
+  calcularSiguientePeriodoCierre,
 } from './choferes';
 
 const HOY = '2026-10-12';
@@ -215,3 +216,25 @@ describe('tasas de pago de viaje por chofer y clasificación automática', () =>
     expect(categoriaDeViaje({ categoria_viaje: 'VIAJE INTERNO', tarifa_usd: 100 }, chofer)).toBe('VIAJE INTERNO');
   });
 });
+
+describe('cierre consecutivo de nómina de viajes (calcularSiguientePeriodoCierre)', () => {
+  it('si el último cierre cerró al día 14, el próximo arranca el 15 hasta fin de mes', () => {
+    const res = calcularSiguientePeriodoCierre('2026-10-14');
+    expect(res.desde).toBe('2026-10-15');
+    expect(res.hasta).toBe('2026-10-31');
+  });
+
+  it('si el último cierre cerró al fin de mes (31), el próximo arranca el día 1 del siguiente mes hasta el 15', () => {
+    const res = calcularSiguientePeriodoCierre('2026-10-31');
+    expect(res.desde).toBe('2026-11-01');
+    expect(res.hasta).toBe('2026-11-15');
+  });
+
+  it('si no hay corte previo, sugiere la quincena actual', () => {
+    const res = calcularSiguientePeriodoCierre(null);
+    expect(res.desde).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(res.hasta).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect(res.desde <= res.hasta).toBe(true);
+  });
+});
+

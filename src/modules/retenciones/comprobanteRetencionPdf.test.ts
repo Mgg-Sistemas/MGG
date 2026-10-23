@@ -84,6 +84,6 @@ describe('comprobante de retención · quién es el agente y quién el sujeto', 
 
   it('genera el DataURL del código QR de verificación fiscal', async () => {
     const qr = await generarQrVerificacion('SENIAT|VALIDACION|QR');
-    expect(qr).toMatch(/^data:image\/png;base64,/);
+    expect(qr).toMatch(/^data:image\/(png|gif);base64,/);
   });
 });
