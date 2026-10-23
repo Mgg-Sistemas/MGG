@@ -9,7 +9,24 @@
      la base no los limita: pedido a BD).
    ============================================================ */
 
-import type { Declaracion, PasoInicial } from '../datos/periodos';
+import type { Declaracion, PasoInicial, PeriodoRetencion } from '../datos/periodos';
+
+/**
+ * Comprueba si una fecha y tipo de impuesto caen en un período fiscal ya declarado/cerrado.
+ * Devuelve el período si está cerrado, o null si está abierto o no existe.
+ */
+export function periodoCerradoPara(
+  tipoImpuesto: string,
+  fechaIso: string,
+  periodos: readonly PeriodoRetencion[] | null | undefined,
+): PeriodoRetencion | null {
+  const d = fechaIso.slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || !periodos || !periodos.length) return null;
+  const encontrado = periodos.find(
+    (p) => p.tipo === tipoImpuesto && p.desde <= d && d <= p.hasta && (p.estado === 'declarado' || !!p.declaradoEn)
+  );
+  return encontrado ?? null;
+}
 
 export interface EntradaDeclaracion { fecha: string; planilla: string; numero: string; monto: string; observacion: string }
 

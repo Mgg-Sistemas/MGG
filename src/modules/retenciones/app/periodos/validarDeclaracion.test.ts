@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { leerMonto, validarDeclaracion, validarPasoInicial } from './validarDeclaracion';
+import { leerMonto, periodoCerradoPara, validarDeclaracion, validarPasoInicial } from './validarDeclaracion';
+import type { PeriodoRetencion } from '../datos/periodos';
 
 const ok = { fecha: '2026-10-18', planilla: '99035', numero: '', monto: '1.234,56', observacion: '' };
 
@@ -40,3 +41,45 @@ describe('el paso inicial', () => {
     expect(validarPasoInicial({ ...base, ultimo: 'A-12' }, '2026-10-20').errores.ultimo).toMatch(/dígitos/);
   });
 });
+
+describe('periodoCerradoPara: guarda de períodos cerrados/declarados', () => {
+  const lista: PeriodoRetencion[] = [
+    {
+      id: 'p1', tipo: 'iva', nombre: 'Octubre 2026, 1.ª quincena', desde: '2026-10-01', hasta: '2026-10-15',
+      vence: '2026-10-20', estado: 'declarado', retenciones: 5, declaradoEn: '2026-10-18T10:00:00Z',
+      declaradoPor: 'admin', montoEnterado: 500, planilla: '9901', numero: '1', observacion: null, reabiertoEn: null,
+      reabiertoPor: null, motivoReapertura: null,
+    },
+    {
+      id: 'p2', tipo: 'iva', nombre: 'Octubre 2026, 2.ª quincena', desde: '2026-10-16', hasta: '2026-10-31',
+      vence: '2026-11-05', estado: 'abierto', retenciones: 2, declaradoEn: null, declaradoPor: null,
+      montoEnterado: null, planilla: null, numero: null, observacion: null, reabiertoEn: null, reabiertoPor: null,
+      motivoReapertura: null,
+    },
+    {
+      id: 'p3', tipo: 'islr', nombre: 'Octubre 2026', desde: '2026-10-01', hasta: '2026-10-31',
+      vence: '2026-11-10', estado: 'abierto', retenciones: 1, declaradoEn: null, declaradoPor: null,
+      montoEnterado: null, planilla: null, numero: null, observacion: null, reabiertoEn: null, reabiertoPor: null,
+      motivoReapertura: null,
+    },
+  ];
+
+  it('detecta si una fecha cae en un período declarado para el tipo de impuesto', () => {
+    const cerrado = periodoCerradoPara('iva', '2026-10-10', lista);
+    expect(cerrado).not.toBeNull();
+    expect(cerrado?.nombre).toBe('Octubre 2026, 1.ª quincena');
+  });
+
+  it('devuelve null si el período está abierto o es de otro tipo de impuesto', () => {
+    expect(periodoCerradoPara('iva', '2026-10-20', lista)).toBeNull();
+    expect(periodoCerradoPara('islr', '2026-10-10', lista)).toBeNull();
+  });
+
+  it('devuelve null si la fecha no es válida o la lista está vacía', () => {
+    expect(periodoCerradoPara('iva', '', lista)).toBeNull();
+    expect(periodoCerradoPara('iva', 'no-fecha', lista)).toBeNull();
+    expect(periodoCerradoPara('iva', '2026-10-10', [])).toBeNull();
+    expect(periodoCerradoPara('iva', '2026-10-10', null)).toBeNull();
+  });
+});
+

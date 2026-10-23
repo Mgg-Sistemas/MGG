@@ -28,6 +28,8 @@ import { periodoDe, quincenaDe, type ConceptoRetencion, type ConfigRetencion, ty
 import { faltaEnLaCarga } from '../../validarCarga';
 import { mensajeDobleRegistro, retencionYaRegistrada } from '../../dobleRegistro';
 import { usePuerta, type NuevaRetencion, type RetencionItem } from '../datos/puerta';
+import type { PeriodoRetencion } from '../datos/periodos';
+import { periodoCerradoPara } from '../periodos/validarDeclaracion';
 import { componentesDelDocumento, type DocumentoAnfitrion } from '../logica/componentes';
 import { calcularLinea, type ResultadoCalculo } from '../logica/motor';
 import { nombreImpuesto } from '../pantalla/pendientesPorDocumento';
@@ -82,10 +84,15 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
 
   const [config, setConfig] = useState<ConfigRetencion | null>(null);
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
+  const [periodos, setPeriodos] = useState<PeriodoRetencion[] | null>(null);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   useEffect(() => {
-    Promise.all([puerta.config(), puerta.conceptos(true)])
-      .then(([c, cs]) => { setConfig(c); setConceptos(cs); })
+    Promise.all([
+      puerta.config(),
+      puerta.conceptos(true),
+      puerta.periodos ? puerta.periodos() : Promise.resolve(null),
+    ])
+      .then(([c, cs, pers]) => { setConfig(c); setConceptos(cs); setPeriodos(pers); })
       .catch((e: unknown) => setErrorCarga(e instanceof Error ? e.message : 'No se pudo leer la configuración fiscal.'));
   }, [puerta]);
 
@@ -108,13 +115,23 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
   const iva = parseDecimal(ivaTxt);
   const base = parseDecimal(baseTxt);
 
+  const periodoCerrado = useMemo(() => {
+    return fecha ? periodoCerradoPara(imp, fecha, periodos) : null;
+  }, [imp, fecha, periodos]);
+
   // Los errores de cada campo (se muestran al tocar «Registrar» o al escribir).
   const rif = revisarRif(item.proveedorRif);
   const errores: Record<string, string | null> = {
     rif: rif.error,
     factura: !factura.trim() ? 'Indique el N° de la factura.' : factura.trim().length > 20 ? 'El N° de factura no puede pasar de 20 caracteres.' : null,
     control: imp === 'iva' && !control.trim() ? 'Indique el N° de control de la factura.' : null,
-    fecha: !fecha ? 'Indique la fecha de la factura.' : fecha > hoyIso() ? 'La fecha de la factura no puede ser posterior a hoy.' : null,
+    fecha: !fecha
+      ? 'Indique la fecha de la factura.'
+      : fecha > hoyIso()
+      ? 'La fecha de la factura no puede ser posterior a hoy.'
+      : periodoCerrado
+      ? `Período fiscal declarado (${periodoCerrado.nombre}): reábralo en Períodos para registrar.`
+      : null,
     iva: imp === 'iva' && (iva == null || iva < 0) ? 'Indique el IVA de la factura (0 si no tiene).' : null,
     base: imp === 'iva' && (base == null || base <= 0) ? 'Indique la base imponible de la factura.' : null,
     // La misma regla que adjuntarComprobante: PDF o imagen.
@@ -153,6 +170,10 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
   const registrar = async () => {
     setTocado(true);
     if (conErrores || sinCalculo || !config || (imp === 'iva' && !agenteIva)) return;
+    if (periodoCerrado) {
+      setErrorGuardar(`El período fiscal (${periodoCerrado.nombre}) ya fue declarado ante el SENIAT. Reábralo en Períodos para registrar.`);
+      return;
+    }
     // La misma validación de la carga que la pantalla de hoy (validarCarga.ts).
     const falta = faltaEnLaCarga({ tipo: imp, facturaNumero: factura, facturaFecha: fecha });
     if (falta) { setErrorGuardar(falta); return; }
@@ -237,7 +258,7 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
     <>
       <button type="button" className="btn btn-ghost" onClick={onCerrar} disabled={guardando}>Cancelar</button>
       <button type="button" className="btn btn-primary" onClick={registrar}
-        disabled={guardando || !config || (tocado && (conErrores || sinCalculo)) || (imp === 'iva' && !agenteIva)}>
+        disabled={guardando || !config || (tocado && (conErrores || sinCalculo)) || !!periodoCerrado || (imp === 'iva' && !agenteIva)}>
         {guardando ? 'Registrando…' : 'Registrar'}
       </button>
     </>
@@ -271,6 +292,16 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
             </div>
 
             {comp.pendientes.length > 0 && <p className="v8-reg-aviso">{comp.pendientes.join(' ')}</p>}
+
+            {periodoCerrado && (
+              <div className="aviso-error" role="alert" style={{ marginBottom: '0.8rem' }}>
+                <strong>🔒 Período Fiscal Declarado ({periodoCerrado.nombre})</strong>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
+                  Este período ya fue declarado y enterado ante el SENIAT{periodoCerrado.declaradoEn ? ` el ${periodoCerrado.declaradoEn.slice(0, 10)}` : ''}.
+                  Para registrar retenciones con esta fecha, el administrador debe reabrir el período con justificación en la pestaña Períodos.
+                </p>
+              </div>
+            )}
 
             <div className="v8-reg-campos">
               <label className="campo">
