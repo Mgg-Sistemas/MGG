@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { money, moneyUnit } from './format';
+import { money, moneyUnit, formatoCI } from './format';
 
 describe('moneyUnit · precio unitario', () => {
   it('muestra 2 decimales cuando alcanzan', () => {
@@ -18,3 +18,26 @@ describe('moneyUnit · precio unitario', () => {
     expect(moneyUnit(null)).toBe('—');
   });
 });
+
+describe('formatoCI · separador de miles con puntos en la cédula', () => {
+  it('formatea números simples colocando los puntos de miles', () => {
+    expect(formatoCI('7514385')).toBe('7.514.385');
+    expect(formatoCI(7514385)).toBe('7.514.385');
+    expect(formatoCI('27514395')).toBe('27.514.395');
+  });
+  it('preserva el prefijo V- o E- si ya lo tiene', () => {
+    expect(formatoCI('V-7514385')).toBe('V-7.514.385');
+    expect(formatoCI('E-12345678')).toBe('E-12.345.678');
+    expect(formatoCI('V 7514385')).toBe('V-7.514.385');
+  });
+  it('es idempotente si ya viene con puntos', () => {
+    expect(formatoCI('7.514.385')).toBe('7.514.385');
+    expect(formatoCI('V-7.514.385')).toBe('V-7.514.385');
+  });
+  it('maneja valores vacíos o nulos', () => {
+    expect(formatoCI('')).toBe('—');
+    expect(formatoCI(null)).toBe('—');
+    expect(formatoCI(undefined)).toBe('—');
+  });
+});
+

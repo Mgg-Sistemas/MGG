@@ -9,7 +9,7 @@
    ============================================================ */
 import { textoPdf, filaPdf } from '@/shared/lib/textoPdf';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf, anchoUtilPdf } from '@/shared/lib/pdfMargen';
-import { date as fmtDate } from '@/shared/lib/format';
+import { date as fmtDate, formatoCI } from '@/shared/lib/format';
 import { definicionEmpresa, normalizarEmpresa } from '@/modules/rrhh/empresa';
 import { textoConformidadViaje, nombreDeConductor, datosConductor, type ReciboCalculado } from './choferes';
 import type { Conductor, PagoViaje } from './choferes.repository';
@@ -72,7 +72,7 @@ export async function verReciboViajePdf(p: PagoViaje, c: Conductor | undefined |
   autoTable(doc, {
     startY: y,
     body: [
-      filaPdf(['Chofer', nombre, 'Cédula', datos.cedula || '—']),
+      filaPdf(['Chofer', nombre, 'Cédula', formatoCI(datos.cedula)]),
       filaPdf(['Cargo', datos.cargo || '—', 'Licencia', [c?.licencia_grado, c?.licencia_numero].filter(Boolean).join(' · ') || '—']),
       filaPdf(['Viajes', `${p.detalle.length}`, 'Tasa BCV', p.tasa ? `${p.tasa.toLocaleString('es-VE', { maximumFractionDigits: 2 })} Bs/$` : '—']),
     ],

@@ -2,14 +2,16 @@
    MGG · Choferes / Conductores · Nómina de viajes de choferes (PDF)
 
    Replica el formato de la planilla física / Excel:
-   FECHA | NOMBRE Y APELLIDO | NÓMINA FIJA | VEHÍCULO | EQUIPOS/MOVIMIENTOS |
-   PROVIENE | DESTINO | CANTIDAD VIAJES | MONTO | TOTAL A PAGAR | OBSERVACIONES
+   FECHA | VEHÍCULO | EQUIPO/MOVIMIENTO | ORIGEN | DESTINO |
+   CANTIDAD VIAJES | PRECIO | TOTAL A PAGAR | TIPO DE VIAJE | ESTADO PAGO
+   Ajustado a los márgenes oficiales de 2 cm (Letter horizontal = 678 pt útiles).
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf } from '@/shared/lib/pdfMargen';
 import { textoPdf } from '@/shared/lib/textoPdf';
-import { date as fmtDate } from '@/shared/lib/format';
+import { date as fmtDate, formatoCI } from '@/shared/lib/format';
+import type { Conductor } from './choferes.repository';
 
 export interface FilaNominaViaje {
   fecha: string;
@@ -55,6 +57,7 @@ export async function generarNominaViajesPdf(opts: {
   grupos: GrupoChoferNomina[];
   fechaHasta?: string | null;
   filtroChofer?: string | null;
+  conductoresMap?: Map<string, Conductor>;
 }): Promise<void> {
   const [logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     loadLogoDataUrl().catch(() => null),
@@ -147,6 +150,9 @@ export async function generarNominaViajesPdf(opts: {
   // Bloque por cada conductor
   for (let gIdx = 0; gIdx < opts.grupos.length; gIdx++) {
     const g = opts.grupos[gIdx];
+    const cond = opts.conductoresMap?.get(g.choferId);
+    const ciRaw = cond?.personal?.cedula ?? cond?.cedula ?? '';
+    const ciTxt = ciRaw ? `C.I. ${formatoCI(ciRaw)}` : '';
     const totalViajesChofer = g.filas.reduce((a, f) => a + f.viajes, 0);
 
     // Vehículos utilizados por este chofer
@@ -154,10 +160,10 @@ export async function generarNominaViajesPdf(opts: {
     g.filas.forEach((f) => { if (f.vehiculo && f.vehiculo !== '—') vehSet.add(f.vehiculo); });
     const vehTxt = Array.from(vehSet).join(', ') || 'Sin vehículo';
 
-    // Salto de página si el bloque queda muy abajo
-    if (y + 90 > H - MARGIN) {
+    // Salto de página preventivo si el bloque no cabe
+    if (y + 105 > H - MARGIN) {
       doc.addPage();
-      y = MARGIN;
+      y = MARGIN + 10;
     }
 
     // Banner del conductor con franja naranja izquierda
@@ -173,22 +179,23 @@ export async function generarNominaViajesPdf(opts: {
     doc.setFillColor(...NARANJA);
     doc.rect(MARGIN, y, 4, altoBanner, 'F');
 
-    // Nombre del conductor
+    // Nombre y Cédula del conductor
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(10);
+    doc.setFontSize(9.5);
     doc.setTextColor(...TINTA);
-    doc.text(textoPdf(g.nombre.toUpperCase()), MARGIN + 10, y + 12);
+    const encabezadoChofer = [g.nombre.toUpperCase(), ciTxt].filter(Boolean).join('  ·  ');
+    doc.text(textoPdf(encabezadoChofer), MARGIN + 10, y + 12);
 
     // Totales a la derecha
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(...NARANJA);
     const txtDerecha = `Total: ${usd(g.totalGeneral)}  ·  Pendiente: ${usd(g.totalPendiente)}`;
     doc.text(textoPdf(txtDerecha), W - MARGIN - 8, y + 12, { align: 'right' });
 
     // Sub-datos: nómina fija, vehículos, viajes
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
+    doc.setFontSize(7.2);
     doc.setTextColor(...GRIS);
     const datosConductor = [
       `Nómina Fija: ${g.nominaFija || 'MGG'}`,
@@ -198,7 +205,7 @@ export async function generarNominaViajesPdf(opts: {
     ].join(' · ');
     doc.text(textoPdf(datosConductor), MARGIN + 10, y + 23);
 
-    y += altoBanner + 6;
+    y += altoBanner + 5;
 
     // Filas de la tabla para este conductor
     const bodyRows = g.filas.map((f) => [
@@ -211,7 +218,7 @@ export async function generarNominaViajesPdf(opts: {
       usd(f.monto),
       usd(f.totalPagar),
       f.observaciones,
-      f.pagado ? `✅ Pagado${f.fechaPago ? ` (${f.fechaPago.slice(8, 10)}/${f.fechaPago.slice(5, 7)})` : ''}` : '⏳ Por pagar',
+      f.pagado ? `Pagado${f.fechaPago ? ` (${f.fechaPago.slice(8, 10)}/${f.fechaPago.slice(5, 7)})` : ''}` : 'Por pagar',
     ]);
 
     autoTable(doc, {
@@ -235,18 +242,18 @@ export async function generarNominaViajesPdf(opts: {
           { content: String(totalViajesChofer), styles: { halign: 'center', fontStyle: 'bold' } },
           { content: '' },
           { content: usd(g.totalGeneral), styles: { halign: 'right', fontStyle: 'bold' } },
-          { content: `Pagado: ${usd(g.totalPagado)} · Pendiente: ${usd(g.totalPendiente)}`, colSpan: 2, styles: { halign: 'left', fontSize: 7, fontStyle: 'bold' } },
+          { content: `Pagado: ${usd(g.totalPagado)} · Pendiente: ${usd(g.totalPendiente)}`, colSpan: 2, styles: { halign: 'left', fontSize: 6.8, fontStyle: 'bold' } },
         ],
       ],
       theme: 'grid',
-      styles: { fontSize: 7, cellPadding: 2.2, valign: 'middle', overflow: 'linebreak' },
+      styles: { fontSize: 6.8, cellPadding: 2, valign: 'middle', overflow: 'linebreak' },
       headStyles: {
         fillColor: NARANJA,
         textColor: 255,
         fontStyle: 'bold',
         halign: 'center',
         valign: 'middle',
-        fontSize: 6.8,
+        fontSize: 6.5,
         lineColor: [200, 70, 20],
         lineWidth: 0.5,
       },
@@ -262,16 +269,16 @@ export async function generarNominaViajesPdf(opts: {
         lineWidth: 0.4,
       },
       columnStyles: {
-        0: { cellWidth: 55, halign: 'center' },
-        1: { cellWidth: 65, halign: 'center' },
-        2: { cellWidth: 105 },
-        3: { cellWidth: 95 },
-        4: { cellWidth: 95 },
-        5: { cellWidth: 38, halign: 'center' },
-        6: { cellWidth: 55, halign: 'right' },
-        7: { cellWidth: 68, halign: 'right', fontStyle: 'bold' },
-        8: { cellWidth: 85, halign: 'center' },
-        9: { cellWidth: 70, halign: 'center' },
+        0: { cellWidth: 50, halign: 'center' },
+        1: { cellWidth: 56, halign: 'center' },
+        2: { cellWidth: 98 },
+        3: { cellWidth: 86 },
+        4: { cellWidth: 86 },
+        5: { cellWidth: 30, halign: 'center' },
+        6: { cellWidth: 50, halign: 'right' },
+        7: { cellWidth: 62, halign: 'right', fontStyle: 'bold' },
+        8: { cellWidth: 74, halign: 'center' },
+        9: { cellWidth: 76, halign: 'center' },
       },
       didParseCell: (data) => {
         if (data.section === 'body') {
@@ -294,7 +301,22 @@ export async function generarNominaViajesPdf(opts: {
       margin: MARGENES_TABLA_PDF,
     });
 
-    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 14;
+    y = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 12;
+  }
+
+  // Numeración formal de páginas en el pie
+  const totalPages = doc.getNumberOfPages();
+  for (let p = 1; p <= totalPages; p++) {
+    doc.setPage(p);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.2);
+    doc.setTextColor(...GRIS);
+    doc.text(
+      `Página ${p} de ${totalPages}  ·  Mineral Group Guayana, C.A. · Documento de Control Interno`,
+      W / 2,
+      H - MARGIN + 14,
+      { align: 'center' }
+    );
   }
 
   await previewPdfDoc(doc, `nomina-viajes-choferes-${opts.fechaHasta || 'completa'}.pdf`);

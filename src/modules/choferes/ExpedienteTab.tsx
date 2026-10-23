@@ -16,7 +16,7 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { FechaVe } from '@/shared/ui/FechaVe';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { toast } from '@/shared/ui/Toast';
-import { money, date as fmtDate } from '@/shared/lib/format';
+import { money, date as fmtDate, formatoCI } from '@/shared/lib/format';
 import type { Personal } from '@/shared/lib/types';
 import { numeroFicha } from '@/modules/rrhh/fichaPersonal';
 import { crearVehiculo, editarVehiculo, eliminarVehiculo, type VehiculoInput } from '@/modules/asignaciones/vehiculos.repository';
@@ -151,7 +151,7 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
                         <strong>{nombreConductor(c)}</strong>{c.externo && <span className="badge" style={{ marginLeft: 6, fontSize: '.65rem' }} title="No está en nómina: pago externo por viaje">🧾 Externo</span>}
                         <div className="muted" style={{ fontSize: '.75rem' }}>{[dc.cargo, dc.telefono].filter(Boolean).join(' · ')}</div>
                       </td>
-                      <td className="mono" style={{ fontSize: '.8rem' }}>{dc.cedula ?? '—'}<div className="muted">{c.externo ? 'sin ficha' : numeroFicha(c.personal?.numero_ficha)}</div></td>
+                      <td className="mono" style={{ fontSize: '.8rem' }}>{dc.cedula ? formatoCI(dc.cedula) : '—'}<div className="muted">{c.externo ? 'sin ficha' : numeroFicha(c.personal?.numero_ficha)}</div></td>
                       <td>
                         <div style={{ fontSize: '.8rem' }}>{[c.licencia_grado, c.licencia_numero].filter(Boolean).join(' · ') || <span className="muted">Sin datos</span>}</div>
                         <BadgeVence vence={c.licencia_vence} hoy={hoy} />
@@ -261,7 +261,7 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
   const yaTienen = useMemo(() => new Set(conductores.map((c) => c.personal_id)), [conductores]);
   const opciones = useMemo(() => personal.filter((p) => p.activo && !yaTienen.has(p.id))
     .sort((a, b) => Number(esCargoDeChofer(b)) - Number(esCargoDeChofer(a)) || a.nombre.localeCompare(b.nombre, 'es'))
-    .map((p) => ({ value: p.id, label: `${p.nombre} ${p.apellido ?? ''}`.trim(), hint: [p.cedula, p.cargo].filter(Boolean).join(' · ') })), [personal, yaTienen]);
+    .map((p) => ({ value: p.id, label: `${p.nombre} ${p.apellido ?? ''}`.trim(), hint: [p.cedula ? formatoCI(p.cedula) : null, p.cargo].filter(Boolean).join(' · ') })), [personal, yaTienen]);
 
   const persona = inicial?.personal ?? personal.find((p) => p.id === personalId) ?? null;
   const set = <K extends keyof typeof v>(k: K, val: (typeof v)[K]) => setV((x) => ({ ...x, [k]: val }));
@@ -320,7 +320,7 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
             <div className="form-row" style={{ gridColumn: '1 / -1' }}>
               <label htmlFor="cond-persona">Trabajador (ficha de RRHH)</label>
               {inicial
-                ? <strong>{nombreConductor(inicial)}{persona?.cedula ? ` · ${persona.cedula}` : ''}{persona?.cargo ? ` · ${persona.cargo}` : ''}</strong>
+                ? <strong>{nombreConductor(inicial)}{persona?.cedula ? ` · ${formatoCI(persona.cedula)}` : ''}{persona?.cargo ? ` · ${persona.cargo}` : ''}</strong>
                 : <SearchSelect id="cond-persona" value={personalId} onChange={setPersonalId} options={opciones} placeholder="🔍 Buscar por nombre, cédula o cargo…" />}
               {!inicial && <span className="muted" style={{ fontSize: '.78rem' }}>Primero salen las fichas con cargo de conductor. Si la persona no está en RRHH y es un pago externo, marca «Chofer externo».</span>}
             </div>

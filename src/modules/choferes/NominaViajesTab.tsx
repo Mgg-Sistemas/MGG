@@ -14,13 +14,14 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, date as fmtDate } from '@/shared/lib/format';
 import {
-  categoriaDeViaje, cantidadViajes, tarifaTotalViaje, infoPagoViaje,
+  categoriaDeViaje, cantidadViajes, tarifaTotalViaje, infoPagoViaje, calcularSiguientePeriodoCierre,
 } from './choferes';
 import {
   eliminarViaje, marcarViajesPagadosHastaFecha, type Viaje,
 } from './choferes.repository';
 import { nombreConductor, type PropsTab } from './ChoferesPage';
 import { generarNominaViajesPdf, type GrupoChoferNomina, type FilaNominaViaje } from './nominaViajesPdf';
+import { generarNominaViajesExcel } from './nominaViajesExcel';
 import { generarReciboPagoViajesPdf } from './reciboPagoViajesPdf';
 import { ViajeModal, DetalleViajeModal, AccionViajeModal } from './ViajesTab';
 
@@ -29,7 +30,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
 
   const [choferId, setChoferId] = useState('');
   const [empresaFiltro, setEmpresaFiltro] = useState('');
-  const [estadoPagoFiltro, setEstadoPagoFiltro] = useState<'' | 'pendientes' | 'pagados'>('');
+  const [estadoPagoFiltro, setEstadoPagoFiltro] = useState<'' | 'pendientes' | 'pagados'>('pendientes');
   const [fechaHasta, setFechaHasta] = useState('');
   const [busquedaTexto, setBusquedaTexto] = useState('');
   const [modalPagarLote, setModalPagarLote] = useState(false);
@@ -184,46 +185,25 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         grupos: gruposPorChofer,
         fechaHasta: fechaHasta || null,
         filtroChofer: choferId ? nombreConductor(porId.get(choferId)) : null,
+        conductoresMap: porId,
       });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');
     }
   }
 
-  function exportarExcel() {
-    const encabezados = [
-      'FECHA', 'NOMBRE Y APELLIDO', 'NOMINA FIJA', 'VEHICULO', 'EQUIPOS / MOVIMIENTOS',
-      'PROVIENE', 'DESTINO', 'CANTIDAD VIAJES', 'MONTO', 'TOTAL A PAGAR', 'OBSERVACIONES', 'ESTADO PAGO',
-    ];
-    const lineas = [encabezados.join(';')];
-    for (const g of gruposPorChofer) {
-      for (const f of g.filas) {
-        lineas.push([
-          f.fecha,
-          `"${f.nombre.replace(/"/g, '""')}"`,
-          `"${f.nominaFija}"`,
-          `"${f.vehiculo}"`,
-          `"${f.movimiento.replace(/"/g, '""')}"`,
-          `"${f.proviene.replace(/"/g, '""')}"`,
-          `"${f.destino.replace(/"/g, '""')}"`,
-          f.viajes,
-          f.monto.toFixed(2),
-          f.totalPagar.toFixed(2),
-          `"${f.observaciones}"`,
-          `"${f.pagado ? `PAGADO (${f.fechaPago ? fmtDate(f.fechaPago) : ''})` : 'PENDIENTE'}"`,
-        ].join(';'));
-      }
-      lineas.push(['', '', '', '', '', '', 'TOTAL A PAGAR CONDUCTOR', '', '', g.totalGeneral.toFixed(2), `Pagado: ${g.totalPagado.toFixed(2)} | Debe: ${g.totalPendiente.toFixed(2)}`, ''].join(';'));
-      lineas.push('');
+  async function exportarExcel() {
+    try {
+      await generarNominaViajesExcel({
+        grupos: gruposPorChofer,
+        fechaDesde: fechaDesdeModal || undefined,
+        fechaHasta: fechaHasta || undefined,
+        filtroChofer: choferId ? nombreConductor(porId.get(choferId)) : undefined,
+        conductoresMap: porId,
+      });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el archivo Excel', 'error');
     }
-
-    const blob = new Blob(['\ufeff' + lineas.join('\n')], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `nomina-viajes-choferes-${fechaHasta || 'completa'}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
   }
 
   async function exportarReciboIndividual(g: GrupoChoferNomina) {
@@ -363,12 +343,12 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
             </select>
           </div>
 
-          <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
+          <div className="form-row" style={{ flex: '0 1 180px', margin: 0 }}>
             <label>Estado de pago</label>
             <select className="select" value={estadoPagoFiltro} onChange={(e) => setEstadoPagoFiltro(e.target.value as typeof estadoPagoFiltro)}>
-              <option value="">Todos los viajes</option>
-              <option value="pendientes">⏳ Solo pendientes</option>
-              <option value="pagados">✅ Solo pagados</option>
+              <option value="pendientes">⏳ Solo pendientes ({filasConDetalle.filter(f => !f.pagado).length})</option>
+              <option value="pagados">✅ Solo pagados ({filasConDetalle.filter(f => f.pagado).length})</option>
+              <option value="">Todos los viajes ({filasConDetalle.length})</option>
             </select>
           </div>
 
@@ -405,8 +385,20 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
             )}
             {canWrite && (
               <button className="btn btn-sm btn-primary" onClick={() => {
-                setFechaDesdeModal('');
-                setFechaCorteModal(fechaHasta || new Date().toISOString().slice(0, 10));
+                // Calcular último corte de viajes cerrados/pagados para proponer el próximo rango consecutivo
+                const viajesPagados = viajes.filter((v) => {
+                  if (choferId && v.chofer_id !== choferId) return false;
+                  return !!(v.pagado_at || (v.nota && /\[PAGADO:\s*([^\]]+)\]/i.test(v.nota)) || v.pago_id);
+                });
+                let ultimoCorte: string | null = null;
+                if (viajesPagados.length > 0) {
+                  viajesPagados.sort((a, b) => b.fecha_salida.slice(0, 10).localeCompare(a.fecha_salida.slice(0, 10)));
+                  ultimoCorte = viajesPagados[0].fecha_salida.slice(0, 10);
+                }
+                const sugerido = calcularSiguientePeriodoCierre(ultimoCorte);
+                setFechaDesdeModal(sugerido.desde);
+                setFechaCorteModal(sugerido.hasta);
+                setFechaPagoModal(new Date().toISOString().slice(0, 10));
                 setChoferModal(choferId);
                 setModalPagarLote(true);
               }} title="Cerrar la nómina de viajes por rango de fecha para que queden saldados y generar recibo de pago">
@@ -419,7 +411,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
             <button className="btn btn-sm btn-ghost" onClick={() => void exportarPdf()} disabled={!filasFiltradas.length}>
               🖨 Planilla PDF
             </button>
-            <button className="btn btn-sm btn-ghost" onClick={exportarExcel} disabled={!filasFiltradas.length}>
+            <button className="btn btn-sm btn-ghost" onClick={() => void exportarExcel()} disabled={!filasFiltradas.length}>
               📊 Exportar a Excel
             </button>
           </div>

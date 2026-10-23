@@ -25,7 +25,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { toast } from '@/shared/ui/Toast';
-import { money, date as fmtDate } from '@/shared/lib/format';
+import { money, date as fmtDate, formatoCI } from '@/shared/lib/format';
 import { listadoFlotaPdf } from '@/modules/maquinaria/flotaPdf';
 import { listadoFlotaExcel } from '@/modules/maquinaria/flotaExcel';
 import {
@@ -368,7 +368,7 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
         <div className="form-grid">
           <div className="form-row"><label htmlFor="vj-chofer">Chofer</label>
             <SearchSelect id="vj-chofer" value={choferId} onChange={elegirChofer} placeholder="🔍 Buscar chofer…"
-              options={activos.map((c) => ({ value: c.id, label: nombreConductor(c), hint: [datosConductor(c).cedula, c.externo ? 'externo' : null, c.licencia_grado ? `Lic. ${c.licencia_grado}` : null].filter(Boolean).join(' · ') }))} /></div>
+              options={activos.map((c) => ({ value: c.id, label: nombreConductor(c), hint: [formatoCI(datosConductor(c).cedula), c.externo ? 'externo' : null, c.licencia_grado ? `Lic. ${c.licencia_grado}` : null].filter(Boolean).join(' · ') }))} /></div>
           <div className="form-row"><label htmlFor="vj-veh">Vehículo</label>
             <div style={{ display: 'flex', gap: '.35rem' }}>
               <SearchSelect id="vj-veh" value={vehiculoId} onChange={setVehiculoId} placeholder="🔍 Placa, marca, modelo…" style={{ flex: 1 }}

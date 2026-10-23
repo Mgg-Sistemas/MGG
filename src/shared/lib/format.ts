@@ -39,6 +39,32 @@ export function num(n: number | null | undefined): string {
 }
 
 /**
+ * Formatea una cédula de identidad con puntos separadores de miles (ej.: 7.514.385).
+ * Acepta números, strings con o sin prefijo 'V-', 'E-', 'J-', o con puntos previos.
+ * Ejemplos:
+ *   7514385      -> '7.514.385'
+ *   'V-7514385'  -> 'V-7.514.385'
+ *   'E12345678'  -> 'E-12.345.678'
+ *   '7.514.385'  -> '7.514.385'
+ */
+export function formatoCI(v: string | number | null | undefined): string {
+  if (v == null || v === '') return '—';
+  const str = String(v).trim();
+  if (!str || str === '—') return '—';
+
+  const match = str.match(/^([VEJPGvejpg]-?)\s*(.+)$/);
+  const prefijo = match ? match[1].toUpperCase().replace('-', '') + '-' : '';
+  const resto = match ? match[2] : str;
+
+  const soloDigitos = resto.replace(/\D/g, '');
+  if (!soloDigitos) return str;
+
+  const conPuntos = Number(soloDigitos).toLocaleString('es-VE');
+  return prefijo ? `${prefijo}${conPuntos}` : conPuntos;
+}
+
+
+/**
  * Limita el texto de un input de dinero a 2 decimales (sin redondear el tecleo):
  * deja solo dígitos, un separador decimal y como máximo 2 cifras después.
  * Pensado para usarse en onChange de los campos de ingreso de dinero.

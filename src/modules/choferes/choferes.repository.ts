@@ -450,6 +450,7 @@ export async function marcarViajesPagadosHastaFecha(opts: {
   let q = supabase.from(T_VIAJES).select('id, nota, fecha_salida, llegada_real_at, pago_id, pagado_at')
     .eq('estado', 'finalizado')
     .is('pago_id', null)
+    .is('pagado_at', null)
     .lte('fecha_salida', `${fHasta}T23:59:59`);
   if (opts.fechaDesde) {
     const fDesde = opts.fechaDesde.slice(0, 10);
