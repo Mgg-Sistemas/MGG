@@ -619,13 +619,13 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                                 🏁
                               </button>
                             )}
-                            {canWrite && f.viaje && !f.pagado && (
+                            {canWrite && f.viaje && (
                               <button
                                 type="button"
                                 className="btn btn-xs btn-ghost"
                                 style={{ color: 'var(--danger)', padding: '.12rem .35rem' }}
                                 onClick={() => setBorrarViaje(f.viaje)}
-                                title="Eliminar viaje"
+                                title={f.pagado ? 'Eliminar viaje pagado' : 'Eliminar viaje'}
                               >
                                 🗑
                               </button>
@@ -772,6 +772,11 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
             <>
               ¿Seguro que deseas eliminar la orden <strong>{borrarViaje.numero}</strong> ({borrarViaje.origen} ➔ {borrarViaje.destino}) de{' '}
               <strong>{nombreConductor(porId.get(borrarViaje.chofer_id))}</strong>? Esta acción no se puede deshacer.
+              {(borrarViaje.pagado_at || (borrarViaje.nota && /\[PAGADO:/i.test(borrarViaje.nota)) || borrarViaje.pago_id) && (
+                <div className="aviso warning sm" style={{ marginTop: '.6rem' }}>
+                  ⚠️ Este viaje figura como <strong>PAGADO</strong>. Al eliminarlo, se descontará del historial y de los cálculos de nómina del conductor.
+                </div>
+              )}
             </>
           }
           onConfirm={async () => {

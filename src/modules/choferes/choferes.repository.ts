@@ -796,9 +796,8 @@ export async function eliminarDocumentoChofer(d: DocumentoChofer): Promise<void>
 
 /* ───────────── Borrar (14-10-2026): cada pestaña permite eliminar ───────────── */
 
-/** Borra la orden de ruta con sus paradas y su liquidación. Si ya entró en un recibo, no deja: anula o borra el recibo primero. */
+/** Borra la orden de ruta con sus paradas y su liquidación. Permite eliminar viajes aunque estén pagados. */
 export async function eliminarViaje(v: Pick<Viaje, 'id' | 'numero' | 'pago_id'>): Promise<void> {
-  if (v.pago_id) throw new Error(`${v.numero} ya está en un recibo de viaje: anula o borra ese recibo primero (Pagos por viaje).`);
   const { data, error } = await supabase.from(T_VIAJES).delete().eq('id', v.id).select('id');
   if (error) throw err(error, 'No se pudo eliminar el viaje.');
   if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
