@@ -10,26 +10,37 @@
    en producción no se muestran.
    ============================================================ */
 
+import type { ReactNode } from 'react';
 import { nombreImpuesto } from './pendientesPorDocumento';
 import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
+import { BotonPendientesImpresion } from '../impresion/PendientesImpresion';
 
 const MARCA = 'Requiere la base de Retenciones (paquete 2.1)';
 
 const lista = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} e ${xs[xs.length - 1]}` : xs[0] ?? '');
 
-export function CabeceraLocal({ impuestos }: { impuestos: string[] }) {
+/** El botón Vencimientos de la maqueta (`v7-venc`): «N» = vencidos + por vencer; en rojo si hay vencidos. */
+export function BotonVencimientos({ n, rojo, onAbrir }: { n: number; rojo: boolean; onAbrir: () => void }) {
+  return (
+    <button type="button" className="btn btn-ghost rv8-chip-impresion" onClick={onAbrir} aria-label={`Vencimientos: ${n} vencido(s) o por vencer`}>
+      Vencimientos <span className={`rv8-badge-alerta${rojo ? ' rv8-rojo' : ''}`}>{n}</span>
+    </button>
+  );
+}
+
+/** Lo de la cabecera que espera a la base: en local, deshabilitado y marcado. Con `vencimientos`, ese botón ya funciona. */
+export function CabeceraLocal({ impuestos, vencimientos }: { impuestos: string[]; vencimientos?: ReactNode }) {
   const nombres = impuestos.map(nombreImpuesto);
   return (
     <>
-      <span className="rv8-con-marca"><button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>Vencimientos <span className="rv8-badge-alerta">—</span></button><MarcaPaquete21 /></span>
+      {vencimientos ?? <span className="rv8-con-marca"><button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>Vencimientos <span className="rv8-badge-alerta">—</span></button><MarcaPaquete21 /></span>}
       <span className="rv8-con-marca"><button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>En otro sistema <span className="rv8-badge-alerta">—</span></button><MarcaPaquete21 /></span>
       {nombres.length > 0 && (
         <span className="rv8-con-marca"><button type="button" className="btn btn-ghost rv8-v8-convive rv8-requiere-base" disabled title={MARCA}>
           {lista(nombres)} {nombres.length > 1 ? 'conviven' : 'convive'} con otro sistema
         </button><MarcaPaquete21 /></span>
       )}
-      {/* BotonPendientesImpresion (Secundario) va aquí cuando impresion/pendientesImpresion.ts deje de chocar por mayúsculas con PendientesImpresion.tsx (TS1149). */}
-      <span className="rv8-con-marca"><button type="button" className="btn btn-ghost rv8-chip-impresion rv8-requiere-base" disabled title={MARCA}>Pendientes de impresión y entrega <span className="rv8-badge-alerta">—</span></button><MarcaPaquete21 /></span>
+      <BotonPendientesImpresion />
     </>
   );
 }

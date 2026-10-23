@@ -13,13 +13,16 @@
    local se ve vacío y marcado.
    ============================================================ */
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { money } from '@/shared/lib/format';
 import { nf, paginar, TAMANO_PAGINA_INICIAL } from '../listas/paginador';
 import type { ConceptoRetencion, ConfigRetencion, RetencionItem, RetencionPracticada } from '../datos/puerta';
 import { AccionesRetencion } from '../pantalla/AccionesRetencion';
 import { Paginador } from '../pantalla/Paginador';
 import { MarcaPaquete21 } from '../comun/MarcaPaquete21';
+import type { ProveedorPerfil } from '../perfil/PerfilProveedorDialogo';
+import { PerfilFiscal } from '../perfil/PerfilFiscal';
+import { usePuerta } from '../datos/puerta';
 import { impuestosQueAplican, nombreImpuesto } from '../pantalla/pendientesPorDocumento';
 import { fechaVe } from '../pantalla/realizadasYLibro';
 import {
@@ -67,6 +70,11 @@ export function VistaAgrupada({ foco, onQuitarFoco, pendientes, libro, config, c
   const [pagina, setPagina] = useState(1);
   const [tamano, setTamano] = useState(TAMANO_PAGINA_INICIAL);
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
+  // «Perfil fiscal» (`data-perfil` de la maqueta): PerfilFiscal lee y guarda por la puerta con la capacidad; sin ella, solo en local.
+  const [perfil, setPerfil] = useState<ProveedorPerfil | null>(null);
+  const cerrarPerfil = useCallback(() => setPerfil(null), []);
+  const puerta = usePuerta();
+  const conPerfil = import.meta.env.DEV || puerta.capacidades.perfilProveedor;
   const cambiar = (p: Partial<EstadoVista>) => { setE((x) => ({ ...x, ...p })); setPagina(1); };
 
   const enBase = useMemo(() => (foco ? facturas.filter(foco.prueba) : base(facturas, e)), [facturas, e, foco]);
@@ -189,7 +197,7 @@ export function VistaAgrupada({ foco, onQuitarFoco, pendientes, libro, config, c
             )}
             {porProveedor(filas).map(([p, fs]) => (
               <Proveedor key={p} fs={fs} todas={facturas} conResumen={vista === 'factura'} impuestos={impuestos} e={e}
-                abierto={expandidos.has(p) || fs.length <= MAX_PROVEEDOR}
+                abierto={expandidos.has(p) || fs.length <= MAX_PROVEEDOR} onPerfil={conPerfil ? setPerfil : undefined}
                 onPlegar={(abrir) => setExpandidos((s) => { const n = new Set(s); if (abrir) n.add(p); else n.delete(p); return n; })}
                 onRegistrar={onRegistrar} onAnular={onAnular} onAdjuntar={onAdjuntar} pctIva={config.pctIvaGeneral} />
             ))}
@@ -197,6 +205,8 @@ export function VistaAgrupada({ foco, onQuitarFoco, pendientes, libro, config, c
           </>
         )}
       </section>
+
+      {perfil && <PerfilFiscal proveedor={perfil} libro={libro} puedeEditar={!!onRegistrar} onCerrar={cerrarPerfil} />}
     </div>
   );
 }
@@ -323,7 +333,8 @@ interface AccionesProps {
   pctIva?: number;
 }
 
-function Proveedor({ fs, todas, conResumen, impuestos, e, abierto, onPlegar, ...acc }: AccionesProps & {
+function Proveedor({ fs, todas, conResumen, impuestos, e, abierto, onPlegar, onPerfil, ...acc }: AccionesProps & {
+  onPerfil?: (p: ProveedorPerfil) => void;
   fs: FacturaAgrupada[]; todas: FacturaAgrupada[]; conResumen: boolean; impuestos: string[]; e: EstadoVista;
   abierto: boolean; onPlegar: (abrir: boolean) => void;
 }) {
@@ -339,7 +350,10 @@ function Proveedor({ fs, todas, conResumen, impuestos, e, abierto, onPlegar, ...
     <section className="rv8-proveedor">
       <header>
         <h3>{f0.proveedorNombre}<span className="rv8-rif">{f0.proveedorRif ?? ''}</span></h3>
-        {f0.dir === 'recibida' ? <span className="rv8-perfil"><span className="rv8-etq">Cliente</span></span> : import.meta.env.DEV && <span className="rv8-perfil"><button type="button" className="rv8-mini rv8-requiere-base" disabled title="Requiere la base de Retenciones (paquete 2.1)">Perfil fiscal</button><MarcaPaquete21 /></span>}
+        {f0.dir === 'recibida' ? <span className="rv8-perfil"><span className="rv8-etq">Cliente</span></span> : onPerfil && f0.proveedorId && (
+          <span className="rv8-perfil"><button type="button" className="rv8-mini"
+            onClick={() => onPerfil({ id: f0.proveedorId!, razonSocial: f0.proveedorNombre, rif: f0.proveedorRif ?? '', direccion: null })}>Perfil fiscal</button><MarcaPaquete21 /></span>
+        )}
         <span className="rv8-resumen">{resumen}</span>
       </header>
       {porDocumento(visibles).map(([doc, xs]) => <Documento key={doc} xs={xs} todas={todas} impuestos={impuestos} e={e} {...acc} />)}

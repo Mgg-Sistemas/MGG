@@ -15,6 +15,7 @@ import {
 import { urlAdjuntoCompra } from '@/modules/pedidos/compras.repository';
 import { resumenLibro, totalesPorMoneda } from '../../retencionesCalculo';
 import type { PuertaRetenciones } from './puerta';
+import { listAvisosVencimiento, umbralesAvisos } from './vencimientos';
 import { declararPeriodo, guardarPasoInicial, listPasoInicial, listPeriodos, reabrirPeriodo, umbralDeclaraciones } from './periodos';
 import { direccionDeProveedor, listArchivosDeDocumentos, listRetenidoSinRegistrar } from './retenidoAlPagar';
 import { guardarPerfilProveedor, leerPerfilProveedor, listTiposLicencia } from './perfilProveedor';
@@ -61,6 +62,8 @@ export const puertaAnfitrion: PuertaRetenciones = {
   reabrirPeriodo: (id, motivo) => reabrirPeriodo(id, motivo),
   guardarPasoInicial: (tipo, p) => guardarPasoInicial(tipo, p),
   umbralDeclaraciones: () => umbralDeclaraciones(),
+  avisosVencimiento: () => listAvisosVencimiento(),
+  umbralesAvisos: () => umbralesAvisos(),
   imprimirLibro: async (filas, rango) => {
     const [config, { verLibroFiscalPdf }] = await Promise.all([getConfigRetencion(), import('../../libroFiscalPdf')]);
     const fila = (r: (typeof filas)[number]) => ({ tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada });

@@ -1,0 +1,28 @@
+/* ============================================================
+   MGG · Retenciones v8 · Vencimientos
+   Las reglas de la maqueta v8 (su <style> y v8-estilos.css), con el prefijo
+   rv8- en cada clase, los colores del tema (theme.css) y sin selectores
+   globales. Generada con docs/cuaderno/disenos → css_rv8.py; las reglas
+   propias del módulo van al final.
+   ============================================================ */
+.rv8-mini { min-height: 28px; padding: .1rem .55rem; font-size: .74rem; font-weight: 600; border-radius: var(--r-sm); border: 1px solid var(--border-strong); background: transparent; color: var(--text-muted); cursor: pointer; }
+.rv8-mini:hover { color: var(--text); border-color: var(--text-muted); }
+.rv8-huella { font-size: .74rem; color: var(--text-dim); }
+@media (max-width: 640px) {
+  .rv8-mini { min-height: 36px; }
+}
+.rv8-alerta-info { border: 1px solid color-mix(in srgb, var(--info) 45%, transparent); background: color-mix(in srgb, var(--info) 7%, transparent); color: color-mix(in srgb, var(--info) 40%, var(--text)); border-radius: var(--r-md); padding: .5rem .7rem; font-size: .8rem; }
+.rv8-lista-mini { display: flex; flex-direction: column; gap: .3rem; font-size: .8rem; }
+.rv8-lista-mini .rv8-fila { display: flex; justify-content: space-between; gap: .5rem; flex-wrap: wrap; align-items: center; border-bottom: 1px solid var(--border); padding: .25rem 0; }
+.rv8-huella { color: var(--text-muted); }
+@media (max-width: 640px), (pointer: coarse) {
+  .rv8-mini { min-height: 40px; padding: .3rem .7rem; }
+  .rv8-lista-mini .rv8-fila { gap: .5rem; }
+}
+.rv8-v7-venc-grupo { border-top: 1px solid var(--border); padding: .3rem 0; }
+.rv8-v7-venc-grupo > summary { cursor: pointer; padding: .4rem .2rem; font-size: .88rem; min-height: 24px; }
+.rv8-v7-venc-grupo.rv8-vencido > summary b { color: color-mix(in srgb, var(--danger) 65%, var(--text)); }
+.rv8-v7-venc-grupo.rv8-por_vencer > summary b { color: color-mix(in srgb, var(--warning) 60%, var(--text)); }
+.rv8-v7-venc-fila small { display: block; color: var(--text-muted); font-size: .74rem; }
+.rv8-v7-venc-fila.rv8-vencido small { color: color-mix(in srgb, var(--danger) 65%, var(--text)); }
+.rv8-v7-venc-fila.rv8-pronto small { color: color-mix(in srgb, var(--warning) 60%, var(--text)); }

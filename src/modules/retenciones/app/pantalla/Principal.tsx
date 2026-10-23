@@ -26,7 +26,13 @@ import { avisosPeriodos } from '../periodos/modeloPeriodos';
 import type { Declaracion, PasoInicial, PeriodoRetencion } from '../datos/periodos';
 import { Reportes } from './reportes/Reportes';
 import { impuestosActivos } from '../agrupada/modeloAgrupada';
-import { CabeceraLocal, PeriodoEnCurso } from './CabeceraLocal';
+import { BotonVencimientos, CabeceraLocal, PeriodoEnCurso } from './CabeceraLocal';
+import { UMBRALES_DEFECTO, type AvisoVencimiento, type Umbrales } from '../datos/vencimientos';
+import { resumenVencimientos, vencimientos, type Ficha } from '../vencimientos/modeloVencimientos';
+import { VencimientosDialogo } from '../vencimientos/VencimientosDialogo';
+import { PerfilFiscal } from '../perfil/PerfilFiscal';
+import type { ProveedorPerfil } from '../perfil/PerfilProveedorDialogo';
+import type { EstadoFila } from '../periodos/modeloPeriodos';
 import './principal.css';
 import './rv8-principal.css';
 
@@ -85,7 +91,13 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
   // Períodos: null mientras la base de Retenciones no los tenga (la pestaña solo sale en local, vacía y marcada).
   const [periodos, setPeriodos] = useState<PeriodoRetencion[] | null>(null);
   const [paso, setPaso] = useState<Record<string, string | null>>({});
-  const [umbral, setUmbral] = useState(7);
+  const [umbrales, setUmbrales] = useState<Umbrales>(UMBRALES_DEFECTO);
+  // Vencimientos: las licencias y actividades (null = la base no las tiene) y el diálogo.
+  const [avisos, setAvisos] = useState<AvisoVencimiento[] | null>(null);
+  const [verVenc, setVerVenc] = useState(false);
+  const [perInicial, setPerInicial] = useState<{ k: string; est: '' | EstadoFila } | undefined>(undefined);
+  const [perfil, setPerfil] = useState<ProveedorPerfil | null>(null);
+  const cerrarPerfil = useCallback(() => setPerfil(null), []);
 
   const cargar = useCallback(() => {
     setError(null);
@@ -101,11 +113,23 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
     let vivo = true;
     void puerta.periodos().then((ps) => { if (vivo) setPeriodos(ps); });
     void puerta.pasoInicial?.(impuestos).then((x) => { if (vivo) setPaso(x); });
-    void puerta.umbralDeclaraciones?.().then((n) => { if (vivo) setUmbral(n); });
+    void puerta.umbralesAvisos?.().then((u) => { if (vivo) setUmbrales(u); });
+    void puerta.avisosVencimiento?.().then((a) => { if (vivo) setAvisos(a); });
     return () => { vivo = false; };
   }, [puerta, impuestos]);
   const vencidos = periodos ? avisosPeriodos(periodos, impuestos, new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' })).vencidos : 0;
   const verPeriodos = periodos != null || import.meta.env.DEV;
+  const hoy = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
+  const listaVenc = useMemo(() => (periodos ? vencimientos(periodos, avisos ?? [], impuestos, hoy, umbrales) : []), [periodos, avisos, impuestos, hoy, umbrales]);
+  const rv = resumenVencimientos(listaVenc);
+  // Vencimientos funciona cuando la base tiene los períodos; sin ella, solo en local, deshabilitado.
+  const botonVenc = periodos != null ? <BotonVencimientos n={rv.vencido + rv.porVencer} rojo={rv.vencido > 0} onAbrir={() => setVerVenc(true)} /> : undefined;
+  const irFicha = (f: Ficha) => {
+    setVerVenc(false);
+    if (f.tipo === 'periodo') { setPerInicial({ k: f.k, est: f.est }); setSec('periodos'); }
+    else if (f.tipo === 'empresa') onParametros?.();
+    else if (f.proveedorId) setPerfil({ id: f.proveedorId, razonSocial: f.nombre, rif: f.rif ?? '', direccion: null });
+  };
   const docs = useMemo(
     () => (datos ? documentosPendientes(datos.pendientes, datos.libro, (it) => impuestosQueAplican(it, datos.config, datos.conceptos)) : []),
     [datos],
@@ -120,7 +144,7 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
           <p>{DESCRIPCION[sec]}</p>
         </div>
         <div className="cabeza-acciones">
-          {import.meta.env.DEV && datos && <CabeceraLocal impuestos={impuestos} />}
+          {import.meta.env.DEV ? datos && <CabeceraLocal impuestos={impuestos} vencimientos={botonVenc} /> : botonVenc}
           {onParametros && <button type="button" className="btn btn-ghost" onClick={onParametros}>⚙ Parámetros</button>}
           <nav className="view-toggle" aria-label="Pantallas del módulo">
             <button type="button" aria-current={sec === 'pendientes' ? 'page' : undefined} onClick={() => setSec('pendientes')}>
@@ -130,7 +154,7 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
             <button type="button" aria-current={sec === 'libro' ? 'page' : undefined} onClick={() => setSec('libro')}>📒 Libro fiscal</button>
             <button type="button" aria-current={sec === 'agrupada' ? 'page' : undefined} onClick={() => setSec('agrupada')}>Vista agrupada</button>
             {/* Períodos: con la base de Retenciones; sin ella, solo en local (vacía y marcada). */}
-            {verPeriodos && <button type="button" aria-current={sec === 'periodos' ? 'page' : undefined} onClick={() => setSec('periodos')}>Períodos <span className="rv8-badge-n">{vencidos || ''}</span></button>}
+            {verPeriodos && <button type="button" aria-current={sec === 'periodos' ? 'page' : undefined} onClick={() => { setPerInicial(undefined); setSec('periodos'); }}>Períodos <span className="rv8-badge-n">{vencidos || ''}</span></button>}
             <button type="button" aria-current={sec === 'reportes' ? 'page' : undefined} onClick={() => setSec('reportes')}>Reportes</button>
           </nav>
         </div>
@@ -160,9 +184,12 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
       {datos && sec === 'libro' && <LibroFiscalV8 libro={datos.libro} onAnular={onAnular} onAdjuntar={onAdjuntar} onRegistrarRecibida={onRegistrarRecibida} />}
 
       {datos && sec === 'periodos' && verPeriodos && (
-        <Periodos periodos={periodos} paso={paso} impuestos={impuestos} onDeclarar={periodos ? onDeclararPeriodo : undefined} onReabrir={periodos ? onReabrirPeriodo : undefined}
-          onPasoInicial={periodos ? onPasoInicial : undefined} umbral={umbral} />
+        <Periodos key={perInicial ? `${perInicial.k}:${perInicial.est}` : 'todos'} inicial={perInicial} periodos={periodos} paso={paso} impuestos={impuestos} onDeclarar={periodos ? onDeclararPeriodo : undefined} onReabrir={periodos ? onReabrirPeriodo : undefined}
+          onPasoInicial={periodos ? onPasoInicial : undefined} umbral={umbrales.declaraciones} />
       )}
+
+      {verVenc && <VencimientosDialogo xs={listaVenc} umbrales={umbrales} conLicencias={avisos != null} onFicha={irFicha} onCerrar={() => setVerVenc(false)} />}
+      {perfil && datos && <PerfilFiscal proveedor={perfil} libro={datos.libro} puedeEditar={!!onRegistrar} onCerrar={cerrarPerfil} />}
 
       {datos && sec === 'reportes' && <Reportes libro={datos.libro} />}
     </main>

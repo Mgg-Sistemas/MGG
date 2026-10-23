@@ -44,13 +44,15 @@ interface Props {
   onPasoInicial?: (k: string, p: PasoInicial) => Promise<void>;
   /** Días del aviso «por vencer» (retenciones.avisos.umbrales). */
   umbral: number;
+  /** El impuesto y el estado con que abre («Ver el período» desde Vencimientos). */
+  inicial?: { k: string; est: '' | EstadoFila };
 }
 
-export function Periodos({ periodos, paso, impuestos, onDeclarar, onReabrir, onPasoInicial, umbral }: Props) {
+export function Periodos({ periodos, paso, impuestos, onDeclarar, onReabrir, onPasoInicial, umbral, inicial }: Props) {
   const hoy = hoyIso();
   const ps = useMemo(() => periodos ?? [], [periodos]);
-  const [k, setK] = useState(impuestos[0] ?? 'iva');
-  const [est, setEst] = useState<'' | EstadoFila>('');
+  const [k, setK] = useState(inicial?.k ?? impuestos[0] ?? 'iva');
+  const [est, setEst] = useState<'' | EstadoFila>(inicial?.est ?? '');
   const [anio, setAnio] = useState(0);
   const avisos = avisosPeriodos(ps, impuestos, hoy, umbral);
   const [pasoDe, setPasoDe] = useState<string | null>(null);

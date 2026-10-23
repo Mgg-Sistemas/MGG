@@ -18,6 +18,7 @@ import type { FiltroRetenciones, NuevaRetencion, RetencionPracticada } from '../
 import type { ConceptoRetencion, ConfigRetencion } from '../../retencionesCalculo';
 import type { ArchivoFactura, RetenidoAlPagar } from '../pantalla/porRealizarExtras';
 import type { Declaracion, PasoInicial, PeriodoRetencion } from './periodos';
+import type { AvisoVencimiento, Umbrales } from './vencimientos';
 import type { CambiosPerfil, DatosPerfil } from './perfilProveedor';
 import type { TipoLicencia } from '../perfil/actividadesLicencia';
 
@@ -80,6 +81,10 @@ export interface PuertaRetenciones {
   reabrirPeriodo?(id: string, motivo: string): Promise<number>;
   /** Guarda el paso inicial de un impuesto y genera sus períodos. */
   guardarPasoInicial?(tipo: string, p: PasoInicial): Promise<void>;
+  /** Las licencias y actividades con fecha (retencion_avisos_vencimiento); null si la base no las tiene. */
+  avisosVencimiento?(): Promise<AvisoVencimiento[] | null>;
+  /** Los umbrales de los avisos (retenciones.avisos.umbrales). */
+  umbralesAvisos?(): Promise<Umbrales>;
   /** Días antes del vencimiento en que una declaración pasa a «por vencer». */
   umbralDeclaraciones?(): Promise<number>;
   /** La dirección del proveedor, para el comprobante impreso (proveedores.direccion). Sin él, la hoja la deja en blanco. */
