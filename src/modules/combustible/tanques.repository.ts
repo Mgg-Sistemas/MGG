@@ -6,9 +6,9 @@
    vigente con estos nombres. Acá se enrutan al repositorio de Combustible
    de MGG (combustible.repository.ts): una sola fuente de datos.
    ============================================================ */
-import { consumoCombustiblePorEquipo, listCatalogo, listVehiculos, ultimoHorometroEquipo, type ConsumoCombustibleItem } from './combustible.repository';
+import { consumoCombustiblePorEquipo, listCatalogo, listVehiculos, ultimoHorometroEquipo, ultimoKilometrajeEquipo, type ConsumoCombustibleItem } from './combustible.repository';
 
-export { ultimoHorometroEquipo };
+export { ultimoHorometroEquipo, ultimoKilometrajeEquipo };
 
 /** Un valor del catálogo de Combustible, como lo espera Maquinaria: equipos y ubicaciones. */
 export interface CatalogoCombustibleValor {

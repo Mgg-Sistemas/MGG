@@ -223,8 +223,21 @@ export function CombustiblePage() {
     return () => { cancel = true; };
   }, [reload]);
 
-  // Realtime multiusuario: combustibles, solicitudes y tanques se reflejan al instante.
-  useRealtime(['combustibles', 'combustible_solicitudes', 'combustible_tanques', 'combustible_vehiculos', 'transferencias_combustible_inter', 'combustible_tanque_movimientos', 'combustible_autorizados', 'combustible_despachadores', 'combustible_ubicaciones'], () => { void reload(); });
+  // Realtime multiusuario: combustibles, solicitudes, tanques y lecturas de maquinaria se reflejan al instante.
+  useRealtime([
+    'combustibles',
+    'combustible_solicitudes',
+    'combustible_tanques',
+    'combustible_vehiculos',
+    'transferencias_combustible_inter',
+    'combustible_tanque_movimientos',
+    'combustible_autorizados',
+    'combustible_despachadores',
+    'combustible_ubicaciones',
+    'maquinaria_lecturas',
+    'maquinaria_equipos',
+    'maquinaria_mantenimientos',
+  ], () => { void reload(); });
 
   // Litros REALES de cada combustible = suma de los litros de sus tanques (los
   // movimientos de tanque mandan; el total sube/baja con los tanques).
@@ -1117,7 +1130,12 @@ function MovimientosModal({ tanques, vehiculos, tanqueId, actor, actorName, canW
     listTanqueMovimientos(filtroTanque ? { tanqueId: filtroTanque } : undefined)
       .then(setMovs).catch(() => setMovs([])).finally(() => setLoading(false));
   }, [filtroTanque]);
-  useRealtime(['combustible_tanque_movimientos'], () => { recargar(); });
+  useRealtime([
+    'combustible_tanque_movimientos',
+    'maquinaria_lecturas',
+    'maquinaria_equipos',
+    'maquinaria_mantenimientos',
+  ], () => { recargar(); });
 
   async function confirmarBorrar() {
     if (!borrarMov) return;

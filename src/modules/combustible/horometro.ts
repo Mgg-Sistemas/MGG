@@ -79,3 +79,23 @@ export function hiEncadenado(hiEscrito: number | null | undefined, hfAnterior: n
   if (hiEscrito != null && Number.isFinite(Number(hiEscrito))) return Number(hiEscrito);
   return hfAnterior != null && Number.isFinite(Number(hfAnterior)) ? Number(hfAnterior) : null;
 }
+
+/**
+ * Decide la lectura de horómetro/km vigente sincronizando Combustible y Maquinaria:
+ * - Si Maquinaria tiene una corrección explícita hacia abajo (cambio de horómetro), manda Maquinaria.
+ * - Si ambos tienen lecturas válidas, el horómetro es monótono creciente: la lectura mayor es la vigente.
+ * - Si solo uno tiene lectura, se toma esa.
+ */
+export function resolverHorometroVigente(
+  combHoro: number | null | undefined,
+  maqHoro: number | null | undefined,
+  esCorreccion = false,
+): number | null {
+  const c = leerMedidor(combHoro);
+  const m = leerMedidor(maqHoro);
+  if (esCorreccion && m != null) return m;
+  if (c != null && m != null) return Math.max(c, m);
+  if (m != null) return m;
+  return c;
+}
+
