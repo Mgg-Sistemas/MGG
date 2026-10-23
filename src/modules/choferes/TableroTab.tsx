@@ -11,7 +11,7 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { ESTADO_CHOFER, ESTADO_FLOTA, alertasDocumentos, estadoChofer, liquidarViaticos, textoRuta, totalViajes, type EstadoChofer, type EstadoFlota } from './choferes';
 import { fechaHora, nombreConductor, textoVehiculo, type PropsTab } from './ChoferesPage';
 
-type Vista = 'tablero' | 'expediente' | 'viajes' | 'viaticos' | 'pagos' | 'descansos';
+type Vista = 'tablero' | 'expediente' | 'nomina' | 'viaticos' | 'guias' | 'descansos' | 'viajes' | 'pagos';
 
 export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void }) {
   const { conductores, flota, viajes, viaticos, pagos, descansos, hoy, loading } = datos;
@@ -85,7 +85,7 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
           <div className="muted" style={{ fontSize: '.78rem' }}>{porEstado.disponible} disponibles hoy</div>
           <div className="icon" aria-hidden="true">🪪</div>
         </button>
-        <button type="button" className="kpi desc-kpi" onClick={() => irA('viajes')}>
+        <button type="button" className="kpi desc-kpi" onClick={() => irA('nomina')}>
           <div className="label">En ruta ahora</div>
           <div className="value">{porEstado.en_ruta}</div>
           <div className="muted" style={{ fontSize: '.78rem' }}>{programados.length ? `${viajes.filter((v) => v.estado === 'programado').length} viaje(s) programados` : 'Sin viajes programados'}</div>
@@ -112,7 +112,7 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
           <div className="muted" style={{ fontSize: '.78rem' }}>{flotaPorEstado.taller} en taller · {flotaPorEstado.inactivo} inactivos{segurosFlota ? ` · ${segurosFlota} seguro(s) vencido(s)` : ''}</div>
           <div className="icon" aria-hidden="true">🚚</div>
         </button>
-        <button type="button" className="kpi desc-kpi" onClick={() => irA('viajes')}>
+        <button type="button" className="kpi desc-kpi" onClick={() => irA('nomina')}>
           <div className="label">Viajes finalizados este mes</div>
           <div className="value">{viajesMes}</div>
           <div className="muted" style={{ fontSize: '.78rem' }}>{viajes.length} en el histórico</div>
@@ -124,7 +124,7 @@ export function TableroTab({ datos, irA }: PropsTab & { irA: (v: Vista) => void 
           <div className="muted" style={{ fontSize: '.78rem' }}>{money(anticiposAbiertos)} en anticipos abiertos</div>
           <div className="icon" aria-hidden="true">💵</div>
         </button>
-        <button type="button" className="kpi desc-kpi" onClick={() => irA('pagos')}>
+        <button type="button" className="kpi desc-kpi" onClick={() => irA('nomina')}>
           <div className="label">Recibos por pagar</div>
           <div className="value">{pendientes.length}</div>
           <div className="muted" style={{ fontSize: '.78rem' }}>{money(porPagar)} pendientes</div>

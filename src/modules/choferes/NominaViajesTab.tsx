@@ -9,7 +9,7 @@
    y marcar viajes pagados por lote hasta una fecha de corte (ej. hasta el 14).
    ============================================================ */
 import { useMemo, useState } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, date as fmtDate } from '@/shared/lib/format';
@@ -17,10 +17,12 @@ import {
   categoriaDeViaje, cantidadViajes, tarifaTotalViaje, infoPagoViaje,
 } from './choferes';
 import {
-  marcarViajesPagadosHastaFecha,
+  eliminarViaje, marcarViajePagado, marcarViajesPagadosHastaFecha, type Viaje,
 } from './choferes.repository';
 import { nombreConductor, type PropsTab } from './ChoferesPage';
 import { generarNominaViajesPdf, type GrupoChoferNomina, type FilaNominaViaje } from './nominaViajesPdf';
+import { generarReciboPagoViajesPdf } from './reciboPagoViajesPdf';
+import { ViajeModal, DetalleViajeModal, AccionViajeModal } from './ViajesTab';
 
 export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
   const { conductores, flota, viajes, pagos, loading, recargar } = datos;
@@ -29,11 +31,19 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
   const [empresaFiltro, setEmpresaFiltro] = useState('');
   const [estadoPagoFiltro, setEstadoPagoFiltro] = useState<'' | 'pendientes' | 'pagados'>('');
   const [fechaHasta, setFechaHasta] = useState('');
+  const [busquedaTexto, setBusquedaTexto] = useState('');
   const [modalPagarLote, setModalPagarLote] = useState(false);
+  const [fechaDesdeModal, setFechaDesdeModal] = useState('');
   const [fechaCorteModal, setFechaCorteModal] = useState('');
   const [fechaPagoModal, setFechaPagoModal] = useState(new Date().toISOString().slice(0, 10));
   const [choferModal, setChoferModal] = useState('');
   const [guardandoPago, setGuardandoPago] = useState(false);
+
+  // Modales operativos de viaje unificados en Nómina de viajes
+  const [formViaje, setFormViaje] = useState<Viaje | 'nuevo' | null>(null);
+  const [detalleViaje, setDetalleViaje] = useState<Viaje | null>(null);
+  const [accionViaje, setAccionViaje] = useState<{ tipo: 'iniciar' | 'finalizar' | 'cancelar'; viaje: Viaje } | null>(null);
+  const [borrarViaje, setBorrarViaje] = useState<Viaje | null>(null);
 
   // Conductores desplegados (por defecto sin mostrar los detalles)
   const [desplegados, setDesplegados] = useState<Record<string, boolean>>({});
@@ -102,15 +112,20 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
 
   // Filtrado
   const filasFiltradas = useMemo(() => {
+    const q = busquedaTexto.trim().toLowerCase();
     return filasConDetalle.filter((f) => {
       if (choferId && f.choferId !== choferId) return false;
       if (empresaFiltro && f.nominaFija !== empresaFiltro) return false;
       if (estadoPagoFiltro === 'pendientes' && f.pagado) return false;
       if (estadoPagoFiltro === 'pagados' && !f.pagado) return false;
       if (fechaHasta && f.fecha > fechaHasta) return false;
+      if (q) {
+        const txt = `${f.nombre} ${f.nominaFija} ${f.vehiculo} ${f.movimiento} ${f.proviene} ${f.destino} ${f.observaciones} ${f.viaje.numero}`.toLowerCase();
+        if (!txt.includes(q)) return false;
+      }
       return true;
     });
-  }, [filasConDetalle, choferId, empresaFiltro, estadoPagoFiltro, fechaHasta]);
+  }, [filasConDetalle, choferId, empresaFiltro, estadoPagoFiltro, fechaHasta, busquedaTexto]);
 
   // Agrupado por chofer para el formato de la planilla
   const gruposPorChofer: GrupoChoferNomina[] = useMemo(() => {
@@ -131,6 +146,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         observaciones: f.observaciones,
         pagado: f.pagado,
         fechaPago: f.fechaPago,
+        viaje: f.viaje,
       });
     }
 
@@ -210,24 +226,86 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
     URL.revokeObjectURL(url);
   }
 
+  async function exportarReciboIndividual(g: GrupoChoferNomina) {
+    try {
+      await generarReciboPagoViajesPdf({
+        grupos: [g],
+        fechaDesde: fechaDesdeModal || undefined,
+        fechaHasta: fechaHasta || undefined,
+        fechaPago: fechaPagoModal,
+        conductoresMap: porId,
+        flotaMap: vehPorId,
+      });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el recibo de pago', 'error');
+    }
+  }
+
+  async function exportarRecibosLote() {
+    if (!gruposPorChofer.length) {
+      toast('No hay viajes en el listado para generar recibos', 'error');
+      return;
+    }
+    try {
+      await generarReciboPagoViajesPdf({
+        grupos: gruposPorChofer,
+        fechaDesde: fechaDesdeModal || undefined,
+        fechaHasta: fechaHasta || undefined,
+        fechaPago: fechaPagoModal,
+        conductoresMap: porId,
+        flotaMap: vehPorId,
+      });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudieron generar los recibos en lote', 'error');
+    }
+  }
+
+  const viajesACerrar = useMemo(() => {
+    if (!modalPagarLote) return [];
+    return filasConDetalle.filter((f) => {
+      if (choferModal && f.choferId !== choferModal) return false;
+      if (fechaDesdeModal && f.fecha < fechaDesdeModal) return false;
+      if (fechaCorteModal && f.fecha > fechaCorteModal) return false;
+      return !f.pagado;
+    });
+  }, [modalPagarLote, filasConDetalle, choferModal, fechaDesdeModal, fechaCorteModal]);
+
   async function ejecutarMarcarPagados() {
     if (!fechaCorteModal) {
-      toast('Indica la fecha de corte (hasta qué fecha se pagaron los viajes)', 'error');
+      toast('Indica la fecha de corte (hasta qué fecha se liquidan los viajes)', 'error');
       return;
     }
     setGuardandoPago(true);
     try {
       const res = await marcarViajesPagadosHastaFecha({
         choferId: choferModal || undefined,
+        fechaDesde: fechaDesdeModal || undefined,
         fechaHasta: fechaCorteModal,
         fechaPago: fechaPagoModal,
         actor: actorName || actor,
       });
-      toast(`Se marcaron como pagados ${res.actualizados} viaje(s) hasta el ${fmtDate(fechaCorteModal)}`, 'success');
+      toast(`Cierre de nómina completado: se liquidaron ${res.actualizados} viaje(s)`, 'success');
       setModalPagarLote(false);
       await recargar();
+
+      // Al cerrar nómina, emitir el recibo de pago si se liquidaron viajes
+      if (res.actualizados > 0) {
+        const gruposAImprimir = choferModal
+          ? gruposPorChofer.filter((g) => g.choferId === choferModal)
+          : gruposPorChofer;
+        if (gruposAImprimir.length > 0) {
+          void generarReciboPagoViajesPdf({
+            grupos: gruposAImprimir,
+            fechaDesde: fechaDesdeModal || undefined,
+            fechaHasta: fechaCorteModal,
+            fechaPago: fechaPagoModal,
+            conductoresMap: porId,
+            flotaMap: vehPorId,
+          });
+        }
+      }
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudieron actualizar los viajes', 'error');
+      toast(e instanceof Error ? e.message : 'No se pudieron liquidar los viajes', 'error');
     } finally {
       setGuardandoPago(false);
     }
@@ -259,7 +337,17 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
       {/* ── Filtros y Acciones ── */}
       <div className="card" style={{ padding: '.7rem .85rem', marginBottom: '.9rem' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'flex-end' }}>
-          <div className="form-row" style={{ flex: '1 1 200px', margin: 0 }}>
+          <div className="form-row" style={{ flex: '1 1 180px', margin: 0 }}>
+            <label>Buscar</label>
+            <input
+              className="input"
+              placeholder="🔍 Chofer, ruta, placa, carga…"
+              value={busquedaTexto}
+              onChange={(e) => setBusquedaTexto(e.target.value)}
+            />
+          </div>
+
+          <div className="form-row" style={{ flex: '1 1 180px', margin: 0 }}>
             <label>Conductor</label>
             <select className="select" value={choferId} onChange={(e) => setChoferId(e.target.value)}>
               <option value="">— Todos los conductores —</option>
@@ -267,7 +355,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
             </select>
           </div>
 
-          <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
+          <div className="form-row" style={{ flex: '0 1 140px', margin: 0 }}>
             <label>Nómina fija</label>
             <select className="select" value={empresaFiltro} onChange={(e) => setEmpresaFiltro(e.target.value)}>
               <option value="">Todas</option>
@@ -275,7 +363,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
             </select>
           </div>
 
-          <div className="form-row" style={{ flex: '0 1 160px', margin: 0 }}>
+          <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
             <label>Estado de pago</label>
             <select className="select" value={estadoPagoFiltro} onChange={(e) => setEstadoPagoFiltro(e.target.value as typeof estadoPagoFiltro)}>
               <option value="">Todos los viajes</option>
@@ -284,7 +372,7 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
             </select>
           </div>
 
-          <div className="form-row" style={{ flex: '0 1 160px', margin: 0 }}>
+          <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
             <label>Viajes hasta (corte)</label>
             <input className="input" type="date" value={fechaHasta} onChange={(e) => setFechaHasta(e.target.value)} />
           </div>
@@ -294,6 +382,17 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
           )}
 
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+            {canWrite && (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                onClick={() => setFormViaje('nuevo')}
+                disabled={!conductores.some((c) => c.activo)}
+                title="Programar una nueva orden de ruta o registrar un viaje ya realizado"
+              >
+                + Orden de ruta
+              </button>
+            )}
             {gruposPorChofer.length > 0 && (
               <button
                 type="button"
@@ -306,15 +405,19 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
             )}
             {canWrite && (
               <button className="btn btn-sm btn-primary" onClick={() => {
+                setFechaDesdeModal('');
                 setFechaCorteModal(fechaHasta || new Date().toISOString().slice(0, 10));
                 setChoferModal(choferId);
                 setModalPagarLote(true);
-              }} title="Marcar como pagados todos los viajes hasta una fecha determinada (ej. hasta el 14)">
-                ✔ Marcar pagados hasta fecha…
+              }} title="Cerrar la nómina de viajes por rango de fecha para que queden saldados y generar recibo de pago">
+                🔒 Cierre de Nómina…
               </button>
             )}
+            <button className="btn btn-sm btn-ghost" onClick={() => void exportarRecibosLote()} disabled={!filasFiltradas.length} title="Imprimir recibos de pago en lote para firma del chofer">
+              🧾 Recibos de Pago (Lote)
+            </button>
             <button className="btn btn-sm btn-ghost" onClick={() => void exportarPdf()} disabled={!filasFiltradas.length}>
-              🖨 Imprimir Nómina PDF
+              🖨 Planilla PDF
             </button>
             <button className="btn btn-sm btn-ghost" onClick={exportarExcel} disabled={!filasFiltradas.length}>
               📊 Exportar a Excel
@@ -328,42 +431,56 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
         <EmptyState icon="📋" message="No hay viajes registrados que coincidan con los filtros." />
       )}
 
-      {/* ── Formato visual idéntico a la planilla física ── */}
+      {/* ── Formato visual: Lista desplegable por conductor ── */}
       {!loading && gruposPorChofer.map((g) => {
         const abierto = !!desplegados[g.choferId];
         const totalViajesChofer = g.filas.reduce((a, f) => a + f.viajes, 0);
 
+        // Vehículos únicos utilizados por este conductor
+        const vehiculosSet = new Set<string>();
+        g.filas.forEach((f) => {
+          const v = (f.vehiculo || '').trim();
+          if (v && v !== '—') vehiculosSet.add(v);
+        });
+        const listaVehiculos = Array.from(vehiculosSet);
+
+        const nLargos = g.filas.filter(f => f.observaciones === 'VIAJE LARGO').reduce((a, f) => a + f.viajes, 0);
+        const nCortos = g.filas.filter(f => f.observaciones === 'VIAJE CORTO').reduce((a, f) => a + f.viajes, 0);
+        const nInternos = g.filas.filter(f => f.observaciones === 'VIAJE INTERNO').reduce((a, f) => a + f.viajes, 0);
+
         return (
-          <div key={g.choferId} className="card" style={{ padding: 0, marginBottom: '1rem', overflow: 'hidden', border: '1px solid var(--border)' }}>
-            {/* Cabecera del conductor (desplegable) */}
+          <div key={g.choferId} className="card" style={{ padding: 0, marginBottom: '.85rem', overflow: 'hidden', border: '1px solid var(--border)' }}>
+            {/* Barra desplegable del conductor */}
             <div
               onClick={() => toggleDesplegar(g.choferId)}
               style={{
-                background: '#182b49',
+                background: abierto ? '#182b49' : '#131b26',
                 color: '#fff',
-                padding: '.65rem .95rem',
+                padding: '.75rem 1rem',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 flexWrap: 'wrap',
-                gap: '.6rem',
+                gap: '.7rem',
                 cursor: 'pointer',
                 userSelect: 'none',
+                borderBottom: abierto ? '1px solid rgba(255, 138, 0, 0.35)' : 'none',
+                transition: 'background .15s ease',
               }}
-              title={abierto ? 'Clic para ocultar detalles de viajes' : 'Clic para desplegar detalles de viajes'}
+              title={abierto ? 'Clic para ocultar detalle de rutas y precios' : 'Clic para desplegar detalle de rutas y precios'}
             >
-              <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '.85rem', color: 'var(--primary)', display: 'inline-block', transform: abierto ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.65rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '.9rem', color: 'var(--primary)', display: 'inline-block', transform: abierto ? 'rotate(90deg)' : 'none', transition: 'transform .15s ease' }}>
                   ▶
                 </span>
-                <strong style={{ fontSize: '.95rem', letterSpacing: '.03em' }}>{g.nombre.toUpperCase()}</strong>
-                <span style={{ fontSize: '.76rem', background: 'rgba(255,255,255,0.12)', padding: '.15rem .5rem', borderRadius: '4px' }}>
+                <strong style={{ fontSize: '.95rem', letterSpacing: '.03em', color: '#fff' }}>{g.nombre.toUpperCase()}</strong>
+                <span style={{ fontSize: '.76rem', background: 'rgba(255,255,255,0.1)', border: '1px solid rgba(255,255,255,0.15)', padding: '.15rem .5rem', borderRadius: '4px', color: '#cbd5e1' }}>
                   NÓMINA FIJA: <strong>{g.nominaFija}</strong>
                 </span>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '.9rem', flexWrap: 'wrap' }}>
-                <span className="mono" style={{ fontSize: '.84rem', opacity: .9 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.85rem', flexWrap: 'wrap' }}>
+                <span className="mono" style={{ fontSize: '.84rem', color: 'var(--text-muted)' }}>
                   {totalViajesChofer} viajes · {g.filas.length} reg.
                 </span>
                 <span className="mono" style={{ fontSize: '.88rem', color: 'var(--primary)', fontWeight: 700 }}>
@@ -372,127 +489,313 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
                 <span className="mono" style={{ fontSize: '.84rem', color: g.totalPendiente > 0 ? '#ff7b7b' : '#69db7c' }}>
                   Pendiente: {money(g.totalPendiente)}
                 </span>
-                <span
+                <button
+                  type="button"
                   className="btn btn-xs btn-ghost"
-                  style={{ color: '#fff', border: '1px solid rgba(255,255,255,0.25)', pointerEvents: 'none' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void exportarReciboIndividual(g);
+                  }}
+                  style={{ color: '#fff', border: '1px solid rgba(255,255,255,0.3)', padding: '.2rem .55rem' }}
+                  title="Imprimir recibo de pago para firma de este conductor"
                 >
-                  {abierto ? 'Ocultar viajes ▴' : 'Ver viajes ▾'}
+                  🧾 Recibo de pago
+                </button>
+                <span
+                  className="btn btn-xs btn-primary"
+                  style={{ pointerEvents: 'none' }}
+                >
+                  {abierto ? 'Ocultar ▲' : 'Desplegar rutas ▼'}
                 </span>
               </div>
             </div>
 
-            {/* Detalles de los viajes (solo al desplegar) */}
+            {/* Detalles de rutas, precios y vehículos (solo al desplegar) */}
             {abierto && (
-              <div className="table-wrap">
-                <table className="table" style={{ fontSize: '.84rem', margin: 0 }}>
-                  <thead>
-                    <tr style={{ background: '#243a5e', color: '#fff' }}>
-                      <th style={{ width: 85, color: '#fff' }}>FECHA</th>
-                      <th style={{ color: '#fff' }}>NOMBRE Y APELLIDO</th>
-                      <th style={{ width: 95, color: '#fff' }}>NÓMINA FIJA</th>
-                      <th style={{ width: 95, color: '#fff' }}>VEHÍCULO</th>
-                      <th style={{ color: '#fff' }}>EQUIPOS / MOVIMIENTOS</th>
-                      <th style={{ color: '#fff' }}>PROVIENE</th>
-                      <th style={{ color: '#fff' }}>DESTINO</th>
-                      <th style={{ textAlign: 'center', width: 65, color: '#fff' }}>VIAJES</th>
-                      <th style={{ textAlign: 'right', width: 80, color: '#fff' }}>MONTO</th>
-                      <th style={{ textAlign: 'right', width: 95, color: '#fff' }}>TOTAL A PAGAR</th>
-                      <th style={{ width: 140, color: '#fff' }}>OBSERVACIONES</th>
-                      <th style={{ textAlign: 'center', width: 110, color: '#fff' }}>ESTADO PAGO</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {g.filas.map((f, idx) => (
-                      <tr key={idx} style={{ background: f.pagado ? 'rgba(40, 150, 90, 0.04)' : undefined }}>
-                        <td className="mono" style={{ whiteSpace: 'nowrap' }}>{fmtDate(f.fecha)}</td>
-                        <td style={{ fontWeight: 600 }}>{f.nombre}</td>
-                        <td className="muted">{f.nominaFija}</td>
-                        <td className="mono">{f.vehiculo}</td>
-                        <td>{f.movimiento}</td>
-                        <td className="muted">{f.proviene}</td>
-                        <td className="muted">{f.destino}</td>
-                        <td className="mono" style={{ textAlign: 'center', fontWeight: 700 }}>{f.viajes}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{money(f.monto)}</td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary)' }}>{money(f.totalPagar)}</td>
-                        <td>
-                          <span className={`badge ${f.observaciones === 'VIAJE INTERNO' ? 'warning' : f.observaciones === 'VIAJE LARGO' ? 'info' : 'primary'}`}>
-                            {f.observaciones}
-                          </span>
-                        </td>
-                        <td style={{ textAlign: 'center' }}>
-                          {f.pagado ? (
-                            <span className="badge success" title={`Pagado el ${f.fechaPago ? fmtDate(f.fechaPago) : ''}`}>
-                              ✅ Pagado{f.fechaPago ? ` (${f.fechaPago.slice(8, 10)}/${f.fechaPago.slice(5, 7)})` : ''}
+              <div>
+                {/* Franja de resumen de vehículo y tipos de viaje */}
+                <div style={{ background: '#0e1622', padding: '.55rem 1rem', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.6rem', fontSize: '.8rem', color: 'var(--text-muted)' }}>
+                  <div>
+                    {listaVehiculos.length === 1 ? (
+                      <span>🚗 Vehículo asignado: <strong className="mono" style={{ color: 'var(--text)' }}>{listaVehiculos[0]}</strong></span>
+                    ) : listaVehiculos.length > 1 ? (
+                      <span>🚗 Vehículos utilizados ({listaVehiculos.length}): <strong className="mono" style={{ color: 'var(--text)' }}>{listaVehiculos.join(', ')}</strong></span>
+                    ) : (
+                      <span>🚗 Vehículo: <em>Sin vehículo registrado</em></span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', gap: '.85rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span>Largos: <strong className="mono" style={{ color: 'var(--text)' }}>{nLargos}</strong></span>
+                    <span>Cortos: <strong className="mono" style={{ color: 'var(--text)' }}>{nCortos}</strong></span>
+                    <span>Internos: <strong className="mono" style={{ color: 'var(--text)' }}>{nInternos}</strong></span>
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-ghost"
+                      onClick={() => void exportarReciboIndividual(g)}
+                      style={{ padding: '.15rem .5rem', fontSize: '.76rem', color: 'var(--primary)', borderColor: 'var(--primary)' }}
+                      title="Imprimir recibo de pago para este conductor"
+                    >
+                      🧾 Recibo de Pago
+                    </button>
+                  </div>
+                </div>
+
+                <div className="table-wrap">
+                  <table className="table" style={{ fontSize: '.84rem', margin: 0 }}>
+                    <thead>
+                      <tr style={{ background: '#243a5e', color: '#fff' }}>
+                        <th style={{ width: 85, color: '#fff' }}>FECHA</th>
+                        <th style={{ width: 95, color: '#fff' }}>VEHÍCULO</th>
+                        <th style={{ color: '#fff' }}>EQUIPOS / MOVIMIENTO</th>
+                        <th style={{ color: '#fff' }}>ORIGEN (PROVIENE)</th>
+                        <th style={{ color: '#fff' }}>DESTINO</th>
+                        <th style={{ textAlign: 'center', width: 65, color: '#fff' }}>VIAJES</th>
+                        <th style={{ textAlign: 'right', width: 85, color: '#fff' }}>PRECIO ($)</th>
+                        <th style={{ textAlign: 'right', width: 100, color: '#fff' }}>TOTAL A PAGAR</th>
+                        <th style={{ width: 135, color: '#fff' }}>TIPO DE VIAJE</th>
+                        <th style={{ textAlign: 'center', width: 110, color: '#fff' }}>ESTADO PAGO</th>
+                        <th style={{ textAlign: 'center', width: 115, color: '#fff' }}>ACCIONES</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {g.filas.map((f, idx) => (
+                        <tr key={idx} style={{ background: f.pagado ? 'rgba(40, 150, 90, 0.04)' : undefined }}>
+                          <td className="mono" style={{ whiteSpace: 'nowrap' }}>{fmtDate(f.fecha)}</td>
+                          <td className="mono">{f.vehiculo}</td>
+                          <td>{f.movimiento}</td>
+                          <td className="muted">{f.proviene}</td>
+                          <td className="muted">{f.destino}</td>
+                          <td className="mono" style={{ textAlign: 'center', fontWeight: 700 }}>{f.viajes}</td>
+                          <td className="mono" style={{ textAlign: 'right' }}>{money(f.monto)}</td>
+                          <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: 'var(--primary)' }}>{money(f.totalPagar)}</td>
+                          <td>
+                            <span className={`badge ${f.observaciones === 'VIAJE INTERNO' ? 'warning' : f.observaciones === 'VIAJE LARGO' ? 'info' : 'primary'}`}>
+                              {f.observaciones}
                             </span>
-                          ) : (
-                            <span className="badge warning">⏳ Por pagar</span>
-                          )}
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {f.pagado ? (
+                              <span className="badge success" title={`Pagado el ${f.fechaPago ? fmtDate(f.fechaPago) : ''}`}>
+                                ✅ Pagado{f.fechaPago ? ` (${f.fechaPago.slice(8, 10)}/${f.fechaPago.slice(5, 7)})` : ''}
+                              </span>
+                            ) : (
+                              <span className="badge warning">⏳ Por pagar</span>
+                            )}
+                          </td>
+                          <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                            {f.viaje && (
+                              <button
+                                type="button"
+                                className="btn btn-xs btn-ghost"
+                                onClick={() => setDetalleViaje(f.viaje)}
+                                title="Ver detalles, paradas y horas del viaje"
+                                style={{ padding: '.12rem .35rem' }}
+                              >
+                                👁
+                              </button>
+                            )}
+                            {canWrite && f.viaje && !f.pagado && (
+                              <button
+                                type="button"
+                                className="btn btn-xs btn-ghost"
+                                onClick={() => setFormViaje(f.viaje)}
+                                title="Editar viaje"
+                                style={{ padding: '.12rem .35rem' }}
+                              >
+                                ✎
+                              </button>
+                            )}
+                            {canWrite && f.viaje && f.viaje.estado === 'programado' && (
+                              <button
+                                type="button"
+                                className="btn btn-xs btn-primary"
+                                onClick={() => setAccionViaje({ tipo: 'iniciar', viaje: f.viaje })}
+                                title="Iniciar ruta (marcar salida)"
+                                style={{ padding: '.12rem .35rem' }}
+                              >
+                                ▶
+                              </button>
+                            )}
+                            {canWrite && f.viaje && f.viaje.estado === 'en_ruta' && (
+                              <button
+                                type="button"
+                                className="btn btn-xs btn-success"
+                                onClick={() => setAccionViaje({ tipo: 'finalizar', viaje: f.viaje })}
+                                title="Finalizar ruta (marcar llegada)"
+                                style={{ padding: '.12rem .35rem' }}
+                              >
+                                🏁
+                              </button>
+                            )}
+                            {canWrite && f.viaje && !f.pagado && (
+                              <button
+                                type="button"
+                                className="btn btn-xs btn-ghost"
+                                style={{ color: 'var(--danger)', padding: '.12rem .35rem' }}
+                                onClick={() => setBorrarViaje(f.viaje)}
+                                title="Eliminar viaje"
+                              >
+                                🗑
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    {/* Celda de totales armonizada */}
+                    <tfoot>
+                      <tr style={{ background: '#162232', borderTop: '2px solid rgba(255, 138, 0, 0.45)' }}>
+                        <td colSpan={5} style={{ textAlign: 'right', fontWeight: 700, textTransform: 'uppercase', fontSize: '.82rem', letterSpacing: '.05em', color: 'var(--text-muted)' }}>
+                          TOTAL A PAGAR {g.nombre.toUpperCase()}
+                        </td>
+                        <td className="mono" style={{ textAlign: 'center', fontWeight: 800, fontSize: '.92rem', color: 'var(--text)' }}>
+                          {g.filas.reduce((a, f) => a + f.viajes, 0)}
+                        </td>
+                        <td></td>
+                        <td className="mono" style={{ textAlign: 'right', fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary)' }}>
+                          {money(g.totalGeneral)}
+                        </td>
+                        <td colSpan={3} style={{ fontSize: '.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                          <span>Pagado: <strong className="mono" style={{ color: 'var(--text)' }}>{money(g.totalPagado)}</strong></span>
+                          <span style={{ margin: '0 .45rem', opacity: .4 }}>·</span>
+                          <span>Pendiente: <strong className="mono" style={{ color: g.totalPendiente > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(g.totalPendiente)}</strong></span>
                         </td>
                       </tr>
-                    ))}
-                  </tbody>
-                  {/* Celda dorada/naranja idéntica a la planilla física */}
-                  <tfoot>
-                    <tr style={{ background: '#162232', borderTop: '2px solid rgba(255, 138, 0, 0.45)' }}>
-                      <td colSpan={7} style={{ textAlign: 'right', fontWeight: 700, textTransform: 'uppercase', fontSize: '.82rem', letterSpacing: '.05em', color: 'var(--text-muted)' }}>
-                        TOTAL A PAGAR {g.nombre.toUpperCase()}
-                      </td>
-                      <td className="mono" style={{ textAlign: 'center', fontWeight: 800, fontSize: '.92rem', color: 'var(--text)' }}>
-                        {g.filas.reduce((a, f) => a + f.viajes, 0)}
-                      </td>
-                      <td></td>
-                      <td className="mono" style={{ textAlign: 'right', fontWeight: 800, fontSize: '1.05rem', color: 'var(--primary)' }}>
-                        {money(g.totalGeneral)}
-                      </td>
-                      <td colSpan={2} style={{ fontSize: '.8rem', color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>
-                        <span>Pagado: <strong className="mono" style={{ color: 'var(--text)' }}>{money(g.totalPagado)}</strong></span>
-                        <span style={{ margin: '0 .45rem', opacity: .4 }}>·</span>
-                        <span>Pendiente: <strong className="mono" style={{ color: g.totalPendiente > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(g.totalPendiente)}</strong></span>
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
+                    </tfoot>
+                  </table>
+                </div>
               </div>
             )}
           </div>
         );
       })}
 
-      {/* ── Modal Marcar Pagados hasta Fecha ── */}
+      {/* ── Modal Cierre de Nómina de Viajes ── */}
       {modalPagarLote && (
-        <Modal title="✔ Marcar viajes pagados por lote" size="md" onClose={() => setModalPagarLote(false)} footer={
+        <Modal title="🔒 Cierre de Nómina de Viajes" size="md" onClose={() => setModalPagarLote(false)} footer={
           <>
             <button className="btn btn-ghost" onClick={() => setModalPagarLote(false)} disabled={guardandoPago}>Cancelar</button>
             <button className="btn btn-primary" onClick={() => void ejecutarMarcarPagados()} disabled={guardandoPago || !fechaCorteModal}>
-              {guardandoPago ? 'Guardando…' : 'Confirmar pago de viajes'}
+              {guardandoPago ? 'Procesando cierre…' : 'Confirmar Cierre de Nómina'}
             </button>
           </>
         }>
           <div style={{ fontSize: '.88rem', marginBottom: '.8rem', lineHeight: 1.5 }}>
-            Permite registrar que se pagaron todos los viajes finalizados hasta una fecha de corte (por ejemplo: <strong>«se pagaron todos los viajes hasta la fecha del 14»</strong>).
+            Establece el rango de fechas para el cierre de nómina de viajes. Al confirmar, los viajes pendientes en este rango quedarán marcados como pagados y se generará el recibo de pago para la firma del chofer.
           </div>
 
           <div className="form-grid">
             <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-              <label>Conductor a saldar</label>
+              <label>Conductor</label>
               <select className="select" value={choferModal} onChange={(e) => setChoferModal(e.target.value)}>
-                <option value="">— Todos los conductores —</option>
+                <option value="">— Todos los conductores (Cierre por lote) —</option>
                 {conductores.map((c) => <option key={c.id} value={c.id}>{nombreConductor(c)}</option>)}
               </select>
             </div>
 
             <div className="form-row">
-              <label>Fecha de corte (viajes hasta)</label>
-              <input className="input" type="date" value={fechaCorteModal} onChange={(e) => setFechaCorteModal(e.target.value)} required />
-              <small className="hint muted">Todos los viajes realizados hasta esta fecha quedarán marcados como pagados.</small>
+              <label>Fecha desde (inicio corte)</label>
+              <input className="input" type="date" value={fechaDesdeModal} onChange={(e) => setFechaDesdeModal(e.target.value)} />
+              <small className="hint muted">Opcional. Vacío = desde los más antiguos.</small>
             </div>
 
             <div className="form-row">
-              <label>Fecha en que se efectuó el pago</label>
+              <label>Fecha hasta (fin corte) *</label>
+              <input className="input" type="date" value={fechaCorteModal} onChange={(e) => setFechaCorteModal(e.target.value)} required />
+              <small className="hint muted">Límite de viajes que entran al cierre.</small>
+            </div>
+
+            <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+              <label>Fecha de pago</label>
               <input className="input" type="date" value={fechaPagoModal} onChange={(e) => setFechaPagoModal(e.target.value)} required />
             </div>
           </div>
+
+          {/* Resumen en tiempo real del corte */}
+          <div style={{ marginTop: '.85rem', padding: '.75rem .9rem', background: 'var(--surface-2)', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '.82rem', fontWeight: 700, color: 'var(--text)', marginBottom: '.35rem' }}>
+              Resumen de viajes pendientes a liquidar en este corte:
+            </div>
+            <div style={{ display: 'flex', gap: '.9rem', flexWrap: 'wrap', fontSize: '.82rem' }}>
+              <span>Total: <strong className="mono" style={{ color: 'var(--primary)' }}>{viajesACerrar.reduce((a, f) => a + f.viajes, 0)} viajes</strong> ({viajesACerrar.length} reg.)</span>
+              <span>Largos: <strong className="mono">{viajesACerrar.filter(f => f.observaciones === 'VIAJE LARGO').reduce((a, f) => a + f.viajes, 0)}</strong></span>
+              <span>Cortos: <strong className="mono">{viajesACerrar.filter(f => f.observaciones === 'VIAJE CORTO').reduce((a, f) => a + f.viajes, 0)}</strong></span>
+              <span>Internos: <strong className="mono">{viajesACerrar.filter(f => f.observaciones === 'VIAJE INTERNO').reduce((a, f) => a + f.viajes, 0)}</strong></span>
+              <span>Monto total: <strong className="mono" style={{ color: 'var(--primary)', fontSize: '.95rem' }}>{money(viajesACerrar.reduce((a, f) => a + f.totalPagar, 0))}</strong></span>
+            </div>
+          </div>
         </Modal>
+      )}
+
+      {/* ── Modales operativos integrados de viaje ── */}
+      {formViaje && (
+        <ViajeModal
+          inicial={formViaje === 'nuevo' ? null : formViaje}
+          conductores={conductores}
+          flota={flota}
+          viajes={viajes}
+          descansos={datos.descansos}
+          hoy={datos.hoy}
+          canWrite={canWrite}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => setFormViaje(null)}
+          onSaved={async () => {
+            setFormViaje(null);
+            await recargar();
+          }}
+        />
+      )}
+
+      {detalleViaje && (
+        <DetalleViajeModal
+          viaje={viajes.find((x) => x.id === detalleViaje.id) ?? detalleViaje}
+          conductor={porId.get(detalleViaje.chofer_id)}
+          vehiculo={vehPorId.get(detalleViaje.vehiculo_id ?? '')}
+          canWrite={canWrite}
+          onClose={() => setDetalleViaje(null)}
+          onChanged={recargar}
+        />
+      )}
+
+      {accionViaje && (
+        <AccionViajeModal
+          accion={accionViaje.tipo}
+          viaje={accionViaje.viaje}
+          conductor={porId.get(accionViaje.viaje.chofer_id)}
+          onClose={() => setAccionViaje(null)}
+          onDone={async () => {
+            setAccionViaje(null);
+            await recargar();
+          }}
+        />
+      )}
+
+      {borrarViaje && (
+        <ConfirmDialog
+          title={`Eliminar viaje ${borrarViaje.numero}`}
+          danger
+          confirmText="Sí, eliminar"
+          message={
+            <>
+              ¿Seguro que deseas eliminar la orden <strong>{borrarViaje.numero}</strong> ({borrarViaje.origen} ➔ {borrarViaje.destino}) de{' '}
+              <strong>{nombreConductor(porId.get(borrarViaje.chofer_id))}</strong>? Esta acción no se puede deshacer.
+            </>
+          }
+          onConfirm={async () => {
+            const v = borrarViaje;
+            setBorrarViaje(null);
+            if (!v) return;
+            try {
+              await eliminarViaje(v);
+              toast(`${v.numero} eliminado`, 'success');
+              await recargar();
+            } catch (err) {
+              toast(err instanceof Error ? err.message : 'No se pudo eliminar el viaje', 'error');
+            }
+          }}
+          onCancel={() => setBorrarViaje(null)}
+        />
       )}
     </div>
   );

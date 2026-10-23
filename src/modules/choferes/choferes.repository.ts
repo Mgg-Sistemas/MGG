@@ -413,6 +413,7 @@ export async function editarViaje(id: string, i: ViajeInput): Promise<void> {
  */
 export async function marcarViajesPagadosHastaFecha(opts: {
   choferId?: string;
+  fechaDesde?: string; // YYYY-MM-DD (opcional)
   fechaHasta: string; // YYYY-MM-DD
   fechaPago?: string; // YYYY-MM-DD
   actor?: string;
@@ -424,6 +425,10 @@ export async function marcarViajesPagadosHastaFecha(opts: {
     .eq('estado', 'finalizado')
     .is('pago_id', null)
     .lte('fecha_salida', `${fHasta}T23:59:59`);
+  if (opts.fechaDesde) {
+    const fDesde = opts.fechaDesde.slice(0, 10);
+    q = q.gte('fecha_salida', `${fDesde}T00:00:00`);
+  }
   if (opts.choferId) q = q.eq('chofer_id', opts.choferId);
 
   const { data: viajes, error } = await q;

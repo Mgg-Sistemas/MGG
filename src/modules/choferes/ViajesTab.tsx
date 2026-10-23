@@ -209,7 +209,7 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
 }
 
 /* ───────── Nueva / editar orden de ruta ───────── */
-function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWrite, actor, actorName, onClose, onSaved }: {
+export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWrite, actor, actorName, onClose, onSaved }: {
   inicial: Viaje | null; conductores: Conductor[]; flota: VehiculoFlota[]; viajes: Viaje[];
   descansos: { personal_id: string; desde: string; hasta: string }[]; hoy: string;
   canWrite: boolean; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
@@ -424,7 +424,7 @@ function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy, canWr
 }
 
 /* ───────── Detalle + paradas ───────── */
-function DetalleViajeModal({ viaje: v, conductor, vehiculo, canWrite, onClose, onChanged }: {
+export function DetalleViajeModal({ viaje: v, conductor, vehiculo, canWrite, onClose, onChanged }: {
   viaje: Viaje; conductor?: Conductor; vehiculo?: VehiculoFlota; canWrite: boolean; onClose: () => void; onChanged: () => Promise<void>;
 }) {
   const [saving, setSaving] = useState(false);
@@ -484,7 +484,7 @@ function DetalleViajeModal({ viaje: v, conductor, vehiculo, canWrite, onClose, o
 }
 
 /* ───────── Iniciar / finalizar / cancelar ───────── */
-function AccionViajeModal({ accion, viaje: v, conductor, onClose, onDone }: {
+export function AccionViajeModal({ accion, viaje: v, conductor, onClose, onDone }: {
   accion: 'iniciar' | 'finalizar' | 'cancelar'; viaje: Viaje; conductor?: Conductor; onClose: () => void; onDone: () => Promise<void>;
 }) {
   const [cuando, setCuando] = useState(ahoraLocal());
