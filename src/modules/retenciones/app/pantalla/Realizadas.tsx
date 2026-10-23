@@ -25,7 +25,7 @@ import { BarraLista } from './BarraLista';
 import { Paginador } from './Paginador';
 import { nombreImpuesto } from './pendientesPorDocumento';
 import {
-  ESTADO_CLASE, FILTRO_INICIAL, ORDENES_LISTA, estadoDe, facturasRealizadas, fechaVe, opcionesLibro, opcionesRealizadas, textoDireccion, textoEstadoEnFactura,
+  ESTADO_CLASE, FILTRO_INICIAL, ORDENES_LISTA, estadoDe, facturasRealizadas, fechaVe, opcionesRealizadas, textoDireccion, textoEstadoEnFactura,
   type FacturaRealizada, type FiltroLibro, type OrdenLista,
 } from './realizadasYLibro';
 import { quienYCuando } from './quien';

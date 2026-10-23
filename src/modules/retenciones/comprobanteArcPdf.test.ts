@@ -9,7 +9,7 @@ const ret = (over: Partial<RetencionPracticada>): RetencionPracticada => ({
   contraparteSujeto: 'pj_domiciliada', facturaNumero: '001', facturaControl: '00-001',
   facturaFecha: '2026-03-15', periodo: '202603', quincena: null, numeroComprobante: '20260300000001',
   conceptoId: null, conceptoNombre: 'Servicios', moneda: 'Bs', tasa: null,
-  baseImponible: 1000, alicuota: null, impuesto: null, porcentaje: 5, sustraendo: 0,
+  baseImponible: 1000, alicuota: 0, impuesto: 0, porcentaje: 5, sustraendo: 0,
   montoRetenido: 50, comprobantePath: null, comprobanteNombre: null, observacion: null,
   anulada: false, anuladaMotivo: null, declaradaEn: null, actorName: null, createdAt: '2026-03-15T10:00:00Z',
   ...over,
@@ -67,7 +67,7 @@ describe('comprobante anual ARC de ISLR (Art. 24 Decreto 1.808)', () => {
   it('las notas de crédito restan de la base y del impuesto retenido', () => {
     const filas = [
       ret({ id: '1', facturaFecha: '2026-04-10', baseImponible: 2000, montoRetenido: 100 }),
-      ret({ id: '2', facturaFecha: '2026-04-20', baseImponible: 500, montoRetenido: 25, tipoDocumento: 'nota_credito' }),
+      ret({ id: '2', facturaFecha: '2026-04-20', baseImponible: 500, montoRetenido: 25, ...({ tipoDocumento: 'nota_credito' } as any) }),
     ];
 
     const arc = compilarDatosArc(2026, 'J-12345678-9', filas);

@@ -205,7 +205,7 @@ export function Principal({ onParametros, onRegistrar, onVerOc, onConfigurarRegi
           onDeclarar={periodos ? onDeclararPeriodo : undefined}
           onReabrir={periodos ? onReabrirPeriodo : undefined}
           onPasoInicial={periodos ? onPasoInicial : undefined}
-          onDescargarTxt={(p) => setTxtPeriodo(p.quincena ? `${p.periodo}-${p.quincena}` : p.periodo)}
+          onDescargarTxt={(p) => setTxtPeriodo(p.tramo ? `${p.periodo}-${p.tramo}` : p.periodo)}
           onDescargarXml={(p) => setXmlPeriodo(p.periodo)}
           onVerRetenciones={() => setSec('reportes')}
           umbral={umbrales.declaraciones}

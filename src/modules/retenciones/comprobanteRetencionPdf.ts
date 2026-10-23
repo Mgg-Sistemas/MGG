@@ -32,7 +32,7 @@ export function cadenaCanonicoFiscal(r: RetencionPracticada, config: ConfigReten
   const monto = Number(r.montoRetenido || 0).toFixed(2);
   const moneda = r.moneda || 'Bs';
   const estado = r.anulada ? 'ANULADA' : 'VALIDA';
-  const tipoDoc = r.tipoDocumento === 'nota_credito' ? 'NC' : r.tipoDocumento === 'nota_debito' ? 'ND' : 'FACT';
+  const tipoDoc = (r as any).tipoDocumento === 'nota_credito' ? 'NC' : (r as any).tipoDocumento === 'nota_debito' ? 'ND' : 'FACT';
   const afectada = (r as any).facturaAfectadaNro ? `:AF:${(r as any).facturaAfectadaNro}` : '';
   return `SENIAT|RET|${r.tipo.toUpperCase()}|${rifAgente}|${comp}|${fecha.slice(0, 10)}|${rifSujeto}|${tipoDoc}:${r.facturaNumero || ''}${afectada}|${moneda}|${base}|${monto}|${estado}`;
 }
@@ -115,7 +115,7 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
     ? 'COMPROBANTE DE RETENCIÓN DE IVA'
     : r.tipo === 'islr'
     ? 'COMPROBANTE DE RETENCIÓN DE IMPUESTO SOBRE LA RENTA'
-    : r.tipo === 'isae'
+    : r.tipo === 'municipal'
     ? 'COMPROBANTE DE RETENCIÓN DE IMPUESTO DE ACTIVIDADES ECONÓMICAS (ISAE)'
     : `COMPROBANTE DE ${labelImpuesto(r.tipo).toUpperCase()}`;
   doc.text(textoPdf(titulo), W / 2, y + 16, { align: 'center' });
@@ -125,7 +125,7 @@ export async function verComprobanteRetencionPdf(r: RetencionPracticada, config:
     ? 'Providencia Administrativa SNAT/2015/0049 · Gaceta Oficial N° 40.720 (Retenciones de IVA)'
     : r.tipo === 'islr'
     ? 'Decreto N° 1.808 · Gaceta Oficial N° 36.203 · Reglamento Parcial de la Ley de ISLR en materia de Retenciones'
-    : r.tipo === 'isae'
+    : r.tipo === 'municipal'
     ? 'Ordenanza Municipal sobre Agentes de Retención del Impuesto sobre Actividades Económicas'
     : 'Ley de Impuesto a las Grandes Transacciones Financieras · Gaceta Oficial N° 6.687 Ext.';
   doc.text(textoPdf(subtitulo), W / 2, y + 29, { align: 'center' });

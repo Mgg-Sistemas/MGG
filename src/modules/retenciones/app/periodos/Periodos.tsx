@@ -40,6 +40,8 @@ interface Props {
   /** Marcar declarado y reabrir. Sin ellas, los botones no se muestran. */
   onDeclarar?: (p: PeriodoRetencion, d: Declaracion) => Promise<void>;
   onReabrir?: (p: PeriodoRetencion, motivo: string) => Promise<void>;
+  /** Guarda el paso inicial de un impuesto. */
+  onPasoInicial?: (tipo: string, p: PasoInicial) => Promise<void>;
   /** Descarga el TXT oficial del IVA del período. */
   onDescargarTxt?: (p: PeriodoRetencion) => void;
   /** Descarga el XML oficial de ISLR del período. */

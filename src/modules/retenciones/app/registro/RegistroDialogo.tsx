@@ -30,6 +30,7 @@ import { mensajeDobleRegistro, retencionYaRegistrada } from '../../dobleRegistro
 import { usePuerta, type NuevaRetencion, type RetencionItem } from '../datos/puerta';
 import type { PeriodoRetencion } from '../datos/periodos';
 import { periodoCerradoPara } from '../periodos/validarDeclaracion';
+import { nombrePeriodo } from '../periodos/modeloPeriodos';
 import { componentesDelDocumento, type DocumentoAnfitrion } from '../logica/componentes';
 import { calcularLinea, type ResultadoCalculo } from '../logica/motor';
 import { nombreImpuesto } from '../pantalla/pendientesPorDocumento';
@@ -130,7 +131,7 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
       : fecha > hoyIso()
       ? 'La fecha de la factura no puede ser posterior a hoy.'
       : periodoCerrado
-      ? `Período fiscal declarado (${periodoCerrado.nombre}): reábralo en Períodos para registrar.`
+      ? `Período fiscal declarado (${nombrePeriodo(periodoCerrado)}): reábralo en Períodos para registrar.`
       : null,
     iva: imp === 'iva' && (iva == null || iva < 0) ? 'Indique el IVA de la factura (0 si no tiene).' : null,
     base: imp === 'iva' && (base == null || base <= 0) ? 'Indique la base imponible de la factura.' : null,
@@ -171,7 +172,7 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
     setTocado(true);
     if (conErrores || sinCalculo || !config || (imp === 'iva' && !agenteIva)) return;
     if (periodoCerrado) {
-      setErrorGuardar(`El período fiscal (${periodoCerrado.nombre}) ya fue declarado ante el SENIAT. Reábralo en Períodos para registrar.`);
+      setErrorGuardar(`El período fiscal (${nombrePeriodo(periodoCerrado)}) ya fue declarado ante el SENIAT. Reábralo en Períodos para registrar.`);
       return;
     }
     // La misma validación de la carga que la pantalla de hoy (validarCarga.ts).
@@ -295,7 +296,7 @@ export function RegistroDialogo({ item, impuesto, onCerrar, onRegistrada, semill
 
             {periodoCerrado && (
               <div className="aviso-error" role="alert" style={{ marginBottom: '0.8rem' }}>
-                <strong>🔒 Período Fiscal Declarado ({periodoCerrado.nombre})</strong>
+                <strong>🔒 Período Fiscal Declarado ({nombrePeriodo(periodoCerrado)})</strong>
                 <p style={{ margin: '0.25rem 0 0', fontSize: '0.85rem' }}>
                   Este período ya fue declarado y enterado ante el SENIAT{periodoCerrado.declaradoEn ? ` el ${periodoCerrado.declaradoEn.slice(0, 10)}` : ''}.
                   Para registrar retenciones con esta fecha, el administrador debe reabrir el período con justificación en la pestaña Períodos.

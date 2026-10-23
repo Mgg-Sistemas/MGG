@@ -20,7 +20,7 @@
    ============================================================ */
 
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
-import { EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
+import { EMPRESA_RIF } from '@/shared/lib/empresa';
 import { MARGEN_PDF, MARGENES_TABLA_PDF } from '@/shared/lib/pdfMargen';
 import { textoPdf } from '@/shared/lib/textoPdf';
 import {
@@ -121,7 +121,7 @@ export function compilarDatosArc(
     const mesIdx = mesIdxDe(r);
     if (mesIdx < 0 || mesIdx > 11) continue;
 
-    const factor = r.tipoDocumento === 'nota_credito' ? -1 : 1;
+    const factor = (r as any).tipoDocumento === 'nota_credito' ? -1 : 1;
     const baseBs = enBs(r.baseImponible, r) * factor;
     const retBs = ((r as any).montoBs ?? enBs(r.montoRetenido, r)) * factor;
 

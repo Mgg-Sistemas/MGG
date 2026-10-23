@@ -16,9 +16,9 @@ const ret = (over: Partial<RetencionPracticada> = {}): RetencionPracticada => ({
   periodo: '202610', quincena: null, numeroComprobante: '0000000001',
   conceptoId: '001:pjd', conceptoNombre: 'Honorarios profesionales',
   moneda: 'Bs', tasa: null, baseImponible: 1000, alicuota: 0, impuesto: 0,
-  porcentaje: 2, sustraendo: 0, montoRetenido: 20, montoBs: 20,
+  porcentaje: 2, sustraendo: 0, montoRetenido: 20,
   comprobantePath: null, comprobanteNombre: null, observacion: null, anulada: false, anuladaMotivo: null,
-  declaradaEn: null, declaradaPor: null, actorName: null, createdAt: '2026-10-21T12:00:00Z', updatedAt: null,
+  declaradaEn: null, actorName: null, createdAt: '2026-10-21T12:00:00Z',
   ...over,
 });
 

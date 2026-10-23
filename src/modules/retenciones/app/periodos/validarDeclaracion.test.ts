@@ -45,29 +45,32 @@ describe('el paso inicial', () => {
 describe('periodoCerradoPara: guarda de períodos cerrados/declarados', () => {
   const lista: PeriodoRetencion[] = [
     {
-      id: 'p1', tipo: 'iva', nombre: 'Octubre 2026, 1.ª quincena', desde: '2026-10-01', hasta: '2026-10-15',
-      vence: '2026-10-20', estado: 'declarado', retenciones: 5, declaradoEn: '2026-10-18T10:00:00Z',
-      declaradoPor: 'admin', montoEnterado: 500, planilla: '9901', numero: '1', observacion: null, reabiertoEn: null,
-      reabiertoPor: null, motivoReapertura: null,
+      id: 'p1', tipo: 'iva', periodo: '202610', tramo: 1, desde: '2026-10-01', hasta: '2026-10-15',
+      vence: '2026-10-20', estado: 'declarado', retencionesVigentes: 5, declaradoEn: '2026-10-18T10:00:00Z',
+      declaradoPor: 'admin', montoEnterado: 500, planilla: '9901', numeroDeclaracion: '1', observacion: null,
+      reabiertoEn: null, reabiertoPor: null, reabiertoMotivo: null, diasParaVencer: null, declara: 'mgg',
+      declaradoRegistradoEn: null, retenidoBs: 0, retenidoUsd: 0,
     },
     {
-      id: 'p2', tipo: 'iva', nombre: 'Octubre 2026, 2.ª quincena', desde: '2026-10-16', hasta: '2026-10-31',
-      vence: '2026-11-05', estado: 'abierto', retenciones: 2, declaradoEn: null, declaradoPor: null,
-      montoEnterado: null, planilla: null, numero: null, observacion: null, reabiertoEn: null, reabiertoPor: null,
-      motivoReapertura: null,
+      id: 'p2', tipo: 'iva', periodo: '202610', tramo: 2, desde: '2026-10-16', hasta: '2026-10-31',
+      vence: '2026-11-05', estado: 'abierto', retencionesVigentes: 2, declaradoEn: null, declaradoPor: null,
+      montoEnterado: null, planilla: null, numeroDeclaracion: null, observacion: null, reabiertoEn: null,
+      reabiertoPor: null, reabiertoMotivo: null, diasParaVencer: null, declara: 'mgg',
+      declaradoRegistradoEn: null, retenidoBs: 0, retenidoUsd: 0,
     },
     {
-      id: 'p3', tipo: 'islr', nombre: 'Octubre 2026', desde: '2026-10-01', hasta: '2026-10-31',
-      vence: '2026-11-10', estado: 'abierto', retenciones: 1, declaradoEn: null, declaradoPor: null,
-      montoEnterado: null, planilla: null, numero: null, observacion: null, reabiertoEn: null, reabiertoPor: null,
-      motivoReapertura: null,
+      id: 'p3', tipo: 'islr', periodo: '202610', tramo: 0, desde: '2026-10-01', hasta: '2026-10-31',
+      vence: '2026-11-10', estado: 'abierto', retencionesVigentes: 1, declaradoEn: null, declaradoPor: null,
+      montoEnterado: null, planilla: null, numeroDeclaracion: null, observacion: null, reabiertoEn: null,
+      reabiertoPor: null, reabiertoMotivo: null, diasParaVencer: null, declara: 'mgg',
+      declaradoRegistradoEn: null, retenidoBs: 0, retenidoUsd: 0,
     },
   ];
 
   it('detecta si una fecha cae en un período declarado para el tipo de impuesto', () => {
     const cerrado = periodoCerradoPara('iva', '2026-10-10', lista);
     expect(cerrado).not.toBeNull();
-    expect(cerrado?.nombre).toBe('Octubre 2026, 1.ª quincena');
+    expect(cerrado?.id).toBe('p1');
   });
 
   it('devuelve null si el período está abierto o es de otro tipo de impuesto', () => {
