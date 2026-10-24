@@ -27,7 +27,7 @@ import {
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
-import { getConfigRetencion, listConceptos, sujetoAGt, tipoAGt, type DocKind } from './retencionesFiscal.repository';
+import { adjuntarComprobante, getConfigRetencion, listConceptos, sujetoAGt, tipoAGt, type DocKind } from './retencionesFiscal.repository';
 import { configDeFecha } from './parametros.repository';
 import { supuestoAplicado, supuestosVigentes, type Supuesto } from './motivosSupuestos.repository';
 import { esCeroSinMotivo } from './motivoCero';
@@ -160,6 +160,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [conR10, setConR10] = useState(false);
   const [documento, setDocumento] = useState<FacturaResumen | null>(null);
   const [soloFactura, setSoloFactura] = useState(false);
+  const [archivoManual, setArchivoManual] = useState<File | null>(null);
   const [avisoSinDocDescartado, setAvisoSinDocDescartado] = useState(() => {
     try { return localStorage.getItem('mgg_aviso_sin_doc_descartado') === 'true'; } catch { return false; }
   });
@@ -490,6 +491,13 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       const res = documento
         ? await retenerDespues(documento, lineasNuevas, { periodo, actorName, valorUt: config.valorUt })
         : await registrarFactura(facturaNueva, lineasNuevas);
+      if (archivoManual && res.lineas?.length) {
+        for (const l of res.lineas) {
+          try {
+            await adjuntarComprobante(l.id, archivoManual, 'Factura');
+          } catch { /* el adjunto no bloquea el registro */ }
+        }
+      }
       notify(`${etiquetaDoc} · ${res.lineas.length} línea(s) retenida(s) · ${money(totalRetenido, moneda)}`, 'success', { link: '#/app/retenciones' });
       onHecho(res);
     } catch (e) {
@@ -839,6 +847,30 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           );
         })}
       </div>
+      )}
+
+      {!s.adjunto && !documento && (
+        <div className="form-row">
+          <label>Factura del proveedor (PDF o imagen de respaldo digital)</label>
+          <input
+            className="input"
+            type="file"
+            accept="application/pdf,image/*"
+            onChange={(e) => {
+              marcarSucio();
+              setArchivoManual(e.target.files?.[0] ?? null);
+            }}
+          />
+          {archivoManual ? (
+            <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>
+              Archivo seleccionado: <strong>{archivoManual.name}</strong> ({Math.round(archivoManual.size / 1024)} KB)
+            </small>
+          ) : (
+            <small className="hint muted">
+              Adjunta el PDF o foto de la factura para que quede respaldada y visible en el libro fiscal.
+            </small>
+          )}
+        </div>
       )}
 
       <div className="form-row">
