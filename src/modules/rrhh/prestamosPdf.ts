@@ -207,26 +207,42 @@ function tablaCuenta(doc: any, autoTable: any, y: number, renglones: RenglonEsta
   const debeFila: number[] = [];
   let tPrestado = 0; let tPagado = 0; let tDebe = 0;
 
+  // Por FECHA: cada entrega del préstamo y cada abono en su propia fila, en el
+  // orden en que pasaron, con el saldo que iba quedando después de cada uno.
   for (const r of renglones) {
+    const etiqueta = r.prestamo.tipo === 'anticipo' ? 'Anticipo' : 'Préstamo';
     const entregas = obtenerEntregas(r.prestamo);
-    const fechaTxt = entregas.length > 1
-      ? entregas.map((e) => fmtDate(e.fecha)).join(' · ')
-      : fmtDate(fechaDePrestamo(r.prestamo));
-    const tipoTxt = `${r.prestamo.tipo === 'anticipo' ? 'Anticipo' : 'Préstamo'}${entregas.length > 1 ? ` (${entregas.length} ent.)` : ''}`;
-    const motivoTxt = entregas.length > 1
-      ? entregas.map((e) => `[Entrega ${fmtDate(e.fecha)} · ${usd(e.monto)}]: ${e.motivo || 'Préstamo autorizado'}`).join('\n')
-      : (r.prestamo.motivo || 'Préstamo autorizado');
+    type Mov = { fecha: string; orden: number; entrega: boolean; celdas: (saldo: number) => string[]; monto: number };
+    const movs: Mov[] = [
+      ...entregas.map((e, i) => ({
+        fecha: (e.fecha || fechaDePrestamo(r.prestamo)).slice(0, 10), orden: 0, entrega: true, monto: Number(e.monto) || 0,
+        celdas: (saldo: number) => [
+          fmtDate(e.fecha || fechaDePrestamo(r.prestamo)),
+          entregas.length > 1 ? `${etiqueta} ${i + 1}` : etiqueta,
+          e.motivo || r.prestamo.motivo || `${etiqueta} autorizado`,
+          usd(e.monto), '—', usd(saldo), '',
+        ],
+      })),
+      ...r.pagos.map((p) => ({
+        fecha: (p.fecha ?? '').slice(0, 10), orden: 1, entrega: false, monto: Number(p.monto) || 0,
+        celdas: (saldo: number) => [
+          `• ${fmtDate(p.fecha)}`, `• ${labelOrigen(p.origen)}`, p.nota || 'Abono a deuda registrado',
+          '—', usd(p.monto), usd(saldo), '',
+        ],
+      })),
+    ];
+    // Mismo día: primero la entrega y después el abono.
+    movs.sort((a, b) => a.fecha.localeCompare(b.fecha) || a.orden - b.orden);
 
-    filas.push([fechaTxt, tipoTxt, motivoTxt, usd(r.prestamo.monto_total), usd(r.pagado), usd(r.debe), r.debe > 0 ? 'Activo' : 'Saldado']);
-    tipos.push('prestamo'); debeFila.push(r.debe);
-    tPrestado += Number(r.prestamo.monto_total) || 0; tPagado += r.pagado; tDebe += r.debe;
-
-    for (const p of r.pagos) {
-      filas.push([`• ${fmtDate(p.fecha)}`, `• ${labelOrigen(p.origen)}`, p.nota || 'Abono a deuda registrado', '—', usd(p.monto), '—', '—']);
-      tipos.push('abono'); debeFila.push(0);
+    let saldo = 0;
+    for (const m of movs) {
+      saldo = Math.max(0, Math.round((saldo + (m.entrega ? m.monto : -m.monto)) * 100) / 100);
+      filas.push(m.celdas(saldo));
+      tipos.push(m.entrega ? 'prestamo' : 'abono'); debeFila.push(saldo);
     }
+    tPrestado += Number(r.prestamo.monto_total) || 0; tPagado += r.pagado; tDebe += r.debe;
   }
-  filas.push(['', '', 'Subtotal del trabajador', usd(tPrestado), usd(tPagado), usd(tDebe), '']);
+  filas.push(['', '', 'Subtotal del trabajador', usd(tPrestado), usd(tPagado), usd(tDebe), tDebe > 0 ? 'Activo' : 'Saldado']);
   tipos.push('subtotal'); debeFila.push(0);
 
   autoTable(doc, {
@@ -267,9 +283,11 @@ function tablaCuenta(doc: any, autoTable: any, y: number, renglones: RenglonEsta
         if (data.column.index === 2) data.cell.styles.halign = 'right';
         if (data.column.index === 4) data.cell.styles.textColor = VERDE;
         if (data.column.index === 5) data.cell.styles.textColor = tDebe > 0 ? ROJO : VERDE;
+        if (data.column.index === 6) data.cell.styles.textColor = tDebe > 0 ? AMBER : VERDE;
       } else {
         data.cell.styles.textColor = [71, 85, 105];
         if (data.column.index === 4) { data.cell.styles.textColor = VERDE; data.cell.styles.fontStyle = 'bold'; }
+        if (data.column.index === 5) data.cell.styles.textColor = debeFila[data.row.index] > 0 ? ROJO : VERDE;
         data.cell.styles.fillColor = [250, 252, 254];
       }
     },
@@ -296,7 +314,7 @@ export async function verEstadoCuentaPrestamosPdf(
   const emp = definicionEmpresa(normalizarEmpresa(persona.empresa));
   const ec = estadoDeCuenta(persona.id, prestamos, pagos);
 
-  const cantPrestamos = ec.renglones.length;
+  const cantPrestamos = ec.renglones.reduce((a, r) => a + obtenerEntregas(r.prestamo).length, 0);
   const cantConSaldo = ec.renglones.filter((r) => r.debe > 0).length;
 
   const primerPrestamo = ec.renglones[0]?.prestamo;
@@ -373,7 +391,7 @@ export async function verConsolidadoPrestamosPdf(
   const total = deudas.reduce((a, d) => a + d.total, 0);
   const pagado = deudas.reduce((a, d) => a + d.pagado, 0);
   const debe = deudas.reduce((a, d) => a + d.debe, 0);
-  const totalPrestamos = deudas.reduce((a, d) => a + d.prestamos.length, 0);
+  const totalPrestamos = deudas.reduce((a, d) => a + d.prestamos.reduce((b, p) => b + obtenerEntregas(p).length, 0), 0);
   const conSaldo = deudas.filter((d) => d.debe > 0).length;
 
   y = cajasTotales5(doc, W, M, y, total, pagado, debe, totalPrestamos, conSaldo);
