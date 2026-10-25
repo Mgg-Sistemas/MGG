@@ -258,7 +258,7 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
     setGenerandoPdf(true);
     try {
       const { verConsolidadoPrestamosPdf } = await import('./prestamosPdf');
-      await verConsolidadoPrestamosPdf(deudasPdf, { desde: filtro.desde, hasta: filtro.hasta }, empresa);
+      await verConsolidadoPrestamosPdf(deudasPdf, pagos, personaPorId, { desde: filtro.desde, hasta: filtro.hasta }, empresa, textoFiltros());
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
     finally { setGenerandoPdf(false); }
   }
