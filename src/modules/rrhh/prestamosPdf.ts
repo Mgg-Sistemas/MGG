@@ -252,12 +252,14 @@ function tablaCuenta(doc: any, autoTable: any, y: number, renglones: RenglonEsta
       if (data.section !== 'body') return;
       const tipoFila = tipos[data.row.index];
       if (tipoFila === 'prestamo') {
-        data.cell.styles.fontStyle = 'bold';
+        // Como en Golden Touch: fecha, tipo y cifras en negrita; el motivo, en texto normal.
+        data.cell.styles.fontStyle = data.column.index === 2 ? 'normal' : 'bold';
+        if (data.column.index === 2) data.cell.styles.textColor = [51, 65, 85];
         if (data.column.index === 3) data.cell.styles.textColor = TINTA;
         if (data.column.index === 4) data.cell.styles.textColor = VERDE;
         if (data.column.index === 5) data.cell.styles.textColor = debeFila[data.row.index] > 0 ? ROJO : VERDE;
         if (data.column.index === 6) data.cell.styles.textColor = AMBER;
-        data.cell.styles.fillColor = [255, 255, 255];
+        data.cell.styles.fillColor = [244, 245, 247];
       } else if (tipoFila === 'subtotal') {
         data.cell.styles.fontStyle = 'bold';
         data.cell.styles.fillColor = FONDO_BANNER;
@@ -303,8 +305,8 @@ export async function verEstadoCuentaPrestamosPdf(
   let y = await encabezado(
     doc, W, M,
     'ESTADO DE CUENTA · PRÉSTAMO',
-    `${emp.razonSocial} · Nómina ${persona.empresa || 'General'}`,
-    textoRango(rango?.desde, rango?.hasta),
+    `${emp.razonSocial}${emp.rif ? ` · RIF ${emp.rif}` : ''} · Nómina ${persona.empresa || 'General'}`,
+    rango?.desde || rango?.hasta ? textoRango(rango?.desde, rango?.hasta) : '',
     `${persona.nombre} ${persona.apellido ?? ''}${fechaPrestamoRef ? ` · ${fechaPrestamoRef}` : ''}`,
   );
 
@@ -324,7 +326,18 @@ export async function verEstadoCuentaPrestamosPdf(
 
   // 3. Tabla continua con cabecera naranja vibrante
   const finalY = tablaCuenta(doc, autoTable, y, ec.renglones);
-  firmas(doc, W, M, H, finalY);
+
+  // Nota aclaratoria, como en Golden Touch
+  let yNota = finalY + 14;
+  if (yNota > limiteInferiorPdf(H) - 90) { doc.addPage(); yNota = M; }
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(7); doc.setTextColor(120, 130, 140);
+  doc.text(
+    doc.splitTextToSize(textoPdf(
+      'Nota: Montos expresados en dólares americanos (USD). PAGADO = suma de abonos registrados (descuentos de nómina, pagos directos o saldo previo cargado); SALDO = Monto total - Pagado.',
+    ), anchoUtilPdf(W)) as string[],
+    M, yNota,
+  );
+  firmas(doc, W, M, H, yNota + 24);
   await previewPdfDoc(doc, `estado-cuenta-${(persona.nombre ?? '').toLowerCase()}.pdf`);
 }
 
@@ -418,7 +431,15 @@ export async function verReciboPrestamoPdf(opciones: {
   tasaCambio?: number | null;
   motivo?: string | null;
   saldoRestante?: number | null;
+  /** Abonos del préstamo: con ellos el recibo de entrega sale como estado de cuenta, igual que en Golden Touch. */
+  pagos?: PagoBase[];
 }): Promise<void> {
+  // El recibo de una entrega es el ESTADO DE CUENTA de ese préstamo (cajas, banner,
+  // tabla con sus abonos y subtotal): el mismo diseño de Golden Touch.
+  if (opciones.tipo === 'entrega') {
+    await verEstadoCuentaPrestamosPdf(opciones.persona, [opciones.prestamo], opciones.pagos ?? []);
+    return;
+  }
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
@@ -426,9 +447,7 @@ export async function verReciboPrestamoPdf(opciones: {
   const M = MARGEN_PDF;
   const { persona, prestamo } = opciones;
   const emp = definicionEmpresa(normalizarEmpresa(persona.empresa));
-  const esEntrega = opciones.tipo === 'entrega';
   const nombreTipo = prestamo.tipo === 'anticipo' ? 'ANTICIPO' : 'PRÉSTAMO';
-  const tipoMinus = prestamo.tipo === 'anticipo' ? 'Anticipo' : 'Préstamo';
 
   const mon = (opciones.moneda || 'USD').toUpperCase();
   const esOtraMoneda = mon !== 'USD';
@@ -438,10 +457,10 @@ export async function verReciboPrestamoPdf(opciones: {
 
   let y = await encabezado(
     doc, W, M,
-    esEntrega ? `RECIBO DE ENTREGA · ${nombreTipo}` : `RECIBO DE ABONO · ${nombreTipo}`,
+    `RECIBO DE ABONO · ${nombreTipo}`,
     `${emp.razonSocial} · Nómina ${persona.empresa || 'General'}`,
     '',
-    `${`${persona.nombre} ${persona.apellido ?? ''}`.trim()} · ${esEntrega ? 'Entrega' : 'Abono'} del ${fmtDate(opciones.fecha)}`,
+    `${`${persona.nombre} ${persona.apellido ?? ''}`.trim()} · Abono del ${fmtDate(opciones.fecha)}`,
   );
 
   /* ── Cajas de montos (con la conversión si fue en otra moneda) ── */
@@ -450,14 +469,14 @@ export async function verReciboPrestamoPdf(opciones: {
   if (esOtraMoneda) {
     const simbolo = mon === 'VES' || mon === 'BS' ? 'Bs' : mon === 'EUR' ? '€' : mon === 'COP' ? 'COP $' : mon;
     cajas.push(
-      { label: `MONTO ${esEntrega ? 'ENTREGADO' : 'ABONADO'} (${mon})`, valor: `${simbolo} ${montoOrig.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, topColor: NARANJA, valColor: TINTA },
+      { label: `MONTO ABONADO (${mon})`, valor: `${simbolo} ${montoOrig.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, topColor: NARANJA, valColor: TINTA },
       { label: 'TASA DE CAMBIO', valor: tasa ? `${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${simbolo}/$` : 'Según cambio oficial', topColor: AZUL, valColor: TINTA },
       { label: 'EQUIVALENTE EN $', valor: usd(opciones.montoUsd), topColor: VERDE, valColor: VERDE },
       { label: 'SALDO PENDIENTE', valor: saldo != null ? usd(saldo) : '—', topColor: ROJO, valColor: colorSaldo },
     );
   } else {
     cajas.push(
-      { label: `MONTO ${esEntrega ? 'ENTREGADO' : 'ABONADO'} (USD)`, valor: usd(opciones.montoUsd), topColor: VERDE, valColor: VERDE },
+      { label: 'MONTO ABONADO (USD)', valor: usd(opciones.montoUsd), topColor: VERDE, valColor: VERDE },
       { label: `TOTAL DEL ${nombreTipo}`, valor: usd(prestamo.monto_total), topColor: NARANJA, valColor: TINTA },
       { label: 'SALDO PENDIENTE', valor: saldo != null ? usd(saldo) : '—', topColor: ROJO, valColor: colorSaldo },
     );
@@ -470,25 +489,10 @@ export async function verReciboPrestamoPdf(opciones: {
   /* ── Detalle de la operación: tabla de cabecera naranja ── */
   const filas: string[][] = [];
   const estilos: Array<'normal' | 'total'> = [];
-  if (esEntrega) {
-    const entregas = obtenerEntregas(prestamo);
-    if (entregas.length > 1) {
-      entregas.forEach((e, i) => {
-        filas.push([fmtDate(e.fecha), `${tipoMinus} ${i + 1}`, e.motivo || `${tipoMinus} autorizado`, usd(e.monto)]);
-        estilos.push('normal');
-      });
-    } else {
-      filas.push([fmtDate(opciones.fecha), tipoMinus, opciones.motivo || prestamo.motivo || `${tipoMinus} autorizado`, usd(opciones.montoUsd)]);
-      estilos.push('normal');
-    }
-    filas.push(['', '', 'Total entregado', usd(opciones.montoUsd)]);
-    estilos.push('total');
-  } else {
-    filas.push([fmtDate(opciones.fecha), 'Abono / pago de cuota', opciones.motivo || 'Abono a deuda registrado', usd(opciones.montoUsd)]);
-    estilos.push('normal');
-    filas.push(['', '', 'Total abonado', usd(opciones.montoUsd)]);
-    estilos.push('total');
-  }
+  filas.push([fmtDate(opciones.fecha), 'Abono / pago de cuota', opciones.motivo || 'Abono a deuda registrado', usd(opciones.montoUsd)]);
+  estilos.push('normal');
+  filas.push(['', '', 'Total abonado', usd(opciones.montoUsd)]);
+  estilos.push('total');
   if (saldo != null) {
     filas.push(['', '', 'Saldo deudor resultante', usd(saldo)]);
     estilos.push('total');
@@ -532,9 +536,7 @@ export async function verReciboPrestamoPdf(opciones: {
   const txtMonedaFinal = esOtraMoneda
     ? `${montoOrig.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${mon} (equivalentes a $ ${montoUsdTxt} al cambio)`
     : `$ ${montoUsdTxt}`;
-  const textoDeclaracion = esEntrega
-    ? `Certifico haber recibido a mi entera satisfacción por parte de la empresa la cantidad de ${txtMonedaFinal}, bajo la figura de ${prestamo.tipo === 'anticipo' ? 'anticipo' : 'préstamo'}. Autorizo su descuento según las condiciones acordadas.`
-    : `Certifico haber realizado el pago / abono por la cantidad de ${txtMonedaFinal} a cuenta del saldo pendiente del ${prestamo.tipo === 'anticipo' ? 'anticipo' : 'préstamo'} otorgado.`;
+  const textoDeclaracion = `Certifico haber realizado el pago / abono por la cantidad de ${txtMonedaFinal} a cuenta del saldo pendiente del ${prestamo.tipo === 'anticipo' ? 'anticipo' : 'préstamo'} otorgado.`;
 
   if (y > limiteInferiorPdf(H) - 110) { doc.addPage(); y = M; }
   doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(...GRIS);
