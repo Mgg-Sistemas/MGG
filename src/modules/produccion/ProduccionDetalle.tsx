@@ -14,6 +14,7 @@ import { RefinacionPanel } from './RefinacionPanel';
 import { getColada } from './colada.repository';
 import { getRefinacion } from './refinacion.repository';
 import { rotuloOrigenTiempos, tiemposDeLaOrden, type DatosConHoras } from './tiemposDeLaOrden';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 /** Corrección de la cantidad producida: pide la nota (obligatoria) y sincroniza el inventario. */
 function AjustarCantidadModal({ prod, actor, actorName, onClose, onListo }: {
@@ -254,7 +255,7 @@ export function ProduccionDetalle({
                   <li key={i}>
                     <strong className="mono">{num(a.de)} → {num(a.a)}</strong> · {a.nota}
                     <div className="muted" style={{ fontSize: '.74rem' }}>
-                      {a.actor} · {dateTime(a.at)}{a.movio_inventario === false ? ' · no movió inventario' : ' · inventario ajustado'}
+                      <NombreUsuario correo={a.actor} fecha={a.at} /> · {dateTime(a.at)}{a.movio_inventario === false ? ' · no movió inventario' : ' · inventario ajustado'}
                     </div>
                   </li>
                 ))}

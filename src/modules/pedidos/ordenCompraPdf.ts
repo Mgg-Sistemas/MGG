@@ -4,6 +4,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { cargarPersonasConHistorial, nombreEnFecha, type PersonasMap } from '@/shared/lib/personas';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { loadLogoDataUrl, loadFirmaGerenteDataUrl, loadFirmaSalidasDataUrl } from '@/shared/lib/pdfLogo';
+import { resolvedorNombresUsuarios } from '@/shared/lib/useNombreUsuario';
 
 /** Correo de la Jefa de Administración (LEYDIS RENGEL): si confirmó ella la OC,
  *  el PDF muestra SU firma (firma2.jpeg) en vez de la del Gerente General. */
@@ -89,6 +90,7 @@ async function cargarDatosOc(ordenId: string): Promise<OcData> {
 }
 
 export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
+  const nombreDe = await resolvedorNombresUsuarios();
   const [{ ordenes, orden, proveedor, ofertaAceptada, ofertas, proveedoresMap, personaMap }, logoDataUrl, firmaDataUrl, firmaLeydisDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargarDatosOc(ordenId),
     loadLogoDataUrl().catch(() => null),
@@ -350,7 +352,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
         ['Oferta · Condiciones de pago', oferta?.condiciones_pago ?? '—'],
         ['Desistió (fecha y hora)', dateTime(h.at)],
         ['Motivo', (h as { motivo?: string }).motivo ?? '—'],
-        ['Registró', h.actor ?? '—'],
+        ['Registró', nombreDe(null, h.actor, h.at) || '—'],
       ];
       autoTable(doc, {
         startY: y,

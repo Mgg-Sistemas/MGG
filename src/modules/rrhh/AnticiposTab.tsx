@@ -45,6 +45,7 @@ import {
 import { getTasaHoy } from '../tesoreria/tasas.repository';
 import { MONEDAS_PAGO_RRHH, simboloMoneda, etiquetaMonedaPago, convertirMonedaAUsd, type MonedaPagoRrhh } from './sueldoQuincena';
 import { verReciboPrestamoPdf } from './prestamosPdf';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const hoyIso = () => new Date().toISOString().slice(0, 10);
 
@@ -1294,7 +1295,7 @@ function AbonosModal({ prestamo, pagos, nombre, persona, tasaBcv, canWrite, acto
                 </td>
                 <td className="muted" style={{ fontSize: '.76rem' }}>
                   {dateTime(p.created_at)}
-                  {(p.actor_name || p.actor) && <div style={{ fontWeight: 600 }}>{p.actor_name || p.actor}</div>}
+                  {(p.actor_name || p.actor) && <div style={{ fontWeight: 600 }}><NombreUsuario nombre={p.actor_name} correo={p.actor} fecha={p.created_at} /></div>}
                 </td>
                 <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                   {persona && (

@@ -20,6 +20,7 @@ import {
   filtrarRecepciones, recepcionesDesdeMovimientos,
   type Recepcion,
 } from './recepcionesHistorico';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 /** Hace `n` días, en ISO corto. */
 function hace(n: number): string {
@@ -141,7 +142,7 @@ export function RecepcionesHistorialModal({ productos, onClose }: {
                           {r.ref_tipo === 'compra_directa' && <span className="muted" style={{ fontSize: '.72rem' }}> · directa</span>}
                         </td>
                         <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(r.at)}</td>
-                        <td>{r.actor_name ?? r.actor ?? '—'}</td>
+                        <td><NombreUsuario nombre={r.actor_name} correo={r.actor} /></td>
                         {/* Las recepciones anteriores al 08/09/2026 no guardaban el
                             almacén: se dice que falta, no se adivina del detalle. */}
                         <td>{r.almacen ?? <span className="dim">sin registrar</span>}</td>

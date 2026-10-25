@@ -15,6 +15,7 @@ import { previewArchivo } from '@/shared/lib/reportePreview';
 import type { PropsTab } from './ChoferesPage';
 import { DATOS_GUIA_VACIOS, filtrarGuias, nombreDescargaGuia, tamanoLegible, validarGuia, validarPdfGuia, type DatosGuia, type Guia } from './guias';
 import { actualizarGuia, eliminarGuia, listGuias, registrarGuia, urlDescargaGuia, urlVerGuia } from './guias.repository';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 export function GuiasTab({ datos, canWrite, actor, actorName }: PropsTab) {
   const [guias, setGuias] = useState<Guia[]>([]);
@@ -133,7 +134,7 @@ export function GuiasTab({ datos, canWrite, actor, actorName }: PropsTab) {
                     </button>
                     <div className="muted" style={{ fontSize: '.75rem' }}>{tamanoLegible(g.size_bytes)}</div>
                   </td>
-                  <td className="muted" style={{ fontSize: '.8rem' }}>{g.actor_name || g.actor || '—'}<br />{dateTime(g.created_at)}</td>
+                  <td className="muted" style={{ fontSize: '.8rem' }}><NombreUsuario nombre={g.actor_name} correo={g.actor} /><br />{dateTime(g.created_at)}</td>
                   <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
                     <button className="btn btn-sm btn-ghost" onClick={() => void ver(g)} disabled={abriendo === g.id} title="Vista previa">👁</button>
                     <button className="btn btn-sm btn-ghost" onClick={() => void descargar(g)} title="Descargar PDF">⬇</button>

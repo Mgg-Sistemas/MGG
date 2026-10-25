@@ -4,6 +4,7 @@ import { toast } from '@/shared/ui/Toast';
 import { num as fmtNum, date as fmtDate } from '@/shared/lib/format';
 import { ORDEN_ESTADOS, ordenAbierta, servicioPorId } from './flota';
 import { eliminarOrdenServicio, type OrdenServicio } from './flota.repository';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 /**
  * Confirmación para borrar una orden de servicio (hay que escribir su código). Explica qué
@@ -39,7 +40,7 @@ export function BorrarOrdenDialog({ orden, equipo, salida, compra, onClose, onDo
           <Dato label="Equipo">{equipo ?? undefined}</Dato>
           <Dato label="Servicio">{s?.label ?? orden.tipo}</Dato>
           <Dato label="Estado">{ORDEN_ESTADOS[orden.estado]?.label ?? orden.estado}</Dato>
-          <Dato label="Abierta">{fmtDate(orden.created_at)}{orden.actor_name ? ` · ${orden.actor_name}` : ''}</Dato>
+          <Dato label="Abierta">{fmtDate(orden.created_at)}{orden.actor_name ? <> · <NombreUsuario nombre={orden.actor_name} /></> : null}</Dato>
           <Dato label="Repuestos">{orden.repuestos.length ? orden.repuestos.map((r) => `${fmtNum(r.cantidad)} ${r.unidad} ${r.nombre}`).join(' · ') : undefined}</Dato>
         </VistaPrevia>
       }

@@ -7,6 +7,7 @@ import type { CocinaComida } from '@/shared/lib/types';
 import { labelTipoComida, resumirComidas } from './cocina.repository';
 import { totalesDeViveres, kardexDetallado, ETIQUETA_CLASE, type FilaViver } from './movimientoViveres';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
+import { resolvedorNombresUsuarios } from '@/shared/lib/useNombreUsuario';
 
 function money(n: number | null | undefined): string {
   return `$ ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -21,6 +22,7 @@ export async function descargarReporteCocinaPdf(
   /** Movimiento de víveres del período. Sin esto el PDF sale como antes. */
   movViveres: FilaViver[] = [],
 ): Promise<void> {
+  const nombreDe = await resolvedorNombresUsuarios();
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -126,7 +128,7 @@ export async function descargarReporteCocinaPdf(
         body: detalle.map((r) => [
           `${r.nombre} (${r.sku})`, fmt.dateTime(r.at), ETIQUETA_CLASE[r.clase], r.tipo,
           `${r.delta > 0 ? '+' : ''}${num(r.delta)} ${r.unidad}`.trim(),
-          r.motivo ?? '—', r.actor ?? '—',
+          r.motivo ?? '—', nombreDe(null, r.actor) || '—',
         ]),
         styles: { fontSize: 7, cellPadding: 2.5, overflow: 'linebreak' },
         headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold' },

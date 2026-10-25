@@ -20,6 +20,7 @@ import { CatalogoTextoModal } from './CatalogoTextoModal';
 import { DestinatariosModal } from './DestinatariosModal';
 import { ESTADO_ENVIO_LABEL, cantidadTexto, estadoEnvio, norm, numeroEnvio, type EstadoEnvio } from './notaEnvio';
 import { NotaEnvioForm } from './NotaEnvioForm';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const COLOR_ESTADO: Record<EstadoEnvio, string> = {
   emitido: 'var(--warning)',
@@ -258,7 +259,7 @@ function NotaDetalle({ n, canWrite, actor, pdfBusy, onImprimir, onEditar, onClos
         {n.condicion && fila('Condición', n.condicion)}
         {n.entregado_por && n.entregado_por !== '—' && fila('Entregado por', n.entregado_por)}
         {n.nota && fila('Observaciones', n.nota)}
-        {fila('Creada', `${dateTime(n.created_at)} · ${n.actor_name ?? n.actor ?? '—'}`)}
+        {fila('Creada', <>{dateTime(n.created_at)} · <NombreUsuario nombre={n.actor_name} correo={n.actor} /></>)}
         {est === 'recibido' && fila('Recibida', <>
           {n.recibido_en ? dateTime(n.recibido_en) : '—'}{n.recibido_por ? ` · ${n.recibido_por}` : ''}
           {n.recibido_path && <> <button className="btn btn-sm btn-ghost" onClick={() => void verCopia()}>📎 Ver copia firmada</button></>}

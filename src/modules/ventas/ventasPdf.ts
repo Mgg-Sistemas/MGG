@@ -8,6 +8,7 @@ import type { Venta } from './ventas.repository';
 import { nombreDocumento, nombreCondicion, costoUnitMaterial } from './ventasLogica';
 import { autorizanteDe } from '@/modules/salidas/autorizanteSalida';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
+import { resolvedorNombresUsuarios } from '@/shared/lib/useNombreUsuario';
 
 const MARGIN = MARGEN_PDF; // 2 cm (margen único de todos los PDF)
 const fmt = (v: number | null | undefined) => Number(v || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -55,6 +56,7 @@ function marcaAnulada(doc: Doc) {
 /* ───────────── Documento: Factura / Nota de entrega ───────────── */
 
 export async function verDocumentoVentaPdf(v: Venta): Promise<void> {
+  const nombreDe = await resolvedorNombresUsuarios();
   const { dateTime, date, previewPdfDoc, jsPDF, autoTable, logo } = await base();
   const m = v.moneda || 'USD';
   const tipo = nombreDocumento(v.tipo_documento);
@@ -151,7 +153,7 @@ export async function verDocumentoVentaPdf(v: Venta): Promise<void> {
   if (firma) { try { doc.addImage(firma, 'JPEG', xs[1] + colW / 2 - 60, fy - 44, 120, 42); } catch { /* firma opcional */ } }
   doc.setDrawColor(150); doc.setLineWidth(0.5); doc.setTextColor(60);
   const etiquetas = ['Entregado por', 'Autorizado por', 'Recibido conforme (cliente)'];
-  const nombres = [v.actor_name || v.created_by || '', autoriza.nombre, v.cliente_nombre || ''];
+  const nombres = [nombreDe(v.actor_name, v.created_by), autoriza.nombre, v.cliente_nombre || ''];
   xs.forEach((x, i) => {
     doc.line(x, fy, x + colW, fy);
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
@@ -225,6 +227,7 @@ export async function verReporteVentasPdf(input: { ventas: Venta[]; desde: strin
 const ACCION: Record<string, string> = { creada: 'Creada', enviada: 'Enviada a autorizar', autorizada: 'Autorizada', devuelta: 'Devuelta', editada: 'Editada', emitida: 'Emitida', cobrada: 'Cobrada', anulada: 'Anulada' };
 
 export async function verTrazabilidadVentaPdf(v: Venta): Promise<void> {
+  const nombreDe = await resolvedorNombresUsuarios();
   const { dateTime, date, previewPdfDoc, jsPDF, autoTable, logo } = await base();
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   let y = encabezado(doc, logo, `Trazabilidad · ${nombreDocumento(v.tipo_documento)}`, [v.numero, `Fecha: ${date(v.fecha)}`, `Estado: ${v.estado}`]);
@@ -235,7 +238,7 @@ export async function verTrazabilidadVentaPdf(v: Venta): Promise<void> {
       ['Cliente', v.cliente_nombre || 'Cliente ocasional', 'Forma de pago', nombreCondicion(v.condicion_pago)],
       ['Total', `${v.moneda} ${fmt(v.total)}`, 'Cobrado', `${v.moneda} ${fmt(v.pagado_monto)}`],
       ['Autorizada por', autorizanteDe(v.aprobada_por).nombre, 'Autorizada el', v.aprobada_en ? dateTime(v.aprobada_en) : '—'],
-      ['Creada por', v.actor_name || v.created_by || '—', 'Emitida',v.emitida_en ? `${dateTime(v.emitida_en)} · ${v.emitida_por ?? ''}` : '—'],
+      ['Creada por', nombreDe(v.actor_name, v.created_by) || '—', 'Emitida',v.emitida_en ? `${dateTime(v.emitida_en)} · ${nombreDe(null, v.emitida_por)}` : '—'],
       ...(v.estado === 'anulada' ? [['Anulada', v.anulada_en ? dateTime(v.anulada_en) : '—', 'Motivo', v.motivo_anulacion || '—']] : []),
     ],
     theme: 'plain', styles: { fontSize: 9, cellPadding: 3 },
@@ -251,7 +254,7 @@ export async function verTrazabilidadVentaPdf(v: Venta): Promise<void> {
     startY: y,
     head: [['Fecha y hora', 'Acción', 'Usuario', 'Detalle / cambios', 'Motivo']],
     body: hist.length ? hist.map((e) => [
-      dateTime(e.at), ACCION[e.accion] ?? e.accion, e.actor_name || e.actor,
+      dateTime(e.at), ACCION[e.accion] ?? e.accion, nombreDe(e.actor_name, e.actor, e.at),
       [e.detalle, ...(e.cambios ?? [])].filter(Boolean).join('\n') || '—', e.motivo || '—',
     ]) : [['—', 'Sin historial', '', '', '']],
     theme: 'grid', headStyles: { fillColor: [255, 138, 0], textColor: 20, fontSize: 8.5 },

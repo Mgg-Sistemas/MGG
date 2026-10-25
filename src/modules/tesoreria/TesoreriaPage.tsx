@@ -94,6 +94,7 @@ import { ordenesConOfertasDe } from '@/modules/pedidos/ordenDeOfertas';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { CalculadoraModal } from './calculadora/CalculadoraModal';
 import { quienCargo, quienSolicitaConRespaldo } from '@/modules/pedidos/quienSolicita';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const TIPO_MOV_LABEL: Record<string, string> = {
   ingreso: '⬇ Ingreso', salida: '⬆ Egreso', traslado_salida: '↔ Traslado (sale)',
@@ -779,7 +780,7 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
           <div><span className="muted">Saldo después:</span> <strong className="mono">{monto(mov.saldo_despues, mov.moneda)}</strong></div>
           {mov.beneficiario && <div><span className="muted">Beneficiario:</span> <strong>{mov.beneficiario}</strong></div>}
           {mov.destino && <div><span className="muted">Destino:</span> <strong>{mov.destino}</strong></div>}
-          <div><span className="muted">Registrado por:</span> <strong>{mov.actor_name || mov.actor}</strong></div>
+          <div><span className="muted">Registrado por:</span> <strong><NombreUsuario nombre={mov.actor_name} correo={mov.actor} /></strong></div>
         </div>
         {mov.motivo && (
           <div style={{ marginTop: '.5rem', fontSize: '.84rem' }}>
@@ -1267,7 +1268,7 @@ function CajaDetalleModal({ caja, canWrite, actor, actorName, onClose, onChanged
                     <td className="mono" style={{ textAlign: 'right' }}>{monto(l.monto, lotesDe.moneda)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{l.tasa_bs != null ? Number(l.tasa_bs).toLocaleString('es-VE', { maximumFractionDigits: 4 }) : '—'}</td>
                     <td>{l.origen || '—'}</td>
-                    <td className="muted">{l.actor_name || l.actor || '—'}</td>
+                    <td className="muted"><NombreUsuario nombre={l.actor_name} correo={l.actor} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -3942,7 +3943,7 @@ function HistorialConversiones({ filas, cargando, filtro, onFiltro, nombreCaja, 
                   <tr key={c.id}>
                     <td className="mono">{dia}</td>
                     <td className="mono muted">{hora}</td>
-                    <td>{(c.actorName ?? '').trim() || c.actor}</td>
+                    <td><NombreUsuario nombre={c.actorName} correo={c.actor} /></td>
                     <td className="mono">
                       {monto(c.deMonto, c.deMoneda)}
                       <div className="muted" style={{ fontSize: '.7rem' }}>{nombreCaja(c.deCajaId)}</div>

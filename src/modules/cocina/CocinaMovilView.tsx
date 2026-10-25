@@ -34,6 +34,7 @@ import { FotosDelMovimiento, SelectorFotos } from '@/modules/combustible/FotosMo
 import { MODULO_ADJUNTO_COMIDA, contarFotos, subirFotos } from '@/modules/combustible/adjuntosCombustible.repository';
 import { RUTA_COCINA_TELEFONO } from '@/modules/usuarios/permisos.repository';
 import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 /** Cuántas comidas se ven en el teléfono. El libro completo está en la PC. */
 export const ULTIMAS_COMIDAS_TELEFONO = 10;
@@ -100,7 +101,7 @@ export function CocinaMovilView() {
       <header className="surt-head">
         <div>
           <h1>🍳 Comidas</h1>
-          <div className="muted" style={{ fontSize: '.85rem' }}>{actorName ?? actor}</div>
+          <div className="muted" style={{ fontSize: '.85rem' }}><NombreUsuario nombre={actorName} correo={actor} /></div>
         </div>
         {!esCocinero && <Link to="/app/cocina?completo=1" className="btn btn-ghost">🖥 Módulo completo</Link>}
       </header>
@@ -437,7 +438,7 @@ function DetalleComida({ comida, cocinaNombre, canWrite, actor, actorName, fotos
         <div className="surt-fila"><span className="muted">Personas</span><span>{num(comida.platos)}</span></div>
         <div className="surt-fila"><span className="muted">Código</span><span>{comida.codigo}</span></div>
         {comida.nota && <div className="surt-fila"><span className="muted">Nota</span><span>{comida.nota}</span></div>}
-        <div className="surt-fila"><span className="muted">Registrado</span><span>{dateTime(comida.created_at ?? comida.at)}{comida.actor_name || comida.actor ? ` · ${comida.actor_name || comida.actor}` : ''}</span></div>
+        <div className="surt-fila"><span className="muted">Registrado</span><span>{dateTime(comida.created_at ?? comida.at)}{comida.actor_name || comida.actor ? <> · <NombreUsuario nombre={comida.actor_name} correo={comida.actor} /></> : null}</span></div>
       </div>
       <div className="surt-rotulo">📦 Consumo</div>
       <div className="surt-detalle">

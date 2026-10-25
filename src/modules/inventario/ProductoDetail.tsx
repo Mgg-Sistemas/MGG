@@ -12,6 +12,7 @@ import {
   almacenesDeOtrasSedes,
 } from './stockPorAlmacen';
 import { marcasRecibidas } from '@/modules/pedidos/marcaRecibida';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 // descargarProductoPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 
 /* Formateadores creados UNA vez: `toLocaleDateString/TimeString` con `timeZone` construye
@@ -410,7 +411,7 @@ export function ProductoDetail({ producto, origen = null, onClose }: ProductoDet
                         💱 {global ? 'PMP global' : 'PMP del almacén'} ajustado por recompra{aj.compra != null ? ` (compra a ${money(aj.compra)})` : ''}: {money(aj.antes)} → <strong>{money(aj.despues)}</strong> {aj.despues > (aj.antes ?? 0) ? '▲' : '▼'}
                       </div>
                     )}
-                    <div className="kx-meta">{hora} · por {m.actor_name || m.actor || '—'}</div>
+                    <div className="kx-meta">{hora} · por <NombreUsuario nombre={m.actor_name} correo={m.actor} /></div>
                   </div>
 
                   {/* 3) Saldo después del movimiento, en su ámbito */}

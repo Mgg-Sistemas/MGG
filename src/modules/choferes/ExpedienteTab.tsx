@@ -33,6 +33,7 @@ import {
 } from './choferes.repository';
 import { fechaHora, nombreConductor, type PropsTab } from './ChoferesPage';
 import { DocumentosConductorModal } from './DocumentosConductorModal';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const normal = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -412,7 +413,7 @@ function ConductorModal({ inicial, personal, conductores, canWrite, actor, actor
           <div className="form-row" style={{ gridColumn: '1 / -1' }}><label htmlFor="cond-obs">Observaciones</label>
             <input id="cond-obs" className="input" value={v.observaciones ?? ''} disabled={!canWrite} onChange={(e) => set('observaciones', e.target.value)} placeholder="Restricciones, tipo de vehículo que maneja, etc." /></div>
         </div>
-        {inicial && <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Expediente abierto {fmtDate(inicial.created_at)}{inicial.actor_name ? ` por ${inicial.actor_name}` : ''}. {inicial.externo ? 'Chofer externo: sus datos se editan aquí mismo.' : 'Los datos de la persona (teléfono, cédula, foto) se editan en RRHH.'}</p>}
+        {inicial && <p className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Expediente abierto {fmtDate(inicial.created_at)}{inicial.actor_name ? <> por <NombreUsuario nombre={inicial.actor_name} /></> : null}. {inicial.externo ? 'Chofer externo: sus datos se editan aquí mismo.' : 'Los datos de la persona (teléfono, cédula, foto) se editan en RRHH.'}</p>}
       </form>
     </Modal>
   );

@@ -33,6 +33,7 @@ import { textoPct } from './historicoSalarial';
 import { ArmarTabuladorModal } from './ArmarTabuladorModal';
 import { filasExportTabulador } from './tabulador';
 import { descargarTabuladorExcel, descargarTabuladorPdf } from './tabuladorExport';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const hoyIso = () => new Date().toISOString().slice(0, 10);
 
@@ -400,7 +401,7 @@ function HistorialTabuladorModal({ cargos, onClose }: { cargos: string[]; onClos
                   <td className="mono" style={{ textAlign: 'center', color: v.direccion === 'aumento' ? 'var(--success)' : v.direccion === 'rebaja' ? 'var(--danger)' : undefined }}>{textoPct(v)}</td>
                   <td className="mono">{h.vigenteDesde ? date(h.vigenteDesde) : '—'}</td>
                   <td style={{ maxWidth: 260, whiteSpace: 'normal' }}>{h.motivo}</td>
-                  <td className="muted" style={{ fontSize: '.76rem' }}>{h.cambiadoPorNombre || h.cambiadoPor || '—'}</td>
+                  <td className="muted" style={{ fontSize: '.76rem' }}><NombreUsuario nombre={h.cambiadoPorNombre} correo={h.cambiadoPor} /></td>
                 </tr>
               );
             })}

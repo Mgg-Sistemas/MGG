@@ -30,6 +30,7 @@ import {
 import { AdjuntosPicker, adjuntosDe, hayCambiosAdjuntos, type EstadoAdjuntos } from './AdjuntosPicker';
 import { adjuntosDeSolicitud, guardarAdjuntosSolicitud, subirAdjuntosNuevos } from './adjuntosSalida.repository';
 import { VerAdjuntos } from './VerAdjuntos';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const COLS: { key: EstadoSalidaTemporal; label: string }[] = [
   { key: 'por_aprobar', label: 'Por aprobar' },
@@ -671,7 +672,7 @@ function DetalleModal({ sol, puedeAprobar, puedeEjecutar, canWrite, actor, actor
       <div style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', fontWeight: 700, color: 'var(--primary-3)', margin: '.7rem 0 .3rem' }}>Trazabilidad</div>
       <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '.82rem' }}>
         {(sol.historial ?? []).map((h, i) => (
-          <li key={i}><strong>{h.evento}</strong> · {h.actor} · <span className="muted">{dateTime(h.at)}</span>{(h as { motivo?: string }).motivo ? ` — ${(h as { motivo?: string }).motivo}` : ''}</li>
+          <li key={i}><strong>{h.evento}</strong> · <NombreUsuario correo={h.actor} fecha={h.at} /> · <span className="muted">{dateTime(h.at)}</span>{(h as { motivo?: string }).motivo ? ` — ${(h as { motivo?: string }).motivo}` : ''}</li>
         ))}
       </ul>
 

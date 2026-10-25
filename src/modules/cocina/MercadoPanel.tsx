@@ -40,6 +40,7 @@ import {
   alternarTipo, buscarTipos, filtrarKardex, hayFiltro, numerosDePagina, paginar, tiposDeKardex, totalesDeKardex,
   CLASES_KARDEX, FILTRO_KARDEX_VACIO, type FiltroKardex,
 } from './filtroKardex';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const VISTA_KEY = 'mgg.cocina.mercado.vista';
 
@@ -874,7 +875,7 @@ function FilaMerma({ row }: { row: KardexMerma }) {
           <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.64rem' }}>{row.tipo}</span>
         </div>
         <div className="muted" style={{ fontSize: '.74rem' }}>
-          {dateTime(row.at)}{row.almacen ? ` · 📦 ${row.almacen}` : ''}{row.actor_name ? ` · ${row.actor_name}` : ''}
+          {dateTime(row.at)}{row.almacen ? ` · 📦 ${row.almacen}` : ''}{row.actor_name ? <> · <NombreUsuario nombre={row.actor_name} /></> : null}
           {row.detalle
             ? <> · {row.detalle}</>
             : <span style={{ fontStyle: 'italic' }}> · sin motivo escrito</span>}
@@ -1037,7 +1038,7 @@ function DrillModal({ item, kardex, fechaInicio, inicioAt, fuera, diferencia, on
                 <span>
                   <span className="badge" style={{ fontSize: '.66rem', marginRight: '.35rem' }}>{f.tipo}</span>
                   <span className="muted">{dateTime(f.at)}</span>
-                  {f.actor_name ? <span className="muted"> · {f.actor_name}</span> : null}
+                  {f.actor_name ? <span className="muted"> · <NombreUsuario nombre={f.actor_name} /></span> : null}
                   {/* El detalle es lo único que explica un movimiento manual, y
                       justo en los que motivaron esto venía vacío. */}
                   {f.detalle

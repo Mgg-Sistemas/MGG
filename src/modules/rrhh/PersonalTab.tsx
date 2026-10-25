@@ -63,6 +63,7 @@ import { verHistoricoSalarialExcel, verHistoricoSalarialPdf } from './historicoS
 import { MOTIVO_HISTORICO_POR_DEFECTO, corrigeSemilla, esRenglonHistorico, esRenglonSemilla, puedeMarcarSueldoActual, semillaDe, sueldoPorAnio, sugerirSueldoAnterior, validarSueldoHistorico, vigenciaSueldoActual } from './sueldoHistorico';
 import { CargarSueldosHistoricosModal } from './CargarSueldosHistoricosModal';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', carnet_vence: CARNET_VENCE_POR_DEFECTO, telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', grados_instruccion: [], titulo_obtenido: '', trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '', trabajo_anterior_sueldo: 0, trabajo_anterior_moneda: 'USD', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
@@ -2250,7 +2251,7 @@ function HistorialSueldoModal({ persona, canWrite, isAdmin, actor, actorName, on
                   <td style={{ maxWidth: 260, whiteSpace: 'normal' }}>{r.motivo}</td>
                   <td className="muted" style={{ fontSize: '.74rem' }}>
                     {r.createdAt ? dateTime(r.createdAt) : '—'}
-                    <div>{r.actorName || r.actor || ''}</div>
+                    <div><NombreUsuario nombre={r.actorName} correo={r.actor} vacio="" /></div>
                   </td>
                   {isAdmin && (
                     <td style={{ textAlign: 'center' }}>
@@ -2515,7 +2516,7 @@ function HistoricoSalarialModal({ personal, canWrite, isAdmin, actor, actorName,
                 <td className="mono" style={{ textAlign: 'center', color: r.variacion.direccion === 'aumento' ? 'var(--success)' : r.variacion.direccion === 'rebaja' ? 'var(--danger)' : undefined }}>{textoPct(r.variacion)}</td>
                 <td style={{ maxWidth: 260, whiteSpace: 'normal' }}><span className="badge" style={{ marginRight: '.3rem' }}>{r.tipo}</span>{r.motivo}</td>
                 <td className="mono">{date(r.vigenteDesde)}</td>
-                <td className="muted" style={{ fontSize: '.74rem' }}>{r.cambiadoPor || '—'}</td>
+                <td className="muted" style={{ fontSize: '.74rem' }}><NombreUsuario nombre={r.cambiadoPor} /></td>
               </tr>
             ))}
           </tbody>

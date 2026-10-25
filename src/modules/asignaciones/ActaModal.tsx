@@ -19,6 +19,7 @@ import {
   actualizarActa, dataUrlArchivoActa, quitarActaFirmada, quitarFotoActa, subirActaFirmada, subirFotosActa, urlArchivoActa,
   type ActaAsignacion,
 } from './actas.repository';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 export function ActaModal({ acta: inicial, items, personal, canWrite, actor, onClose, onChanged }: {
   acta: ActaAsignacion;
@@ -145,7 +146,7 @@ export function ActaModal({ acta: inicial, items, personal, canWrite, actor, onC
         <div className="card" style={{ padding: '.55rem .7rem' }}>
           <div className="muted" style={{ fontSize: '.7rem', letterSpacing: '.04em' }}>FECHA · REGISTRO</div>
           <strong>{fmtDate(acta.fecha)}</strong>
-          <div className="muted" style={{ fontSize: '.76rem' }}>{acta.actor_name || acta.creado_por || '—'}{acta.historico ? ' · histórico' : ''}</div>
+          <div className="muted" style={{ fontSize: '.76rem' }}><NombreUsuario nombre={acta.actor_name} correo={acta.creado_por} />{acta.historico ? ' · histórico' : ''}</div>
         </div>
       </div>
 

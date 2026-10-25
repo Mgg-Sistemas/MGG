@@ -25,6 +25,7 @@ import { DetalleDirectoModal } from './DetalleDirectoModal';
 import { DetalleItemsEditor } from './DetalleItemsEditor';
 import type { DetalleServicioItem } from '@/shared/lib/types';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 type Vista = 'kanban' | 'lista';
 
@@ -214,7 +215,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
                   <td>{s.proveedor_nombre || '—'}</td>
                   <td>{ESTADO_LABEL[s.estado] ?? s.estado}</td>
                   <td className="mono">{s.gasto != null ? montoCaja(s.gasto, s.moneda) : '—'}</td>
-                  <td>{s.actor_name || s.actor || '—'}</td>
+                  <td><NombreUsuario nombre={s.actor_name} correo={s.actor} /></td>
                   <td className="muted">{dateTime(s.created_at)}</td>
                   <td className="muted">{s.finalizada_at ? dateTime(s.finalizada_at) : '—'}</td>
                   <td className="actions" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
@@ -349,7 +350,7 @@ function ServicioCard({ servicio, onVer, onFinalizar, onPdf, onFacturas, onEdita
         </ul>
       )}
       <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem', lineHeight: 1.5 }}>
-        <div>Generó: <strong style={{ color: 'var(--text)' }}>{servicio.actor_name || servicio.actor || '—'}</strong></div>
+        <div>Generó: <strong style={{ color: 'var(--text)' }}><NombreUsuario nombre={servicio.actor_name} correo={servicio.actor} /></strong></div>
         <div>Creado: {dateTime(servicio.created_at)}</div>
         {servicio.estado === 'finalizada' && <div>Pagado: {servicio.finalizada_at ? dateTime(servicio.finalizada_at) : '—'}</div>}
       </div>

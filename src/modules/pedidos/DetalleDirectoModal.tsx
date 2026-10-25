@@ -5,6 +5,7 @@ import { num, dateTime } from '@/shared/lib/format';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import type { AdjuntoFactura } from './compras.repository';
 import type { DetalleServicioItem, EventoHistorial } from '@/shared/lib/types';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 function montoCaja(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -114,7 +115,7 @@ export function DetalleDirectoModal({ title, estadoLabel, ficha, itemsTitle, ite
                 <span className="tl-dot info" />
                 <div className="tl-title">{h.evento === 'anticipo' ? '💳 Anticipo' : h.evento === 'credito_saldado' ? '🧾 Crédito generado' : h.evento}</div>
                 {h.motivo && <div className="muted" style={{ fontSize: '.8rem' }}>{h.motivo}</div>}
-                <div className="tl-meta">{dateTime(h.at)} · {h.actor}</div>
+                <div className="tl-meta">{dateTime(h.at)} · <NombreUsuario correo={h.actor} fecha={h.at} /></div>
               </div>
             ))}
           </div>

@@ -45,6 +45,7 @@ import { LeyendaMercado } from './LeyendaMercado';
 import { MercadosHistoricoModal } from './MercadosHistorico';
 import { FotosDelMovimiento } from '@/modules/combustible/FotosMovimiento';
 import { MODULO_ADJUNTO_COMIDA } from '@/modules/combustible/adjuntosCombustible.repository';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -979,7 +980,7 @@ function ResumenModal({ cocinaId, almacen, onClose }: { cocinaId: string; almace
                                           {m.delta > 0 ? '+' : ''}{num(m.delta)}
                                         </td>
                                         <td>{m.motivo ?? <span className="muted">—</span>}</td>
-                                        <td className="muted">{m.actor ?? '—'}</td>
+                                        <td className="muted"><NombreUsuario correo={m.actor} /></td>
                                       </tr>
                                     ))}
                                   </tbody>
@@ -1029,7 +1030,7 @@ function ResumenModal({ cocinaId, almacen, onClose }: { cocinaId: string; almace
                         <td><span className="badge" style={{ fontSize: '.68rem' }}>{s.tipo}</span></td>
                         <td className="mono" style={{ textAlign: 'right', color: 'var(--warning)', fontWeight: 700 }}>−{num(s.cantidad)} {s.unidad}</td>
                         <td>{s.motivo ?? <span className="muted">—</span>}</td>
-                        <td className="muted">{s.actor ?? '—'}</td>
+                        <td className="muted"><NombreUsuario correo={s.actor} /></td>
                       </tr>
                     ))}
                   </tbody>

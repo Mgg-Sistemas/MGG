@@ -12,6 +12,7 @@ import {
   type DashboardKpis,
   type MovimientoConProducto,
 } from './dashboard.repository';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const DashboardCharts = lazy(() => import('./DashboardCharts'));
 
@@ -348,7 +349,7 @@ function MovimientosFeed({ movimientos, onVerDetalle }: { movimientos: Movimient
                     <span className="mono">{deltaTxt} {unidad}</span>
                     {' · '}
                     {relTime(m.at)}
-                    {m.actor_name ? ` · ${m.actor_name}` : ''}
+                    {m.actor_name ? <> · <NombreUsuario nombre={m.actor_name} /></> : null}
                   </div>
                 </div>
               </div>

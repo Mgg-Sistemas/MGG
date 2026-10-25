@@ -17,6 +17,7 @@ import type { FotoEquipo, LavadoEquipo, OrdenServicio } from './flota.repository
 import { fotosOrdenConUrl } from './osFotos.repository';
 import { ESTADOS_EQUIPO, ORDEN_ESTADOS, URGENCIAS, estadoEfectivo, servicioPorId, etiquetaServicio, type EstadoEquipo } from './flota';
 import { agruparPorSistema, textoCada, type RepuestoEquipo } from './repuestosEquipo';
+import { resolvedorNombresUsuarios } from '@/shared/lib/useNombreUsuario';
 
 type AutoTable = (doc: JsPDF, opts: Record<string, unknown>) => void;
 
@@ -253,6 +254,7 @@ export async function ordenServicioPdf(
   o: OrdenServicio, e: MaquinariaEquipo,
   vinculos: { salida: { codigo: string; estado: string } | null; compra: { codigo: string; estado: string } | null },
 ): Promise<void> {
+  const nombreDe = await resolvedorNombresUsuarios();
   const { jsPDF, autoTable } = await cargarPdf();
   const doc = new jsPDF({ unit: 'mm', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
@@ -343,7 +345,7 @@ export async function ordenServicioPdf(
     doc.text(t, x + fw / 2, y + 4.5, { align: 'center' });
   });
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(100, 116, 139);
-  doc.text(`Creada por ${o.actor_name || o.created_by || '—'}`, M, y + 10);
+  doc.text(`Creada por ${nombreDe(o.actor_name, o.created_by) || '—'}`, M, y + 10);
 
   pies(doc, `${o.codigo} · ${e.equipo}`);
   previewPdf(doc, `${nombreArchivo(`${o.codigo} ${e.equipo}`)}.pdf`);

@@ -12,6 +12,7 @@ import {
   type RecepcionGrupo, type ResumenCentro, type RecepcionFila, type ResumenExterno,
   type ResumenSnapshot, type ResumenSnapshotDatos,
 } from './recepciones.repository';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const SISTEMA_EXTERNO = 'golden-touch';
 
@@ -368,7 +369,7 @@ export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBac
                     <td className="mono" style={{ fontWeight: 700 }}>{s.numero}</td>
                     <td className="muted" style={{ fontSize: '.84rem' }}>
                       {s.fecha ? dateTime(s.fecha) : '—'}
-                      {s.actor_name ? <div style={{ fontSize: '.74rem' }}>{s.actor_name}</div> : null}
+                      {s.actor_name ? <div style={{ fontSize: '.74rem' }}><NombreUsuario nombre={s.actor_name} /></div> : null}
                     </td>
                     <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{n2(s.total_kg)}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{n2(s.total_seco)}</td>
@@ -395,7 +396,7 @@ export function ResumenGeneral({ grupo, onBack }: { grupo: RecepcionGrupo; onBac
           </>
         }>
           <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
-            Guardado el {verSnap.fecha ? dateTime(verSnap.fecha) : '—'}{verSnap.actor_name ? ` por ${verSnap.actor_name}` : ''}. Copia <strong>congelada</strong>; no se edita.
+            Guardado el {verSnap.fecha ? dateTime(verSnap.fecha) : '—'}{verSnap.actor_name ? <> por <NombreUsuario nombre={verSnap.actor_name} /></> : null}. Copia <strong>congelada</strong>; no se edita.
           </p>
           <div className="card-title" style={{ fontSize: '.9rem' }}>🏭 MGG · todos los centros</div>
           <TablaResumen rows={verSnap.datos.local ?? []} etiquetaTotal="Total MGG" />

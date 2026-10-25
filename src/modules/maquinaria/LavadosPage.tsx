@@ -18,6 +18,7 @@ import { listadoFlotaExcel } from './flotaExcel';
 import { AccionConEquipo } from './AccionConEquipo';
 import { FlotaNav } from './FlotaNav';
 import { LavadoModal } from './LavadoModal';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const SIN_LAVAR_VISIBLES = 8;
 
@@ -163,7 +164,7 @@ export function LavadosPage() {
       {borrar && (
         <ConfirmDialog title="Borrar lavado" danger confirmText="Borrar"
           message="Se borra este registro de lavado. No se puede deshacer."
-          preview={<VistaPrevia><Dato label="Equipo">{porId.get(borrar.equipo_id)?.equipo}</Dato><Dato label="Lavado">{borrar.tipo}</Dato><Dato label="Fecha">{dateTime(borrar.fecha)}</Dato><Dato label="Lo realizó">{borrar.responsable ?? undefined}</Dato><Dato label="Registró">{borrar.actor_name || borrar.actor || undefined}</Dato></VistaPrevia>}
+          preview={<VistaPrevia><Dato label="Equipo">{porId.get(borrar.equipo_id)?.equipo}</Dato><Dato label="Lavado">{borrar.tipo}</Dato><Dato label="Fecha">{dateTime(borrar.fecha)}</Dato><Dato label="Lo realizó">{borrar.responsable ?? undefined}</Dato><Dato label="Registró">{borrar.actor_name || borrar.actor ? <NombreUsuario nombre={borrar.actor_name} correo={borrar.actor} /> : undefined}</Dato></VistaPrevia>}
           onCancel={() => setBorrar(null)}
           onConfirm={() => {
             const l = borrar; setBorrar(null);

@@ -30,6 +30,7 @@ import { listSaldos } from '@/modules/tesoreria/cajaSaldos.repository';
 import type { Caja, CajaSaldo, CuentaCaja } from '@/shared/lib/types';
 import type { CuentaPorCobrar } from '@/modules/tesoreria/cuentasPorCobrar.repository';
 import { listClientes, crearCliente, actualizarCliente, eliminarCliente, type Cliente, type ClienteInput } from './clientes.repository';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 // Los PDF se importan al generar (dinámico) para no cargar jsPDF al abrir la página.
 
 const ESTADO: Record<EstadoVenta, { label: string; color: string }> = {
@@ -945,7 +946,7 @@ function DetalleVentaModal({ venta: v, cuenta, onClose }: { venta: Venta; cuenta
               <li key={i} style={{ borderLeft: `3px solid ${a.color}`, padding: '.35rem .7rem', background: 'var(--surface-2)', borderRadius: 6 }}>
                 <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
                   <strong style={{ color: a.color }}>{a.icon} {a.label}</strong>
-                  <span className="muted" style={{ fontSize: '.78rem' }}>{dateTime(e.at)} · {e.actor_name || e.actor}</span>
+                  <span className="muted" style={{ fontSize: '.78rem' }}>{dateTime(e.at)} · <NombreUsuario nombre={e.actor_name} correo={e.actor} /></span>
                 </div>
                 {e.detalle && <div style={{ fontSize: '.82rem' }}>{e.detalle}</div>}
                 {!!e.cambios?.length && <ul style={{ margin: '.2rem 0 0', paddingLeft: '1.1rem', fontSize: '.8rem' }}>{e.cambios.map((c, j) => <li key={j}>{c}</li>)}</ul>}

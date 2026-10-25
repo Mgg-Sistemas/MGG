@@ -23,6 +23,7 @@ import { cantidadEnUso, costoPorUnidadDeUso, normalizarUnidad, pideFactor, texto
 import { contextoPresentaciones, recordarPresentaciones, sugerirPara } from './presentaciones.repository';
 import { DetalleDirectoModal } from './DetalleDirectoModal';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 type Vista = 'kanban' | 'lista';
 
@@ -165,7 +166,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
                   <td className="mono">{num(c.cantidad)}</td>
                   <td>{ESTADO_LABEL[c.estado] ?? c.estado}</td>
                   <td className="mono">{c.gasto != null ? montoCaja(c.gasto, c.moneda) : '—'}</td>
-                  <td>{c.actor_name || c.actor || '—'}</td>
+                  <td><NombreUsuario nombre={c.actor_name} correo={c.actor} /></td>
                   <td className="muted">{dateTime(c.created_at)}</td>
                   <td className="muted">{c.finalizada_at ? dateTime(c.finalizada_at) : '—'}</td>
                   <td className="actions" style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
@@ -287,7 +288,7 @@ function CompraCard({ compra, onVer, onFinalizar, onPdf, onFacturas, onNota, onE
         </ul>
       )}
       <div className="muted" style={{ fontSize: '.72rem', marginTop: '.4rem', lineHeight: 1.5 }}>
-        <div>Generó: <strong style={{ color: 'var(--text)' }}>{compra.actor_name || compra.actor || '—'}</strong></div>
+        <div>Generó: <strong style={{ color: 'var(--text)' }}><NombreUsuario nombre={compra.actor_name} correo={compra.actor} /></strong></div>
         <div>Creada: {dateTime(compra.created_at)}</div>
         {compra.estado === 'finalizada' && <div>Comprada: {compra.finalizada_at ? dateTime(compra.finalizada_at) : '—'}</div>}
       </div>

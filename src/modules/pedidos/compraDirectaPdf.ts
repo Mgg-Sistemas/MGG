@@ -8,8 +8,10 @@ import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { CompraDirecta } from './compras.repository';
+import { resolvedorNombresUsuarios } from '@/shared/lib/useNombreUsuario';
 
 export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<void> {
+  const nombreDe = await resolvedorNombresUsuarios();
   const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, personas] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -136,7 +138,7 @@ export async function descargarCompraDirectaPdf(compra: CompraDirecta): Promise<
   doc.text('Firma autorizada · MGG', MARGIN, LIMITE - 42);
   doc.text('Analista que realizó la solicitud', pageW - MARGIN - 100, LIMITE - 42, { align: 'center' });
   doc.setFont('helvetica', 'bold');
-  const analistaCD = (compra.actor_name || compra.actor || 'Analista de Compras').trim();
+  const analistaCD = (nombreDe(compra.actor_name, compra.actor) || 'Analista de Compras').trim();
   doc.text(analistaCD, pageW - MARGIN - 100, LIMITE - 28, { align: 'center' });
   doc.setFont('helvetica', 'normal');
 

@@ -40,6 +40,8 @@ import {
 import { errorHorometro, horasTrabajadas, textoHorometro } from './horometro';
 import { errorSurtido, litrosTrasSurtido } from './saldoTanque';
 import { claveEquipo } from './equipoVinculo';
+import { useNombreUsuario } from '@/shared/lib/useNombreUsuario';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 /* La clave del rol vive con el resto de los permisos: el redirector de inicio la
    necesita antes de cargar ningún módulo de combustible. Se re-exporta acá para
@@ -171,7 +173,7 @@ export function SurtidorMovilView() {
       <header className="surt-head">
         <div>
           <h1>⛽ Surtidor{sedeActiva ? <span className="surt-sede-titulo"> · {sedeNombre}</span> : null}</h1>
-          <div className="muted" style={{ fontSize: '.85rem' }}>{actorName ?? actor}</div>
+          <div className="muted" style={{ fontSize: '.85rem' }}><NombreUsuario nombre={actorName} correo={actor} /></div>
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
           {sedeActiva && <button type="button" className="btn btn-ghost" onClick={volverASedes} title="Elegir otra sede">← Sedes</button>}
@@ -632,6 +634,7 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, actor
 }) {
   const [confirmando, setConfirmando] = useState(false);
   const [borrando, setBorrando] = useState(false);
+  const nombreUsuario = useNombreUsuario();
   const destino = mov.tanque_destino_id ? tanques.find((t) => t.id === mov.tanque_destino_id)?.nombre : null;
   const Fila = ({ k, v }: { k: string; v: string | null | undefined }) => v ? (
     <div className="surt-fila"><span className="muted">{k}</span><span>{v}</span></div>
@@ -732,7 +735,7 @@ function DetalleMovil({ mov, tanque, tanques, canWrite, esSurtidor, actor, actor
         <Fila k="Contador" v={mov.contador_global_ini != null || mov.contador_global_fin != null ? `${mov.contador_global_ini ?? '—'} → ${mov.contador_global_fin ?? '—'}` : null} />
         <Fila k="Horómetro" v={textoHorometro(mov.horometro_inicial, mov.horometro_final, num)} />
         <Fila k="Kilometraje" v={mov.kilometraje_final != null ? num(mov.kilometraje_final) : null} />
-        <Fila k="Registrado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.actor ? ` · ${mov.actor_name || mov.actor}` : ''}`} />
+        <Fila k="Registrado" v={`${dateTime(mov.created_at)}${mov.actor_name || mov.actor ? ` · ${nombreUsuario(mov.actor_name, mov.actor, mov.created_at)}` : ''}`} />
       </div>
 
       {/* ── Avisar lo que se surtió ── */}

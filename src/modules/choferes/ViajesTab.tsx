@@ -43,6 +43,7 @@ import { FlotaModal } from './ExpedienteTab';
 import { crearVehiculo } from '@/modules/asignaciones/vehiculos.repository';
 import { normalizarPlaca } from '@/modules/asignaciones/vehiculos';
 import { aDatetimeLocal, ahoraLocal, fechaHora, nombreConductor, textoVehiculo, type PropsTab } from './ChoferesPage';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const normal = (s: string) => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
@@ -648,7 +649,7 @@ export function DetalleViajeModal({ viaje: v, conductor, vehiculo, canWrite, onC
       {v.liquidacion && (
         <p className="muted" style={{ fontSize: '.82rem' }}>💵 Viáticos liquidados: anticipos {money(v.liquidacion.anticipos)} · gastos {money(v.liquidacion.gastos)} · devoluciones {money(v.liquidacion.devoluciones)} → {v.liquidacion.reembolso ? `reembolso ${money(v.liquidacion.reembolso)}` : v.liquidacion.deduccion ? `deducción ${money(v.liquidacion.deduccion)}` : 'cuadrado'}.</p>
       )}
-      <p className="muted" style={{ fontSize: '.75rem', marginTop: '.4rem' }}>Creada {fechaHora(v.created_at)}{v.actor_name ? ` por ${v.actor_name}` : ''}.</p>
+      <p className="muted" style={{ fontSize: '.75rem', marginTop: '.4rem' }}>Creada {fechaHora(v.created_at)}{v.actor_name ? <> por <NombreUsuario nombre={v.actor_name} /></> : null}.</p>
     </Modal>
   );
 }

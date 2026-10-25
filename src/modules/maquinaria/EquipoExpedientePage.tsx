@@ -52,6 +52,7 @@ import { FotosOrden, FotosOrdenModal } from './FotosOrdenServicio';
 import { EstadoDetalleModal } from './EstadoDetalleModal';
 import { BorrarOrdenDialog } from './BorrarOrdenDialog';
 import { SeguimientoCompraModal } from './SeguimientoCompraModal';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 type Tab = 'resumen' | 'servicios' | 'repuestos' | 'compras' | 'contador' | 'lavados' | 'fotos' | 'ficha';
 const TABS: { id: Tab; label: string }[] = [
@@ -514,7 +515,7 @@ export function EquipoExpedientePage() {
       {borrarLectura && (
         <ConfirmDialog title="Borrar lectura" danger confirmText="Borrar"
           message="Se borra esta lectura del contador. El horómetro / km vigente se recalcula con las demás lecturas (también el arranque del próximo surtido en Combustible). No se puede deshacer."
-          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lectura">{[borrarLectura.horometro != null ? `${fmtNum(borrarLectura.horometro)} h` : null, borrarLectura.kilometraje != null ? `${fmtNum(borrarLectura.kilometraje)} km` : null].filter(Boolean).join(' · ')}</Dato><Dato label="Fecha">{dateTime(borrarLectura.fecha)}</Dato><Dato label="Tipo">{borrarLectura.es_correccion ? 'Corrección (solo administrador)' : undefined}</Dato><Dato label="Registró">{borrarLectura.actor ?? undefined}</Dato></VistaPrevia>}
+          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lectura">{[borrarLectura.horometro != null ? `${fmtNum(borrarLectura.horometro)} h` : null, borrarLectura.kilometraje != null ? `${fmtNum(borrarLectura.kilometraje)} km` : null].filter(Boolean).join(' · ')}</Dato><Dato label="Fecha">{dateTime(borrarLectura.fecha)}</Dato><Dato label="Tipo">{borrarLectura.es_correccion ? 'Corrección (solo administrador)' : undefined}</Dato><Dato label="Registró">{borrarLectura.actor ? <NombreUsuario correo={borrarLectura.actor} /> : undefined}</Dato></VistaPrevia>}
           onCancel={() => setBorrarLectura(null)}
           onConfirm={() => {
             const l = borrarLectura; setBorrarLectura(null);
@@ -549,7 +550,7 @@ export function EquipoExpedientePage() {
       {borrarLavado && (
         <ConfirmDialog title="Borrar lavado" danger confirmText="Borrar"
           message="Se borra este registro de lavado. No se puede deshacer."
-          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lavado">{borrarLavado.tipo}</Dato><Dato label="Fecha">{dateTime(borrarLavado.fecha)}</Dato><Dato label="Lo realizó">{borrarLavado.responsable ?? undefined}</Dato><Dato label="Registró">{borrarLavado.actor_name || borrarLavado.actor || undefined}</Dato></VistaPrevia>}
+          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lavado">{borrarLavado.tipo}</Dato><Dato label="Fecha">{dateTime(borrarLavado.fecha)}</Dato><Dato label="Lo realizó">{borrarLavado.responsable ?? undefined}</Dato><Dato label="Registró">{borrarLavado.actor_name || borrarLavado.actor ? <NombreUsuario nombre={borrarLavado.actor_name} correo={borrarLavado.actor} /> : undefined}</Dato></VistaPrevia>}
           onCancel={() => setBorrarLavado(null)}
           onConfirm={() => {
             const l = borrarLavado; setBorrarLavado(null);
@@ -856,7 +857,7 @@ function TabContador({ eq, vigente, lecturas, ultimoSurtido, puede, onRegistrar,
                 <span>{l.origen === 'combustible' ? '⛽' : l.origen === 'bitacora' ? '📒' : '🚜'}</span>
                 <div style={{ minWidth: 0 }}>
                   <strong className="mono">{[l.horometro != null ? `${fmtNum(l.horometro)} h` : null, l.kilometraje != null ? `${fmtNum(l.kilometraje)} km` : null].filter(Boolean).join(' · ')}</strong>
-                  <small>{dateTime(l.fecha)} · {etiquetaOrigenLectura(l.origen)}{l.es_correccion ? ' · corrección' : ''}{l.actor ? ` · ${l.actor}` : ''}</small>
+                  <small>{dateTime(l.fecha)} · {etiquetaOrigenLectura(l.origen)}{l.es_correccion ? ' · corrección' : ''}{l.actor ? <> · <NombreUsuario correo={l.actor} /></> : null}</small>
                 </div>
                 {l.origen === 'maquinaria' && puedeEditar && (!l.es_correccion || isAdmin) ? (
                   <span style={{ display: 'flex', gap: '.25rem' }}>

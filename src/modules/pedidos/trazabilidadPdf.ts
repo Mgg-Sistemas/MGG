@@ -11,6 +11,7 @@ import type {
   Orden,
   Proveedor,
 } from '@/shared/lib/types';
+import { resolvedorNombresUsuarios } from '@/shared/lib/useNombreUsuario';
 
 interface TrazabilidadData {
   orden: Orden;
@@ -76,6 +77,7 @@ interface BuildResult {
 }
 
 async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
+  const nombreDe = await resolvedorNombresUsuarios();
   const [data, logoDataUrl, { jsPDF }, { default: autoTable }] = await Promise.all([
     cargarTrazabilidad(ordenId),
     loadLogoDataUrl().catch(() => null),
@@ -278,7 +280,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
   const filasRecepcion: Array<[string, string]> = [
     ['Estado', fueRecibida ? 'Recibida' : 'Aún no recibida'],
     ['Fecha de recepción', recibida ? dateTime(recibida.at) : '—'],
-    ['Recibida por', recibida?.actor ?? '—'],
+    ['Recibida por', nombreDe(null, recibida?.actor, recibida?.at) || '—'],
     ['Calidad evaluada', evaluacion ? `${evaluacion.calidad} / 5` : '—'],
     ['Puntualidad', evaluacion ? (
       evaluacion.puntualidad_dias === 0

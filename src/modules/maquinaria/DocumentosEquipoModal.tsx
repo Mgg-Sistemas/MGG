@@ -17,6 +17,7 @@ import {
 } from './maquinariaDocumentos.repository';
 import { ACEPTA_DOC, MAX_DOCS_EQUIPO, limpiarNombreDoc, slotsDeEquipo } from './documentosEquipo';
 import { documentoAFotoEquipo } from './fotosEquipo.repository';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 /**
  * Documentos de un equipo (contrato, ficha técnica, póliza…): hasta 4, cada uno en
@@ -246,7 +247,7 @@ function SlotDocumento({ slot, doc, equipoId, canWrite, actor, opciones, onRecor
             </button>
           )}
           <div className="muted" style={{ fontSize: '.72rem' }}>
-            Subido {dateTime(doc.updated_at)} · {doc.updated_by ?? doc.created_by ?? '—'}
+            Subido {dateTime(doc.updated_at)} · <NombreUsuario correo={doc.updated_by ?? doc.created_by} />
           </div>
           <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', marginTop: '.55rem' }}>
             <button className="btn btn-sm btn-primary" onClick={() => void ver()}>👁 Ver</button>

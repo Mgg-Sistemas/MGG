@@ -52,6 +52,7 @@ import {
   descargarResumenSalidasPdf, descargarResumenSalidasExcel, enviarResumenSalidasPorCorreo,
   type SalidaResumenRow, type SalidaResumenGrupo, type ResumenSalidasMeta,
 } from './resumenSalidasReporte';
+import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 type Scope = 'salidas' | 'traslados' | 'temporales';
 type Tipo = 'material' | 'dinero';
@@ -515,7 +516,7 @@ function Historial({
                   <td><strong>{m.producto?.nombre ?? '—'}</strong><div className="muted mono" style={{ fontSize: '.7rem' }}>{m.producto?.sku}</div></td>
                   <td>{esTraslado ? <span className="mono">{m.almacen} → {m.destino}</span> : <span className="badge">{m.almacen}</span>}</td>
                   {!esTraslado && <td>{m.destino || '—'}</td>}
-                  <td>{m.solicitante || m.actor_name || m.actor || '—'}</td>
+                  <td><NombreUsuario nombre={m.solicitante || m.actor_name} correo={m.actor} /></td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(cant)} {m.producto?.unidad ?? ''}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{precio ? money(precio) : '—'}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{precio ? money(precio * cant) : '—'}</td>
@@ -676,7 +677,7 @@ function SolicitudesKanban({ sols, scope, onVer, onVerHistorico }: {
                     <span className="mono" style={{ fontSize: '.9rem', fontWeight: 800, color: 'var(--primary-3)' }} title="Correlativo del usuario">N° {s.num_usuario != null ? String(s.num_usuario).padStart(3, '0') : '—'}</span>
                     <span className="mono muted" style={{ fontSize: '.62rem' }} title="Código global">{s.codigo}</span>
                   </div>
-                  {s.actor_name && <div className="muted" style={{ fontSize: '.68rem' }}>👤 {s.actor_name}</div>}
+                  {(s.actor_name || s.actor) && <div className="muted" style={{ fontSize: '.68rem' }}>👤 <NombreUsuario nombre={s.actor_name} correo={s.actor} /></div>}
                   <div style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text, #fff)' }}>
                     {s.tipo === 'material'
                       ? ((s.items?.length ?? 0) > 1 ? `${s.producto_nombre ?? 'Material'} +${s.items!.length - 1} más` : (s.producto_nombre ?? 'Material'))
