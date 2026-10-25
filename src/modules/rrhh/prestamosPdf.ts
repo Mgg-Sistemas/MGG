@@ -69,25 +69,13 @@ async function encabezado(doc: any, W: number, M: number, titulo: string, sub: s
   return y + 52;
 }
 
-/**
- * 5 cajas métricas con franja de color superior.
- */
-function cajasTotales5(
-  doc: any, W: number, M: number, y: number,
-  total: number, pagado: number, debe: number,
-  cantPrestamos: number, cantConSaldo: number,
-): number {
-  const gap = 6;
-  const ancho = (anchoUtilPdf(W) - (4 * gap)) / 5;
-  const alto = 42;
+interface CajaMetrica { label: string; valor: string; topColor: [number, number, number]; valColor: [number, number, number] }
 
-  const cajas: Array<{ label: string; valor: string; topColor: [number, number, number]; valColor: [number, number, number] }> = [
-    { label: 'TOTAL PRESTADO', valor: usd(total), topColor: NARANJA, valColor: TINTA },
-    { label: 'TOTAL PAGADO', valor: usd(pagado), topColor: VERDE, valColor: VERDE },
-    { label: 'PENDIENTE', valor: usd(debe), topColor: ROJO, valColor: debe > 0 ? ROJO : VERDE },
-    { label: 'PRÉSTAMOS', valor: String(cantPrestamos), topColor: AZUL, valColor: TINTA },
-    { label: 'CON SALDO', valor: String(cantConSaldo), topColor: AMBER, valColor: cantConSaldo > 0 ? AMBER : VERDE },
-  ];
+/** Cajas métricas con franja de color superior, repartidas en todo el ancho. */
+function cajasMetricas(doc: any, W: number, M: number, y: number, cajas: CajaMetrica[]): number {
+  const gap = 6;
+  const ancho = (anchoUtilPdf(W) - ((cajas.length - 1) * gap)) / cajas.length;
+  const alto = 42;
 
   cajas.forEach((c, i) => {
     const x = M + i * (ancho + gap);
@@ -114,6 +102,21 @@ function cajasTotales5(
   });
 
   return y + alto + 10;
+}
+
+/** Las 5 cajas del estado de cuenta. */
+function cajasTotales5(
+  doc: any, W: number, M: number, y: number,
+  total: number, pagado: number, debe: number,
+  cantPrestamos: number, cantConSaldo: number,
+): number {
+  return cajasMetricas(doc, W, M, y, [
+    { label: 'TOTAL PRESTADO', valor: usd(total), topColor: NARANJA, valColor: TINTA },
+    { label: 'TOTAL PAGADO', valor: usd(pagado), topColor: VERDE, valColor: VERDE },
+    { label: 'PENDIENTE', valor: usd(debe), topColor: ROJO, valColor: debe > 0 ? ROJO : VERDE },
+    { label: 'PRÉSTAMOS', valor: String(cantPrestamos), topColor: AZUL, valColor: TINTA },
+    { label: 'CON SALDO', valor: String(cantConSaldo), topColor: AMBER, valColor: cantConSaldo > 0 ? AMBER : VERDE },
+  ]);
 }
 
 /** Banner con franja naranja izquierda para los datos del trabajador */
@@ -151,7 +154,7 @@ function bannerTrabajador(
   doc.setTextColor(...GRIS);
   const ficha = numeroFicha(persona.numero_ficha);
   const lineaDatos = [
-    ficha ? `Ficha: ${ficha}` : '',
+    ficha || '',
     persona.cedula ? `C.I.: ${persona.cedula}` : '',
     persona.cargo ? `Cargo: ${persona.cargo}` : '',
     persona.departamento ? `Dpto: ${persona.departamento}` : '',
@@ -396,8 +399,12 @@ export async function verConsolidadoPrestamosPdf(
 
 /**
  * Recibo individual de entrega o abono de préstamo/anticipo en PDF.
- * Imprime el monto en la moneda acordada (Bs, COP, EUR, USD) y
- * calcula y muestra claramente la conversión en $ al cambio.
+ *
+ * Con el mismo diseño del estado de cuenta (el de Golden Touch): cajas de
+ * montos con franja de color, banner del trabajador y tabla de cabecera
+ * naranja. Si el pago fue en otra moneda (Bs, COP, EUR) muestra el monto, la
+ * tasa y la conversión en $ al cambio. Los textos largos (el motivo de cada
+ * entrega) van en celdas que se ajustan solas: nada se encima.
  */
 export async function verReciboPrestamoPdf(opciones: {
   tipo: 'entrega' | 'abono';
@@ -411,131 +418,129 @@ export async function verReciboPrestamoPdf(opciones: {
   motivo?: string | null;
   saldoRestante?: number | null;
 }): Promise<void> {
-  const [{ jsPDF }] = await Promise.all([import('jspdf')]);
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
   const W = doc.internal.pageSize.getWidth();
   const H = doc.internal.pageSize.getHeight();
   const M = MARGEN_PDF;
-  const emp = definicionEmpresa(normalizarEmpresa(opciones.persona.empresa));
+  const { persona, prestamo } = opciones;
+  const emp = definicionEmpresa(normalizarEmpresa(persona.empresa));
+  const esEntrega = opciones.tipo === 'entrega';
+  const nombreTipo = prestamo.tipo === 'anticipo' ? 'ANTICIPO' : 'PRÉSTAMO';
+  const tipoMinus = prestamo.tipo === 'anticipo' ? 'Anticipo' : 'Préstamo';
 
   const mon = (opciones.moneda || 'USD').toUpperCase();
   const esOtraMoneda = mon !== 'USD';
   const montoOrig = opciones.montoOriginal != null && opciones.montoOriginal > 0 ? opciones.montoOriginal : opciones.montoUsd;
   const tasa = opciones.tasaCambio && opciones.tasaCambio > 0 ? opciones.tasaCambio : null;
-
-  const subtitulo = opciones.tipo === 'entrega'
-    ? `${opciones.prestamo.tipo === 'anticipo' ? 'ANTICIPO' : 'PRESTAMO'} · COMPROBANTE DE ENTREGA`
-    : 'COMPROBANTE DE ABONO / PAGO';
+  const saldo = opciones.saldoRestante != null ? Math.max(0, Number(opciones.saldoRestante) || 0) : null;
 
   let y = await encabezado(
     doc, W, M,
-    'RECIBO DE PAGO DE RRHH',
-    `${emp.razonSocial} · ${subtitulo}`,
-    `Fecha valor: ${fmtDate(opciones.fecha)}`,
+    esEntrega ? `RECIBO DE ENTREGA · ${nombreTipo}` : `RECIBO DE ABONO · ${nombreTipo}`,
+    `${emp.razonSocial} · Nómina ${persona.empresa || 'General'}`,
+    '',
+    `${`${persona.nombre} ${persona.apellido ?? ''}`.trim()} · ${esEntrega ? 'Entrega' : 'Abono'} del ${fmtDate(opciones.fecha)}`,
   );
 
-  /* ── Datos del trabajador ── */
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(...TINTA);
-  doc.text(textoPdf(`${opciones.persona.nombre} ${opciones.persona.apellido ?? ''}`.trim()), M, y);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...GRIS);
-  const datos = [
-    numeroFicha(opciones.persona.numero_ficha),
-    opciones.persona.cedula ? `C.I. ${opciones.persona.cedula}` : '',
-    opciones.persona.cargo || 'Sin cargo',
-    opciones.persona.departamento || '',
-  ].filter(Boolean).join(' · ');
-  doc.text(textoPdf(datos), M, y + 14);
-  y += 32;
-
-  /* ── Cajas de montos y conversión ── */
-  const altoCaja = 50;
+  /* ── Cajas de montos (con la conversión si fue en otra moneda) ── */
+  const colorSaldo = (saldo ?? 0) > 0 ? ROJO : VERDE;
+  const cajas: CajaMetrica[] = [];
   if (esOtraMoneda) {
-    // 3 cajas: Monto en moneda, Tasa, Conversión en $ al cambio
-    const anchoCaja = (anchoUtilPdf(W) - 16) / 3;
     const simbolo = mon === 'VES' || mon === 'BS' ? 'Bs' : mon === 'EUR' ? '€' : mon === 'COP' ? 'COP $' : mon;
-    const txtMoneda = `${simbolo} ${montoOrig.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const txtTasa = tasa ? `${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${simbolo}/$` : 'Según cambio oficial';
-    const txtUsd = `$ ${opciones.montoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-
-    const cajas: Array<[string, string, [number, number, number]]> = [
-      [`Monto pagado (${mon})`, txtMoneda, TINTA],
-      ['Tasa de cambio', txtTasa, GRIS],
-      ['Conversión en $ al cambio', txtUsd, VERDE],
-    ];
-
-    cajas.forEach(([rotulo, valor, color], i) => {
-      const x = M + i * (anchoCaja + 8);
-      doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.6);
-      doc.setFillColor(250, 250, 250);
-      doc.roundedRect(x, y, anchoCaja, altoCaja, 3, 3, 'FD');
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
-      doc.text(textoPdf(rotulo.toUpperCase()), x + anchoCaja / 2, y + 16, { align: 'center' });
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(13); doc.setTextColor(...color);
-      doc.text(textoPdf(valor), x + anchoCaja / 2, y + 36, { align: 'center' });
-    });
+    cajas.push(
+      { label: `MONTO ${esEntrega ? 'ENTREGADO' : 'ABONADO'} (${mon})`, valor: `${simbolo} ${montoOrig.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, topColor: NARANJA, valColor: TINTA },
+      { label: 'TASA DE CAMBIO', valor: tasa ? `${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })} ${simbolo}/$` : 'Según cambio oficial', topColor: AZUL, valColor: TINTA },
+      { label: 'EQUIVALENTE EN $', valor: usd(opciones.montoUsd), topColor: VERDE, valColor: VERDE },
+      { label: 'SALDO PENDIENTE', valor: saldo != null ? usd(saldo) : '—', topColor: ROJO, valColor: colorSaldo },
+    );
   } else {
-    // 2 cajas: Monto entregado/abonado en USD y Saldo restante
-    const anchoCaja = (anchoUtilPdf(W) - 10) / 2;
-    const txtUsd = `$ ${opciones.montoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    const saldo = opciones.saldoRestante != null ? `$ ${opciones.saldoRestante.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—';
-
-    const cajas: Array<[string, string, [number, number, number]]> = [
-      [opciones.tipo === 'entrega' ? 'Monto entregado (USD)' : 'Monto abonado (USD)', txtUsd, VERDE],
-      ['Saldo pendiente del préstamo', saldo, ROJO],
-    ];
-
-    cajas.forEach(([rotulo, valor, color], i) => {
-      const x = M + i * (anchoCaja + 10);
-      doc.setDrawColor(210, 210, 210); doc.setLineWidth(0.6);
-      doc.setFillColor(250, 250, 250);
-      doc.roundedRect(x, y, anchoCaja, altoCaja, 3, 3, 'FD');
-      doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
-      doc.text(textoPdf(rotulo.toUpperCase()), x + anchoCaja / 2, y + 16, { align: 'center' });
-      doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...color);
-      doc.text(textoPdf(valor), x + anchoCaja / 2, y + 36, { align: 'center' });
-    });
+    cajas.push(
+      { label: `MONTO ${esEntrega ? 'ENTREGADO' : 'ABONADO'} (USD)`, valor: usd(opciones.montoUsd), topColor: VERDE, valColor: VERDE },
+      { label: `TOTAL DEL ${nombreTipo}`, valor: usd(prestamo.monto_total), topColor: NARANJA, valColor: TINTA },
+      { label: 'SALDO PENDIENTE', valor: saldo != null ? usd(saldo) : '—', topColor: ROJO, valColor: colorSaldo },
+    );
   }
-  y += altoCaja + 20;
+  y = cajasMetricas(doc, W, M, y, cajas);
 
-  /* ── Desglose / Motivo ── */
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(9); doc.setTextColor(...NARANJA);
-  doc.text(textoPdf('DETALLES DE LA OPERACIÓN'), M, y);
-  doc.setDrawColor(...NARANJA); doc.setLineWidth(0.6);
-  doc.line(M, y + 3, W - M, y + 3);
-  y += 16;
+  /* ── Banner del trabajador ── */
+  y = bannerTrabajador(doc, W, M, y, persona, saldo ?? 0);
 
-  const lineasDetalle: string[] = [];
-  if (opciones.motivo) {
-    lineasDetalle.push(`Concepto / Motivo: ${opciones.motivo}`);
+  /* ── Detalle de la operación: tabla de cabecera naranja ── */
+  const filas: string[][] = [];
+  const estilos: Array<'normal' | 'total'> = [];
+  if (esEntrega) {
+    const entregas = obtenerEntregas(prestamo);
+    if (entregas.length > 1) {
+      entregas.forEach((e, i) => {
+        filas.push([fmtDate(e.fecha), `${tipoMinus} ${i + 1}`, e.motivo || `${tipoMinus} autorizado`, usd(e.monto)]);
+        estilos.push('normal');
+      });
+    } else {
+      filas.push([fmtDate(opciones.fecha), tipoMinus, opciones.motivo || prestamo.motivo || `${tipoMinus} autorizado`, usd(opciones.montoUsd)]);
+      estilos.push('normal');
+    }
+    filas.push(['', '', 'Total entregado', usd(opciones.montoUsd)]);
+    estilos.push('total');
+  } else {
+    filas.push([fmtDate(opciones.fecha), 'Abono / pago de cuota', opciones.motivo || 'Abono a deuda registrado', usd(opciones.montoUsd)]);
+    estilos.push('normal');
+    filas.push(['', '', 'Total abonado', usd(opciones.montoUsd)]);
+    estilos.push('total');
   }
-  lineasDetalle.push(`Tipo de operación: ${opciones.tipo === 'entrega' ? (opciones.prestamo.tipo === 'anticipo' ? 'Entrega de Anticipo' : 'Otorgamiento de Préstamo') : 'Abono / Pago de cuota'}`);
-  lineasDetalle.push(`Fecha de registro: ${fmtDate(opciones.fecha)}`);
-  if (opciones.saldoRestante != null) {
-    lineasDetalle.push(`Saldo deudor resultante: $ ${opciones.saldoRestante.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} USD`);
+  if (saldo != null) {
+    filas.push(['', '', 'Saldo deudor resultante', usd(saldo)]);
+    estilos.push('total');
   }
 
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(...TINTA);
-  for (const ln of lineasDetalle) {
-    doc.text(textoPdf(ln), M, y);
-    y += 14;
-  }
-  y += 10;
+  autoTable(doc as any, {
+    startY: y,
+    head: [filaPdf(['FECHA', 'TIPO / OPERACIÓN', 'CONCEPTO / MOTIVO', 'MONTO (USD)'])],
+    body: filas.map((r) => filaPdf(r)),
+    theme: 'grid',
+    headStyles: {
+      fillColor: NARANJA, textColor: [255, 255, 255], fontSize: 7.5, fontStyle: 'bold',
+      halign: 'center', valign: 'middle', lineColor: [200, 70, 20], lineWidth: 0.5,
+    },
+    bodyStyles: { fontSize: 7.8, lineColor: BORDE, lineWidth: 0.4, valign: 'middle', overflow: 'linebreak' },
+    columnStyles: {
+      0: { cellWidth: 72, halign: 'center' },
+      1: { cellWidth: 100, halign: 'left' },
+      2: { cellWidth: 'auto', halign: 'left' },
+      3: { cellWidth: 82, halign: 'right' },
+    },
+    didParseCell: (data: any) => {
+      if (data.section !== 'body') return;
+      if (estilos[data.row.index] === 'total') {
+        data.cell.styles.fontStyle = 'bold';
+        data.cell.styles.fillColor = FONDO_BANNER;
+        if (data.column.index === 2) data.cell.styles.halign = 'right';
+        if (data.column.index === 3) data.cell.styles.textColor = data.row.index === filas.length - 1 && saldo != null ? colorSaldo : TINTA;
+      } else {
+        data.cell.styles.fillColor = [255, 255, 255];
+        if (data.column.index === 3) { data.cell.styles.fontStyle = 'bold'; data.cell.styles.textColor = VERDE; }
+      }
+    },
+    margin: MARGENES_TABLA_PDF,
+  });
+
+  y = ((doc as any).lastAutoTable?.finalY ?? y) + 16;
 
   /* ── Texto de conformidad ── */
+  const montoUsdTxt = (Number(opciones.montoUsd) || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const txtMonedaFinal = esOtraMoneda
-    ? `${montoOrig.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${mon} (equivalentes a $ ${opciones.montoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} al cambio)`
-    : `$ ${opciones.montoUsd.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    ? `${montoOrig.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ${mon} (equivalentes a $ ${montoUsdTxt} al cambio)`
+    : `$ ${montoUsdTxt}`;
+  const textoDeclaracion = esEntrega
+    ? `Certifico haber recibido a mi entera satisfacción por parte de la empresa la cantidad de ${txtMonedaFinal}, bajo la figura de ${prestamo.tipo === 'anticipo' ? 'anticipo' : 'préstamo'}. Autorizo su descuento según las condiciones acordadas.`
+    : `Certifico haber realizado el pago / abono por la cantidad de ${txtMonedaFinal} a cuenta del saldo pendiente del ${prestamo.tipo === 'anticipo' ? 'anticipo' : 'préstamo'} otorgado.`;
 
-  const textoDeclaracion = opciones.tipo === 'entrega'
-    ? `Certifico haber recibido a mi entera satisfacción por parte de la empresa la cantidad de ${txtMonedaFinal}, bajo la figura de ${opciones.prestamo.tipo === 'anticipo' ? 'anticipo' : 'préstamo'}. Autorizo su descuento según las condiciones acordadas.`
-    : `Certifico haber realizado el pago / abono por la cantidad de ${txtMonedaFinal} a cuenta del saldo pendiente del préstamo otorgado.`;
-
+  if (y > limiteInferiorPdf(H) - 110) { doc.addPage(); y = M; }
   doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(...GRIS);
   const lineasDecl = doc.splitTextToSize(textoPdf(textoDeclaracion), anchoUtilPdf(W)) as string[];
   doc.text(lineasDecl, M, y);
   y += lineasDecl.length * 11 + 20;
 
   firmas(doc, W, M, H, y);
-  await previewPdfDoc(doc, `recibo-${opciones.tipo}-${(opciones.persona.nombre ?? '').toLowerCase()}.pdf`);
+  await previewPdfDoc(doc, `recibo-${opciones.tipo}-${(persona.nombre ?? '').toLowerCase()}.pdf`);
 }
-

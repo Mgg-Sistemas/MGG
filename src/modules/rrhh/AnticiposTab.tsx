@@ -399,7 +399,7 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
         <table className="table" style={{ fontSize: '.85rem' }}>
           <thead>
             <tr>
-              <th>Fecha</th><th>Trabajador</th><th>Tipo</th><th>Motivo</th>
+              <th>Fecha</th><th>Trabajador</th><th>Tipo</th>
               <th style={{ textAlign: 'right' }}>Total</th>
               <th style={{ textAlign: 'right' }}>Pagado</th>
               <th style={{ textAlign: 'right' }}>Debe</th>
@@ -409,9 +409,9 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {loading && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
             {!loading && !visibles.length && (
-              <tr><td colSpan={10}>
+              <tr><td colSpan={9}>
                 <EmptyState message={nFiltros ? 'Nada coincide con los filtros' : 'Sin préstamos ni anticipos'} icon="💵" />
               </td></tr>
             )}
@@ -438,9 +438,9 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
                         {nombreDe(a.personal_id)}
                       </button>
                       {entregas.length > 1 && (
-                        <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px', color: 'var(--primary)', borderColor: 'var(--primary)' }}
-                          title={`${entregas.length} entregas acumuladas`}>
-                          {entregas.length} entregas
+                        <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px', background: 'rgba(234, 88, 12, 0.15)', color: '#ea580c', borderColor: '#ea580c' }}
+                          title={`${entregas.length} préstamos acumulados`}>
+                          {entregas.length} préstamos
                         </span>
                       )}
                     </div>
@@ -449,17 +449,6 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
                   <td>
                     <span className="badge">{etiquetaTipo(a.tipo)}</span>
                     {esHistoricoFila(a) && <span className="badge" style={{ marginLeft: '.25rem' }} title="Cargado como histórico (anterior al sistema)">📜</span>}
-                  </td>
-                  <td className="muted" style={{ maxWidth: '340px', whiteSpace: 'normal' }}>
-                    {entregas.length > 1 ? (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
-                        {entregas.map((e, idx) => (
-                          <div key={idx} style={{ fontSize: '.78rem', lineHeight: 1.25 }}>
-                            <strong style={{ color: 'var(--text)' }}>Préstamo {idx + 1} ({money(e.monto)} · {date(e.fecha)}):</strong> {e.motivo || '—'}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (entregas[0]?.motivo || a.motivo || '—')}
                   </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(a.monto_total)}</td>
                   <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(pagado)}</td>
@@ -495,7 +484,7 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
           {!loading && visibles.length > 0 && (
             <tfoot>
               <tr style={{ fontWeight: 700 }}>
-                <td colSpan={4} style={{ textAlign: 'right' }}>Totales ({visibles.length})</td>
+                <td colSpan={3} style={{ textAlign: 'right' }}>Totales ({visibles.length})</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money(resumenVisible.totalPrestado)}</td>
                 <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(resumenVisible.totalPagado)}</td>
                 <td className="mono" style={{ textAlign: 'right', color: resumenVisible.totalPendiente > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(resumenVisible.totalPendiente)}</td>
@@ -861,7 +850,7 @@ function TrabajadoresModal({ deudas, prestamos, pagosDe, personaPorId, generando
         {!!suyos.length && (
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.84rem' }}>
-              <thead><tr><th>Fecha</th><th>Tipo</th><th>Motivo</th><th style={{ textAlign: 'right' }}>Total</th><th style={{ textAlign: 'right' }}>Pagado</th><th style={{ textAlign: 'right' }}>Debe</th><th style={{ textAlign: 'center' }}>Estado</th><th /></tr></thead>
+              <thead><tr><th>Fecha</th><th>Tipo</th><th style={{ textAlign: 'right' }}>Total</th><th style={{ textAlign: 'right' }}>Pagado</th><th style={{ textAlign: 'right' }}>Debe</th><th style={{ textAlign: 'center' }}>Estado</th><th /></tr></thead>
               <tbody>
                 {suyos.map((a) => {
                   const pag = (pagosDe.get(a.id) ?? []).reduce((s, g) => s + (Number(g.monto) || 0), 0);
