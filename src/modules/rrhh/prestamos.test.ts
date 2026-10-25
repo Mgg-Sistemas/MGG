@@ -264,6 +264,15 @@ describe('los filtros', () => {
     expect(filtrarPrestamos(conHistorico, { soloHistoricos: true }).map((p) => p.id)).toEqual(['a4']);
   });
 
+  it('el origen separa los históricos de los cargados en el sistema', () => {
+    const conHistorico = [...lista, prestamo({ id: 'a4', fecha: '2025-01-01', created_at: '2026-09-25T00:00:00Z' })];
+    expect(filtrarPrestamos(conHistorico, { origen: 'historico' }).map((p) => p.id)).toEqual(['a4']);
+    expect(filtrarPrestamos(conHistorico, { origen: 'sistema' }).map((p) => p.id)).toEqual(['a1', 'a2', 'a3']);
+    expect(filtrarPrestamos(conHistorico, { origen: 'todos' })).toHaveLength(4);
+    expect(hayFiltro({ ...FILTRO_PRESTAMOS_VACIO, origen: 'historico' })).toBe(true);
+    expect(hayFiltro({ ...FILTRO_PRESTAMOS_VACIO, origen: 'todos' })).toBe(false);
+  });
+
   it('sabe cuándo hay algo puesto, para poder ofrecer limpiar', () => {
     expect(hayFiltro({ ...FILTRO_PRESTAMOS_VACIO, texto: 'x' })).toBe(true);
     expect(hayFiltro({ ...FILTRO_PRESTAMOS_VACIO, desde: '2026-01-01' })).toBe(true);

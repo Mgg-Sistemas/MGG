@@ -8,6 +8,7 @@
 @import './choferes.css';
 @import './flota.css';
 @import './flotaDetalle.css';
+@import './listado.css';
 
 @tailwind utilities;
 

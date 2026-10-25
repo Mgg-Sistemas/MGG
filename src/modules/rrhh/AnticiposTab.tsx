@@ -1,18 +1,19 @@
 /* ============================================================
    MGG · RRHH · Préstamos y anticipos
 
-   Tres cosas en una pantalla:
+   Tres cosas en una pantalla (con el estilo de listados de Golden Touch):
 
    1. CARGAR, incluso lo viejo. Un préstamo lleva la fecha en que se DIO, que
-      puede ser de hace meses, y puede entrar con lo que ya se había abonado.
-      Sin eso, cargar el historial de alguien metería todo fechado hoy.
+      puede ser de hace meses, y en modo histórico entra con lo que ya se había
+      abonado y hasta qué fecha. Sin eso, cargar el historial de alguien
+      metería todo fechado hoy.
 
    2. VER DE UN GOLPE cuánto hay prestado y a cuánta gente. Las dos tarjetas de
       arriba se tocan y abren el detalle; no son adornos.
 
-   3. BUSCAR. Por trabajador, tipo, estado, rango de fechas, rango de monto y
-      texto libre. Los filtros mandan sobre las tarjetas, la tabla y el PDF: lo
-      que se ve es lo que se imprime.
+   3. BUSCAR. Por trabajador, tipo, estado, origen, departamento, rango de
+      fechas, rango de monto y texto libre. Los filtros mandan sobre las
+      tarjetas, la tabla y el PDF: lo que se ve es lo que se imprime.
 
    El SALDO no se escribe nunca a mano: sale de los abonos, que los mantiene la
    base. Lo que descuenta la nómina entra solo, por un puente en la base.
@@ -20,6 +21,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { money, date, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -33,8 +36,8 @@ import {
 import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 import { nombreDeCarnet, numeroFicha } from './fichaPersonal';
 import {
-  FILTRO_PRESTAMOS_VACIO, deudaPorTrabajador, errorPago, esHistorico, estadoDeCuenta,
-  fechaDePrestamo, filtrarPagos, filtrarPrestamos, hayFiltro, labelOrigen, pagosPorPrestamo,
+  FILTRO_PRESTAMOS_VACIO, deudaPorTrabajador, errorPago, estadoDeCuenta,
+  fechaDePrestamo, filtrarPagos, filtrarPrestamos, labelOrigen, pagosPorPrestamo,
   rangosRapidos, resumenPrestamos, obtenerEntregas, unificarPrestamosActivos,
   type DeudaTrabajador, type FiltroPrestamos,
 } from './prestamos';
@@ -46,9 +49,39 @@ import { verReciboPrestamoPdf } from './prestamosPdf';
 const hoyIso = () => new Date().toISOString().slice(0, 10);
 
 const VACIO = (): AnticipoInput => ({
-  personal_id: '', tipo: 'anticipo', monto_total: 0, cuota_sugerida: null, motivo: '',
-  fecha: hoyIso(), ya_pagado: null, moneda: 'USD', monto_original: null, tasa_cambio: null,
+  personal_id: '', tipo: 'prestamo', monto_total: 0, cuota_sugerida: null, motivo: '',
+  fecha: hoyIso(), ya_pagado: null, fecha_abono: hoyIso(), moneda: 'USD', monto_original: null, tasa_cambio: null,
 });
+
+/** Por defecto la lista muestra lo que todavía se debe, como en Golden Touch. */
+const FILTRO_INICIAL: FiltroPrestamos = { ...FILTRO_PRESTAMOS_VACIO, estado: 'activos', origen: 'todos' };
+
+/** Cuántos filtros hay puestos (el estado cuenta solo si no es el de arranque), para «✕ Limpiar (n)». */
+function filtrosPuestos(f: FiltroPrestamos, depto: string): number {
+  return [
+    f.texto?.trim(), f.trabajadorId, f.tipo, f.desde, f.hasta, f.soloHistoricos,
+    f.montoMin != null, f.montoMax != null, f.saldoMin != null,
+    f.origen && f.origen !== 'todos', depto,
+  ].filter(Boolean).length + (f.estado !== FILTRO_INICIAL.estado ? 1 : 0);
+}
+
+const etiquetaTipo = (t: AnticipoPrestamo['tipo']) => (t === 'anticipo' ? 'Anticipo' : 'Préstamo');
+
+function Kpi({ label, value, sub, color, onClick }: {
+  label: string; value: string; sub?: string; color?: string; onClick?: () => void;
+}) {
+  const clase = `lt-kpi${color ? ` ${color}` : ''}`;
+  const cuerpo = (
+    <>
+      <span className="lt-kpi-label">{label}</span>
+      <span className="lt-kpi-valor">{value}</span>
+      {sub && <span className="lt-kpi-sub">{sub}</span>}
+    </>
+  );
+  return onClick
+    ? <button type="button" className={clase} onClick={onClick} title="Toca para ver el detalle">{cuerpo}</button>
+    : <div className={clase}>{cuerpo}</div>;
+}
 
 export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DEFECTO }: {
   canWrite: boolean; actor: string; actorName: string | null; empresa?: Empresa;
@@ -58,10 +91,12 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
   const [pagos, setPagos] = useState<PagoAnticipo[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<AnticipoInput>(VACIO);
+  const [historicoForm, setHistoricoForm] = useState(false);
   const [abrirForm, setAbrirForm] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [filtro, setFiltro] = useState<FiltroPrestamos>(FILTRO_PRESTAMOS_VACIO);
+  const [filtro, setFiltro] = useState<FiltroPrestamos>(FILTRO_INICIAL);
+  const [depto, setDepto] = useState('');
   const [masFiltros, setMasFiltros] = useState(false);
   const [verPendientes, setVerPendientes] = useState(false);
   const [verTrabajadores, setVerTrabajadores] = useState(false);
@@ -72,6 +107,7 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
   const [monedaForm, setMonedaForm] = useState<MonedaPagoRrhh>('USD');
   const [montoMonedaForm, setMontoMonedaForm] = useState<number | null>(null);
   const [tasaCambioForm, setTasaCambioForm] = useState<number | null>(null);
+  const [generandoPdf, setGenerandoPdf] = useState(false);
 
   useEffect(() => {
     void getTasaHoy().then((t) => {
@@ -117,45 +153,93 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
     const p = personaPorId.get(id);
     return p ? `${p.nombre} ${p.apellido ?? ''}`.trim() : '—';
   }, [personaPorId]);
+  /** Lo que se busca con el cuadro de texto: nombre, cédula, ficha, cargo y departamento. */
+  const pajarDe = useCallback((id: string) => {
+    const p = personaPorId.get(id);
+    return p ? `${nombreDe(id)} ${p.cedula ?? ''} ${p.numero_ficha ?? ''} ${p.cargo ?? ''} ${p.departamento ?? ''}` : '';
+  }, [personaPorId, nombreDe]);
+  const departamentos = useMemo(
+    () => [...new Set(personal.map((p) => p.departamento).filter((d): d is string => !!d))].sort(),
+    [personal],
+  );
 
   /* Lo filtrado manda en TODO: tarjetas, tabla y PDF. Que la tarjeta diga una
-     cosa y la tabla otra es la forma más rápida de que nadie confíe en ninguna. */
-  const visibles = useMemo(() => filtrarPrestamos(lista, filtro, nombreDe), [lista, filtro, nombreDe]);
+     cosa y la tabla otra es la forma más rápida de que nadie confíe en ninguna.
+     Las tarjetas ignoran el estado (lo pendiente es, por definición, activo). */
+  const delDepto = useCallback(
+    (l: AnticipoPrestamo[]) => (depto ? l.filter((a) => (personaPorId.get(a.personal_id)?.departamento ?? '') === depto) : l),
+    [depto, personaPorId],
+  );
+  const baseKpi = useMemo(
+    () => delDepto(filtrarPrestamos(lista, { ...filtro, estado: 'todos' }, pajarDe)),
+    [lista, filtro, pajarDe, delDepto],
+  );
+  const visibles = useMemo(() => delDepto(filtrarPrestamos(lista, filtro, pajarDe)), [lista, filtro, pajarDe, delDepto]);
   const pagosVisibles = useMemo(
     () => filtrarPagos(pagos, filtro).filter((g) => visibles.some((p) => p.id === g.anticipo_id)),
     [pagos, filtro, visibles],
   );
-  const resumen = useMemo(() => resumenPrestamos(visibles, pagos), [visibles, pagos]);
-  const deudas = useMemo(() => deudaPorTrabajador(visibles, pagos, nombreDe), [visibles, pagos, nombreDe]);
+  const resumen = useMemo(() => resumenPrestamos(baseKpi, pagos), [baseKpi, pagos]);
+  const resumenVisible = useMemo(() => resumenPrestamos(visibles, pagos), [visibles, pagos]);
+  const deudas = useMemo(() => deudaPorTrabajador(baseKpi, pagos, nombreDe), [baseKpi, pagos, nombreDe]);
   const pagosDe = useMemo(() => pagosPorPrestamo(pagos), [pagos]);
   const rangos = useMemo(() => rangosRapidos(), []);
+  const nFiltros = filtrosPuestos(filtro, depto);
 
-  const cuotaDe = (a: AnticipoPrestamo) => (a.cuota_sugerida != null ? money(a.cuota_sugerida) : '—');
+  const setF = <K extends keyof FiltroPrestamos>(k: K, v: FiltroPrestamos[K]) => setFiltro((f) => ({ ...f, [k]: v }));
+
+  function textoFiltros(): string {
+    const partes: string[] = [];
+    if (filtro.desde || filtro.hasta) {
+      partes.push(`Préstamos ${filtro.desde ? `desde ${date(filtro.desde)}` : ''} ${filtro.hasta ? `hasta ${date(filtro.hasta)}` : ''}`.replace(/\s+/g, ' ').trim());
+    }
+    if (filtro.estado && filtro.estado !== 'todos') partes.push(filtro.estado === 'activos' ? 'Solo con saldo' : 'Solo saldados');
+    if (filtro.tipo) partes.push(`Solo ${etiquetaTipo(filtro.tipo).toLowerCase()}s`);
+    if (filtro.origen === 'historico' || filtro.soloHistoricos) partes.push('Solo históricos');
+    if (filtro.origen === 'sistema') partes.push('Solo cargados en el sistema');
+    if (depto) partes.push(`Departamento ${depto}`);
+    if (filtro.trabajadorId) partes.push(nombreDe(filtro.trabajadorId));
+    if (filtro.texto?.trim()) partes.push(`Búsqueda «${filtro.texto.trim()}»`);
+    if (filtro.montoMin != null || filtro.montoMax != null) {
+      partes.push(`Monto ${filtro.montoMin != null ? `≥ ${filtro.montoMin}` : ''} ${filtro.montoMax != null ? `≤ ${filtro.montoMax}` : ''}`.replace(/\s+/g, ' ').trim());
+    }
+    return partes.join(' · ') || 'Sin filtros';
+  }
+
+  function abrirAlta() {
+    setForm(VACIO()); setHistoricoForm(false); setError(null);
+    setMonedaForm('USD'); setMontoMonedaForm(null); setTasaCambioForm(null);
+    setAbrirForm(true);
+  }
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!form.personal_id) { setError('Elegí el trabajador.'); return; }
+    if (!form.personal_id) { setError('Elige el trabajador.'); return; }
     let montoTotalUsd = Number(form.monto_total) || 0;
     if (monedaForm !== 'USD') {
       const orig = Number(montoMonedaForm) || 0;
-      if (orig <= 0) { setError(`Indicá el monto a entregar en ${etiquetaMonedaPago(monedaForm)}.`); return; }
+      if (orig <= 0) { setError(`Indica el monto a entregar en ${etiquetaMonedaPago(monedaForm)}.`); return; }
       const tasa = Number(tasaCambioForm) || (monedaForm === 'Bs' || monedaForm === 'VES' ? tasaBcv : null);
-      if (!tasa || tasa <= 0) { setError('Indicá una tasa de cambio válida para la conversión.'); return; }
+      if (!tasa || tasa <= 0) { setError('Indica una tasa de cambio válida para la conversión.'); return; }
       montoTotalUsd = convertirMonedaAUsd(orig, monedaForm, tasa).montoUsd;
     }
-    if (!(montoTotalUsd > 0)) { setError('Indicá el monto.'); return; }
-    if ((form.ya_pagado ?? 0) > montoTotalUsd) { setError('Lo ya pagado no puede superar el monto del préstamo.'); return; }
+    if (!(montoTotalUsd > 0)) { setError('Indica el monto.'); return; }
+    const yaPagado = historicoForm ? (form.ya_pagado ?? null) : null;
+    if ((yaPagado ?? 0) > montoTotalUsd) { setError('Lo ya pagado no puede superar el monto del préstamo.'); return; }
+    if ((yaPagado ?? 0) > 0 && (form.fecha_abono ?? '') < (form.fecha ?? '')) { setError('Lo abonado no puede ser anterior al préstamo.'); return; }
     setGuardando(true);
     try {
       const inputCompleto: AnticipoInput = {
         ...form,
         monto_total: montoTotalUsd,
+        ya_pagado: yaPagado,
+        fecha_abono: yaPagado ? form.fecha_abono : null,
         moneda: monedaForm,
         monto_original: monedaForm === 'USD' ? montoTotalUsd : montoMonedaForm,
         tasa_cambio: monedaForm === 'USD' ? null : (tasaCambioForm || (monedaForm === 'Bs' || monedaForm === 'VES' ? tasaBcv : null)),
       };
       await crearAnticipo(inputCompleto, actor, actorName);
-      toast('Registrado con éxito', 'success');
+      toast(historicoForm ? 'Préstamo histórico cargado' : 'Registrado exitosamente', 'success');
       setForm(VACIO());
       setMonedaForm('USD'); setMontoMonedaForm(null); setTasaCambioForm(null);
       setAbrirForm(false);
@@ -170,137 +254,143 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); setPorBorrar(null); }
   }
 
-  async function verConsolidado() {
+  async function verConsolidado(deudasPdf: DeudaTrabajador[]) {
+    setGenerandoPdf(true);
     try {
       const { verConsolidadoPrestamosPdf } = await import('./prestamosPdf');
-      await verConsolidadoPrestamosPdf(deudas, { desde: filtro.desde, hasta: filtro.hasta }, empresa);
+      await verConsolidadoPrestamosPdf(deudasPdf, { desde: filtro.desde, hasta: filtro.hasta }, empresa);
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+    finally { setGenerandoPdf(false); }
   }
 
-  const esHistoricoForm = !!form.fecha && form.fecha < hoyIso();
+  async function verEstadoCuenta(persona: Personal) {
+    setGenerandoPdf(true);
+    try {
+      const { verEstadoCuentaPrestamosPdf } = await import('./prestamosPdf');
+      await verEstadoCuentaPrestamosPdf(persona, lista, pagos, { desde: filtro.desde, hasta: filtro.hasta });
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
+    finally { setGenerandoPdf(false); }
+  }
+
+  const hoy = hoyIso();
+  const rangoActivo = rangos.find((r) => filtro.desde === r.desde && filtro.hasta === r.hasta)?.key;
 
   return (
     <div>
-      {/* ── Las dos tarjetas. Se tocan. ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '.7rem', marginBottom: '.9rem' }}>
-        <TarjetaPrestamos
-          rotulo="Total préstamos pendientes"
-          valor={money(resumen.totalPendiente)}
-          pie={`${resumen.prestamosAbiertos} préstamo(s) sin saldar`}
-          color="var(--danger)"
-          onClick={() => setVerPendientes(true)}
-        />
-        <TarjetaPrestamos
-          rotulo="Trabajadores con préstamos pendientes"
-          valor={String(resumen.trabajadoresConSaldo)}
-          pie={resumen.trabajadoresConSaldo === 1 ? 'persona debiendo' : 'personas debiendo'}
-          color="var(--warning)"
-          onClick={() => setVerTrabajadores(true)}
-        />
-        <TarjetaPrestamos
-          rotulo="Prestado / cobrado en lo filtrado"
-          valor={money(resumen.totalPrestado)}
-          pie={`cobrado ${money(resumen.totalPagado)}`}
-          color="var(--primary)"
-        />
+      {/* ── Tarjetas. Se tocan. ── */}
+      <div className="lt-kpis">
+        <Kpi color="rojo" label="Total préstamos pendientes" value={money(resumen.totalPendiente)}
+          sub={`${resumen.prestamosAbiertos} préstamo(s) sin saldar · toca para ver el detalle`}
+          onClick={() => setVerPendientes(true)} />
+        <Kpi color="ambar" label="Trabajadores con préstamos pendientes" value={String(resumen.trabajadoresConSaldo)}
+          sub={`${resumen.trabajadoresConSaldo === 1 ? 'persona debiendo' : 'personas debiendo'} · toca para ver el detalle`}
+          onClick={() => setVerTrabajadores(true)} />
+        <Kpi color="naranja" label="Prestado / cobrado en lo filtrado" value={money(resumen.totalPrestado)}
+          sub={`cobrado ${money(resumen.totalPagado)}`} />
       </div>
 
       {/* ── Filtros ── */}
-      <div className="card" style={{ padding: '.7rem .85rem', marginBottom: '.8rem' }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'flex-end' }}>
-          <div className="form-row" style={{ flex: '2 1 220px', margin: 0 }}>
-            <label>Buscar</label>
-            <input className="input" value={filtro.texto ?? ''} placeholder="Nombre del trabajador o motivo…"
-              onChange={(e) => setFiltro((f) => ({ ...f, texto: e.target.value }))} />
+      <div className="lt-filtros">
+        <div className="lt-fila">
+          <div className="lt-campo lt-ancho">
+            <label htmlFor="ant-buscar">Buscar</label>
+            <input id="ant-buscar" name="anticipos-buscar" className="input" value={filtro.texto ?? ''}
+              onChange={(e) => setF('texto', e.target.value)} placeholder="Nombre del trabajador o motivo…" />
           </div>
-          <div className="form-row" style={{ flex: '1 1 180px', margin: 0 }}>
-            <label>Trabajador</label>
-            <select className="select" value={filtro.trabajadorId ?? ''} onChange={(e) => setFiltro((f) => ({ ...f, trabajadorId: e.target.value }))}>
+          <div className="lt-campo">
+            <label htmlFor="ant-trab">Trabajador</label>
+            <select id="ant-trab" className="select" value={filtro.trabajadorId ?? ''} onChange={(e) => setF('trabajadorId', e.target.value)}>
               <option value="">— todos —</option>
-              {personal.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellido}</option>)}
+              {personal.map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellido}{p.numero_ficha ? ` · Ficha ${p.numero_ficha}` : ''}</option>)}
             </select>
           </div>
-          <div className="form-row" style={{ flex: '0 1 130px', margin: 0 }}>
-            <label>Tipo</label>
-            <select className="select" value={filtro.tipo ?? ''} onChange={(e) => setFiltro((f) => ({ ...f, tipo: e.target.value as FiltroPrestamos['tipo'] }))}>
+          <div className="lt-campo">
+            <label htmlFor="ant-tipo">Tipo</label>
+            <select id="ant-tipo" className="select" value={filtro.tipo ?? ''} onChange={(e) => setF('tipo', e.target.value as FiltroPrestamos['tipo'])}>
               <option value="">Todos</option>
-              <option value="anticipo">Anticipo</option>
-              <option value="prestamo">Préstamo</option>
+              <option value="prestamo">Solo préstamos</option>
+              <option value="anticipo">Solo anticipos</option>
             </select>
           </div>
-          <div className="form-row" style={{ flex: '0 1 130px', margin: 0 }}>
-            <label>Estado</label>
-            <select className="select" value={filtro.estado ?? 'todos'} onChange={(e) => setFiltro((f) => ({ ...f, estado: e.target.value as FiltroPrestamos['estado'] }))}>
+          <div className="lt-campo">
+            <label htmlFor="ant-estado">Estado</label>
+            <select id="ant-estado" className="select" value={filtro.estado ?? 'todos'} onChange={(e) => setF('estado', e.target.value as FiltroPrestamos['estado'])}>
               <option value="todos">Todos</option>
               <option value="activos">Con saldo</option>
               <option value="saldados">Saldados</option>
             </select>
           </div>
-          <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
-            <label>Desde</label>
-            <input className="input" type="date" value={filtro.desde ?? ''} onChange={(e) => setFiltro((f) => ({ ...f, desde: e.target.value }))} />
+          <div className="lt-campo">
+            <label htmlFor="ant-desde">Desde</label>
+            <input id="ant-desde" name="anticipos-desde" className="input" type="date" value={filtro.desde ?? ''} onChange={(e) => setF('desde', e.target.value)} />
           </div>
-          <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
-            <label>Hasta</label>
-            <input className="input" type="date" value={filtro.hasta ?? ''} onChange={(e) => setFiltro((f) => ({ ...f, hasta: e.target.value }))} />
+          <div className="lt-campo">
+            <label htmlFor="ant-hasta">Hasta</label>
+            <input id="ant-hasta" name="anticipos-hasta" className="input" type="date" value={filtro.hasta ?? ''} onChange={(e) => setF('hasta', e.target.value)} />
           </div>
         </div>
 
         {/* Los rangos que se piden siempre, ya calculados: escribir dos fechas
             a mano para ver «este mes» es pedirle la cuenta del calendario. */}
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', marginTop: '.5rem', alignItems: 'center' }}>
+        <div className="lt-pie">
           {rangos.map((r) => (
-            <button key={r.key} type="button"
-              className={`btn btn-sm ${filtro.desde === r.desde && filtro.hasta === r.hasta ? 'btn-primary' : 'btn-ghost'}`}
-              onClick={() => setFiltro((f) => ({ ...f, desde: r.desde, hasta: r.hasta }))}>{r.label}</button>
+            <button key={r.key} type="button" className={`lt-chip${rangoActivo === r.key ? ' activo' : ''}`}
+              onClick={() => setFiltro((f) => ({ ...f, desde: r.desde, hasta: r.hasta }))}>
+              {r.label}
+            </button>
           ))}
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setMasFiltros((v) => !v)}>
-            {masFiltros ? '▴ Menos filtros' : '▾ Más filtros'}
-          </button>
-          {hayFiltro(filtro) && (
-            <button type="button" className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }}
-              onClick={() => setFiltro(FILTRO_PRESTAMOS_VACIO)}>✕ Limpiar</button>
+          <button type="button" className={`lt-chip${masFiltros ? ' activo' : ''}`} onClick={() => setMasFiltros((v) => !v)}>▾ Más filtros</button>
+          {nFiltros > 0 && (
+            <button type="button" className="lt-chip" onClick={() => { setFiltro(FILTRO_INICIAL); setDepto(''); }}>✕ Limpiar ({nFiltros})</button>
           )}
-          <span className="muted" style={{ marginLeft: 'auto', fontSize: '.82rem' }}>
-            {visibles.length} de {lista.length} · {pagosVisibles.length} abono(s) en el rango
+          <span className="lt-contador">
+            {visibles.length} de {lista.length} · {resumenVisible.prestamosAbiertos} con saldo · {pagosVisibles.length} abono(s) en el rango
           </span>
         </div>
 
         {masFiltros && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', marginTop: '.5rem', alignItems: 'flex-end' }}>
-            <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
-              <label>Monto desde</label>
-              <input className="input mono" type="number" step="any" min={0} value={filtro.montoMin ?? ''}
-                onChange={(e) => setFiltro((f) => ({ ...f, montoMin: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" />
+          <div className="lt-mas lt-fila">
+            <div className="lt-campo">
+              <label htmlFor="ant-origen">Origen</label>
+              <select id="ant-origen" className="select" value={filtro.origen ?? 'todos'} onChange={(e) => setF('origen', e.target.value as FiltroPrestamos['origen'])}>
+                <option value="todos">Todos</option>
+                <option value="historico">Históricos (anteriores al sistema)</option>
+                <option value="sistema">Cargados en el sistema</option>
+              </select>
             </div>
-            <div className="form-row" style={{ flex: '0 1 150px', margin: 0 }}>
-              <label>Monto hasta</label>
-              <input className="input mono" type="number" step="any" min={0} value={filtro.montoMax ?? ''}
-                onChange={(e) => setFiltro((f) => ({ ...f, montoMax: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" />
+            <div className="lt-campo">
+              <label htmlFor="ant-depto">Departamento</label>
+              <select id="ant-depto" className="select" value={depto} onChange={(e) => setDepto(e.target.value)}>
+                <option value="">Todos</option>
+                {departamentos.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
             </div>
-            <div className="form-row" style={{ flex: '0 1 170px', margin: 0 }}>
-              <label>Debe al menos</label>
-              <input className="input mono" type="number" step="any" min={0} value={filtro.saldoMin ?? ''}
-                onChange={(e) => setFiltro((f) => ({ ...f, saldoMin: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" />
+            <div className="lt-campo">
+              <label htmlFor="ant-min">Monto mínimo (USD)</label>
+              <input id="ant-min" name="anticipos-monto-min" className="input mono" type="number" min={0} step="any" value={filtro.montoMin ?? ''}
+                onChange={(e) => setF('montoMin', e.target.value === '' ? null : Number(e.target.value))} placeholder="0,00" />
             </div>
-            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.85rem', paddingBottom: '.4rem' }}>
-              <input type="checkbox" checked={!!filtro.soloHistoricos}
-                onChange={(e) => setFiltro((f) => ({ ...f, soloHistoricos: e.target.checked }))} />
-              Solo cargas históricas
-            </label>
+            <div className="lt-campo">
+              <label htmlFor="ant-max">Monto máximo (USD)</label>
+              <input id="ant-max" name="anticipos-monto-max" className="input mono" type="number" min={0} step="any" value={filtro.montoMax ?? ''}
+                onChange={(e) => setF('montoMax', e.target.value === '' ? null : Number(e.target.value))} placeholder="Sin tope" />
+            </div>
+            <div className="lt-campo">
+              <label htmlFor="ant-saldo-min">Debe al menos (USD)</label>
+              <input id="ant-saldo-min" name="anticipos-saldo-min" className="input mono" type="number" min={0} step="any" value={filtro.saldoMin ?? ''}
+                onChange={(e) => setF('saldoMin', e.target.value === '' ? null : Number(e.target.value))} placeholder="0,00" />
+            </div>
           </div>
         )}
       </div>
 
       {/* ── Acciones ── */}
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.7rem' }}>
-        {canWrite && (
-          <button className="btn btn-primary" onClick={() => { setForm(VACIO()); setError(null); setAbrirForm(true); }}>
-            + Registrar préstamo o anticipo
-          </button>
-        )}
-        <button className="btn btn-ghost" onClick={() => void verConsolidado()} disabled={!deudas.length}>
-          📄 Consolidado en PDF
+      <div className="lt-acciones">
+        {canWrite && <button className="btn btn-primary" onClick={abrirAlta}>+ Registrar préstamo o anticipo</button>}
+        <button className="btn btn-ghost" disabled={generandoPdf || !deudaPorTrabajador(visibles, pagos, nombreDe).length}
+          title="PDF de lo que se ve en la lista: total prestado, pagado y deuda por trabajador, con sus abonos"
+          onClick={() => void verConsolidado(deudaPorTrabajador(visibles, pagos, nombreDe))}>
+          {generandoPdf ? 'Generando…' : '📄 Consolidado en PDF'}
         </button>
       </div>
 
@@ -309,7 +399,7 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
         <table className="table" style={{ fontSize: '.85rem' }}>
           <thead>
             <tr>
-              <th>Trabajador</th><th>Tipo</th><th>Fecha</th><th>Motivo</th>
+              <th>Fecha</th><th>Trabajador</th><th>Tipo</th><th>Motivo</th>
               <th style={{ textAlign: 'right' }}>Total</th>
               <th style={{ textAlign: 'right' }}>Pagado</th>
               <th style={{ textAlign: 'right' }}>Debe</th>
@@ -322,49 +412,64 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
             {loading && <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
             {!loading && !visibles.length && (
               <tr><td colSpan={10}>
-                <EmptyState message={hayFiltro(filtro) ? 'Nada con esos filtros' : 'Sin préstamos ni anticipos'} icon="💵" />
+                <EmptyState message={nFiltros ? 'Nada coincide con los filtros' : 'Sin préstamos ni anticipos'} icon="💵" />
               </td></tr>
             )}
             {!loading && visibles.map((a) => {
               const pagado = (pagosDe.get(a.id) ?? []).reduce((s, p) => s + (Number(p.monto) || 0), 0);
               const entregas = obtenerEntregas(a);
+              const p = personaPorId.get(a.personal_id);
+              const conSaldo = Number(a.saldo) > 0;
               return (
-                <tr key={a.id} style={{ opacity: Number(a.saldo) > 0 ? 1 : 0.6 }}>
-                  <td>
-                    <button className="btn-link" style={{ padding: 0, textAlign: 'left' }} onClick={() => setCuentaDe(a.personal_id)}>
-                      {nombreDe(a.personal_id)}
-                    </button>
-                  </td>
-                  <td>
-                    <span className="badge">{a.tipo === 'anticipo' ? 'Anticipo' : 'Préstamo'}</span>
-                    {esHistorico(a) && <span className="badge" title="Cargado después de que se dio" style={{ marginLeft: '.25rem' }}>histórico</span>}
-                    {entregas.length > 1 && (
-                      <span className="badge" title={`${entregas.length} entregas otorgadas`} style={{ marginLeft: '.25rem', color: 'var(--primary)', borderColor: 'var(--primary)' }}>
-                        {entregas.length} entregas
-                      </span>
-                    )}
-                  </td>
+                <tr key={a.id} style={{ opacity: conSaldo ? 1 : 0.65, cursor: 'pointer' }} onClick={() => setDetalle(a)} title="Ver detalle y abonos">
                   <td className="mono" style={{ whiteSpace: 'nowrap' }}>
-                    <div className="muted">{date(fechaDePrestamo(a))}</div>
+                    <div style={{ fontWeight: 600 }}>{date(fechaDePrestamo(a))}</div>
                     {entregas.slice(1).map((ent, idx) => (
-                      <div key={idx} style={{ fontSize: '.75rem', color: 'var(--primary)', marginTop: '.15rem' }} title={`Entrega adicional: ${money(ent.monto)}${ent.motivo ? ` · ${ent.motivo}` : ''}`}>
-                        + {date(ent.fecha)} <span className="muted">({money(ent.monto)})</span>
+                      <div key={idx} className="muted" style={{ fontSize: '.72rem', marginTop: '2px', lineHeight: 1.25 }}
+                        title={`Entrega adicional: ${money(ent.monto)}${ent.motivo ? ` · ${ent.motivo}` : ''}`}>
+                        + {date(ent.fecha)} ({money(ent.monto)})
                       </div>
                     ))}
                   </td>
-                  <td className="muted">{entregas[0]?.motivo || a.motivo || '—'}</td>
+                  <td>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+                      <button className="btn-link" style={{ padding: 0, textAlign: 'left', fontWeight: 500 }} title="Estado de cuenta del trabajador"
+                        onClick={(e) => { e.stopPropagation(); setCuentaDe(a.personal_id); }}>
+                        {nombreDe(a.personal_id)}
+                      </button>
+                      {entregas.length > 1 && (
+                        <span className="badge" style={{ fontSize: '.7rem', padding: '1px 6px', color: 'var(--primary)', borderColor: 'var(--primary)' }}
+                          title={`${entregas.length} entregas acumuladas`}>
+                          {entregas.length} entregas
+                        </span>
+                      )}
+                    </div>
+                    {p?.numero_ficha && <div className="muted" style={{ fontSize: '.74rem' }}>Ficha {p.numero_ficha}{p.cargo ? ` · ${p.cargo}` : ''}</div>}
+                  </td>
+                  <td>
+                    <span className="badge">{etiquetaTipo(a.tipo)}</span>
+                    {esHistoricoFila(a) && <span className="badge" style={{ marginLeft: '.25rem' }} title="Cargado como histórico (anterior al sistema)">📜</span>}
+                  </td>
+                  <td className="muted" style={{ maxWidth: '340px', whiteSpace: 'normal' }}>
+                    {entregas.length > 1 ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px' }}>
+                        {entregas.map((e, idx) => (
+                          <div key={idx} style={{ fontSize: '.78rem', lineHeight: 1.25 }}>
+                            <strong style={{ color: 'var(--text)' }}>Préstamo {idx + 1} ({money(e.monto)} · {date(e.fecha)}):</strong> {e.motivo || '—'}
+                          </div>
+                        ))}
+                      </div>
+                    ) : (entregas[0]?.motivo || a.motivo || '—')}
+                  </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(a.monto_total)}</td>
                   <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(pagado)}</td>
-                  <td className="mono" style={{ textAlign: 'right', color: Number(a.saldo) > 0 ? 'var(--danger)' : 'var(--success)', fontWeight: 700 }}>{money(a.saldo)}</td>
-                  <td className="mono muted" style={{ textAlign: 'center' }}>{cuotaDe(a)}</td>
+                  <td className="mono" style={{ textAlign: 'right', color: conSaldo ? 'var(--danger)' : 'var(--success)', fontWeight: 700 }}>{money(a.saldo)}</td>
+                  <td className="mono muted" style={{ textAlign: 'center' }}>{a.cuota_sugerida != null ? money(a.cuota_sugerida) : '—'}</td>
                   <td style={{ textAlign: 'center' }}>
-                    <span className="badge" style={{ color: Number(a.saldo) > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                      {Number(a.saldo) > 0 ? 'Activo' : 'Saldado'}
-                    </span>
+                    <span className={`lt-pill ${conSaldo ? 'ambar' : 'verde'}`}>{conSaldo ? 'Activo' : 'Saldado'}</span>
                   </td>
-                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-ghost" onClick={() => {
-                      const p = personaPorId.get(a.personal_id);
                       if (p) {
                         void verReciboPrestamoPdf({
                           tipo: 'entrega',
@@ -380,60 +485,64 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
                         });
                       }
                     }} title="Imprimir recibo / comprobante de entrega en PDF">📄 Recibo</button>
-                    <button className="btn btn-sm btn-ghost" onClick={() => setDetalle(a)} title="Abonos y detalle">💵 Abonos</button>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setDetalle(a)} title="Detalle y abonos">🔍</button>
                     {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(a)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>}
                   </td>
                 </tr>
               );
             })}
           </tbody>
+          {!loading && visibles.length > 0 && (
+            <tfoot>
+              <tr style={{ fontWeight: 700 }}>
+                <td colSpan={4} style={{ textAlign: 'right' }}>Totales ({visibles.length})</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{money(resumenVisible.totalPrestado)}</td>
+                <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(resumenVisible.totalPagado)}</td>
+                <td className="mono" style={{ textAlign: 'right', color: resumenVisible.totalPendiente > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(resumenVisible.totalPendiente)}</td>
+                <td colSpan={3} />
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
 
       {/* ── Alta ── */}
       {abrirForm && (
-        <Modal title={prestamoActivoExistente ? 'Sumar al préstamo activo' : 'Registrar préstamo o anticipo'} size="lg" onClose={() => setAbrirForm(false)}
+        <Modal title={historicoForm ? '📜 Cargar préstamo histórico' : prestamoActivoExistente ? 'Sumar al préstamo activo' : '+ Registrar préstamo o anticipo'} size="md"
+          onClose={() => { if (!guardando) { setAbrirForm(false); setError(null); } }}
           footer={<>
-            <button className="btn btn-ghost" onClick={() => setAbrirForm(false)} disabled={guardando}>Cancelar</button>
+            <button className="btn btn-ghost" onClick={() => { setAbrirForm(false); setError(null); }} disabled={guardando}>Cancelar</button>
             <button type="submit" form="form-anticipo" className="btn btn-primary" disabled={guardando}>
-              {guardando ? 'Guardando…' : prestamoActivoExistente ? '+ Sumar al préstamo activo' : '+ Registrar'}
+              {guardando ? 'Guardando…' : historicoForm ? '📜 Cargar histórico' : prestamoActivoExistente ? '+ Sumar al préstamo activo' : '+ Registrar'}
             </button>
           </>}>
           <form id="form-anticipo" onSubmit={guardar}>
-            {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
-            {prestamoActivoExistente && (
-              <div className="card" style={{ padding: '.65rem .85rem', marginBottom: '.75rem', background: 'rgba(255, 138, 0, 0.08)', borderLeft: '4px solid var(--warning)' }}>
-                <div style={{ fontWeight: 700, color: 'var(--warning)', fontSize: '.88rem', marginBottom: '.2rem' }}>
-                  ⚠️ Este trabajador ya tiene un préstamo activo
-                </div>
-                <div style={{ fontSize: '.84rem', lineHeight: 1.45 }}>
-                  Tiene un préstamo vigente por <strong>{money(prestamoActivoExistente.monto_total)}</strong> con saldo pendiente de <strong style={{ color: 'var(--danger)' }}>{money(prestamoActivoExistente.saldo)}</strong>.
-                  {Number(form.monto_total) > 0 && (
-                    <div style={{ marginTop: '.35rem' }}>
-                      Al registrar los <strong>{money(form.monto_total)}</strong>, se sumarán acumulando un total de <strong>{money(Number(prestamoActivoExistente.monto_total) + Number(form.monto_total))}</strong> y un saldo pendiente de <strong style={{ color: 'var(--danger)' }}>{money(Number(prestamoActivoExistente.saldo) + Number(form.monto_total) - Number(form.ya_pagado ?? 0))}</strong>. Se registrará la fecha como una nueva entrega.
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+            {error && <div className="aviso danger" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⛔</span><div><strong>Error:</strong> {error}</div></div>}
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', fontSize: '.88rem', cursor: 'pointer', marginBottom: '.7rem' }}
+              title="Para los préstamos que ya existían antes del sistema: se carga con lo que ya se había abonado">
+              <input type="checkbox" checked={historicoForm} onChange={(e) => setHistoricoForm(e.target.checked)} />
+              📜 Modo histórico (ya existía antes del sistema)
+            </label>
             <div className="form-grid">
-              <div className="form-row">
-                <label>Trabajador</label>
-                <select className="select" value={form.personal_id} onChange={(e) => setForm((f) => ({ ...f, personal_id: e.target.value }))} required>
-                  <option value="">— elegir —</option>
-                  {personal.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellido}</option>)}
-                </select>
+              <div className="form-row" style={{ gridColumn: '1 / -1' }}>
+                <label htmlFor="alta-trab">Trabajador *</label>
+                <SearchSelect id="alta-trab" value={form.personal_id} onChange={(v) => setForm((f) => ({ ...f, personal_id: v }))} placeholder="🔍 Buscar trabajador…"
+                  options={personal.filter((p) => p.activo || historicoForm).map((p) => ({
+                    value: p.id,
+                    label: `${p.nombre} ${p.apellido ?? ''}`.trim() + `${p.numero_ficha ? ` · Ficha ${p.numero_ficha}` : ''}${p.activo ? '' : ' · inactivo'}`,
+                    keywords: [p.cedula ?? '', p.cargo ?? ''].filter(Boolean),
+                  }))} />
               </div>
               <div className="form-row">
-                <label>Tipo</label>
-                <select className="select" value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value as 'anticipo' | 'prestamo' }))}>
-                  <option value="anticipo">Anticipo</option>
+                <label htmlFor="alta-tipo">Tipo</label>
+                <select id="alta-tipo" className="select" value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value as 'anticipo' | 'prestamo' }))}>
                   <option value="prestamo">Préstamo</option>
+                  <option value="anticipo">Anticipo</option>
                 </select>
               </div>
               <div className="form-row">
-                <label>Moneda de entrega</label>
-                <select className="select" value={monedaForm} onChange={(e) => {
+                <label htmlFor="alta-moneda">Moneda de entrega</label>
+                <select id="alta-moneda" className="select" value={monedaForm} onChange={(e) => {
                   const m = e.target.value as MonedaPagoRrhh;
                   setMonedaForm(m);
                   if ((m === 'Bs' || m === 'VES') && tasaBcv && !tasaCambioForm) setTasaCambioForm(tasaBcv);
@@ -444,47 +553,57 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
                 </select>
               </div>
               <div className="form-row">
-                <label>Fecha en que se dio</label>
-                <input className="input" type="date" max={hoyIso()} value={form.fecha ?? hoyIso()}
+                <label htmlFor="alta-fecha">Fecha del préstamo *</label>
+                <input id="alta-fecha" name="anticipo-fecha" className="input" type="date" max={hoy} value={form.fecha ?? hoy} required
                   onChange={(e) => setForm((f) => ({ ...f, fecha: e.target.value }))} />
-                <small className="hint muted">
-                  {esHistoricoForm
-                    ? 'Queda marcado como carga histórica. Los filtros por fecha lo ubican en el mes en que se dio, no en hoy.'
-                    : 'Poné una fecha anterior para cargar un préstamo viejo.'}
-                </small>
+                {historicoForm && <small className="muted">El día en que se dio, aunque sea de hace meses.</small>}
               </div>
+
+              {/* Aviso si ya tiene un préstamo activo al que se sumará */}
+              {prestamoActivoExistente && !historicoForm && (
+                <div className="aviso info" style={{ gridColumn: '1 / -1', marginBottom: '.35rem', fontSize: '.84rem' }}>
+                  <span className="aviso-icono">💡</span>
+                  <div>
+                    <strong>Este trabajador ya tiene un préstamo activo debiendo {money(prestamoActivoExistente.saldo)}</strong> (total prestado anterior: {money(prestamoActivoExistente.monto_total)}).
+                    <div style={{ marginTop: '.25rem' }}>
+                      El monto que registres abajo se <strong>sumará al préstamo existente</strong> y se registrarán ambas fechas de entrega.
+                      {Number(form.monto_total) > 0 && monedaForm === 'USD' && (
+                        <span> Nuevo total acumulado: <strong>{money(Number(prestamoActivoExistente.monto_total) + Number(form.monto_total))}</strong> · Nuevo saldo pendiente: <strong>{money(Number(prestamoActivoExistente.saldo) + Number(form.monto_total))}</strong>.</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {monedaForm === 'USD' ? (
                 <div className="form-row">
-                  <label>Monto total (USD)</label>
-                  <input className="input mono" type="number" min={0} step="any" value={form.monto_total || ''} required
+                  <label htmlFor="alta-monto">Monto total (USD) *</label>
+                  <input id="alta-monto" name="anticipo-monto-total" className="input mono" type="number" min={0} step="any" value={form.monto_total || ''} required
                     onChange={(e) => setForm((f) => ({ ...f, monto_total: Number(e.target.value) || 0 }))} placeholder="0,00" />
                 </div>
               ) : (
                 <>
                   <div className="form-row">
-                    <label>Monto a entregar ({simboloMoneda(monedaForm)})</label>
-                    <input className="input mono" type="number" min={0} step="any" value={montoMonedaForm ?? ''} required
+                    <label htmlFor="alta-monto-orig">Monto a entregar ({simboloMoneda(monedaForm)}) *</label>
+                    <input id="alta-monto-orig" name="anticipo-monto-original" className="input mono" type="number" min={0} step="any" value={montoMonedaForm ?? ''} required
                       onChange={(e) => setMontoMonedaForm(e.target.value === '' ? null : Number(e.target.value))} placeholder="0,00" />
                   </div>
                   <div className="form-row">
-                    <label>Tasa de cambio ({simboloMoneda(monedaForm)} por $)</label>
-                    <input className="input mono" type="number" min={0} step="any" value={tasaCambioForm ?? ''} required
+                    <label htmlFor="alta-tasa">Tasa de cambio ({simboloMoneda(monedaForm)} por $) *</label>
+                    <input id="alta-tasa" name="anticipo-tasa-cambio" className="input mono" type="number" min={0} step="any" value={tasaCambioForm ?? ''} required
                       onChange={(e) => setTasaCambioForm(e.target.value === '' ? null : Number(e.target.value))} placeholder={(monedaForm === 'Bs' || monedaForm === 'VES') && tasaBcv ? String(tasaBcv) : '0,00'} />
                     {(monedaForm === 'Bs' || monedaForm === 'VES') && tasaBcv && (
-                      <small className="hint muted">Tasa sugerida hoy: {tasaBcv.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$</small>
+                      <small className="muted">Tasa sugerida hoy: {tasaBcv.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs/$</small>
                     )}
                   </div>
-                  <div className="card" style={{ gridColumn: '1 / -1', background: 'rgba(40, 150, 90, 0.08)', borderLeft: '4px solid var(--success)', padding: '.6rem .8rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
-                      <div>
-                        <span style={{ fontSize: '.75rem', textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--success)', fontWeight: 700 }}>
-                          Conversión en $ al cambio:
-                        </span>
-                        <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--success)' }}>
-                          $ {convertirMonedaAUsd(montoMonedaForm || 0, monedaForm, tasaCambioForm || ((monedaForm === 'Bs' || monedaForm === 'VES') ? tasaBcv : null)).montoUsd.toFixed(2)} USD
-                        </div>
+                  <div className="aviso success" style={{ gridColumn: '1 / -1' }}>
+                    <span className="aviso-icono">💱</span>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontSize: '.75rem', textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 700 }}>Conversión en $ al cambio</span>
+                      <div className="mono" style={{ fontSize: '1.2rem', fontWeight: 800 }}>
+                        $ {convertirMonedaAUsd(montoMonedaForm || 0, monedaForm, tasaCambioForm || ((monedaForm === 'Bs' || monedaForm === 'VES') ? tasaBcv : null)).montoUsd.toFixed(2)} USD
                       </div>
-                      <div className="muted" style={{ fontSize: '.8rem', textAlign: 'right' }}>
+                      <div className="muted" style={{ fontSize: '.8rem' }}>
                         {montoMonedaForm ? `${simboloMoneda(monedaForm)} ${Number(montoMonedaForm).toLocaleString('es-VE', { minimumFractionDigits: 2 })}` : '0,00'} @ {tasaCambioForm || ((monedaForm === 'Bs' || monedaForm === 'VES') ? tasaBcv : '—')}
                       </div>
                     </div>
@@ -492,59 +611,64 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
                 </>
               )}
               <div className="form-row">
-                <label>Ya pagado a la fecha (opcional)</label>
-                <input className="input mono" type="number" min={0} step="any" value={form.ya_pagado ?? ''}
-                  onChange={(e) => setForm((f) => ({ ...f, ya_pagado: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" />
-                <small className="hint muted">
-                  Para el histórico: entra como un abono, no como un monto más chico. Así queda en el estado de cuenta.
-                </small>
-              </div>
-              <div className="form-row">
-                <label>Cuota sugerida por quincena (opcional)</label>
-                <input className="input mono" type="number" min={0} step="any" value={form.cuota_sugerida ?? ''}
+                <label htmlFor="alta-cuota">Cuota sugerida por quincena</label>
+                <input id="alta-cuota" name="anticipo-cuota-sugerida" className="input mono" type="number" min={0} step="any" value={form.cuota_sugerida ?? ''}
                   onChange={(e) => setForm((f) => ({ ...f, cuota_sugerida: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" />
               </div>
+              {historicoForm && (
+                <>
+                  <div className="form-row">
+                    <label htmlFor="alta-abonado">Ya abonado hasta hoy (USD)</label>
+                    <input id="alta-abonado" name="anticipo-abonado" className="input mono" type="number" min={0} step="any" value={form.ya_pagado ?? ''}
+                      onChange={(e) => setForm((f) => ({ ...f, ya_pagado: e.target.value === '' ? null : Number(e.target.value) }))} placeholder="0,00" />
+                    <small className="muted">
+                      {Number(form.monto_total) > 0
+                        ? `Queda debiendo ${money(Math.max(0, Number(form.monto_total) - Number(form.ya_pagado ?? 0)))}`
+                        : 'Lo que ya pagó antes de cargarlo aquí; queda como un abono «histórico».'}
+                    </small>
+                  </div>
+                  <div className="form-row">
+                    <label htmlFor="alta-fabono">Abonado hasta (fecha)</label>
+                    <input id="alta-fabono" name="anticipo-fecha-abono" className="input" type="date" max={hoy} value={form.fecha_abono ?? hoy}
+                      onChange={(e) => setForm((f) => ({ ...f, fecha_abono: e.target.value }))} />
+                  </div>
+                </>
+              )}
               <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-                <label>Motivo</label>
-                <input className="input" value={form.motivo ?? ''} onChange={(e) => setForm((f) => ({ ...f, motivo: e.target.value }))}
+                <label htmlFor="alta-motivo">Motivo</label>
+                <input id="alta-motivo" name="anticipo-motivo" className="input" value={form.motivo ?? ''} onChange={(e) => setForm((f) => ({ ...f, motivo: e.target.value }))}
                   placeholder="Adelanto de quincena, préstamo personal…" />
               </div>
             </div>
-            {Number(form.monto_total) > 0 && (
-              <div className="card" style={{ padding: '.5rem .7rem', marginTop: '.5rem', background: 'var(--bg-1)', borderLeft: '3px solid var(--primary)' }}>
-                <span className="mono" style={{ fontSize: '.85rem' }}>
-                  Total {money(form.monto_total)} · pagado {money(form.ya_pagado ?? 0)} ·{' '}
-                  <strong>debe {money(Math.max(0, Number(form.monto_total) - Number(form.ya_pagado ?? 0)))}</strong>
-                </span>
-              </div>
-            )}
-            <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
-              El saldo se descuenta solo al pagar la nómina, hasta saldar. Los abonos por fuera se cargan desde 💵 Abonos.
-            </small>
+            <p className="muted" style={{ fontSize: '.82rem', marginTop: '.6rem', marginBottom: 0 }}>
+              El saldo se descuenta automáticamente al pagar la nómina, hasta saldar. Los pagos por fuera se registran como abono desde el detalle del préstamo.
+            </p>
           </form>
         </Modal>
       )}
 
       {/* ── Detalle de las tarjetas ── */}
       {verPendientes && (
-        <Modal title={`Préstamos pendientes · ${money(resumen.totalPendiente)}`} size="lg" onClose={() => setVerPendientes(false)}>
-          <ListaPendientes
-            prestamos={visibles.filter((p) => Number(p.saldo) > 0)}
-            pagosDe={pagosDe} nombreDe={nombreDe}
-            onAbrir={(a) => { setVerPendientes(false); setDetalle(a); }}
-            onPersona={(id) => { setVerPendientes(false); setCuentaDe(id); }}
-          />
-        </Modal>
+        <PendientesModal
+          prestamos={baseKpi.filter((p) => Number(p.saldo) > 0)}
+          pagosDe={pagosDe} nombreDe={nombreDe} personaPorId={personaPorId}
+          total={resumen.totalPendiente} filtrosTxt={textoFiltros()}
+          generando={generandoPdf}
+          onClose={() => setVerPendientes(false)}
+          onAbrir={(a) => { setVerPendientes(false); setDetalle(a); }}
+          onPdf={() => void verConsolidado(deudas.filter((d) => d.debe > 0))}
+        />
       )}
 
       {verTrabajadores && (
-        <Modal title={`Trabajadores con préstamos pendientes · ${resumen.trabajadoresConSaldo}`} size="lg" onClose={() => setVerTrabajadores(false)}>
-          <ListaTrabajadores
-            deudas={deudas.filter((d) => d.debe > 0)}
-            personaPorId={personaPorId}
-            onPersona={(id) => { setVerTrabajadores(false); setCuentaDe(id); }}
-          />
-        </Modal>
+        <TrabajadoresModal
+          deudas={deudas.filter((d) => d.debe > 0)}
+          prestamos={baseKpi} pagosDe={pagosDe} personaPorId={personaPorId}
+          generando={generandoPdf}
+          onClose={() => setVerTrabajadores(false)}
+          onAbrir={(a) => { setVerTrabajadores(false); setDetalle(a); }}
+          onPdf={(p) => void verEstadoCuenta(p)}
+        />
       )}
 
       {/* ── Abonos de un préstamo ── */}
@@ -575,9 +699,23 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
 
       {porBorrar && (
         <ConfirmDialog
-          title="Eliminar préstamo"
-          message={`¿Eliminar este ${porBorrar.tipo === 'anticipo' ? 'anticipo' : 'préstamo'} de ${nombreDe(porBorrar.personal_id)}? Se borran también sus abonos, incluidos los descontados en la nómina.`}
-          confirmText="Eliminar" danger
+          title={porBorrar.tipo === 'anticipo' ? 'Eliminar anticipo' : 'Eliminar préstamo'}
+          danger
+          confirmText="Sí, eliminar"
+          message={Number(porBorrar.saldo) < Number(porBorrar.monto_total)
+            ? <>Este registro <strong>ya tiene abonos</strong> (descuentos de nómina o pagos). Al eliminarlo se borran también sus abonos y lo que falta deja de restarse en los próximos pagos.</>
+            : <>Se elimina el registro. Lo que falta por descontar deja de restarse en los próximos pagos de nómina.</>}
+          preview={
+            <VistaPrevia titulo="Se va a eliminar">
+              <Dato label="Trabajador">{nombreDe(porBorrar.personal_id)}</Dato>
+              <Dato label="Tipo">{etiquetaTipo(porBorrar.tipo)}{esHistoricoFila(porBorrar) ? ' · histórico' : ''}</Dato>
+              <Dato label="Fecha"><span className="mono">{date(fechaDePrestamo(porBorrar))}</span></Dato>
+              <Dato label="Motivo">{porBorrar.motivo || undefined}</Dato>
+              <Dato label="Monto total"><span className="mono">{money(porBorrar.monto_total)}</span></Dato>
+              <Dato label="Ya pagado"><span className="mono">{money(Math.max(0, (Number(porBorrar.monto_total) || 0) - (Number(porBorrar.saldo) || 0)))}</span></Dato>
+              <Dato label="Saldo pendiente"><strong className="mono">{money(porBorrar.saldo)}</strong></Dato>
+            </VistaPrevia>
+          }
           onConfirm={() => void confirmarBorrado()}
           onCancel={() => setPorBorrar(null)} />
       )}
@@ -585,112 +723,207 @@ export function AnticiposTab({ canWrite, actor, actorName, empresa = EMPRESA_POR
   );
 }
 
-/* ───────────────────── Piezas ───────────────────── */
-
-/** Una tarjeta del tablero. Con `onClick` se ve y se comporta como un botón. */
-function TarjetaPrestamos({ rotulo, valor, pie, color, onClick }: {
-  rotulo: string; valor: string; pie: string; color: string; onClick?: () => void;
-}) {
-  const contenido = (
-    <>
-      <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.05em', fontWeight: 700 }}>{rotulo}</div>
-      <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 800, color, margin: '.15rem 0' }}>{valor}</div>
-      <div className="muted" style={{ fontSize: '.78rem' }}>{pie}{onClick ? ' · tocá para ver el detalle' : ''}</div>
-    </>
-  );
-  if (!onClick) return <div className="card" style={{ padding: '.75rem .9rem' }}>{contenido}</div>;
-  return (
-    <button type="button" className="card" onClick={onClick}
-      style={{ padding: '.75rem .9rem', textAlign: 'left', cursor: 'pointer', borderLeft: `3px solid ${color}`, width: '100%' }}>
-      {contenido}
-    </button>
-  );
+/** Se dio antes del día en que se cargó (la misma regla del filtro «Origen»). */
+function esHistoricoFila(p: AnticipoPrestamo): boolean {
+  const dado = fechaDePrestamo(p);
+  const cargado = (p.created_at ?? '').slice(0, 10);
+  return !!dado && !!cargado && dado < cargado;
 }
 
+/* ───────────────────── Piezas ───────────────────── */
+
 /** El detalle de la tarjeta de pendientes: cada préstamo abierto, clickeable. */
-function ListaPendientes({ prestamos, pagosDe, nombreDe, onAbrir, onPersona }: {
+function PendientesModal({ prestamos, pagosDe, nombreDe, personaPorId, total, filtrosTxt, generando, onClose, onAbrir, onPdf }: {
   prestamos: AnticipoPrestamo[];
   pagosDe: Map<string, { monto: number }[]>;
   nombreDe: (id: string) => string;
-  onAbrir: (a: AnticipoPrestamo) => void;
-  onPersona: (id: string) => void;
+  personaPorId: Map<string, Personal>;
+  total: number; filtrosTxt: string; generando: boolean;
+  onClose: () => void; onAbrir: (a: AnticipoPrestamo) => void; onPdf: () => void;
 }) {
   const [q, setQ] = useState('');
-  const filtrados = prestamos.filter((p) => {
+  const orden = useMemo(() => {
     const t = q.trim().toLowerCase();
-    return !t || `${nombreDe(p.personal_id)} ${p.motivo ?? ''}`.toLowerCase().includes(t);
-  });
-  if (!prestamos.length) return <EmptyState message="No hay préstamos pendientes" icon="✅" />;
+    const f = !t ? prestamos : prestamos.filter((a) => {
+      const p = personaPorId.get(a.personal_id);
+      return `${nombreDe(a.personal_id)} ${p?.cedula ?? ''} ${p?.numero_ficha ?? ''} ${a.motivo ?? ''}`.toLowerCase().includes(t);
+    });
+    return [...f].sort((a, b) => (Number(b.saldo) || 0) - (Number(a.saldo) || 0));
+  }, [prestamos, personaPorId, nombreDe, q]);
+
   return (
-    <>
-      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por trabajador o motivo…" style={{ marginBottom: '.6rem' }} />
-      <div className="table-wrap">
-        <table className="table" style={{ fontSize: '.85rem' }}>
-          <thead><tr><th>Trabajador</th><th>Tipo</th><th>Fecha</th><th>Motivo</th><th style={{ textAlign: 'right' }}>Total</th><th style={{ textAlign: 'right' }}>Pagado</th><th style={{ textAlign: 'right' }}>Debe</th><th></th></tr></thead>
-          <tbody>
-            {!filtrados.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Nada con esa búsqueda</td></tr>}
-            {filtrados.map((a) => (
-              <tr key={a.id}>
-                <td><button className="btn-link" style={{ padding: 0 }} onClick={() => onPersona(a.personal_id)}>{nombreDe(a.personal_id)}</button></td>
-                <td><span className="badge">{a.tipo === 'anticipo' ? 'Anticipo' : 'Préstamo'}</span></td>
-                <td className="muted mono">{date(fechaDePrestamo(a))}</td>
-                <td className="muted">{a.motivo || '—'}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{money(a.monto_total)}</td>
-                <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>
-                  {money((pagosDe.get(a.id) ?? []).reduce((s, p) => s + (Number(p.monto) || 0), 0))}
-                </td>
-                <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)', fontWeight: 700 }}>{money(a.saldo)}</td>
-                <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-ghost" onClick={() => onAbrir(a)}>💵 Abonos</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <Modal title="💰 Préstamos pendientes" size="lg" onClose={onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onPdf} disabled={generando || !prestamos.length}>{generando ? 'Generando…' : '↓ PDF'}</button>
+        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+      </>}>
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.7rem' }}>
+        <div className="tira danger" style={{ flex: '1 1 160px' }}>
+          <div className="tira-titulo">Total pendiente</div>
+          <div className="tira-valor mono">{money(total)}</div>
+        </div>
+        <div className="tira" style={{ flex: '1 1 160px' }}>
+          <div className="tira-titulo">Préstamos con saldo</div>
+          <div className="tira-valor mono">{prestamos.length}</div>
+        </div>
+        <div className="tira" style={{ flex: '2 1 220px' }}>
+          <div className="tira-titulo">Filtros aplicados</div>
+          <div className="tira-valor" style={{ fontSize: '.85rem', fontWeight: 500 }}>{filtrosTxt}</div>
+        </div>
       </div>
-    </>
+      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Buscar por trabajador, cédula, ficha o motivo…" style={{ marginBottom: '.5rem' }} />
+      {!orden.length && <EmptyState icon="✅" message={q ? 'Nada coincide con la búsqueda' : 'Nadie debe nada con estos filtros'} />}
+      {!!orden.length && (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.84rem' }}>
+            <thead><tr><th>Trabajador</th><th>Tipo</th><th>Fecha</th><th>Motivo</th><th style={{ textAlign: 'right' }}>Total</th><th style={{ textAlign: 'right' }}>Pagado</th><th style={{ textAlign: 'right' }}>Debe</th><th /></tr></thead>
+            <tbody>
+              {orden.map((a) => {
+                const p = personaPorId.get(a.personal_id);
+                const pagado = (pagosDe.get(a.id) ?? []).reduce((s, g) => s + (Number(g.monto) || 0), 0);
+                return (
+                  <tr key={a.id} style={{ cursor: 'pointer' }} onClick={() => onAbrir(a)} title="Ver detalle y abonos">
+                    <td>{nombreDe(a.personal_id)}{p?.numero_ficha && <div className="muted" style={{ fontSize: '.74rem' }}>Ficha {p.numero_ficha}</div>}</td>
+                    <td><span className="badge">{etiquetaTipo(a.tipo)}</span>{esHistoricoFila(a) ? ' 📜' : ''}</td>
+                    <td className="mono">{date(fechaDePrestamo(a))}</td>
+                    <td className="muted">{a.motivo || '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{money(a.monto_total)}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(pagado)}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)', fontWeight: 600 }}>{money(a.saldo)}</td>
+                    <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Detalle">🔍</button></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
   );
 }
 
-/** El detalle de la tarjeta de trabajadores: la lista buscable de quién debe. */
-function ListaTrabajadores({ deudas, personaPorId, onPersona }: {
+/** El detalle de la tarjeta de trabajadores: la lista buscable de quién debe y, al tocar uno, sus préstamos. */
+function TrabajadoresModal({ deudas, prestamos, pagosDe, personaPorId, generando, onClose, onAbrir, onPdf }: {
   deudas: DeudaTrabajador[];
+  prestamos: AnticipoPrestamo[];
+  pagosDe: Map<string, { monto: number }[]>;
   personaPorId: Map<string, Personal>;
-  onPersona: (id: string) => void;
+  generando: boolean;
+  onClose: () => void; onAbrir: (a: AnticipoPrestamo) => void; onPdf: (p: Personal) => void;
 }) {
   const [q, setQ] = useState('');
-  const filtradas = deudas.filter((d) => {
+  const [sel, setSel] = useState<string | null>(null);
+  const [verSaldados, setVerSaldados] = useState(false);
+
+  const filtradas = useMemo(() => {
     const t = q.trim().toLowerCase();
-    if (!t) return true;
-    const p = personaPorId.get(d.personalId);
-    return `${d.nombre} ${p?.cedula ?? ''} ${p?.cargo ?? ''} ${p?.departamento ?? ''} ${p?.numero_ficha ?? ''}`.toLowerCase().includes(t);
-  });
-  if (!deudas.length) return <EmptyState message="Nadie tiene préstamos pendientes" icon="✅" />;
+    if (!t) return deudas;
+    return deudas.filter((d) => {
+      const p = personaPorId.get(d.personalId);
+      return `${d.nombre} ${p?.cedula ?? ''} ${p?.cargo ?? ''} ${p?.departamento ?? ''} ${p?.numero_ficha ?? ''}`.toLowerCase().includes(t);
+    });
+  }, [deudas, personaPorId, q]);
+  const totalDeuda = useMemo(() => deudas.reduce((s, d) => s + d.debe, 0), [deudas]);
+
+  const persona = sel ? personaPorId.get(sel) : undefined;
+  if (sel && persona) {
+    // La ficha completa del trabajador elegido: TODOS sus préstamos (con el
+    // interruptor de saldados), no solo los que deben.
+    const suyos = prestamos
+      .filter((a) => a.personal_id === sel && (verSaldados || (Number(a.saldo) || 0) > 0))
+      .sort((a, b) => fechaDePrestamo(b).localeCompare(fechaDePrestamo(a)));
+    const todos = prestamos.filter((a) => a.personal_id === sel);
+    const prestado = todos.reduce((s, a) => s + (Number(a.monto_total) || 0), 0);
+    const pagado = todos.reduce((s, a) => s + (pagosDe.get(a.id) ?? []).reduce((x, g) => x + (Number(g.monto) || 0), 0), 0);
+    const debe = todos.reduce((s, a) => s + (Number(a.saldo) || 0), 0);
+    return (
+      <Modal title={`👤 ${nombreDeCarnet(persona.nombre, persona.apellido)}`} size="lg" onClose={onClose}
+        footer={<>
+          <button className="btn btn-ghost" onClick={() => setSel(null)}>← Volver a la lista</button>
+          <button className="btn btn-ghost" onClick={() => onPdf(persona)} disabled={generando || !todos.length}
+            title="Estado de cuenta: total de préstamos, total pagado y lo que debe">{generando ? 'Generando…' : '↓ PDF estado de cuenta'}</button>
+          <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+        </>}>
+        <div className="muted" style={{ fontSize: '.85rem', marginBottom: '.6rem' }}>
+          {[persona.numero_ficha ? `Ficha ${persona.numero_ficha}` : '', persona.cedula ? `C.I. ${persona.cedula}` : '', persona.cargo, persona.departamento, persona.activo ? '' : 'Inactivo'].filter(Boolean).join(' · ')}
+        </div>
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.7rem' }}>
+          <div className="tira" style={{ flex: '1 1 140px' }}><div className="tira-titulo">Total préstamos</div><div className="tira-valor mono">{money(prestado)}</div></div>
+          <div className="tira" style={{ flex: '1 1 140px' }}><div className="tira-titulo">Total pagado</div><div className="tira-valor mono" style={{ color: 'var(--success)' }}>{money(pagado)}</div></div>
+          <div className={`tira${debe > 0 ? ' danger' : ''}`} style={{ flex: '1 1 140px' }}><div className="tira-titulo">Lo que debe</div><div className="tira-valor mono">{money(debe)}</div></div>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '.4rem' }}>
+          <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.85rem' }}>
+            <input type="checkbox" checked={verSaldados} onChange={(e) => setVerSaldados(e.target.checked)} /> Mostrar saldados
+          </label>
+        </div>
+        {!suyos.length && <EmptyState icon="💵" message="Sin préstamos para mostrar" />}
+        {!!suyos.length && (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.84rem' }}>
+              <thead><tr><th>Fecha</th><th>Tipo</th><th>Motivo</th><th style={{ textAlign: 'right' }}>Total</th><th style={{ textAlign: 'right' }}>Pagado</th><th style={{ textAlign: 'right' }}>Debe</th><th style={{ textAlign: 'center' }}>Estado</th><th /></tr></thead>
+              <tbody>
+                {suyos.map((a) => {
+                  const pag = (pagosDe.get(a.id) ?? []).reduce((s, g) => s + (Number(g.monto) || 0), 0);
+                  const conSaldo = Number(a.saldo) > 0;
+                  return (
+                    <tr key={a.id} style={{ cursor: 'pointer', opacity: conSaldo ? 1 : 0.65 }} onClick={() => onAbrir(a)} title="Ver detalle y abonos">
+                      <td className="mono">{date(fechaDePrestamo(a))}</td>
+                      <td><span className="badge">{etiquetaTipo(a.tipo)}</span>{esHistoricoFila(a) ? ' 📜' : ''}</td>
+                      <td className="muted">{a.motivo || '—'}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{money(a.monto_total)}</td>
+                      <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(pag)}</td>
+                      <td className="mono" style={{ textAlign: 'right', color: conSaldo ? 'var(--danger)' : 'var(--success)', fontWeight: 600 }}>{money(a.saldo)}</td>
+                      <td style={{ textAlign: 'center' }}><span className={`lt-pill ${conSaldo ? 'ambar' : 'verde'}`}>{conSaldo ? 'Activo' : 'Saldado'}</span></td>
+                      <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Detalle">🔍</button></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Modal>
+    );
+  }
+
   return (
-    <>
-      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Buscar por nombre, cédula, ficha, cargo o departamento…" style={{ marginBottom: '.6rem' }} />
-      <div className="table-wrap">
-        <table className="table" style={{ fontSize: '.85rem' }}>
-          <thead><tr><th>Trabajador</th><th>Ficha</th><th>Cargo</th><th style={{ textAlign: 'center' }}>Préstamos</th><th>Desde</th><th style={{ textAlign: 'right' }}>Prestado</th><th style={{ textAlign: 'right' }}>Pagado</th><th style={{ textAlign: 'right' }}>Debe</th></tr></thead>
-          <tbody>
-            {!filtradas.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center' }}>Nadie con esa búsqueda</td></tr>}
-            {filtradas.map((d) => {
-              const p = personaPorId.get(d.personalId);
-              return (
-                <tr key={d.personalId}>
-                  <td><button className="btn-link" style={{ padding: 0, textAlign: 'left' }} onClick={() => onPersona(d.personalId)}>{d.nombre}</button></td>
-                  <td className="mono muted">{p?.numero_ficha || '—'}</td>
-                  <td className="muted">{p?.cargo || <span style={{ color: 'var(--warning)' }}>Sin cargo</span>}</td>
-                  <td style={{ textAlign: 'center' }}>{d.abiertos}</td>
-                  <td className="muted mono">{d.desde ? date(d.desde) : '—'}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{money(d.total)}</td>
-                  <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(d.pagado)}</td>
-                  <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)', fontWeight: 700 }}>{money(d.debe)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+    <Modal title="👥 Trabajadores con préstamos pendientes" size="lg" onClose={onClose}
+      footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.7rem' }}>
+        <div className="tira" style={{ flex: '1 1 160px' }}><div className="tira-titulo">Trabajadores que deben</div><div className="tira-valor mono">{deudas.length}</div></div>
+        <div className="tira danger" style={{ flex: '1 1 160px' }}><div className="tira-titulo">Deuda total</div><div className="tira-valor mono">{money(totalDeuda)}</div></div>
       </div>
-    </>
+      <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Buscar por nombre, cédula, ficha, cargo o departamento…" style={{ marginBottom: '.5rem' }} autoFocus />
+      {!filtradas.length && <EmptyState icon="✅" message={q ? 'Nadie coincide con la búsqueda' : 'Nadie debe nada con estos filtros'} />}
+      {!!filtradas.length && (
+        <div className="table-wrap">
+          <table className="table" style={{ fontSize: '.84rem' }}>
+            <thead><tr><th>Trabajador</th><th>Cargo</th><th style={{ textAlign: 'center' }}>Préstamos</th><th>Desde</th><th style={{ textAlign: 'right' }}>Total</th><th style={{ textAlign: 'right' }}>Pagado</th><th style={{ textAlign: 'right' }}>Debe</th><th /></tr></thead>
+            <tbody>
+              {filtradas.map((d) => {
+                const p = personaPorId.get(d.personalId);
+                return (
+                  <tr key={d.personalId} style={{ cursor: 'pointer' }} onClick={() => setSel(d.personalId)} title="Ver sus préstamos">
+                    <td>
+                      {d.nombre}
+                      <div className="muted" style={{ fontSize: '.74rem' }}>{[p?.numero_ficha ? `Ficha ${p.numero_ficha}` : '', p?.cedula ? `C.I. ${p.cedula}` : ''].filter(Boolean).join(' · ')}</div>
+                    </td>
+                    <td className="muted">{p?.cargo || <span style={{ color: 'var(--warning)' }}>Sin cargo</span>}{p?.departamento ? <div style={{ fontSize: '.74rem' }}>{p.departamento}</div> : null}</td>
+                    <td style={{ textAlign: 'center' }}>{d.abiertos}</td>
+                    <td className="muted mono">{d.desde ? date(d.desde) : '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{money(d.total)}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>{money(d.pagado)}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: 'var(--danger)', fontWeight: 600 }}>{money(d.debe)}</td>
+                    <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" title="Ver sus préstamos">→</button></td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
   );
 }
 
@@ -857,12 +1090,30 @@ function AbonosModal({ prestamo, pagos, nombre, persona, tasaBcv, canWrite, acto
   return (
     <Modal title={`Abonos · ${nombre}`} size="lg" onClose={onClose}
       footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.7rem' }}>
+        <div className="tira" style={{ flex: '1 1 140px' }}>
+          <div className="tira-titulo">Total del préstamo</div>
+          <div className="tira-valor mono">{money(prestamo.monto_total)}</div>
+        </div>
+        <div className="tira" style={{ flex: '1 1 140px' }}>
+          <div className="tira-titulo">Total pagado</div>
+          <div className="tira-valor mono" style={{ color: 'var(--success)' }}>{money(pagado)}</div>
+        </div>
+        <div className={`tira${debe > 0 ? ' danger' : ''}`} style={{ flex: '1 1 140px' }}>
+          <div className="tira-titulo">Lo que debe</div>
+          <div className="tira-valor mono">{money(debe)}</div>
+        </div>
+        <div className="tira" style={{ flex: '1 1 140px' }}>
+          <div className="tira-titulo">Estado</div>
+          <div className="tira-valor" style={{ color: debe > 0 ? 'var(--warning)' : 'var(--success)' }}>{debe > 0 ? 'Activo' : 'Saldado'}</div>
+        </div>
+      </div>
+
       <div className="card" style={{ padding: '.6rem .8rem', marginBottom: '.7rem', background: 'var(--bg-1)' }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', alignItems: 'baseline' }}>
           <div className="mono" style={{ fontSize: '.9rem' }}>
-            {prestamo.tipo === 'anticipo' ? 'Anticipo' : 'Préstamo'} del <strong>{date(fechaDePrestamo(prestamo))}</strong> ·{' '}
-            total {money(prestamo.monto_total)} · pagado <span style={{ color: 'var(--success)' }}>{money(pagado)}</span> ·{' '}
-            debe <strong style={{ color: debe > 0 ? 'var(--danger)' : 'var(--success)' }}>{money(debe)}</strong>
+            {prestamo.tipo === 'anticipo' ? 'Anticipo' : 'Préstamo'} de <strong>{nombre}</strong>{persona?.numero_ficha ? ` · Ficha ${persona.numero_ficha}` : ''}{persona?.cedula ? ` · C.I. ${persona.cedula}` : ''} del <strong>{date(fechaDePrestamo(prestamo))}</strong>
+            {prestamo.cuota_sugerida != null && <> · cuota sugerida {money(prestamo.cuota_sugerida)}</>}
           </div>
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '.35rem' }}>
             {persona && (
@@ -1121,10 +1372,19 @@ function EstadoCuentaModal({ persona, prestamos, pagos, rango, onAbrirPrestamo, 
         {persona.cargo ? ` · ${persona.cargo}` : ''}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.5rem', marginBottom: '.8rem' }}>
-        <TarjetaPrestamos rotulo="Total prestado" valor={money(ec.total)} pie={`${ec.renglones.length} movimiento(s)`} color="var(--text)" />
-        <TarjetaPrestamos rotulo="Total pagado" valor={money(ec.pagado)} pie="abonado hasta hoy" color="var(--success)" />
-        <TarjetaPrestamos rotulo="Debe" valor={money(ec.debe)} pie={`${ec.abiertos} sin saldar`} color={ec.debe > 0 ? 'var(--danger)' : 'var(--success)'} />
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.8rem' }}>
+        <div className="tira" style={{ flex: '1 1 140px' }}>
+          <div className="tira-titulo">Total prestado · {ec.renglones.length} movimiento(s)</div>
+          <div className="tira-valor mono">{money(ec.total)}</div>
+        </div>
+        <div className="tira" style={{ flex: '1 1 140px' }}>
+          <div className="tira-titulo">Total pagado · hasta hoy</div>
+          <div className="tira-valor mono" style={{ color: 'var(--success)' }}>{money(ec.pagado)}</div>
+        </div>
+        <div className={`tira${ec.debe > 0 ? ' danger' : ''}`} style={{ flex: '1 1 140px' }}>
+          <div className="tira-titulo">Debe · {ec.abiertos} sin saldar</div>
+          <div className="tira-valor mono">{money(ec.debe)}</div>
+        </div>
       </div>
 
       {!ec.renglones.length && <EmptyState message="Sin préstamos ni anticipos" icon="💵" />}

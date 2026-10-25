@@ -456,6 +456,8 @@ export interface FiltroPrestamos {
   saldoMin?: number | null;
   /** Solo los que se cargaron como histórico. */
   soloHistoricos?: boolean;
+  /** De dónde vienen: históricos (anteriores al sistema) o cargados en el sistema. */
+  origen?: 'todos' | 'historico' | 'sistema';
 }
 
 export const FILTRO_PRESTAMOS_VACIO: FiltroPrestamos = {
@@ -467,7 +469,7 @@ export const FILTRO_PRESTAMOS_VACIO: FiltroPrestamos = {
 export function hayFiltro(f: FiltroPrestamos): boolean {
   return !!(f.texto?.trim() || f.trabajadorId || f.tipo || (f.estado && f.estado !== 'todos')
     || f.desde || f.hasta || f.montoMin != null || f.montoMax != null || f.saldoMin != null
-    || f.soloHistoricos);
+    || f.soloHistoricos || (f.origen && f.origen !== 'todos'));
 }
 
 /**
@@ -495,7 +497,8 @@ export function filtrarPrestamos<T extends PrestamoBase>(
     if (f.montoMin != null && n2(p.monto_total) < f.montoMin) return false;
     if (f.montoMax != null && n2(p.monto_total) > f.montoMax) return false;
     if (f.saldoMin != null && n2(p.saldo) < f.saldoMin) return false;
-    if (f.soloHistoricos && !esHistorico(p)) return false;
+    if ((f.soloHistoricos || f.origen === 'historico') && !esHistorico(p)) return false;
+    if (f.origen === 'sistema' && esHistorico(p)) return false;
     if (q) {
       const hay = `${nombreDe(p.personal_id)} ${p.motivo ?? ''} ${p.tipo}`.toLowerCase();
       if (!hay.includes(q)) return false;

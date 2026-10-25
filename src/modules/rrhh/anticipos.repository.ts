@@ -60,6 +60,8 @@ export interface AnticipoInput {
    * origen `historico` y la misma fecha, así el saldo arranca donde va.
    */
   ya_pagado?: number | null;
+  /** Hasta qué fecha llega lo ya pagado (modo histórico). Sin ella, la misma fecha del préstamo. */
+  fecha_abono?: string | null;
   /** Moneda del pago (USD, VES/Bs, COP, EUR). Si es otra moneda, monto_total ya debe ser en USD al cambio. */
   moneda?: string | null;
   monto_original?: number | null;
@@ -114,7 +116,7 @@ export async function crearAnticipo(input: AnticipoInput, actorEmail?: string, a
       await agregarPagoAnticipo({
         anticipo_id: existente.id,
         monto: yaPagado,
-        fecha: fecha ?? hoy(),
+        fecha: (input.fecha_abono ?? '').slice(0, 10) || fecha || hoy(),
         origen: 'historico',
         nota: input.motivo?.trim() ? `Abono de entrega: ${input.motivo.trim()}` : 'Abonado antes de cargarlo al sistema',
       }, actorEmail, actorName);
@@ -177,7 +179,7 @@ export async function crearAnticipo(input: AnticipoInput, actorEmail?: string, a
     await agregarPagoAnticipo({
       anticipo_id: creado.id,
       monto: yaPagado,
-      fecha: fecha ?? hoy(),
+      fecha: (input.fecha_abono ?? '').slice(0, 10) || fecha || hoy(),
       origen: 'historico',
       nota: 'Abonado antes de cargarlo al sistema',
     }, actorEmail, actorName);
