@@ -132,13 +132,14 @@ export function CocinaMovilView() {
 
       {sel && !form && canWrite && (
         esResguardoSel ? (
-          <div className="surt-acciones">
-            <button type="button" className="surt-btn almuerzo" onClick={() => setForm({ tipo: 'almuerzo', comida: null })}>
-              <span className="icono" aria-hidden>📤</span>
+          <div className="surt-acciones resguardo">
+            <button type="button" className="surt-btn-resguardo" onClick={() => setForm({ tipo: 'almuerzo', comida: null })}>
+              <span className="icono-badge" aria-hidden>📤</span>
               <span className="texto">
-                <span>Registrar salida de víveres</span>
-                <small>Consumo por día de {sel.cocina.nombre}</small>
+                <span className="titulo">Registrar salida de víveres</span>
+                <span className="subtitulo">Consumo de productos por día · {sel.cocina.nombre}</span>
               </span>
+              <span className="flecha" aria-hidden>➔</span>
             </button>
           </div>
         ) : (
@@ -179,7 +180,17 @@ export function CocinaMovilView() {
       {sel && (
         <section className="surt-lista">
           <h2>{esResguardoSel ? `Últimas ${ULTIMAS_COMIDAS_TELEFONO} salidas · ${sel.cocina.nombre}` : `Últimas ${ULTIMAS_COMIDAS_TELEFONO} comidas · ${sel.cocina.nombre}`}</h2>
-          {!comidas.length && <p className="muted">{esResguardoSel ? 'Este resguardo no tiene salidas cargadas todavía.' : 'Esta cocina no tiene comidas cargadas todavía.'}</p>}
+          {!comidas.length && (
+            <div className="card" style={{ padding: '1.4rem 1rem', textAlign: 'center', background: 'var(--surface-2)', border: '1px dashed var(--border)', borderRadius: 'var(--r-md)', margin: '.5rem 0' }}>
+              <span style={{ fontSize: '1.8rem', display: 'block', marginBottom: '.35rem' }}>{esResguardoSel ? '📦' : '🍳'}</span>
+              <div style={{ fontWeight: 600, fontSize: '.95rem', color: 'var(--text)' }}>
+                {esResguardoSel ? 'Sin salidas registradas todavía' : 'Sin comidas cargadas todavía'}
+              </div>
+              <small className="muted" style={{ display: 'block', marginTop: '.3rem', fontSize: '.82rem' }}>
+                {esResguardoSel ? 'Toca "Registrar salida de víveres" para descontar los productos consumidos.' : 'Elige un servicio arriba para cargar la primera comida.'}
+              </small>
+            </div>
+          )}
           {comidas.map((c) => {
             const n = fotos.get(c.id) ?? 0;
             return (

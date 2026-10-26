@@ -71,6 +71,44 @@
 .surt-acciones.comidas .surt-btn.almuerzo { border-color: var(--primary); background: var(--grad-primary-soft); }
 .surt-acciones.comidas .surt-btn.cena { border-color: var(--info); }
 
+/* ── Resguardo (Salida de víveres) ── */
+.surt-acciones.resguardo { grid-template-columns: 1fr; gap: .6rem; margin: .85rem 0; }
+.surt-btn-resguardo {
+  display: flex; flex-direction: row; align-items: center; justify-content: flex-start;
+  gap: 1.1rem; padding: 1.1rem 1.25rem; min-height: 84px; text-align: left;
+  border-radius: var(--r-lg, 14px);
+  border: 2px solid var(--primary);
+  background: var(--grad-primary-soft, linear-gradient(135deg, rgba(255, 138, 0, 0.18) 0%, rgba(255, 138, 0, 0.05) 100%));
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+  color: var(--text); font: inherit; cursor: pointer; width: 100%;
+  transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
+}
+.surt-btn-resguardo:hover {
+  border-color: var(--primary-light, #ffa439);
+  box-shadow: 0 6px 24px rgba(255, 138, 0, 0.25);
+  transform: translateY(-1px);
+}
+.surt-btn-resguardo:active { transform: scale(0.985); }
+.surt-btn-resguardo .icono-badge {
+  display: flex; align-items: center; justify-content: center;
+  width: 52px; height: 52px; border-radius: 12px;
+  background: rgba(255, 138, 0, 0.22);
+  border: 1px solid rgba(255, 138, 0, 0.35);
+  font-size: 1.85rem; line-height: 1; flex-shrink: 0;
+}
+.surt-btn-resguardo .texto {
+  display: flex; flex-direction: column; gap: .25rem; min-width: 0; flex: 1;
+}
+.surt-btn-resguardo .titulo {
+  font-size: 1.25rem; font-weight: 700; color: #fff; line-height: 1.25;
+}
+.surt-btn-resguardo .subtitulo {
+  font-size: .88rem; font-weight: 500; color: var(--text-muted); line-height: 1.35; white-space: normal;
+}
+.surt-btn-resguardo .flecha {
+  font-size: 1.3rem; color: var(--primary); margin-left: auto; flex-shrink: 0; opacity: 0.85;
+}
+
 .surt-form { display: flex; flex-direction: column; gap: .9rem; margin: 1rem 0; }
 .surt-form-titulo { display: flex; align-items: center; gap: .75rem; }
 .surt-form-titulo .icono { font-size: 2rem; }
