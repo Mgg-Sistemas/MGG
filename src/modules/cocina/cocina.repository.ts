@@ -454,7 +454,7 @@ export interface CrearComidaInput {
 export async function crearComida(input: CrearComidaInput): Promise<CocinaComida> {
   const lineas = (input.items ?? []).filter((it) => it.producto_id && (Number(it.cantidad) || 0) > 0);
   if (!lineas.length) throw new Error('Agregá al menos un víver con cantidad.');
-  if ((Number(input.platos) || 0) <= 0) throw new Error('Indicá cuántos platos se realizaron.');
+  const platos = Number(input.platos) > 0 ? Number(input.platos) : 1;
 
   // Se resuelven contra TODOS los víveres del inventario (sin importar el almacén);
   // el descuento sale del almacén de la cocina si ahí hay stock, o del que más tenga.
@@ -500,7 +500,7 @@ export async function crearComida(input: CrearComidaInput): Promise<CocinaComida
   const { data, error } = await supabase.from(TABLE).insert({
     codigo,
     tipo_comida: input.tipoComida,
-    platos: Number(input.platos) || 0,
+    platos,
     items,
     valor_total: valorTotal,
     nota: input.nota?.trim() || null,
@@ -563,7 +563,7 @@ export async function editarComida(comidaId: string, input: CrearComidaInput): P
 
   const lineas = (input.items ?? []).filter((it) => it.producto_id && (Number(it.cantidad) || 0) > 0);
   if (!lineas.length) throw new Error('Agregá al menos un víver con cantidad.');
-  if ((Number(input.platos) || 0) <= 0) throw new Error('Indicá cuántos platos se realizaron.');
+  const platos = Number(input.platos) > 0 ? Number(input.platos) : 1;
 
   /* 0) Lo que la comida anterior le hizo DE VERDAD al inventario (su kardex), y
      qué va a devolver. Con eso se comprueba que lo nuevo alcanza ANTES de mover
@@ -618,7 +618,7 @@ export async function editarComida(comidaId: string, input: CrearComidaInput): P
   const fecha = input.fecha && /^\d{4}-\d{2}-\d{2}$/.test(input.fecha) ? input.fecha : null;
   const fechaPrev = (comidaPrev.at ?? '').slice(0, 10);
   const patch: Record<string, unknown> = {
-    tipo_comida: input.tipoComida, platos: Number(input.platos) || 0, items, valor_total: valorTotal,
+    tipo_comida: input.tipoComida, platos, items, valor_total: valorTotal,
     nota: input.nota?.trim() || null,
   };
   if (fecha && fecha !== fechaPrev) {

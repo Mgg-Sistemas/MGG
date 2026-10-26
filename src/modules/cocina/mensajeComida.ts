@@ -47,15 +47,25 @@ export function fechaComidaTexto(iso: string | null | undefined): string {
  * para cuántas personas y qué se gastó. Los precios NO van: el mensaje lo lee
  * gente que no tiene por qué ver el costo; el valor está en el sistema.
  */
-export function mensajeComida(c: Pick<CocinaComida, 'tipo_comida' | 'platos' | 'items' | 'at' | 'codigo' | 'nota'>, ctx: { cocina?: string | null; fotos?: number } = {}): string {
-  const emoji = EMOJI_COMIDA[c.tipo_comida] ?? '🍳';
-  const lineas: string[] = [`${emoji} *${TITULO_COMIDA[c.tipo_comida] ?? 'COMIDA'}*`, ''];
-  if (ctx.cocina) lineas.push(`🏠 Cocina: ${ctx.cocina}`);
-  lineas.push(`📅 Fecha: ${fechaComidaTexto(c.at)}`);
-  lineas.push(`👥 Personas: *${nf.format(Number(c.platos) || 0)}*`);
+export function mensajeComida(
+  c: Pick<CocinaComida, 'tipo_comida' | 'platos' | 'items' | 'at' | 'codigo' | 'nota'>,
+  ctx: { cocina?: string | null; fotos?: number; esResguardo?: boolean } = {},
+): string {
+  const lineas: string[] = [];
+  if (ctx.esResguardo) {
+    lineas.push('📤 *SALIDA DE VÍVERES*', '');
+    if (ctx.cocina) lineas.push(`🏬 Resguardo: ${ctx.cocina}`);
+    lineas.push(`📅 Fecha: ${fechaComidaTexto(c.at)}`);
+  } else {
+    const emoji = EMOJI_COMIDA[c.tipo_comida] ?? '🍳';
+    lineas.push(`${emoji} *${TITULO_COMIDA[c.tipo_comida] ?? 'COMIDA'}*`, '');
+    if (ctx.cocina) lineas.push(`🏠 Cocina: ${ctx.cocina}`);
+    lineas.push(`📅 Fecha: ${fechaComidaTexto(c.at)}`);
+    lineas.push(`👥 Personas: *${nf.format(Number(c.platos) || 0)}*`);
+  }
   const items = c.items ?? [];
   if (items.length) {
-    lineas.push('', `📦 *Consumo (${items.length})*`);
+    lineas.push('', ctx.esResguardo ? `📦 *Productos consumidos por día (${items.length})*` : `📦 *Consumo (${items.length})*`);
     for (const it of items) {
       lineas.push(`• ${it.nombre}: ${nf.format(Number(it.cantidad) || 0)} ${(it.unidad ?? '').toLowerCase()}`.trimEnd());
     }

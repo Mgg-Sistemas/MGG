@@ -430,7 +430,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
             </button>
           )}
         </div>
-        {canWrite && <button className="btn btn-primary" onClick={() => setModal('add')}>＋ Añadir movimiento</button>}
+        {canWrite && <button className="btn btn-primary" onClick={() => setModal('add')}>{resguardo ? '＋ Registrar salida' : '＋ Añadir movimiento'}</button>}
       </div>
 
       {/* Mercado (ciclo de 21 días): tarjetas + disponible + kardex, o iniciar */}
@@ -479,7 +479,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
 
       {(modal === 'add' || editComida) && (
         <AnadirMovimientoModal cocinaId={cocinaId} almacen={almacen} actor={actor} actorName={userEmail}
-          comida={editComida} mercado={mercado}
+          comida={editComida} mercado={mercado} resguardo={resguardo}
           onClose={() => { setModal('none'); setEditComida(null); }}
           onSaved={async () => { setModal('none'); setEditComida(null); await reload(); await loadMercado({ background: true }); }} />
       )}
@@ -506,14 +506,14 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
 }
 
 /* ───────────── Añadir movimiento (consumo de víveres) ───────────── */
-function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, mercado, onClose, onSaved }: {
+function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, mercado, resguardo, onClose, onSaved }: {
   cocinaId: string; almacen: string | null; actor: string; actorName: string | null;
-  comida?: CocinaComida | null; mercado?: MercadoCocina | null; onClose: () => void; onSaved: () => void;
+  comida?: CocinaComida | null; mercado?: MercadoCocina | null; resguardo?: boolean; onClose: () => void; onSaved: () => void;
 }) {
   const esEdicion = !!comida;
   const [viveres, setViveres] = useState<ViverDisponible[]>([]);
   const [tipo, setTipo] = useState<TipoComida>(comida?.tipo_comida ?? 'almuerzo');
-  const [platos, setPlatos] = useState(comida ? String(comida.platos) : '');
+  const [platos, setPlatos] = useState(comida ? String(comida.platos) : (resguardo ? '1' : ''));
   // Fecha de la comida: por defecto hoy, pero se puede cargar/editar una comida de un día desfasado.
   const [fecha, setFecha] = useState(() => (comida?.at ?? new Date().toISOString()).slice(0, 10));
   const [nota, setNota] = useState(comida?.nota ?? '');
@@ -567,7 +567,7 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
     const v = mapV.get(id);
     return a + (v ? (Number(c) || 0) * v.precio : 0);
   }, 0)), [sel, mapV]);
-  const nPlatos = Number(platos) || 0;
+  const nPlatos = resguardo ? 1 : (Number(platos) || 0);
   // Aviso de fecha: se calcula contra el mercado abierto, no contra "hoy".
   const avisoCiclo = useMemo(() => avisoFueraDelCiclo(fueraDelCiclo(fecha, mercado), mercado), [fecha, mercado]);
 
@@ -576,8 +576,8 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
     const items = Object.entries(sel).filter(([, c]) => (Number(c) || 0) > 0)
       .map(([producto_id, c]) => ({ producto_id, cantidad: Number(c) || 0 }));
     if (!items.length) { setError('Marcá al menos un víver e indicá su cantidad.'); return; }
-    if (nPlatos <= 0) { setError('Indicá cuántos platos se realizaron.'); return; }
-    if (!fecha) { setError('Indicá la fecha de la comida.'); return; }
+    if (!resguardo && nPlatos <= 0) { setError('Indicá cuántos platos se realizaron.'); return; }
+    if (!fecha) { setError('Indicá la fecha.'); return; }
     // Nada por encima de lo que hay: el aviso dice el víver, lo pedido y lo que hay.
     const paraConsumo = new Map<string, ViverParaConsumo>(viveres.map((v) => [v.producto.id, {
       producto_id: v.producto.id, nombre: v.producto.nombre, unidad: v.producto.unidad ?? '', stock: v.stock, almacen: v.almacenMasStock,
@@ -589,41 +589,43 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
       const payload = { tipoComida: tipo, platos: nPlatos, items, nota: nota.trim() || null, cocinaId, almacen, fecha, actor, actorName };
       if (esEdicion && comida) {
         await editarComida(comida.id, payload);
-        notify(`Comida actualizada · ${labelTipoComida(tipo)} · ${money(total)}`, 'success', { link: '#/app/cocina' });
+        notify(resguardo ? `Salida actualizada · ${money(total)}` : `Comida actualizada · ${labelTipoComida(tipo)} · ${money(total)}`, 'success', { link: '#/app/cocina' });
       } else {
         await crearComida(payload);
-        notify(`Comida registrada · ${labelTipoComida(tipo)} · ${money(total)}`, 'success', { link: '#/app/cocina' });
+        notify(resguardo ? `Salida registrada · ${money(total)}` : `Comida registrada · ${labelTipoComida(tipo)} · ${money(total)}`, 'success', { link: '#/app/cocina' });
       }
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }
   }
 
   return (
-    <Modal title={esEdicion ? 'Editar movimiento · Cocina' : 'Añadir movimiento · Cocina'} size="lg" onClose={() => !saving && onClose()} footer={
+    <Modal title={esEdicion ? (resguardo ? 'Editar salida · Resguardo' : 'Editar movimiento · Cocina') : (resguardo ? 'Registrar salida de víveres · Resguardo' : 'Añadir movimiento · Cocina')} size="lg" onClose={() => !saving && onClose()} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        <button type="submit" form="cocina-add" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : `${esEdicion ? 'Guardar' : 'Registrar'} · ${money(total)}`}</button>
+        <button type="submit" form="cocina-add" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : `${esEdicion ? 'Guardar' : (resguardo ? 'Registrar salida' : 'Registrar')} · ${money(total)}`}</button>
       </>
     }>
       <form id="cocina-add" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
         {/* Tipo de comida (check) */}
-        <div className="form-row">
-          <label>Tipo de comida</label>
-          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-            {TIPOS_COMIDA.map((t) => (
-              <label key={t.value} className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .8rem', cursor: 'pointer', borderColor: tipo === t.value ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
-                <input type="checkbox" checked={tipo === t.value} onChange={() => setTipo(t.value)} />
-                <span style={{ fontWeight: 600 }}>{t.icon} {t.label}</span>
-              </label>
-            ))}
+        {!resguardo && (
+          <div className="form-row">
+            <label>Tipo de comida</label>
+            <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+              {TIPOS_COMIDA.map((t) => (
+                <label key={t.value} className="card" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', margin: 0, padding: '.5rem .8rem', cursor: 'pointer', borderColor: tipo === t.value ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+                  <input type="checkbox" checked={tipo === t.value} onChange={() => setTipo(t.value)} />
+                  <span style={{ fontWeight: 600 }}>{t.icon} {t.label}</span>
+                </label>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
 
-        {/* Fecha de la comida: por defecto hoy; se puede cargar una comida de un día desfasado. */}
+        {/* Fecha de la comida / salida */}
         <div className="form-row" style={{ maxWidth: 220 }}>
-          <label>Fecha de la comida</label>
+          <label>{resguardo ? 'Fecha de la salida' : 'Fecha de la comida'}</label>
           <input className="input" type="date" value={fecha} max={new Date().toISOString().slice(0, 10)}
             onChange={(e) => setFecha(e.target.value)} />
           {fecha && fecha !== new Date().toISOString().slice(0, 10) && (
@@ -646,8 +648,8 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
         {/* Víveres: TODOS los del inventario (categoría VÍVERES), sin importar el almacén.
             Se eligen con checkboxes; al tildar aparece la cantidad. */}
         <div className="form-row">
-          <label>Víveres consumidos <span className="muted" style={{ fontWeight: 400 }}>(de este centro · agrupados por categoría · {num(viveres.length)} productos{cats.length ? ` · ${num(filtrados.length)} en el filtro` : ''}{nSel > 0 ? ` · ${num(nSel)} elegido(s)` : ''})</span></label>
-          <input className="search" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar víver por nombre o SKU…" style={{ marginBottom: '.5rem' }} />
+          <label>{resguardo ? 'Productos consumidos por día' : 'Víveres consumidos'} <span className="muted" style={{ fontWeight: 400 }}>(de este centro · agrupados por categoría · {num(viveres.length)} productos{cats.length ? ` · ${num(filtrados.length)} en el filtro` : ''}{nSel > 0 ? ` · ${num(nSel)} elegido(s)` : ''})</span></label>
+          <input className="search" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar por nombre o SKU…" style={{ marginBottom: '.5rem' }} />
           {chips.length > 1 && (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem', marginBottom: '.5rem' }}>
               <button type="button" className={`btn btn-sm ${cats.length ? 'btn-ghost' : 'btn-primary'}`}
@@ -665,7 +667,7 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
             </div>
           )}
           <div style={{ display: 'grid', gap: '.4rem', maxHeight: 340, overflowY: 'auto', paddingRight: '.15rem' }}>
-            {!filtrados.length && <div className="muted" style={{ padding: '1rem', textAlign: 'center' }}>{viveres.length ? 'Ningún víver coincide con la búsqueda.' : 'No hay productos de Víveres, Carnes/Proteína, Alimentos, Hortalizas o Limpieza en este centro.'}</div>}
+            {!filtrados.length && <div className="muted" style={{ padding: '1rem', textAlign: 'center' }}>{viveres.length ? 'Ningún producto coincide con la búsqueda.' : 'No hay productos de Víveres, Carnes/Proteína, Alimentos, Hortalizas o Limpieza en este centro.'}</div>}
             {grupos.map((g) => (
             <div key={g.categoria || 'sin'} style={{ display: 'grid', gap: '.4rem' }}>
               {/* El encabezado se queda pegado arriba al desplazar: con 168 artículos,
@@ -717,14 +719,16 @@ function AnadirMovimientoModal({ cocinaId, almacen, actor, actorName, comida, me
         </div>
 
         <div className="form-grid">
-          <div className="form-row">
-            <label>Platos realizados</label>
-            <input className="input mono" type="number" min={1} step="1" value={platos} onChange={(e) => setPlatos(e.target.value)} placeholder="Ej.: 24" required />
-            {nPlatos > 0 && total > 0 && <small className="hint muted">Costo por plato: <strong className="mono">{money(total / nPlatos)}</strong></small>}
-          </div>
+          {!resguardo && (
+            <div className="form-row">
+              <label>Platos realizados</label>
+              <input className="input mono" type="number" min={1} step="1" value={platos} onChange={(e) => setPlatos(e.target.value)} placeholder="Ej.: 24" required />
+              {nPlatos > 0 && total > 0 && <small className="hint muted">Costo por plato: <strong className="mono">{money(total / nPlatos)}</strong></small>}
+            </div>
+          )}
           <div className="form-row">
             <label>Nota (opcional)</label>
-            <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Detalle del servicio…" />
+            <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder={resguardo ? 'Detalle de la salida…' : 'Detalle del servicio…'} />
           </div>
         </div>
         <small className="hint muted">Se genera un correlativo con fecha y hora, y se descuenta el stock de los víveres del inventario. Una comida no puede descontar más de lo que hay: los víveres sin stock se ven en gris y no se eligen.</small>

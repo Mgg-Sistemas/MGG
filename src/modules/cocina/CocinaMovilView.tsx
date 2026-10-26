@@ -26,7 +26,7 @@ import { num, dateTime } from '@/shared/lib/format';
 import type { CocinaComida, TipoComida, Cocina } from '@/shared/lib/types';
 import {
   crearComida, editarComida, eliminarComida, labelTipoComida, listComidas, listCocinasQueSirven,
-  listViveresGlobal, type ViverDisponible,
+  listViveresGlobal, esResguardo, type ViverDisponible,
 } from './cocina.repository';
 import { EMOJI_COMIDA, enlaceWhatsapp, fechaComidaTexto, mensajeComida } from './mensajeComida';
 import { compartirMovimiento, puedeCompartir } from '@/modules/combustible/mensajeMovimiento';
@@ -94,13 +94,14 @@ export function CocinaMovilView() {
   });
 
   const sel = useMemo(() => cocinas.find((c) => c.cocina.id === selId) ?? null, [cocinas, selId]);
+  const esResguardoSel = esResguardo(sel?.cocina);
   const detalle = detalleId ? comidas.find((c) => c.id === detalleId) ?? null : null;
 
   return (
     <div className="surtidor">
       <header className="surt-head">
         <div>
-          <h1>🍳 Comidas</h1>
+          <h1>{esResguardoSel ? '🏬 Resguardo' : '🍳 Comidas'}</h1>
           <div className="muted" style={{ fontSize: '.85rem' }}><NombreUsuario nombre={actorName} correo={actor} /></div>
         </div>
         {!esCocinero && <Link to="/app/cocina?completo=1" className="btn btn-ghost">🖥 Módulo completo</Link>}
@@ -108,74 +109,89 @@ export function CocinaMovilView() {
       <AtajosTelefono actual={RUTA_COCINA_TELEFONO} />
 
       {loading && <p className="muted">Cargando…</p>}
-      {!loading && !cocinas.length && <EmptyState icon="🍳" message="No hay cocinas activas. Se crean desde Control de Alimentación en la PC." />}
+      {!loading && !cocinas.length && <EmptyState icon="🍳" message="No hay cocinas ni resguardos activos. Se crean desde Control de Alimentación en la PC." />}
 
       {cocinas.length > 1 && (
         <>
-          <div className="surt-rotulo">Cocina</div>
-          <div className="surt-tanques" role="tablist" aria-label="Cocina">
-            {cocinas.map(({ cocina, almacenNombre }) => (
-              <button key={cocina.id} type="button" role="tab" aria-selected={cocina.id === selId}
-                className={`surt-tanque${cocina.id === selId ? ' sel' : ''}`}
-                onClick={() => { setSelId(cocina.id); setForm(null); }}>
-                <div className="nombre">{cocina.nombre}</div>
-                <div className="muted" style={{ fontSize: '.8rem' }}>{almacenNombre ?? 'sin almacén'}</div>
-              </button>
-            ))}
+          <div className="surt-rotulo">Centro</div>
+          <div className="surt-tanques" role="tablist" aria-label="Cocina o Resguardo">
+            {cocinas.map(({ cocina, almacenNombre }) => {
+              const resg = esResguardo(cocina);
+              return (
+                <button key={cocina.id} type="button" role="tab" aria-selected={cocina.id === selId}
+                  className={`surt-tanque${cocina.id === selId ? ' sel' : ''}`}
+                  onClick={() => { setSelId(cocina.id); setForm(null); }}>
+                  <div className="nombre">{resg ? `🏬 ${cocina.nombre}` : cocina.nombre}</div>
+                  <div className="muted" style={{ fontSize: '.8rem' }}>{almacenNombre ?? 'sin almacén'}</div>
+                </button>
+              );
+            })}
           </div>
         </>
       )}
 
       {sel && !form && canWrite && (
-        <div className="surt-acciones comidas">
-          {TIPOS.map((t) => (
-            <button key={t} type="button" className={`surt-btn ${t}`} onClick={() => setForm({ tipo: t, comida: null })}>
-              <span className="icono" aria-hidden>{EMOJI_COMIDA[t]}</span>
+        esResguardoSel ? (
+          <div className="surt-acciones">
+            <button type="button" className="surt-btn almuerzo" onClick={() => setForm({ tipo: 'almuerzo', comida: null })}>
+              <span className="icono" aria-hidden>📤</span>
               <span className="texto">
-                <span>{labelTipoComida(t)}</span>
-                <small>Personas y consumo de {sel.cocina.nombre}</small>
+                <span>Registrar salida de víveres</span>
+                <small>Consumo por día de {sel.cocina.nombre}</small>
               </span>
             </button>
-          ))}
-        </div>
+          </div>
+        ) : (
+          <div className="surt-acciones comidas">
+            {TIPOS.map((t) => (
+              <button key={t} type="button" className={`surt-btn ${t}`} onClick={() => setForm({ tipo: t, comida: null })}>
+                <span className="icono" aria-hidden>{EMOJI_COMIDA[t]}</span>
+                <span className="texto">
+                  <span>{labelTipoComida(t)}</span>
+                  <small>Personas y consumo de {sel.cocina.nombre}</small>
+                </span>
+              </button>
+            ))}
+          </div>
+        )
       )}
       {sel && !canWrite && (
         <div className="aviso warning sm" style={{ margin: '.75rem 0' }}>
           <span className="aviso-icono">👁</span>
-          <div>Tu rol solo puede ver. Para cargar comidas hace falta escritura en Alimentación.</div>
+          <div>Tu rol solo puede ver. Para cargar movimientos hace falta escritura en Alimentación.</div>
         </div>
       )}
       {sel && !sel.almacenNombre && (
         <div className="aviso warning sm" style={{ margin: '.75rem 0' }}>
           <span className="aviso-icono">⚠</span>
-          <div>Esta cocina no tiene almacén vinculado: se asigna desde la PC.</div>
+          <div>{esResguardoSel ? 'Este resguardo' : 'Esta cocina'} no tiene almacén vinculado: se asigna desde la PC.</div>
         </div>
       )}
 
       {sel && form && (
         <FormularioComida key={`${sel.cocina.id}-${form.tipo}-${form.comida?.id ?? 'nueva'}`}
           tipoInicial={form.tipo} comida={form.comida} cocinaId={sel.cocina.id} cocinaNombre={sel.cocina.nombre}
-          almacen={sel.almacenNombre} actor={actor} actorName={actorName}
+          almacen={sel.almacenNombre} actor={actor} actorName={actorName} resguardo={esResguardoSel}
           onCancel={() => setForm(null)}
           onSaved={async (id) => { setForm(null); await reloadComidas(sel.cocina.id).catch(() => {}); setDetalleId(id); }} />
       )}
 
       {sel && (
         <section className="surt-lista">
-          <h2>Últimas {ULTIMAS_COMIDAS_TELEFONO} comidas · {sel.cocina.nombre}</h2>
-          {!comidas.length && <p className="muted">Esta cocina no tiene comidas cargadas todavía.</p>}
+          <h2>{esResguardoSel ? `Últimas ${ULTIMAS_COMIDAS_TELEFONO} salidas · ${sel.cocina.nombre}` : `Últimas ${ULTIMAS_COMIDAS_TELEFONO} comidas · ${sel.cocina.nombre}`}</h2>
+          {!comidas.length && <p className="muted">{esResguardoSel ? 'Este resguardo no tiene salidas cargadas todavía.' : 'Esta cocina no tiene comidas cargadas todavía.'}</p>}
           {comidas.map((c) => {
             const n = fotos.get(c.id) ?? 0;
             return (
               <button key={c.id} type="button" className="surt-mov" onClick={() => setDetalleId(c.id)}>
-                <span className="icono" aria-hidden>{EMOJI_COMIDA[c.tipo_comida]}</span>
+                <span className="icono" aria-hidden>{esResguardoSel ? '📤' : EMOJI_COMIDA[c.tipo_comida]}</span>
                 <span style={{ minWidth: 0 }}>
-                  <div className="titulo">{labelTipoComida(c.tipo_comida)} · {fechaComidaTexto(c.at)}</div>
+                  <div className="titulo">{esResguardoSel ? `Salida · ${fechaComidaTexto(c.at)}` : `${labelTipoComida(c.tipo_comida)} · ${fechaComidaTexto(c.at)}`}</div>
                   <div className="sub">
-                    {num((c.items ?? []).length)} víver(es){c.nota ? ` · ${c.nota}` : ''}{n > 0 ? ` · 📎 ${n}` : ''}
+                    {num((c.items ?? []).length)} {esResguardoSel ? 'producto(s)' : 'víver(es)'}{c.nota ? ` · ${c.nota}` : ''}{n > 0 ? ` · 📎 ${n}` : ''}
                   </div>
                 </span>
-                <span className="litros">👥 {num(c.platos)}</span>
+                <span className="litros">{esResguardoSel ? `📦 ${num((c.items ?? []).length)} prod.` : `👥 ${num(c.platos)}`}</span>
               </button>
             );
           })}
@@ -187,7 +203,7 @@ export function CocinaMovilView() {
 
       {detalle && sel && (
         <DetalleComida comida={detalle} cocinaNombre={sel.cocina.nombre} canWrite={canWrite} actor={actor} actorName={actorName}
-          fotos={fotos.get(detalle.id) ?? 0}
+          fotos={fotos.get(detalle.id) ?? 0} resguardo={esResguardoSel}
           onClose={() => setDetalleId(null)}
           onEditar={() => { setDetalleId(null); setForm({ tipo: detalle.tipo_comida, comida: detalle }); }}
           onBorrada={async () => { setDetalleId(null); await reloadComidas(sel.cocina.id).catch(() => {}); }} />
@@ -197,14 +213,14 @@ export function CocinaMovilView() {
 }
 
 /* ───────────── Formulario: personas, consumo, fecha y fotos ───────────── */
-function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen, actor, actorName, onCancel, onSaved }: {
+function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen, actor, actorName, resguardo, onCancel, onSaved }: {
   tipoInicial: TipoComida; comida: CocinaComida | null; cocinaId: string; cocinaNombre: string; almacen: string | null;
-  actor: string; actorName: string | null; onCancel: () => void; onSaved: (comidaId: string) => Promise<void>;
+  actor: string; actorName: string | null; resguardo?: boolean; onCancel: () => void; onSaved: (comidaId: string) => Promise<void>;
 }) {
   const hoy = hoyVE();
   const [tipo, setTipo] = useState<TipoComida>(tipoInicial);
   const [fecha, setFecha] = useState(comida ? diaVE(comida.at) : hoy);
-  const [personas, setPersonas] = useState(comida ? String(comida.platos) : '');
+  const [personas, setPersonas] = useState(comida ? String(comida.platos) : (resguardo ? '1' : ''));
   const [nota, setNota] = useState(comida?.nota ?? '');
   const [viveres, setViveres] = useState<ViverDisponible[]>([]);
   const [buscar, setBuscar] = useState('');
@@ -248,11 +264,17 @@ function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen
 
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
-    const nPersonas = Number(personas) || 0;
+    const nPersonas = resguardo ? 1 : (Number(personas) || 0);
     const lineas = items.map((x) => ({ producto_id: x.id, cantidad: Number(String(x.cant).replace(',', '.')) || 0 }));
-    if (nPersonas <= 0) { setError('Indicá cuántas personas comieron.'); return; }
-    if (!lineas.length) { setError('Agregá lo que se consumió: buscá cada víver y poné la cantidad.'); return; }
-    if (lineas.some((l) => l.cantidad <= 0)) { setError('Falta la cantidad de algún víver (o quitalo con ✕).'); return; }
+    if (!resguardo && nPersonas <= 0) { setError('Indicá cuántas personas comieron.'); return; }
+    if (!lineas.length) {
+      setError(resguardo ? 'Agregá los productos consumidos: buscá cada producto y poné la cantidad.' : 'Agregá lo que se consumió: buscá cada víver y poné la cantidad.');
+      return;
+    }
+    if (lineas.some((l) => l.cantidad <= 0)) {
+      setError(resguardo ? 'Falta la cantidad de algún producto (o quitalo con ✕).' : 'Falta la cantidad de algún víver (o quitalo con ✕).');
+      return;
+    }
     if (!fecha || fecha > hoy) { setError('La fecha no puede ser posterior a hoy.'); return; }
     // Nada por encima de lo que hay: el aviso dice el víver, lo pedido y lo que hay.
     const paraConsumo = new Map<string, ViverParaConsumo>(viveres.map((v) => [v.producto.id, {
@@ -268,9 +290,9 @@ function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen
       if (archivos.length) {
         setEtapa('fotos');
         const { fallos } = await subirFotos(guardada.id, archivos, actor, MODULO_ADJUNTO_COMIDA);
-        for (const f of fallos) toast(`Comida guardada, pero una foto no se pudo subir: ${f}`, 'error');
+        for (const f of fallos) toast(`Salida guardada, pero una foto no se pudo subir: ${f}`, 'error');
       }
-      toast(`${labelTipoComida(tipo)} ${comida ? 'actualizado' : 'registrado'} · ${cocinaNombre}`, 'success');
+      toast(resguardo ? `Salida ${comida ? 'actualizada' : 'registrada'} · ${cocinaNombre}` : `${labelTipoComida(tipo)} ${comida ? 'actualizado' : 'registrado'} · ${cocinaNombre}`, 'success');
       await onSaved(guardada.id);
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar.'); }
     finally { setGuardando(false); }
@@ -279,43 +301,55 @@ function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen
   return (
     <form className="surt-form card" onSubmit={guardar}>
       <div className="surt-form-titulo">
-        <span className="icono" aria-hidden>{EMOJI_COMIDA[tipo]}</span>
+        <span className="icono" aria-hidden>{resguardo ? '📤' : EMOJI_COMIDA[tipo]}</span>
         <div>
-          <strong>{comida ? `Editar ${labelTipoComida(tipo).toLowerCase()} · ${comida.codigo}` : labelTipoComida(tipo)}</strong>
+          <strong>{resguardo
+            ? (comida ? `Editar salida · ${comida.codigo}` : 'Registrar salida de víveres')
+            : (comida ? `Editar ${labelTipoComida(tipo).toLowerCase()} · ${comida.codigo}` : labelTipoComida(tipo))}</strong>
           <div className="muted" style={{ fontSize: '.85rem' }}>{cocinaNombre}{almacen ? ` · descuenta de ${almacen}` : ''}</div>
         </div>
       </div>
 
       {error && <div className="aviso danger"><span className="aviso-icono">⛔</span><div>{error}</div></div>}
 
-      <div className="surt-campo">
-        <label>Servicio</label>
-        <div className="surt-grid3">
-          {TIPOS.map((t) => (
-            <button key={t} type="button" className={`btn btn-grande ${tipo === t ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTipo(t)}>
-              {EMOJI_COMIDA[t]} {labelTipoComida(t)}
-            </button>
-          ))}
+      {!resguardo && (
+        <div className="surt-campo">
+          <label>Servicio</label>
+          <div className="surt-grid3">
+            {TIPOS.map((t) => (
+              <button key={t} type="button" className={`btn btn-grande ${tipo === t ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTipo(t)}>
+                {EMOJI_COMIDA[t]} {labelTipoComida(t)}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      <div className="surt-grid2">
+      {resguardo ? (
         <div className="surt-campo">
-          <label htmlFor="com-personas">👥 Personas</label>
-          <input id="com-personas" className="input surt-input surt-litros" type="number" inputMode="numeric" min={1} step={1}
-            value={personas} onChange={(e) => setPersonas(e.target.value)} placeholder="0" autoFocus={!comida} required />
-        </div>
-        <div className="surt-campo">
-          <label htmlFor="com-fecha">📅 Fecha</label>
+          <label htmlFor="com-fecha">📅 Fecha de consumo</label>
           <input id="com-fecha" className="input surt-input" type="date" value={fecha} max={hoy} onChange={(e) => setFecha(e.target.value)} />
           {fecha && fecha !== hoy && <small className="muted">Día anterior: se carga con fecha {fecha.split('-').reverse().join('/')}.</small>}
         </div>
-      </div>
+      ) : (
+        <div className="surt-grid2">
+          <div className="surt-campo">
+            <label htmlFor="com-personas">👥 Personas</label>
+            <input id="com-personas" className="input surt-input surt-litros" type="number" inputMode="numeric" min={1} step={1}
+              value={personas} onChange={(e) => setPersonas(e.target.value)} placeholder="0" autoFocus={!comida} required />
+          </div>
+          <div className="surt-campo">
+            <label htmlFor="com-fecha">📅 Fecha</label>
+            <input id="com-fecha" className="input surt-input" type="date" value={fecha} max={hoy} onChange={(e) => setFecha(e.target.value)} />
+            {fecha && fecha !== hoy && <small className="muted">Día anterior: se carga con fecha {fecha.split('-').reverse().join('/')}.</small>}
+          </div>
+        </div>
+      )}
 
       <div className="surt-campo">
-        <label htmlFor="com-buscar">📦 Consumo ({items.length})</label>
+        <label htmlFor="com-buscar">{resguardo ? `📦 Productos consumidos por día (${items.length})` : `📦 Consumo (${items.length})`}</label>
         <input id="com-buscar" className="input surt-input" value={buscar} onChange={(e) => setBuscar(e.target.value)}
-          placeholder="🔍 Buscá el víver (arroz, pollo, aceite…)" autoComplete="off" />
+          placeholder={resguardo ? '🔍 Buscá el producto consumido/despachado…' : '🔍 Buscá el víver (arroz, pollo, aceite…)'} autoComplete="off" />
         {!!sugerencias.length && (
           <div className="surt-sugerencias" style={{ display: 'grid', gap: '.3rem', marginTop: '.35rem' }}>
             {sugerencias.map((v) => (
@@ -361,16 +395,16 @@ function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen
 
       <div className="surt-campo">
         <label htmlFor="com-nota">📝 Nota (opcional)</label>
-        <input id="com-nota" className="input surt-input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Pollo guisado con arroz…" />
+        <input id="com-nota" className="input surt-input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder={resguardo ? 'Detalle de la salida o consumo…' : 'Pollo guisado con arroz…'} />
       </div>
 
-      {!comida && <SelectorFotos archivos={archivos} onChange={setArchivos} titulo="📷 Fotos del servicio (hasta 4)" />}
-      {comida && <small className="muted">Las fotos se agregan o quitan desde el detalle de la comida.</small>}
+      {!comida && <SelectorFotos archivos={archivos} onChange={setArchivos} titulo={resguardo ? '📷 Fotos de la salida / soporte (hasta 4)' : '📷 Fotos del servicio (hasta 4)'} />}
+      {comida && <small className="muted">Las fotos se agregan o quitan desde el detalle del movimiento.</small>}
 
       <button type="submit" className="btn btn-primary surt-guardar" disabled={guardando}>
         {guardando
           ? (etapa === 'fotos' ? `Subiendo ${archivos.length === 1 ? 'la foto' : `${archivos.length} fotos`}…` : 'Guardando…')
-          : `✔ ${comida ? 'Guardar cambios' : `Registrar ${labelTipoComida(tipo).toLowerCase()}`}`}
+          : `✔ ${comida ? 'Guardar cambios' : (resguardo ? 'Registrar salida' : `Registrar ${labelTipoComida(tipo).toLowerCase()}`)}`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>Cancelar</button>
     </form>
@@ -378,14 +412,16 @@ function FormularioComida({ tipoInicial, comida, cocinaId, cocinaNombre, almacen
 }
 
 /* ───────────── Detalle: WhatsApp, fotos, editar y borrar ───────────── */
-function DetalleComida({ comida, cocinaNombre, canWrite, actor, actorName, fotos, onClose, onEditar, onBorrada }: {
+function DetalleComida({ comida, cocinaNombre, canWrite, actor, actorName, fotos, resguardo, onClose, onEditar, onBorrada }: {
   comida: CocinaComida; cocinaNombre: string; canWrite: boolean; actor: string; actorName: string | null; fotos: number;
-  onClose: () => void; onEditar: () => void; onBorrada: () => Promise<void>;
+  resguardo?: boolean; onClose: () => void; onEditar: () => void; onBorrada: () => Promise<void>;
 }) {
   const [confirmando, setConfirmando] = useState(false);
   const [borrando, setBorrando] = useState(false);
-  const texto = mensajeComida(comida, { cocina: cocinaNombre, fotos });
-  const titulo = `${EMOJI_COMIDA[comida.tipo_comida]} ${labelTipoComida(comida.tipo_comida)} · ${fechaComidaTexto(comida.at)}`;
+  const texto = mensajeComida(comida, { cocina: cocinaNombre, fotos, esResguardo: resguardo });
+  const titulo = resguardo
+    ? `📤 Salida · ${fechaComidaTexto(comida.at)}`
+    : `${EMOJI_COMIDA[comida.tipo_comida]} ${labelTipoComida(comida.tipo_comida)} · ${fechaComidaTexto(comida.at)}`;
 
   async function copiar() {
     try { await navigator.clipboard.writeText(texto); toast('Mensaje copiado', 'success'); }
@@ -396,7 +432,7 @@ function DetalleComida({ comida, cocinaNombre, canWrite, actor, actorName, fotos
     setBorrando(true);
     try {
       await eliminarComida(comida.id, actor, actorName);
-      toast('Comida eliminada · el consumo volvió al inventario', 'success');
+      toast(resguardo ? 'Salida eliminada · el consumo volvió al inventario' : 'Comida eliminada · el consumo volvió al inventario', 'success');
       await onBorrada();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error');
@@ -407,7 +443,7 @@ function DetalleComida({ comida, cocinaNombre, canWrite, actor, actorName, fotos
   // La confirmación ocupa todo el modal y sus botones van en el pie, donde está el dedo.
   if (confirmando) {
     return (
-      <Modal title="🗑 Eliminar comida" size="md" onClose={() => { if (!borrando) setConfirmando(false); }}
+      <Modal title={resguardo ? '🗑 Eliminar salida' : '🗑 Eliminar comida'} size="md" onClose={() => { if (!borrando) setConfirmando(false); }}
         footer={<>
           <button type="button" className="btn btn-ghost btn-grande" onClick={() => setConfirmando(false)} disabled={borrando}>↩ NO, VOLVER</button>
           <button type="button" className="btn btn-peligro btn-grande" onClick={() => void borrar()} disabled={borrando}>
@@ -416,7 +452,9 @@ function DetalleComida({ comida, cocinaNombre, canWrite, actor, actorName, fotos
         </>}>
         <div className="surt-confirmar">
           <strong style={{ fontSize: '1.15rem', display: 'block' }}>
-            ¿Eliminar el {labelTipoComida(comida.tipo_comida).toLowerCase()} del {fechaComidaTexto(comida.at)} ({num(comida.platos)} personas)?
+            {resguardo
+              ? `¿Eliminar la salida de víveres del ${fechaComidaTexto(comida.at)}?`
+              : `¿Eliminar el ${labelTipoComida(comida.tipo_comida).toLowerCase()} del ${fechaComidaTexto(comida.at)} (${num(comida.platos)} personas)?`}
           </strong>
           <div className="muted" style={{ marginTop: '.7rem', fontSize: '.95rem' }}>
             Lo consumido <strong>vuelve al inventario</strong> y se borran sus fotos. <strong>No se puede deshacer.</strong> Se refleja al instante en la PC.
@@ -434,13 +472,13 @@ function DetalleComida({ comida, cocinaNombre, canWrite, actor, actorName, fotos
         <button className="btn btn-primary btn-grande" onClick={onClose}>Cerrar</button>
       </>}>
       <div className="surt-detalle">
-        <div className="surt-fila"><span className="muted">Cocina</span><span>{cocinaNombre}</span></div>
-        <div className="surt-fila"><span className="muted">Personas</span><span>{num(comida.platos)}</span></div>
+        <div className="surt-fila"><span className="muted">{resguardo ? 'Resguardo' : 'Cocina'}</span><span>{cocinaNombre}</span></div>
+        {!resguardo && <div className="surt-fila"><span className="muted">Personas</span><span>{num(comida.platos)}</span></div>}
         <div className="surt-fila"><span className="muted">Código</span><span>{comida.codigo}</span></div>
         {comida.nota && <div className="surt-fila"><span className="muted">Nota</span><span>{comida.nota}</span></div>}
         <div className="surt-fila"><span className="muted">Registrado</span><span>{dateTime(comida.created_at ?? comida.at)}{comida.actor_name || comida.actor ? <> · <NombreUsuario nombre={comida.actor_name} correo={comida.actor} /></> : null}</span></div>
       </div>
-      <div className="surt-rotulo">📦 Consumo</div>
+      <div className="surt-rotulo">{resguardo ? '📦 Productos consumidos' : '📦 Consumo'}</div>
       <div className="surt-detalle">
         {(comida.items ?? []).map((it) => (
           <div key={it.producto_id} className="surt-fila"><span>{it.nombre}</span><span>{num(it.cantidad)} {it.unidad}</span></div>
@@ -463,7 +501,7 @@ function DetalleComida({ comida, cocinaNombre, canWrite, actor, actorName, fotos
       <pre className="surt-mensaje">{texto}</pre>
 
       <FotosDelMovimiento movId={comida.id} actor={actor} soloLectura={!canWrite} modulo={MODULO_ADJUNTO_COMIDA}
-        sinFotosTexto="Esta comida no tiene fotos." />
+        sinFotosTexto={resguardo ? 'Esta salida no tiene fotos.' : 'Esta comida no tiene fotos.'} />
     </Modal>
   );
 }

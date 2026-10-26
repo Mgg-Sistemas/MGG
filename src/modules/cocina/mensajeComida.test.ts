@@ -41,4 +41,16 @@ describe('mensajeComida', () => {
       expect(decodeURIComponent(enlace.split('text=')[1])).toBe(t);
     }
   });
+
+  it('formatea salida de víveres para resguardo sin servicio ni personas', () => {
+    const t = mensajeComida(comida(), { cocina: 'Resguardo Matanzas', fotos: 1, esResguardo: true });
+    expect(t).toContain('📤 *SALIDA DE VÍVERES*');
+    expect(t).toContain('🏬 Resguardo: Resguardo Matanzas');
+    expect(t).toContain('📅 Fecha: 29/09/2026');
+    expect(t).toContain('📦 *Productos consumidos por día (2)*');
+    expect(t).toContain('• ARROZ: 3,5 kilogramo');
+    expect(t).not.toContain('Personas');
+    expect(t).not.toContain('ALMUERZO');
+  });
 });
+
