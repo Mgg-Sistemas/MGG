@@ -71,6 +71,15 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
   const [cambiarEstado, setCambiarEstado] = useState<Conductor | null>(null);
   const [borrarC, setBorrarC] = useState<Conductor | null>(null);
 
+  const docsPorChofer = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    for (const d of documentos) {
+      if (!m.has(d.chofer_id)) m.set(d.chofer_id, new Set());
+      m.get(d.chofer_id)!.add(d.tipo);
+    }
+    return m;
+  }, [documentos]);
+
   const enRutaIds = useMemo(() => new Set(viajes.filter((v) => v.estado === 'en_ruta').map((v) => v.chofer_id)), [viajes]);
   const descansoHoy = useMemo(() => new Set(descansos.filter((d) => d.desde <= hoy && hoy <= d.hasta).map((d) => d.personal_id)), [descansos, hoy]);
 
@@ -147,6 +156,7 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
                 {filas.map((c) => {
                   const e = ESTADO_CHOFER[estadoChofer({ activo: c.activo, enRuta: enRutaIds.has(c.id), deDescanso: descansoHoy.has(c.personal_id ?? '') })];
                   const dc = datosConductor(c);
+                  const tiposDocs = docsPorChofer.get(c.id);
                   return (
                     <tr key={c.id} style={{ opacity: c.activo ? 1 : .6 }}>
                       <td>
@@ -159,11 +169,23 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
                       </td>
                       <td className="mono" style={{ fontSize: '.8rem' }}>{dc.cedula ? formatoCI(dc.cedula) : '—'}<div className="muted">{c.externo ? 'sin ficha' : numeroFicha(c.personal?.numero_ficha)}</div></td>
                       <td>
-                        <div style={{ fontSize: '.8rem' }}>{[c.licencia_grado, c.licencia_numero].filter(Boolean).join(' · ') || <span className="muted">Sin datos</span>}</div>
+                        <div style={{ fontSize: '.8rem' }}>
+                          {[c.licencia_grado, c.licencia_numero].filter(Boolean).join(' · ') || (tiposDocs?.has('licencia') ? <span style={{ color: 'var(--primary)', fontWeight: 500 }}>📄 Documento cargado</span> : <span className="muted">Sin datos</span>)}
+                        </div>
                         <BadgeVence vence={c.licencia_vence} hoy={hoy} />
                       </td>
-                      <td><BadgeVence vence={c.certificado_medico_vence} hoy={hoy} /></td>
-                      <td><BadgeVence vence={c.seguro_vence} hoy={hoy} /></td>
+                      <td>
+                        <BadgeVence vence={c.certificado_medico_vence} hoy={hoy} />
+                        {!c.certificado_medico_vence && tiposDocs?.has('certificado_medico') && (
+                          <div style={{ fontSize: '.75rem', color: 'var(--primary)', fontWeight: 500 }}>📄 Documento cargado</div>
+                        )}
+                      </td>
+                      <td>
+                        <BadgeVence vence={c.seguro_vence} hoy={hoy} />
+                        {!c.seguro_vence && tiposDocs?.has('seguro') && (
+                          <div style={{ fontSize: '.75rem', color: 'var(--primary)', fontWeight: 500 }}>📄 Documento cargado</div>
+                        )}
+                      </td>
                       <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
                         {(() => {
                           const t = tasasDeConductor(c);

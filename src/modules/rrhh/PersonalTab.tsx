@@ -22,6 +22,7 @@ import {
   iconoDocumento, tituloDocumento,
 } from './documentosPersonal';
 import { EMPRESA_POR_DEFECTO, definicionEmpresa, destinosDeTransferencia, type DefinicionEmpresa, type Empresa } from './empresa';
+import { esCargoDeChofer } from '@/modules/choferes/choferes';
 import { TransferirEmpresaModal } from './EmpresasModal';
 import { crearEvento } from './eventos.repository';
 import {
@@ -2084,22 +2085,42 @@ function DocumentacionModal({ persona, canWrite, actor, actorName, onClose, onCa
             );
           })}
 
+          {esCargoDeChofer(persona) && (
+            <div className="aviso info" style={{ margin: '0 0 .55rem', padding: '.45rem .65rem', fontSize: '.8rem' }}>
+              <span className="aviso-icono">🚛</span>
+              <div>
+                <strong>Ficha de conductor / chofer:</strong> Los documentos como <strong>Licencia de conducir</strong>, <strong>Certificado médico</strong> y <strong>Seguro</strong> que cargues acá se reflejarán automáticamente en el módulo de Choferes.
+              </div>
+            </div>
+          )}
+
           {canWrite && (hayLugar ? (
-            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', paddingTop: otros.length ? '.55rem' : 0, borderTop: otros.length ? '1px solid var(--border)' : undefined }}>
-              {/* El nombre va primero: el archivo se sube recién cuando ya se sabe
-                  cómo se va a llamar, así no queda un «documento sin nombre». */}
-              <input className="input" value={nombreNuevo} maxLength={60}
-                onChange={(e) => setNombreNuevo(e.target.value)}
-                placeholder="Nombre del documento (ej.: Título universitario)"
-                style={{ flex: 1, minWidth: 220 }} />
-              <label className={`btn btn-sm ${nombreNuevo.trim().length >= MIN_ETIQUETA ? 'btn-primary' : 'btn-ghost'}`}
-                style={{ cursor: nombreNuevo.trim().length >= MIN_ETIQUETA ? 'pointer' : 'not-allowed', margin: 0, opacity: nombreNuevo.trim().length >= MIN_ETIQUETA ? 1 : .6 }}
-                title={nombreNuevo.trim().length >= MIN_ETIQUETA ? 'Elegí el archivo' : `Escribí primero el nombre (mínimo ${MIN_ETIQUETA} caracteres)`}>
-                {subiendo === TIPO_OTRO ? 'Subiendo…' : '📎 Añadir documento'}
-                <input type="file" accept="application/pdf,image/*" style={{ display: 'none' }}
-                  disabled={subiendo === TIPO_OTRO || nombreNuevo.trim().length < MIN_ETIQUETA}
-                  onChange={(e) => { void subir(TIPO_OTRO, e.target.files?.[0] ?? null, { etiqueta: nombreNuevo }); e.target.value = ''; }} />
-              </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem', paddingTop: otros.length ? '.55rem' : 0, borderTop: otros.length ? '1px solid var(--border)' : undefined }}>
+              <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                <span className="muted" style={{ fontSize: '.74rem' }}>Sugerencias:</span>
+                {['Licencia de conducir', 'Certificado médico vial', 'Póliza de seguro', 'Carta de buena conducta'].map((sug) => (
+                  <button key={sug} type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.72rem', padding: '2px 8px' }}
+                    onClick={() => setNombreNuevo(sug)}>
+                    + {sug}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                {/* El nombre va primero: el archivo se sube recién cuando ya se sabe
+                    cómo se va a llamar, así no queda un «documento sin nombre». */}
+                <input className="input" value={nombreNuevo} maxLength={60}
+                  onChange={(e) => setNombreNuevo(e.target.value)}
+                  placeholder="Nombre del documento (ej.: Licencia de conducir, Título…)"
+                  style={{ flex: 1, minWidth: 220 }} />
+                <label className={`btn btn-sm ${nombreNuevo.trim().length >= MIN_ETIQUETA ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ cursor: nombreNuevo.trim().length >= MIN_ETIQUETA ? 'pointer' : 'not-allowed', margin: 0, opacity: nombreNuevo.trim().length >= MIN_ETIQUETA ? 1 : .6 }}
+                  title={nombreNuevo.trim().length >= MIN_ETIQUETA ? 'Elegí el archivo' : `Escribí primero el nombre (mínimo ${MIN_ETIQUETA} caracteres)`}>
+                  {subiendo === TIPO_OTRO ? 'Subiendo…' : '📎 Añadir documento'}
+                  <input type="file" accept="application/pdf,image/*" style={{ display: 'none' }}
+                    disabled={subiendo === TIPO_OTRO || nombreNuevo.trim().length < MIN_ETIQUETA}
+                    onChange={(e) => { void subir(TIPO_OTRO, e.target.files?.[0] ?? null, { etiqueta: nombreNuevo }); e.target.value = ''; }} />
+                </label>
+              </div>
             </div>
           ) : (
             <small className="hint muted">Llegaste al tope de {MAX_DOCUMENTOS_OTROS} documentos extra. Quitá alguno para sumar otro.</small>

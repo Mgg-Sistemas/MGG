@@ -19,10 +19,13 @@ import { registrarGasto, registrarIngresoCaja } from '@/modules/tesoreria/tesore
 import type { CuentaCaja } from '@/shared/lib/types';
 import type { Vehiculo } from '@/modules/asignaciones/vehiculos.repository';
 import {
-  tipoViajeDe, cantidadViajes, tasasDeConductor, codificarObservacionesConTasas,
+  tipoViajeDe, cantidadViajes, tasasDeConductor, codificarObservacionesConTasas, esCargoDeChofer, clasificarDocPersonal,
   type Liquidacion, type LineaRecibo, type Parada, type ReciboCalculado, type TipoViaje, type TasasChofer,
 } from './choferes';
 import { mensajeErrorDocumento, nombreSeguro, validarArchivoDocumento } from '@/modules/rrhh/documentosPersonal';
+import type { DocumentoPersonal } from '@/modules/rrhh/personal.repository';
+
+export { esCargoDeChofer, clasificarDocPersonal };
 
 const T_CONDUCTORES = 'choferes_conductores';
 const T_VIAJES = 'choferes_viajes';
@@ -33,7 +36,7 @@ const T_DOCS = 'choferes_documentos';
 /** Los archivos van al bucket privado de RRHH (sus políticas ya cubren a todo usuario registrado). */
 const BUCKET_DOCS = 'personal-docs';
 
-export const TABLAS_CHOFERES = [T_CONDUCTORES, T_VIAJES, T_VIATICOS, T_PAGOS, T_DOCS, T_FLOTA, 'personal', 'rrhh_descansos'];
+export const TABLAS_CHOFERES = [T_CONDUCTORES, T_VIAJES, T_VIATICOS, T_PAGOS, T_DOCS, T_FLOTA, 'personal', 'personal_documentos', 'rrhh_descansos'];
 
 /* ───────────── Tipos ───────────── */
 
@@ -262,11 +265,6 @@ export async function setConductorActivo(id: string, activo: boolean): Promise<v
   if (error) throw err(error, 'No se pudo cambiar el estado del conductor.');
 }
 
-/** ¿La ficha de RRHH dice que maneja? (cargo CONDUCTOR, CHOFER, AYUDANTE GENERAL CONDUCTOR…) */
-export function esCargoDeChofer(p: Pick<Personal, 'cargo' | 'departamento'>): boolean {
-  const t = `${p.cargo ?? ''} ${p.departamento ?? ''}`.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-  return /chofer|conductor|transport/.test(t);
-}
 
 /** Crea el expediente (vacío) de todo el personal activo con cargo de chofer que todavía no lo tiene. */
 export async function importarConductoresDesdeRrhh(personal: Personal[], existentes: Conductor[], actor: string, actorName: string | null): Promise<number> {
@@ -895,6 +893,29 @@ export interface DocumentoChofer {
   subido_por: string | null;
   subido_por_nombre: string | null;
   created_at: string;
+  /** 'rrhh' si el documento fue cargado en la ficha de RRHH. */
+  origen?: 'chofer' | 'rrhh';
+}
+
+/** Convierte un documento de RRHH (`personal_documentos`) para mostrarlo en el expediente de Choferes. */
+export function mapearDocPersonalAChofer(dp: DocumentoPersonal, choferId: string): DocumentoChofer {
+  const c = clasificarDocPersonal(dp);
+  return {
+    id: `rrhh-${dp.id}`,
+    chofer_id: choferId,
+    tipo: c.tipo,
+    etiqueta: c.etiqueta,
+    path: dp.path,
+    nombre: dp.nombre,
+    mime: dp.mime,
+    tamano: dp.tamano,
+    vence: null,
+    vigente: true,
+    subido_por: dp.subidoPor,
+    subido_por_nombre: dp.subidoPorNombre ? `${dp.subidoPorNombre} (RRHH)` : 'RRHH',
+    created_at: dp.createdAt,
+    origen: 'rrhh',
+  };
 }
 
 /** Todos los documentos (vigentes e históricos), del más nuevo al más viejo. */

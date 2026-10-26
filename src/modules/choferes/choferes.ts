@@ -583,3 +583,48 @@ export function calcularSiguientePeriodoCierre(ultimoCorteIso?: string | null): 
   return { desde, hasta };
 }
 
+export type TipoDocChoferClasificado = 'licencia' | 'certificado_medico' | 'seguro' | 'otro';
+
+/**
+ * ¿La ficha de RRHH tiene cargo o departamento relacionado con chofer o conductor?
+ * Cubre: chofer, chófer, conductor, conductora, transporte, transportista, camionero, motorizado, etc.
+ */
+export function esCargoDeChofer(p: { cargo?: string | null; departamento?: string | null }): boolean {
+  const t = `${p.cargo ?? ''} ${p.departamento ?? ''}`.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  return /chofer|conductor|transport|camioner|motoriz/.test(t);
+}
+
+/**
+ * Clasifica un documento proveniente de la ficha de RRHH (`personal_documentos`)
+ * para que encaje en los tipos del expediente de Choferes:
+ * - Si es licencia de conducir -> 'licencia'
+ * - Si es certificado médico -> 'certificado_medico'
+ * - Si es seguro / póliza -> 'seguro'
+ * - Si es cédula, RIF, CV u otro papel -> 'otro'
+ */
+export function clasificarDocPersonal(doc: { tipo: string; etiqueta?: string | null; nombre?: string | null }): {
+  tipo: TipoDocChoferClasificado;
+  etiqueta: string;
+} {
+  const texto = `${doc.etiqueta ?? ''} ${doc.nombre ?? ''} ${doc.tipo}`.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  if (/licencia|conducir|chofer|manejo/.test(texto)) {
+    return { tipo: 'licencia', etiqueta: doc.etiqueta?.trim() || 'Licencia de conducir' };
+  }
+  if (/certificad.*med|medico.*vial|medico|salud/.test(texto)) {
+    return { tipo: 'certificado_medico', etiqueta: doc.etiqueta?.trim() || 'Certificado médico' };
+  }
+  if (/seguro|poliza|rsv/.test(texto)) {
+    return { tipo: 'seguro', etiqueta: doc.etiqueta?.trim() || 'Póliza de seguro' };
+  }
+  if (doc.tipo === 'cedula') {
+    return { tipo: 'otro', etiqueta: doc.etiqueta?.trim() || 'Cédula de identidad' };
+  }
+  if (doc.tipo === 'rif') {
+    return { tipo: 'otro', etiqueta: doc.etiqueta?.trim() || 'RIF' };
+  }
+  if (doc.tipo === 'cv') {
+    return { tipo: 'otro', etiqueta: doc.etiqueta?.trim() || 'Currículum vitae' };
+  }
+  return { tipo: 'otro', etiqueta: doc.etiqueta?.trim() || doc.nombre?.trim() || 'Documento RRHH' };
+}
+

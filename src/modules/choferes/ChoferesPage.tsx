@@ -19,13 +19,13 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Personal } from '@/shared/lib/types';
-import { listPersonal } from '@/modules/rrhh/personal.repository';
+import { listPersonal, listDocumentosDeTodos, type DocumentoPersonal } from '@/modules/rrhh/personal.repository';
 import { listDescansos, type Descanso } from '@/modules/rrhh/descansos.repository';
 import { DescansosTab } from '@/modules/rrhh/DescansosTab';
-import { EMPRESA_POR_DEFECTO } from '@/modules/rrhh/empresa';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
   TABLAS_CHOFERES, esTablaFaltante, listConductores, listDocumentosChofer, listFlota, listPagos, listViajes, listViaticos,
+  importarConductoresDesdeRrhh, esCargoDeChofer, mapearDocPersonalAChofer,
   type Conductor, type DocumentoChofer, type PagoViaje, type VehiculoFlota, type Viaje, type Viatico,
 } from './choferes.repository';
 import { hoyVE, nombreDeConductor } from './choferes';
@@ -98,25 +98,54 @@ export function ChoferesPage() {
 
   const recargar = useCallback(async () => {
     try {
-      const ps = await listPersonal(false, EMPRESA_POR_DEFECTO).catch(() => [] as Personal[]);
-      const [cs, fl, vj, vt, pg, t] = await Promise.all([
+      // Personal de TODAS las empresas (MGG, MTO, etc.) para choferes de cualquier nómina
+      const ps = await listPersonal(false, 'TODAS').catch(() => [] as Personal[]);
+      let [cs, fl, vj, vt, pg, t, pDocs] = await Promise.all([
         listConductores(), listFlota(), listViajes(), listViaticos(), listPagos(),
         getTasaHoy().then((x) => x.usd ?? null).catch(() => null),
+        listDocumentosDeTodos().catch(() => [] as DocumentoPersonal[]),
       ]);
+
+      // Sincronización automática: cualquier empleado activo con cargo chofer/conductor aparece de inmediato
+      const yaConductor = new Set(cs.map((c) => c.personal_id));
+      const faltantes = ps.filter((p) => p.activo && esCargoDeChofer(p) && !yaConductor.has(p.id));
+      if (faltantes.length > 0) {
+        try {
+          await importarConductoresDesdeRrhh(ps, cs, actor, actorName);
+          cs = await listConductores();
+        } catch {
+          // Si no se puede insertar automáticamente, no se rompe la pantalla
+        }
+      }
+
       const ds = await listDescansos(cs.map((c) => c.personal_id).filter((x): x is string => !!x)).catch(() => [] as Descanso[]);
       // Los documentos tienen su propio SQL: si falta, el resto del módulo sigue andando.
-      const docs = await listDocumentosChofer().catch((e) => { if (esTablaFaltante(e)) { setDocsSinInstalar(true); return [] as DocumentoChofer[]; } throw e; });
+      const docsPropios = await listDocumentosChofer().catch((e) => { if (esTablaFaltante(e)) { setDocsSinInstalar(true); return [] as DocumentoChofer[]; } throw e; });
+
+      // Combinar documentos propios con documentos subidos en RRHH (licencias, certificados, etc.)
+      const docsCombinados = [...docsPropios];
+      const pathsVistos = new Set(docsPropios.map((d) => d.path));
+      const choferPorPersonalId = new Map(cs.filter((c) => !!c.personal_id).map((c) => [c.personal_id as string, c.id]));
+
+      for (const pd of pDocs) {
+        const choferId = choferPorPersonalId.get(pd.personalId);
+        if (choferId && !pathsVistos.has(pd.path)) {
+          pathsVistos.add(pd.path);
+          docsCombinados.push(mapearDocPersonalAChofer(pd, choferId));
+        }
+      }
+
       const porId = new Map(ps.map((p) => [p.id, p]));
       setPersonal(ps);
       setConductores(cs.map((c) => ({ ...c, personal: c.personal_id ? (porId.get(c.personal_id) ?? null) : null })));
       setFlota(fl); setViajes(vj); setViaticos(vt); setPagos(pg); setDescansos(ds); setTasa(t);
-      setDocumentos(docs); if (docs.length) setDocsSinInstalar(false);
+      setDocumentos(docsCombinados); if (docsPropios.length || docsCombinados.length) setDocsSinInstalar(false);
       setSinInstalar(false);
     } catch (e) {
       if (esTablaFaltante(e)) setSinInstalar(true);
       else toast(e instanceof Error ? e.message : 'No se pudo cargar el módulo de choferes', 'error');
     } finally { setLoading(false); }
-  }, []);
+  }, [actor, actorName]);
   useEffect(() => { void recargar(); }, [recargar]);
   // Silencioso: el cambio de otro usuario no deja la pantalla en «Cargando…».
   useRealtime([...TABLAS_CHOFERES, 'cajas', 'caja_saldos'], () => { void recargar(); });
@@ -162,7 +191,7 @@ export function ChoferesPage() {
       {vista === 'viaticos' && <ViaticosTab {...props} />}
       {vista === 'guias' && <GuiasTab {...props} />}
       {vista === 'descansos' && (
-        <DescansosTab canWrite={canWrite} actor={actor} actorName={actorName} empresa={EMPRESA_POR_DEFECTO}
+        <DescansosTab canWrite={canWrite} actor={actor} actorName={actorName} empresa="TODAS"
           soloPersonal={soloChoferes} claveConfig={CLAVE_DESCANSOS_CHOFERES} etiquetaGente="conductores activos" />
       )}
     </div>

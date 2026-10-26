@@ -12,6 +12,7 @@ import { FechaVe } from '@/shared/ui/FechaVe';
 import { toast } from '@/shared/ui/Toast';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { megas } from '@/modules/rrhh/documentosPersonal';
+import { borrarDocumentoPersonal, type DocumentoPersonal } from '@/modules/rrhh/personal.repository';
 import {
   TIPOS_DOCUMENTO_CHOFER, eliminarDocumentoChofer, subirDocumentoChofer, urlDocumentoChofer,
   type Conductor, type DocumentoChofer, type TipoDocumentoChofer,
@@ -59,17 +60,27 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
   async function confirmarBorrar() {
     const d = borrar; setBorrar(null);
     if (!d) return;
-    try { await eliminarDocumentoChofer(d); toast('Documento eliminado', 'success'); await onChanged(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
+    try {
+      if (d.id.startsWith('rrhh-')) {
+        await borrarDocumentoPersonal({ id: d.id.replace('rrhh-', ''), path: d.path } as DocumentoPersonal);
+      } else {
+        await eliminarDocumentoChofer(d);
+      }
+      toast('Documento eliminado', 'success');
+      await onChanged();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
   const toggleHist = (k: string) => setAbrirHist((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
   function Fila({ d, vigente }: { d: DocumentoChofer; vigente: boolean }) {
+    const esDeRrhh = d.origen === 'rrhh' || d.id.startsWith('rrhh-');
     return (
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', padding: '.35rem .5rem', borderRadius: 6, background: vigente ? 'rgba(41,192,129,.08)' : 'transparent', fontSize: '.84rem' }}>
         <span style={{ flex: '1 1 200px', minWidth: 0 }}>
-          <strong style={{ overflowWrap: 'anywhere' }}>{d.nombre}</strong>{d.tamano ? <span className="muted"> · {megas(d.tamano)}</span> : null}
+          <strong style={{ overflowWrap: 'anywhere' }}>{d.nombre}</strong>
+          {esDeRrhh && <span className="badge" style={{ marginLeft: 6, fontSize: '.68rem', background: 'rgba(59,130,246,0.12)', color: 'var(--primary)', border: '1px solid rgba(59,130,246,0.25)' }} title="Cargado desde la ficha del trabajador en RRHH">📋 De RRHH</span>}
+          {d.tamano ? <span className="muted"> · {megas(d.tamano)}</span> : null}
           <div className="muted" style={{ fontSize: '.74rem' }}>Subido {fechaHora(d.created_at)}{d.subido_por_nombre ? ` por ${d.subido_por_nombre}` : d.subido_por ? ` por ${d.subido_por}` : ''}</div>
         </span>
         {d.vence && <BadgeVence vence={d.vence} hoy={hoy} />}

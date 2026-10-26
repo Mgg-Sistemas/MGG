@@ -23,6 +23,7 @@ function normalizarGrados(grados: string[] | null | undefined): string[] {
     .sort((a, b) => orden.indexOf(a) - orden.indexOf(b));
 }
 import { normalizarCorreo, type Genero, type Parentesco } from './fichaPersonal';
+import { esCargoDeChofer } from '@/modules/choferes/choferes';
 
 const TABLE = 'personal';
 const TABLA_SUELDOS = 'personal_sueldos';
@@ -32,19 +33,23 @@ const TABLA_FAMILIA = 'personal_carga_familiar';
 /**
  * Lista el personal, ordenado por departamento y nombre.
  *
- * Sigue filtrando por empresa aunque hoy haya una sola: la columna está en
- * la base y el filtro es lo que habría que conservar si volviera una segunda
- * nómina. Sin `empresa` se asume MGG.
+ * Sigue filtrando por empresa si se especifica; pasar 'TODAS' para consultar
+ * todo el personal sin importar a qué empresa pertenezca.
  */
-export async function listPersonal(soloActivos = false, empresa: Empresa = EMPRESA_POR_DEFECTO): Promise<Personal[]> {
+export async function listPersonal(soloActivos = false, empresa: Empresa | 'TODAS' = EMPRESA_POR_DEFECTO): Promise<Personal[]> {
   let q = supabase.from(TABLE).select('*')
-    .eq('empresa', empresa)
     .order('departamento', { ascending: true, nullsFirst: false })
     .order('nombre', { ascending: true });
+  if (empresa && empresa !== 'TODAS') q = q.eq('empresa', empresa);
   if (soloActivos) q = q.eq('activo', true);
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as Personal[];
+}
+
+/** Todo el personal de la organización, de cualquier empresa. */
+export async function listTodoPersonal(soloActivos = false): Promise<Personal[]> {
+  return listPersonal(soloActivos, 'TODAS');
 }
 
 export interface PersonalInput {
@@ -526,7 +531,31 @@ export async function crearPersonal(input: PersonalInput, actorEmail?: string): 
     created_by: actorEmail ?? null,
   }).select('*').single();
   if (error) throw errorCedulaRepetida(error, input.cedula);
-  return data as Personal;
+  const persona = data as Personal;
+  void sincronizarConductorDesdePersonal(persona, actorEmail);
+  return persona;
+}
+
+/** Si la ficha tiene cargo de conductor/chofer, asegura que exista su expediente en Choferes. */
+async function sincronizarConductorDesdePersonal(p: Personal, actorEmail?: string): Promise<void> {
+  try {
+    if (esCargoDeChofer(p)) {
+      const { data } = await supabase.from('choferes_conductores').select('id, activo').eq('personal_id', p.id).maybeSingle();
+      if (!data) {
+        await supabase.from('choferes_conductores').insert({
+          personal_id: p.id,
+          tarifa_viaje_usd: 0,
+          created_by: actorEmail ?? null,
+          observaciones: 'Expediente creado automáticamente desde RRHH por cargo de chofer/conductor.',
+          activo: p.activo,
+        });
+      } else if (data.activo !== p.activo) {
+        await supabase.from('choferes_conductores').update({ activo: p.activo }).eq('id', data.id);
+      }
+    }
+  } catch {
+    // Si la tabla no está creada aún o falla la red, no bloquea el flujo de RRHH.
+  }
 }
 
 /** Lo que hace falta para poder mover un sueldo. */
@@ -575,7 +604,9 @@ export async function actualizarPersonal(
 
   const { data, error } = await supabase.from(TABLE).update(payload(patch)).eq('id', id).select('*').single();
   if (error) throw errorCedulaRepetida(error, patch.cedula);
-  return data as Personal;
+  const persona = data as Personal;
+  void sincronizarConductorDesdePersonal(persona, cambio.actor ?? undefined);
+  return persona;
 }
 
 /**
@@ -710,6 +741,11 @@ export async function listCambiosSueldo(desde?: string, hasta?: string): Promise
 export async function setPersonalActivo(id: string, activo: boolean): Promise<void> {
   const { error } = await supabase.from(TABLE).update({ activo }).eq('id', id);
   if (error) throw error;
+  try {
+    await supabase.from('choferes_conductores').update({ activo }).eq('personal_id', id);
+  } catch {
+    /* si no existe la tabla o no es conductor, no bloquea */
+  }
 }
 
 /** Elimina definitivamente una persona del personal. */

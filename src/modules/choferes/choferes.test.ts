@@ -5,7 +5,7 @@ import {
   tipoViajeDe, cantidadViajes, tarifaTotalViaje, textoRutaViajes, totalViajes, horasDiaVolqueta, errorViajesVolqueta,
   nombreDeConductor, datosConductor,
   tasasDeConductor, codificarObservacionesConTasas, observacionesSinTagsTasas, clasificarCategoriaPorTasa, categoriaDeViaje,
-  calcularSiguientePeriodoCierre,
+  calcularSiguientePeriodoCierre, esCargoDeChofer, clasificarDocPersonal,
 } from './choferes';
 
 const HOY = '2026-10-12';
@@ -235,6 +235,53 @@ describe('cierre consecutivo de nómina de viajes (calcularSiguientePeriodoCierr
     expect(res.desde).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(res.hasta).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(res.desde <= res.hasta).toBe(true);
+  });
+});
+
+describe('detección automática de cargo de chofer (esCargoDeChofer)', () => {
+  it('identifica cargos y departamentos de chofer o conductor con o sin tildes', () => {
+    expect(esCargoDeChofer({ cargo: 'Chofer' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Chófer de gandola' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Conductor' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Conductor de carga pesada' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Ayudante', departamento: 'Transporte' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Camionero' })).toBe(true);
+    expect(esCargoDeChofer({ cargo: 'Motorizado' })).toBe(true);
+  });
+
+  it('no marca cargos no relacionados', () => {
+    expect(esCargoDeChofer({ cargo: 'Cocinero', departamento: 'Cocina' })).toBe(false);
+    expect(esCargoDeChofer({ cargo: 'Administrador', departamento: 'Administración' })).toBe(false);
+    expect(esCargoDeChofer({ cargo: 'Mecánico', departamento: 'Mantenimiento' })).toBe(false);
+    expect(esCargoDeChofer({ cargo: null, departamento: null })).toBe(false);
+  });
+});
+
+describe('clasificación de documentos de RRHH para el expediente de Choferes (clasificarDocPersonal)', () => {
+  it('clasifica licencia de conducir al tipo licencia', () => {
+    const c1 = clasificarDocPersonal({ tipo: 'otro', etiqueta: 'Licencia de conducir', nombre: 'licencia.pdf' });
+    expect(c1.tipo).toBe('licencia');
+    expect(c1.etiqueta).toBe('Licencia de conducir');
+
+    const c2 = clasificarDocPersonal({ tipo: 'otro', etiqueta: 'Copia licencia 5ta', nombre: 'lic.jpg' });
+    expect(c2.tipo).toBe('licencia');
+  });
+
+  it('clasifica certificado médico vial al tipo certificado_medico', () => {
+    const c = clasificarDocPersonal({ tipo: 'otro', etiqueta: 'Certificado médico vial', nombre: 'cert.pdf' });
+    expect(c.tipo).toBe('certificado_medico');
+  });
+
+  it('clasifica póliza de seguro al tipo seguro', () => {
+    const c = clasificarDocPersonal({ tipo: 'otro', etiqueta: 'Póliza de seguro RCV', nombre: 'seguro.pdf' });
+    expect(c.tipo).toBe('seguro');
+  });
+
+  it('clasifica cédula, RIF, CV u otros documentos como tipo otro', () => {
+    expect(clasificarDocPersonal({ tipo: 'cedula', nombre: 'ci.pdf' })).toEqual({ tipo: 'otro', etiqueta: 'Cédula de identidad' });
+    expect(clasificarDocPersonal({ tipo: 'rif', nombre: 'rif.pdf' })).toEqual({ tipo: 'otro', etiqueta: 'RIF' });
+    expect(clasificarDocPersonal({ tipo: 'cv', nombre: 'curriculum.pdf' })).toEqual({ tipo: 'otro', etiqueta: 'Currículum vitae' });
+    expect(clasificarDocPersonal({ tipo: 'otro', etiqueta: 'Carta de buena conducta', nombre: 'carta.pdf' })).toEqual({ tipo: 'otro', etiqueta: 'Carta de buena conducta' });
   });
 });
 
