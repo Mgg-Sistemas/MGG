@@ -210,8 +210,12 @@ dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
 .lfv8-pill.kanban-finalizada { color: var(--text-dim); border-color: var(--border); background: var(--bg-1); }
 .lfv8-pill.kanban-por_recibir { color: #8be9fd; border-color: rgba(139,233,253,0.5); background: rgba(139,233,253,0.08); }
 .lfv8-pill.kanban-oc_creada { color: #d4a5ff; border-color: rgba(212,165,255,0.45); background: rgba(212,165,255,0.08); }
-.lfv8-pill.kanban-aprobada { color: #ffeb3b; border-color: rgba(255,235,59,0.45); background: rgba(255,235,59,0.08); }
 .lfv8-pill.kanban-anulada, .lfv8-pill.kanban-cancelada { color: #ff8a96; border-color: rgba(239,79,94,0.5); background: rgba(239,79,94,0.08); }
+.lfv8-pill.impuesto-con-iva { color: #38bdf8; border-color: rgba(56, 189, 248, 0.45); background: rgba(56, 189, 248, 0.08); font-weight: 600; }
+.lfv8-pill.impuesto-incluido { color: #a78bfa; border-color: rgba(167, 139, 250, 0.45); background: rgba(167, 139, 250, 0.08); font-weight: 600; }
+.lfv8-pill.impuesto-sin-iva { color: var(--text-dim); border-color: var(--border); background: var(--bg-1); }
+.lfv8-pill.impuesto-igtf { color: #fb923c; border-color: rgba(251, 146, 60, 0.45); background: rgba(251, 146, 60, 0.08); }
+.impuesto-tag-iva { color: #38bdf8; font-weight: 600; }
 
 /* ── Ver restantes (botón en proveedor) ── */
 .lfv8-ver-restantes { display: block; width: 100%; text-align: left; padding: .6rem 1rem; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--primary-2); cursor: pointer; font-size: .82rem; }

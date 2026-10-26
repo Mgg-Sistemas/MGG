@@ -84,6 +84,56 @@ export function labelEstadoKanban(estado: string | null | undefined, tipo?: stri
   }
 }
 
+/** Información visual sobre si la orden viene o no con impuestos y su desglose. */
+export function infoImpuestoOrden(o: Orden): {
+  tieneIva: boolean;
+  tieneIgtf: boolean;
+  label: string;
+  badgeClass: string;
+  detalle: string;
+} {
+  const iva = Math.max(0, Number(o.iva ?? o.iva_monto ?? 0));
+  const igtf = Math.max(0, Number(o.igtf ?? o.igtf_monto ?? 0));
+  const moneda = o.total_moneda === 'Bs' ? 'Bs' : (o.moneda ?? 'USD');
+
+  if (iva > 0) {
+    if (o.iva_incluido) {
+      return {
+        tieneIva: true,
+        tieneIgtf: igtf > 0,
+        label: `IVA incluido (${montoMoneda(iva, moneda)})`,
+        badgeClass: 'lfv8-pill impuesto-incluido',
+        detalle: `Precios con IVA adentro: ${montoMoneda(iva, moneda)}${igtf > 0 ? ` + IGTF ${montoMoneda(igtf, moneda)}` : ''}`,
+      };
+    }
+    return {
+      tieneIva: true,
+      tieneIgtf: igtf > 0,
+      label: `Con IVA (${montoMoneda(iva, moneda)})`,
+      badgeClass: 'lfv8-pill impuesto-con-iva',
+      detalle: `IVA adicional: ${montoMoneda(iva, moneda)}${igtf > 0 ? ` + IGTF ${montoMoneda(igtf, moneda)}` : ''}`,
+    };
+  }
+
+  if (igtf > 0) {
+    return {
+      tieneIva: false,
+      tieneIgtf: true,
+      label: `Solo IGTF (${montoMoneda(igtf, moneda)})`,
+      badgeClass: 'lfv8-pill impuesto-igtf',
+      detalle: `Sin IVA · IGTF: ${montoMoneda(igtf, moneda)}`,
+    };
+  }
+
+  return {
+    tieneIva: false,
+    tieneIgtf: false,
+    label: 'Sin IVA (exenta)',
+    badgeClass: 'lfv8-pill impuesto-sin-iva',
+    detalle: 'Esta orden no tiene IVA registrado en compras (exenta o sin desglose fiscal)',
+  };
+}
+
 export function RetencionesPage() {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
@@ -361,11 +411,21 @@ export function RetencionesPage() {
                 <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel({ orden: o, proveedorNombre })}>
                   <td className="mono">
                     <div>{o.oc_codigo ?? '—'}</div>
-                    {o.estado && (
-                      <span className={`lfv8-pill kanban-${o.estado}`} style={{ fontSize: '.68rem', marginTop: '.2rem' }}>
-                        {labelEstadoKanban(o.estado, o.tipo)}
-                      </span>
-                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.2rem', marginTop: '.2rem' }}>
+                      {o.estado && (
+                        <span className={`lfv8-pill kanban-${o.estado}`} style={{ fontSize: '.68rem' }}>
+                          {labelEstadoKanban(o.estado, o.tipo)}
+                        </span>
+                      )}
+                      {(() => {
+                        const info = infoImpuestoOrden(o);
+                        return (
+                          <span className={info.badgeClass} style={{ fontSize: '.68rem' }} title={info.detalle}>
+                            {info.label}
+                          </span>
+                        );
+                      })()}
+                    </div>
                   </td>
                   <td className="mono">{o.codigo}</td>
                   <td>{proveedorNombre}</td>
@@ -475,6 +535,12 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.4rem .9rem', fontSize: '.86rem' }}>
           <div><span className="muted">Proveedor:</span> <strong>{item.proveedorNombre}</strong></div>
           <div><span className="muted">Estatus Compras:</span>{' '}{o.estado ? <span className={`lfv8-pill kanban-${o.estado}`}>{labelEstadoKanban(o.estado, o.tipo)}</span> : '—'}</div>
+          <div><span className="muted">Impuestos OC:</span>{' '}
+            {(() => {
+              const info = infoImpuestoOrden(o);
+              return <span className={info.badgeClass}>{info.label}</span>;
+            })()}
+          </div>
           <div><span className="muted">Tlf. de administración del proveedor:</span> <strong className="mono">{o.numero_administracion || '—'}</strong></div>
           <div><span className="muted">Condición:</span> {labelCondicionPago(o.condiciones_pago)}</div>
           <div><span className="muted">Retención:</span> {labelRetencionModo(o.retencion_modo)}</div>
@@ -761,15 +827,24 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
               <span data-l="Compra">
                 <span className="mono">{o.oc_codigo ?? o.codigo}</span>
                 <small>{nombreDocumento(o.oc_codigo ?? o.codigo)}</small>
-                {o.estado && (
-                  <span
-                    className={`lfv8-pill kanban-${o.estado}`}
-                    style={{ marginTop: '.25rem', width: 'fit-content' }}
-                    title={`Estatus en el kanban de Compras: ${labelEstadoKanban(o.estado, o.tipo)}`}
-                  >
-                    {labelEstadoKanban(o.estado, o.tipo)}
-                  </span>
-                )}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.25rem', marginTop: '.25rem' }}>
+                  {o.estado && (
+                    <span
+                      className={`lfv8-pill kanban-${o.estado}`}
+                      title={`Estatus en el kanban de Compras: ${labelEstadoKanban(o.estado, o.tipo)}`}
+                    >
+                      {labelEstadoKanban(o.estado, o.tipo)}
+                    </span>
+                  )}
+                  {(() => {
+                    const info = infoImpuestoOrden(o);
+                    return (
+                      <span className={info.badgeClass} title={info.detalle}>
+                        {info.label}
+                      </span>
+                    );
+                  })()}
+                </div>
               </span>
               <span data-l="Proveedor">
                 {proveedorNombre}
@@ -780,6 +855,14 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
               </span>
               <span className="n" data-l="Total">
                 {montoMoneda(o.total, o.total_moneda)}
+                {(() => {
+                  const info = infoImpuestoOrden(o);
+                  return (
+                    <small className={info.tieneIva ? 'impuesto-tag-iva' : 'muted'} style={{ display: 'block', fontSize: '.74rem', marginTop: '.1rem' }}>
+                      {info.tieneIva ? (o.iva_incluido ? '✓ IVA incluido' : '+ IVA') : 'Sin IVA'}
+                    </small>
+                  );
+                })()}
                 {(() => {
                   const eq = equivalente(o, tasasDoc.get(o.id));
                   if (!eq) return <small className="muted" style={{ display: 'block' }}>sin tasa BCV del día</small>;
