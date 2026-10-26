@@ -187,14 +187,17 @@ export async function consultarElementosDigitales(fecha = hoyVenezuela()): Promi
       || imagenes.find((i) => i.clase === 'firma' && i.activo);
     const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha)
       || imagenes.find((i) => i.clase === 'sello' && i.activo);
-        return {
-      tieneLogo: !!l?.ruta || true, // Logo institucional MGG siempre disponible vía pdfLogo
-      tieneFirma: !!f?.ruta || true, // Firma de gerencia MGG disponible
-      tieneSello: !!s?.ruta || true, // Sello institucional de agente disponible
-      tieneAlguno: true,
+    const tieneLogo = !!l?.ruta;
+    const tieneFirma = !!f?.ruta;
+    const tieneSello = !!s?.ruta;
+    return {
+      tieneLogo,
+      tieneFirma,
+      tieneSello,
+      tieneAlguno: tieneLogo || tieneFirma || tieneSello,
     };
   } catch {
-    return { tieneLogo: true, tieneFirma: true, tieneSello: true, tieneAlguno: true };
+    return { tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false };
   }
 }
 
@@ -255,38 +258,6 @@ export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<
       } catch { /* noop */ }
     }
   } catch { /* noop */ }
-
-  
-  // ── Fallbacks institucionales para MGG si no hay versión subida en la base ──
-  if (!logoDataUrl) {
-    try {
-      const { loadLogoPdfDataUrl } = await import('@/shared/lib/pdfLogo');
-      logoDataUrl = await loadLogoPdfDataUrl();
-    } catch { /* noop */ }
-  }
-  if (!firmaDataUrl) {
-    try {
-      const { loadFirmaGerenteDataUrl } = await import('@/shared/lib/pdfLogo');
-      firmaDataUrl = await loadFirmaGerenteDataUrl();
-    } catch { /* noop */ }
-  }
-  if (!selloDataUrl) {
-    try {
-      const url = `${import.meta.env.BASE_URL}sello-mgg.jpeg`;
-      const resp = await fetch(url);
-      if (resp.ok) {
-        const blob = await resp.blob();
-        if (blob.type.startsWith('image/')) {
-          selloDataUrl = await new Promise<string>((resolve, reject) => {
-            const fr = new FileReader();
-            fr.onload = () => resolve(String(fr.result));
-            fr.onerror = reject;
-            fr.readAsDataURL(blob);
-          });
-        }
-      }
-    } catch { /* noop */ }
-  }
 
   return { logoDataUrl, firmaDataUrl, selloDataUrl };
 }
