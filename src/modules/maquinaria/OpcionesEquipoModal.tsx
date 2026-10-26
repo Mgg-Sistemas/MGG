@@ -2,11 +2,11 @@ import { useEffect } from 'react';
 import { num as fmtNum } from '@/shared/lib/format';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { CLASES_EQUIPO, ESTADOS_EQUIPO, estadoEfectivo, claseEquipo } from './flota';
-import type { InfoMantenimiento } from './flotaMantenimiento';
+import type { InfoEquipo } from './MaquinariaPage';
 
 export interface OpcionesEquipoModalProps {
   equipo: MaquinariaEquipo;
-  info?: InfoMantenimiento | null;
+  info?: InfoEquipo | null;
   canWrite: boolean;
   onClose: () => void;
   onHorometro: () => void;
@@ -45,7 +45,7 @@ export function OpcionesEquipoModal({
   }, [onClose]);
 
   const st = ESTADOS_EQUIPO[estadoEfectivo(equipo)];
-  const cl = CLASES_EQUIPO.find((c) => c.id === claseEquipo(equipo.tipo));
+  const cl = CLASES_EQUIPO.find((c) => c.id === claseEquipo(equipo));
   const avisoH = info?.avisoH ?? null;
   const avisoK = info?.avisoK ?? null;
 
@@ -95,7 +95,7 @@ export function OpcionesEquipoModal({
                       : `FALTAN ${fmtNum(avisoH.restante)} HRS PARA EL SERVICIO`}
                   </div>
                   <div className="flo-horas-detalle">
-                    Lectura actual: <strong>{info?.horometro != null ? fmtNum(info.horometro) : '--'} hrs</strong> · Próximo servicio a: <strong>{fmtNum(avisoH.proximo)} hrs</strong> (cada {fmtNum(equipo.mantenimiento_cada_hrs)} hrs)
+                    Lectura actual: <strong>{info?.horometro != null ? fmtNum(info.horometro) : '--'} hrs</strong> · Próximo servicio a: <strong>{fmtNum((info?.horometro ?? 0) + avisoH.restante)} hrs</strong> (cada {fmtNum(equipo.mantenimiento_cada_hrs)} hrs)
                   </div>
                 </div>
               </div>
@@ -121,7 +121,7 @@ export function OpcionesEquipoModal({
                       : `FALTAN ${fmtNum(avisoK.restante)} KM PARA EL SERVICIO`}
                   </div>
                   <div className="flo-horas-detalle">
-                    Lectura actual: <strong>{info?.km != null ? fmtNum(info.km) : '--'} km</strong> · Próximo a: <strong>{fmtNum(avisoK.proximo)} km</strong>
+                    Lectura actual: <strong>{info?.km != null ? fmtNum(info.km) : '--'} km</strong> · Próximo a: <strong>{fmtNum((info?.km ?? 0) + avisoK.restante)} km</strong>
                   </div>
                 </div>
               </div>

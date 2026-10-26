@@ -10,6 +10,7 @@ const mockEquipo = (overrides: Partial<MaquinariaEquipo> = {}): MaquinariaEquipo
   id: 'eq-1',
   equipo: 'EXCAVADORA 320D',
   tipo: 'FLOTA PESADA',
+  grupo_mantenimiento: null,
   propietario: 'MINERAL GROUP GUAYANA',
   responsable: 'Carlos Mendoza',
   status: 'ACTIVO',
@@ -32,7 +33,16 @@ const mockEquipo = (overrides: Partial<MaquinariaEquipo> = {}): MaquinariaEquipo
   mantenimiento_base_hrs: null,
   mantenimiento_base_km: null,
   combustible_equipo: null,
+  doc_fisico: false,
+  ficha_mantt: false,
+  doc_drive: false,
+  esp_tecnicas: false,
+  revision_mina: false,
+  notas: null,
   activo: true,
+  created_by: null,
+  created_at: '2026-01-01T00:00:00Z',
+  updated_at: null,
   ...overrides,
 });
 
@@ -45,6 +55,7 @@ describe('exportarMaquinaria', () => {
     expect(keys).toContain('horometro');
     expect(keys).toContain('horas_restantes');
     expect(keys).toContain('placa');
+    expect(CAMPOS_POR_DEFECTO_MAQUINARIA.length).toBeGreaterThan(0);
   });
 
   it('tablaExportMaquinaria genera encabezados y filas para los campos elegidos', () => {

@@ -16,7 +16,6 @@ import { supabase } from '@/shared/lib/supabase';
 import type { ItemOrden, ItemSolicitudSalida } from '@/shared/lib/types';
 import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
 import { crearOrden, ensureUnidadSolicitante } from '@/modules/pedidos/pedidos.repository';
-import { addCategoria, createProducto, siguienteSkuGlobal } from '@/modules/inventario/inventario.repository';
 import { notify } from '@/shared/lib/notify';
 import { listFotosOrden, borrarArchivosFotosOrden } from './osFotos.repository';
 import { listFotosEquipo, urlsFotosEquipo } from './fotosEquipo.repository';
@@ -195,11 +194,6 @@ export async function solicitarSalidaDeOrden(o: OrdenServicio, equipoNombre: str
 
 /** Datos de una pieza nueva para darla de alta al pedir la compra. */
 export interface PiezaNuevaAlta { nombre: string; categoria: string; unidad?: string }
-
-/** Categoría con la que Maquinaria da de alta sus piezas nuevas si no se eligió otra. */
-const CATEGORIA_PIEZAS = 'REPUESTOS';
-/** Almacén «casa» de las piezas nuevas: el General (Matanzas). El stock real entra al recibir la compra. */
-const ALMACEN_PIEZAS = 'General';
 
 /** «Caucho 11R22.5 para CAMION NHR (PLACA A12BC3D)»: la finalidad de la solicitud de pedido. */
 function finalidadDeOrden(o: OrdenServicio, equipo: { equipo: string; placa?: string | null; serial?: string | null }): string {

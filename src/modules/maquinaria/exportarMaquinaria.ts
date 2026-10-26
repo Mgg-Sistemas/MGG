@@ -5,7 +5,8 @@
    Se descarga en Excel, PDF para imprimir o se envía por correo.
    ============================================================ */
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { ESTADOS_EQUIPO, estadoEfectivo, fmtNum } from './flota';
+import { ESTADOS_EQUIPO, estadoEfectivo } from './flota';
+import { num as fmtNum } from '@/shared/lib/format';
 import type { InfoEquipo } from './MaquinariaPage';
 
 export type GrupoCampoMaquinaria = 'identidad' | 'datos' | 'mantenimiento' | 'combustible';
@@ -83,7 +84,7 @@ export const CAMPOS_EXPORT_MAQUINARIA: CampoExportMaquinaria[] = [
     label: 'Próximo servicio (h)',
     grupo: 'mantenimiento',
     ancho: 16,
-    valor: (_, i) => (i?.avisoH?.proximo != null ? `${fmtNum(i.avisoH.proximo)} h` : '—'),
+    valor: (_, i) => (i?.avisoH && i?.horometro != null ? `${fmtNum(i.horometro + i.avisoH.restante)} h` : '—'),
   },
   {
     key: 'kilometraje',

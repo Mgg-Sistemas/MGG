@@ -9,10 +9,8 @@ import { norm } from '@/shared/lib/texto';
 import { MaquinariaCatalogoModal } from './MaquinariaCatalogoModal';
 import { EquipoFormModal } from './EquipoFormModal';
 import { ResumenMaquinariaModal } from './ResumenMaquinariaModal';
-import { CorreoReporteModal } from '@/shared/ui/CorreoReporteModal';
 import { listEquipos, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
-import { descargarEquiposPdf, descargarEquiposExcel, enviarEquiposPorCorreo } from './maquinariaReportes';
 import {
   BUCKETS_FLOTA, CLASES_EQUIPO, ESTADOS_EQUIPO, estadoEfectivo, claseEquipo, avisoServicio, avisoMasUrgente, coincideEquipo,
   type AvisoServicio, type BucketFlota, type ClaseEquipo, type EstadoEquipo,
@@ -28,7 +26,7 @@ import { ExportarMaquinariaModal } from './ExportarMaquinariaModal';
 import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
 import { mensajeReporteAveria, mensajeEstadoEquipo } from './mensajeMaquinaria';
 
-interface InfoEquipo {
+export interface InfoEquipo {
   estado: EstadoEquipo;
   clase: ClaseEquipo;
   horometro: number | null;
@@ -40,30 +38,6 @@ interface InfoEquipo {
 
 type FiltroMant = 'todos' | 'vencidos' | 'proximos' | 'al_dia';
 
-function BarraServicio({ aviso, cada, etiqueta }: { aviso: AvisoServicio | null; cada: number | null; etiqueta: string }) {
-  if (!aviso) {
-    return (
-      <div className="flo-mant-barra sin">
-        <div className="fila"><span>{etiqueta}</span><span>{cada ? 'sin lectura' : 'sin intervalo'}</span></div>
-        <div className="flo-meter"><i style={{ width: '0%' }} /></div>
-      </div>
-    );
-  }
-  const tono = aviso.nivel === 'vencido' ? 'var(--danger)' : aviso.nivel === 'proximo' ? 'var(--warning)' : 'var(--success)';
-  return (
-    <div className="flo-mant-barra">
-      <div className="fila">
-        <span>{etiqueta} · cada {fmtNum(cada)} {aviso.unidad}</span>
-        <strong style={{ color: tono }}>
-          {aviso.restante <= 0 ? `vencido ${fmtNum(Math.abs(aviso.restante))} ${aviso.unidad}` : `faltan ${fmtNum(aviso.restante)} ${aviso.unidad}`}
-        </strong>
-      </div>
-      <div className="flo-meter" style={{ ['--tone' as string]: tono }} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(aviso.pct)}
-        aria-label={`${etiqueta}: ${Math.round(aviso.pct)} % del intervalo`}><i style={{ width: `${aviso.pct}%` }} /></div>
-    </div>
-  );
-}
-
 /**
  * Catálogo de Control de Maquinaria y Vehículos (Flota y Servicio).
  * Muestra el estado y las horas de mantenimiento directamente en el catálogo.
@@ -71,11 +45,10 @@ function BarraServicio({ aviso, cada, etiqueta }: { aviso: AvisoServicio | null;
  * horómetros, pedir servicios, registrar lavados y reportar averías con envío por WhatsApp.
  */
 export function MaquinariaPage() {
-  const { can, userRole } = usePermissions();
+  const { can, isAdmin } = usePermissions();
   const { user } = useSession();
   const navigate = useNavigate();
   const canWrite = can('maquinaria', 'escritura');
-  const isAdmin = userRole === 'admin' || userRole === 'jefe';
   const actor = user?.email ?? 'sistema';
   const actorName = user?.user_metadata?.nombre || user?.email?.split('@')[0] || 'Usuario';
 
@@ -96,7 +69,6 @@ export function MaquinariaPage() {
   // Modales generales
   const [catalogoOpen, setCatalogoOpen] = useState(false);
   const [resumenOpen, setResumenOpen] = useState(false);
-  const [correoOpen, setCorreoOpen] = useState(false);
   const [exportarOpen, setExportarOpen] = useState<'excel' | 'pdf' | 'correo' | null>(null);
   const [nuevo, setNuevo] = useState(false);
 
@@ -396,7 +368,7 @@ export function MaquinariaPage() {
                               : `FALTAN ${fmtNum(i.avisoH.restante)} HRS`}
                           </div>
                           <div className="flo-horas-detalle">
-                            Horómetro: <strong>{i.horometro != null ? fmtNum(i.horometro) : '--'} hrs</strong> · Próximo: <strong>{fmtNum(i.avisoH.proximo)} hrs</strong> (cada {fmtNum(e.mantenimiento_cada_hrs)} hrs)
+                            Horómetro: <strong>{i.horometro != null ? fmtNum(i.horometro) : '--'} hrs</strong> · Próximo: <strong>{fmtNum((i.horometro ?? 0) + i.avisoH.restante)} hrs</strong> (cada {fmtNum(e.mantenimiento_cada_hrs)} hrs)
                           </div>
                         </div>
                       </div>
@@ -422,7 +394,7 @@ export function MaquinariaPage() {
                               : `FALTAN ${fmtNum(i.avisoK.restante)} KM`}
                           </div>
                           <div className="flo-horas-detalle">
-                            Kilometraje: <strong>{i.km != null ? fmtNum(i.km) : '--'} km</strong> · Próximo: <strong>{fmtNum(i.avisoK.proximo)} km</strong>
+                            Kilometraje: <strong>{i.km != null ? fmtNum(i.km) : '--'} km</strong> · Próximo: <strong>{fmtNum((i.km ?? 0) + i.avisoK.restante)} km</strong>
                           </div>
                         </div>
                       </div>
@@ -490,15 +462,6 @@ export function MaquinariaPage() {
       {catalogoOpen && <MaquinariaCatalogoModal canWrite={canWrite} onClose={() => setCatalogoOpen(false)} />}
       {resumenOpen && <ResumenMaquinariaModal equipos={equipos.filter((e) => e.activo)} onClose={() => setResumenOpen(false)} />}
       {nuevo && <EquipoFormModal equipo={null} actor={actor} onClose={() => setNuevo(false)} onSaved={cargar} />}
-      {correoOpen && (
-        <CorreoReporteModal
-          titulo="Enviar Control de Maquinaria y Vehículos"
-          descripcion={`Se enviará el PDF con ${lista.length} equipo(s).`}
-          defaultEmail={actor}
-          onEnviar={async (emails) => (await enviarEquiposPorCorreo(lista, emails)).destinatarios}
-          onClose={() => setCorreoOpen(false)}
-        />
-      )}
 
       {/* Exportar datos tipo RRHH con selección de casillas y agrupación por empresa */}
       {exportarOpen && (
@@ -598,8 +561,8 @@ export function MaquinariaPage() {
               kilometraje: inf?.km ?? null,
               horasRestantes: inf?.avisoH?.restante ?? null,
               kmRestantes: inf?.avisoK?.restante ?? null,
-              proximoServicioHoras: inf?.avisoH?.proximo ?? null,
-              proximoServicioKm: inf?.avisoK?.proximo ?? null,
+              proximoServicioHoras: inf?.avisoH ? ((inf.horometro ?? 0) + inf.avisoH.restante) : null,
+              proximoServicioKm: inf?.avisoK ? ((inf.km ?? 0) + inf.avisoK.restante) : null,
             });
             setWhatsappModal({ titulo: `Ficha · ${opcionesEquipo.equipo}`, texto: txt });
           }}

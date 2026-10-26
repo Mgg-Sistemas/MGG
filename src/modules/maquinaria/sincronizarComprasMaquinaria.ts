@@ -85,11 +85,12 @@ export async function sincronizarRepuestosMaquinariaDesdeCompras(input: Sincroni
       }
 
       if (huboCambiosOS) {
-        await supabase
-          .from('maquinaria_ordenes_servicio')
-          .update({ repuestos })
-          .eq('id', os.id)
-          .catch(() => {});
+        try {
+          await supabase
+            .from('maquinaria_ordenes_servicio')
+            .update({ repuestos })
+            .eq('id', os.id);
+        } catch { /* noop */ }
       }
     }
   }
@@ -121,37 +122,39 @@ export async function sincronizarRepuestosMaquinariaDesdeCompras(input: Sincroni
 
     if (coincidente) {
       // Actualizar con el nombre real y el producto_id si aplica
-      await supabase
-        .from('maquinaria_repuestos_equipo')
-        .update({
-          tipo: nombreReal,
-          producto_id: item.productoId ?? coincidente.producto_id,
-          cantidad: Math.max(1, Number(item.cantidad) || 1),
-          unidad: item.unidad?.trim() || 'und',
-          nota: `Sincronizado desde compra ${spCodigo}`,
-          actor: actor.email,
-          actor_name: actor.nombre,
-          updated_at: new Date().toISOString(),
-        })
-        .eq('id', coincidente.id)
-        .catch(() => {});
+      try {
+        await supabase
+          .from('maquinaria_repuestos_equipo')
+          .update({
+            tipo: nombreReal,
+            producto_id: item.productoId ?? coincidente.producto_id,
+            cantidad: Math.max(1, Number(item.cantidad) || 1),
+            unidad: item.unidad?.trim() || 'und',
+            nota: `Sincronizado desde compra ${spCodigo}`,
+            actor: actor.email,
+            actor_name: actor.nombre,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', coincidente.id);
+      } catch { /* noop */ }
     } else {
       // Registrar nuevo repuesto permanente en la ficha del equipo
       const sistema = deducirSistemaRepuesto(nombreReal);
-      await supabase
-        .from('maquinaria_repuestos_equipo')
-        .insert({
-          equipo_id: equipoId,
-          sistema,
-          tipo: nombreReal,
-          cantidad: Math.max(1, Number(item.cantidad) || 1),
-          unidad: item.unidad?.trim() || 'und',
-          producto_id: item.productoId ?? null,
-          nota: `Sincronizado desde compra ${spCodigo}`,
-          actor: actor.email,
-          actor_name: actor.nombre,
-        })
-        .catch(() => {});
+      try {
+        await supabase
+          .from('maquinaria_repuestos_equipo')
+          .insert({
+            equipo_id: equipoId,
+            sistema,
+            tipo: nombreReal,
+            cantidad: Math.max(1, Number(item.cantidad) || 1),
+            unidad: item.unidad?.trim() || 'und',
+            producto_id: item.productoId ?? null,
+            nota: `Sincronizado desde compra ${spCodigo}`,
+            actor: actor.email,
+            actor_name: actor.nombre,
+          });
+      } catch { /* noop */ }
     }
   }
 }

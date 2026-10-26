@@ -137,7 +137,7 @@ export async function descargarMaquinariaExcel(
 
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Maquinaria');
-  await previewWorkbook(wb, nombreArchivo('xlsx'));
+  previewWorkbook(XLSX, wb, nombreArchivo('xlsx'));
 }
 
 /**

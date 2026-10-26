@@ -7,14 +7,13 @@ import { norm } from '@/shared/lib/texto';
 import { num as fmtNum } from '@/shared/lib/format';
 import { listProductosActivos } from '@/modules/pedidos/pedidos.repository';
 import { buscarProductosParecidos, type ProductoParecido } from '@/modules/inventario/inventario.repository';
-import { CategoriaProductoSelect } from '@/modules/inventario/CategoriaProductoSelect';
 import type { Producto } from '@/shared/lib/types';
 import {
-  SERVICIOS, URGENCIAS, intervencionesDe, ajustarIntervenciones, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, trabajosDe, etiquetaServicio, CATEGORIA_REPUESTOS, categoriaFijaEnTelefono,
+  SERVICIOS, URGENCIAS, intervencionesDe, ajustarIntervenciones, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, trabajosDe, etiquetaServicio, CATEGORIA_REPUESTOS,
   repuestosEditables, type AvisoServicio, type TonoFlota,
 } from './flota';
 import {
-  crearOrdenServicio, editarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden, notificarComprasPiezasNuevas, faltaSalida, faltaCompra,
+  crearOrdenServicio, editarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden, faltaSalida, faltaCompra,
   type OrdenServicio,
 } from './flota.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
@@ -119,8 +118,6 @@ export function OrdenServicioModal({
   const [buscandoParecidos, setBuscandoParecidos] = useState(false);
   // Ficha de repuestos del equipo (14/10/2026): se carga con un botón lo que toca en este servicio.
   const [fichaRep, setFichaRep] = useState<RepuestoEquipo[]>([]);
-  // En el teléfono las piezas nuevas van siempre a REPUESTOS; en la computadora se puede cambiar.
-  const [categoriaFija] = useState(categoriaFijaEnTelefono);
   // Fotos (hasta 4): se comprimen al elegirlas y se suben al crear la orden.
   const fotosOS = useFotosLocales();
 
@@ -233,7 +230,7 @@ export function OrdenServicioModal({
     } finally { setSaving(false); }
   }
 
-  async function crear() {
+  async function crear(conWs = false) {
     if (!tipo) return;
     setSaving(true);
     try {
