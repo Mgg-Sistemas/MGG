@@ -126,7 +126,13 @@ export function recortarOfertaAHija<T extends ItemRecortable>(
   skusHija: Iterable<string>,
 ): OfertaRecortada<T> {
   const set = new Set(skusHija);
-  const items = (oferta.items ?? []).filter((it) => set.has(it.sku));
+  let items = (oferta.items ?? []).filter((it) => set.has(it.sku));
+  if (!items.length && (oferta.items ?? []).length > 0) {
+    const arr = Array.from(skusHija).filter(Boolean);
+    if (arr.length === 0 || (oferta.items ?? []).length === 1) {
+      items = oferta.items ?? [];
+    }
+  }
   // Gross de la oferta: su precio_total si lo trae; si no, la suma de sus ítems.
   const grossOferta = (Number(oferta.precio_total) || 0) > 0 ? round2(Number(oferta.precio_total)) : grossDe(oferta.items ?? []);
   const grossHija = grossDe(items);

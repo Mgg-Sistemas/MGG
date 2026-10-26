@@ -587,16 +587,16 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
     : (o.descuento_obtenido != null ? Math.max(0, Number(o.descuento_obtenido)) : 0);
   // El IVA/IGTF de la OC (vienen de la oferta) se conservan si no vienen en el input: editar
   // cantidades, precios o la nota NO puede hacerlos desaparecer del total (bug que dejaba
-  // total ≠ ítems + IVA). Mientras la OC está por aprobar (10-10-2026) sí se pueden cambiar.
+  // total ≠ ítems + IVA). Cuando vienen en el input se aplican y recalculan el total.
   const puedeTodo = o.estado === 'oc_creada';
   const r2 = (n: unknown) => Math.max(0, Math.round((Number(n) || 0) * 100) / 100);
-  const ivaOc = puedeTodo && input.iva !== undefined ? r2(input.iva) : Math.max(0, Number(o.iva) || 0);
-  const igtfOc = puedeTodo && input.igtf !== undefined ? r2(input.igtf) : Math.max(0, Number(o.igtf) || 0);
+  const ivaOc = input.iva !== undefined ? r2(input.iva) : Math.max(0, Number(o.iva) || 0);
+  const igtfOc = input.igtf !== undefined ? r2(input.igtf) : Math.max(0, Number(o.igtf) || 0);
   // Precios con el IVA adentro y ajuste declarado (impuestosOc.ts): igual que el IVA, se
-  // conservan si no vienen en el input y solo se cambian mientras está por aprobar.
-  const ivaIncluidoOc = puedeTodo && input.iva_incluido !== undefined ? !!input.iva_incluido : !!o.iva_incluido;
-  const ajusteOc = puedeTodo && input.ajuste !== undefined ? Math.round((Number(input.ajuste) || 0) * 100) / 100 : Math.round((Number(o.ajuste) || 0) * 100) / 100;
-  const ajusteMotivoOc = puedeTodo && input.ajuste_motivo !== undefined ? (input.ajuste_motivo?.trim() || null) : (o.ajuste_motivo ?? null);
+  // conservan si no vienen en el input y se actualizan cuando se suministran.
+  const ivaIncluidoOc = input.iva_incluido !== undefined ? !!input.iva_incluido : !!o.iva_incluido;
+  const ajusteOc = input.ajuste !== undefined ? Math.round((Number(input.ajuste) || 0) * 100) / 100 : Math.round((Number(o.ajuste) || 0) * 100) / 100;
+  const ajusteMotivoOc = input.ajuste_motivo !== undefined ? (input.ajuste_motivo?.trim() || null) : (o.ajuste_motivo ?? null);
   const total = totalDesdePartes({ subtotal, descuento: descObt, iva: ivaOc, igtf: igtfOc, iva_incluido: ivaIncluidoOc, ajuste: ajusteOc });
   // Cambio de proveedor (opcional): si difiere del actual, la OC se reabre a aprobación.
   const cambiaProveedor = cambiaProveedorOc(o, input);
@@ -641,13 +641,11 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
     historial: appendHistorial(o, evento, actorEmail, extrasProv),
     ...camposSolicitud,
   };
-  if (puedeTodo) {
-    if (input.iva !== undefined) patch.iva = ivaOc || null;
-    if (input.igtf !== undefined) patch.igtf = igtfOc || null;
-    if (input.iva_incluido !== undefined) patch.iva_incluido = ivaIncluidoOc;
-    if (input.ajuste !== undefined) { patch.ajuste = ajusteOc || null; patch.ajuste_motivo = ajusteOc ? ajusteMotivoOc : null; }
-    if (input.urgente !== undefined) patch.urgente = !!input.urgente;
-  }
+  if (input.iva !== undefined) patch.iva = ivaOc || null;
+  if (input.igtf !== undefined) patch.igtf = igtfOc || null;
+  if (input.iva_incluido !== undefined) patch.iva_incluido = ivaIncluidoOc;
+  if (input.ajuste !== undefined) { patch.ajuste = ajusteOc || null; patch.ajuste_motivo = ajusteOc ? ajusteMotivoOc : null; }
+  if (puedeTodo && input.urgente !== undefined) patch.urgente = !!input.urgente;
   if (cambiaProveedor) patch.proveedor_id = input.proveedorId ?? null;
   if (reabre) {
     // Vuelve a aprobación del Gerente General y se limpia la confirmación previa.
@@ -754,8 +752,10 @@ export async function resincronizarOcDesdeOferta(
     /** Proveedor de la oferta: en una hija solo se re-sincroniza la de su propio proveedor. */
     proveedor_id?: string | null;
   },
+  actorEmail?: string,
 ): Promise<Orden | null> {
-  if (orden.estado !== 'oc_creada') return null;
+  const ESTADOS_RESINCRONIZABLES: EstadoOrden[] = ['oc_creada', 'confirmada_metodo', 'oc_aprobada'];
+  if (!ESTADOS_RESINCRONIZABLES.includes(orden.estado)) return null;
   // Hija: la oferta editada es la de la MADRE (cotiza todos los ítems); esta sub-OC solo
   // toma sus SKUs y la parte proporcional de impuestos/descuento/efectivo. Y solo si la
   // oferta es la de SU proveedor: desde una hija se pueden editar las ofertas de los otros
@@ -792,7 +792,7 @@ export async function resincronizarOcDesdeOferta(
   const ivaIncluidoOf = !!ofBase.iva_incluido;
   const ajusteOf = Math.round((Number(ofBase.ajuste) || 0) * 100) / 100;
   const totalOc = totalDesdePartes({ subtotal: subtotalOc, descuento: descObt, iva: ivaOf, igtf: igtfOf, iva_incluido: ivaIncluidoOf, ajuste: ajusteOf });
-  const patch = {
+  const patch: Record<string, unknown> = {
     items: repEf ? repEf.items : itemsConContexto,
     total: totalOc,
     descuento_obtenido: descObt || null,
@@ -804,9 +804,55 @@ export async function resincronizarOcDesdeOferta(
     oferta_precio_efectivo: efectivoOf,
     oferta_precio_bcv: repEf ? repEf.bcv : null,
   };
+  if (actorEmail) {
+    patch.historial = appendHistorial(orden, 'oc_editada', actorEmail, {
+      motivo: 'Sincronización de IVA y total desde la cotización',
+      iva: ivaOf,
+      total: totalOc,
+    });
+  }
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', orden.id).select('*').single();
   if (error) throw error;
   return data as Orden;
+}
+
+/**
+ * Sincroniza el IVA, IGTF y total de una OC directamente con su oferta aceptada.
+ * Sirve para subsanar desfaces donde la oferta tiene IVA cargado pero la OC arrastra $0 de IVA.
+ */
+export async function sincronizarOrdenConOfertaAceptada(ordenId: string, actorEmail: string): Promise<Orden> {
+  const { data: orden, error: ordErr } = await supabase.from(TABLE).select('*').eq('id', ordenId).single();
+  if (ordErr || !orden) throw ordErr ?? new Error('Orden no encontrada');
+  const o = orden as Orden;
+  if (!o.proveedor_id) throw new Error('La orden no tiene proveedor asignado');
+
+  const ids = Array.from(new Set([o.parent_orden_id, o.id].filter(Boolean))) as string[];
+  const { data: ofertas, error: ofErr } = await supabase
+    .from('ofertas_proveedor')
+    .select('*')
+    .in('orden_id', ids)
+    .eq('proveedor_id', o.proveedor_id)
+    .order('registrada_en', { ascending: false });
+
+  if (ofErr) throw ofErr;
+  const aceptada = (ofertas ?? []).find((x) => x.estado === 'aceptada') ?? ofertas?.[0];
+  if (!aceptada) throw new Error('No se encontró la cotización del proveedor para esta orden.');
+
+  const res = await resincronizarOcDesdeOferta(o, {
+    proveedor_id: aceptada.proveedor_id,
+    items: aceptada.items ?? [],
+    precio_total: Number(aceptada.precio_total) || 0,
+    precio_efectivo: aceptada.precio_efectivo != null ? Number(aceptada.precio_efectivo) : null,
+    descuento: aceptada.descuento != null ? Number(aceptada.descuento) : null,
+    iva: aceptada.iva != null ? Number(aceptada.iva) : null,
+    igtf: aceptada.igtf != null ? Number(aceptada.igtf) : null,
+    iva_incluido: !!aceptada.iva_incluido,
+    ajuste: aceptada.ajuste != null ? Number(aceptada.ajuste) : null,
+    ajuste_motivo: aceptada.ajuste_motivo ?? null,
+  }, actorEmail);
+
+  if (!res) throw new Error('No se pudo sincronizar la orden desde la oferta.');
+  return res;
 }
 
 /**
@@ -828,6 +874,8 @@ export async function aprobarOrdenConOferta(
   motivoAdjuntos?: { path: string; filename: string }[] | null,
   /** Modalidad de pago seleccionada por el analista: 'usd' = pagar en $ (divisa), 'bs' = pagar en Bs al cambio (tasa BCV). */
   modalidadPago?: 'usd' | 'bs' | null,
+  /** ID específico de la oferta elegida (evita búsquedas ciegas). */
+  ofertaId?: string | null,
 ): Promise<Orden> {
   if (!['aprobada', 'desistida_proveedor'].includes(o.estado))
     throw new Error('Solo se crea la OC sobre órdenes de pedido aprobadas');
@@ -840,12 +888,12 @@ export async function aprobarOrdenConOferta(
   // no el id de la oferta; por eso la oferta se busca por orden + proveedor.
   // En una sub-OC (hija) las ofertas viven en la orden MADRE.
   const esHija = !!o.parent_orden_id;
-  const { data: ofRow } = await supabase
-    .from('ofertas_proveedor').select('condiciones_pago, detalle, precio_efectivo, descuento, iva, igtf, iva_incluido, ajuste, ajuste_motivo')
-    .eq('orden_id', o.parent_orden_id ?? o.id).eq('proveedor_id', ofertaProveedorId)
-    .order('registrada_en', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+  const idsOrden = Array.from(new Set([o.parent_orden_id, o.id].filter(Boolean))) as string[];
+  const ofQuery = supabase
+    .from('ofertas_proveedor').select('condiciones_pago, detalle, precio_efectivo, descuento, iva, igtf, iva_incluido, ajuste, ajuste_motivo');
+  const { data: ofRow } = ofertaId
+    ? await ofQuery.eq('id', ofertaId).maybeSingle()
+    : await ofQuery.in('orden_id', idsOrden).eq('proveedor_id', ofertaProveedorId).order('registrada_en', { ascending: false }).limit(1).maybeSingle();
   // La oferta manda en precio/cantidad, pero la FINALIDAD y el ÁREA (y el flag
   // comprar) los puso el solicitante en la OP: los conservamos por SKU para que
   // no se pierdan al crear la OC.

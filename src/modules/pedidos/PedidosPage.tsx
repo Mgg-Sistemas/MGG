@@ -2417,7 +2417,7 @@ const KanbanCard = memo(function KanbanCard({
   sinLeer: number;
 }) {
   // Solo tiene sentido cuadrar una OC ya emitida: antes de eso el total es 0 a propósito.
-  const avisoCuadre = orden.oc_codigo ? avisoDeCuadre(orden) : null;
+  const avisoCuadre = (orden.oc_codigo || orden.parent_orden_id || ['oc_creada', 'confirmada_metodo', 'oc_aprobada'].includes(orden.estado)) ? avisoDeCuadre(orden) : null;
   const changes = (orden.historial ?? []).filter((h) => h.evento === 'proveedor_cambiado').length;
   // Crédito pagado en su totalidad (cuenta abierta saldada) → tarjeta resaltada.
   const creditoPagado = orden.estado === 'cuenta_abierta' && (Number(orden.abonado_total) || 0) >= Number(orden.total) - 0.01;
@@ -3945,6 +3945,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
 
   // ── Todo editable mientras está por aprobar ──
   const puedeTodo = orden.estado === 'oc_creada';
+  const puedeImpuestos = ['oc_creada', 'confirmada_metodo', 'oc_aprobada'].includes(orden.estado);
   const [unidadSol, setUnidadSol] = useState(orden.solicitante ?? '');
   const [personaSol, setPersonaSol] = useState(orden.ci_solicitante ?? '');
   const [motivo, setMotivo] = useState(orden.motivo ?? '');
@@ -3998,11 +3999,11 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   // Mismo cálculo que actualizarOc(): por aprobar, el IVA/IGTF son los de la pantalla;
   // después de aprobada se conservan los de la OC.
   const r2m = (s: string) => Math.max(0, Math.round((Number(s) || 0) * 100) / 100);
-  const ivaOc = puedeTodo ? r2m(ivaStr) : Math.max(0, Number(orden.iva) || 0);
-  const igtfOc = puedeTodo ? r2m(igtfStr) : Math.max(0, Number(orden.igtf) || 0);
+  const ivaOc = puedeImpuestos ? r2m(ivaStr) : Math.max(0, Number(orden.iva) || 0);
+  const igtfOc = puedeImpuestos ? r2m(igtfStr) : Math.max(0, Number(orden.igtf) || 0);
   const facturaNeta = Math.max(0, subtotal - descuentoObt);
-  const ivaAdentro = puedeTodo ? (ivaIncluido && ivaOc > 0) : !!orden.iva_incluido;
-  const ajusteOc = puedeTodo ? Math.round((Number(ajusteStr) || 0) * 100) / 100 : Math.round((Number(orden.ajuste) || 0) * 100) / 100;
+  const ivaAdentro = puedeImpuestos ? (ivaIncluido && ivaOc > 0) : !!orden.iva_incluido;
+  const ajusteOc = puedeImpuestos ? Math.round((Number(ajusteStr) || 0) * 100) / 100 : Math.round((Number(orden.ajuste) || 0) * 100) / 100;
   const total = totalDesdePartes({ subtotal: facturaNeta, iva: ivaOc, igtf: igtfOc, iva_incluido: ivaAdentro, ajuste: ajusteOc });
   // Ayuda: IVA/IGTF por % sobre la factura neta (subtotal − descuento), como en la cotización.
   // Con los precios ya con IVA adentro, el % del IVA se calcula sobre la base sin IVA.
@@ -4022,10 +4023,10 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
     try {
       const guardada = await actualizarOc(orden, {
         items, condiciones_pago: cond || null, notas, proveedorId: proveedorId || null, descuentoObtenido: descuentoObt,
+        iva: ivaOc, igtf: igtfOc,
+        iva_incluido: ivaAdentro, ajuste: ajusteOc, ajuste_motivo: ajusteOc ? ajusteMotivo : null,
         ...(puedeTodo ? {
           solicitante: unidadSol, ci_solicitante: personaSol, motivo, finalidad, urgente,
-          iva: ivaOc, igtf: igtfOc,
-          iva_incluido: ivaAdentro, ajuste: ajusteOc, ajuste_motivo: ajusteOc ? ajusteMotivo : null,
         } : {}),
       }, actorEmail);
       if (guardada === orden) {
@@ -4160,7 +4161,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
           onChange={(e) => setDescuentoStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 200 }} />
         <small className="hint muted">Descuento negociado que se le resta al total (la factura a pagar). Se sincroniza con Tesorería y se ve en el PDF y la trazabilidad.</small>
       </div>
-      {puedeTodo && (
+      {puedeImpuestos && (
         <div className="form-grid" style={{ marginTop: '.4rem' }}>
           <div className="form-row">
             <label>IVA (monto)</label>

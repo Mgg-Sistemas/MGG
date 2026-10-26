@@ -11,7 +11,7 @@ import { PREFIJOS_RIF, normalizarRif, partirRif } from '@/shared/lib/rif';
 import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, CostoLogistico, OfertaProveedor, Producto } from '@/shared/lib/types';
 import { AgregarProductoCompra } from './AgregarProductoCompra';
 import { crearOferta, actualizarOferta, subirAdjuntosOferta, adjuntosDeOferta, CONDICIONES_PAGO, descuentoEfectivo, type EditarOfertaInput } from './ofertas.repository';
-import { resincronizarOcDesdeOferta } from './pedidos.repository';
+import { resincronizarOcDesdeOferta, listSubOcs } from './pedidos.repository';
 import { fijarActividadTextoProveedor } from '@/modules/proveedores/actividades.repository';
 import { ivaDesdePorcentaje, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
@@ -467,39 +467,37 @@ export function AgregarOfertaModal({
           detalle,
           ...adjuntosPatch,
         });
-        // Si la orden ya tiene su OC creada (esperando aprobación) y esta es su oferta
-        // aceptada, el `total` de la orden es un snapshot viejo: se re-sincroniza con lo
-        // recién editado (precios/IVA/IGTF/descuento) para que la tarjeta del kanban y la
-        // OC muestren el monto correcto y no queden en el valor anterior.
-        if (orden.estado === 'oc_creada' && ofertaEdit.estado === 'aceptada') {
+        const provEfectivo = proveedorId || ofertaEdit.proveedor_id;
+        const datosOfertaParaSync = {
+          proveedor_id: provEfectivo,
+          items: itemsLimpios,
+          precio_total: precioTotal,
+          precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
+          descuento: descuentoObt > 0 ? descuentoObt : null,
+          iva: ivaMonto > 0 ? ivaMonto : null,
+          igtf: igtfMonto > 0 ? igtfMonto : null,
+          iva_incluido: ivaAdentro && ivaMonto > 0,
+          ajuste: ajusteMonto !== 0 ? ajusteMonto : null,
+          ajuste_motivo: ajusteMonto !== 0 ? (ajusteMotivo.trim() || null) : null,
+        };
+
+        // Si la oferta editada está aceptada o pertenece al proveedor de la orden/sub-orden,
+        // re-sincronizamos el total y el IVA de la OC para que reflejen inmediatamente la cotización.
+        if (ofertaEdit.estado === 'aceptada' || orden.proveedor_id === provEfectivo) {
           try {
-            await resincronizarOcDesdeOferta(orden, {
-              proveedor_id: ofertaEdit.proveedor_id,
-              items: itemsLimpios,
-              precio_total: precioTotal,
-              precio_efectivo: precioEfectivo > 0 ? precioEfectivo : null,
-              descuento: descuentoObt > 0 ? descuentoObt : null,
-              iva: ivaMonto > 0 ? ivaMonto : null,
-              igtf: igtfMonto > 0 ? igtfMonto : null,
-              iva_incluido: ivaAdentro && ivaMonto > 0,
-              ajuste: ajusteMonto !== 0 ? ajusteMonto : null,
-              ajuste_motivo: ajusteMonto !== 0 ? (ajusteMotivo.trim() || null) : null,
-            });
+            if (['oc_creada', 'confirmada_metodo', 'oc_aprobada'].includes(orden.estado)) {
+              await resincronizarOcDesdeOferta(orden, datosOfertaParaSync, registradoPorEmail);
+            }
+            // También revisar si hay sub-órdenes de este proveedor que dependan de esta cotización
+            const hijas = await listSubOcs(ordenOfertas);
+            for (const h of hijas) {
+              if (h.proveedor_id === provEfectivo && ['oc_creada', 'confirmada_metodo', 'oc_aprobada'].includes(h.estado)) {
+                await resincronizarOcDesdeOferta(h, datosOfertaParaSync, registradoPorEmail);
+              }
+            }
           } catch (e) {
-            // No romper el guardado de la oferta si la re-sincronización falla.
             console.error('No se pudo re-sincronizar el total de la OC:', e);
           }
-        } else if (ofertaEdit.estado === 'aceptada' && orden.estado !== 'oc_creada') {
-          // La OC ya pasó de 'oc_creada' (confirmada, aprobada, pagada…): su total NO se
-          // toca a propósito — cambiarlo por detrás alteraría un monto que el Gerente ya
-          // autorizó y que Tesorería puede estar por pagar. Pero callarlo dejaba la oferta
-          // y la OC divergiendo en silencio: la tarjeta del kanban mostraba el monto viejo
-          // (SP-2026-0123-1: OC en $206,56 con la oferta ya en $179,43). Se avisa.
-          notify(
-            `⚠ ${orden.codigo} ya está confirmada: su monto NO se actualizó con este cambio y puede diferir de la oferta. Si el total cambió, usá «Modificar OC» para reabrirla y recalcularla.`,
-            'warning',
-            { link: '#/app/pedidos' },
-          );
         }
         recordarPresentaciones(proveedorId || ofertaEdit.proveedor_id, itemsLimpios, registradoPorEmail)
           .catch((e) => console.error('No se pudo recordar la unidad de compra del proveedor:', e));

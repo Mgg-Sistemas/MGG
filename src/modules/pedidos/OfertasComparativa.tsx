@@ -14,7 +14,7 @@ import { urlAdjuntoOc, listSubOcs, getOrdenById } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, montoFinalOferta, type ScoredOferta } from './score';
 import { ivaContraOferta } from './cuadreOc';
-import { aprobarOrdenConOferta } from './pedidos.repository';
+import { aprobarOrdenConOferta, sincronizarOrdenConOfertaAceptada } from './pedidos.repository';
 import { skusSinCotizar, recortarOfertaAHija } from './subOc';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { ordenDeOfertas, ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
@@ -83,7 +83,7 @@ export function OfertasComparativa({
      Eso dejaba la pantalla en «Esta pantalla falló» apenas terminaban de cargar
      las ofertas. */
   const desfaseImpuestos = useMemo(() => {
-    if (!orden.oc_codigo || !orden.proveedor_id) return null;
+    if (!orden.proveedor_id) return null;
     const aceptada = ofertas.find((x) => x.estado === 'aceptada' && x.proveedor_id === orden.proveedor_id);
     if (!aceptada) return null;
     const parte = orden.parent_orden_id
@@ -91,6 +91,20 @@ export function OfertasComparativa({
       : aceptada;
     return ivaContraOferta(orden, parte);
   }, [orden, ofertas]);
+
+  const [syncingImpuestos, setSyncingImpuestos] = useState(false);
+  async function handleSincronizarImpuestos() {
+    setSyncingImpuestos(true);
+    try {
+      await sincronizarOrdenConOfertaAceptada(orden.id, actorEmail);
+      toast('IVA y total de la orden sincronizados con la cotización aceptada', 'success');
+      onAccepted();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo sincronizar', 'error');
+    } finally {
+      setSyncingImpuestos(false);
+    }
+  }
 
   const toggleExpand = (id: string) => setExpandido((prev) => {
     const next = new Set(prev);
@@ -292,6 +306,7 @@ export function OfertasComparativa({
         motivo || null,
         motivoAdjuntos.length ? motivoAdjuntos : null,
         modalidadPago,
+        s.oferta.id,
       );
       notify(`Oferta elegida · ${modalidadPago === 'usd' ? 'pago en $ (divisa)' : 'pago en Bs (BCV)'} · pendiente por aprobación`, 'success', { link: '#/app/pedidos' });
       onAccepted();
@@ -344,23 +359,33 @@ export function OfertasComparativa({
     <div className="card" style={{ marginTop: '1rem' }}>
       {headLine}
       {desfaseImpuestos && (
-        <div className="card" style={{ margin: '0 0 .6rem', padding: '.5rem .8rem', background: 'var(--bg-1)', borderColor: 'var(--warning)' }}>
-          <div style={{ fontWeight: 600, color: 'var(--warning)' }}>
-            ⚠ Los impuestos de esta OC no son los de su oferta aceptada
+        <div className="card" style={{ margin: '0 0 .6rem', padding: '.6rem .9rem', background: 'var(--bg-1)', borderColor: 'var(--warning)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem' }}>
+            <div style={{ fontWeight: 600, color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              ⚠ Los impuestos de esta OC no coinciden con su oferta aceptada
+            </div>
+            {canDecidir && (
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                disabled={syncingImpuestos}
+                onClick={handleSincronizarImpuestos}
+              >
+                {syncingImpuestos ? 'Sincronizando…' : '⚡ Sincronizar IVA y total ahora'}
+              </button>
+            )}
           </div>
-          <div className="hint muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>
+          <div className="hint muted" style={{ fontSize: '.82rem', marginTop: '.25rem' }}>
             La OC arrastra IVA <strong className="mono">{money(desfaseImpuestos.ivaOrden, mo)}</strong>
             {desfaseImpuestos.igtfOrden > 0 && <> e IGTF <strong className="mono">{money(desfaseImpuestos.igtfOrden, mo)}</strong></>}
             {' y la oferta dice '}
-            <strong className="mono">{money(desfaseImpuestos.ivaOferta, mo)}</strong>
+            <strong className="mono" style={{ color: 'var(--success)' }}>{money(desfaseImpuestos.ivaOferta, mo)}</strong>
             {desfaseImpuestos.igtfOferta > 0 && <> e <strong className="mono">{money(desfaseImpuestos.igtfOferta, mo)}</strong></>}
-            {': el total pide '}
+            {': la orden difiere por '}
             <strong className="mono" style={{ color: 'var(--warning)' }}>
               {money(Math.abs(desfaseImpuestos.diferencia), mo)}
             </strong>
             {desfaseImpuestos.diferencia > 0 ? ' de más.' : ' de menos.'}
-            {' '}Pasa cuando la oferta se edita después de emitir la OC. Para recalcularla,
-            reabrila a «OC creada» y volvé a guardarla.
           </div>
         </div>
       )}

@@ -122,6 +122,17 @@ describe('recortarOfertaAHija', () => {
     expect(r.fraccion).toBe(1);
     expect(r.iva).toBe(1);
   });
+
+  it('si la oferta tiene 1 ítem y no coincide SKU, conserva el ítem y prorratea el IVA completo', () => {
+    const r = recortarOfertaAHija(
+      { precio_total: 30, iva: 4.8, items: [{ sku: 'PROD-A', cantidad: 1, precio: 30 }] },
+      ['OTRO-SKU'],
+    );
+    expect(r.items.length).toBe(1);
+    expect(r.precio_total).toBe(30);
+    expect(r.iva).toBe(4.8);
+    expect(r.fraccion).toBe(1);
+  });
 });
 
 /* ──────────────────────────────────────────────────────────────────────────
