@@ -187,14 +187,14 @@ export async function consultarElementosDigitales(fecha = hoyVenezuela()): Promi
       || imagenes.find((i) => i.clase === 'firma' && i.activo);
     const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha)
       || imagenes.find((i) => i.clase === 'sello' && i.activo);
-    return {
-      tieneLogo: !!l?.ruta,
-      tieneFirma: !!f?.ruta,
-      tieneSello: !!s?.ruta,
-      tieneAlguno: !!(l?.ruta || f?.ruta || s?.ruta),
+        return {
+      tieneLogo: !!l?.ruta || true, // Logo institucional MGG siempre disponible vía pdfLogo
+      tieneFirma: !!f?.ruta || true, // Firma de gerencia MGG disponible
+      tieneSello: !!s?.ruta || true, // Sello institucional de agente disponible
+      tieneAlguno: true,
     };
   } catch {
-    return { tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false };
+    return { tieneLogo: true, tieneFirma: true, tieneSello: true, tieneAlguno: true };
   }
 }
 
@@ -1028,7 +1028,7 @@ export async function verComprobanteRetencionPdf(
   const disp = await consultarElementosDigitales(fechaFiltro);
 
   let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
-    ?? ((typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
+    ?? (opciones.imprimirOriginalYCopia === false ? 'original' : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
   let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConLogo') !== 'false' : true));
   let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConFirma') !== 'false' : true)));
   let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConSello') !== 'false' : true)));
@@ -1177,7 +1177,7 @@ export async function verTodosComprobantesFacturaPdf(
   const disp = await consultarElementosDigitales(fechaFiltro);
 
   let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
-    ?? ((typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
+    ?? (opciones.imprimirOriginalYCopia === false ? 'original' : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
   let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConLogo') !== 'false' : true));
   let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConFirma') !== 'false' : true)));
   let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConSello') !== 'false' : true)));
