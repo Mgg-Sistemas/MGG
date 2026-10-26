@@ -716,3 +716,246 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
     font-size: .85rem;
   }
 }
+
+/* ───────── Tarjeta de Catálogo Interactiva ("Toca para ver opciones") ───────── */
+.flo-card-catalogo.clickable {
+  cursor: pointer;
+  position: relative;
+}
+.flo-card-catalogo.clickable:hover {
+  border-color: var(--primary);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  transform: translateY(-2px);
+}
+.flo-card-catalogo.clickable:active {
+  transform: translateY(0);
+}
+
+.flo-card-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  width: 100%;
+  padding: .65rem .8rem;
+  border-radius: var(--r-md);
+  border: 1px dashed color-mix(in srgb, var(--primary) 50%, var(--border));
+  background: color-mix(in srgb, var(--primary) 8%, var(--surface-2));
+  color: var(--primary);
+  font-size: .84rem;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: all .15s ease;
+  margin-top: .2rem;
+}
+.flo-card-cta:hover {
+  background: color-mix(in srgb, var(--primary) 16%, var(--surface-2));
+  border-color: var(--primary);
+}
+
+/* ───────── Bloque Destacado de Horas para Mantenimiento ───────── */
+.flo-horas-highlight {
+  border-radius: var(--r-md);
+  padding: .75rem .85rem;
+  display: grid;
+  gap: .4rem;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.flo-horas-highlight.vencido {
+  background: color-mix(in srgb, var(--danger) 12%, var(--surface-2));
+  border: 1.5px solid var(--danger);
+}
+.flo-horas-highlight.proximo {
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface-2));
+  border: 1.5px solid var(--warning);
+}
+.flo-horas-highlight.ok {
+  background: color-mix(in srgb, var(--success) 12%, var(--surface-2));
+  border: 1.5px solid var(--success);
+}
+.flo-horas-highlight.neutro {
+  background: var(--surface-2);
+  border: 1px dashed var(--border);
+}
+
+.flo-horas-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+}
+.flo-horas-tag {
+  font-size: .72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--text-muted);
+}
+.flo-horas-badge {
+  font-size: .74rem;
+  font-weight: 700;
+  padding: .15rem .45rem;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--text);
+}
+.flo-horas-display {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+}
+.flo-horas-ico {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+.flo-horas-datos {
+  flex: 1;
+  min-width: 0;
+}
+.flo-horas-titulo {
+  font-family: var(--flo-display);
+  font-weight: 800;
+  font-size: 1rem;
+  letter-spacing: .02em;
+  color: var(--text);
+  line-height: 1.25;
+}
+.flo-horas-highlight.vencido .flo-horas-titulo { color: var(--danger); }
+.flo-horas-highlight.proximo .flo-horas-titulo { color: var(--warning); }
+.flo-horas-highlight.ok .flo-horas-titulo { color: var(--success); }
+
+.flo-horas-detalle {
+  font-size: .78rem;
+  color: var(--text-muted);
+  margin-top: .15rem;
+}
+
+/* ───────── Hoja / Modal de Opciones del Equipo en Teléfono ───────── */
+.flo-opciones-sheet {
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-xl, 18px);
+  max-width: 500px;
+  width: 95%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.15rem;
+  animation: floSlideUp .2s cubic-bezier(0.16, 1, 0.3, 1);
+  margin: auto;
+}
+
+@keyframes floSlideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.flo-opciones-head-top {
+  display: flex;
+  align-items: flex-start;
+  gap: .75rem;
+}
+
+.flo-opciones-label {
+  font-size: .72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--text-dim);
+  margin-bottom: .35rem;
+  padding-left: .25rem;
+}
+
+.flo-opciones-menu {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
+
+.flo-opcion-btn {
+  display: flex;
+  align-items: center;
+  gap: .85rem;
+  padding: .75rem .95rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-family: inherit;
+  cursor: pointer;
+  min-height: 54px;
+  text-align: left;
+  transition: all .15s ease;
+}
+.flo-opcion-btn:hover {
+  background: var(--surface-3);
+  border-color: var(--primary);
+  transform: translateX(2px);
+}
+.flo-opcion-btn:active {
+  transform: scale(0.99);
+}
+.flo-opcion-btn.primary {
+  background: color-mix(in srgb, var(--primary) 10%, var(--surface-2));
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border));
+}
+.flo-opcion-btn.primary:hover {
+  background: color-mix(in srgb, var(--primary) 18%, var(--surface-2));
+  border-color: var(--primary);
+}
+.flo-opcion-btn.danger {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+.flo-opcion-btn.danger:hover {
+  background: color-mix(in srgb, var(--danger) 14%, var(--surface-2));
+  border-color: var(--danger);
+}
+.flo-opcion-btn.whatsapp {
+  border-color: color-mix(in srgb, #25d366 40%, var(--border));
+}
+.flo-opcion-btn.whatsapp:hover {
+  background: color-mix(in srgb, #25d366 14%, var(--surface-2));
+  border-color: #25d366;
+}
+
+.flo-opcion-ico {
+  font-size: 1.5rem;
+  line-height: 1;
+  width: 36px;
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.flo-opcion-texts {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.flo-opcion-texts strong {
+  font-size: .92rem;
+  color: var(--text);
+}
+.flo-opcion-texts small {
+  font-size: .76rem;
+  color: var(--text-muted);
+  margin-top: .1rem;
+}
+.flo-opcion-arrow {
+  font-size: 1.4rem;
+  color: var(--text-dim);
+  font-weight: 300;
+  padding-left: .25rem;
+}
+
+.flo-btn-cerrar-sheet {
+  width: 100%;
+  min-height: 48px;
+  font-size: .95rem;
+  font-weight: 700;
+}

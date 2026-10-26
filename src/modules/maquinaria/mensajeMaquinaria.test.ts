@@ -4,6 +4,7 @@ import {
   mensajeRegistroLavado,
   mensajeReporteAveria,
   mensajeLecturaHorometro,
+  mensajeEstadoEquipo,
   enlaceWhatsappMaquinaria,
 } from './mensajeMaquinaria';
 
@@ -83,4 +84,28 @@ describe('mensajeMaquinaria', () => {
     expect(txt).toContain('3.450,5');
     expect(txt).toContain('Kelvin Peña');
   });
+
+  it('mensajeEstadoEquipo formatea horas que faltan, horómetro y estado del equipo', () => {
+    const txt = mensajeEstadoEquipo({
+      equipoNombre: 'TRACTOR D6T',
+      tipo: 'FLOTA PESADA',
+      marca: 'CATERPILLAR',
+      modelo: 'D6T XL',
+      placaOSerial: 'D6T-01',
+      responsable: 'Carlos Mendoza',
+      statusLabel: 'Operativa',
+      horometro: 1250,
+      horasRestantes: 45,
+      proximoServicioHoras: 1300,
+      kilometraje: null,
+      kmRestantes: null,
+    });
+    expect(txt).toContain('FICHA Y ESTADO DE MAQUINARIA');
+    expect(txt).toContain('TRACTOR D6T');
+    expect(txt).toContain('Carlos Mendoza');
+    expect(txt).toContain('1.250');
+    expect(txt).toContain('Horas que faltan para servicio:* 45 hrs');
+    expect(txt).toContain('1.300');
+  });
 });
+

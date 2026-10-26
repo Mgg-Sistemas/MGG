@@ -153,3 +153,59 @@ export function mensajeLecturaHorometro(p: LecturaHorometroParams): string {
 
   return lineas.join('\n');
 }
+
+export interface EstadoEquipoParams {
+  equipoNombre: string;
+  tipo?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  placaOSerial?: string | null;
+  responsable?: string | null;
+  statusLabel: string;
+  horometro?: number | null;
+  kilometraje?: number | null;
+  horasRestantes?: number | null;
+  kmRestantes?: number | null;
+  proximoServicioHoras?: number | null;
+  proximoServicioKm?: number | null;
+}
+
+export function mensajeEstadoEquipo(p: EstadoEquipoParams): string {
+  const lineas: string[] = [
+    '🚜 *FICHA Y ESTADO DE MAQUINARIA*',
+    `🚜 *Equipo:* ${p.equipoNombre}${p.placaOSerial ? ` (${p.placaOSerial})` : ''}`,
+    `📊 *Estado operativo:* ${p.statusLabel}`,
+  ];
+
+  if (p.responsable) lineas.push(`👤 *Encargado:* ${p.responsable}`);
+  if (p.marca || p.modelo) lineas.push(`🏷️ *Marca/Modelo:* ${[p.marca, p.modelo].filter(Boolean).join(' ')}`);
+
+  lineas.push('', '⏱️ *CONTROL DE HORAS Y MANTENIMIENTO:*');
+  if (p.horometro != null) lineas.push(`• Horómetro actual: ${num(p.horometro)} hrs`);
+  if (p.horasRestantes != null) {
+    if (p.horasRestantes <= 0) {
+      lineas.push(`• ⛔ *MANTENIMIENTO VENCIDO HACE:* ${num(Math.abs(p.horasRestantes))} hrs`);
+    } else {
+      lineas.push(`• ⏳ *Horas que faltan para servicio:* ${num(p.horasRestantes)} hrs`);
+    }
+  }
+  if (p.proximoServicioHoras != null) lineas.push(`• Próximo servicio programado a: ${num(p.proximoServicioHoras)} hrs`);
+
+  if (p.kilometraje != null || p.kmRestantes != null) {
+    lineas.push('', '🛣️ *KILOMETRAJE:*');
+    if (p.kilometraje != null) lineas.push(`• Kilometraje actual: ${num(p.kilometraje)} km`);
+    if (p.kmRestantes != null) {
+      if (p.kmRestantes <= 0) {
+        lineas.push(`• ⛔ *Vencido hace:* ${num(Math.abs(p.kmRestantes))} km`);
+      } else {
+        lineas.push(`• ⏳ *Faltan:* ${num(p.kmRestantes)} km`);
+      }
+    }
+  }
+
+  lineas.push('', `⏰ _${new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', dateStyle: 'medium', timeStyle: 'short' }).format(new Date())}_`);
+  lineas.push('_MGG · Control de Maquinaria y Equipos_');
+
+  return lineas.join('\n');
+}
+

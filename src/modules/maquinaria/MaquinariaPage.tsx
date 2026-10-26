@@ -23,8 +23,10 @@ import { LecturaModal } from './LecturaModal';
 import { OrdenServicioModal } from './OrdenServicioModal';
 import { LavadoModal } from './LavadoModal';
 import { EstadoEquipoModal } from './EstadoEquipoModal';
+import { OpcionesEquipoModal } from './OpcionesEquipoModal';
+import { ExportarMaquinariaModal } from './ExportarMaquinariaModal';
 import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
-import { mensajeReporteAveria } from './mensajeMaquinaria';
+import { mensajeReporteAveria, mensajeEstadoEquipo } from './mensajeMaquinaria';
 
 interface InfoEquipo {
   estado: EstadoEquipo;
@@ -95,9 +97,12 @@ export function MaquinariaPage() {
   const [catalogoOpen, setCatalogoOpen] = useState(false);
   const [resumenOpen, setResumenOpen] = useState(false);
   const [correoOpen, setCorreoOpen] = useState(false);
+  const [exportarOpen, setExportarOpen] = useState<'excel' | 'pdf' | 'correo' | null>(null);
   const [nuevo, setNuevo] = useState(false);
 
   // Acciones directas por equipo ("puro botón")
+  const [opcionesEquipo, setOpcionesEquipo] = useState<MaquinariaEquipo | null>(null);
+  const [editarEquipo, setEditarEquipo] = useState<MaquinariaEquipo | null>(null);
   const [lecturaEquipo, setLecturaEquipo] = useState<MaquinariaEquipo | null>(null);
   const [servicioEquipo, setServicioEquipo] = useState<MaquinariaEquipo | null>(null);
   const [lavadoEquipo, setLavadoEquipo] = useState<MaquinariaEquipo | null>(null);
@@ -211,6 +216,8 @@ export function MaquinariaPage() {
     return [...g.entries()].sort((a, b) => a[0].localeCompare(b[0], 'es'));
   }, [lista]);
 
+  const hayFiltros = Boolean(filtro.trim() || bucket || clase !== 'todos' || propietario || tipo || filtroMant !== 'todos');
+
   return (
     <div className="flo">
       <FlotaNav />
@@ -223,9 +230,9 @@ export function MaquinariaPage() {
           {canWrite && <button className="btn btn-primary" onClick={() => setNuevo(true)}>+ Nuevo equipo</button>}
           <button className="btn btn-ghost" onClick={() => setResumenOpen(true)}>📊 Resumen</button>
           <button className="btn btn-ghost" onClick={() => setCatalogoOpen(true)}>🏷 Catálogo</button>
-          <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void descargarEquiposPdf(lista)}>↓ PDF</button>
-          <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void descargarEquiposExcel(lista)}>↓ Excel</button>
-          <button className="btn btn-ghost" disabled={!lista.length} onClick={() => setCorreoOpen(true)}>✉ Correo</button>
+          <button className="btn btn-ghost" disabled={!equipos.length} onClick={() => setExportarOpen('pdf')} title="Exportar a PDF eligiendo columnas y agrupación">↓ PDF</button>
+          <button className="btn btn-ghost" disabled={!equipos.length} onClick={() => setExportarOpen('excel')} title="Exportar a Excel eligiendo columnas y agrupación">↓ Excel</button>
+          <button className="btn btn-ghost" disabled={!equipos.length} onClick={() => setExportarOpen('correo')} title="Enviar por correo con columnas elegidas">✉ Correo</button>
         </div>
       </div>
 
@@ -327,7 +334,20 @@ export function MaquinariaPage() {
               const esVencido = i.aviso?.nivel === 'vencido';
 
               return (
-                <div key={e.id} className={`flo-card-catalogo${alerta ? (esVencido ? ' vencido' : ' alerta') : ''}${e.activo ? '' : ' inactivo'}`}>
+                <div
+                  key={e.id}
+                  className={`flo-card-catalogo clickable${alerta ? (esVencido ? ' vencido' : ' alerta') : ''}${e.activo ? '' : ' inactivo'}`}
+                  onClick={() => setOpcionesEquipo(e)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(ev) => {
+                    if (ev.key === 'Enter' || ev.key === ' ') {
+                      ev.preventDefault();
+                      setOpcionesEquipo(e);
+                    }
+                  }}
+                  title="Toca para ver opciones del equipo"
+                >
                   {/* Cabecera del equipo */}
                   <div className="flo-card-top">
                     <div className="flo-card-title">
@@ -335,7 +355,12 @@ export function MaquinariaPage() {
                         {foto ? <img src={foto} alt="" loading="lazy" /> : <span>{cl?.icon ?? '🚜'}</span>}
                       </div>
                       <div style={{ minWidth: 0 }}>
-                        <Link to={`/app/maquinaria/equipo/${e.id}`} className="flo-card-nom" title="Abrir expediente">
+                        <Link
+                          to={`/app/maquinaria/equipo/${e.id}`}
+                          className="flo-card-nom"
+                          title="Abrir expediente"
+                          onClick={(ev) => ev.stopPropagation()}
+                        >
                           {e.equipo}
                         </Link>
                         <div className="flo-card-sub">
@@ -352,19 +377,92 @@ export function MaquinariaPage() {
                       <span className="flo-card-resp">👤 {e.responsable}</span>
                     )}
                     {e.ubicacion && <span>📍 {e.ubicacion}</span>}
-                    {nOrd > 0 && <span style={{ color: 'var(--primary)', fontWeight: 600 }}>🧾 {nOrd} orden(es) abierta(s)</span>}
+                    {nOrd > 0 && <span style={{ color: 'var(--primary)', fontWeight: 600 }}>🧾 {nOrd} orden(es)</span>}
                   </div>
 
-                  {/* Barra de servicio: Horas y Kilómetros en el catálogo */}
-                  <div style={{ display: 'grid', gap: '.4rem', background: 'var(--bg-1)', padding: '.45rem .6rem', borderRadius: 'var(--r-md)' }}>
-                    <BarraServicio aviso={i.avisoH} cada={e.mantenimiento_cada_hrs} etiqueta="Horas" />
-                    {(e.mantenimiento_cada_km || i.km != null) && (
-                      <BarraServicio aviso={i.avisoK} cada={e.mantenimiento_cada_km} etiqueta="Kilometraje" />
-                    )}
-                  </div>
+                  {/* Horas que faltan para mantenimiento: bloque destacado tipo catálogo */}
+                  {i.avisoH ? (
+                    <div className={`flo-horas-highlight ${i.avisoH.restante <= 0 ? 'vencido' : i.avisoH.nivel === 'proximo' ? 'proximo' : 'ok'}`}>
+                      <div className="flo-horas-header">
+                        <span className="flo-horas-tag">⏱️ HORAS PARA MANTENIMIENTO</span>
+                        <span className="flo-horas-badge">{Math.round(i.avisoH.pct)}% del ciclo</span>
+                      </div>
+                      <div className="flo-horas-display">
+                        <span className="flo-horas-ico">{i.avisoH.restante <= 0 ? '⛔' : i.avisoH.nivel === 'proximo' ? '⚠️' : '⏳'}</span>
+                        <div className="flo-horas-datos">
+                          <div className="flo-horas-titulo">
+                            {i.avisoH.restante <= 0
+                              ? `VENCIDO HACE ${fmtNum(Math.abs(i.avisoH.restante))} HRS`
+                              : `FALTAN ${fmtNum(i.avisoH.restante)} HRS`}
+                          </div>
+                          <div className="flo-horas-detalle">
+                            Horómetro: <strong>{i.horometro != null ? fmtNum(i.horometro) : '--'} hrs</strong> · Próximo: <strong>{fmtNum(i.avisoH.proximo)} hrs</strong> (cada {fmtNum(e.mantenimiento_cada_hrs)} hrs)
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className="flo-meter"
+                        style={{ ['--tone' as string]: i.avisoH.restante <= 0 ? 'var(--danger)' : i.avisoH.nivel === 'proximo' ? 'var(--warning)' : 'var(--success)' }}
+                      >
+                        <i style={{ width: `${i.avisoH.pct}%` }} />
+                      </div>
+                    </div>
+                  ) : i.avisoK ? (
+                    <div className={`flo-horas-highlight ${i.avisoK.restante <= 0 ? 'vencido' : i.avisoK.nivel === 'proximo' ? 'proximo' : 'ok'}`}>
+                      <div className="flo-horas-header">
+                        <span className="flo-horas-tag">🛣️ KILÓMETROS PARA SERVICIO</span>
+                        <span className="flo-horas-badge">{Math.round(i.avisoK.pct)}%</span>
+                      </div>
+                      <div className="flo-horas-display">
+                        <span className="flo-horas-ico">{i.avisoK.restante <= 0 ? '⛔' : i.avisoK.nivel === 'proximo' ? '⚠️' : '⏳'}</span>
+                        <div className="flo-horas-datos">
+                          <div className="flo-horas-titulo">
+                            {i.avisoK.restante <= 0
+                              ? `VENCIDO HACE ${fmtNum(Math.abs(i.avisoK.restante))} KM`
+                              : `FALTAN ${fmtNum(i.avisoK.restante)} KM`}
+                          </div>
+                          <div className="flo-horas-detalle">
+                            Kilometraje: <strong>{i.km != null ? fmtNum(i.km) : '--'} km</strong> · Próximo: <strong>{fmtNum(i.avisoK.proximo)} km</strong>
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className="flo-meter"
+                        style={{ ['--tone' as string]: i.avisoK.restante <= 0 ? 'var(--danger)' : i.avisoK.nivel === 'proximo' ? 'var(--warning)' : 'var(--success)' }}
+                      >
+                        <i style={{ width: `${i.avisoK.pct}%` }} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flo-horas-highlight neutro">
+                      <div className="flo-horas-header">
+                        <span className="flo-horas-tag">⏱️ CONTROL DE MANTENIMIENTO</span>
+                      </div>
+                      <div className="flo-horas-display">
+                        <span className="flo-horas-ico">⚪</span>
+                        <div className="flo-horas-datos">
+                          <div className="flo-horas-titulo" style={{ fontSize: '.88rem' }}>
+                            {e.mantenimiento_cada_hrs ? 'Sin lectura de horómetro registrada' : 'Sin intervalo de mantenimiento'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
-                  {/* Botonera táctil: "Puro botón" para PC y teléfono */}
-                  <div className="flo-acciones-grid">
+                  {/* Invitación táctil para vista de teléfono */}
+                  <button
+                    type="button"
+                    className="flo-card-cta"
+                    onClick={(ev) => {
+                      ev.stopPropagation();
+                      setOpcionesEquipo(e);
+                    }}
+                  >
+                    ⚡ Opciones del equipo (Toca para ver)
+                  </button>
+
+                  {/* Botonera táctil rápida accesible */}
+                  <div className="flo-acciones-grid" onClick={(ev) => ev.stopPropagation()}>
                     <button type="button" className="flo-btn-tactil" onClick={() => setLecturaEquipo(e)} title="Cargar horómetro o kilometraje">
                       ⏱️ Horómetro
                     </button>
@@ -377,9 +475,9 @@ export function MaquinariaPage() {
                     <button type="button" className="flo-btn-tactil danger" onClick={() => setAveriaEquipo(e)} title="Reportar avería">
                       ⚠️ Avería
                     </button>
-                    <Link to={`/app/maquinaria/equipo/${e.id}`} className="flo-btn-tactil" style={{ gridColumn: 'span 2' }}>
-                      📂 Ver Expediente
-                    </Link>
+                    <button type="button" className="flo-btn-tactil" style={{ gridColumn: 'span 2' }} onClick={() => setOpcionesEquipo(e)}>
+                      ⚙️ Todas las Opciones
+                    </button>
                   </div>
                 </div>
               );
@@ -399,6 +497,19 @@ export function MaquinariaPage() {
           defaultEmail={actor}
           onEnviar={async (emails) => (await enviarEquiposPorCorreo(lista, emails)).destinatarios}
           onClose={() => setCorreoOpen(false)}
+        />
+      )}
+
+      {/* Exportar datos tipo RRHH con selección de casillas y agrupación por empresa */}
+      {exportarOpen && (
+        <ExportarMaquinariaModal
+          todos={equipos}
+          visibles={lista}
+          infoMap={info}
+          hayFiltros={hayFiltros}
+          defaultTipo={exportarOpen}
+          actorEmail={actor}
+          onClose={() => setExportarOpen(null)}
         />
       )}
 
@@ -457,6 +568,51 @@ export function MaquinariaPage() {
             setWhatsappModal({ titulo: `Avería · ${averiaEquipo.equipo}`, texto: txt });
             void cargar();
           }}
+        />
+      )}
+
+      {/* Hoja / Modal de Opciones del Equipo (para vista de teléfono y PC) */}
+      {opcionesEquipo && (
+        <OpcionesEquipoModal
+          equipo={opcionesEquipo}
+          info={info.get(opcionesEquipo.id)}
+          canWrite={canWrite}
+          onClose={() => setOpcionesEquipo(null)}
+          onHorometro={() => setLecturaEquipo(opcionesEquipo)}
+          onServicio={() => setServicioEquipo(opcionesEquipo)}
+          onLavado={() => setLavadoEquipo(opcionesEquipo)}
+          onAveria={() => setAveriaEquipo(opcionesEquipo)}
+          onExpediente={() => navigate(`/app/maquinaria/equipo/${opcionesEquipo.id}`)}
+          onEditar={() => setEditarEquipo(opcionesEquipo)}
+          onWhatsapp={() => {
+            const inf = info.get(opcionesEquipo.id);
+            const txt = mensajeEstadoEquipo({
+              equipoNombre: opcionesEquipo.equipo,
+              tipo: opcionesEquipo.tipo,
+              marca: opcionesEquipo.marca,
+              modelo: opcionesEquipo.modelo,
+              placaOSerial: opcionesEquipo.placa || opcionesEquipo.serial,
+              responsable: opcionesEquipo.responsable,
+              statusLabel: ESTADOS_EQUIPO[estadoEfectivo(opcionesEquipo)].label,
+              horometro: inf?.horometro ?? null,
+              kilometraje: inf?.km ?? null,
+              horasRestantes: inf?.avisoH?.restante ?? null,
+              kmRestantes: inf?.avisoK?.restante ?? null,
+              proximoServicioHoras: inf?.avisoH?.proximo ?? null,
+              proximoServicioKm: inf?.avisoK?.proximo ?? null,
+            });
+            setWhatsappModal({ titulo: `Ficha · ${opcionesEquipo.equipo}`, texto: txt });
+          }}
+        />
+      )}
+
+      {/* Edición de equipo desde el menú de opciones */}
+      {editarEquipo && (
+        <EquipoFormModal
+          equipo={editarEquipo}
+          actor={actor}
+          onClose={() => setEditarEquipo(null)}
+          onSaved={() => void cargar()}
         />
       )}
 
