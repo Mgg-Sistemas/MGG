@@ -19,6 +19,7 @@ import {
   type AccionAuditoria, type EventoAuditoriaFiscal, type ResumenAuditoria,
 } from './auditoriaRetenciones.repository';
 import { rotuloImpuesto } from './rotulos';
+import { exportarAuditoriaFiscalPdf } from './auditoriaFiscalPdf';
 
 function formatFechaHoraVE(iso: string | null | undefined): string {
   if (!iso) return '—';
@@ -81,6 +82,7 @@ export function AuditoriaRetenciones() {
 
   // Detalle modal
   const [eventoSeleccionado, setEventoSeleccionado] = useState<EventoAuditoriaFiscal | null>(null);
+  const [exportandoPdf, setExportandoPdf] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -169,6 +171,25 @@ export function AuditoriaRetenciones() {
     toast('Relación de auditoría exportada en CSV', 'success');
   }
 
+  async function exportarPdf() {
+    if (!filtrados.length) return;
+    try {
+      setExportandoPdf(true);
+      await exportarAuditoriaFiscalPdf(filtrados, resumen, {
+        tipo: filtroTipo || undefined,
+        impuesto: filtroImpuesto || undefined,
+        desde: filtroDesde || undefined,
+        hasta: filtroHasta || undefined,
+        texto: filtroTexto || undefined,
+      });
+      toast('Reporte PDF de auditoría generado', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error');
+    } finally {
+      setExportandoPdf(false);
+    }
+  }
+
   return (
     <div style={{ paddingBottom: '2rem' }}>
       {/* ── Encabezado y Explicación ── */}
@@ -187,6 +208,14 @@ export function AuditoriaRetenciones() {
           </button>
           <button type="button" className="btn btn-sm btn-ghost" onClick={exportarCsv} disabled={!filtrados.length}>
             ↓ Exportar CSV
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-ghost"
+            onClick={() => void exportarPdf()}
+            disabled={!filtrados.length || exportandoPdf}
+          >
+            {exportandoPdf ? 'Generando PDF…' : '↓ Exportar PDF'}
           </button>
         </div>
       </div>
