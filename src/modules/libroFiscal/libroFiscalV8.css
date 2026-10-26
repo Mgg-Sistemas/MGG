@@ -202,6 +202,16 @@ dialog.lfv8-lado .lfv8-reg-lado { position: sticky; top: 0; }
 .lfv8-pill.anulada { color: #ff8a96; border-color: rgba(239,79,94,0.5); }
 .lfv8-pill.ok { color: #5fdca9; border-color: rgba(41,192,129,0.45); }
 .lfv8-pill.declarada { color: #7fc1ff; border-color: rgba(74,168,255,0.45); }
+.lfv8-pill.kanban-pagada { color: #5fdca9; border-color: rgba(41,192,129,0.45); background: rgba(41,192,129,0.08); }
+.lfv8-pill.kanban-recibida { color: #7fc1ff; border-color: rgba(74,168,255,0.45); background: rgba(74,168,255,0.08); }
+.lfv8-pill.kanban-oc_aprobada { color: #ffd99a; border-color: rgba(245,177,51,0.5); background: rgba(245,177,51,0.08); }
+.lfv8-pill.kanban-confirmada_metodo { color: #ffb86c; border-color: rgba(255,184,108,0.5); background: rgba(255,184,108,0.08); }
+.lfv8-pill.kanban-cuenta_abierta { color: #bd93f9; border-color: rgba(189,147,249,0.5); background: rgba(189,147,249,0.08); }
+.lfv8-pill.kanban-finalizada { color: var(--text-dim); border-color: var(--border); background: var(--bg-1); }
+.lfv8-pill.kanban-por_recibir { color: #8be9fd; border-color: rgba(139,233,253,0.5); background: rgba(139,233,253,0.08); }
+.lfv8-pill.kanban-oc_creada { color: #d4a5ff; border-color: rgba(212,165,255,0.45); background: rgba(212,165,255,0.08); }
+.lfv8-pill.kanban-aprobada { color: #ffeb3b; border-color: rgba(255,235,59,0.45); background: rgba(255,235,59,0.08); }
+.lfv8-pill.kanban-anulada, .lfv8-pill.kanban-cancelada { color: #ff8a96; border-color: rgba(239,79,94,0.5); background: rgba(239,79,94,0.08); }
 
 /* ── Ver restantes (botón en proveedor) ── */
 .lfv8-ver-restantes { display: block; width: 100%; text-align: left; padding: .6rem 1rem; border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--primary-2); cursor: pointer; font-size: .82rem; }

@@ -48,6 +48,42 @@ function nombreDocumento(codigo: string | null | undefined): string {
   return 'Compra';
 }
 
+/** Estatus legible de la orden según las columnas del kanban de Compras / Servicios. */
+export function labelEstadoKanban(estado: string | null | undefined, tipo?: string | null): string {
+  if (!estado) return '—';
+  if (tipo === 'servicio') {
+    switch (estado) {
+      case 'pendiente': return 'Solicitado';
+      case 'aprobada': return 'Aprobado (cotizar)';
+      case 'oc_creada': return 'Por aprobación';
+      case 'cuenta_abierta': return 'Crédito';
+      case 'confirmada_metodo': return 'Por método de pago';
+      case 'oc_aprobada': return 'Confirmado pagar';
+      case 'por_recibir': return 'Por realizar';
+      case 'pagada': return 'Pagado';
+      case 'recibida': return 'Servicio realizado';
+      case 'finalizada': return 'Finalizado';
+      case 'cancelada': return 'Cancelado';
+    }
+  }
+  switch (estado) {
+    case 'pendiente': return 'Pendiente cotizar';
+    case 'aprobada': return 'Pendiente (cargar ofertas)';
+    case 'oc_creada': return 'Por aprobación Gerente';
+    case 'cuenta_abierta': return 'Crédito / cuenta abierta';
+    case 'confirmada_metodo': return 'Confirmada (método de pago)';
+    case 'oc_aprobada': return 'Confirmada pagar';
+    case 'por_recibir': return 'Pendiente por recepción';
+    case 'pagada': return 'Pagada';
+    case 'recibida': return 'Recibida';
+    case 'finalizada': return 'Finalizada';
+    case 'anulada': return 'Anulada';
+    case 'cancelada': return 'Cancelada';
+    case 'desistida_proveedor': return 'Proveedor desistió';
+    default: return estado.replace(/_/g, ' ');
+  }
+}
+
 export function RetencionesPage() {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
@@ -161,10 +197,15 @@ export function RetencionesPage() {
     const item = f.origen.tipo === 'oc' ? [...pendientes, ...hechas].find((i) => i.orden.id === f.origen.id) : undefined;
     if (!item) return s;
     const o = item.orden;
+    const ivaReal = Math.max(0, Number(o.iva ?? o.iva_monto ?? 0));
+    const igtfReal = Math.max(0, Number(o.igtf ?? o.igtf_monto ?? 0));
+    const baseCalc = o.iva_incluido
+      ? Math.max(0, Number(o.total || 0) - ivaReal)
+      : Math.max(0, Number(o.total || 0) - ivaReal - igtfReal);
     return {
       ...s, contraparteId: o.proveedor_id, contraparteNombre: item.proveedorNombre,
       moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
-      facturaTotal: o.total, baseImponible: o.total - (o.iva_monto ?? 0), iva: o.iva_monto ?? 0,
+      facturaTotal: o.total, baseImponible: baseCalc, iva: ivaReal,
     };
   }
 
@@ -318,7 +359,14 @@ export function RetencionesPage() {
               )}
               {!loading && pagina.filas.map(({ orden: o, proveedorNombre }) => (
                 <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel({ orden: o, proveedorNombre })}>
-                  <td className="mono">{o.oc_codigo ?? '—'}</td>
+                  <td className="mono">
+                    <div>{o.oc_codigo ?? '—'}</div>
+                    {o.estado && (
+                      <span className={`lfv8-pill kanban-${o.estado}`} style={{ fontSize: '.68rem', marginTop: '.2rem' }}>
+                        {labelEstadoKanban(o.estado, o.tipo)}
+                      </span>
+                    )}
+                  </td>
                   <td className="mono">{o.codigo}</td>
                   <td>{proveedorNombre}</td>
                   <td>{labelCondicionPago(o.condiciones_pago)}</td>
@@ -426,6 +474,7 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
         <div className="card-title" style={{ marginBottom: '.4rem' }}>Detalle de la orden de compra</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.4rem .9rem', fontSize: '.86rem' }}>
           <div><span className="muted">Proveedor:</span> <strong>{item.proveedorNombre}</strong></div>
+          <div><span className="muted">Estatus Compras:</span>{' '}{o.estado ? <span className={`lfv8-pill kanban-${o.estado}`}>{labelEstadoKanban(o.estado, o.tipo)}</span> : '—'}</div>
           <div><span className="muted">Tlf. de administración del proveedor:</span> <strong className="mono">{o.numero_administracion || '—'}</strong></div>
           <div><span className="muted">Condición:</span> {labelCondicionPago(o.condiciones_pago)}</div>
           <div><span className="muted">Retención:</span> {labelRetencionModo(o.retencion_modo)}</div>
@@ -712,6 +761,15 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
               <span data-l="Compra">
                 <span className="mono">{o.oc_codigo ?? o.codigo}</span>
                 <small>{nombreDocumento(o.oc_codigo ?? o.codigo)}</small>
+                {o.estado && (
+                  <span
+                    className={`lfv8-pill kanban-${o.estado}`}
+                    style={{ marginTop: '.25rem', width: 'fit-content' }}
+                    title={`Estatus en el kanban de Compras: ${labelEstadoKanban(o.estado, o.tipo)}`}
+                  >
+                    {labelEstadoKanban(o.estado, o.tipo)}
+                  </span>
+                )}
               </span>
               <span data-l="Proveedor">
                 {proveedorNombre}
@@ -741,6 +799,11 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
               <span className="lfv8-sis-acc">
                 {pends.map((k) => {
                   const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
+                  const ivaReal = Math.max(0, Number(o.iva ?? o.iva_monto ?? 0));
+                  const igtfReal = Math.max(0, Number(o.igtf ?? o.igtf_monto ?? 0));
+                  const baseCalc = o.iva_incluido
+                    ? Math.max(0, Number(o.total || 0) - ivaReal)
+                    : Math.max(0, Number(o.total || 0) - ivaReal - igtfReal);
                   return (
                     <button key={k} className="btn btn-sm lfv8-btn-reg" onClick={() => onRegistrar({
                       direccion: 'practicada',
@@ -750,7 +813,7 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
                       docId: o.id, codigo: o.oc_codigo ?? o.codigo,
                       contraparteId: o.proveedor_id, contraparteNombre: proveedorNombre,
                       moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
-                      total: o.total, baseImponible: o.total - (o.iva_monto ?? 0), iva: o.iva_monto ?? 0,
+                      total: o.total, baseImponible: baseCalc, iva: ivaReal,
                     })}>
                       Registrar {lbl}
                     </button>

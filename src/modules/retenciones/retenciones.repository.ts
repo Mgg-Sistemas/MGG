@@ -56,9 +56,9 @@ async function queryOrdenesPendientes() {
     .gte('created_at', '2026-09-25T00:00:00Z')
     .order('created_at', { ascending: true });
 
-  const res = await base().or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null');
+  const res = await base().or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null,iva.gt.0,retencion_monto.gt.0');
   if (res.error && /factura_recepcion_path/i.test(res.error.message)) {
-    return base().eq('comprobante_tipo', 'factura');
+    return base().or('comprobante_tipo.eq.factura,iva.gt.0,retencion_monto.gt.0');
   }
   return res;
 }
@@ -69,9 +69,9 @@ async function queryConteoPendientes() {
     .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
     .gte('created_at', '2026-09-25T00:00:00Z');
 
-  const res = await base().or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null');
+  const res = await base().or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null,iva.gt.0,retencion_monto.gt.0');
   if (res.error && /factura_recepcion_path/i.test(res.error.message)) {
-    return base().eq('comprobante_tipo', 'factura');
+    return base().or('comprobante_tipo.eq.factura,iva.gt.0,retencion_monto.gt.0');
   }
   return res;
 }
@@ -95,7 +95,7 @@ export async function listRetencionesHechas(): Promise<RetencionItem[]> {
   const [desdeAgente, { data, error }, pm] = await Promise.all([
     fechaDesdeAgenteRetencion(),
     supabase.from(TABLE).select('*')
-      .eq('comprobante_tipo', 'factura')
+      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null,iva.gt.0,retencion_monto.gt.0')
       .eq('retencion_finalizada', true)
       .gte('created_at', '2026-09-25T00:00:00Z')
       .order('retencion_finalizada_en', { ascending: false }),
