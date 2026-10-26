@@ -999,7 +999,9 @@ export async function verComprobanteRetencionPdf(
   const disp = await consultarElementosDigitales(fechaFiltro);
 
   let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
-    ?? (opciones.imprimirOriginalYCopia === false ? 'original' : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
+    ?? (opciones.imprimirOriginalYCopia === false || (opciones.imprimirOriginalYCopia === undefined && config?.imprimirOriginalYCopia === false)
+      ? 'original'
+      : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
   let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConLogo') !== 'false' : true));
   let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConFirma') !== 'false' : true)));
   let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConSello') !== 'false' : true)));
@@ -1148,7 +1150,9 @@ export async function verTodosComprobantesFacturaPdf(
   const disp = await consultarElementosDigitales(fechaFiltro);
 
   let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
-    ?? (opciones.imprimirOriginalYCopia === false ? 'original' : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
+    ?? (opciones.imprimirOriginalYCopia === false || (opciones.imprimirOriginalYCopia === undefined && config?.imprimirOriginalYCopia === false)
+      ? 'original'
+      : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
   let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConLogo') !== 'false' : true));
   let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConFirma') !== 'false' : true)));
   let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConSello') !== 'false' : true)));

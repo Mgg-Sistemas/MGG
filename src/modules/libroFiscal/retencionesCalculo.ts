@@ -80,6 +80,8 @@ export interface ConfigRetencion {
   pctIgtf: number;          // 3
   /** Número de Licencia de Actividad Económica / RIM del agente (retención municipal). */
   licenciaMunicipal?: string | null;
+  /** Emisión de comprobantes: imprimir Original (Sujeto Retenido) y Copia (Agente de Retención) */
+  imprimirOriginalYCopia?: boolean;
 }
 
 /**
@@ -94,6 +96,7 @@ export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   pctIvaGeneral: 75, pctIvaEspecial: 100,
   valorUt: 0, pctIgtf: 3,
   licenciaMunicipal: null,
+  imprimirOriginalYCopia: true,
 };
 
 /* ───────────────── Qué puede practicar la empresa ───────────────── */

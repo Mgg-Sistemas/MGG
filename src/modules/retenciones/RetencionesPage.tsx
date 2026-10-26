@@ -21,6 +21,7 @@ import { impuestosQuePractica, noAplicaDisponible, noAplicaPorOrden } from '@/mo
 import { listCondiciones, empresaEsAgenteEnFecha, type CondicionRegistrada } from '@/modules/libroFiscal/agenteCondiciones.repository';
 import { NoAplicaModal, type ObjetivoNoAplica } from '@/modules/libroFiscal/NoAplicaModal';
 import { PeriodosRetencion } from '@/modules/libroFiscal/PeriodosRetencion';
+import { AuditoriaRetenciones } from '@/modules/libroFiscal/AuditoriaRetenciones';
 import { RegistrarFacturaRetencion, type SemillaFactura } from '@/modules/libroFiscal/RegistrarFacturaRetencion';
 import { FacturasPorRegistrar } from '@/modules/libroFiscal/FacturasPorRegistrar';
 import { AvisoSinFactura } from '@/modules/libroFiscal/AvisoSinFactura';
@@ -35,7 +36,7 @@ import '@/modules/libroFiscal/libroFiscal.css';
 import '@/modules/libroFiscal/libroFiscalV8.css';
 import { norm } from '@/shared/lib/texto';
 
-type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes';
+type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes' | 'auditoria';
 
 /** Qué documento es un código, en palabras: el personal no tiene por qué saber las siglas. */
 function nombreDocumento(codigo: string | null | undefined): string {
@@ -50,7 +51,7 @@ function nombreDocumento(codigo: string | null | undefined): string {
 export function RetencionesPage() {
   const { user } = useSession();
   const { can, appUser } = usePermissions();
-  const canWrite = can('retenciones', 'escritura') || can('retenciones', 'lectura') || true;
+  const canWrite = can('retenciones', 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
@@ -242,6 +243,7 @@ export function RetencionesPage() {
             <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📒 Libro fiscal</button>
             {conV3 && <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>}
             <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>Reportes</button>
+            <button className={vista === 'auditoria' ? 'active' : ''} onClick={() => setVista('auditoria')}>🛡️ Auditoría</button>
           </nav>
         </div>
       </header>
@@ -259,6 +261,9 @@ export function RetencionesPage() {
 
       {/* ── Reportes ── */}
       {vista === 'reportes' && <ReportesView actor={actor} />}
+
+      {/* ── Auditoría Fiscal (concisa y explícita) ── */}
+      {vista === 'auditoria' && <AuditoriaRetenciones />}
 
       {/* ── Por realizar (v8): grid, pills, acciones inline ── */}
       {/* P03: lo que falta de Compras (recepciones sin factura) y sus archivos de factura por registrar. */}

@@ -24,7 +24,7 @@ import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { EMPRESA_DOMICILIO, EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { normalizarRif, rifValido } from '@/shared/lib/rif';
 import {
-  CONFIG_RETENCION_DEFECTO, enBolivares, formatoComprobante, motivoNoPuedePracticar,
+  CONFIG_RETENCION_DEFECTO, enBolivares, formatoComprobante, formatoSerie, labelImpuesto, motivoNoPuedePracticar, numeroConFormato, textoDeFormato,
   type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type EstadoRetencion, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
@@ -32,7 +32,8 @@ import { mensajeDobleRegistro, normalizarFactura, retencionYaRegistrada } from '
 import { faltaEnLaCarga } from './validarCarga';
 import { errorRetencion } from './erroresRetencion';
 import { configDeFecha } from './parametros.repository';
-import { tablaDisponible } from './disponibilidad';
+import { serieDeImpuesto } from './impuestos.repository';
+import { tablaDisponible, v2rDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 const T_RETENCIONES = 'retenciones';
@@ -100,6 +101,7 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     valorUt: n(j.unidad_tributaria),
     pctIgtf: j.igtf_alicuota == null ? CONFIG_RETENCION_DEFECTO.pctIgtf : n(j.igtf_alicuota),
     licenciaMunicipal: texto(j.licencia_municipal) ?? texto(j.licencia_numero) ?? texto(j.rim) ?? null,
+    imprimirOriginalYCopia: bool('imprimir_original_copia', true),
   };
 }
 
@@ -120,6 +122,7 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     iva_retencion_especial: c.pctIvaEspecial,
     unidad_tributaria: c.valorUt,
     igtf_alicuota: c.pctIgtf,
+    imprimir_original_copia: c.imprimirOriginalYCopia !== false,
   };
 }
 
@@ -130,31 +133,7 @@ async function leerJsonParametros(): Promise<JsonParametros | null> {
 }
 
 export async function getConfigRetencion(): Promise<ConfigRetencion> {
-  let mggData: Record<string, unknown> | null = null;
-  try {
-    const res = await supabase.from('retencion_config').select('*').eq('id', true).maybeSingle();
-    mggData = (res.data as Record<string, unknown>) ?? null;
-  } catch {
-    mggData = null;
-  }
-  const json = await leerJsonParametros().catch(() => null);
-  if (mggData) {
-    return {
-      rif: texto(mggData.rif) ?? texto(json?.rif) ?? null,
-      razonSocial: texto(mggData.razon_social) ?? texto(json?.razon_social) ?? null,
-      direccionFiscal: texto(mggData.direccion_fiscal) ?? texto(json?.direccion_fiscal) ?? null,
-      municipio: texto(mggData.municipio) ?? texto(json?.municipio) ?? null,
-      estado: texto(mggData.estado) ?? texto(json?.estado) ?? null,
-      esContribuyenteEspecial: !!mggData.es_contribuyente_especial,
-      esAgenteRetencionIva: json?.agente_retencion_iva != null ? !!json.agente_retencion_iva : !!mggData.es_contribuyente_especial,
-      pctIvaGeneral: n(mggData.pct_iva_general) || 75,
-      pctIvaEspecial: n(mggData.pct_iva_especial) || 100,
-      valorUt: n(mggData.valor_ut),
-      pctIgtf: n(mggData.pct_igtf),
-      licenciaMunicipal: texto(json?.licencia_actividad_numero) ?? texto(json?.licencia_municipal) ?? null,
-    };
-  }
-  return configDeJson(json);
+  return configDeJson(await leerJsonParametros());
 }
 
 /** La Providencia SNAT/2015/0049 solo admite 75% y 100%: los dos porcentajes son dato, pero no cualquier dato. */
@@ -317,54 +296,14 @@ export function conceptosLocales(j: JsonParametros | null | undefined): Concepto
   ];
 }
 
-export function aConceptoMgg(r: Record<string, unknown>): ConceptoRetencion {
-  const tipoRaw = String(r.tipo ?? 'islr').toLowerCase();
-  const tipo: ConceptoRetencion['tipo'] = (tipoRaw === 'municipal' || tipoRaw === 'regional') ? tipoRaw : 'islr';
-  const sujeto = (['pn_residente', 'pj_domiciliada', 'pn_no_residente', 'pj_no_domiciliada', 'todos'] as const).includes(r.sujeto as SujetoRetenido)
-    ? (r.sujeto as SujetoRetenido)
-    : 'todos';
-  return {
-    id: String(r.id),
-    tipo,
-    codigo: texto(r.codigo),
-    nombre: String(r.nombre ?? r.concepto ?? ''),
-    sujeto,
-    porcentaje: n(r.porcentaje),
-    basePct: n(r.base_pct) || 100,
-    aplicaSustraendo: !!r.aplica_sustraendo,
-    baseMinimaUt: n(r.base_minima_ut),
-    fundamento: texto(r.fundamento ?? r.nota),
-    activo: r.activo !== false,
-    orden: n(r.orden),
-  };
-}
-
 export async function listConceptos(soloActivos = false): Promise<ConceptoRetencion[]> {
-  // En MGG la tabla es retencion_conceptos (singular, cada fila es un concepto por sujeto)
-  try {
-    let q = supabase.from('retencion_conceptos').select('*').order('orden', { ascending: true });
-    if (soloActivos) q = q.eq('activo', true);
-    const { data, error } = await q;
-    if (!error && data && data.length > 0) {
-      return data.map((r) => aConceptoMgg(r as Record<string, unknown>));
-    }
-  } catch {
-    // Si no está disponible en cache o falla, continúa con fallback
-  }
-  // En GT la tabla es retenciones_conceptos (plural, formato matricial pjd, pjnd...)
-  try {
-    let q = supabase.from(T_CONCEPTOS).select('codigo, concepto, pjd, pjnd, pnr, pnnr, base_pct, activo, orden, nota')
-      .order('orden', { ascending: true });
-    if (soloActivos) q = q.eq('activo', true);
-    const { data, error } = await q;
-    if (!error && data && data.length > 0) {
-      const islr = data.flatMap((r) => conceptosDeFilaGt(r as Record<string, unknown>));
-      return [...islr, ...conceptosLocales(await leerJsonParametros().catch(() => null))];
-    }
-  } catch {
-    // ignorar
-  }
-  return conceptosLocales(await leerJsonParametros().catch(() => null));
+  let q = supabase.from(T_CONCEPTOS).select('codigo, concepto, pjd, pjnd, pnr, pnnr, base_pct, activo, orden, nota')
+    .order('orden', { ascending: true });
+  if (soloActivos) q = q.eq('activo', true);
+  const { data, error } = await q;
+  if (error) throw errorRetencion(error, 'No se pudo leer el catálogo de conceptos.');
+  const islr = (data ?? []).flatMap((r) => conceptosDeFilaGt(r as Record<string, unknown>));
+  return [...islr, ...conceptosLocales(await leerJsonParametros())];
 }
 
 /** Separa el id sintético `codigo:SUJETO` del catálogo de GT. */
@@ -379,55 +318,27 @@ export function partirIdConcepto(id: string): { codigo: string; sujeto: SujetoGt
  * El ISAE y el timbre estadal se cambian en Parámetros.
  */
 export async function guardarConcepto(c: Partial<ConceptoRetencion> & { nombre: string; tipo: ConceptoRetencion['tipo'] }): Promise<void> {
-  const hayMgg = await tablaDisponible('retencion_conceptos');
-  if (hayMgg) {
-    const fila = {
-      tipo: c.tipo, codigo: c.codigo ?? null, nombre: c.nombre, sujeto: c.sujeto ?? 'todos',
-      porcentaje: n(c.porcentaje), base_pct: n(c.basePct) || 100,
-      aplica_sustraendo: !!c.aplicaSustraendo, base_minima_ut: n(c.baseMinimaUt),
-      fundamento: c.fundamento ?? null, activo: c.activo !== false, orden: n(c.orden),
-    };
-    const { data, error } = c.id && !c.id.includes(':')
-      ? await supabase.from('retencion_conceptos').update(fila).eq('id', c.id).select('id')
-      : await supabase.from('retencion_conceptos').insert(fila).select('id');
-    if (error) throw errorRetencion(error, 'No se pudo guardar el concepto.');
-    if (!data?.length) throw new Error(SIN_PERMISO);
-    return;
-  }
   if (c.tipo !== 'islr') throw new Error('La alícuota municipal y la estadal se cambian en Parámetros.');
   const codigo = (c.id ? partirIdConcepto(c.id).codigo : c.codigo)?.trim();
   const sujeto = sujetoAGt(c.sujeto);
   if (!codigo) throw new Error('Código del concepto requerido (Decreto 1.808).');
   if (!sujeto) throw new Error('Sujeto requerido: indicar a quién se le aplica el porcentaje.');
-  if (await tablaDisponible(T_CONCEPTOS)) {
-    const { data, error } = await supabase.from(T_CONCEPTOS).upsert({
-      codigo, concepto: c.nombre.trim(), base_pct: n(c.basePct) || 100,
-      [COLUMNA_SUJETO[sujeto]]: n(c.porcentaje), nota: c.fundamento ?? null,
-      ...(c.orden != null ? { orden: n(c.orden) } : {}),
-    }, { onConflict: 'codigo' }).select('codigo');
-    if (error) throw errorRetencion(error, 'No se pudo guardar el concepto.');
-    if (!data?.length) throw new Error(SIN_PERMISO);
-  } else {
-    throw new Error('La tabla de conceptos no está disponible para guardar.');
-  }
+  const { data, error } = await supabase.from(T_CONCEPTOS).upsert({
+    codigo, concepto: c.nombre.trim(), base_pct: n(c.basePct) || 100,
+    [COLUMNA_SUJETO[sujeto]]: n(c.porcentaje), nota: c.fundamento ?? null,
+    ...(c.orden != null ? { orden: n(c.orden) } : {}),
+  }, { onConflict: 'codigo' }).select('codigo');
+  if (error) throw errorRetencion(error, 'No se pudo guardar el concepto.');
+  if (!data?.length) throw new Error(SIN_PERMISO);
 }
 
 /** En GT un concepto se activa o se apaga entero: con todos sus sujetos. */
 export async function activarConcepto(id: string, activo: boolean): Promise<void> {
-  const hayMgg = await tablaDisponible('retencion_conceptos');
-  if (hayMgg && !id.includes(':')) {
-    const { data, error } = await supabase.from('retencion_conceptos').update({ activo }).eq('id', id).select('id');
-    if (error) throw errorRetencion(error, 'No se pudo cambiar el concepto.');
-    if (!data?.length) throw new Error(SIN_PERMISO);
-    return;
-  }
   const { codigo } = partirIdConcepto(id);
   if (id.endsWith(':todos')) throw new Error('La alícuota municipal y la estadal se cambian en Parámetros.');
-  if (await tablaDisponible(T_CONCEPTOS)) {
-    const { data, error } = await supabase.from(T_CONCEPTOS).update({ activo }).eq('codigo', codigo).select('codigo');
-    if (error) throw errorRetencion(error, 'No se pudo cambiar el concepto.');
-    if (!data?.length) throw new Error(SIN_PERMISO);
-  }
+  const { data, error } = await supabase.from(T_CONCEPTOS).update({ activo }).eq('codigo', codigo).select('codigo');
+  if (error) throw errorRetencion(error, 'No se pudo cambiar el concepto.');
+  if (!data?.length) throw new Error(SIN_PERMISO);
 }
 
 /* ───────────────────── El libro de retenciones ─────────────────────
@@ -502,51 +413,48 @@ export interface RetencionPracticada {
   updatedAt: string | null;
 }
 
-/** Una fila de la tabla de la base (MGG o GT) → una retención del módulo. */
+/** Una fila de la tabla de GT → una retención del módulo. */
 export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
-  const docKind: DocKind = (r.doc_kind as DocKind) ?? (r.orden_id ? 'oc' : r.compra_directa_id ? 'compra_directa' : r.servicio_directo_id ? 'servicio_directo' : 'manual');
-  const sujeto = sujetoDeGt(r.contraparte_sujeto ?? r.sujeto);
+  const docKind: DocKind = r.orden_id ? 'oc' : r.compra_directa_id ? 'compra_directa' : r.servicio_directo_id ? 'servicio_directo' : 'manual';
+  const sujeto = sujetoDeGt(r.sujeto);
   const fechaRef = String(r.factura_fecha ?? r.fecha ?? '');
-  const direccion: DireccionRetencion = (r.direccion as DireccionRetencion) ?? direccionDeGt(r.rol);
-  const anulada = r.anulada === true || r.estado === 'anulada';
-  const estado: EstadoRetencion = (r.declarada_en || r.declarada_at || r.estado === 'declarada') ? 'declarada' : 'registrada';
   return {
     id: String(r.id), documentoId: texto(r.documento_id), tipo: tipoDeGt(r.tipo),
-    direccion,
-    estado,
+    direccion: direccionDeGt(r.rol),
+    estado: r.declarada_at || r.estado === 'declarada' ? 'declarada' : 'registrada',
     docKind,
-    docId: texto(r.doc_id ?? r.orden_id ?? r.compra_directa_id ?? r.servicio_directo_id),
-    docCodigo: texto(r.doc_codigo),
-    contraparteId: texto(r.contraparte_id ?? r.proveedor_id),
-    contraparteRif: texto(r.contraparte_rif ?? r.rif),
-    contraparteNombre: texto(r.contraparte_nombre ?? r.razon_social),
+    docId: texto(r.orden_id ?? r.compra_directa_id ?? r.servicio_directo_id),
+    docCodigo: null,
+    contraparteId: texto(r.proveedor_id),
+    contraparteRif: texto(r.rif),
+    contraparteNombre: texto(r.razon_social),
     contraparteSujeto: sujeto,
-    contraparteDireccion: texto(r.contraparte_direccion ?? r.direccion_fiscal ?? r.proveedor_direccion),
-    facturaNumero: texto(r.factura_numero ?? r.factura_nro),
+    contraparteDireccion: texto(r.direccion ?? r.proveedor_direccion ?? r.contraparte_direccion),
+    facturaNumero: texto(r.factura_nro),
     facturaControl: texto(r.factura_control),
     facturaFecha: texto(r.factura_fecha),
     tipoDocumento: r.tipo_documento === 'nota_debito' || r.tipo_documento === 'nota_credito' ? r.tipo_documento : (r.tipo_documento === 'factura' ? 'factura' : null),
     facturaAfectadaNro: texto(r.factura_afectada_nro),
     facturaTotal: r.factura_total == null ? null : n(r.factura_total),
     exento: r.exento == null ? null : n(r.exento),
-    licenciaSujeto: texto(r.contraparte_licencia ?? r.licencia_numero),
-    periodo: String(r.periodo ?? r.comprobante_periodo ?? (fechaRef.length >= 7 ? `${fechaRef.slice(0, 4)}${fechaRef.slice(5, 7)}` : '')),
+    licenciaSujeto: texto(r.licencia_numero ?? r.contraparte_licencia),
+    periodo: String(r.comprobante_periodo ?? (fechaRef.length >= 7 ? `${fechaRef.slice(0, 4)}${fechaRef.slice(5, 7)}` : '')),
     quincena: r.quincena === 1 || r.quincena === 2 ? r.quincena : null,
-    numeroComprobante: texto(r.numero_comprobante ?? r.comprobante_nro),
+    numeroComprobante: texto(r.comprobante_nro),
     numeroOrigen: r.numero_origen === 'sistema' || r.numero_origen === 'dado' ? r.numero_origen : null,
     operacionNumero: r.operacion_numero == null ? null : n(r.operacion_numero),
-    conceptoId: texto(r.concepto_id) ?? (r.concepto_codigo ? `${r.concepto_codigo}${r.sujeto ? `:${r.sujeto}` : ''}` : null),
-    conceptoNombre: texto(r.concepto_nombre ?? r.concepto),
+    conceptoId: r.concepto_codigo ? `${r.concepto_codigo}${r.sujeto ? `:${r.sujeto}` : ''}` : null,
+    conceptoNombre: texto(r.concepto),
     moneda: String(r.moneda ?? 'Bs'), tasa: r.tasa == null ? null : n(r.tasa),
-    baseImponible: n(r.base_imponible ?? r.base), alicuota: n(r.alicuota ?? r.iva_alicuota), impuesto: n(r.impuesto ?? r.iva_monto),
-    porcentaje: n(r.porcentaje), sustraendo: n(r.sustraendo), montoRetenido: n(r.monto_retenido ?? r.monto),
+    baseImponible: n(r.base), alicuota: n(r.iva_alicuota), impuesto: n(r.iva_monto),
+    porcentaje: n(r.porcentaje), sustraendo: n(r.sustraendo), montoRetenido: n(r.monto),
     montoBs: r.monto_bs == null ? null : n(r.monto_bs),
     comprobantePath: texto(r.comprobante_path),
     comprobanteNombre: texto(r.comprobante_nombre),
-    observacion: texto(r.observacion ?? r.descripcion),
-    anulada,
+    observacion: texto(r.descripcion),
+    anulada: r.estado === 'anulada',
     anuladaMotivo: texto(r.anulada_motivo),
-    declaradaEn: texto(r.declarada_en ?? r.declarada_at),
+    declaradaEn: texto(r.declarada_at),
     declaradaPor: texto(r.declarada_por),
     actorName: texto(r.actor_name),
     createdAt: String(r.created_at ?? ''),
@@ -571,59 +479,31 @@ export interface FiltroRetenciones {
  * así que se pagina (un año de retenciones pasa ese tope sin esfuerzo).
  */
 export async function listRetenciones(f: FiltroRetenciones = {}): Promise<RetencionPracticada[]> {
-  try {
-    const filas = await todasLasFilas<Record<string, unknown>>((desde, hasta) => {
-      let q = supabase.from(T_RETENCIONES).select('*')
-        .order('factura_fecha', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .range(desde, hasta);
-      if (f.direccion) q = q.eq('direccion', f.direccion);
-      if (f.tipo) q = q.eq('tipo', f.tipo.toLowerCase());
-      if (f.estado) q = q.eq('estado', f.estado);
-      if (f.periodo) q = q.eq('periodo', f.periodo);
-      if (f.desde) q = q.gte('factura_fecha', f.desde);
-      if (f.hasta) q = q.lte('factura_fecha', f.hasta);
-      if (f.docId) q = q.eq('doc_id', f.docId);
-      if (!f.incluirAnuladas) q = q.eq('anulada', false);
-      return q;
-    });
-    return filas.map((r) => aRetencion(r));
-  } catch (err) {
-    // Si la tabla no tiene las columnas nativas de MGG (por ejemplo en ambiente GT legado)
-    const filasFallback = await todasLasFilas<Record<string, unknown>>((desde, hasta) => {
-      let q = supabase.from(T_RETENCIONES).select('*')
-        .order('factura_fecha', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })
-        .range(desde, hasta);
-      if (f.direccion) q = q.eq('rol', rolAGt(f.direccion));
-      if (f.tipo) q = q.eq('tipo', tipoAGt(f.tipo));
-      if (f.estado) q = q.eq('estado', f.estado);
-      if (f.periodo) q = q.eq('comprobante_periodo', f.periodo);
-      if (f.desde) q = q.gte('factura_fecha', f.desde);
-      if (f.hasta) q = q.lte('factura_fecha', f.hasta);
-      if (f.docId) q = q.or(`orden_id.eq.${f.docId},compra_directa_id.eq.${f.docId},servicio_directo_id.eq.${f.docId}`);
-      if (!f.incluirAnuladas) q = q.neq('estado', 'anulada');
-      return q;
-    });
-    return filasFallback.map((r) => aRetencion(r));
-  }
+  const filas = await todasLasFilas<Record<string, unknown>>((desde, hasta) => {
+    let q = supabase.from(T_RETENCIONES).select('*')
+      .order('factura_fecha', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })   // desempate estable: sin esto las páginas se solapan
+      .range(desde, hasta);
+    if (f.direccion) q = q.eq('rol', rolAGt(f.direccion));
+    if (f.tipo) q = q.eq('tipo', tipoAGt(f.tipo));
+    if (f.estado) q = q.eq('estado', f.estado);
+    if (f.periodo) q = q.eq('comprobante_periodo', f.periodo);
+    if (f.desde) q = q.gte('factura_fecha', f.desde);
+    if (f.hasta) q = q.lte('factura_fecha', f.hasta);
+    if (f.docId) q = q.or(`orden_id.eq.${f.docId},compra_directa_id.eq.${f.docId},servicio_directo_id.eq.${f.docId}`);
+    if (!f.incluirAnuladas) q = q.neq('estado', 'anulada');
+    return q;
+  });
+  return filas.map((r) => aRetencion(r));
 }
 
 /** Los períodos que tienen retenciones, del más nuevo al más viejo. */
 export async function listPeriodos(): Promise<string[]> {
-  try {
-    const { data, error } = await supabase.from(T_RETENCIONES).select('periodo')
-      .not('periodo', 'is', null).order('periodo', { ascending: false });
-    if (!error && data) {
-      return [...new Set(data.map((r) => String((r as { periodo: string }).periodo)).filter(Boolean))];
-    }
-  } catch { /* fallback */ }
   const { data, error } = await supabase.from(T_RETENCIONES).select('comprobante_periodo')
     .not('comprobante_periodo', 'is', null).order('comprobante_periodo', { ascending: false });
   if (error) throw error;
-  return [...new Set((data ?? []).map((r) => String((r as { comprobante_periodo: string }).comprobante_periodo)).filter(Boolean))];
+  return [...new Set((data ?? []).map((r) => String((r as { comprobante_periodo: string }).comprobante_periodo)))];
 }
 
 export interface NuevaRetencion {
@@ -674,16 +554,6 @@ async function retencionVigenteDeLaFactura(input: NuevaRetencion): Promise<Reten
   const factura = normalizarFactura(input.facturaNumero);
   if (input.tipo === 'igtf' || !factura || !input.contraparteRif?.trim()) return null;
   const cola = factura.match(/\d+$/)?.[0] ?? factura;
-  try {
-    const { data, error } = await supabase.from(T_RETENCIONES).select('*')
-      .eq('direccion', input.direccion)
-      .eq('tipo', input.tipo.toLowerCase())
-      .eq('anulada', false)
-      .ilike('factura_numero', `%${cola}%`);
-    if (!error && data) {
-      return retencionYaRegistrada(data.map((r) => aRetencion(r as Record<string, unknown>)), input);
-    }
-  } catch { /* fallback */ }
   const { data, error } = await supabase.from(T_RETENCIONES).select('*')
     .eq('rol', rolAGt(input.direccion)).eq('tipo', tipoAGt(input.tipo)).neq('estado', 'anulada')
     .ilike('factura_nro', `%${cola}%`);
@@ -695,43 +565,6 @@ async function retencionVigenteDeLaFactura(input: NuevaRetencion): Promise<Reten
 export const llevaNumeroPropio = (i: Pick<NuevaRetencion, 'direccion' | 'tipo'>) =>
   i.direccion === 'practicada' && i.tipo !== 'igtf';
 
-/** La fila nativa de MGG para una retención nueva. */
-export function filaMggDeNueva(input: NuevaRetencion, numero: { entero: number | null; texto: string | null }): Record<string, unknown> {
-  const tasa = input.tasa ?? null;
-  return {
-    tipo: input.tipo.toLowerCase(),
-    direccion: input.direccion,
-    doc_kind: input.docKind ?? 'manual',
-    doc_id: input.docId ?? null,
-    doc_codigo: input.docCodigo ?? null,
-    contraparte_id: input.contraparteId ?? null,
-    contraparte_rif: input.contraparteRif ? normalizarRif(input.contraparteRif) : null,
-    contraparte_nombre: input.contraparteNombre?.trim() || null,
-    contraparte_sujeto: input.contraparteSujeto ?? null,
-    factura_numero: input.facturaNumero?.trim() || null,
-    factura_control: input.facturaControl?.trim() || null,
-    factura_fecha: input.facturaFecha || null,
-    periodo: input.periodo,
-    quincena: input.quincena ?? null,
-    numero_comprobante: numero.texto ?? null,
-    concepto_id: input.conceptoId && !input.conceptoId.includes(':') ? input.conceptoId : null,
-    concepto_nombre: input.conceptoNombre?.trim() || null,
-    moneda: input.moneda || 'Bs',
-    tasa,
-    base_imponible: r2(input.baseImponible),
-    alicuota: input.tipo === 'iva' ? input.alicuota ?? null : null,
-    impuesto: input.tipo === 'iva' ? input.impuesto ?? null : null,
-    porcentaje: n(input.porcentaje),
-    sustraendo: input.sustraendo ?? null,
-    monto_retenido: r2(input.montoRetenido),
-    observacion: input.observacion?.trim() || null,
-    anulada: false,
-    estado: 'registrada',
-    actor: input.actor,
-    actor_name: input.actorName ?? null,
-  };
-}
-
 /** La fila de GT de una retención nueva (sin el número propio, que se pide aparte). */
 export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | null; texto: string | null }): Record<string, unknown> {
   const tasa = input.tasa ?? null;
@@ -741,6 +574,7 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
     rol: rolAGt(input.direccion), tipo: tipoAGt(input.tipo), estado: 'registrada', fecha,
     numero: numero.entero, comprobante_nro: numero.texto,
     comprobante_periodo: input.periodo, quincena: input.quincena ?? null,
+    // En una recibida la contraparte es un cliente: no cabe en la clave foránea a proveedores.
     proveedor_id: input.direccion === 'practicada' ? input.contraparteId ?? null : null,
     rif: input.contraparteRif ? normalizarRif(input.contraparteRif) : null,
     razon_social: input.contraparteNombre?.trim() || null,
@@ -774,11 +608,17 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
  * con el mismo número del cliente sin chocar.
  */
 function errorLegible(e: { code?: string; message?: string }): Error {
+  // D41: el único del número de comprobante lo dice errorRetencion por su nombre; otro único dice lo suyo.
   return errorRetencion(e, 'No se pudo registrar la retención.', { unico: 'Ya hay en el libro un comprobante de ese impuesto con el mismo número. Revisa el número del comprobante.' });
 }
 
 /**
  * Registra una retención en el libro.
+ *
+ * Primero se valida todo lo que se puede en pantalla (régimen, carga, monto y
+ * doble registro). Las practicadas (menos el IGTF) reciben el número de la base
+ * al insertar; el de una recibida lo puso otra empresa y se copia del
+ * comprobante que entregaron.
  */
 export async function registrarRetencion(input: NuevaRetencion, config: ConfigRetencion): Promise<RetencionPracticada> {
   if (input.direccion === 'practicada') {
@@ -791,94 +631,43 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
     throw new Error('El RIF de la contraparte no es válido: revisa la letra, los números y el dígito verificador.');
   }
   if (input.montoRetenido < 0) throw new Error('La retención no puede ser negativa.');
+  // Un 0 se registra solo con su motivo (D19 · v8 §4.10): deja constancia de por qué no se retiene.
   if (input.montoRetenido === 0 && !input.observacion?.trim()) {
     throw new Error('Una retención en 0 debe llevar el motivo (por qué no se retiene).');
   }
   if (!/^\d{6}$/.test(input.periodo)) throw new Error('El período de la retención no es válido.');
   const previa = await retencionVigenteDeLaFactura(input);
   if (previa) throw new Error(mensajeDobleRegistro(previa));
+  // R3: la UT (y los % del IVA) de la fecha de la factura. Antes de pedir el número: si falta, no se gasta.
   const vigente = await configDeFecha(config, (input.facturaFecha ?? '').slice(0, 10), [input.tipo]);
 
+  // Con V2R, el número de una practicada lo asigna la base. Solo viaja si se escribió a mano: «dado».
+  // Sin V2R (la base de hoy), el front lo pide con siguiente_numero_retencion y lo arma AAAAMM + 8.
   let numero: { entero: number | null; texto: string | null } = { entero: null, texto: input.numeroComprobante?.trim() || null };
-
-  // Si es practicada sin número en mano:
-  if (!numero.texto && llevaNumeroPropio(input)) {
-    try {
-      const { data: sigNum, error: sigErr } = await supabase.rpc('siguiente_comprobante_retencion', { p_periodo: input.periodo });
-      if (!sigErr && sigNum) {
-        numero = { entero: null, texto: String(sigNum) };
-      }
-    } catch { /* continuar si no está disponible */ }
-
-    if (!numero.texto) {
-      try {
-        const { data: sigNum2 } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: tipoAGt(input.tipo), p_periodo: input.periodo });
-        const entero = Number(sigNum2);
-        if (entero > 0) {
-          numero = { entero, texto: formatoComprobante(input.periodo, entero) };
-        }
-      } catch { /* continuar */ }
+  if (!(await v2rDisponible())) {
+    if (llevaNumeroPropio(input)) {
+      const { data, error } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: tipoAGt(input.tipo), p_periodo: input.periodo });
+      if (error) throw error;
+      const entero = Number(data);
+      if (!(entero > 0)) throw new Error('La base no devolvió el número del comprobante.');
+      numero = { entero, texto: formatoComprobante(input.periodo, entero) };
+    }
+  } else if (numero.texto && input.direccion === 'practicada') {
+    // V2R: la serie (si numera y su formato) sale de retencion_impuestos; sin R2, las reglas fijas.
+    const serie = await serieDeImpuesto(tipoAGt(input.tipo));
+    const numera = serie ? serie.numera : llevaNumeroPropio(input);
+    const formato = serie ? serie.formato : formatoSerie(input.tipo);
+    if (numera && formato && !numeroConFormato(numero.texto, formato)) {
+      throw new Error(`El número del comprobante de ${labelImpuesto(input.tipo)} lleva ${textoDeFormato(formato)}.`);
     }
   }
-
-  // 1. Intento por la RPC oficial de registro en MGG (09-numeracion-y-registro.sql)
-  try {
-    const p_datos = {
-      tipo: input.tipo.toLowerCase(),
-      direccion: input.direccion,
-      doc_kind: input.docKind ?? 'manual',
-      doc_id: input.docId ?? null,
-      doc_codigo: input.docCodigo ?? null,
-      contraparte_id: input.contraparteId ?? null,
-      contraparte_rif: input.contraparteRif ? normalizarRif(input.contraparteRif) : null,
-      contraparte_nombre: input.contraparteNombre?.trim() || null,
-      contraparte_sujeto: input.contraparteSujeto ?? null,
-      factura_numero: input.facturaNumero?.trim() || null,
-      factura_control: input.facturaControl?.trim() || null,
-      factura_fecha: input.facturaFecha || null,
-      periodo: input.periodo,
-      quincena: input.quincena ?? null,
-      concepto_id: input.conceptoId && !input.conceptoId.includes(':') ? input.conceptoId : null,
-      concepto_nombre: input.conceptoNombre?.trim() || null,
-      moneda: input.moneda || 'Bs',
-      tasa: input.tasa ?? null,
-      base_imponible: r2(input.baseImponible),
-      alicuota: input.tipo === 'iva' ? input.alicuota ?? null : null,
-      impuesto: input.tipo === 'iva' ? input.impuesto ?? null : null,
-      porcentaje: n(input.porcentaje),
-      sustraendo: input.sustraendo ?? null,
-      monto_retenido: r2(input.montoRetenido),
-      observacion: input.observacion?.trim() || null,
-      valor_ut: vigente.valorUt > 0 ? vigente.valorUt : null,
-    };
-    const { data: rpcData, error: rpcErr } = await supabase.rpc('retencion_registrar', {
-      p_datos,
-      p_actor: input.actor,
-      p_actor_name: input.actorName ?? '',
-      p_numero: numero.texto,
-      p_editar_numero: false,
-      p_sin_numero: false,
-    });
-    if (!rpcErr && rpcData) {
-      return aRetencion(rpcData as Record<string, unknown>);
-    }
-  } catch {
-    // Si la RPC no responde o hay error de permisos/función, pasa al INSERT directo
-  }
-
-  // 2. Inserción directa adaptada a MGG
-  const filaMgg = filaMggDeNueva(input, numero);
-  const { data: dataMgg, error: errMgg } = await supabase.from(T_RETENCIONES).insert(filaMgg).select('*').single();
-  if (!errMgg && dataMgg) {
-    return aRetencion(dataMgg as Record<string, unknown>);
-  }
-
-  // 3. Fallback a columnas GT por si acaso
+  // VU: la UT con la que se calculó queda en la fila (el trigger de la base es solo respaldo).
+  // R7: la regla y la foto viajan solo si la retención se calculó con una regla y la base las tiene.
   const conRegla = input.regla && (await tablaDisponible('retencion_reglas')) ? input.regla : null;
-  const filaGt = { ...filaGtDeNueva(input, numero), valor_ut: vigente.valorUt > 0 ? vigente.valorUt : null, ...(conRegla ?? {}) };
-  const { data: dataGt, error: errGt } = await supabase.from(T_RETENCIONES).insert(filaGt).select('*').single();
-  if (errGt) throw errorLegible(errMgg || errGt);
-  return aRetencion(dataGt as Record<string, unknown>);
+  const fila = { ...filaGtDeNueva(input, numero), valor_ut: vigente.valorUt > 0 ? vigente.valorUt : null, ...(conRegla ?? {}) };
+  const { data, error } = await supabase.from(T_RETENCIONES).insert(fila).select('*').single();
+  if (error) throw errorLegible(error);
+  return aRetencion(data as Record<string, unknown>);
 }
 
 /** Un UPDATE que no tocó ninguna fila no es un éxito: la base no dio permiso. */
@@ -890,60 +679,27 @@ function exigirFilas(data: unknown[] | null): void {
  * Anula una retención. NO se borra: un comprobante emitido y entregado queda en
  * el libro con su motivo, porque el correlativo no se reusa.
  */
-export async function anularRetencion(id: string, motivo: string, actor = 'sistema', actorName = ''): Promise<void> {
+export async function anularRetencion(id: string, motivo: string): Promise<void> {
   const m = motivo.trim();
   if (!m) throw new Error('Motivo de anulación requerido: queda en el libro como constancia.');
-
-  // Intenta RPC retencion_anular (MGG 09-numeracion-y-registro.sql)
-  try {
-    const { data: rpcData, error: rpcErr } = await supabase.rpc('retencion_anular', {
-      p_id: id,
-      p_motivo: m,
-      p_actor: actor,
-      p_actor_name: actorName,
-    });
-    if (!rpcErr && rpcData) return;
-    if (rpcErr && rpcErr.message && !rpcErr.message.includes('Could not find')) {
-      throw errorRetencion(rpcErr, 'No se pudo anular la retención.');
-    }
-  } catch (e) {
-    if (e instanceof Error && !e.message.includes('Could not find')) throw e;
-  }
-
-  // Fallback con UPDATE directo en tabla
-  const ahora = new Date().toISOString();
-  const { data: dMgg, error: errMgg } = await supabase.from(T_RETENCIONES)
-    .update({ anulada: true, anulada_motivo: m, anulada_en: ahora, estado: 'anulada' })
-    .eq('id', id).select('id');
-  if (!errMgg && dMgg?.length) return;
-
-  const { data: dGt, error: errGt } = await supabase.from(T_RETENCIONES)
-    .update({ estado: 'anulada', anulada_motivo: m, updated_at: ahora })
-    .eq('id', id).select('id');
-  if (errGt) throw errMgg || errGt;
-  exigirFilas(dGt);
+  const { data, error } = await supabase.from(T_RETENCIONES)
+    .update({ estado: 'anulada', anulada_motivo: m, updated_at: new Date().toISOString() })
+    .eq('id', id).neq('estado', 'anulada').select('id');
+  if (error) throw error;
+  exigirFilas(data);
 }
 
 /** Marca como declarada (o la devuelve a registrada) una retención del libro. */
 export async function marcarDeclarada(id: string, declarada: boolean, actor: string): Promise<void> {
   const ahora = new Date().toISOString();
-  // Intento MGG nativo
-  const { data: dMgg, error: errMgg } = await supabase.from(T_RETENCIONES).update({
-    estado: declarada ? 'declarada' : 'registrada',
-    declarada_en: declarada ? ahora : null,
-    declarada_por: declarada ? actor : null,
-  }).eq('id', id).select('id');
-  if (!errMgg && dMgg?.length) return;
-
-  // Fallback GT
-  const { data: dGt, error: errGt } = await supabase.from(T_RETENCIONES).update({
+  const { data, error } = await supabase.from(T_RETENCIONES).update({
     estado: declarada ? 'declarada' : 'registrada',
     declarada_at: declarada ? ahora : null,
     declarada_por: declarada ? actor : null,
     updated_at: ahora,
-  }).eq('id', id).select('id');
-  if (errGt) throw errMgg || errGt;
-  exigirFilas(dGt);
+  }).eq('id', id).neq('estado', 'anulada').select('id');
+  if (error) throw error;
+  exigirFilas(data);
 }
 
 /** Adjunta el comprobante: el que firma el proveedor, o el que entregó el cliente. */
