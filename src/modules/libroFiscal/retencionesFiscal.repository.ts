@@ -38,7 +38,7 @@ import { tablaDisponible, v2rDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 const T_RETENCIONES = 'retenciones';
-const T_CONCEPTOS = 'retenciones_conceptos';
+const T_CONCEPTOS = 'retencion_conceptos';
 const CLAVE_CONFIG = 'retenciones.parametros';
 const BUCKET = 'compras-oc';
 
@@ -299,14 +299,52 @@ export function conceptosLocales(j: JsonParametros | null | undefined): Concepto
   ];
 }
 
+function aConceptoMgg(r: Record<string, unknown>): ConceptoRetencion {
+  return {
+    id: String(r.id),
+    tipo: (r.tipo as ConceptoRetencion['tipo']) || 'islr',
+    codigo: r.codigo != null ? String(r.codigo) : null,
+    nombre: String(r.nombre || ''),
+    sujeto: (r.sujeto as SujetoRetenido) || 'todos',
+    porcentaje: Number(r.porcentaje) || 0,
+    basePct: Number(r.base_pct ?? r.basePct) || 100,
+    aplicaSustraendo: Boolean(r.aplica_sustraendo ?? r.aplicaSustraendo),
+    baseMinimaUt: Number(r.base_minima_ut ?? r.baseMinimaUt) || 0,
+    fundamento: r.fundamento != null ? String(r.fundamento) : null,
+    activo: r.activo !== false,
+    orden: Number(r.orden) || 0,
+  };
+}
+
 export async function listConceptos(soloActivos = false): Promise<ConceptoRetencion[]> {
-  let q = supabase.from(T_CONCEPTOS).select('codigo, concepto, pjd, pjnd, pnr, pnnr, base_pct, activo, orden, nota')
-    .order('orden', { ascending: true });
-  if (soloActivos) q = q.eq('activo', true);
-  const { data, error } = await q;
-  if (error) throw errorRetencion(error, 'No se pudo leer el catálogo de conceptos.');
-  const islr = (data ?? []).flatMap((r) => conceptosDeFilaGt(r as Record<string, unknown>));
-  return [...islr, ...conceptosLocales(await leerJsonParametros())];
+  // 1. Intento primario: tabla nativa de MGG `retencion_conceptos`
+  try {
+    let q = supabase.from('retencion_conceptos').select('*').order('orden', { ascending: true });
+    if (soloActivos) q = q.eq('activo', true);
+    const { data, error } = await q;
+    if (!error && data && data.length > 0) {
+      return data.map((r) => aConceptoMgg(r as Record<string, unknown>));
+    }
+  } catch {
+    // Continuar al fallback
+  }
+
+  // 2. Intento tabla alternativa GT `retenciones_conceptos`
+  try {
+    let q = supabase.from(T_CONCEPTOS).select('codigo, concepto, pjd, pjnd, pnr, pnnr, base_pct, activo, orden, nota')
+      .order('orden', { ascending: true });
+    if (soloActivos) q = q.eq('activo', true);
+    const { data, error } = await q;
+    if (!error && data && data.length > 0) {
+      const islr = data.flatMap((r) => conceptosDeFilaGt(r as Record<string, unknown>));
+      return [...islr, ...conceptosLocales(await leerJsonParametros())];
+    }
+  } catch {
+    // Continuar al fallback
+  }
+
+  // 3. Fallback seguro a conceptos locales (sin romper el formulario de retenciones)
+  return conceptosLocales(await leerJsonParametros());
 }
 
 /** Separa el id sintético `codigo:SUJETO` del catálogo de GT. */
@@ -322,6 +360,31 @@ export function partirIdConcepto(id: string): { codigo: string; sujeto: SujetoGt
  */
 export async function guardarConcepto(c: Partial<ConceptoRetencion> & { nombre: string; tipo: ConceptoRetencion['tipo'] }): Promise<void> {
   if (c.tipo !== 'islr') throw new Error('La alícuota municipal y la estadal se cambian en Parámetros.');
+  
+  // 1. Intento MGG `retencion_conceptos` si el id es un UUID
+  if (c.id && ES_UUID.test(c.id)) {
+    try {
+      const filaMgg = {
+        tipo: c.tipo,
+        codigo: c.codigo?.trim() || null,
+        nombre: c.nombre.trim(),
+        sujeto: c.sujeto || 'todos',
+        porcentaje: n(c.porcentaje),
+        base_pct: n(c.basePct) || 100,
+        aplica_sustraendo: !!c.aplicaSustraendo,
+        base_minima_ut: n(c.baseMinimaUt) || 0,
+        fundamento: c.fundamento ?? null,
+        activo: c.activo !== false,
+        ...(c.orden != null ? { orden: n(c.orden) } : {}),
+      };
+      const { data, error } = await supabase.from('retencion_conceptos').update(filaMgg).eq('id', c.id).select('id');
+      if (!error && data?.length) return;
+    } catch {
+      // Continuar al intento GT
+    }
+  }
+
+  // 2. Intento GT `retenciones_conceptos`
   const codigo = (c.id ? partirIdConcepto(c.id).codigo : c.codigo)?.trim();
   const sujeto = sujetoAGt(c.sujeto);
   if (!codigo) throw new Error('Código del concepto requerido (Decreto 1.808).');
@@ -337,8 +400,16 @@ export async function guardarConcepto(c: Partial<ConceptoRetencion> & { nombre: 
 
 /** En GT un concepto se activa o se apaga entero: con todos sus sujetos. */
 export async function activarConcepto(id: string, activo: boolean): Promise<void> {
-  const { codigo } = partirIdConcepto(id);
   if (id.endsWith(':todos')) throw new Error('La alícuota municipal y la estadal se cambian en Parámetros.');
+  if (ES_UUID.test(id)) {
+    try {
+      const { data, error } = await supabase.from('retencion_conceptos').update({ activo }).eq('id', id).select('id');
+      if (!error && data?.length) return;
+    } catch {
+      // Continuar al intento GT
+    }
+  }
+  const { codigo } = partirIdConcepto(id);
   const { data, error } = await supabase.from(T_CONCEPTOS).update({ activo }).eq('codigo', codigo).select('codigo');
   if (error) throw errorRetencion(error, 'No se pudo cambiar el concepto.');
   if (!data?.length) throw new Error(SIN_PERMISO);

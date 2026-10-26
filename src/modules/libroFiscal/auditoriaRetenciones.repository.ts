@@ -180,7 +180,7 @@ export async function listEventosAuditoria(): Promise<EventoAuditoriaFiscal[]> {
           : r.docKind === 'servicio_directo'
             ? 'Servicio Directo (CS)'
             : r.docId
-              ? `Asociado a ${r.docKind.toUpperCase()}`
+              ? `Asociado a ${String(r.docKind || 'documento').toUpperCase()}`
               : 'Directo';
 
     const nombreContraparte = (r.contraparteNombre && r.contraparteNombre !== 'Proveedor no identificado' ? r.contraparteNombre : null)
