@@ -64,15 +64,31 @@ export function ExportarMaquinariaModal({
 }: ExportarMaquinariaModalProps) {
   const [campos, setCampos] = useState<string[]>(camposGuardados);
   const [quienes, setQuienes] = useState<Quienes>(hayFiltros ? 'visibles' : 'activos');
+  const [propietarioFiltro, setPropietarioFiltro] = useState<string>('todos');
   const [agruparPorEmpresa, setAgruparPorEmpresa] = useState<boolean>(agruparGuardado);
   const [generando, setGenerando] = useState<'excel' | 'pdf' | 'correo' | null>(null);
   const [orientacion, setOrientacion] = useState<'auto' | 'vertical' | 'horizontal'>('auto');
   const [mostrarCorreoInput, setMostrarCorreoInput] = useState(defaultTipo === 'correo');
   const [correoDestinos, setCorreoDestinos] = useState(actorEmail);
 
+  // Lista única de propietarios / empresas ordenados alfabéticamente
+  const listaPropietarios = useMemo(() => {
+    const s = new Set<string>();
+    for (const e of todos) {
+      const p = (e.propietario ?? '').trim();
+      if (p) s.add(p);
+    }
+    return Array.from(s).sort((a, b) => a.localeCompare(b, 'es'));
+  }, [todos]);
+
   const activos = useMemo(() => todos.filter((e) => e.activo), [todos]);
-  const equipos = quienes === 'visibles' ? visibles : quienes === 'activos' ? activos : todos;
-  const titulo =
+  const equiposBase = quienes === 'visibles' ? visibles : quienes === 'activos' ? activos : todos;
+  const equipos = useMemo(() => {
+    if (!propietarioFiltro || propietarioFiltro === 'todos') return equiposBase;
+    return equiposBase.filter((e) => (e.propietario ?? '').trim() === propietarioFiltro);
+  }, [equiposBase, propietarioFiltro]);
+
+  const tituloBase =
     quienes === 'visibles'
       ? hayFiltros
         ? 'Filtrado'
@@ -80,6 +96,8 @@ export function ExportarMaquinariaModal({
       : quienes === 'activos'
       ? 'Equipos Activos'
       : 'Todo el Parque de Maquinaria';
+
+  const titulo = propietarioFiltro !== 'todos' ? `${tituloBase} · ${propietarioFiltro}` : tituloBase;
 
   const marcado = (k: string) => campos.includes(k);
 
@@ -180,7 +198,15 @@ export function ExportarMaquinariaModal({
       }
     >
       <div style={{ display: 'grid', gap: '1.25rem' }}>
-        {/* ¿A quiénes? */}
+        {/* Mensaje de alcance */}
+        <p className="muted" style={{ margin: 0, fontSize: '.86rem' }}>
+          Marca los datos que quieres que salgan. Se descargarán <strong>{equipos.length} equipo(s)</strong>
+          {propietarioFiltro !== 'todos' ? (
+            <> pertenecientes a <strong style={{ color: 'var(--primary)' }}>{propietarioFiltro}</strong></>
+          ) : ''}.
+        </p>
+
+        {/* ¿A qué equipos exportar? */}
         <div className="form-row">
           <label style={{ fontWeight: 700, fontSize: '.9rem' }}>¿A qué equipos exportar?</label>
           <div style={{ display: 'flex', gap: '1.25rem', flexWrap: 'wrap', marginTop: '.35rem' }}>
@@ -196,6 +222,62 @@ export function ExportarMaquinariaModal({
               <input type="radio" checked={quienes === 'todos'} onChange={() => setQuienes('todos')} />
               Todo el parque ({todos.length})
             </label>
+          </div>
+        </div>
+
+        {/* Filtrar por un propietario / empresa específico (solicitud explícita) */}
+        <div className="form-row" style={{ background: 'var(--surface-2)', padding: '.75rem .95rem', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.35rem' }}>
+            <label style={{ fontWeight: 700, fontSize: '.9rem', margin: 0 }}>
+              🏢 Filtrar por Propietario / Empresa:
+            </label>
+            {propietarioFiltro !== 'todos' && (
+              <button
+                type="button"
+                className="btn-link"
+                style={{ fontSize: '.8rem', fontWeight: 600 }}
+                onClick={() => setPropietarioFiltro('todos')}
+              >
+                Limpiar (Ver todos)
+              </button>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <select
+              value={propietarioFiltro}
+              onChange={(e) => setPropietarioFiltro(e.target.value)}
+              className="input-select"
+              style={{
+                flex: 1,
+                minWidth: '220px',
+                padding: '.45rem .65rem',
+                fontWeight: 600,
+                borderRadius: 'var(--r-sm)',
+                border: '1px solid var(--border)',
+                background: 'var(--surface)',
+                color: 'var(--text)',
+              }}
+            >
+              <option value="todos">Todos los propietarios / empresas ({equiposBase.length})</option>
+              {listaPropietarios.map((p) => {
+                const count = equiposBase.filter((e) => (e.propietario ?? '').trim() === p).length;
+                return (
+                  <option key={p} value={p}>
+                    {p} ({count} equipos)
+                  </option>
+                );
+              })}
+            </select>
+            {propietarioFiltro !== 'todos' && (
+              <span className="flo-chip tone-primary" style={{ fontWeight: 700, fontSize: '.82rem' }}>
+                Solo: {propietarioFiltro} ({equipos.length})
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: '.3rem' }}>
+            {propietarioFiltro === 'todos'
+              ? 'Puedes seleccionar una empresa específica para exportar únicamente sus equipos y maquinaria.'
+              : `Descargará exclusivamente los equipos registrados a nombre de ${propietarioFiltro}.`}
           </div>
         </div>
 
