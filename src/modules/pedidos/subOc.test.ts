@@ -103,6 +103,29 @@ describe('recortarOfertaAHija', () => {
     expect(r.fraccion).toBe(1);
   });
 
+  it('cotizada SOLO en divisa (precio BCV en 0) la hija conserva el IVA (SP-2026-0209-1, 26-10-2026)', () => {
+    const SOLO_USD = {
+      precio_total: 94, precio_efectivo: null, descuento: null, iva: 15.04, igtf: null,
+      items: [
+        { sku: 'EPP-018', cantidad: 12, precio: 0, precio_usd: 1.5 },
+        { sku: 'HER-137', cantidad: 3, precio: 0, precio_usd: 2 },
+        { sku: 'MAT-008', cantidad: 3, precio: 0, precio_usd: 3 },
+        { sku: 'REP-030', cantidad: 3, precio: 0, precio_usd: 3 },
+        { sku: 'HER-097', cantidad: 3, precio: 0, precio_usd: 4 },
+        { sku: 'EPP-022', cantidad: 20, precio: 0, precio_usd: 2 },
+      ],
+    };
+    const r = recortarOfertaAHija(SOLO_USD, SOLO_USD.items.map((i) => i.sku));
+    expect(r.precio_total).toBe(94);
+    expect(r.fraccion).toBe(1);
+    expect(r.iva).toBe(15.04);
+    // Y la mitad del valor se lleva la mitad del IVA.
+    const mitad = recortarOfertaAHija(SOLO_USD, ['EPP-022', 'HER-137']); // 40 + 6 = 46 de 94
+    expect(mitad.fraccion).toBeCloseTo(46 / 94, 6);
+    expect(mitad.iva).toBe(7.36);
+    expect(skusSinCotizar([{ sku: 'EPP-018', cantidad: 12, precio: 0 }], SOLO_USD.items)).toEqual([]);
+  });
+
   it('SKUs que la oferta no cotiza no aparecen y no aportan fracción', () => {
     const r = recortarOfertaAHija(TU_PUNTO, ['NEW-999']);
     expect(r.items).toEqual([]);

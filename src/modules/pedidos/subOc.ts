@@ -15,8 +15,21 @@
 export interface ItemRecortable {
   sku: string;
   cantidad: number;
+  /** Precio unitario a tasa BCV. Queda en 0 cuando el proveedor cotizó SOLO en divisa. */
   precio: number;
+  /** Precio unitario en divisa (USD efectivo), si lo cotizó. */
+  precio_usd?: number | null;
   comprar?: boolean;
+}
+
+/**
+ * El precio con el que se cotizó el renglón: el BCV si lo hay y, si no, el de divisa.
+ * Una cotización cargada solo en $ deja `precio` en 0 y todo en `precio_usd`; medir
+ * la hija por el BCV daba fracción 0 y la sub-OC nacía sin IVA (SP-2026-0209-1, 26-10-2026).
+ */
+export function precioRenglon(it: Pick<ItemRecortable, 'precio' | 'precio_usd'>): number {
+  const bcv = Number(it.precio) || 0;
+  return bcv > 0 ? bcv : Math.max(0, Number(it.precio_usd) || 0);
 }
 
 export interface OfertaRecortable<T extends ItemRecortable> {
@@ -57,13 +70,13 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
  * ítem en silencio (la madre lo seguiría dando por cubierto).
  */
 export function skusSinCotizar(itemsHija: ItemRecortable[], itemsOferta: ItemRecortable[]): string[] {
-  const conPrecio = new Set(itemsOferta.filter((it) => (Number(it.precio) || 0) > 0).map((it) => it.sku));
+  const conPrecio = new Set(itemsOferta.filter((it) => precioRenglon(it) > 0).map((it) => it.sku));
   return itemsHija.filter((it) => it.comprar !== false && !conPrecio.has(it.sku)).map((it) => it.sku);
 }
 
-/** Σ cantidad × precio de los ítems que se compran (comprar !== false). */
+/** Σ cantidad × precio (BCV o, si solo se cotizó en $, divisa) de los ítems que se compran (comprar !== false). */
 export function grossDe(items: ItemRecortable[]): number {
-  return round2(items.reduce((a, it) => (it.comprar === false ? a : a + (Number(it.cantidad) || 0) * (Number(it.precio) || 0)), 0));
+  return round2(items.reduce((a, it) => (it.comprar === false ? a : a + (Number(it.cantidad) || 0) * precioRenglon(it)), 0));
 }
 
 /**
@@ -102,7 +115,7 @@ export interface HijaCobertura {
 export function ofertaCubreTodoLoPendiente(
   itemsOrden: { sku: string; comprar?: boolean }[],
   hijas: HijaCobertura[],
-  itemsOferta: { sku: string; precio?: number | null }[],
+  itemsOferta: { sku: string; precio?: number | null; precio_usd?: number | null }[],
 ): boolean {
   const aComprar = (itemsOrden ?? []).filter((it) => it.comprar !== false).map((it) => it.sku);
   if (!aComprar.length) return true;
@@ -112,7 +125,7 @@ export function ofertaCubreTodoLoPendiente(
     if (h.estado && ESTADOS_HIJA_MUERTA.has(h.estado)) continue;
     for (const it of h.items ?? []) if (it.comprar !== false) cubiertos.add(it.sku);
   }
-  for (const it of itemsOferta ?? []) if ((Number(it.precio) || 0) > 0) cubiertos.add(it.sku);
+  for (const it of itemsOferta ?? []) if (precioRenglon({ precio: Number(it.precio) || 0, precio_usd: it.precio_usd }) > 0) cubiertos.add(it.sku);
 
   return aComprar.every((sku) => cubiertos.has(sku));
 }
@@ -170,7 +183,7 @@ export function recortarOfertaAHija<T extends ItemRecortable>(
 /** Renglones que el proveedor agregó en su cotización y que la solicitud no pedía (con precio). */
 export function itemsAgregadosPorOferta<T extends ItemRecortable>(itemsOferta: T[], skusOp: Iterable<string>): T[] {
   const pedidos = new Set(skusOp);
-  return (itemsOferta ?? []).filter((it) => !pedidos.has(it.sku) && it.comprar !== false && (Number(it.precio) || 0) > 0);
+  return (itemsOferta ?? []).filter((it) => !pedidos.has(it.sku) && it.comprar !== false && precioRenglon(it) > 0);
 }
 
 /**

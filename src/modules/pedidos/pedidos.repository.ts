@@ -8,7 +8,7 @@ import { pagarOrden } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import { guardarDatosPago, listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { motivoNoCorregible } from './metodoPagoEdicion';
-import { recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
+import { precioRenglon, recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCotizar } from './subOc';
 import { totalDesdePartes } from './impuestosOc';
 import { camposDeEdicion, cambiaProveedorOc, cambiaTexto, cambianNombres, hayCambiosMateriales } from './edicionOc';
 import { errorMotivoCambio, extrasCambioProveedor, extrasReaperturaOc, type ProveedorRef } from './cambioProveedor';
@@ -777,9 +777,11 @@ export async function resincronizarOcDesdeOferta(
   const itemsConContexto = ofBase.items
     .map((of) => {
       const orig = origBySku.get(of.sku);
-      return orig
+      const it = orig
         ? { ...of, finalidad: of.finalidad ?? orig.finalidad, area: of.area ?? orig.area, comprar: of.comprar ?? orig.comprar }
         : of;
+      // Cotizada solo en divisa: el renglón no trae precio BCV; la sub-OC compra al precio en $.
+      return (Number(it.precio) || 0) > 0 ? it : { ...it, precio: precioRenglon(it) };
     })
     .filter((it) => it.comprar !== false && (Number(it.precio) || 0) > 0);
   if (!itemsConContexto.length) return null;
