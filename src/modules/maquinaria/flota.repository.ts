@@ -218,7 +218,8 @@ function finalidadDeOrden(o: OrdenServicio, equipo: { equipo: string; placa?: st
  * normal de MGG) y antes da de alta como producto (stock 0, categoría elegida o REPUESTOS)
  * las piezas que no estaban en el inventario. Devuelve el código de la SP.
  */
-export async function solicitarCompraDeOrden(o: Pick<OrdenServicio, 'id'>, nuevas: PiezaNuevaAlta[] = [], actor: Actor): Promise<string> {
+export async function solicitarCompraDeOrden(o: Pick<OrdenServicio, 'id'>, nuevasOactor?: PiezaNuevaAlta[] | Actor, actorOpt?: Actor): Promise<string> {
+  const actor: Actor = (actorOpt ?? (Array.isArray(nuevasOactor) ? { email: 'sistema', nombre: null } : nuevasOactor)) as Actor;
   const { data: fila, error: eo } = await supabase.from('maquinaria_ordenes_servicio').select('*').eq('id', o.id).maybeSingle();
   if (eo) throw eo;
   if (!fila) throw new Error('La orden no existe (puede que la hayan borrado).');
@@ -229,64 +230,58 @@ export async function solicitarCompraDeOrden(o: Pick<OrdenServicio, 'id'>, nueva
   const equipo = (eq ?? { id: orden.equipo_id, equipo: 'equipo', placa: null, serial: null }) as { id: string; equipo: string; placa: string | null; serial: string | null };
   const finalidad = finalidadDeOrden(orden, equipo);
 
-  // 1. Piezas nuevas → productos (stock 0). Si ya existe uno con ese nombre, se usa.
-  const repuestos: RepuestoOrden[] = [];
-  const creados: { sku: string; nombre: string }[] = [];
-  for (const r of orden.repuestos) {
-    let rep = { ...r };
-    if (r.a_comprar > 0 && !r.producto_id) {
-      const nombre = r.nombre.trim().toUpperCase();
-      const nueva = nuevas.find((n) => n.nombre.trim().toUpperCase() === nombre);
-      const { data: ya } = await supabase.from('productos').select('id, sku').eq('estado', 'activo').ilike('nombre', nombre).limit(1).maybeSingle();
-      let productoId = (ya as { id: string } | null)?.id ?? null;
-      if (!productoId) {
-        let categoria = (nueva?.categoria ?? '').trim().toUpperCase();
-        if (!categoria || categoria === 'GENERAL') categoria = CATEGORIA_PIEZAS;
-        categoria = (await addCategoria(categoria, actor.email).catch(() => null)) ?? categoria;
-        const sku = await siguienteSkuGlobal(categoria);
-        const p = await createProducto({
-          sku, nombre, categoria, unidad: nueva?.unidad?.trim() || r.unidad || 'und',
-          stock: 0, stock_min: 0, precio: 0, almacen: ALMACEN_PIEZAS, estado: 'activo',
-          descripcion: `Dado de alta desde la orden de servicio ${orden.codigo} (${equipo.equipo}).`,
-        });
-        productoId = p.id;
-        creados.push({ sku: p.sku, nombre: p.nombre });
-      }
-      rep = { ...rep, producto_id: productoId };
-    }
-    repuestos.push(rep);
-  }
+  // 1. Los repuestos por comprar pasan a Compras con su nombre general.
+  // NO se guardan en el inventario (productos) porque el usuario de taller no conoce el nombre
+  // comercial exacto. El analista de compras colocará el nombre real.
+  const repuestos: RepuestoOrden[] = orden.repuestos.map((r) => ({
+    ...r,
+    pieza_nueva: r.producto_id ? (r.pieza_nueva ?? null) : (r.pieza_nueva ?? r.nombre),
+  }));
 
-  // 2. La solicitud de pedido (SP) con lo que falta comprar, casada al equipo.
+  // 2. La solicitud de pedido (SP) en Pedidos, casada al equipo.
   const items: ItemOrden[] = [];
   for (const r of repuestos) {
-    if (!(r.a_comprar > 0) || !r.producto_id) continue;
-    const { data: p } = await supabase.from('productos').select('sku, unidad').eq('id', r.producto_id).maybeSingle();
+    if (!(r.a_comprar > 0)) continue;
+    let sku = '';
+    let unidad = r.unidad || 'und';
+    if (r.producto_id) {
+      const { data: p } = await supabase.from('productos').select('sku, unidad').eq('id', r.producto_id).maybeSingle();
+      if (p) {
+        sku = (p as { sku?: string }).sku ?? '';
+        unidad = (p as { unidad?: string }).unidad ?? unidad;
+      }
+    }
     items.push({
-      productoId: r.producto_id, sku: (p as { sku?: string } | null)?.sku ?? '', nombre: r.nombre,
-      cantidad: r.a_comprar, precio: 0, unidad: r.unidad || (p as { unidad?: string } | null)?.unidad || 'und',
-      comprar: true, finalidad, equipo_id: equipo.id, equipo_nombre: equipo.equipo,
+      productoId: r.producto_id ?? undefined,
+      sku,
+      nombre: r.nombre.trim().toUpperCase(),
+      cantidad: r.a_comprar,
+      precio: 0,
+      unidad,
+      comprar: true,
+      finalidad,
+      equipo_id: equipo.id,
+      equipo_nombre: equipo.equipo,
     });
   }
+
   if (!items.length) throw new Error('Esta orden no tiene repuestos por comprar.');
   await ensureUnidadSolicitante(UNIDAD_MAQUINARIA, actor.email);
-  const notas = [`Orden de servicio ${orden.codigo} · ${equipo.equipo}.`,
-    creados.length ? `Productos nuevos dados de alta desde la orden: ${creados.map((c) => `${c.sku} ${c.nombre}`).join('; ')}.` : '']
-    .filter(Boolean).join(' ');
+  const notas = `Orden de servicio ${orden.codigo} · ${equipo.equipo}.`;
   const sp = await crearOrden({
     proveedor_id: null, items, notas, motivo: null, finalidad, clasificacion: ['Mantenimiento'],
     solicitante_email: actor.email, solicitante: UNIDAD_MAQUINARIA, solicitante_persona: actor.nombre ?? null,
     ci_solicitante: null, urgente: orden.urgencia === 'urgente',
   });
 
-  // 3. La orden queda con sus productos y su SP vinculada.
+  // 3. La orden queda con su SP vinculada.
   const { error: eu } = await supabase.from('maquinaria_ordenes_servicio').update({ repuestos }).eq('id', orden.id);
   if (eu) throw eu;
   await vincular(orden.id, null, sp.id);
   await supabase.from('notificaciones').update({ read: true }).eq('dedup_key', `maq-os-piezas-${orden.id}`).eq('read', false).then(() => undefined, () => undefined);
   notify(`🛒 Solicitud de pedido ${sp.codigo} · ${orden.codigo} (${equipo.equipo})`, 'info', {
     link: '#/app/pedidos', destino: 'admin', dedup_key: `maq-os-sp-${orden.id}`,
-    detail: `Repuestos de la orden de servicio ${orden.codigo}${creados.length ? ` (${creados.length} producto(s) nuevo(s) en el inventario con stock 0)` : ''}. Revísala en Pedidos.`,
+    detail: `Repuestos de la orden de servicio ${orden.codigo}. El analista de compras colocará el nombre comercial exacto en Pedidos.`,
   });
   return sp.codigo;
 }
@@ -446,6 +441,20 @@ export async function eliminarOrdenServicio(o: Pick<OrdenServicio, 'id' | 'codig
   if (error) throw error;
   if (!data?.length) throw new Error(`No se pudo borrar la orden ${o.codigo} (puede que ya no exista o que no tengas permiso).`);
   await borrarArchivosFotosOrden(fotos.map((f) => f.path));
+}
+
+/** Elimina todas las órdenes de servicio registradas como prueba en Maquinaria. */
+export async function eliminarTodasLasOrdenesPrueba(): Promise<number> {
+  const { data: ords } = await supabase.from('maquinaria_ordenes_servicio').select('id, codigo');
+  if (!ords || !ords.length) return 0;
+  let borradas = 0;
+  for (const o of ords) {
+    try {
+      await eliminarOrdenServicio(o);
+      borradas++;
+    } catch { /* continua con las demas */ }
+  }
+  return borradas;
 }
 
 /** Cambia una pieza nueva por el producto del inventario y vuelve a decidir inventario / compra. */

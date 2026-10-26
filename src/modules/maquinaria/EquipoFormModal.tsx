@@ -21,6 +21,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     equipo: equipo?.equipo ?? '',
     tipo: equipo?.tipo ?? null,
     propietario: equipo?.propietario ?? null,
+    responsable: equipo?.responsable ?? null,
     status: equipo?.status ?? 'ACTIVO',
     ubicacion: equipo?.ubicacion ?? null,
     anio: equipo?.anio ?? null,
@@ -49,6 +50,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   }));
   const [tipos, setTipos] = useState<string[]>([]);
   const [props, setProps] = useState<string[]>([]);
+  const [responsables, setResponsables] = useState<string[]>([]);
   const [statuses, setStatuses] = useState<string[]>([]);
   // Grupos de Servicio de Mantenimiento: los de siempre + el catálogo; se pueden crear en línea (16-10-2026).
   const [gruposCat, setGruposCat] = useState<string[]>([]);
@@ -63,6 +65,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
       setTipos(Array.from(new Set([...res, ...TIPOS_COMUNES])));
     }).catch(() => setTipos(TIPOS_COMUNES));
     listActivosMaquinaria('propietario').then(setProps).catch(() => {});
+    listActivosMaquinaria('responsable').then(setResponsables).catch(() => {});
     listActivosMaquinaria('status').then((s) => setStatuses(s.length ? s : ['ACTIVO'])).catch(() => setStatuses(['ACTIVO']));
     listActivosMaquinaria('grupo_mantenimiento').then(setGruposCat).catch(() => {});
     // Equipos y UBICACIONES se traen del catálogo de Combustible (fuente única).
@@ -110,6 +113,12 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
           addCatalogoMaquinaria('tipo_maquinaria', tUpper).catch(() => {});
         }
       }
+      if (f.responsable?.trim()) {
+        const rUpper = f.responsable.trim().toUpperCase();
+        if (!responsables.some((r) => r.toUpperCase() === rUpper)) {
+          addCatalogoMaquinaria('responsable', rUpper).catch(() => {});
+        }
+      }
       if (esNuevo) await addEquipo(f, actor);
       else await updateEquipo(equipo!.id, f);
       toast(esNuevo ? 'Equipo creado' : 'Equipo actualizado', 'success');
@@ -153,6 +162,14 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
             <label>Propietario</label>
             <SearchSelect value={f.propietario ?? ''} onChange={(v) => set('propietario', v || null)} options={props.map((t) => ({ value: t, label: t }))} placeholder="— elige el propietario —" />
           </div>
+          <div className="form-row">
+            <label>Encargado responsable</label>
+            <SearchCreateSelect value={f.responsable ?? ''} onChange={(v) => set('responsable', upper(v) || null)} options={responsables} placeholder="Elige un encargado o escribe uno nuevo…" />
+            <small className="muted">Catálogo de nombres de responsables de maquinaria/vehículos.</small>
+          </div>
+        </div>
+
+        <div className="form-grid">
           <div className="form-row">
             <label>Status</label>
             <select className="select" value={f.status ?? 'ACTIVO'} onChange={(e) => set('status', e.target.value)}>

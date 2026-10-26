@@ -5,6 +5,8 @@ import { toast } from '@/shared/ui/Toast';
 import { ESTADOS_EQUIPO, estadoEfectivo, estadoExigeMotivo, statusDeEstado, type EstadoEquipo } from './flota';
 import { cambiarEstadoEquipo } from './flota.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
+import { mensajeReporteAveria } from './mensajeMaquinaria';
 
 /** Qué se está haciendo: reportar avería, poner en espera, retirar o devolver a operativa. */
 export type ModoEstado = 'averia' | 'espera' | 'retirar' | 'operativa';
@@ -35,18 +37,29 @@ export function EstadoEquipoModal({ equipo, modo, onClose, onSaved }: {
   const [motivo, setMotivo] = useState('');
   const [retiro, setRetiro] = useState(MOTIVOS_RETIRO[0]);
   const [saving, setSaving] = useState(false);
+  const [wsTexto, setWsTexto] = useState<string | null>(null);
 
   const destino: EstadoEquipo = modo === 'averia' ? averia : modo === 'espera' ? 'espera' : modo === 'retirar' ? 'retirada' : 'operativa';
   const motivoFinal = modo === 'retirar' ? [retiro, motivo.trim()].filter(Boolean).join(' · ') : motivo.trim();
   const falta = estadoExigeMotivo(destino) && motivoFinal.length < 3;
 
-  async function guardar() {
+  async function guardar(conWs = false) {
     if (falta) { toast('Escribe el motivo (al menos 3 letras).', 'warning'); return; }
     setSaving(true);
     try {
       await cambiarEstadoEquipo(equipo.id, destino, motivoFinal || null, modo === 'averia' ? material || null : null);
       toast(`${equipo.equipo}: ${ESTADOS_EQUIPO[destino].label.toLowerCase()}.`, 'success');
       onSaved();
+      if (conWs && modo === 'averia') {
+        const txt = mensajeReporteAveria({
+          equipoNombre: equipo.equipo,
+          placaOSerial: equipo.placa || equipo.serial,
+          falla: motivoFinal || 'Avería reportada',
+          ubicacion: equipo.ubicacion,
+        });
+        setWsTexto(txt);
+        return;
+      }
       onClose();
     } catch (e) {
       toast(e instanceof Error ? e.message : (e as { message?: string })?.message || 'No se pudo cambiar el estado', 'error');
@@ -54,10 +67,16 @@ export function EstadoEquipoModal({ equipo, modo, onClose, onSaved }: {
   }
 
   return (
+    <>
     <Modal title={`${TITULOS[modo]} · ${equipo.equipo}`} onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        <button className={`btn ${modo === 'retirar' ? 'btn-danger' : 'btn-primary'}`} onClick={() => void guardar()} disabled={saving || falta}>
+        {modo === 'averia' && (
+          <button className="btn btn-ghost" onClick={() => void guardar(true)} disabled={saving || falta} title="Reportar avería y abrir WhatsApp para avisar al grupo">
+            💬 Reportar y avisar WhatsApp
+          </button>
+        )}
+        <button className={`btn ${modo === 'retirar' ? 'btn-danger' : 'btn-primary'}`} onClick={() => void guardar(false)} disabled={saving || falta}>
           {saving ? 'Guardando…' : modo === 'averia' ? 'Reportar' : modo === 'retirar' ? 'Retirar' : 'Confirmar'}
         </button>
       </>}>
@@ -107,5 +126,13 @@ export function EstadoEquipoModal({ equipo, modo, onClose, onSaved }: {
         {modo === 'averia' && <p className="muted" style={{ fontSize: '.8rem', margin: 0 }}>El taller lo verá en el catálogo y podrá abrir la orden de servicio desde el expediente.</p>}
       </div>
     </Modal>
+    {wsTexto && (
+      <MensajeWhatsappModal
+        titulo={`Avería · ${equipo.equipo}`}
+        texto={wsTexto}
+        onClose={() => { setWsTexto(null); onClose(); }}
+      />
+    )}
+    </>
   );
 }

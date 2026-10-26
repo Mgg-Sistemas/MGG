@@ -17,6 +17,7 @@ export interface MaquinariaEquipo {
   equipo: string;
   tipo: string | null;
   propietario: string | null;
+  responsable: string | null;
   status: string;
   ubicacion: string | null;
   anio: number | null;
@@ -89,6 +90,7 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
   return {
     equipo: input.equipo.trim().toUpperCase(),
     tipo: v(input.tipo), propietario: v(input.propietario),
+    responsable: v(input.responsable),
     status: v(input.status) ?? 'ACTIVO',
     ubicacion: v(input.ubicacion), anio: n(input.anio),
     marca: v(input.marca), modelo: v(input.modelo), color: v(input.color),

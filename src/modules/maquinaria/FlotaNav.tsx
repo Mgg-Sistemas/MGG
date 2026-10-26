@@ -1,14 +1,12 @@
 import { NavLink } from 'react-router-dom';
 import { prefetchRoute } from '@/shared/lib/routePrefetch';
 
-/** Submódulos de Control de Maquinaria (las mismas entradas que el menú lateral). */
+/** Submódulos simplificados de Control de Maquinaria. */
 const SUBMODULOS_FLOTA: { to: string; icon: string; label: string }[] = [
-  { to: '/app/maquinaria', icon: '🚜', label: 'Flota' },
-  { to: '/app/maquinaria/ordenes', icon: '🧾', label: 'Órdenes de servicio' },
-  { to: '/app/maquinaria/averias', icon: '🔴', label: 'Averías y estados' },
+  { to: '/app/maquinaria', icon: '🚜', label: 'Flota y Equipos' },
+  { to: '/app/maquinaria/ordenes', icon: '🛠️', label: 'Servicios y Mantenimiento' },
+  { to: '/app/maquinaria/repuestos', icon: '🛒', label: 'Repuestos y Compras' },
   { to: '/app/maquinaria/lavados', icon: '🚿', label: 'Lavados' },
-  { to: '/app/maquinaria/repuestos', icon: '🛒', label: 'Repuestos y compras' },
-  { to: '/app/maquinaria/servicio-mantenimiento', icon: '🔧', label: 'Servicio de Mantenimiento' },
 ];
 
 /** Tira de submódulos arriba de cada página: en el teléfono se desliza de lado dentro de sí misma. */

@@ -6,6 +6,8 @@ import { num as fmtNum, dateTime } from '@/shared/lib/format';
 import { TIPOS_LAVADO, textoHace, diasDesde, tipoLavadoValido } from './flota';
 import { registrarLavado, actualizarLavado, type LavadoEquipo } from './flota.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
+import { mensajeRegistroLavado } from './mensajeMaquinaria';
 
 /** «2026-10-09T14:30» en hora local, para el input datetime-local. */
 function aLocal(iso?: string | null): string {
@@ -38,12 +40,13 @@ export function LavadoModal({ equipo, horometro, km, ultimo, actor, lavado, onCl
   const [kms, setKms] = useState(lavado ? lect(lavado.kilometraje) : lect(km));
   const [nota, setNota] = useState(lavado?.nota ?? '');
   const [saving, setSaving] = useState(false);
+  const [wsTexto, setWsTexto] = useState<string | null>(null);
 
   const tipoFinal = tipo === OTRO ? otro.trim() : tipo;
   const n = (v: string) => { const x = Number(v.replace(',', '.')); return v.trim() && Number.isFinite(x) ? x : null; };
   const listo = tipoLavadoValido(tipoFinal) && !!fecha;
 
-  async function guardar() {
+  async function guardar(conWs = false) {
     if (!listo) { toast('Indica el tipo de lavado (al menos 3 letras).', 'warning'); return; }
     setSaving(true);
     try {
@@ -52,6 +55,18 @@ export function LavadoModal({ equipo, horometro, km, ultimo, actor, lavado, onCl
       else await registrarLavado({ equipo_id: equipo.id, ...datos }, actor);
       toast(`🚿 Lavado ${tipoFinal.toLowerCase()} ${lavado ? 'actualizado' : 'registrado'} · ${equipo.equipo}`, 'success');
       onSaved();
+      if (conWs) {
+        const txt = mensajeRegistroLavado({
+          equipoNombre: equipo.equipo,
+          placa: equipo.placa,
+          tipoLavado: tipoFinal,
+          responsable: responsable || actor.nombre || null,
+          nota: nota.trim() || null,
+          fecha,
+        });
+        setWsTexto(txt);
+        return;
+      }
       onClose();
     } catch (e) {
       toast(e instanceof Error ? e.message : (e as { message?: string })?.message || 'No se pudo registrar el lavado', 'error');
@@ -59,10 +74,16 @@ export function LavadoModal({ equipo, horometro, km, ultimo, actor, lavado, onCl
   }
 
   return (
+    <>
     <Modal title={`${lavado ? '✎ Editar lavado' : '🚿 Registrar lavado'} · ${equipo.equipo}`} onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving || !listo}>{saving ? 'Guardando…' : lavado ? 'Guardar cambios' : 'Registrar lavado'}</button>
+        {!lavado && (
+          <button className="btn btn-ghost" onClick={() => void guardar(true)} disabled={saving || !listo} title="Guardar y abrir WhatsApp para compartir el registro">
+            💬 Guardar y avisar WhatsApp
+          </button>
+        )}
+        <button className="btn btn-primary" onClick={() => void guardar(false)} disabled={saving || !listo}>{saving ? 'Guardando…' : lavado ? 'Guardar cambios' : 'Registrar lavado'}</button>
       </>}>
       <div className="flo" style={{ display: 'grid', gap: '.8rem' }}>
         <div className="flo-svc-grid" role="group" aria-label="Tipo de lavado">
@@ -106,5 +127,13 @@ export function LavadoModal({ equipo, horometro, km, ultimo, actor, lavado, onCl
         </VistaPrevia>
       </div>
     </Modal>
+    {wsTexto && (
+      <MensajeWhatsappModal
+        titulo={`Lavado · ${equipo.equipo}`}
+        texto={wsTexto}
+        onClose={() => { setWsTexto(null); onClose(); }}
+      />
+    )}
+    </>
   );
 }

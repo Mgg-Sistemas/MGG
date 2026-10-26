@@ -8,6 +8,8 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { errorMotivoCambio, lineaCambioProveedor, lineaReaperturaOc } from './cambioProveedor';
 import { textoOrdenAprobacion, textoOrdenPago } from './ordenPagoTxt';
 import { MensajeWhatsappModal } from './MensajeWhatsappModal';
+import { FichaEquipoCompras } from './FichaEquipoCompras';
+import { sincronizarRepuestosMaquinariaDesdeCompras } from '@/modules/maquinaria/sincronizarComprasMaquinaria';
 import { MAX_MINIMIZADAS, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -2689,6 +2691,13 @@ function OrdenDetailModal({
     return o.items.filter((it) => it.comprar !== false && !cubiertos.has(it.sku));
   }, [subOcs, o.items]);
 
+  // Si la orden viene de una máquina o tiene repuestos asignados a un equipo
+  const equipoAsociado = useMemo(() => {
+    const itConEq = (o.items ?? []).find((it) => it.equipo_id || it.equipo_nombre);
+    if (itConEq) return { id: itConEq.equipo_id ?? null, nombre: itConEq.equipo_nombre ?? null };
+    return null;
+  }, [o.items]);
+
   // Marca/desmarca un ítem como "a comprar" en la etapa OP (antes de tener precio).
   // Así una OP con 4 productos puede quedar con solo 2 aprobados para comprar.
   const [togglingSku, setTogglingSku] = useState<string | null>(null);
@@ -3391,6 +3400,11 @@ function OrdenDetailModal({
         />
       )}
 
+      {/* Ficha técnica y repuestos de la máquina para el analista de Compras */}
+      {equipoAsociado && (
+        <FichaEquipoCompras equipoId={equipoAsociado.id} equipoNombre={equipoAsociado.nombre} />
+      )}
+
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginTop: '1rem' }}>
         <h4 style={{ margin: 0 }}>
           Ítems
@@ -3468,6 +3482,11 @@ function OrdenDetailModal({
               <td className="mono">{it.sku}</td>
               <td style={marcado ? { textDecoration: 'line-through' } : undefined}>
                 {it.nombre}
+                {it.equipo_nombre && (
+                  <div className="muted" style={{ fontSize: '.74rem', color: 'var(--primary, #3b82f6)', fontWeight: 600 }}>
+                    🚜 {it.equipo_nombre}
+                  </div>
+                )}
                 {[it.marca, it.modelo].filter(Boolean).length > 0 && (
                   <div className="muted" style={{ fontSize: '.74rem' }}>🏷️ {[it.marca, it.modelo].filter(Boolean).join(' · ')}</div>
                 )}
@@ -5054,6 +5073,8 @@ function CrearOrdenModal({
           .filter((i) => (i.nombre ?? '').trim() && i.nombre !== orig.get(i.sku))
           .map((i) => ({ productoId: i.productoId, sku: i.sku, nombre: i.nombre }));
         if (cambios.length) await sincronizarNombreProductos(cambios).catch(() => { /* no bloquear */ });
+        // Sincroniza nombres de repuestos de maquinaria para el próximo servicio.
+        await sincronizarRepuestosMaquinariaDesdeCompras(orden!, itemsValor).catch(() => { /* no bloquear */ });
         if (imagenes.length || imagenesQuitar.length) {
           try { await guardarImagenesOrden(saved.id, imagenes, imagenesExist, imagenesQuitar); }
           catch (e) { toast(`Orden guardada, pero no se pudieron subir las imágenes: ${e instanceof Error ? e.message : ''}`, 'warning'); }

@@ -23,12 +23,27 @@ import { useFotosLocales } from './useFotosLocales';
 import { subirFotosOrden } from './osFotos.repository';
 import { tocaEnServicio, proximoServicioNominal, nombreRepuesto, type RepuestoEquipo } from './repuestosEquipo';
 import { listRepuestosEquipo } from './repuestosEquipo.repository';
+import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
+import { mensajeSolicitudServicio } from './mensajeMaquinaria';
 
 interface Linea {
   productoId: string | null; nombre: string; unidad: string; cantidad: number; stock: number; almacen: string | null;
   /** Pieza nueva: categoría con la que se da de alta en el inventario al pedir la compra. */
   categoria?: string;
 }
+
+const REPUESTOS_RAPIDOS = [
+  { nombre: 'FILTRO DE ACEITE', unidad: 'und', icon: '🛢️' },
+  { nombre: 'FILTRO DE AIRE', unidad: 'und', icon: '🌬️' },
+  { nombre: 'FILTRO DE COMBUSTIBLE', unidad: 'und', icon: '⛽' },
+  { nombre: 'ACEITE DE MOTOR 15W-40', unidad: 'L', icon: '💧' },
+  { nombre: 'ACEITE HIDRÁULICO 68', unidad: 'L', icon: '⚙️' },
+  { nombre: 'PASTILLAS DE FRENO', unidad: 'juego', icon: '🛑' },
+  { nombre: 'BATERÍA', unidad: 'und', icon: '🔋' },
+  { nombre: 'CORREA DE ALTERNADOR', unidad: 'und', icon: '➰' },
+  { nombre: 'GRASA ROJA', unidad: 'kg', icon: '🧈' },
+  { nombre: 'REFRIGERANTE', unidad: 'gal', icon: '🧊' },
+];
 
 /** Lo que importa para saber si los repuestos cambiaron al editar. */
 const firmaRepuestos = (ls: { producto_id: string | null; nombre: string; cantidad: number }[]) =>
@@ -98,6 +113,7 @@ export function OrdenServicioModal({
   const [productos, setProductos] = useState<Producto[]>([]);
   const [busqueda, setBusqueda] = useState('');
   const [saving, setSaving] = useState(false);
+  const [wsTexto, setWsTexto] = useState<string | null>(null);
   // «¿Es alguno de estos?»: productos de nombre parecido antes de agregar una pieza nueva.
   const [sugeridos, setSugeridos] = useState<{ nombre: string; lista: ProductoParecido[] } | null>(null);
   const [buscandoParecidos, setBuscandoParecidos] = useState(false);
@@ -191,9 +207,8 @@ export function OrdenServicioModal({
     else toast('Ese producto no se pudo cargar. Búscalo por su nombre en el buscador.', 'warning');
     setSugeridos(null);
   }
-  const setCategoria = (i: number, categoria: string) => setLineas((prev) => prev.map((l, k) => (k === i ? { ...l, categoria } : l)));
-  const nuevasSinCategoria = lineas.filter((l) => !l.productoId && !(l.categoria ?? '').trim()).length;
   const setCant = (i: number, v: number) => setLineas((prev) => prev.map((l, k) => (k === i ? { ...l, cantidad: Math.max(1, Math.round((Number(v) || 1) * 100) / 100) } : l)));
+
 
   async function guardarEdicion() {
     if (!tipo || !orden) return;
@@ -246,17 +261,12 @@ export function OrdenServicioModal({
           catch (e) { pendientes.push(`la salida de inventario (${e instanceof Error ? e.message : 'error'})`); }
         } else pendientes.push('la salida de inventario (no tienes permiso de Salidas)');
       }
-      // Lo que falta entra a Pedidos como solicitud de pedido. Las piezas que no están en el
-      // inventario se dan de alta ahí mismo (stock 0, con la categoría elegida).
+      // Lo que falta entra a Pedidos como solicitud de pedido. Los productos no se guardan en el
+      // inventario: el analista de compras colocará el nombre comercial exacto en Pedidos.
       if (faltaCompra(orden)) {
-        const nuevas = lineas.filter((l) => !l.productoId).map((l) => ({ nombre: l.nombre, categoria: (l.categoria ?? '').trim(), unidad: l.unidad }));
-        try { partes.push(`solicitud de pedido ${await solicitarCompraDeOrden(orden, nuevas, actor)}`); }
+        try { partes.push(`solicitud de pedido ${await solicitarCompraDeOrden(orden, actor)}`); }
         catch (e) {
           pendientes.push(`la solicitud de pedido (${e instanceof Error ? e.message : (e as { message?: string })?.message || 'error'})`);
-          // Si no se pudo, al menos Compras se entera de las piezas nuevas.
-          if (r.repuestos.some((x) => !x.producto_id)) {
-            try { await notificarComprasPiezasNuevas(orden); partes.push('Compras notificada de las piezas nuevas'); } catch { /* queda por solicitar */ }
-          }
         }
       }
       notify(`🔧 ${partes.join(' · ')} — ${equipo.equipo}`, 'success', {
@@ -265,16 +275,32 @@ export function OrdenServicioModal({
       });
       if (pendientes.length) toast(`Queda por solicitar: ${pendientes.join('; ')}. Se puede generar después desde la orden.`, 'warning');
       onCreated();
+      if (conWs) {
+        const txt = mensajeSolicitudServicio({
+          codigo: r.codigo,
+          tipo,
+          urgencia,
+          equipoNombre: equipo.equipo,
+          placaOSerial: equipo.placa || equipo.serial,
+          horometro,
+          kilometraje,
+          repuestos: lineas.map((l) => ({ nombre: l.nombre, cantidad: l.cantidad, unidad: l.unidad })),
+          nota: descripcion || null,
+          solicitante: actor.nombre || actor.email,
+        });
+        setWsTexto(txt);
+        return;
+      }
       onClose();
     } catch (e) {
       toast(e instanceof Error ? e.message : (e as { message?: string })?.message || 'No se pudo crear la orden', 'error');
     } finally { setSaving(false); }
   }
 
-  // Paso 2: cada pieza nueva necesita su categoría (con ella se da de alta en el inventario).
-  const listo = paso === 0 ? !!tipo : paso === 1 && !editando ? nuevasSinCategoria === 0 : true;
+  const listo = paso === 0 ? !!tipo : true;
 
   return (
+    <>
     <Modal title={editando ? `✎ Editar ${orden?.codigo} · ${equipo.equipo}` : `🔧 Orden de servicio · ${equipo.equipo}`} size="lg" onClose={onClose}
       footer={<>
         {paso > 0
@@ -284,7 +310,16 @@ export function OrdenServicioModal({
           ? <button className="btn btn-primary" disabled={!listo} onClick={() => setPaso(paso + 1)}>{paso === 0 ? (editables ? 'Elegir repuestos' : 'Ver repuestos') : editando ? 'Revisar cambios' : 'Revisar orden'}</button>
           : editando
             ? <button className="btn btn-primary" disabled={saving} onClick={() => void guardarEdicion()}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>
-            : <button className="btn btn-primary" disabled={saving || fotosOS.preparando > 0} onClick={() => void crear()}>{saving ? 'Creando…' : fotosOS.preparando > 0 ? 'Preparando fotos…' : 'Crear orden de servicio'}</button>}
+            : (
+              <>
+                <button className="btn btn-ghost" disabled={saving || fotosOS.preparando > 0} onClick={() => void crear(true)} title="Crear orden y abrir WhatsApp para compartir la solicitud">
+                  💬 Crear y avisar WhatsApp
+                </button>
+                <button className="btn btn-primary" disabled={saving || fotosOS.preparando > 0} onClick={() => void crear(false)}>
+                  {saving ? 'Creando…' : fotosOS.preparando > 0 ? 'Preparando fotos…' : 'Crear orden de servicio'}
+                </button>
+              </>
+            )}
       </>}>
       <div className="flo" style={{ display: 'grid', gap: '.8rem' }}>
         <ol className="flo-wizard-steps" aria-label="Pasos">
@@ -375,7 +410,30 @@ export function OrdenServicioModal({
                 </div>
               </div></div>
             )}
-            <div className="form-row"><label htmlFor="os-inv">Buscar en inventario</label>
+
+            <div style={{ marginBottom: '.75rem' }}>
+              <label style={{ fontSize: '.78rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>⚡ Repuestos rápidos (un toque para agregar):</label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '.4rem' }}>
+                {REPUESTOS_RAPIDOS.map((rr) => {
+                  const idx = lineas.findIndex((l) => l.nombre === rr.nombre);
+                  const ya = idx >= 0 ? lineas[idx] : null;
+                  return (
+                    <button key={rr.nombre} type="button" className={`btn btn-sm ${ya ? 'btn-primary' : 'btn-ghost'}`}
+                      style={{ fontSize: '.76rem', padding: '.4rem .5rem', textAlign: 'center', justifyContent: 'center' }}
+                      onClick={() => {
+                        if (ya) {
+                          setCant(idx, ya.cantidad + 1);
+                        } else {
+                          setLineas((p) => [...p, { productoId: null, nombre: rr.nombre, cantidad: 1, unidad: rr.unidad, stock: 0, almacen: null }]);
+                        }
+                      }}>
+                      <span aria-hidden="true">{rr.icon}</span> {rr.nombre} {ya ? `(${ya.cantidad})` : ''}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="form-row"><label htmlFor="os-inv">Buscar en inventario o escribir otro repuesto</label>
               <input id="os-inv" className="input" type="search" autoComplete="off" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="🔍 Filtro, caucho, aceite, manguera…" />
             </div>
             <div style={{ display: 'grid', gap: '.35rem', maxHeight: 260, overflowY: 'auto' }}>
@@ -427,17 +485,11 @@ export function OrdenServicioModal({
                     </div>
                   </div>
                   <Decision l={l} />
-                  {!l.productoId && !editando && (categoriaFija
-                    ? <small className="muted">Categoría en el inventario: <strong>{CATEGORIA_REPUESTOS}</strong></small>
-                    : (
-                      <div className="form-row" style={{ marginBottom: 0 }}>
-                        <label htmlFor={`os-cat-${i}`}>Categoría en el inventario *</label>
-                        <CategoriaProductoSelect id={`os-cat-${i}`} value={l.categoria ?? ''} onChange={(c) => setCategoria(i, c)} />
-                      </div>
-                    ))}
+                  {!l.productoId && (
+                    <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>🛒 Para compras · El analista colocará el nombre comercial exacto</small>
+                  )}
                 </div>
               )) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>Sin repuestos. Puedes seguir si el servicio es solo mano de obra.</p>}
-              {!editando && nuevasSinCategoria > 0 && <p className="muted" style={{ fontSize: '.78rem', margin: '.3rem 0 0' }}>⚠️ Elige la categoría de {nuevasSinCategoria === 1 ? 'la pieza nueva' : `las ${nuevasSinCategoria} piezas nuevas`} para seguir.</p>}
             </div>
           </>
         )}
@@ -490,5 +542,13 @@ export function OrdenServicioModal({
         )}
       </div>
     </Modal>
+    {wsTexto && (
+      <MensajeWhatsappModal
+        titulo={`Servicio · ${equipo.equipo}`}
+        texto={wsTexto}
+        onClose={() => { setWsTexto(null); onClose(); }}
+      />
+    )}
+    </>
   );
 }

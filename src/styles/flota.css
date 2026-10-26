@@ -590,3 +590,129 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 .flo-necesidad .falta { font-weight: 800; white-space: nowrap; }
 .flo-necesidad .falta.si { color: #ff8a96; }
 .flo-necesidad .falta.no { color: #5fdca9; }
+
+/* ───────── Tarjeta Catálogo con barra de horas y botones rápidos (PC y Móvil) ───────── */
+.flo-card-catalogo {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  padding: .75rem .9rem;
+  display: grid;
+  gap: .65rem;
+  transition: border-color .15s ease, box-shadow .15s ease;
+}
+.flo-card-catalogo:hover {
+  border-color: var(--border-strong);
+}
+.flo-card-catalogo.alerta {
+  border-color: color-mix(in srgb, var(--warning) 60%, var(--border));
+}
+.flo-card-catalogo.vencido {
+  border-color: color-mix(in srgb, var(--danger) 60%, var(--border));
+}
+
+.flo-card-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .6rem;
+  flex-wrap: wrap;
+}
+.flo-card-title {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  min-width: 0;
+}
+.flo-card-icon {
+  font-size: 1.6rem;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.flo-card-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: inherit;
+}
+.flo-card-nom {
+  font-family: var(--flo-display);
+  font-weight: 800;
+  font-size: 1.1rem;
+  text-transform: uppercase;
+  color: var(--text);
+  cursor: pointer;
+  text-decoration: none;
+}
+.flo-card-nom:hover {
+  color: var(--primary);
+}
+.flo-card-sub {
+  font-size: .8rem;
+  color: var(--text-muted);
+}
+.flo-card-resp {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  font-size: .78rem;
+  color: var(--primary);
+  font-weight: 600;
+}
+
+/* Botonera táctil estilo "Puro botón" */
+.flo-acciones-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: .4rem;
+  margin-top: .2rem;
+}
+.flo-btn-tactil {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .35rem;
+  padding: .5rem .65rem;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: .82rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 42px;
+  text-align: center;
+  transition: all .15s ease;
+  text-decoration: none;
+}
+.flo-btn-tactil:hover {
+  background: var(--surface-3);
+  border-color: var(--primary);
+  color: var(--text);
+}
+.flo-btn-tactil.primary {
+  background: var(--grad-primary-soft), var(--surface-2);
+  border-color: color-mix(in srgb, var(--primary) 50%, var(--border));
+  color: var(--primary-contrast, #fff);
+}
+.flo-btn-tactil.danger {
+  border-color: color-mix(in srgb, var(--danger) 50%, var(--border));
+  color: var(--danger);
+}
+
+@media (max-width: 640px) {
+  .flo-acciones-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: .5rem;
+  }
+  .flo-btn-tactil {
+    min-height: 48px;
+    font-size: .85rem;
+  }
+}

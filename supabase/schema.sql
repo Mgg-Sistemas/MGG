@@ -1552,6 +1552,7 @@ create table if not exists public.maquinaria_equipos (
   equipo        text not null,
   tipo          text,
   propietario   text,
+  responsable   text,
   status        text not null default 'ACTIVO',
   ubicacion     text,
   anio          int,

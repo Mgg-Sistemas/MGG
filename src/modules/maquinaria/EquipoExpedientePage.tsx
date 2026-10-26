@@ -379,7 +379,11 @@ export function EquipoExpedientePage() {
             onChange={(e) => { const fs = Array.from(e.currentTarget.files ?? []); e.currentTarget.value = ''; void subirFotos(fs); }} />
         </div>
         <div className="flo-plate">
-          <div className="fila"><span className="marca">{eq.marca || 'Sin marca'}</span><span className="prop">{eq.propietario || ''}</span></div>
+          <div className="fila">
+            <span className="marca">{eq.marca || 'Sin marca'}</span>
+            <span className="prop">{eq.propietario || ''}</span>
+            {eq.responsable && <span className="prop" style={{ color: 'var(--primary, #3b82f6)' }}>👤 {eq.responsable}</span>}
+          </div>
           <h1>{eq.equipo}</h1>
           <div className="modelo">{[eq.modelo, eq.anio].filter(Boolean).join(' · ') || eq.tipo || '—'}</div>
           <div className="pin">
@@ -975,6 +979,7 @@ function TabFotos({ fotos, puedeEditar, subiendo, onDocs, onSubir, onBorrar, onP
 function TabFicha({ eq, onPdf }: { eq: MaquinariaEquipo; onPdf: () => void }) {
   const filas: [string, string | null | undefined][] = [
     ['Equipo', eq.equipo], ['Tipo', eq.tipo], ['Marca', eq.marca], ['Modelo', eq.modelo], ['Año', eq.anio != null ? String(eq.anio) : null],
+    ['Propietario', eq.propietario], ['Encargado responsable', eq.responsable],
     ['Color', eq.color], ['Serial / PIN', eq.serial], ['Placa', eq.placa], ['Motor (modelo)', eq.motor_modelo], ['Motor (serial)', eq.motor_serial],
     ['Combustible', eq.combustible], ['Consumo esperado', eq.litros_consume != null ? `${fmtNum(eq.litros_consume)} L` : null],
     ['Mantenimiento cada', [eq.mantenimiento_cada_hrs ? `${fmtNum(eq.mantenimiento_cada_hrs)} h` : null, eq.mantenimiento_cada_km ? `${fmtNum(eq.mantenimiento_cada_km)} km` : null].filter(Boolean).join(' · ') || null],

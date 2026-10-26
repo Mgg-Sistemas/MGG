@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -11,6 +11,7 @@ import {
 const TABS: { key: TipoCatalogoMaquinaria; label: string; singular: string }[] = [
   { key: 'tipo_maquinaria', label: 'Tipo de maquinaria', singular: 'tipo de maquinaria' },
   { key: 'propietario', label: 'Propietario', singular: 'propietario' },
+  { key: 'responsable', label: 'Encargados responsables', singular: 'encargado responsable' },
   { key: 'status', label: 'Status', singular: 'status' },
   // Nombres de los documentos de cada equipo (📁): desactivar uno lo quita del selector;
   // los documentos ya cargados conservan su nombre.

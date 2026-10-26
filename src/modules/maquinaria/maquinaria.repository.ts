@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    MGG · Control de Maquinaria · catálogos (Supabase)
    Catálogo gestionable en 2 partes: TIPO DE MAQUINARIA y PROPIETARIO.
    Mismo patrón que el catálogo de la OP (pedido_catalogos): listar,
@@ -7,8 +7,8 @@
 import { supabase } from '@/shared/lib/supabase';
 
 /** 'documento' = nombres reutilizables de los documentos de cada equipo (contrato, ficha técnica…). */
-/** 'grupo_mantenimiento' = grupos del submódulo Servicio de Mantenimiento (desde 16-10-2026 se agregan en línea). */
-export type TipoCatalogoMaquinaria = 'tipo_maquinaria' | 'propietario' | 'status' | 'documento' | 'grupo_mantenimiento';
+/** 'responsable' = catálogo de nombres de encargados responsables de equipos. */
+export type TipoCatalogoMaquinaria = 'tipo_maquinaria' | 'propietario' | 'responsable' | 'status' | 'documento' | 'grupo_mantenimiento';
 
 export interface CatalogoMaquinaria {
   id: string;
