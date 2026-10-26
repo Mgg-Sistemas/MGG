@@ -74,8 +74,7 @@ export function CocinaMovilView() {
 
   const reloadComidas = useCallback(async (id: string) => {
     if (!id) { setComidas([]); setFotos(new Map()); return; }
-    const todas = await listComidas({ cocinaId: id });
-    const ultimas = todas.slice(0, ULTIMAS_COMIDAS_TELEFONO);
+    const ultimas = await listComidas({ cocinaId: id, limite: ULTIMAS_COMIDAS_TELEFONO });
     setComidas(ultimas);
     try { setFotos(await contarFotos(ultimas.map((c) => c.id), MODULO_ADJUNTO_COMIDA)); }
     catch { /* el contador de fotos es adorno */ }

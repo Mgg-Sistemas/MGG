@@ -133,7 +133,7 @@ export function SurtidorMovilView() {
   // lee un libro mayor, se mira lo que acaba de pasar.
   const reloadMovs = useCallback(async (id: string) => {
     if (!id) { setMovs([]); setConteo(new Map()); return; }
-    const todos = await listTanqueMovimientos({ tanqueId: id });
+    const todos = await listTanqueMovimientos({ tanqueId: id, limite: ULTIMOS_EN_TELEFONO });
     const ordenados = [...todos].sort((a, b) => (b.fecha ?? '').localeCompare(a.fecha ?? ''));
     const ultimos = ordenados.slice(0, ULTIMOS_EN_TELEFONO);
     setMovs(ultimos);

@@ -1044,10 +1044,11 @@ async function almacenCasaCombustible(combustibleId: string): Promise<string> {
   return 'General';
 }
 
-export async function listTanqueMovimientos(filtros?: { tanqueId?: string; tipo?: TipoMovimientoTanque }): Promise<TanqueMovimiento[]> {
+export async function listTanqueMovimientos(filtros?: { tanqueId?: string; tipo?: TipoMovimientoTanque; limite?: number }): Promise<TanqueMovimiento[]> {
   let q = supabase.from('combustible_tanque_movimientos').select('*').order('fecha', { ascending: false });
   if (filtros?.tanqueId) q = q.eq('tanque_id', filtros.tanqueId);
   if (filtros?.tipo) q = q.eq('tipo', filtros.tipo);
+  if (filtros?.limite) q = q.limit(filtros.limite);
   const { data, error } = await q;
   if (error) throw error;
   return (data ?? []) as TanqueMovimiento[];

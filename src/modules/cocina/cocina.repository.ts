@@ -375,6 +375,8 @@ export interface FiltrosCocina {
   hasta?: string | null;   // ISO
   tipo?: TipoComida | null;
   cocinaId?: string | null;   // filtra las comidas de una cocina
+  /** Solo las N más recientes (el teléfono muestra 10 y bajaba las 300). */
+  limite?: number;
 }
 
 export async function listComidas(filtros?: FiltrosCocina): Promise<CocinaComida[]> {
@@ -383,10 +385,13 @@ export async function listComidas(filtros?: FiltrosCocina): Promise<CocinaComida
   if (filtros?.cocinaId) q = q.eq('cocina_id', filtros.cocinaId);
   if (filtros?.desde) q = q.gte('at', filtros.desde);
   if (filtros?.hasta) q = q.lte('at', filtros.hasta);
+  // Con margen: el orden fino (día y servicio) se hace abajo y no debe cortar un día por la mitad.
+  if (filtros?.limite) q = q.limit(filtros.limite + 20);
   const { data, error } = await q;
   if (error) throw error;
   // El `order('at')` de arriba no alcanza: las tres comidas de un día comparten `at`.
-  return ((data ?? []) as CocinaComida[]).sort(compararComidas);
+  const ordenadas = ((data ?? []) as CocinaComida[]).sort(compararComidas);
+  return filtros?.limite ? ordenadas.slice(0, filtros.limite) : ordenadas;
 }
 
 /** Próximo correlativo COC-AAAA-NNNN por el MÁXIMO sufijo (no por conteo). */

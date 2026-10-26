@@ -53,7 +53,7 @@ export function mensajeComida(
 ): string {
   const lineas: string[] = [];
   if (ctx.esResguardo) {
-    lineas.push('📤 *SALIDA DE VÍVERES*', '');
+    lineas.push('📤 *CONSUMO MATANZA*', '');
     if (ctx.cocina) lineas.push(`🏬 Resguardo: ${ctx.cocina}`);
     lineas.push(`📅 Fecha: ${fechaComidaTexto(c.at)}`);
   } else {

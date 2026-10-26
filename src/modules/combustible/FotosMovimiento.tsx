@@ -14,6 +14,7 @@
    ============================================================ */
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
+import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 import type { AdjuntoCombustible } from '@/shared/lib/types';
 import {
   MAX_FOTOS_MOVIMIENTO, MODULO_ADJUNTO_TANQUE, errorFoto, esImagen, eliminarFoto, listarFotos, subirFotos, urlsFotos,
@@ -27,8 +28,18 @@ export function SelectorFotos({ archivos, onChange, titulo }: {
   titulo: string;
 }) {
   const cupo = MAX_FOTOS_MOVIMIENTO - archivos.length;
+  const [preparando, setPreparando] = useState(false);
 
-  function agregar(lista: FileList | null) {
+  // Una sola URL por archivo (antes se creaba una en cada render y el teléfono
+  // volvía a decodificar la foto entera con cada tecla del formulario).
+  const [vistas, setVistas] = useState<(string | null)[]>([]);
+  useEffect(() => {
+    const urls = archivos.map((f) => (f.type.startsWith('image/') ? URL.createObjectURL(f) : null));
+    setVistas(urls);
+    return () => { for (const u of urls) if (u) URL.revokeObjectURL(u); };
+  }, [archivos]);
+
+  async function agregar(lista: FileList | null) {
     if (!lista?.length) return;
     const nuevos: File[] = [];
     for (const f of Array.from(lista)) {
@@ -39,7 +50,10 @@ export function SelectorFotos({ archivos, onChange, titulo }: {
     if (nuevos.length > cupo) {
       toast(`Caben ${MAX_FOTOS_MOVIMIENTO} fotos: se tomaron las primeras ${cupo}.`, 'warning');
     }
-    onChange([...archivos, ...nuevos.slice(0, cupo)]);
+    // Se achican al tomarlas, mientras se llena el resto: al guardar ya están livianas.
+    setPreparando(true);
+    try { onChange([...archivos, ...await Promise.all(nuevos.slice(0, cupo).map(comprimirImagen))]); }
+    finally { setPreparando(false); }
   }
 
   return (
@@ -48,15 +62,16 @@ export function SelectorFotos({ archivos, onChange, titulo }: {
       {/* `capture` abre la cámara directo en el teléfono, que es de donde salen
           casi todas: obligar a pasar por la galería es un paso de más. */}
       <input className="input surt-input" type="file" accept="image/*,application/pdf" multiple
-        capture="environment" disabled={cupo <= 0}
-        onChange={(e) => { agregar(e.target.files); e.target.value = ''; }} />
+        capture="environment" disabled={cupo <= 0 || preparando}
+        onChange={(e) => { const fs = e.target.files; void agregar(fs); e.target.value = ''; }} />
+      {preparando && <small className="muted">Preparando foto…</small>}
       {cupo <= 0 && <small className="muted">Ya tenés {MAX_FOTOS_MOVIMIENTO}, el tope por movimiento.</small>}
       {!!archivos.length && (
         <div className="rep-fotos" style={{ marginTop: '.5rem' }}>
           {archivos.map((f, i) => (
             <div key={`${f.name}-${i}`} className="rep-foto" style={{ position: 'relative' }}>
-              {f.type.startsWith('image/')
-                ? <img src={URL.createObjectURL(f)} alt={f.name} />
+              {vistas[i]
+                ? <img src={vistas[i] ?? undefined} alt={f.name} />
                 : <span className="rep-foto-doc">📄<small>{f.name}</small></span>}
               <button type="button" className="btn btn-icon btn-ghost"
                 style={{ position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,.55)' }}

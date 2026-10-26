@@ -66,7 +66,7 @@ export function FichaEquipoCompras({ equipoId, equipoNombre }: Props) {
   }
 
   // Filtros del equipo agrupados
-  const filtros = repuestos.filter((r) => /filtro/i.test(r.sistema || '') || /filtro/i.test(r.repuesto || ''));
+  const filtros = repuestos.filter((r) => /filtro/i.test(r.sistema || '') || /filtro/i.test(r.tipo || ''));
   const otrosRepuestos = repuestos.filter((r) => !filtros.includes(r));
 
   return (
@@ -177,7 +177,7 @@ export function FichaEquipoCompras({ equipoId, equipoNombre }: Props) {
                 <thead>
                   <tr>
                     <th>Filtro / Insumo</th>
-                    <th>Marca</th>
+                    <th>Equivalencias</th>
                     <th>Nº de Parte / Ref.</th>
                     <th>Especificaciones</th>
                     <th style={{ textAlign: 'right' }}>Cant. x servicio</th>
@@ -186,17 +186,17 @@ export function FichaEquipoCompras({ equipoId, equipoNombre }: Props) {
                 <tbody>
                   {filtros.map((f) => (
                     <tr key={f.id}>
-                      <td style={{ fontWeight: 600 }}>{f.repuesto}</td>
+                      <td style={{ fontWeight: 600 }}>{f.tipo}</td>
                       <td>
-                        {f.marca ? (
-                          <span style={{ color: 'var(--primary, #3b82f6)', fontWeight: 600 }}>🏷️ {f.marca}</span>
+                        {f.equivalencias ? (
+                          <span style={{ color: 'var(--primary, #3b82f6)', fontWeight: 600 }}>🏷️ {f.equivalencias}</span>
                         ) : (
                           <span className="muted">—</span>
                         )}
                       </td>
                       <td className="mono">{f.numero_parte || '—'}</td>
-                      <td>{f.especificaciones || f.notas || '—'}</td>
-                      <td style={{ textAlign: 'right' }}>{f.cantidad_por_servicio != null ? num(f.cantidad_por_servicio) : '—'}</td>
+                      <td>{f.especificacion || f.nota || '—'}</td>
+                      <td style={{ textAlign: 'right' }}>{f.cantidad != null ? `${num(f.cantidad)} ${f.unidad ?? ''}`.trim() : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -227,10 +227,9 @@ export function FichaEquipoCompras({ equipoId, equipoNombre }: Props) {
                     border: '1px solid var(--border)',
                   }}
                 >
-                  {r.repuesto}
-                  {r.marca ? ` · ${r.marca}` : ''}
+                  {r.tipo}
                   {r.numero_parte ? ` (${r.numero_parte})` : ''}
-                  {r.aceite_viscosidad ? ` · ${r.aceite_viscosidad}` : ''}
+                  {r.especificacion ? ` · ${r.especificacion}` : ''}
                 </span>
               ))}
             </div>

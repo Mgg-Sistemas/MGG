@@ -14,6 +14,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { AdjuntoCombustible } from '@/shared/lib/types';
 import { errorListaMercado } from '@/modules/cocina/listaMercado';
+import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 
 const BUCKET = 'combustible-adjuntos';
 const TABLA = 'combustible_adjuntos';
@@ -120,12 +121,35 @@ export interface ResultadoSubida {
   fallos: string[];
 }
 
+/** Sube UNA foto ya achicada y registra su fila. Lanza si algo falla. */
+async function subirUna(refId: string, f: File, actor: string, modulo: ModuloAdjunto): Promise<AdjuntoCombustible> {
+  const rand = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`).slice(0, 8);
+  // Las del tanque siguen en la raíz (como siempre); las demás, en su carpeta.
+  const path = `${modulo === MODULO_ADJUNTO_TANQUE ? '' : `${modulo}/`}${refId}/${rand}-${nombreSeguro(f.name)}`;
+  const { error: sErr } = await supabase.storage.from(BUCKET)
+    .upload(path, f, { upsert: false, contentType: f.type || 'application/octet-stream' });
+  if (sErr) throw sErr;
+  const { data, error } = await supabase.from(TABLA).insert({
+    modulo, ref_id: refId, path,
+    nombre: f.name, content_type: f.type || null, bytes: f.size, creado_por: actor,
+  }).select('*').single();
+  if (error) {
+    // El archivo quedó arriba pero sin fila: se limpia para no dejar basura.
+    try { await supabase.storage.from(BUCKET).remove([path]); } catch { /* ya es basura igual */ }
+    throw error;
+  }
+  return data as AdjuntoCombustible;
+}
+
 /**
  * Sube las fotos de un movimiento.
  *
- * Va de a una y sin cortar en el primer error: con mala señal es normal que una
- * se caiga, y perder las otras tres por eso sería peor. Lo que falló se informa
- * por su nombre para poder reintentarlo.
+ * Desde el 26-10-2026 cada foto se ACHICA antes de subir (1600 px, JPEG: de
+ * ~1,3 MB promedio a ~250 KB) y van todas a la vez, no de a una: con la señal
+ * de la mina era lo que dejaba el botón en «Subiendo fotos…» un minuto.
+ * Sin cortar en el primer error: con mala señal es normal que una se caiga, y
+ * perder las otras tres por eso sería peor. Lo que falló se informa por su
+ * nombre para poder reintentarlo.
  */
 export async function subirFotos(
   refId: string, files: File[], actor: string, modulo: ModuloAdjunto = MODULO_ADJUNTO_TANQUE,
@@ -147,30 +171,18 @@ export async function subirFotos(
     if (malo) return { subidas, fallos: [malo] };
   }
 
+  const validas: File[] = [];
   for (const f of files.slice(0, cupo)) {
     const malo = errorFoto(f);
-    if (malo) { fallos.push(malo); continue; }
-    const rand = (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.round(Math.random() * 1e9)}`).slice(0, 8);
-    // Las del tanque siguen en la raíz (como siempre); las demás, en su carpeta.
-    const path = `${modulo === MODULO_ADJUNTO_TANQUE ? '' : `${modulo}/`}${refId}/${rand}-${nombreSeguro(f.name)}`;
-    try {
-      const { error: sErr } = await supabase.storage.from(BUCKET)
-        .upload(path, f, { upsert: false, contentType: f.type || 'application/octet-stream' });
-      if (sErr) throw sErr;
-      const { data, error } = await supabase.from(TABLA).insert({
-        modulo, ref_id: refId, path,
-        nombre: f.name, content_type: f.type || null, bytes: f.size, creado_por: actor,
-      }).select('*').single();
-      if (error) {
-        // El archivo quedó arriba pero sin fila: se limpia para no dejar basura.
-        try { await supabase.storage.from(BUCKET).remove([path]); } catch { /* ya es basura igual */ }
-        throw error;
-      }
-      subidas.push(data as AdjuntoCombustible);
-    } catch (e) {
-      fallos.push(`${f.name}: ${e instanceof Error ? e.message : 'no se pudo subir'}`);
-    }
+    if (malo) fallos.push(malo); else validas.push(f);
   }
+  const resultados = await Promise.allSettled(
+    validas.map(async (f) => subirUna(refId, await comprimirImagen(f), actor, modulo)),
+  );
+  resultados.forEach((r, i) => {
+    if (r.status === 'fulfilled') subidas.push(r.value);
+    else fallos.push(`${validas[i].name}: ${r.reason instanceof Error ? r.reason.message : 'no se pudo subir'}`);
+  });
 
   if (files.length > cupo) {
     fallos.push(`Solo caben ${MAX_FOTOS_MOVIMIENTO} fotos por movimiento: ${files.length - cupo} quedaron fuera.`);

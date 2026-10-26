@@ -5074,7 +5074,10 @@ function CrearOrdenModal({
           .map((i) => ({ productoId: i.productoId, sku: i.sku, nombre: i.nombre }));
         if (cambios.length) await sincronizarNombreProductos(cambios).catch(() => { /* no bloquear */ });
         // Sincroniza nombres de repuestos de maquinaria para el próximo servicio.
-        await sincronizarRepuestosMaquinariaDesdeCompras(orden!, itemsValor).catch(() => { /* no bloquear */ });
+        await sincronizarRepuestosMaquinariaDesdeCompras({
+          ordenId: orden!.id, spCodigo: orden!.codigo, items: itemsValor, itemsAnteriores: orden!.items ?? [],
+          actor: { email, nombre: usuario?.nombre ?? null },
+        }).catch(() => { /* no bloquear */ });
         if (imagenes.length || imagenesQuitar.length) {
           try { await guardarImagenesOrden(saved.id, imagenes, imagenesExist, imagenesQuitar); }
           catch (e) { toast(`Orden guardada, pero no se pudieron subir las imágenes: ${e instanceof Error ? e.message : ''}`, 'warning'); }
