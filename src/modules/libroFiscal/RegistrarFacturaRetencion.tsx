@@ -37,7 +37,7 @@ import { montoEscrito, municipioDeLinea, sujetoDeLineas } from './lineasRegistro
 import { SeLeyo } from './SeLeyo';
 import { rotuloImpuesto } from './rotulos';
 import { BuscadorFactura } from './BuscadorFactura';
-import { pendientesComoTipos, r10Disponible, registrarFacturaSola, retenerDespues, type FacturaResumen } from './facturasResumen.repository';
+import { pendientesComoTipos, r10Disponible, retenerDespues, type FacturaResumen } from './facturasResumen.repository';
 import { faltaEnDatosFactura } from './facturaDocumento';
 import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
@@ -156,17 +156,39 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [facturaTotal, setFacturaTotal] = useState(numeroATexto(s.facturaTotal ?? 0));
   const [exentoStr, setExentoStr] = useState(s.exento != null ? numeroATexto(s.exento) : '');
   const [nota, setNota] = useState('');
-  // R10: la factura sola (sin líneas, queda pendiente) y retener después sobre una ya registrada.
+  // R10: retener después sobre una factura ya registrada.
   const [conR10, setConR10] = useState(false);
   const [documento, setDocumento] = useState<FacturaResumen | null>(null);
-  const [soloFactura, setSoloFactura] = useState(false);
-  const [archivoManual, setArchivoManual] = useState<File | null>(null);
   const [avisoSinDocDescartado, setAvisoSinDocDescartado] = useState(() => {
     try { return localStorage.getItem('mgg_aviso_sin_doc_descartado') === 'true'; } catch { return false; }
   });
   const descartarAvisoSinDoc = () => {
     setAvisoSinDocDescartado(true);
     try { localStorage.setItem('mgg_aviso_sin_doc_descartado', 'true'); } catch {}
+  };
+  const [archivoFactura, setArchivoFactura] = useState<File | null>(null);
+  const [archivoFacturaUrl, setArchivoFacturaUrl] = useState<string | null>(null);
+
+  const onElegirArchivo = (f: File | null) => {
+    marcarSucio();
+    if (archivoFacturaUrl) {
+      try { URL.revokeObjectURL(archivoFacturaUrl); } catch {}
+    }
+    setArchivoFactura(f);
+    setArchivoFacturaUrl(f ? URL.createObjectURL(f) : null);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (archivoFacturaUrl) {
+        try { URL.revokeObjectURL(archivoFacturaUrl); } catch {}
+      }
+    };
+  }, [archivoFacturaUrl]);
+
+  const verArchivoLocal = () => {
+    if (!archivoFactura || !archivoFacturaUrl) return;
+    previewArchivo(archivoFacturaUrl, archivoFactura.name);
   };
   const [periodoCerrado, setPeriodoCerrado] = useState<PeriodoFiscal | null>(null);
   const [lineas, setLineas] = useState<LineaUI[]>(() => [nuevaLinea({
@@ -359,11 +381,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (periodoCerrado) {
       return `El período fiscal (${nombrePeriodo(periodoCerrado)}) ya fue declarado ante el SENIAT. No se pueden registrar retenciones en períodos cerrados sin reapertura previa.`;
     }
-    if (soloFactura) {
-      if (ilegibles.length) return `No se entiende: ${ilegibles.join(', ')}. Escribe 1.234,56 o 1234,56.`;
-      if (sinDocumento && !nota.trim()) return 'Sin documento del sistema: indica en la nota de la factura de dónde viene.';
-      return null;
-    }
+    
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRetencion)) return 'Indica la fecha de la retención (emisión del comprobante).';
     if (fechaRetencion < facturaFecha) return 'La fecha de la retención no puede ser anterior a la de la factura.';
     if (avisoFecha) return avisoFecha;
@@ -401,7 +419,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   /** Elegir una factura ya registrada: se precargan sus datos y se retiene sobre ella lo pendiente. */
   function aplicarDocumento(f: FacturaResumen) {
     marcarSucio();
-    setDocumento(f); setSoloFactura(false); setDireccion('practicada');
+    setDocumento(f); setDireccion('practicada');
     if (f.tipoDocumento && (f.tipoDocumento === 'factura' || f.tipoDocumento === 'nota_credito' || f.tipoDocumento === 'nota_debito')) {
       setTipoDocumento(f.tipoDocumento as TipoDocumento);
     }
@@ -482,20 +500,16 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         };
       });
       const etiquetaDoc = tipoDocumento === 'factura' ? `Factura ${facturaNro}` : tipoDocumento === 'nota_credito' ? `Nota de crédito ${facturaNro}` : `Nota de débito ${facturaNro}`;
-      if (soloFactura) {
-        const res = await registrarFacturaSola(facturaNueva);
-        notify(`${etiquetaDoc} registrada: queda pendiente por retener`, 'success', { link: '#/app/retenciones' });
-        onHecho(res);
-        return;
-      }
       const res = documento
         ? await retenerDespues(documento, lineasNuevas, { periodo, actorName, valorUt: config.valorUt })
         : await registrarFactura(facturaNueva, lineasNuevas);
-      if (archivoManual && res.lineas?.length) {
+      if (archivoFactura && res.lineas?.length) {
         for (const l of res.lineas) {
           try {
-            await adjuntarComprobante(l.id, archivoManual, 'Factura');
-          } catch { /* el adjunto no bloquea el registro */ }
+            await adjuntarComprobante(l.id, archivoFactura, 'Factura');
+          } catch {
+            // Continúa sin frenar la notificación
+          }
         }
       }
       notify(`${etiquetaDoc} · ${res.lineas.length} línea(s) retenida(s) · ${money(totalRetenido, moneda)}`, 'success', { link: '#/app/retenciones' });
@@ -511,21 +525,65 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       footer={(
         <>
           <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cancelar</button>
-          <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving || (!soloFactura && !lineas.length)}>
-            {saving ? 'Guardando…' : soloFactura ? 'Registrar la factura' : `${documento ? 'Retener' : 'Registrar'} · ${money(totalRetenido, moneda)}`}
+          <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving || !lineas.length}>
+            {saving ? 'Guardando…' : `${documento ? 'Retener' : 'Registrar'} · ${money(totalRetenido, moneda)}`}
           </button>
         </>
       )}>
       {dialogo}
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      {s.adjunto && (
-        <div className="card" style={{ marginBottom: '.75rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+      {s.adjunto ? (
+        <div className="card" style={{ marginBottom: '.75rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap', borderColor: 'var(--primary)' }}>
           <span>📄 Factura cargada por Compras: <strong>{s.adjunto.nombre}</strong></span>
           <button type="button" className="btn btn-sm btn-ghost"
             onClick={() => { const a = s.adjunto; if (a) urlFacturaDeOrigen(a).then((u) => previewArchivo(u, a.nombre)).catch((e) => setError(e instanceof Error ? e.message : 'No se pudo abrir el archivo.')); }}>
-            Ver
+            👁 Ver factura
           </button>
-          <small className="muted">Al registrar, el archivo queda enlazado a esta factura.</small>
+          <small className="muted">Enlazada automáticamente al expediente fiscal de la compra.</small>
+        </div>
+      ) : (
+        <div className="card" style={{ marginBottom: '.75rem', background: 'rgba(255, 255, 255, 0.02)', borderColor: archivoFactura ? 'var(--primary)' : 'var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.35rem' }}>
+            <label style={{ margin: 0, fontWeight: 600, fontSize: '.85rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              📎 Documento de respaldo (Factura en PDF o imagen)
+            </label>
+            {archivoFactura && (
+              <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={verArchivoLocal}
+                  title="Abrir visor para cotejar datos de la factura"
+                  style={{ color: 'var(--primary)', fontWeight: 600 }}
+                >
+                  👁 Ver factura cargada
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={() => onElegirArchivo(null)}
+                  title="Quitar archivo seleccionado"
+                  style={{ color: 'var(--text-muted)' }}
+                >
+                  ✕ Quitar
+                </button>
+              </div>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+            <input
+              className="input"
+              type="file"
+              accept="application/pdf,image/*"
+              style={{ flex: 1 }}
+              onChange={(e) => onElegirArchivo(e.target.files?.[0] ?? null)}
+            />
+          </div>
+          <small className="hint muted" style={{ display: 'block', marginTop: '.25rem' }}>
+            {archivoFactura
+              ? `Archivo listo: ${archivoFactura.name} (${(archivoFactura.size / 1024).toFixed(1)} KB). Puedes pulsar "Ver factura cargada" para revisar montos y números mientras registras.`
+              : 'Adjunta la imagen o PDF de la factura fiscal para revisarla en pantalla y dejar el respaldo digital auditable (📎) en el Libro Fiscal.'}
+          </small>
         </div>
       )}
       {documento && (
@@ -685,20 +743,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
         </div>
       </div>
 
-      {conR10 && !documento && (
-        <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.86rem', margin: '.4rem 0' }}>
-          <input type="checkbox" checked={soloFactura} onChange={(e) => { marcarSucio(); setSoloFactura(e.target.checked); }} />
-          Registrar solo la factura (retener después)
-        </label>
-      )}
-      {soloFactura && (
-        <div className="card" style={{ borderColor: 'var(--warning)', marginTop: '.4rem' }}>
-          <small>La factura quedará <strong>pendiente por retener</strong>: aparece en «Facturas registradas» y en el buscador del N° de factura para retener después.</small>
-        </div>
-      )}
-
       {/* Las líneas de impuesto */}
-      {!soloFactura && (
       <div className="card" style={{ marginTop: '.4rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
           <strong style={{ fontSize: '.9rem' }}>Líneas de impuesto</strong>
@@ -847,31 +892,6 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           );
         })}
       </div>
-      )}
-
-      {!s.adjunto && !documento && (
-        <div className="form-row">
-          <label>Factura del proveedor (PDF o imagen de respaldo digital)</label>
-          <input
-            className="input"
-            type="file"
-            accept="application/pdf,image/*"
-            onChange={(e) => {
-              marcarSucio();
-              setArchivoManual(e.target.files?.[0] ?? null);
-            }}
-          />
-          {archivoManual ? (
-            <small className="muted" style={{ display: 'block', marginTop: '.25rem' }}>
-              Archivo seleccionado: <strong>{archivoManual.name}</strong> ({Math.round(archivoManual.size / 1024)} KB)
-            </small>
-          ) : (
-            <small className="hint muted">
-              Adjunta el PDF o foto de la factura para que quede respaldada y visible en el libro fiscal.
-            </small>
-          )}
-        </div>
-      )}
 
       <div className="form-row">
         <label>Nota de la factura</label>

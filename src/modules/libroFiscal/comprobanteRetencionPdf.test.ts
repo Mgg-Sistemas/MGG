@@ -4,7 +4,6 @@ import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion } from './retencionesCal
 import type { RetencionPracticada } from './retencionesFiscal.repository';
 import {
   cadenaCanonicoFiscal, calcularSha256Hex, generarQrVerificacion, lineaEquivalenteBs, partesComprobante,
-  generarDocComprobanteRetencionPdf,
 } from './comprobanteRetencionPdf';
 
 // Datos inventados: ninguna empresa, proveedor ni cliente real.
@@ -141,24 +140,26 @@ describe('verificación digital fiscal (PA 0084 / 0093)', () => {
   });
 });
 
-describe('impresión de original y copia en comprobantes (PA 0049 Art. 16)', () => {
-  it('genera dos páginas por defecto (Página 1: Original, Página 2: Copia)', async () => {
-    const doc = await generarDocComprobanteRetencionPdf(retencion({}), empresa);
-    expect(doc.internal.getNumberOfPages()).toBe(2);
+describe('emisión de ejemplares · Original y Copia (Providencia 0049 IVA / Art. 24 D. 1808)', () => {
+  it('modo "ambos" emite 2 páginas consecutivas (Página 1: Original, Página 2: Copia)', async () => {
+    const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
+    const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
+    const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'ambos', incluirLogo: false, incluirQr: false });
+    expect(doc.getNumberOfPages()).toBe(2);
   });
 
-  it('permite generar un solo ejemplar cuando se deshabilita el duplicado', async () => {
-    const doc = await generarDocComprobanteRetencionPdf(retencion({}), empresa, null, {
-      imprimirOriginalYCopia: false,
-    });
-    expect(doc.internal.getNumberOfPages()).toBe(1);
+  it('modo "original" emite exactamente 1 página', async () => {
+    const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
+    const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
+    const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'original', incluirLogo: false, incluirQr: false });
+    expect(doc.getNumberOfPages()).toBe(1);
   });
 
-  it('permite generar solo la copia individualmente', async () => {
-    const doc = await generarDocComprobanteRetencionPdf(retencion({}), empresa, null, {
-      ejemplar: 'COPIA',
-    });
-    expect(doc.internal.getNumberOfPages()).toBe(1);
+  it('modo "copia" emite exactamente 1 página', async () => {
+    const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
+    const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
+    const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'copia', incluirLogo: false, incluirQr: false });
+    expect(doc.getNumberOfPages()).toBe(1);
   });
 });
 

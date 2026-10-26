@@ -87,4 +87,41 @@ describe('comprobante anual ARC de ISLR (Art. 24 Decreto 1.808)', () => {
     expect(arc.meses[7].baseImponibleBs).toBe(1000);
     expect(arc.totalBaseBs).toBe(1000);
   });
+
+  it('anexarPaginasArcPdf genera 2 páginas en modo "ambos" (Original + Copia)', async () => {
+    const { anexarPaginasArcPdf } = await import('./comprobanteArcPdf');
+    const { CONFIG_RETENCION_DEFECTO } = await import('./retencionesCalculo');
+    const filas: RetencionPracticada[] = [
+      retencion({ facturaFecha: '2026-01-10', baseImponible: 5000, montoRetenido: 100, montoBs: 100 }),
+    ];
+    const datos = compilarDatosArc(2026, 'J-12345678-0', filas);
+    const doc = await anexarPaginasArcPdf(datos, CONFIG_RETENCION_DEFECTO, {
+      modoEjemplar: 'ambos',
+      incluirLogo: false,
+      incluirQr: false,
+    });
+    expect(doc.getNumberOfPages()).toBe(2);
+  });
+
+  it('anexarPaginasArcPdf genera 1 página en modo "original" o "copia"', async () => {
+    const { anexarPaginasArcPdf } = await import('./comprobanteArcPdf');
+    const { CONFIG_RETENCION_DEFECTO } = await import('./retencionesCalculo');
+    const filas: RetencionPracticada[] = [
+      retencion({ facturaFecha: '2026-01-10', baseImponible: 5000, montoRetenido: 100, montoBs: 100 }),
+    ];
+    const datos = compilarDatosArc(2026, 'J-12345678-0', filas);
+    const docOrig = await anexarPaginasArcPdf(datos, CONFIG_RETENCION_DEFECTO, {
+      modoEjemplar: 'original',
+      incluirLogo: false,
+      incluirQr: false,
+    });
+    expect(docOrig.getNumberOfPages()).toBe(1);
+
+    const docCopia = await anexarPaginasArcPdf(datos, CONFIG_RETENCION_DEFECTO, {
+      modoEjemplar: 'copia',
+      incluirLogo: false,
+      incluirQr: false,
+    });
+    expect(docCopia.getNumberOfPages()).toBe(1);
+  });
 });

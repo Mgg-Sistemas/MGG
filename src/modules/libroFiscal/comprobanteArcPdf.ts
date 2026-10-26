@@ -22,7 +22,8 @@ import { previewPdf } from '@/shared/lib/reportePreview';
 import { EMPRESA_RIF } from '@/shared/lib/empresa';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, montoPdf, textoPdf } from './pdfComun';
 import {
-  calcularSha256Hex, cargarElementosDigitales, generarQrVerificacion, razonSocialAgente,
+  calcularSha256Hex, cargarElementosDigitales, consultarElementosDigitales, generarQrVerificacion, razonSocialAgente,
+  type ModoEjemplar, type EjemplarPdf,
 } from './comprobanteRetencionPdf';
 import type { ConfigRetencion } from './retencionesCalculo';
 import type { RetencionPracticada } from './retencionesFiscal.repository';
@@ -146,28 +147,37 @@ export interface OpcionesArcPdf {
   incluirFirma?: boolean;
   incluirSello?: boolean;
   incluirQr?: boolean;
+  ejemplar?: EjemplarPdf | null;
+  modoEjemplar?: ModoEjemplar;
 }
 
 /**
- * Genera y previsualiza el Comprobante Anual ARC de ISLR en PDF (Art. 24 Decreto 1.808).
+ * Construye una página (o añade a un documento existente) del Comprobante Anual ARC de ISLR (Art. 24 Decreto 1.808).
  */
-export async function verComprobanteArcPdf(
-  anio: number,
-  proveedorRif: string,
-  filas: RetencionPracticada[],
+export async function generarDocComprobanteArcPdf(
+  datos: DatosArc,
   config: ConfigRetencion,
   opciones: OpcionesArcPdf = {},
-): Promise<void> {
-  const datos = compilarDatosArc(anio, proveedorRif, filas);
-
+  docExistente?: any,
+): Promise<any> {
   const [{ jsPDF }, { default: autoTable }] = await Promise.all([
     import('jspdf'), import('jspdf-autotable'),
   ]);
 
-  const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+  let doc: any;
+  if (docExistente) {
+    doc = docExistente;
+    doc.addPage('letter', 'portrait');
+  } else {
+    doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'portrait' });
+  }
+
   const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
   const M = MARGEN_PDF;
   let y = M;
+
+  const ejemplar = opciones.ejemplar ?? null;
 
   // Carga de elementos digitales desde Parámetros del módulo
   const { logoDataUrl, firmaDataUrl, selloDataUrl } = await cargarElementosDigitales().catch(() => ({
@@ -184,9 +194,29 @@ export async function verComprobanteArcPdf(
     } catch { /* continuar sin logo */ }
   }
 
-  // Título oficial y membrete (alineado junto al logo o centrado)
+  // Si hay ejemplar, estampar el badge en la esquina superior derecha
+  const badgeW = 160;
+  const badgeH = 14;
+  const badgeX = W - M - badgeW;
+  if (ejemplar) {
+    const textoBadge = ejemplar === 'original'
+      ? 'ORIGINAL · SUJETO RETENIDO'
+      : 'COPIA · AGENTE DE RETENCIÓN';
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.6);
+    doc.setFillColor(242, 244, 246);
+    doc.rect(badgeX, y, badgeW, badgeH, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7);
+    doc.setTextColor(0, 0, 0);
+    doc.text(textoBadge, badgeX + badgeW / 2, y + 10, { align: 'center' });
+  }
+
+  // Título oficial y membrete
   const xTexto = tieneLogo ? M + logoW + 12 : W / 2;
-  const anchoTexto = tieneLogo ? W - M - xTexto : W - M * 2;
+  const anchoTexto = tieneLogo
+    ? (ejemplar ? W - M - badgeW - 12 - xTexto : W - M - xTexto)
+    : (ejemplar ? W - M * 2 - badgeW : W - M * 2);
   const align = tieneLogo ? 'left' : 'center';
 
   doc.setFont('helvetica', 'bold');
@@ -220,7 +250,6 @@ export async function verComprobanteArcPdf(
   );
 
   y = Math.max(y + (tieneLogo ? logoH : 0), textY) + 12;
-
 
   // Recuadro de Agente y Sujeto
   const boxW = W - M * 2;
@@ -389,5 +418,188 @@ export async function verComprobanteArcPdf(
   doc.setFontSize(6.5);
   doc.text(textoPdf('Firma / Fecha de Recepción'), xSuj + firmaBoxW / 2, finY + firmaBoxH - 6, { align: 'center' });
 
-  previewPdf(doc, `comprobante-arc-${datos.anio}-${datos.proveedorRif}.pdf`);
+  // Pie de página con destino
+  if (ejemplar) {
+    const rotuloDestino = ejemplar === 'original'
+      ? 'DESTINO: ORIGINAL (SUJETO RETENIDO)'
+      : 'DESTINO: COPIA (AGENTE DE RETENCIÓN)';
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.2);
+    doc.setTextColor(60, 60, 60);
+    doc.text(textoPdf(rotuloDestino), W - M, H - 18, { align: 'right' });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(textoPdf(razonSocialAgente(config)), M, H - 18, { maxWidth: W - M * 2 - 210 });
+  }
+
+  return doc;
+}
+
+/**
+ * Emite las páginas del Comprobante Anual ARC según el modo de ejemplar
+ * ('ambos': Original + Copia consecutivas, 'original' o 'copia').
+ */
+export async function anexarPaginasArcPdf(
+  datos: DatosArc,
+  config: ConfigRetencion,
+  opciones: OpcionesArcPdf = {},
+  docExistente?: any,
+): Promise<any> {
+  const modo: ModoEjemplar = opciones.modoEjemplar || 'ambos';
+  let doc = docExistente;
+
+  if (modo === 'ambos') {
+    doc = await generarDocComprobanteArcPdf(datos, config, { ...opciones, ejemplar: 'original' }, doc);
+    doc = await generarDocComprobanteArcPdf(datos, config, { ...opciones, ejemplar: 'copia' }, doc);
+  } else if (modo === 'copia') {
+    doc = await generarDocComprobanteArcPdf(datos, config, { ...opciones, ejemplar: 'copia' }, doc);
+  } else {
+    doc = await generarDocComprobanteArcPdf(datos, config, { ...opciones, ejemplar: 'original' }, doc);
+  }
+
+  return doc;
+}
+
+/**
+ * Genera y previsualiza el Comprobante Anual ARC de ISLR en PDF (Art. 24 Decreto 1.808)
+ * con soporte de emisión de Original y Copia e interactividad en el visor.
+ */
+export async function verComprobanteArcPdf(
+  anio: number,
+  proveedorRif: string,
+  filas: RetencionPracticada[],
+  config: ConfigRetencion,
+  opciones: OpcionesArcPdf = {},
+): Promise<void> {
+  const datos = compilarDatosArc(anio, proveedorRif, filas);
+  const disp = await consultarElementosDigitales();
+
+  let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
+    ?? ((typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
+  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConLogo') !== 'false' : true));
+  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConFirma') !== 'false' : true));
+  let conSello = disp.tieneSello && (opciones.incluirSello ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConSello') !== 'false' : true));
+  let conQr = opciones.incluirQr ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConQr') !== 'false' : true);
+
+  const generarDoc = () => anexarPaginasArcPdf(datos, config, {
+    modoEjemplar,
+    incluirLogo: conLogo,
+    incluirFirma: conFirma,
+    incluirSello: conSello,
+    incluirQr: conQr,
+  });
+
+  const doc = await generarDoc();
+  const filename = `comprobante-arc-${datos.anio}-${datos.proveedorRif.replace(/[^\w.-]+/g, '_')}.pdf`;
+
+  previewPdf(doc, filename, {
+    extraControls: ({ bar, updatePdf }) => {
+      const container = document.createElement('div');
+      container.style.cssText = 'display:flex;align-items:center;gap:.5rem;margin-left:auto;margin-right:.5rem;flex-wrap:wrap;';
+
+      // Selector de Ejemplar (Original y Copia / Solo Original / Solo Copia)
+      const selEjemplar = document.createElement('select');
+      selEjemplar.style.cssText =
+        'background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:.35rem .6rem;font:600 .82rem system-ui;cursor:pointer;outline:none;';
+      selEjemplar.title = 'Seleccionar ejemplares a emitir (Original y Copia)';
+
+      const optAmbos = document.createElement('option');
+      optAmbos.value = 'ambos';
+      optAmbos.textContent = '📄 Original y Copia (2 págs)';
+
+      const optOriginal = document.createElement('option');
+      optOriginal.value = 'original';
+      optOriginal.textContent = '📄 Solo Original (1 pág)';
+
+      const optCopia = document.createElement('option');
+      optCopia.value = 'copia';
+      optCopia.textContent = '📄 Solo Copia (1 pág)';
+
+      selEjemplar.append(optAmbos, optOriginal, optCopia);
+      selEjemplar.value = modoEjemplar;
+
+      selEjemplar.onchange = async () => {
+        modoEjemplar = selEjemplar.value as ModoEjemplar;
+        try { localStorage.setItem('retenciones:modoEjemplar', modoEjemplar); } catch {}
+        selEjemplar.style.opacity = '0.6';
+        try {
+          const nuevoDoc = await generarDoc();
+          updatePdf(nuevoDoc);
+        } finally {
+          selEjemplar.style.opacity = '1';
+        }
+      };
+
+      container.appendChild(selEjemplar);
+
+      if (!disp.tieneAlguno) {
+        const aviso = document.createElement('span');
+        aviso.style.cssText =
+          'color:#8b949e;font:500 .78rem system-ui;display:inline-flex;align-items:center;gap:.35rem;padding:.35rem .6rem;background:#161b22;border-radius:6px;border:1px solid #30363d;';
+        aviso.title = 'Para estampar logo, firma o sello, cárgalos en Parámetros › Firma / Sello o Logo.';
+        aviso.textContent = 'Sin logo ni firma en Parámetros';
+        container.appendChild(aviso);
+      }
+
+      const toolbar = document.createElement('div');
+      toolbar.style.cssText = 'display:flex;align-items:center;gap:.4rem;';
+
+      const labelTitulo = document.createElement('span');
+      labelTitulo.style.cssText = 'color:#8b949e;font:600 .78rem system-ui;margin-right:.2rem;';
+      labelTitulo.textContent = 'Imprimir:';
+      toolbar.appendChild(labelTitulo);
+
+      const crearCheck = (etiqueta: string, valor: boolean, onChange: (val: boolean) => void) => {
+        const lbl = document.createElement('label');
+        lbl.style.cssText =
+          'color:#e6edf3;font:500 .82rem system-ui;display:inline-flex;align-items:center;gap:.35rem;cursor:pointer;background:#21262d;padding:.35rem .65rem;border-radius:6px;border:1px solid #30363d;user-select:none;';
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.checked = valor;
+        chk.style.cssText = 'cursor:pointer;accent-color:#ff8a00;width:.95rem;height:.95rem;margin:0;';
+        chk.onchange = async () => {
+          onChange(chk.checked);
+          lbl.style.opacity = '0.6';
+          try {
+            const nuevoDoc = await generarDoc();
+            updatePdf(nuevoDoc);
+          } finally {
+            lbl.style.opacity = '1';
+          }
+        };
+        lbl.append(chk, document.createTextNode(etiqueta));
+        return lbl;
+      };
+
+      if (disp.tieneLogo) {
+        toolbar.appendChild(crearCheck('Logo', conLogo, (v) => {
+          conLogo = v;
+          try { localStorage.setItem('retenciones:imprimirConLogo', String(v)); } catch {}
+        }));
+      }
+      if (disp.tieneFirma) {
+        toolbar.appendChild(crearCheck('Firma', conFirma, (v) => {
+          conFirma = v;
+          try { localStorage.setItem('retenciones:imprimirConFirma', String(v)); } catch {}
+        }));
+      }
+      if (disp.tieneSello) {
+        toolbar.appendChild(crearCheck('Sello', conSello, (v) => {
+          conSello = v;
+          try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch {}
+        }));
+      }
+      toolbar.appendChild(crearCheck('QR Fiscal', conQr, (v) => {
+        conQr = v;
+        try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch {}
+      }));
+
+      container.appendChild(toolbar);
+
+      const firstBtn = bar.querySelector('button');
+      if (firstBtn) bar.insertBefore(container, firstBtn);
+      else bar.appendChild(container);
+    },
+  });
 }

@@ -153,6 +153,9 @@ export async function generarQrVerificacion(contenido: string): Promise<string |
   }
 }
 
+export type ModoEjemplar = 'ambos' | 'original' | 'copia';
+export type EjemplarPdf = 'original' | 'copia';
+
 export interface OpcionesComprobantePdf {
   incluirLogo?: boolean;
   incluirFirma?: boolean;
@@ -160,14 +163,11 @@ export interface OpcionesComprobantePdf {
   incluirQr?: boolean;
   /** Compatibilidad hacia atrás */
   incluirFirmaSello?: boolean;
-  /**
-   * Si debe imprimir el juego de comprobantes por duplicado:
-   * Original (para el Sujeto Retenido / Proveedor) y Copia (para el Agente de Retención / Contabilidad).
-   * Según normativa legal venezolana (PA 0049 Art. 16 y PA 0071), por defecto es true.
-   */
+  /** Ejemplar que se imprime en esta página concreta ('original' o 'copia') */
+  ejemplar?: EjemplarPdf | null;
+  /** Modo de emisión del documento: ambos (Original + Copia), solo original o solo copia */
+  modoEjemplar?: ModoEjemplar;
   imprimirOriginalYCopia?: boolean;
-  /** Si se especifica, restringe la generación a un solo ejemplar */
-  ejemplar?: 'ORIGINAL' | 'COPIA' | null;
 }
 
 export interface DisponibilidadElementosDigitales {
@@ -177,7 +177,7 @@ export interface DisponibilidadElementosDigitales {
   tieneAlguno: boolean;
 }
 
-/** Comprueba qué elementos (logo, firma, sello) están disponibles para estampar en el comprobante. */
+/** Comprueba qué elementos (logo, firma, sello) están cargados y activos en Parámetros del módulo. */
 export async function consultarElementosDigitales(fecha = hoyVenezuela()): Promise<DisponibilidadElementosDigitales> {
   try {
     const imagenes = await listImagenesAgente();
@@ -188,13 +188,13 @@ export async function consultarElementosDigitales(fecha = hoyVenezuela()): Promi
     const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha)
       || imagenes.find((i) => i.clase === 'sello' && i.activo);
     return {
-      tieneLogo: !!l?.ruta || true, // Logo institucional siempre disponible vía pdfLogo
+      tieneLogo: !!l?.ruta,
       tieneFirma: !!f?.ruta,
-      tieneSello: !!s?.ruta || true, // Sello institucional de agente disponible
-      tieneAlguno: true,
+      tieneSello: !!s?.ruta,
+      tieneAlguno: !!(l?.ruta || f?.ruta || s?.ruta),
     };
   } catch {
-    return { tieneLogo: true, tieneFirma: false, tieneSello: true, tieneAlguno: true };
+    return { tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false };
   }
 }
 
@@ -217,7 +217,7 @@ async function urlADataUrl(url: string): Promise<string> {
   });
 }
 
-/** Carga las imágenes de logo, firma y sello digital de la empresa (con fallbacks a los activos institucionales). */
+/** Carga las imágenes de logo, firma y sello digital de la empresa SOLO si están cargadas en Parámetros del módulo. */
 export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<{
   logoDataUrl: string | null;
   firmaDataUrl: string | null;
@@ -256,6 +256,7 @@ export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<
     }
   } catch { /* noop */ }
 
+  
   // ── Fallbacks institucionales para MGG si no hay versión subida en la base ──
   if (!logoDataUrl) {
     try {
@@ -364,13 +365,18 @@ export async function generarDocComprobanteRetencionPdf(
 
   const f = aplicarFormato(r.tipo, formato);
   const orientacion = f.orientacion === 'vertical' ? 'portrait' : 'landscape';
-
-  const renderUnaPagina = async (doc: any, ejemplar: 'ORIGINAL' | 'COPIA') => {
-    const W = doc.internal.pageSize.getWidth();
-    const H = doc.internal.pageSize.getHeight();
-    const M = MARGEN_PDF;
-    const UTIL = W - M * 2;
-    let y = M + 6;
+  let doc: any;
+  if (docExistente) {
+    doc = docExistente;
+    doc.addPage('letter', orientacion);
+  } else {
+    doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: orientacion });
+  }
+  const W = doc.internal.pageSize.getWidth();
+  const H = doc.internal.pageSize.getHeight();
+  const M = MARGEN_PDF;
+  const UTIL = W - M * 2;
+  let y = M + 6;
 
   // 1. Título principal a todo el ancho (sin reducirse, centrado en la página)
   doc.setTextColor(0, 0, 0);
@@ -405,30 +411,33 @@ export async function generarDocComprobanteRetencionPdf(
     } catch { /* noop */ }
   }
 
+  const ejemplar = opciones.ejemplar ?? null;
+
   // Recuadro superior derecho: N° DE COMPROBANTE, PERÍODO FISCAL, FECHA DE EMISIÓN
   const boxW = Math.min(260, UTIL * 0.46);
   const boxH = 40;
   const boxX = W - M - boxW;
-  const boxY = restoY;
+
+  const badgeH = ejemplar ? 14 : 0;
+  const badgeGap = ejemplar ? 3 : 0;
+  const badgeY = restoY;
+  const boxY = restoY + badgeH + badgeGap;
   const colDivX = boxX + 118; // divisor vertical que alinea perfectamente ambas filas
 
-  // Indicador formal de Ejemplar (Original vs Copia) sobre el recuadro superior
-  const rotuloEjemplar = ejemplar === 'ORIGINAL'
-    ? 'ORIGINAL: SUJETO RETENIDO'
-    : 'COPIA: AGENTE DE RETENCIÓN';
-  const subRotuloEjemplar = ejemplar === 'ORIGINAL'
-    ? 'PROVEEDOR'
-    : 'CONTABILIDAD';
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  if (ejemplar === 'ORIGINAL') {
-    doc.setTextColor(0, 75, 145);
-  } else {
-    doc.setTextColor(70, 70, 70);
+  // Badge oficial de Ejemplar (Original / Copia) según Providencia SENIAT
+  if (ejemplar) {
+    const textoBadge = ejemplar === 'original'
+      ? 'ORIGINAL · SUJETO RETENIDO'
+      : 'COPIA · AGENTE DE RETENCIÓN';
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.6);
+    doc.setFillColor(242, 244, 246);
+    doc.rect(boxX, badgeY, boxW, badgeH, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.2);
+    doc.setTextColor(0, 0, 0);
+    doc.text(textoBadge, boxX + boxW / 2, badgeY + 10, { align: 'center' });
   }
-  doc.text(textoPdf(`[ ${rotuloEjemplar} ]`), W - M, boxY - 3, { align: 'right' });
-  doc.setTextColor(0, 0, 0);
 
   // Dibujar recuadro con cuadrícula interna
   doc.setDrawColor(0, 0, 0);
@@ -958,37 +967,51 @@ export async function generarDocComprobanteRetencionPdf(
     }
   }
 
-  // ── Pie de página con el texto configurado en Parámetros o razón social de la empresa ──
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(0, 0, 0);
+  // ── Pie de página con el texto configurado en Parámetros y destino del ejemplar ──
   const pieTexto = f.textos.pie || razonSocialAgente(config);
-  doc.text(textoPdf(pieTexto), M, H - 18, { maxWidth: UTIL * 0.65 });
-
-  // Rótulo del ejemplar en el pie de página
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7.5);
-  doc.setTextColor(60, 60, 60);
-  doc.text(textoPdf(`${rotuloEjemplar} (${subRotuloEjemplar})`), W - M, H - 18, { align: 'right' });
-  doc.setTextColor(0, 0, 0);
-  };
-
-  const debeImprimirDuplicado = opciones.imprimirOriginalYCopia !== false && !opciones.ejemplar;
-  let doc: any = docExistente || new jsPDF({ unit: 'pt', format: 'letter', orientation: orientacion });
-
-  if (debeImprimirDuplicado) {
-    if (docExistente) {
-      doc.addPage('letter', orientacion);
-    }
-    await renderUnaPagina(doc, 'ORIGINAL');
-
-    doc.addPage('letter', orientacion);
-    await renderUnaPagina(doc, 'COPIA');
+  if (ejemplar) {
+    const rotuloDestino = ejemplar === 'original'
+      ? 'DESTINO: ORIGINAL (SUJETO RETENIDO)'
+      : 'DESTINO: COPIA (AGENTE DE RETENCIÓN)';
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.2);
+    doc.setTextColor(60, 60, 60);
+    doc.text(textoPdf(rotuloDestino), W - M, H - 18, { align: 'right' });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(textoPdf(pieTexto), M, H - 18, { maxWidth: UTIL - 210 });
   } else {
-    if (docExistente) {
-      doc.addPage('letter', orientacion);
-    }
-    await renderUnaPagina(doc, opciones.ejemplar || 'ORIGINAL');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(textoPdf(pieTexto), M, H - 18, { maxWidth: UTIL });
+  }
+
+  return doc;
+}
+
+/**
+ * Emite las páginas correspondientes a un comprobante según el modo de ejemplar
+ * ('ambos': Original + Copia consecutivas, 'original' o 'copia').
+ */
+export async function anexarPaginasComprobantePdf(
+  r: RetencionPracticada,
+  config: ConfigRetencion,
+  formato: FormatoParaAplicar | null | undefined,
+  opciones: OpcionesComprobantePdf = {},
+  docExistente?: any,
+): Promise<any> {
+  const modo: ModoEjemplar = opciones.modoEjemplar || 'ambos';
+  let doc = docExistente;
+
+  if (modo === 'ambos') {
+    doc = await generarDocComprobanteRetencionPdf(r, config, formato, { ...opciones, ejemplar: 'original' }, doc);
+    doc = await generarDocComprobanteRetencionPdf(r, config, formato, { ...opciones, ejemplar: 'copia' }, doc);
+  } else if (modo === 'copia') {
+    doc = await generarDocComprobanteRetencionPdf(r, config, formato, { ...opciones, ejemplar: 'copia' }, doc);
+  } else {
+    doc = await generarDocComprobanteRetencionPdf(r, config, formato, { ...opciones, ejemplar: 'original' }, doc);
   }
 
   return doc;
@@ -1004,19 +1027,19 @@ export async function verComprobanteRetencionPdf(
   const fechaFiltro = /^\d{4}-\d{2}-\d{2}$/.test(fechaRef) ? fechaRef : (diaVE(fechaRef) || hoyVenezuela());
   const disp = await consultarElementosDigitales(fechaFiltro);
 
-  // Preferencias iniciales: habilitadas por defecto si existen cargadas en Parámetros del módulo
-  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (localStorage.getItem('retenciones:imprimirConLogo') !== 'false'));
-  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConFirma') !== 'false'));
-  let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConSello') !== 'false'));
-  let conQr = opciones.incluirQr ?? (localStorage.getItem('retenciones:imprimirConQr') !== 'false');
-  let conOriginalYCopia = opciones.imprimirOriginalYCopia ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirOriginalYCopia') !== 'false' : true);
+  let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
+    ?? ((typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
+  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConLogo') !== 'false' : true));
+  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConFirma') !== 'false' : true)));
+  let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConSello') !== 'false' : true)));
+  let conQr = opciones.incluirQr ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConQr') !== 'false' : true);
 
-  const generarDoc = () => generarDocComprobanteRetencionPdf(r, config, formato, {
+  const generarDoc = () => anexarPaginasComprobantePdf(r, config, formato, {
+    modoEjemplar,
     incluirLogo: conLogo,
     incluirFirma: conFirma,
     incluirSello: conSello,
     incluirQr: conQr,
-    imprimirOriginalYCopia: conOriginalYCopia,
   });
 
   const doc = await generarDoc();
@@ -1026,6 +1049,41 @@ export async function verComprobanteRetencionPdf(
     extraControls: ({ bar, updatePdf }) => {
       const container = document.createElement('div');
       container.style.cssText = 'display:flex;align-items:center;gap:.5rem;margin-left:auto;margin-right:.5rem;flex-wrap:wrap;';
+
+      // Selector de Ejemplar (Original y Copia / Solo Original / Solo Copia)
+      const selEjemplar = document.createElement('select');
+      selEjemplar.style.cssText =
+        'background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:.35rem .6rem;font:600 .82rem system-ui;cursor:pointer;outline:none;';
+      selEjemplar.title = 'Seleccionar ejemplares a emitir (Original y Copia)';
+
+      const optAmbos = document.createElement('option');
+      optAmbos.value = 'ambos';
+      optAmbos.textContent = '📄 Original y Copia';
+
+      const optOriginal = document.createElement('option');
+      optOriginal.value = 'original';
+      optOriginal.textContent = '📄 Solo Original';
+
+      const optCopia = document.createElement('option');
+      optCopia.value = 'copia';
+      optCopia.textContent = '📄 Solo Copia';
+
+      selEjemplar.append(optAmbos, optOriginal, optCopia);
+      selEjemplar.value = modoEjemplar;
+
+      selEjemplar.onchange = async () => {
+        modoEjemplar = selEjemplar.value as ModoEjemplar;
+        try { localStorage.setItem('retenciones:modoEjemplar', modoEjemplar); } catch {}
+        selEjemplar.style.opacity = '0.6';
+        try {
+          const nuevoDoc = await generarDoc();
+          updatePdf(nuevoDoc);
+        } finally {
+          selEjemplar.style.opacity = '1';
+        }
+      };
+
+      container.appendChild(selEjemplar);
 
       if (!disp.tieneAlguno) {
         const aviso = document.createElement('span');
@@ -1084,10 +1142,6 @@ export async function verComprobanteRetencionPdf(
           try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch {}
         }));
       }
-      toolbar.appendChild(crearCheck('Original y Copia', conOriginalYCopia, (v) => {
-        conOriginalYCopia = v;
-        try { localStorage.setItem('retenciones:imprimirOriginalYCopia', String(v)); } catch {}
-      }));
       toolbar.appendChild(crearCheck('QR Fiscal', conQr, (v) => {
         conQr = v;
         try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch {}
@@ -1104,7 +1158,7 @@ export async function verComprobanteRetencionPdf(
 
 /**
  * Genera y visualiza un único PDF con TODOS los comprobantes emitidos de una factura,
- * permitiendo mandar a imprimir el paquete completo con un solo clic.
+ * permitiendo mandar a imprimir el paquete completo con un solo clic (Original y Copia o según preferencia).
  */
 export async function verTodosComprobantesFacturaPdf(
   facturaNumero: string,
@@ -1122,22 +1176,23 @@ export async function verTodosComprobantesFacturaPdf(
   const fechaFiltro = /^\d{4}-\d{2}-\d{2}$/.test(fechaRef) ? fechaRef : (diaVE(fechaRef) || hoyVenezuela());
   const disp = await consultarElementosDigitales(fechaFiltro);
 
-  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (localStorage.getItem('retenciones:imprimirConLogo') !== 'false'));
-  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConFirma') !== 'false'));
-  let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : localStorage.getItem('retenciones:imprimirConSello') !== 'false'));
-  let conQr = opciones.incluirQr ?? (localStorage.getItem('retenciones:imprimirConQr') !== 'false');
-  let conOriginalYCopia = opciones.imprimirOriginalYCopia ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirOriginalYCopia') !== 'false' : true);
+  let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
+    ?? ((typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
+  let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConLogo') !== 'false' : true));
+  let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConFirma') !== 'false' : true)));
+  let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConSello') !== 'false' : true)));
+  let conQr = opciones.incluirQr ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConQr') !== 'false' : true);
 
   const generarLote = async () => {
     let doc: any = null;
     for (const r of seleccionadas) {
       const formato = await formatoParaImprimir(tipoAGt(r.tipo), diaVE(r.createdAt) || null, hoyVenezuela());
-      doc = await generarDocComprobanteRetencionPdf(r, config, formato, {
+      doc = await anexarPaginasComprobantePdf(r, config, formato, {
+        modoEjemplar,
         incluirLogo: conLogo,
         incluirFirma: conFirma,
         incluirSello: conSello,
         incluirQr: conQr,
-        imprimirOriginalYCopia: conOriginalYCopia,
       }, doc);
     }
     return doc;
@@ -1154,8 +1209,46 @@ export async function verTodosComprobantesFacturaPdf(
       const infoLote = document.createElement('span');
       infoLote.style.cssText =
         'color:#f5b133;font:600 .78rem system-ui;display:inline-flex;align-items:center;gap:.35rem;padding:.35rem .6rem;background:rgba(245,177,51,0.12);border-radius:6px;border:1px solid rgba(245,177,51,0.3);';
-      infoLote.textContent = `Factura ${facturaNumero} · ${seleccionadas.length} comprobante(s)`;
+      const cantPags = modoEjemplar === 'ambos' ? seleccionadas.length * 2 : seleccionadas.length;
+      infoLote.textContent = `Factura ${facturaNumero} · ${seleccionadas.length} comprobante(s) (${cantPags} págs)`;
       container.appendChild(infoLote);
+
+      // Selector de Ejemplar (Original y Copia / Solo Original / Solo Copia)
+      const selEjemplar = document.createElement('select');
+      selEjemplar.style.cssText =
+        'background:#21262d;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:.35rem .6rem;font:600 .82rem system-ui;cursor:pointer;outline:none;';
+      selEjemplar.title = 'Seleccionar ejemplares a emitir para todos los comprobantes';
+
+      const optAmbos = document.createElement('option');
+      optAmbos.value = 'ambos';
+      optAmbos.textContent = '📄 Original y Copia';
+
+      const optOriginal = document.createElement('option');
+      optOriginal.value = 'original';
+      optOriginal.textContent = '📄 Solo Original';
+
+      const optCopia = document.createElement('option');
+      optCopia.value = 'copia';
+      optCopia.textContent = '📄 Solo Copia';
+
+      selEjemplar.append(optAmbos, optOriginal, optCopia);
+      selEjemplar.value = modoEjemplar;
+
+      selEjemplar.onchange = async () => {
+        modoEjemplar = selEjemplar.value as ModoEjemplar;
+        try { localStorage.setItem('retenciones:modoEjemplar', modoEjemplar); } catch {}
+        selEjemplar.style.opacity = '0.6';
+        try {
+          const nuevoDoc = await generarLote();
+          const p = modoEjemplar === 'ambos' ? seleccionadas.length * 2 : seleccionadas.length;
+          infoLote.textContent = `Factura ${facturaNumero} · ${seleccionadas.length} comprobante(s) (${p} págs)`;
+          updatePdf(nuevoDoc);
+        } finally {
+          selEjemplar.style.opacity = '1';
+        }
+      };
+
+      container.appendChild(selEjemplar);
 
       if (!disp.tieneAlguno) {
         const aviso = document.createElement('span');
@@ -1214,10 +1307,6 @@ export async function verTodosComprobantesFacturaPdf(
           try { localStorage.setItem('retenciones:imprimirConSello', String(v)); } catch {}
         }));
       }
-      toolbar.appendChild(crearCheck('Original y Copia', conOriginalYCopia, (v) => {
-        conOriginalYCopia = v;
-        try { localStorage.setItem('retenciones:imprimirOriginalYCopia', String(v)); } catch {}
-      }));
       toolbar.appendChild(crearCheck('QR Fiscal', conQr, (v) => {
         conQr = v;
         try { localStorage.setItem('retenciones:imprimirConQr', String(v)); } catch {}
