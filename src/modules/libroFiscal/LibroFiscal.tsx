@@ -230,10 +230,11 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   // La búsqueda, los filtros y el orden se aplican en pantalla: así cada opción
   // dice cuántas retenciones quedan con los demás filtros puestos.
   const [vista, setVista] = useState<VistaLibro>(vistaInicial);
+  const [filtroOrigen, setFiltroOrigen] = useState<'' | 'con_orden' | 'fuera_sistema'>('');
   const [orden] = useState<'reciente' | 'antiguo' | 'contraparte'>('reciente');
   const [pag, setPag] = useState(1);
   const [tam, setTam] = useState(25);
-  useEffect(() => { setPag(1); }, [texto, direccion, tipo, estado, orden, desde, hasta, vista]);
+  useEffect(() => { setPag(1); }, [texto, direccion, tipo, estado, filtroOrigen, orden, desde, hasta, vista]);
 
   const filtros = useMemo<FiltroLista<RetencionPracticada>[]>(() => [
     { campo: 'direccion', etiqueta: 'Quién retuvo', valor: direccion, opciones: DIRECCIONES.map((d): [string, string] => [d.key, d.label]), pasa: (r, v) => r.direccion === v },
@@ -243,7 +244,12 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       opciones: [...ESTADOS_RETENCION.map((e): [string, string] => [e.key, e.label]), ['anulada', 'Anuladas']],
       pasa: (r, v) => (v === 'anulada' ? r.anulada : !r.anulada && r.estado === v),
     },
-  ], [direccion, tipo, estado]);
+    ...(filtroOrigen ? [{
+      campo: 'origen', etiqueta: 'Origen', valor: filtroOrigen,
+      opciones: [['con_orden', 'Con OC / CS'], ['fuera_sistema', 'Fuera del sistema']] as [string, string][],
+      pasa: (r: RetencionPracticada, v: string) => (v === 'fuera_sistema' ? fueraDelSistema(r) : !fueraDelSistema(r)),
+    }] : []),
+  ], [direccion, tipo, estado, filtroOrigen]);
 
   const base = useMemo(() => filas.filter((r) => buscaEn(texto, r.contraparteNombre, r.contraparteRif, r.numeroComprobante,
     r.facturaNumero, r.docCodigo, r.conceptoNombre)), [filas, texto]);
@@ -267,7 +273,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
     tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada, moneda: r.moneda, tipoDocumento: r.tipoDocumento,
   }))), [visibles]);
 
-  const quitarFiltros = () => { setDireccion(''); setTipo(''); setEstado(''); setTexto(''); };
+  const quitarFiltros = () => { setDireccion(''); setTipo(''); setEstado(''); setFiltroOrigen(''); setTexto(''); };
 
   // «Sin retención»: lo registrado en 0 con su motivo, agrupado por factura.
   const sinRetencion = useMemo(() => {
@@ -589,6 +595,16 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
               <option value="anulada">Anuladas</option>
             </select>
           </div>
+
+          <div className="lfv8-campo">
+            <span>Origen</span>
+            <select className="lfv8-select" value={filtroOrigen}
+              onChange={(e) => setFiltroOrigen(e.target.value as '' | 'con_orden' | 'fuera_sistema')}>
+              <option value="">Todos</option>
+              <option value="con_orden">Con OC o CS</option>
+              <option value="fuera_sistema">Fuera del sistema</option>
+            </select>
+          </div>
         </div>
       </div>
 
@@ -617,6 +633,12 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
             <span className="lfv8-activo">
               {estado === 'anulada' ? 'Anuladas' : ESTADOS_RETENCION.find((e) => e.key === estado)?.label ?? estado}
               <button type="button" onClick={() => setEstado('')} aria-label="Quitar filtro de estado">✕</button>
+            </span>
+          )}
+          {filtroOrigen && (
+            <span className="lfv8-activo">
+              Origen: {filtroOrigen === 'fuera_sistema' ? 'Fuera del sistema' : 'Con OC o CS'}
+              <button type="button" onClick={() => setFiltroOrigen('')} aria-label="Quitar filtro de origen">✕</button>
             </span>
           )}
         </div>

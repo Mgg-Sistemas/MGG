@@ -50,16 +50,38 @@ export function ordenAplicaRetencion(o: Orden, fechaCorte: string = FECHA_PERMIS
   return f >= fechaCorte;
 }
 
+async function queryOrdenesPendientes() {
+  const base = () => supabase.from(TABLE).select('*')
+    .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
+    .gte('created_at', '2026-09-25T00:00:00Z')
+    .order('created_at', { ascending: true });
+
+  const res = await base().or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null');
+  if (res.error && /factura_recepcion_path/i.test(res.error.message)) {
+    return base().eq('comprobante_tipo', 'factura');
+  }
+  return res;
+}
+
+async function queryConteoPendientes() {
+  const base = () => supabase.from(TABLE)
+    .select('id, created_at, oc_creada_en, oc_emitida_en')
+    .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
+    .gte('created_at', '2026-09-25T00:00:00Z');
+
+  const res = await base().or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null');
+  if (res.error && /factura_recepcion_path/i.test(res.error.message)) {
+    return base().eq('comprobante_tipo', 'factura');
+  }
+  return res;
+}
+
 /** Retenciones por realizar: OC con soporte Factura O con factura del proveedor cargada
  *  (al finalizar la OC), aún sin finalizar la retención. Solo a partir de la vigencia del régimen. */
 export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
   const [desdeAgente, { data, error }, pm] = await Promise.all([
     fechaDesdeAgenteRetencion(),
-    supabase.from(TABLE).select('*')
-      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
-      .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
-      .gte('created_at', '2026-09-25T00:00:00Z')
-      .order('created_at', { ascending: true }),
+    queryOrdenesPendientes(),
     mapProveedores(),
   ]);
   if (error) throw error;
@@ -88,11 +110,7 @@ export async function listRetencionesHechas(): Promise<RetencionItem[]> {
 export async function contarRetencionesPendientes(): Promise<number> {
   const [desdeAgente, { data, error }] = await Promise.all([
     fechaDesdeAgenteRetencion(),
-    supabase.from(TABLE)
-      .select('id, created_at, oc_creada_en, oc_emitida_en')
-      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
-      .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
-      .gte('created_at', '2026-09-25T00:00:00Z'),
+    queryConteoPendientes(),
   ]);
   if (error) throw error;
   return (data ?? []).filter((o) => ordenAplicaRetencion(o as unknown as Orden, desdeAgente)).length;
