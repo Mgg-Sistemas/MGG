@@ -64,7 +64,7 @@ export function columnasFabrica(tipo: TipoImpuesto): ColumnaFormato[] {
 /** Los textos de fábrica de cada impuesto. */
 export function textosFabrica(tipo: TipoImpuesto): Record<ClaveTexto, string> {
   const t: Record<string, { encabezado: string; nota_legal: string }> = {
-    iva: { encabezado: 'COMPROBANTE DE RETENCION DE IVA', nota_legal: 'Providencia Administrativa SNAT/2015/0049' },
+    iva: { encabezado: 'COMPROBANTE DE RETENCION DE IVA', nota_legal: 'Providencia Administrativa SNAT/2025/000054 (G.O. N° 43.171)' },
     islr: { encabezado: 'COMPROBANTE DE RETENCION DE IMPUESTO SOBRE LA RENTA', nota_legal: 'Decreto 1.808 · Reglamento Parcial de la Ley de ISLR en materia de retenciones' },
     municipal: { encabezado: 'COMPROBANTE DE RETENCION DEL IMPUESTO DE ACTIVIDAD ECONOMICA', nota_legal: 'Ordenanza sobre Agente de Retencion de Impuesto de Actividades Economicas' },
     regional: { encabezado: 'COMPROBANTE DE RETENCION DE TIMBRE FISCAL ESTADAL', nota_legal: '' },
@@ -72,7 +72,7 @@ export function textosFabrica(tipo: TipoImpuesto): Record<ClaveTexto, string> {
   };
   const base = t[tipo] ?? t.iva;
   const pie = tipo === 'iva'
-    ? 'Este comprobante se emite segun lo establecido en la Providencia Administrativa SNAT/2015/0049. El numero no se reusa: una retencion anulada conserva el suyo.'
+    ? 'Este comprobante se emite segun lo establecido en la Providencia Administrativa SNAT/2025/000054 (G.O. N° 43.171). El numero no se reusa: una retencion anulada conserva el suyo.'
     : 'Comprobante de retencion. El numero no se reusa: una retencion anulada conserva el suyo.';
   return { encabezado: base.encabezado, nota_legal: base.nota_legal, pie };
 }

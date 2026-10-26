@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import type { MotivosIvaCien } from './retencionesCalculo';
 
 /**
- * Los supuestos del art. 5 (Providencia SNAT/2015/0049) que llevan la retención de IVA al 100%.
+ * Los supuestos del art. 5 (Providencia SNAT/2025/000054, que derogó a la SNAT/2015/0049) que llevan la retención de IVA al 100%.
  */
 export const MOTIVOS_IVA_CIEN_LISTA: Array<[keyof MotivosIvaCien & string, string]> = [
   ['ivaNoDiscriminado', 'El IVA no está discriminado en la factura'],

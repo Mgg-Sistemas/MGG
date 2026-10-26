@@ -140,7 +140,7 @@ describe('verificación digital fiscal (PA 0084 / 0093)', () => {
   });
 });
 
-describe('emisión de ejemplares · Original y Copia (Providencia 0049 IVA / Art. 24 D. 1808)', () => {
+describe('emisión de ejemplares · Original y Copia (Providencia SNAT/2025/000054 IVA / Art. 24 D. 1808)', () => {
   it('modo "ambos" emite 2 páginas consecutivas (Página 1: Original, Página 2: Copia)', async () => {
     const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
     const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
@@ -160,6 +160,42 @@ describe('emisión de ejemplares · Original y Copia (Providencia 0049 IVA / Art
     const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
     const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'copia', incluirLogo: false, incluirQr: false });
     expect(doc.getNumberOfPages()).toBe(1);
+  });
+});
+
+describe('correos en comprobante · empresa (configurable) y proveedor (si existe)', () => {
+  it('incluye el correo configurable de la empresa en el agente (practicada)', () => {
+    const cfgConEmail: ConfigRetencion = { ...empresa, email: 'tributos@empresa.com' };
+    const p = partesComprobante(retencion({ direccion: 'practicada' }), cfgConEmail);
+    expect(p.agente).toContain('Correo: tributos@empresa.com');
+  });
+
+  it('incluye el correo del proveedor en el sujeto si existe', () => {
+    const p = partesComprobante(retencion({
+      direccion: 'practicada',
+      contraparteEmail: 'contacto@proveedor.com',
+    }), empresa);
+    expect(p.sujeto).toContain('Correo: contacto@proveedor.com');
+  });
+
+  it('no incluye correo en el sujeto si el proveedor no tiene correo registrado', () => {
+    const p = partesComprobante(retencion({
+      direccion: 'practicada',
+      contraparteEmail: null,
+    }), empresa);
+    expect(p.sujeto.some((s) => s.startsWith('Correo:'))).toBe(false);
+  });
+
+  it('en retención recibida invierte los roles manteniendo el correo correspondiente', () => {
+    const cfgConEmail: ConfigRetencion = { ...empresa, email: 'tributos@empresa.com' };
+    const p = partesComprobante(retencion({
+      direccion: 'recibida',
+      contraparteEmail: 'facturacion@cliente.com',
+    }), cfgConEmail);
+    // El agente es el cliente externo
+    expect(p.agente).toContain('Correo: facturacion@cliente.com');
+    // El sujeto es la empresa
+    expect(p.sujeto).toContain('Correo: tributos@empresa.com');
   });
 });
 

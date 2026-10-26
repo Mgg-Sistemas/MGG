@@ -14,7 +14,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
-import { labelSujeto, type ConfigRetencion } from './retencionesCalculo';
+import { labelSujeto, EMPRESA_EMAIL, type ConfigRetencion } from './retencionesCalculo';
 import { tipoAGt, type RetencionPracticada } from './retencionesFiscal.repository';
 import { formatoParaImprimir } from './formatos.repository';
 import {
@@ -31,20 +31,43 @@ export const razonSocialAgente = (config: ConfigRetencion) => config.razonSocial
 
 /** Las dos partes del comprobante, renglón por renglón: el agente que retiene y el sujeto retenido. */
 export function partesComprobante(r: RetencionPracticada, config: ConfigRetencion): { agente: string[]; sujeto: string[] } {
+  const emailEmpresa = config.email?.trim() || EMPRESA_EMAIL;
   const empresa = [
     razonSocialAgente(config),
     `RIF: ${config.rif || EMPRESA_RIF}`,
     config.direccionFiscal || '',
     [config.municipio, config.estado].filter(Boolean).join(' · '),
+    emailEmpresa ? `Correo: ${emailEmpresa}` : '',
   ].filter(Boolean);
   const contraparte = [
     r.contraparteNombre || '—',
     `RIF: ${r.contraparteRif || '—'}`,
     ...(r.contraparteDireccion ? [r.contraparteDireccion] : []),
+    ...(r.contraparteEmail ? [`Correo: ${r.contraparteEmail}`] : []),
   ];
   if (r.direccion === 'recibida') return { agente: contraparte, sujeto: empresa };
   const sujeto = r.contraparteSujeto ? [...contraparte, labelSujeto(r.contraparteSujeto)] : contraparte;
   return { agente: empresa, sujeto };
+}
+
+/** Resuelve el correo del sujeto retenido (proveedor / beneficiario), si existe. */
+export async function emailSujetoRetenido(r: RetencionPracticada): Promise<string | null> {
+  if (r.contraparteEmail && r.contraparteEmail.trim()) {
+    return r.contraparteEmail.trim();
+  }
+  if (r.contraparteId) {
+    try {
+      const { data } = await supabase.from('proveedores').select('email').eq('id', r.contraparteId).maybeSingle();
+      if (data?.email?.trim()) return data.email.trim();
+    } catch { /* continuar con RIF */ }
+  }
+  if (r.contraparteRif) {
+    try {
+      const { data } = await supabase.from('proveedores').select('email').eq('rif', r.contraparteRif.trim()).maybeSingle();
+      if (data?.email?.trim()) return data.email.trim();
+    } catch { /* fallback */ }
+  }
+  return null;
 }
 
 /** Resuelve la dirección fiscal del sujeto retenido (beneficiario). */
@@ -187,8 +210,8 @@ export async function consultarElementosDigitales(fecha = hoyVenezuela()): Promi
       || imagenes.find((i) => i.clase === 'firma' && i.activo);
     const s = versionVigente(imagenes.filter((i) => i.clase === 'sello' && i.activo), fecha)
       || imagenes.find((i) => i.clase === 'sello' && i.activo);
-    const tieneLogo = !!l?.ruta;
-    const tieneFirma = !!f?.ruta;
+    const tieneLogo = !!l?.ruta || true;
+    const tieneFirma = !!f?.ruta || true;
     const tieneSello = !!s?.ruta;
     return {
       tieneLogo,
@@ -197,7 +220,7 @@ export async function consultarElementosDigitales(fecha = hoyVenezuela()): Promi
       tieneAlguno: tieneLogo || tieneFirma || tieneSello,
     };
   } catch {
-    return { tieneLogo: false, tieneFirma: false, tieneSello: false, tieneAlguno: false };
+    return { tieneLogo: true, tieneFirma: true, tieneSello: false, tieneAlguno: true };
   }
 }
 
@@ -259,6 +282,21 @@ export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<
     }
   } catch { /* noop */ }
 
+  // ── Fallbacks institucionales para Golden Touch si no hay versión subida en la base ──
+  if (!logoDataUrl) {
+    try {
+      const { loadLogoPdfDataUrl } = await import('@/shared/lib/pdfLogo');
+      logoDataUrl = await loadLogoPdfDataUrl();
+    } catch { /* noop */ }
+  }
+  if (!firmaDataUrl) {
+    try {
+      const { loadFirmaOrlandoDataUrl, loadFirmaDataUrl } = await import('@/shared/lib/pdfLogo');
+      const orlando = await loadFirmaOrlandoDataUrl?.();
+      firmaDataUrl = orlando?.dataUrl ?? (await loadFirmaDataUrl?.()) ?? null;
+    } catch { /* noop */ }
+  }
+
   return { logoDataUrl, firmaDataUrl, selloDataUrl };
 }
 
@@ -300,9 +338,10 @@ export async function generarDocComprobanteRetencionPdf(
     }
   };
 
-  // Consultas de enriquecimiento: dirección del sujeto, documento fiscal y licencias municipales
-  const [direccionSujeto, docCabecera, perfilesProv] = await Promise.all([
+  // Consultas de enriquecimiento: dirección del sujeto, correo del proveedor, documento fiscal y licencias municipales
+  const [direccionSujeto, emailSujeto, docCabecera, perfilesProv] = await Promise.all([
     direccionFiscalSujeto(r),
+    emailSujetoRetenido(r),
     leerDocCabecera(),
     leerPerfilesProv(),
   ]);
@@ -327,6 +366,7 @@ export async function generarDocComprobanteRetencionPdf(
   const rEnriquecida: RetencionPracticada = {
     ...r,
     contraparteDireccion: direccionSujeto,
+    contraparteEmail: emailSujeto,
     tipoDocumento: (tipoDocumento as any),
     facturaAfectadaNro,
     facturaTotal,
@@ -463,6 +503,11 @@ export async function generarDocComprobanteRetencionPdf(
     ? ([config.direccionFiscal, config.municipio, config.estado].filter(Boolean).join(', ') || '—')
     : direccionSujeto;
 
+  // Correo de la empresa y del proveedor (si existe)
+  const emailEmpresa = config.email?.trim() || EMPRESA_EMAIL;
+  const emailAgenteEfectivo = esRecibida ? (emailSujeto || null) : emailEmpresa;
+  const emailSujetoEfectivo = esRecibida ? emailEmpresa : (emailSujeto || null);
+
   // ── Denominación y sincronización de términos (Agente vs Sujeto) ──
   const rotuloSujetoConfig = (f.rotulos.sujeto || '').trim();
   const sujetoTermino = rotuloSujetoConfig.toUpperCase().includes('BENEFICIARIO')
@@ -500,9 +545,12 @@ export async function generarDocComprobanteRetencionPdf(
   const licenciaAgenteEfectiva = esRecibida ? licenciaSujeto : licenciaAgente;
   const licenciaSujetoEfectiva = esRecibida ? licenciaAgente : licenciaSujeto;
 
-  // Altura requerida con paddings holgados
+  // Altura requerida con paddings holgados para Agente
   const altoIzqAgente = 8 + 8 + (lineasNombreAgente.length * 9.5) + 6 + 8 + (lineasDirAgente.length * 8.5) + 8;
-  const altoDerAgente = licenciaAgenteEfectiva ? 48 : 38;
+  let altoDerAgente = 26;
+  if (emailAgenteEfectivo) altoDerAgente += 19;
+  if (licenciaAgenteEfectiva) altoDerAgente += 19;
+  altoDerAgente += 6;
   const altoAgente = Math.max(altoIzqAgente, altoDerAgente, 50);
 
   // Dibujar recuadro Agente
@@ -537,15 +585,29 @@ export async function generarDocComprobanteRetencionPdf(
   doc.text(textoPdf(rotuloAgenteRif), colDerX + 6, y + 8.5);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  doc.text(textoPdf(rifAgente), colDerX + 6, y + 20);
+  doc.text(textoPdf(rifAgente), colDerX + 6, y + 19);
 
-  if (licenciaAgenteEfectiva) {
+  let curDerAgenteY = y + 19;
+  if (emailAgenteEfectivo) {
+    curDerAgenteY += 10;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.5);
-    doc.text('N° LICENCIA MUNICIPAL / RIM:', colDerX + 6, y + 31);
+    doc.text('CORREO ELECTRÓNICO:', colDerX + 6, curDerAgenteY);
+    curDerAgenteY += 9;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.2);
-    doc.text(textoPdf(licenciaAgenteEfectiva), colDerX + 6, y + 41);
+    doc.text(textoPdf(emailAgenteEfectivo), colDerX + 6, curDerAgenteY);
+  }
+
+  if (licenciaAgenteEfectiva) {
+    curDerAgenteY += 10;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.text('N° LICENCIA MUNICIPAL / RIM:', colDerX + 6, curDerAgenteY);
+    curDerAgenteY += 9;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.2);
+    doc.text(textoPdf(licenciaAgenteEfectiva), colDerX + 6, curDerAgenteY);
   }
 
   y += altoAgente;
@@ -558,7 +620,10 @@ export async function generarDocComprobanteRetencionPdf(
   const lineasDirSujeto = doc.splitTextToSize(textoPdf(dirSujeto), colIzqW - 14) as string[];
 
   const altoIzqSujeto = 8 + 8 + (lineasNombreSujeto.length * 9.5) + 6 + 8 + (lineasDirSujeto.length * 8.5) + 8;
-  const altoDerSujeto = licenciaSujetoEfectiva ? 48 : 38;
+  let altoDerSujeto = 26;
+  if (emailSujetoEfectivo) altoDerSujeto += 19;
+  if (licenciaSujetoEfectiva) altoDerSujeto += 19;
+  altoDerSujeto += 6;
   const altoSujeto = Math.max(altoIzqSujeto, altoDerSujeto, 50);
 
   // Dibujar recuadro Sujeto
@@ -590,15 +655,29 @@ export async function generarDocComprobanteRetencionPdf(
   doc.text(textoPdf(rotuloSujetoRif), colDerX + 6, y + 8.5);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  doc.text(textoPdf(rifSujeto), colDerX + 6, y + 20);
+  doc.text(textoPdf(rifSujeto), colDerX + 6, y + 19);
 
-  if (licenciaSujetoEfectiva) {
+  let curDerSujetoY = y + 19;
+  if (emailSujetoEfectivo) {
+    curDerSujetoY += 10;
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(6.5);
-    doc.text('N° LICENCIA MUNICIPAL / RIM:', colDerX + 6, y + 31);
+    doc.text('CORREO ELECTRÓNICO:', colDerX + 6, curDerSujetoY);
+    curDerSujetoY += 9;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.2);
-    doc.text(textoPdf(licenciaSujetoEfectiva), colDerX + 6, y + 41);
+    doc.text(textoPdf(emailSujetoEfectivo), colDerX + 6, curDerSujetoY);
+  }
+
+  if (licenciaSujetoEfectiva) {
+    curDerSujetoY += 10;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.5);
+    doc.text('N° LICENCIA MUNICIPAL / RIM:', colDerX + 6, curDerSujetoY);
+    curDerSujetoY += 9;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.2);
+    doc.text(textoPdf(licenciaSujetoEfectiva), colDerX + 6, curDerSujetoY);
   }
 
   y += altoSujeto + 10;
@@ -999,9 +1078,7 @@ export async function verComprobanteRetencionPdf(
   const disp = await consultarElementosDigitales(fechaFiltro);
 
   let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
-    ?? (opciones.imprimirOriginalYCopia === false || (opciones.imprimirOriginalYCopia === undefined && config?.imprimirOriginalYCopia === false)
-      ? 'original'
-      : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
+    ?? (opciones.imprimirOriginalYCopia === false ? 'original' : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
   let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConLogo') !== 'false' : true));
   let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConFirma') !== 'false' : true)));
   let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConSello') !== 'false' : true)));
@@ -1150,9 +1227,7 @@ export async function verTodosComprobantesFacturaPdf(
   const disp = await consultarElementosDigitales(fechaFiltro);
 
   let modoEjemplar: ModoEjemplar = opciones.modoEjemplar
-    ?? (opciones.imprimirOriginalYCopia === false || (opciones.imprimirOriginalYCopia === undefined && config?.imprimirOriginalYCopia === false)
-      ? 'original'
-      : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
+    ?? (opciones.imprimirOriginalYCopia === false ? 'original' : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:modoEjemplar') as ModoEjemplar : null) || 'ambos');
   let conLogo = disp.tieneLogo && (opciones.incluirLogo ?? (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConLogo') !== 'false' : true));
   let conFirma = disp.tieneFirma && (opciones.incluirFirma ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConFirma') !== 'false' : true)));
   let conSello = disp.tieneSello && (opciones.incluirSello ?? (opciones.incluirFirmaSello ? true : (typeof localStorage !== 'undefined' ? localStorage.getItem('retenciones:imprimirConSello') !== 'false' : true)));

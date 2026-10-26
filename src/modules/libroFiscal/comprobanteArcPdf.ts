@@ -25,7 +25,7 @@ import {
   calcularSha256Hex, cargarElementosDigitales, consultarElementosDigitales, generarQrVerificacion, razonSocialAgente,
   type ModoEjemplar, type EjemplarPdf,
 } from './comprobanteRetencionPdf';
-import type { ConfigRetencion } from './retencionesCalculo';
+import { EMPRESA_EMAIL, type ConfigRetencion } from './retencionesCalculo';
 import type { RetencionPracticada } from './retencionesFiscal.repository';
 
 export const MESES_ANIO = [
@@ -47,6 +47,7 @@ export interface DatosArc {
   proveedorRif: string;
   proveedorNombre: string;
   proveedorDireccion: string;
+  proveedorEmail?: string | null;
   meses: RenglonMesArc[];
   totalBaseBs: number;
   totalRetenidoBs: number;
@@ -101,6 +102,7 @@ export function compilarDatosArc(
   const primerFila = filasProv[0];
   const proveedorNombre = primerFila?.contraparteNombre || 'Proveedor sin nombre';
   const proveedorDireccion = primerFila?.contraparteDireccion || '—';
+  const proveedorEmail = primerFila?.contraparteEmail || null;
 
   const acumuladoMeses: RenglonMesArc[] = MESES_ANIO.map((mesNombre, idx) => ({
     mesNumero: idx + 1,
@@ -135,6 +137,7 @@ export function compilarDatosArc(
     proveedorRif,
     proveedorNombre,
     proveedorDireccion,
+    proveedorEmail,
     meses: acumuladoMeses,
     totalBaseBs,
     totalRetenidoBs,
@@ -254,11 +257,12 @@ export async function generarDocComprobanteArcPdf(
   // Recuadro de Agente y Sujeto
   const boxW = W - M * 2;
   const colW = (boxW - 12) / 2;
+  const altoCajas = 68;
   doc.setDrawColor(200, 200, 200);
   doc.setLineWidth(0.6);
 
   // Recuadro Agente
-  doc.rect(M, y, colW, 58);
+  doc.rect(M, y, colW, altoCajas);
   doc.setFillColor(245, 245, 245);
   doc.rect(M, y, colW, 14, 'F');
   doc.setFont('helvetica', 'bold');
@@ -266,16 +270,20 @@ export async function generarDocComprobanteArcPdf(
   doc.setTextColor(40, 40, 40);
   doc.text(textoPdf('DATOS DEL AGENTE DE RETENCIÓN'), M + 6, y + 10);
 
+  const emailAgente = config.email?.trim() || EMPRESA_EMAIL;
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  doc.text(textoPdf(`Razón Social: ${razonSocialAgente(config)}`), M + 6, y + 24);
-  doc.text(textoPdf(`RIF: ${config.rif || EMPRESA_RIF}`), M + 6, y + 35);
+  doc.text(textoPdf(`Razón Social: ${razonSocialAgente(config)}`), M + 6, y + 23);
+  doc.text(textoPdf(`RIF: ${config.rif || EMPRESA_RIF}`), M + 6, y + 33);
   const dirAgente = [config.direccionFiscal, config.municipio, config.estado].filter(Boolean).join(', ') || 'Venezuela';
-  doc.text(textoPdf(`Dirección: ${dirAgente.slice(0, 52)}`), M + 6, y + 46);
+  doc.text(textoPdf(`Dirección: ${dirAgente.slice(0, 52)}`), M + 6, y + 43);
+  if (emailAgente) {
+    doc.text(textoPdf(`Correo: ${emailAgente}`), M + 6, y + 53);
+  }
 
   // Recuadro Sujeto Retenido
   const xSujeto = M + colW + 12;
-  doc.rect(xSujeto, y, colW, 58);
+  doc.rect(xSujeto, y, colW, altoCajas);
   doc.setFillColor(245, 245, 245);
   doc.rect(xSujeto, y, colW, 14, 'F');
   doc.setFont('helvetica', 'bold');
@@ -285,11 +293,14 @@ export async function generarDocComprobanteArcPdf(
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
-  doc.text(textoPdf(`Nombre / Razón Social: ${datos.proveedorNombre}`), xSujeto + 6, y + 24);
-  doc.text(textoPdf(`RIF / C.I.: ${datos.proveedorRif}`), xSujeto + 6, y + 35);
-  doc.text(textoPdf(`Dirección: ${datos.proveedorDireccion.slice(0, 52)}`), xSujeto + 6, y + 46);
+  doc.text(textoPdf(`Nombre / Razón Social: ${datos.proveedorNombre}`), xSujeto + 6, y + 23);
+  doc.text(textoPdf(`RIF / C.I.: ${datos.proveedorRif}`), xSujeto + 6, y + 33);
+  doc.text(textoPdf(`Dirección: ${datos.proveedorDireccion.slice(0, 52)}`), xSujeto + 6, y + 43);
+  if (datos.proveedorEmail) {
+    doc.text(textoPdf(`Correo: ${datos.proveedorEmail}`), xSujeto + 6, y + 53);
+  }
 
-  y += 66;
+  y += altoCajas + 8;
 
   // Tabla mensual
   const cabecera = ['N°', 'Mes', 'Base Imponible Pagada (Bs)', '% Ret.', 'Impuesto Retenido (Bs)', 'Impuesto Enterado (Bs)'].map(textoPdf);

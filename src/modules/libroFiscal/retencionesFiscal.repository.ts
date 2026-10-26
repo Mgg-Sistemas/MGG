@@ -21,7 +21,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
-import { EMPRESA_DOMICILIO, EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
+import { EMPRESA_DOMICILIO, EMPRESA_EMAIL, EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { normalizarRif, rifValido } from '@/shared/lib/rif';
 import {
   CONFIG_RETENCION_DEFECTO, enBolivares, formatoComprobante, formatoSerie, labelImpuesto, motivoNoPuedePracticar, numeroConFormato, textoDeFormato,
@@ -94,6 +94,7 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     direccionFiscal: texto(j.agente_direccion) ?? EMPRESA_DOMICILIO,
     municipio: texto(j.municipio),
     estado: null,
+    email: texto(j.empresa_email) ?? texto(j.agente_email) ?? EMPRESA_EMAIL,
     esAgenteRetencionIva: bool('agente_retencion_iva', CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva),
     esContribuyenteEspecial: bool('contribuyente_especial', CONFIG_RETENCION_DEFECTO.esContribuyenteEspecial),
     pctIvaGeneral: n(j.iva_retencion) || 75,
@@ -115,6 +116,7 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     ...(previo ?? {}),
     empresa_rif: c.rif ?? '', empresa_nombre: c.razonSocial ?? '', agente_direccion: c.direccionFiscal ?? '',
     municipio: c.municipio ?? '',
+    empresa_email: c.email ?? '',
     licencia_municipal: c.licenciaMunicipal ?? '',
     agente_retencion_iva: c.esAgenteRetencionIva,
     contribuyente_especial: c.esContribuyenteEspecial,
@@ -136,14 +138,14 @@ export async function getConfigRetencion(): Promise<ConfigRetencion> {
   return configDeJson(await leerJsonParametros());
 }
 
-/** La Providencia SNAT/2015/0049 solo admite 75% y 100%: los dos porcentajes son dato, pero no cualquier dato. */
+/** La Providencia SNAT/2025/000054 (que derogó a la SNAT/2015/0049) solo admite 75% y 100%: los dos porcentajes son dato, pero no cualquier dato. */
 export const PORCENTAJES_IVA = [75, 100] as const;
 
 export function errorPorcentajesIva(c: Pick<ConfigRetencion, 'pctIvaGeneral' | 'pctIvaEspecial'>): string | null {
   const vale = (p: number) => (PORCENTAJES_IVA as readonly number[]).includes(n(p));
   return vale(c.pctIvaGeneral) && vale(c.pctIvaEspecial)
     ? null
-    : 'La retención de IVA solo puede ser 75% o 100% (Providencia SNAT/2015/0049).';
+    : 'La retención de IVA solo puede ser 75% o 100% (Providencia SNAT/2025/000054).';
 }
 
 /** Las alícuotas del ISAE y del timbre estadal: datos de Parámetros, no del catálogo. */
@@ -367,6 +369,7 @@ export interface RetencionPracticada {
   contraparteNombre: string | null;
   contraparteSujeto: SujetoRetenido | null;
   contraparteDireccion?: string | null;
+  contraparteEmail?: string | null;
   facturaNumero: string | null;
   facturaControl: string | null;
   facturaFecha: string | null;
@@ -430,6 +433,7 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
     contraparteNombre: texto(r.razon_social),
     contraparteSujeto: sujeto,
     contraparteDireccion: texto(r.direccion ?? r.proveedor_direccion ?? r.contraparte_direccion),
+    contraparteEmail: texto(r.email ?? r.proveedor_email ?? r.contraparte_email),
     facturaNumero: texto(r.factura_nro),
     facturaControl: texto(r.factura_control),
     facturaFecha: texto(r.factura_fecha),

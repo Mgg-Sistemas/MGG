@@ -2078,9 +2078,9 @@ const AJUSTES_PA: DefSeccionPa[] = [
   { key: 'licencias', capa: 'ajustes', titulo: 'Tipos de licencia', linea: 'Los tipos de licencia de actividad económica que se eligen en el perfil.',
     que: 'Los tipos de licencia de actividad económica que se eligen en el perfil fiscal de cada proveedor.', ingresa: 'El nombre del tipo.',
     efecto: 'Son las opciones del tipo de licencia en el perfil fiscal de cada proveedor.', noCambia: 'Un perfil que ya tiene un tipo lo conserva, aunque el tipo se desactive.' },
-  { key: 'empresa', capa: 'ajustes', titulo: 'Datos de la empresa', linea: 'Datos del agente de retención y emisión de Original y Copia.',
-    que: 'Los datos de la empresa que se imprimen en cada comprobante y la preferencia de emisión (Original y Copia o solo Original).', ingresa: 'Razón social, RIF, dirección fiscal, municipio, alícuota ISAE, timbre estadal y modo Original/Copia.',
-    efecto: 'Los comprobantes nuevos llevan estos datos y se generan en dos páginas o una sola según la opción.', noCambia: 'Los emitidos conservan los datos de su emisión. El régimen fiscal está en Ajustes avanzados.' },
+  { key: 'empresa', capa: 'ajustes', titulo: 'Datos de la empresa', linea: 'Los datos del agente de retención que van en cada comprobante.',
+    que: 'Los datos de la empresa que se imprimen en cada comprobante como agente de retención.', ingresa: 'Razón social, RIF, dirección fiscal, municipio, alícuota ISAE y timbre estadal.',
+    efecto: 'Los comprobantes nuevos llevan estos datos.', noCambia: 'Los emitidos conservan los datos de su emisión. El régimen fiscal está en Ajustes avanzados.' },
   { key: 'firma', capa: 'ajustes', titulo: 'Firma y sello', linea: 'La firma, el sello y el logo de la empresa en los comprobantes.',
     que: 'Las imágenes de la empresa que van en cada comprobante: logo, firma (con su firmante) y sello.', ingresa: 'Una imagen PNG o JPG de hasta 1 MB, vigente desde una fecha.',
     efecto: 'Los comprobantes nuevos llevan la versión vigente a su fecha de emisión. Sin imagen, el recuadro queda en blanco para firmar a mano.', noCambia: 'Los comprobantes emitidos conservan la versión con que salieron.' },
@@ -2304,9 +2304,22 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
                   <input className="input mono" value={cfg.rif ?? ''} onChange={(e) => set('rif', e.target.value)} placeholder="J-XXXXXXXX-X" />
                 </div>
               </div>
-              <div className="form-row">
-                <label>Dirección fiscal</label>
-                <input className="input" value={cfg.direccionFiscal ?? ''} onChange={(e) => set('direccionFiscal', e.target.value)} />
+              <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                <div className="form-row" style={{ flex: '1 1 260px' }}>
+                  <label>Dirección fiscal</label>
+                  <input className="input" value={cfg.direccionFiscal ?? ''} onChange={(e) => set('direccionFiscal', e.target.value)} />
+                </div>
+                <div className="form-row" style={{ flex: '1 1 200px' }}>
+                  <label>Correo electrónico institucional</label>
+                  <input
+                    type="email"
+                    className="input"
+                    value={cfg.email ?? ''}
+                    onChange={(e) => set('email', e.target.value)}
+                    placeholder="info@goldentouch1127.com"
+                  />
+                  <small className="hint muted">Se imprime en los comprobantes fiscales de retención.</small>
+                </div>
               </div>
               <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
                 <div className="form-row" style={{ flex: '1 1 180px' }}>
@@ -2343,7 +2356,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
                   <span>Imprimir Original y Copia (Página 1: Sujeto Retenido · Página 2: Agente de Retención)</span>
                 </label>
                 <p className="muted" style={{ margin: '.35rem 0 0', fontSize: '.8rem', lineHeight: 1.4 }}>
-                  Cumplimiento de Providencias SENIAT (SNAT/2015/0049 IVA y Art. 24 D. 1808 ISLR). Si se desactiva, el comprobante se emitirá en una sola página (Solo Original).
+                  Cumplimiento de Providencias SENIAT (SNAT/2025/000054 IVA y Art. 24 D. 1808 ISLR). Si se desactiva, el comprobante se emitirá en una sola página (Solo Original).
                 </p>
               </div>
 

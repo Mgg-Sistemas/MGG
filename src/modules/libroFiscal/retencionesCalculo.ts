@@ -11,13 +11,15 @@
    que aplica la base (trigger `retencion_agente_valido`).
 
    LO QUE MANDA EN CADA UNO
-   · IVA       — Providencia SNAT/2015/0049. Retiene el agente de retención
-                 de IVA designado. Retiene el 75% del IVA de la factura, y el
-                 100% en los supuestos del art. 5 (factura que no cumple los
-                 requisitos, IVA no discriminado, proveedor no inscrito o no
-                 ubicable en el RIF, proveedor no domiciliado, y la compra de
-                 metales o piedras preciosas). El comprobante lleva correlativo
-                 AAAAMM + 8 dígitos y se entera por quincenas.
+   · IVA       — Providencia SNAT/2025/000054 (G.O. N° 43.171 del 16/07/2025,
+                 deroga a la SNAT/2015/0049). Retiene el agente de retención
+                 designado (sujetos pasivos especiales personas jurídicas o
+                 personas naturales con firma personal). Retiene el 75% del IVA
+                 de la factura, y el 100% en los supuestos del art. 5 (factura
+                 que no cumple los requisitos, IVA no discriminado, proveedor no
+                 inscrito o no ubicable en el RIF, proveedor no domiciliado, y
+                 compra de metales o piedras preciosas). El comprobante lleva
+                 correlativo AAAAMM + 8 dígitos y se entera por quincenas.
    · ISLR      — Decreto 1.808. El porcentaje sale del CONCEPTO y del SUJETO.
                  A la persona natural residente se le resta el SUSTRAENDO y no
                  se le retiene por debajo del mínimo; a la persona jurídica
@@ -33,6 +35,8 @@
    la configuración, porque cambian por ley, por ordenanza y por año.
    ============================================================ */
 import { rotuloImpuesto } from './rotulos';
+import { EMPRESA_EMAIL } from '@/shared/lib/empresa';
+export { EMPRESA_EMAIL };
 
 export type TipoImpuesto = 'iva' | 'islr' | 'municipal' | 'regional' | 'igtf';
 
@@ -70,6 +74,8 @@ export interface ConfigRetencion {
   direccionFiscal: string | null;
   municipio: string | null;
   estado: string | null;
+  /** Correo de contacto del agente de retención (impreso en comprobantes). */
+  email?: string | null;
   /** Designada agente de retención de IVA. Con ella se retiene IVA aunque no sea especial. */
   esAgenteRetencionIva: boolean;
   /** Contribuyente especial: retiene IVA y además percibe el IGTF. */
@@ -91,6 +97,7 @@ export interface ConfigRetencion {
  */
 export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   rif: null, razonSocial: null, direccionFiscal: null, municipio: null, estado: null,
+  email: 'info@goldentouch1127.com',
   esAgenteRetencionIva: true,
   esContribuyenteEspecial: false,
   pctIvaGeneral: 75, pctIvaEspecial: 100,
@@ -119,7 +126,7 @@ export function motivoNoPuedePracticar(
   if (puedePracticar(tipo, config)) return null;
   if (tipo === 'iva') {
     return 'La empresa no está marcada como agente de retención de IVA ni como contribuyente especial '
-      + '(la Providencia SNAT/2015/0049 designa a los agentes). '
+      + '(la Providencia SNAT/2025/000054 designa a los agentes, personas jurídicas o naturales con firma personal). '
       + 'Si la retención fue practicada por un cliente, registrarla como «Retención recibida». '
       + 'Si la empresa fue designada, activar la casilla en Parámetros.';
   }

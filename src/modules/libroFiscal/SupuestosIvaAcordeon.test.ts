@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { MOTIVOS_IVA_CIEN_LISTA } from './SupuestosIvaAcordeon';
 
 describe('SupuestosIvaAcordeon constantes y opciones', () => {
-  it('contiene la lista completa de supuestos del art. 5 de la Providencia 0049', () => {
+  it('contiene la lista completa de supuestos del art. 5 de la Providencia SNAT/2025/000054', () => {
     expect(MOTIVOS_IVA_CIEN_LISTA).toHaveLength(5);
     const codigos = MOTIVOS_IVA_CIEN_LISTA.map(([k]) => k);
     expect(codigos).toContain('ivaNoDiscriminado');

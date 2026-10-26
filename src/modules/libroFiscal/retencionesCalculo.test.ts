@@ -76,7 +76,7 @@ describe('plazo de entrega y bolívares', () => {
   });
 });
 
-describe('retención de IVA · Providencia SNAT/2015/0049', () => {
+describe('retención de IVA · Providencia SNAT/2025/000054', () => {
 
   it('el contribuyente especial retiene el 75% del IVA', () => {
     const r = calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, especial);
