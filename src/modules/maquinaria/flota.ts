@@ -64,25 +64,30 @@ export function estadoExigeMotivo(estado: EstadoEquipo): boolean {
   return estado === 'averiada' || estado === 'parada' || estado === 'espera' || estado === 'retirada';
 }
 
-/* ───────── Clase del equipo (para el filtro Máquinas / Vehículos / Equipos) ───────── */
+/* ───────── Clase del equipo (para el filtro Maquinaria y Equipos / Vehículos / Motos / Lanchas) ───────── */
 
-export type ClaseEquipo = 'maquinaria' | 'vehiculo' | 'equipo';
+export type ClaseEquipo = 'maquinaria' | 'vehiculo' | 'moto' | 'lancha';
 
 export const CLASES_EQUIPO: { id: ClaseEquipo; label: string; icon: string }[] = [
-  { id: 'maquinaria', label: 'Máquinas', icon: '🚜' },
+  { id: 'maquinaria', label: 'Maquinaria y Equipos', icon: '🚜' },
   { id: 'vehiculo', label: 'Vehículos', icon: '🚚' },
-  { id: 'equipo', label: 'Equipos', icon: '⚡' },
+  { id: 'moto', label: 'Motos', icon: '🏍️' },
+  { id: 'lancha', label: 'Lanchas', icon: '🚤' },
 ];
+
+const RE_MOTO_AGUA = /moto\s+de\s+agua|jetski|jet\s+ski/;
+const RE_MOTO = /\b(moto|motos|motocicleta|motocicletas|cuatrimoto|cuatrimotos|scooter|scooters)\b/;
+const RE_LANCHA = /\b(lancha|lanchas|bote|botes|embarcacion|embarcaciones|canoa|canoas|curiara|curiaras|yate|yates|penero|peneros|marino|marina|fluvial|balsa|balsas|planchon|planchones)\b/;
+const RE_VEHICULO = /vehiculo|carro|camion|gandola|camioneta|pickup|\bauto\b|van\b|autobus|\bbus\b|encava|jeep|chuto|remolque/;
 
 /** Deduce la clase del grupo de mantenimiento (si lo tiene) o del tipo del equipo. */
 export function claseEquipo(e: { tipo?: string | null; grupo_mantenimiento?: string | null }): ClaseEquipo {
   const g = norm(e.grupo_mantenimiento);
-  if (g.includes('planta')) return 'equipo';
-  if (g.includes('vehiculo')) return 'vehiculo';
-  if (g.includes('flota')) return 'maquinaria';
   const t = norm(e.tipo);
-  if (/planta|generador|electric|compresor|bomba|soldador/.test(t)) return 'equipo';
-  if (/vehiculo|carro|camion|gandola|camioneta|pickup|\bauto|van\b|autobus|\bbus|encava|jeep|chuto|remolque|moto/.test(t)) return 'vehiculo';
+  if (RE_MOTO_AGUA.test(g) || RE_MOTO_AGUA.test(t)) return 'lancha';
+  if (RE_MOTO.test(g) || RE_MOTO.test(t)) return 'moto';
+  if (RE_LANCHA.test(g) || RE_LANCHA.test(t)) return 'lancha';
+  if (g.includes('vehiculo') || RE_VEHICULO.test(t)) return 'vehiculo';
   return 'maquinaria';
 }
 

@@ -14,7 +14,7 @@ import {
 } from './maquinariaEquipos.repository';
 import { addMantenimiento } from './maquinariaMant.repository';
 import {
-  ESTADOS_EQUIPO, ORDEN_ESTADOS, ORDEN_FLUJO, COLUMNAS_COMPRA, URGENCIAS, estadoEfectivo, avisoServicio, avisoMasUrgente,
+  ESTADOS_EQUIPO, ORDEN_ESTADOS, ORDEN_FLUJO, COLUMNAS_COMPRA, URGENCIAS, CLASES_EQUIPO, claseEquipo, estadoEfectivo, avisoServicio, avisoMasUrgente,
   accionesEquipo, servicioPorId, siguientesEstadosOrden, columnaCompra, compraAbierta, ordenAbierta,
   faltaSalida, faltaCompra, etiquetaOrigenLectura, ultimoLavado, diasDesde, textoHace, puedeReemplazarPieza, etiquetaServicio,
   puedeBorrarOrden,
@@ -353,13 +353,15 @@ export function EquipoExpedientePage() {
     }
   })();
 
+  const clEquipo = eq ? CLASES_EQUIPO.find((c) => c.id === claseEquipo(eq)) : null;
+
   return (
     <div className="flo flo-exp">
       <Link className="flo-volver" to="/app/maquinaria">← Catálogo</Link>
 
       <div className="flo-hero">
         <div className="flo-media">
-          {foto ? <img src={foto} alt={`${eq.equipo}: ${fotos[0].nombre}`} style={fotos[0].encuadre === 'completa' ? { objectFit: 'contain', background: '#0b0d10' } : undefined} /> : <div className="sin-foto"><span className="ico">🚜</span><span>Sin foto del equipo</span></div>}
+          {foto ? <img src={foto} alt={`${eq.equipo}: ${fotos[0].nombre}`} style={fotos[0].encuadre === 'completa' ? { objectFit: 'contain', background: '#0b0d10' } : undefined} /> : <div className="sin-foto"><span className="ico">{clEquipo?.icon ?? '🚜'}</span><span>Sin foto del equipo</span></div>}
           {foto && perm.maquinaria && (
             <button className="fotos-btn" type="button" style={{ right: 'auto', left: '.6rem' }} title="Cambiar cómo se ajusta la foto en la portada"
               onClick={() => alternarEncuadre(fotos[0])}>

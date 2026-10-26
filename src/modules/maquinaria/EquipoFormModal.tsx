@@ -8,6 +8,7 @@ import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import { addEquipo, updateEquipo, type MaquinariaEquipo, type MaquinariaEquipoInput } from './maquinariaEquipos.repository';
 
 const COMBUSTIBLES = ['GASOIL', 'GASOLINA', 'GAS', 'ELÉCTRICO', 'N/A'];
+const TIPOS_COMUNES = ['EXCAVADORA', 'CAMIÓN', 'CAMIONETA', 'PLANTA ELÉCTRICA', 'GENERADOR', 'CARGADOR', 'TRACTOR', 'MOTO', 'LANCHA', 'BOTE'];
 
 export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   equipo: MaquinariaEquipo | null;
@@ -58,7 +59,9 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    listActivosMaquinaria('tipo_maquinaria').then(setTipos).catch(() => {});
+    listActivosMaquinaria('tipo_maquinaria').then((res) => {
+      setTipos(Array.from(new Set([...res, ...TIPOS_COMUNES])));
+    }).catch(() => setTipos(TIPOS_COMUNES));
     listActivosMaquinaria('propietario').then(setProps).catch(() => {});
     listActivosMaquinaria('status').then((s) => setStatuses(s.length ? s : ['ACTIVO'])).catch(() => setStatuses(['ACTIVO']));
     listActivosMaquinaria('grupo_mantenimiento').then(setGruposCat).catch(() => {});
@@ -101,6 +104,12 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
     if (!f.equipo?.trim()) { setError('Indica el nombre del equipo.'); return; }
     setSaving(true);
     try {
+      if (f.tipo?.trim()) {
+        const tUpper = f.tipo.trim().toUpperCase();
+        if (!tipos.some((t) => t.toUpperCase() === tUpper)) {
+          addCatalogoMaquinaria('tipo_maquinaria', tUpper).catch(() => {});
+        }
+      }
       if (esNuevo) await addEquipo(f, actor);
       else await updateEquipo(equipo!.id, f);
       toast(esNuevo ? 'Equipo creado' : 'Equipo actualizado', 'success');
@@ -134,8 +143,8 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved }: {
             <input name="f-equipo" className="input" defaultValue={f.equipo ?? ''} onChange={(e) => { e.target.value = upper(e.target.value); set('equipo', e.target.value); }} placeholder="Ej. VOLVO A35F 484" required />
           </div>
           <div className="form-row">
-            <label>Tipo de maquinaria</label>
-            <SearchSelect value={f.tipo ?? ''} onChange={(v) => set('tipo', v || null)} options={tipos.map((t) => ({ value: t, label: t }))} placeholder="— elige el tipo —" />
+            <label>Tipo de maquinaria / vehículo</label>
+            <SearchCreateSelect value={f.tipo ?? ''} onChange={(v) => set('tipo', upper(v) || null)} options={tipos} placeholder="Elige un tipo o escribe uno nuevo…" />
           </div>
         </div>
 

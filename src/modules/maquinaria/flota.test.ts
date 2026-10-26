@@ -40,11 +40,18 @@ describe('estadoEfectivo (equipos de antes y de ahora)', () => {
 
 describe('claseEquipo', () => {
   it('usa el grupo de mantenimiento y si no, el tipo', () => {
-    expect(claseEquipo({ grupo_mantenimiento: 'PLANTAS ELÉCTRICAS' })).toBe('equipo');
+    expect(claseEquipo({ grupo_mantenimiento: 'PLANTAS ELÉCTRICAS' })).toBe('maquinaria');
     expect(claseEquipo({ grupo_mantenimiento: 'VEHÍCULOS DE CARGA' })).toBe('vehiculo');
     expect(claseEquipo({ tipo: 'Camión volteo' })).toBe('vehiculo');
     expect(claseEquipo({ tipo: 'EXCAVADORA' })).toBe('maquinaria');
-    expect(claseEquipo({ tipo: 'Planta eléctrica' })).toBe('equipo');
+    expect(claseEquipo({ tipo: 'Planta eléctrica' })).toBe('maquinaria');
+    expect(claseEquipo({ tipo: 'Moto' })).toBe('moto');
+    expect(claseEquipo({ tipo: 'Motocicleta Suzuki' })).toBe('moto');
+    expect(claseEquipo({ grupo_mantenimiento: 'MOTOS' })).toBe('moto');
+    expect(claseEquipo({ tipo: 'Lancha rápida' })).toBe('lancha');
+    expect(claseEquipo({ tipo: 'Bote con motor fuera de borda' })).toBe('lancha');
+    expect(claseEquipo({ grupo_mantenimiento: 'LANCHAS' })).toBe('lancha');
+    expect(claseEquipo({ tipo: 'Motoniveladora CAT 120H' })).toBe('maquinaria');
   });
 });
 
