@@ -18,6 +18,9 @@ export const EMPRESA_RIF = 'J-50221930-7';
 /** Domicilio fiscal para comprobantes y libros fiscales. */
 export const EMPRESA_DOMICILIO = 'Zona Industrial Los Pinos, Puerto Ordaz, Estado Bolívar';
 
+/** Correo electrónico / email fiscal de la empresa por defecto. */
+export const EMPRESA_EMAIL = 'administracion@mgg.com';
+
 export interface IdentidadEmpresa {
   nombre: string;
   rif: string;

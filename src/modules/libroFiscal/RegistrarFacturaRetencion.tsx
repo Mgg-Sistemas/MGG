@@ -23,11 +23,14 @@ import { rutaFichaProveedor, textoRifInvalido } from './mensajeRif';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, SUJETOS, TIPOS_IMPUESTO,
   calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares, fechaTasaBcv,
-  labelImpuesto, labelSujeto, motivoCienTexto, motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe,
+  formatoComprobante, formatoSerie, labelImpuesto, labelSujeto, motivoCienTexto, motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
-import { adjuntarComprobante, getConfigRetencion, listConceptos, sujetoAGt, tipoAGt, type DocKind } from './retencionesFiscal.repository';
+import {
+  adjuntarComprobante, consultarCorrelativoEstimado, getConfigRetencion, listConceptos, sujetoAGt, tipoAGt,
+  type CorrelativoEstimado, type DocKind,
+} from './retencionesFiscal.repository';
 import { configDeFecha } from './parametros.repository';
 import { supuestoAplicado, supuestosVigentes, type Supuesto } from './motivosSupuestos.repository';
 import { esCeroSinMotivo } from './motivoCero';
@@ -108,6 +111,7 @@ interface LineaUI {
   descripcion: string;
 }
 
+
 let semilla = 0;
 const nuevaLinea = (over: Partial<LineaUI> = {}): LineaUI => ({
   id: (semilla += 1), tipo: 'iva', sujeto: 'pj_domiciliada', conceptoId: '',
@@ -156,25 +160,26 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
   const [facturaTotal, setFacturaTotal] = useState(numeroATexto(s.facturaTotal ?? 0));
   const [exentoStr, setExentoStr] = useState(s.exento != null ? numeroATexto(s.exento) : '');
   const [nota, setNota] = useState('');
-  // R10: retener después sobre una factura ya registrada.
+  // R10: la factura sola (sin líneas, queda pendiente) y retener después sobre una ya registrada.
   const [conR10, setConR10] = useState(false);
   const [documento, setDocumento] = useState<FacturaResumen | null>(null);
   const [avisoSinDocDescartado, setAvisoSinDocDescartado] = useState(() => {
-    try { return localStorage.getItem('mgg_aviso_sin_doc_descartado') === 'true'; } catch { return false; }
+    try { return localStorage.getItem('gt_aviso_sin_doc_descartado') === 'true'; } catch { return false; }
   });
   const descartarAvisoSinDoc = () => {
     setAvisoSinDocDescartado(true);
-    try { localStorage.setItem('mgg_aviso_sin_doc_descartado', 'true'); } catch {}
+    try { localStorage.setItem('gt_aviso_sin_doc_descartado', 'true'); } catch {}
   };
+  const [periodoCerrado, setPeriodoCerrado] = useState<PeriodoFiscal | null>(null);
   const [archivoFactura, setArchivoFactura] = useState<File | null>(null);
   const [archivoFacturaUrl, setArchivoFacturaUrl] = useState<string | null>(null);
 
   const onElegirArchivo = (f: File | null) => {
     marcarSucio();
+    setArchivoFactura(f);
     if (archivoFacturaUrl) {
       try { URL.revokeObjectURL(archivoFacturaUrl); } catch {}
     }
-    setArchivoFactura(f);
     setArchivoFacturaUrl(f ? URL.createObjectURL(f) : null);
   };
 
@@ -190,7 +195,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (!archivoFactura || !archivoFacturaUrl) return;
     previewArchivo(archivoFacturaUrl, archivoFactura.name);
   };
-  const [periodoCerrado, setPeriodoCerrado] = useState<PeriodoFiscal | null>(null);
+
   const [lineas, setLineas] = useState<LineaUI[]>(() => [nuevaLinea({
     tipo: s.tipoInicial ?? 'iva', baseStr: numeroATexto(s.baseImponible ?? 0), ivaStr: numeroATexto(s.iva ?? 0),
   })]);
@@ -229,6 +234,35 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
       .catch(() => { if (vivo) setTasaBcv({ tasa: null, nota: 'No se pudo leer la tasa BCV.' }); });
     return () => { vivo = false; };
   }, [facturaFecha, moneda]);
+
+  // Consulta reactiva del correlativo estimado para cada impuesto según el período de la factura
+  const [correlativos, setCorrelativos] = useState<Record<string, CorrelativoEstimado>>({});
+  useEffect(() => {
+    if (direccion !== 'practicada') return;
+    const periodo = periodoDe(facturaFecha || hoyIso());
+    let activo = true;
+
+    const cargarCorrelativos = async () => {
+      const tipos: TipoImpuesto[] = ['iva', 'islr', 'municipal', 'regional', 'igtf'];
+      const mapa: Record<string, CorrelativoEstimado> = {};
+      for (const t of tipos) {
+        try {
+          mapa[t] = await consultarCorrelativoEstimado(t, periodo);
+        } catch {
+          mapa[t] = {
+            numero: 1,
+            comprobante: formatoComprobante(periodo, 1, t),
+            formato: formatoSerie(t),
+            explicacion: 'Correlativo inicial',
+          };
+        }
+      }
+      if (activo) setCorrelativos(mapa);
+    };
+
+    void cargarCorrelativos();
+    return () => { activo = false; };
+  }, [direccion, facturaFecha]);
 
   const opcionesProveedor = useMemo(() => {
     const lista = proveedorIdsPendientes ? proveedores.filter((p) => proveedorIdsPendientes.has(p.id)) : proveedores;
@@ -381,7 +415,6 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     if (periodoCerrado) {
       return `El período fiscal (${nombrePeriodo(periodoCerrado)}) ya fue declarado ante el SENIAT. No se pueden registrar retenciones en períodos cerrados sin reapertura previa.`;
     }
-    
     if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRetencion)) return 'Indica la fecha de la retención (emisión del comprobante).';
     if (fechaRetencion < facturaFecha) return 'La fecha de la retención no puede ser anterior a la de la factura.';
     if (avisoFecha) return avisoFecha;
@@ -780,7 +813,66 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           const sugerido = l.tipo === 'islr' ? sugerirSujetoPorRif(rif) : null;
           const noPuede = direccion === 'practicada' && !puedePracticar(l.tipo, config);
           return (
-            <div key={l.id} className="card" style={{ margin: '.3rem 0', background: 'var(--bg-2)' }}>
+            <div key={l.id} className="card" style={{ margin: '.35rem 0', background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
+              {/* Barra de cabecera de la línea con el correlativo asignado según el impuesto */}
+              <div style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '.5rem',
+                marginBottom: '.45rem',
+                paddingBottom: '.35rem',
+                borderBottom: '1px solid var(--border)',
+              }}>
+                <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                  <strong style={{ fontSize: '.86rem', color: 'var(--text)' }}>
+                    {rotuloImpuesto(l.tipo)}
+                  </strong>
+                  {direccion === 'practicada' && l.tipo !== 'igtf' && (
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '.35rem',
+                        fontSize: '.74rem',
+                        padding: '.15rem .5rem',
+                        borderRadius: '4px',
+                        background: 'rgba(255, 138, 0, 0.12)',
+                        border: '1px solid rgba(255, 138, 0, 0.3)',
+                        color: 'var(--brand, #ff8a00)',
+                        fontWeight: 600,
+                      }}
+                      title={correlativos[l.tipo]?.explicacion || 'Correlativo asignado según el impuesto'}
+                    >
+                      <span>Correlativo:</span>
+                      <strong className="mono" style={{ letterSpacing: '.02em' }}>
+                        {correlativos[l.tipo]?.comprobante ?? 'Calculando…'}
+                      </strong>
+                      <span className="muted" style={{ fontSize: '.68rem', fontWeight: 400 }}>
+                        (#{correlativos[l.tipo]?.numero ?? 1})
+                      </span>
+                    </span>
+                  )}
+                  {direccion === 'practicada' && l.tipo === 'igtf' && (
+                    <span style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>
+                      (Percepción sobre pago · Sin comprobante propio)
+                    </span>
+                  )}
+                </div>
+                {lineas.length > 1 && (
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ color: 'var(--danger)', padding: '2px 6px', fontSize: '.75rem' }}
+                    title="Quitar esta línea de impuesto"
+                    onClick={() => { marcarSucio(); setLineas((xs) => xs.filter((x) => x.id !== l.id)); }}
+                  >
+                    ✕ Quitar
+                  </button>
+                )}
+              </div>
+
               <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
                 <div className="form-row" style={{ margin: 0, flex: '0 1 130px' }}>
                   <label>Impuesto</label>
@@ -858,9 +950,6 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
                   <div className="muted" style={{ fontSize: '.7rem' }}>Retenido</div>
                   <div className="mono" style={{ fontWeight: 700, color: monto > 0 ? 'var(--primary)' : 'var(--text-muted)' }}>{money(monto, moneda)}</div>
                 </div>
-                {lineas.length > 1 && (
-                  <button type="button" className="btn btn-sm btn-ghost" title="Quitar la línea" onClick={() => { marcarSucio(); setLineas((xs) => xs.filter((x) => x.id !== l.id)); }}>✕</button>
-                )}
               </div>
               {l.tipo === 'islr' && sugerido && sugerido.sujeto !== l.sujeto && (
                 <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.25rem' }}>

@@ -153,20 +153,52 @@ export async function listEventosAuditoria(): Promise<EventoAuditoriaFiscal[]> {
   const hoy = hoyVenezuela();
   const anioActual = Number(hoy.slice(0, 4)) || new Date().getFullYear();
 
-  const [retenciones, eventosPeriodos, decisiones] = await Promise.all([
+  const [retenciones, eventosPeriodos, decisiones, provs] = await Promise.all([
     listRetenciones({ incluirAnuladas: true }).catch(() => [] as RetencionPracticada[]),
     leerEventosPeriodos(anioActual),
     leerDecisionesNoAplica(),
+    Promise.resolve(supabase.from('proveedores').select('id, rif, razon_social'))
+      .then((res) => ((res as { data?: unknown[] })?.data ?? []) as Array<{ id?: string; rif?: string; razon_social?: string }>)
+      .catch(() => [] as Array<{ id?: string; rif?: string; razon_social?: string }>),
   ]);
+
+  const mapProveedores = new Map<string, string>();
+  for (const p of provs as Array<{ id?: string; rif?: string; razon_social?: string }>) {
+    if (p.id && p.razon_social) mapProveedores.set(p.id, p.razon_social);
+    if (p.rif && p.razon_social) mapProveedores.set(p.rif.toUpperCase().trim(), p.razon_social);
+  }
 
   const eventosRetenciones: EventoAuditoriaFiscal[] = [];
 
   for (const r of retenciones) {
     const origenLabel = r.docKind === 'manual'
       ? 'Fuera del sistema (Manual)'
-      : r.docId
-        ? `Asociado a ${r.docKind.toUpperCase()}`
-        : 'Directo';
+      : r.docKind === 'oc'
+        ? 'Orden de Compra (OC)'
+        : r.docKind === 'compra_directa'
+          ? 'Compra Directa (CD)'
+          : r.docKind === 'servicio_directo'
+            ? 'Servicio Directo (CS)'
+            : r.docId
+              ? `Asociado a ${r.docKind.toUpperCase()}`
+              : 'Directo';
+
+    const nombreContraparte = (r.contraparteNombre && r.contraparteNombre !== 'Proveedor no identificado' ? r.contraparteNombre : null)
+      || (r.contraparteId ? mapProveedores.get(r.contraparteId) : null)
+      || (r.contraparteRif ? mapProveedores.get(r.contraparteRif.toUpperCase().trim()) : null)
+      || (r.contraparteRif ? `Sujeto RIF ${r.contraparteRif}` : 'Proveedor / Sujeto no identificado');
+
+    const refEmision = r.numeroComprobante
+      ? `Comprobante N° ${r.numeroComprobante}`
+      : r.facturaNumero
+        ? `Factura N° ${r.facturaNumero}`
+        : `Retención de ${rotuloImpuesto(r.tipo)}`;
+
+    const refAnulacion = r.numeroComprobante
+      ? `Comprobante N° ${r.numeroComprobante} (ANULADO)`
+      : r.facturaNumero
+        ? `Factura N° ${r.facturaNumero} (ANULADA)`
+        : `Retención de ${rotuloImpuesto(r.tipo)} (ANULADA)`;
 
     // 1. Emisión
     eventosRetenciones.push({
@@ -176,9 +208,7 @@ export async function listEventosAuditoria(): Promise<EventoAuditoriaFiscal[]> {
       usuario: rotuloAutor(r.actorName),
       impuesto: r.tipo.toUpperCase(),
       titulo: `Emisión de comprobante de retención (${rotuloImpuesto(r.tipo)})`,
-      referencia: r.numeroComprobante
-        ? `Comprobante N° ${r.numeroComprobante}`
-        : `Retención #${r.id.slice(0, 8)}`,
+      referencia: refEmision,
       documentoFiscal: {
         factura: r.facturaNumero,
         control: r.facturaControl,
@@ -186,7 +216,7 @@ export async function listEventosAuditoria(): Promise<EventoAuditoriaFiscal[]> {
         origen: origenLabel,
       },
       contraparte: {
-        nombre: r.contraparteNombre || 'Proveedor no identificado',
+        nombre: nombreContraparte,
         rif: r.contraparteRif,
       },
       monto: {
@@ -209,9 +239,7 @@ export async function listEventosAuditoria(): Promise<EventoAuditoriaFiscal[]> {
         usuario: rotuloAutor(r.actorName ? `${r.actorName}` : null),
         impuesto: r.tipo.toUpperCase(),
         titulo: `Anulación de comprobante (${rotuloImpuesto(r.tipo)})`,
-        referencia: r.numeroComprobante
-          ? `Comprobante N° ${r.numeroComprobante} (ANULADO)`
-          : `Retención #${r.id.slice(0, 8)} (ANULADA)`,
+        referencia: refAnulacion,
         documentoFiscal: {
           factura: r.facturaNumero,
           control: r.facturaControl,
@@ -219,7 +247,7 @@ export async function listEventosAuditoria(): Promise<EventoAuditoriaFiscal[]> {
           origen: origenLabel,
         },
         contraparte: {
-          nombre: r.contraparteNombre || 'Proveedor',
+          nombre: nombreContraparte,
           rif: r.contraparteRif,
         },
         monto: {

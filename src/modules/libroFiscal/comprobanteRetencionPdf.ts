@@ -282,21 +282,7 @@ export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<
     }
   } catch { /* noop */ }
 
-  // ── Fallbacks institucionales para Golden Touch si no hay versión subida en la base ──
-  if (!logoDataUrl) {
-    try {
-      const { loadLogoPdfDataUrl } = await import('@/shared/lib/pdfLogo');
-      logoDataUrl = await loadLogoPdfDataUrl();
-    } catch { /* noop */ }
-  }
-  if (!firmaDataUrl) {
-    try {
-      const { loadFirmaOrlandoDataUrl, loadFirmaDataUrl } = await import('@/shared/lib/pdfLogo');
-      const orlando = await loadFirmaOrlandoDataUrl?.();
-      firmaDataUrl = orlando?.dataUrl ?? (await loadFirmaDataUrl?.()) ?? null;
-    } catch { /* noop */ }
-  }
-
+  // Solo se usa lo que el módulo tenga cargado en la base de datos (retencion_agente_imagenes o config)
   return { logoDataUrl, firmaDataUrl, selloDataUrl };
 }
 

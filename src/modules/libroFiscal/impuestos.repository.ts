@@ -299,7 +299,7 @@ export async function historialImpuesto(clave: string, limite = 50): Promise<Cam
  */
 export async function serieDeImpuesto(clave: string): Promise<{ numera: boolean; formato: FormatoSerie | null } | null> {
   if (!(await tablaDisponible(T_IMPUESTOS))) return null;
-  const { data, error } = await supabase.from(T_IMPUESTOS).select('numera, serie_formato, serie_prefijo').eq('clave', clave.toLowerCase()).maybeSingle();
+  const { data, error } = await supabase.from(T_IMPUESTOS).select('numera, serie_formato, serie_prefijo').eq('clave', clave).maybeSingle();
   if (error) throw errorRetencion(error, 'No se pudo leer la serie del impuesto.');
   if (!data) return null;
   const r = data as { numera: boolean; serie_formato?: string | null; serie_prefijo?: string | null };

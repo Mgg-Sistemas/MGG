@@ -28,6 +28,7 @@ import {
   type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type EstadoRetencion, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
+export { formatoComprobante, formatoSerie };
 import { mensajeDobleRegistro, normalizarFactura, retencionYaRegistrada } from './dobleRegistro';
 import { faltaEnLaCarga } from './validarCarga';
 import { errorRetencion } from './erroresRetencion';
@@ -729,4 +730,89 @@ export async function urlComprobante(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 10);
   if (error) throw error;
   return data.signedUrl;
+}
+
+export interface CorrelativoEstimado {
+  numero: number;
+  comprobante: string;
+  formato: ReturnType<typeof formatoSerie>;
+  explicacion: string;
+}
+
+/**
+ * Consulta el próximo correlativo que le corresponderá a una retención practicada
+ * según su impuesto y período. Es una lectura segura e idempotente que no consume secuencias.
+ */
+export async function consultarCorrelativoEstimado(
+  tipo: TipoImpuesto,
+  periodo: string,
+): Promise<CorrelativoEstimado> {
+  if (tipo === 'igtf') {
+    return {
+      numero: 0,
+      comprobante: 'No aplica (Percepción)',
+      formato: null,
+      explicacion: 'El IGTF no emite comprobante de retención propio (es percepción sobre el pago).',
+    };
+  }
+
+  const tipoGt = tipoAGt(tipo);
+  const esIva = tipo === 'iva';
+  const fmt = formatoSerie(tipo);
+
+  try {
+    let q = supabase
+      .from(T_RETENCIONES)
+      .select('numero, comprobante_nro')
+      .eq('rol', 'practicada')
+      .eq('tipo', tipoGt);
+
+    if (esIva && periodo) {
+      q = q.eq('comprobante_periodo', periodo);
+    }
+
+    const { data } = await q
+      .order('numero', { ascending: false, nullsFirst: false })
+      .limit(20);
+
+    let maxNum = 0;
+    if (data && data.length > 0) {
+      for (const fila of data as { numero: unknown; comprobante_nro: unknown }[]) {
+        const numFila = fila.numero != null ? Number(fila.numero) : null;
+        if (numFila != null && !Number.isNaN(numFila) && numFila > maxNum) {
+          maxNum = numFila;
+        }
+        if (fila.comprobante_nro) {
+          const digitos = String(fila.comprobante_nro).replace(/\D/g, '');
+          if (esIva && digitos.length >= 14 && digitos.startsWith(periodo)) {
+            const sec = Number(digitos.slice(6));
+            if (!Number.isNaN(sec) && sec > maxNum) maxNum = sec;
+          } else if (!esIva && digitos.length >= 1) {
+            const sec = Number(digitos);
+            if (!Number.isNaN(sec) && sec > maxNum) maxNum = sec;
+          }
+        }
+      }
+    }
+
+    const siguienteNumero = maxNum + 1;
+    const compTexto = formatoComprobante(periodo, siguienteNumero, tipo);
+
+    return {
+      numero: siguienteNumero,
+      comprobante: compTexto,
+      formato: fmt,
+      explicacion: esIva
+        ? `Correlativo #${siguienteNumero} para ${labelImpuesto(tipo)} en el período ${periodo} (${compTexto}).`
+        : `Correlativo #${siguienteNumero} para ${labelImpuesto(tipo)} (${compTexto}).`,
+    };
+  } catch {
+    const compTexto = formatoComprobante(periodo, 1, tipo);
+    return {
+      numero: 1,
+      comprobante: compTexto,
+      formato: fmt,
+      explicacion: `Correlativo #1 para ${labelImpuesto(tipo)}.`,
+    };
+  }
 }

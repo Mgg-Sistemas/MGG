@@ -38,6 +38,7 @@ import {
   errorPorcentajesIva, guardarConfigRetencion,
   filaGtDeNueva, jsonDeConfig, llevaNumeroPropio, marcarDeclarada, registrarRetencion, rolAGt,
   sujetoAGt, sujetoDeGt, tipoAGt, tipoDeGt, tiposLicenciaDeJson, type NuevaRetencion,
+  consultarCorrelativoEstimado,
 } from './retencionesFiscal.repository';
 
 // Datos inventados. El RIF se arma con el dígito verificador que acepte la validación de GT.
@@ -360,3 +361,46 @@ describe('tipos de licencia en el JSON de parámetros', () => {
     expect(tiposLicenciaDeJson(null)).toEqual([]);
   });
 });
+
+describe('consultarCorrelativoEstimado: previsualización del correlativo según el impuesto', () => {
+  it('para IGTF no emite comprobante propio por ser percepción', async () => {
+    const res = await consultarCorrelativoEstimado('igtf', '202610');
+    expect(res.numero).toBe(0);
+    expect(res.comprobante).toContain('No aplica');
+    expect(res.formato).toBeNull();
+  });
+
+  it('para IVA en período sin retenciones previas sugiere el correlativo 1 con formato AAAAMM######## (14 dígitos)', async () => {
+    cola.push({ data: [], error: null });
+    const res = await consultarCorrelativoEstimado('iva', '202610');
+    expect(res.numero).toBe(1);
+    expect(res.comprobante).toBe('20261000000001');
+    expect(res.comprobante).toHaveLength(14);
+    expect(res.explicacion).toContain('202610');
+  });
+
+  it('para IVA calcula el siguiente correlativo basándose en el máximo existente en el período', async () => {
+    cola.push({
+      data: [
+        { numero: 14, comprobante_nro: '20261000000014' },
+        { numero: 12, comprobante_nro: '20261000000012' },
+      ],
+      error: null,
+    });
+    const res = await consultarCorrelativoEstimado('iva', '202610');
+    expect(res.numero).toBe(15);
+    expect(res.comprobante).toBe('20261000000015');
+  });
+
+  it('para ISLR asigna formato continuo de 10 dígitos', async () => {
+    cola.push({
+      data: [{ numero: 3, comprobante_nro: '0000000003' }],
+      error: null,
+    });
+    const res = await consultarCorrelativoEstimado('islr', '202610');
+    expect(res.numero).toBe(4);
+    expect(res.comprobante).toBe('0000000004');
+    expect(res.comprobante).toHaveLength(10);
+  });
+});
+

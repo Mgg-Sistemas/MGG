@@ -50,6 +50,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import {
   CONFIG_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
   calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares, fechaTasaBcv,
+  formatoComprobante, formatoSerie,
   labelDireccion, labelImpuesto, labelSujeto, limiteEntregaComprobante,
   motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe, resumenLibro, significadoRetencion, totalesPorMoneda,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
@@ -60,7 +61,8 @@ import {
   guardarConfigRetencion, guardarTiposLicencia, listConceptos, listRetenciones, listTiposLicencia, registrarRetencion, sujetoAGt, tipoAGt,
   urlComprobante,
   PORCENTAJES_IVA,
-  type AlicuotasLocales, type DocKind, type NuevaRetencion, type RetencionPracticada, type TipoLicencia,
+  consultarCorrelativoEstimado,
+  type AlicuotasLocales, type CorrelativoEstimado, type DocKind, type NuevaRetencion, type RetencionPracticada, type TipoLicencia,
 } from './retencionesFiscal.repository';
 import { etiquetaDocumentoRespaldo, faltaEnLaCarga, leerMonto, numeroATexto, validarDocumentoRespaldo } from './validarCarga';
 import { montoEscrito, municipioDeLinea } from './lineasRegistro';
@@ -1364,6 +1366,36 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     return () => { vivo = false; };
   }, [facturaFecha, fechaRetencion, tipo]);
 
+  // Consulta reactiva del correlativo estimado según el impuesto y el período
+  const [correlativoEstimado, setCorrelativoEstimado] = useState<CorrelativoEstimado | null>(null);
+  useEffect(() => {
+    if (direccion !== 'practicada' || tipo === 'igtf') {
+      setCorrelativoEstimado(null);
+      return;
+    }
+    const periodo = periodoDe(facturaFecha || fechaRetencion || hoyIso());
+    let activo = true;
+
+    consultarCorrelativoEstimado(tipo, periodo)
+      .then((c) => {
+        if (activo) setCorrelativoEstimado(c);
+      })
+      .catch(() => {
+        if (activo) {
+          setCorrelativoEstimado({
+            numero: 1,
+            comprobante: formatoComprobante(periodo, 1, tipo),
+            formato: formatoSerie(tipo),
+            explicacion: `Correlativo sugerido para ${rotuloImpuesto(tipo)}.`,
+          });
+        }
+      });
+
+    return () => {
+      activo = false;
+    };
+  }, [direccion, tipo, facturaFecha, fechaRetencion]);
+
   useEffect(() => {
     void Promise.all([getConfigRetencion(), listConceptos(true), listProveedores()])
       .then(([c, cs, ps]) => {
@@ -1879,13 +1911,43 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
             <small className="hint muted">{tasaDeFactura != null ? 'La tasa con que se registró la factura.' : tasaBcv?.nota ?? 'Para el equivalente en Bs, que es como se declara.'}</small>
           </div>
         )}
-        {esManual && (
+        {esManual ? (
           <div className="form-row" style={{ flex: '1 1 170px' }}>
             <label>N° del comprobante</label>
             <input className="input mono" value={numero} onChange={(e) => setNumero(e.target.value)} placeholder="Según el comprobante recibido" />
             <small className="hint muted">El número que le dio el agente de retención. Escríbelo tal como figura en el comprobante.</small>
           </div>
-        )}
+        ) : tipo !== 'igtf' ? (
+          <div className="form-row" style={{ flex: '1 1 200px' }}>
+            <label style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>N° comprobante (correlativo)</span>
+              <span className="badge" style={{ fontSize: '.68rem', padding: '1px 5px', background: 'var(--brand, #ff8a00)', color: '#000', fontWeight: 700 }}>
+                AUTOMÁTICO
+              </span>
+            </label>
+            <div
+              className="input mono"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: 'var(--surface-sunken)',
+                fontWeight: 700,
+                color: 'var(--brand, #ff8a00)',
+                letterSpacing: '.02em',
+              }}
+              title={correlativoEstimado?.explicacion || 'Correlativo asignado según el impuesto'}
+            >
+              <span>{correlativoEstimado?.comprobante || 'Asignando…'}</span>
+              <small className="muted" style={{ fontWeight: 400, fontSize: '.75rem' }}>
+                {correlativoEstimado ? `#${correlativoEstimado.numero}` : ''}
+              </small>
+            </div>
+            <small className="hint muted">
+              {correlativoEstimado?.explicacion || `Correlativo asignado para ${rotuloImpuesto(tipo)}.`}
+            </small>
+          </div>
+        ) : null}
         <div className="form-row" style={{ flex: '1 1 150px' }}>
           <label>Base imponible</label>
           <input className="input mono" value={baseStr} onChange={(e) => setBaseStr(e.target.value)} inputMode="decimal" />

@@ -148,17 +148,19 @@ export async function cambiarVence(id: string, vence: string | null): Promise<vo
 export async function cambiarDeclara(id: string, declara: Declara, motivo: string): Promise<void> {
   const m = motivo.trim();
   if (!m) throw new Error('Indica por qué cambia quién declara el período.');
-  const valorDeclara = declara === 'otro_sistema' ? 'otro_sistema' : 'mgg';
 
-  // Intento esquema MGG (07-periodos-y-consultas.sql)
-  const { data: dMgg, error: errMgg } = await supabase.from(T_PERIODOS)
-    .update({ declara: valorDeclara, declara_motivo: m }).eq('id', id).select('id');
-  if (!errMgg && dMgg?.length) return;
-
-  // Fallback GT
   const { data, error } = await supabase.from(T_PERIODOS)
-    .update({ declara: (declara === 'otro_sistema' ? 'otro_sistema' : 'gt'), motivo_cambio: m }).eq('id', id).select('id');
-  if (error) throw errorRetencion(errMgg || error, 'No se pudo cambiar quién declara.');
+    .update({ declara, motivo_cambio: m }).eq('id', id).select('id');
+  if (error) {
+    if (/motivo_cambio|column/i.test(error.message || '')) {
+      const { data: dMgg, error: errMgg } = await supabase.from(T_PERIODOS)
+        .update({ declara: (declara === 'otro_sistema' ? 'otro_sistema' : 'mgg'), declara_motivo: m }).eq('id', id).select('id');
+      if (errMgg) throw errorRetencion(errMgg, 'No se pudo cambiar quién declara.');
+      if (!dMgg?.length) throw new Error('No se cambió: sin permiso de escritura en Retenciones, o el período ya no existe.');
+      return;
+    }
+    throw errorRetencion(error, 'No se pudo cambiar quién declara.');
+  }
   if (!data?.length) throw new Error('No se cambió: sin permiso de escritura en Retenciones, o el período ya no existe.');
 }
 

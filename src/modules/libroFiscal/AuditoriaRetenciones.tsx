@@ -384,10 +384,15 @@ export function AuditoriaRetenciones() {
                         <strong style={{ display: 'block', color: 'var(--text)' }}>
                           {e.referencia}
                         </strong>
-                        {e.documentoFiscal?.factura && (
-                          <span className="muted" style={{ fontSize: '.74rem' }}>
+                        {e.documentoFiscal?.factura && !e.referencia.includes(e.documentoFiscal.factura) && (
+                          <span className="muted" style={{ fontSize: '.74rem', display: 'block' }}>
                             Factura N° {e.documentoFiscal.factura}
-                            {e.documentoFiscal.control ? ` (Control ${e.documentoFiscal.control})` : ''}
+                            {e.documentoFiscal.control ? ` · Control ${e.documentoFiscal.control}` : ''}
+                          </span>
+                        )}
+                        {e.documentoFiscal?.control && (!e.documentoFiscal?.factura || e.referencia.includes(e.documentoFiscal.factura)) && (
+                          <span className="muted" style={{ fontSize: '.74rem', display: 'block' }}>
+                            Control N° {e.documentoFiscal.control}
                           </span>
                         )}
                         {e.documentoFiscal?.origen && (
