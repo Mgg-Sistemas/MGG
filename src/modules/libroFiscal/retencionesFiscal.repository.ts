@@ -555,24 +555,43 @@ export interface FiltroRetenciones {
  * así que se pagina (un año de retenciones pasa ese tope sin esfuerzo).
  */
 export async function listRetenciones(f: FiltroRetenciones = {}): Promise<RetencionPracticada[]> {
-  const filas = await todasLasFilas<Record<string, unknown>>((desde, hasta) => {
-    let q = supabase.from(T_RETENCIONES).select('*')
-      .order('factura_fecha', { ascending: false, nullsFirst: false })
-      .order('created_at', { ascending: false })
-      .order('id', { ascending: false })   // desempate estable: sin esto las páginas se solapan
-      .range(desde, hasta);
-    if (f.direccion) q = q.eq('rol', rolAGt(f.direccion));
-    if (f.tipo) q = q.eq('tipo', tipoAGt(f.tipo));
-    if (f.estado) q = q.eq('estado', f.estado);
-    if (f.periodo) q = q.eq('comprobante_periodo', f.periodo);
-    if (f.desde) q = q.gte('factura_fecha', f.desde);
-    if (f.hasta) q = q.lte('factura_fecha', f.hasta);
-    if (f.docId) q = q.or(`orden_id.eq.${f.docId},compra_directa_id.eq.${f.docId},servicio_directo_id.eq.${f.docId}`);
-    if (!f.incluirAnuladas) q = q.neq('estado', 'anulada');
-    return q;
-  });
-  return filas.map((r) => aRetencion(r));
+  const doFetch = (conGt: boolean) =>
+    todasLasFilas<Record<string, unknown>>((desde, hasta) => {
+      let q = supabase.from(T_RETENCIONES).select('*')
+        .order('factura_fecha', { ascending: false, nullsFirst: false })
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: false })   // desempate estable: sin esto las páginas se solapan
+        .range(desde, hasta);
+      if (conGt) {
+        if (f.direccion) q = q.eq('rol', rolAGt(f.direccion));
+        if (f.periodo) q = q.eq('comprobante_periodo', f.periodo);
+      } else {
+        // En MGG todas las filas son practicadas; la columna de período es 'periodo'
+        if (f.periodo) q = q.eq('periodo', f.periodo);
+      }
+      if (f.tipo) q = q.eq('tipo', tipoAGt(f.tipo));
+      if (f.estado) q = q.eq('estado', f.estado);
+      if (f.desde) q = q.gte('factura_fecha', f.desde);
+      if (f.hasta) q = q.lte('factura_fecha', f.hasta);
+      if (f.docId) q = q.or(`orden_id.eq.${f.docId},compra_directa_id.eq.${f.docId},servicio_directo_id.eq.${f.docId}`);
+      if (!f.incluirAnuladas) q = q.neq('estado', 'anulada');
+      return q;
+    });
+
+  try {
+    const filas = await doFetch(true);
+    return filas.map((r) => aRetencion(r));
+  } catch (err: unknown) {
+    const code = (err as { code?: string })?.code;
+    const msg = String((err as { message?: string })?.message ?? '');
+    if (code === '42703' || /column.*(rol|comprobante_periodo).*does not exist/i.test(msg)) {
+      const filas = await doFetch(false);
+      return filas.map((r) => aRetencion(r));
+    }
+    throw err;
+  }
 }
+
 
 /** Los períodos que tienen retenciones, del más nuevo al más viejo. */
 export async function listPeriodos(): Promise<string[]> {

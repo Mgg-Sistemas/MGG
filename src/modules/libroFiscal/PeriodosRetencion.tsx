@@ -10,7 +10,7 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { hoyVE } from '@/modules/tesoreria/tasas.repository';
-import { listRetenciones, tipoAGt } from './retencionesFiscal.repository';
+import { listRetenciones, tipoAGt, type RetencionPracticada } from './retencionesFiscal.repository';
 import { opcionesImpuestoEnte } from './entes.repository';
 import {
   cambiarDeclara, cambiarVence, conteoDelPeriodo, declararPeriodo, estadoPeriodo, generarPeriodos, listPeriodos,
@@ -19,7 +19,13 @@ import {
 import { fechaCorta, labelClave } from './parametrosR1';
 import { rotuloAutor, rotuloMotivo } from './rotulos';
 
-const mensaje = (e: unknown, d: string) => (e instanceof Error ? e.message : d);
+const mensaje = (e: unknown, d: string) => {
+  if (e instanceof Error) return e.message;
+  if (typeof e === 'object' && e !== null && 'message' in e && typeof (e as { message: unknown }).message === 'string') {
+    return (e as { message: string }).message;
+  }
+  return d;
+};
 type Conteo = { tipoGt: string; periodo: string; quincena: 1 | 2 | null; declarada: boolean };
 
 function diasEntre(desdeIso: string, hastaIso: string): number {
@@ -66,7 +72,10 @@ export function PeriodosRetencion({ puedeEditar }: { puedeEditar: boolean }) {
     try {
       const [ps, rs, imps] = await Promise.all([
         listPeriodos(anio),
-        listRetenciones({ direccion: 'practicada' }),
+        listRetenciones({ direccion: 'practicada' }).catch((err) => {
+          console.warn('No se pudieron leer las retenciones para conteos de períodos:', err);
+          return [] as RetencionPracticada[];
+        }),
         opcionesImpuestoEnte().catch(() => []),
       ]);
       setPeriodos(ps);

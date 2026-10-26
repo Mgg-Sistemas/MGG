@@ -1270,6 +1270,7 @@ export interface SemillaRetencion {
   total?: number;
   iva?: number;
   baseImponible?: number;
+  ivaIncluido?: boolean;
   porcentaje?: number | null;
   facturaNumero?: string | null;
   facturaControl?: string | null;
