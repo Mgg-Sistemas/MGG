@@ -11,6 +11,8 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { Orden } from '@/shared/lib/types';
 import { fechaDesdeAgenteRetencion } from '@/modules/libroFiscal/agenteCondiciones.repository';
+import { getConfigRetencion } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import { estatusKanbanHabilitados, ordenTieneEstatusRetencion, ESTATUS_KANBAN_DEFECTO } from './retencionesKanban';
 
 const TABLE = 'ordenes';
 const BUCKET = 'compras-oc';
@@ -44,8 +46,15 @@ async function mapProveedores(): Promise<Map<string, string>> {
  */
 export const FECHA_PERMISO_RETENCION = '2026-10-01';
 
-/** Comprueba si una orden corresponde al período con autorización de retención (a partir de la fecha de designación). */
-export function ordenAplicaRetencion(o: Orden, fechaCorte: string = FECHA_PERMISO_RETENCION): boolean {
+/** Comprueba si una orden corresponde al período con autorización de retención y estatus elegible. */
+export function ordenAplicaRetencion(
+  o: Orden,
+  fechaCorte: string = FECHA_PERMISO_RETENCION,
+  estatusPermitidos: string[] = ESTATUS_KANBAN_DEFECTO,
+): boolean {
+  if (o.estado && !ordenTieneEstatusRetencion(o.estado, estatusPermitidos)) {
+    return false;
+  }
   const f = (o.oc_emitida_en || o.oc_creada_en || o.created_at || '').slice(0, 10);
   return f >= fechaCorte;
 }
@@ -53,6 +62,7 @@ export function ordenAplicaRetencion(o: Orden, fechaCorte: string = FECHA_PERMIS
 async function queryOrdenesPendientes() {
   const base = () => supabase.from(TABLE).select('*')
     .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
+    .not('estado', 'in', '("cancelada","anulada","desistida_proveedor")')
     .gte('created_at', '2026-09-25T00:00:00Z')
     .order('created_at', { ascending: true });
 
@@ -65,8 +75,9 @@ async function queryOrdenesPendientes() {
 
 async function queryConteoPendientes() {
   const base = () => supabase.from(TABLE)
-    .select('id, created_at, oc_creada_en, oc_emitida_en')
+    .select('id, created_at, oc_creada_en, oc_emitida_en, estado')
     .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
+    .not('estado', 'in', '("cancelada","anulada","desistida_proveedor")')
     .gte('created_at', '2026-09-25T00:00:00Z');
 
   const res = await base().or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null,iva.gt.0,retencion_monto.gt.0');
@@ -77,16 +88,19 @@ async function queryConteoPendientes() {
 }
 
 /** Retenciones por realizar: OC con soporte Factura O con factura del proveedor cargada
- *  (al finalizar la OC), aún sin finalizar la retención. Solo a partir de la vigencia del régimen. */
+ *  (al finalizar la OC), aún sin finalizar la retención. Solo a partir de la vigencia del régimen
+ *  y con estatus del kanban permitido. */
 export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
-  const [desdeAgente, { data, error }, pm] = await Promise.all([
+  const [desdeAgente, { data, error }, pm, config] = await Promise.all([
     fechaDesdeAgenteRetencion(),
     queryOrdenesPendientes(),
     mapProveedores(),
+    getConfigRetencion().catch(() => null),
   ]);
   if (error) throw error;
+  const permitidos = estatusKanbanHabilitados(config?.estatusKanbanRetencion);
   return (data ?? [])
-    .filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente))
+    .filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente, permitidos))
     .map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
 }
 
@@ -97,6 +111,7 @@ export async function listRetencionesHechas(): Promise<RetencionItem[]> {
     supabase.from(TABLE).select('*')
       .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null,iva.gt.0,retencion_monto.gt.0')
       .eq('retencion_finalizada', true)
+      .not('estado', 'in', '("cancelada","anulada","desistida_proveedor")')
       .gte('created_at', '2026-09-25T00:00:00Z')
       .order('retencion_finalizada_en', { ascending: false }),
     mapProveedores(),
@@ -108,12 +123,14 @@ export async function listRetencionesHechas(): Promise<RetencionItem[]> {
 }
 
 export async function contarRetencionesPendientes(): Promise<number> {
-  const [desdeAgente, { data, error }] = await Promise.all([
+  const [desdeAgente, { data, error }, config] = await Promise.all([
     fechaDesdeAgenteRetencion(),
     queryConteoPendientes(),
+    getConfigRetencion().catch(() => null),
   ]);
   if (error) throw error;
-  return (data ?? []).filter((o) => ordenAplicaRetencion(o as unknown as Orden, desdeAgente)).length;
+  const permitidos = estatusKanbanHabilitados(config?.estatusKanbanRetencion);
+  return (data ?? []).filter((o) => ordenAplicaRetencion(o as unknown as Orden, desdeAgente, permitidos)).length;
 }
 
 async function subirComprobante(ordenId: string, tipo: TipoRetencion, file: File): Promise<{ path: string; nombre: string }> {

@@ -104,6 +104,17 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     pctIgtf: j.igtf_alicuota == null ? CONFIG_RETENCION_DEFECTO.pctIgtf : n(j.igtf_alicuota),
     licenciaMunicipal: texto(j.licencia_municipal) ?? texto(j.licencia_numero) ?? texto(j.rim) ?? null,
     imprimirOriginalYCopia: bool('imprimir_original_copia', true),
+    estatusKanbanRetencion: Array.isArray(j.estatus_kanban_retencion)
+      ? (j.estatus_kanban_retencion as string[])
+      : [
+          'confirmada_metodo',
+          'oc_aprobada',
+          'cuenta_abierta',
+          'por_recibir',
+          'pagada',
+          'recibida',
+          'finalizada',
+        ],
   };
 }
 
@@ -126,6 +137,15 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     unidad_tributaria: c.valorUt,
     igtf_alicuota: c.pctIgtf,
     imprimir_original_copia: c.imprimirOriginalYCopia !== false,
+    estatus_kanban_retencion: c.estatusKanbanRetencion ?? [
+      'confirmada_metodo',
+      'oc_aprobada',
+      'cuenta_abierta',
+      'por_recibir',
+      'pagada',
+      'recibida',
+      'finalizada',
+    ],
   };
 }
 

@@ -56,6 +56,7 @@ import {
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type EstadoRetencion, type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
+import { LISTA_ESTATUS_KANBAN, ESTATUS_KANBAN_DEFECTO } from './retencionesKanban';
 import {
   activarConcepto, adjuntarComprobante, anularRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
   guardarConfigRetencion, guardarTiposLicencia, listConceptos, listRetenciones, listTiposLicencia, registrarRetencion, sujetoAGt, tipoAGt,
@@ -2125,10 +2126,15 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 /* ═══════════════════ Parámetros fiscales ═══════════════════ */
 
 type SeccionPa = 'motivos' | 'entes' | 'perfiles' | 'licencias' | 'empresa' | 'firma' | 'vencimientos'
-  | 'impuestos' | 'valores' | 'supuestos' | 'numeracion' | 'regimen' | 'formatos' | 'interruptores';
+  | 'impuestos' | 'valores' | 'supuestos' | 'numeracion' | 'regimen' | 'formatos' | 'interruptores' | 'kanban';
 interface DefSeccionPa { key: SeccionPa; capa: 'ajustes' | 'avanzados'; titulo: string; linea: string; que: string; ingresa: string; efecto: string; noCambia: string; }
 
 const AJUSTES_PA: DefSeccionPa[] = [
+  { key: 'kanban', capa: 'ajustes', titulo: 'Estatus del Kanban de Compras', linea: 'Qué estatus del kanban aplican para retenciones.',
+    que: 'Los estatus del flujo de Compras / Servicios que se toman en cuenta en «Por realizar».',
+    ingresa: 'Las columnas del kanban elegibles. Las órdenes canceladas y anuladas quedan excluidas por defecto.',
+    efecto: 'Solo las órdenes en los estatus seleccionados se muestran en «Por realizar» y computan para retenciones.',
+    noCambia: 'Las retenciones ya registradas ni los comprobantes emitidos.' },
   { key: 'motivos', capa: 'ajustes', titulo: 'Motivos de «No aplica»', linea: 'Las razones para marcar que una factura no lleva retención.',
     que: 'Las razones que se eligen al marcar que una factura no lleva retención.', ingresa: 'El texto del motivo y el impuesto en que se ofrece (o todos).',
     efecto: 'Se ofrecen al registrar una retención en 0 %, según el impuesto y la fecha de la factura.', noCambia: 'Lo ya registrado conserva el texto de su motivo, aunque el motivo se edite o se desactive.' },
@@ -2175,7 +2181,7 @@ const AVANZADOS_PA: DefSeccionPa[] = [
     efecto: 'Se aplica al momento en las propuestas y en el registro.', noCambia: 'Las retenciones registradas.' },
 ];
 /** Solo se muestran las secciones que guardan en la base; las demás vuelven cuando exista su tabla (R1, R2, R3, R6). */
-const CONECTADAS_PA = new Set<SeccionPa>(['empresa', 'licencias', 'impuestos', 'valores', 'regimen']);
+const CONECTADAS_PA = new Set<SeccionPa>(['empresa', 'licencias', 'impuestos', 'valores', 'regimen', 'kanban']);
 /** Las de R1 y R6 aparecen solas cuando sus tablas existen en la base. */
 const CONECTADAS_R1 = new Set<SeccionPa>(['entes', 'firma', 'perfiles']);
 const CONECTADAS_R6 = new Set<SeccionPa>(['motivos', 'supuestos']);
@@ -2264,6 +2270,10 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   function resumen(k: SeccionPa): string {
     switch (k) {
       case 'empresa': return cfg.rif ? `RIF ${cfg.rif} · ${cfg.imprimirOriginalYCopia !== false ? 'Original y Copia' : 'Solo Original'}` : 'Sin configurar';
+      case 'kanban': {
+        const activos = cfg.estatusKanbanRetencion ?? ESTATUS_KANBAN_DEFECTO;
+        return `${activos.length} estatus elegible(s) · Canceladas excluidas`;
+      }
       case 'regimen': return `Agente IVA: ${cfg.esAgenteRetencionIva ? 'sí' : 'no'} · Especial: ${cfg.esContribuyenteEspecial ? 'sí' : 'no'}`;
       case 'valores': return `UT Bs ${cfg.valorUt} · IGTF ${cfg.pctIgtf} %`;
       case 'impuestos': return r2 ? 'Ficha de cada impuesto y conceptos del ISLR' : `${conceptos.length} conceptos`;
@@ -2274,7 +2284,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   const capaActual = seccion ? TODAS_PA[seccion].capa : capa;
   const tituloModal = capaActual === 'avanzados' ? '⚙ Parámetros · Ajustes avanzados' : '⚙ Parámetros de retenciones';
   // Con R1 y R3, Régimen y Valores guardan desde sus propias pantallas (con fecha), no con el botón general.
-  const seccionGuardable = seccion === 'empresa' || (seccion === 'regimen' && !(r1 && r3)) || (seccion === 'valores' && !r3);
+  const seccionGuardable = seccion === 'empresa' || seccion === 'kanban' || (seccion === 'regimen' && !(r1 && r3)) || (seccion === 'valores' && !r3);
 
   return (
     <>
@@ -2425,6 +2435,89 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
 
               {r3 && <p className="hint muted" style={{ fontSize: '.82rem' }}>Las alícuotas del ISAE y del timbre estadal están en Ajustes avanzados › Valores con vigencia.</p>}
               <p className="hint muted" style={{ fontSize: '.82rem' }}>El régimen fiscal (agente de retención de IVA, contribuyente especial) está en Ajustes avanzados › Régimen fiscal de la empresa.</p>
+            </fieldset>
+          )}
+
+          {/* ── Estatus del Kanban de Compras ── */}
+          {seccion === 'kanban' && (
+            <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
+              <div className="card" style={{ background: 'var(--bg-2)', marginBottom: '.8rem', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
+                  <div>
+                    <strong style={{ fontSize: '.95rem' }}>Estatus de órdenes que se abordan en Retenciones</strong>
+                    <p className="muted" style={{ margin: '.2rem 0 0', fontSize: '.82rem' }}>
+                      Solo las órdenes con los estatus seleccionados se mostrarán en «Por realizar». Las órdenes canceladas y anuladas están excluidas por defecto.
+                    </p>
+                  </div>
+                  <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => set('estatusKanbanRetencion', [...ESTATUS_KANBAN_DEFECTO])}
+                    >
+                      Restablecer recomendados
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => set('estatusKanbanRetencion', LISTA_ESTATUS_KANBAN.filter((s) => !s.esTerminalCancelado).map((s) => s.key))}
+                    >
+                      Marcar todos los activos
+                    </button>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
+                  {LISTA_ESTATUS_KANBAN.map((s) => {
+                    const activos = cfg.estatusKanbanRetencion ?? ESTATUS_KANBAN_DEFECTO;
+                    const checked = activos.includes(s.key);
+                    return (
+                      <label
+                        key={s.key}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: '.6rem',
+                          padding: '.6rem .75rem',
+                          background: checked ? 'var(--bg-1)' : 'transparent',
+                          border: `1px solid ${checked ? 'var(--primary)' : 'var(--border)'}`,
+                          borderRadius: '6px',
+                          cursor: 'pointer',
+                          opacity: s.esTerminalCancelado && !checked ? 0.75 : 1,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            const next = e.target.checked
+                              ? [...activos, s.key]
+                              : activos.filter((k) => k !== s.key);
+                            set('estatusKanbanRetencion', next);
+                          }}
+                          style={{ marginTop: '.2rem' }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                            <span style={{ fontWeight: 600, fontSize: '.86rem' }}>{s.label}</span>
+                            <span className={`lfv8-pill kanban-${s.key}`} style={{ fontSize: '.7rem', padding: '1px 6px' }}>
+                              {s.key}
+                            </span>
+                          </div>
+                          <p className="muted" style={{ margin: '.2rem 0 0', fontSize: '.76rem', lineHeight: 1.3 }}>
+                            {s.descripcion}
+                          </p>
+                          {s.esTerminalCancelado && (
+                            <span style={{ display: 'inline-block', color: 'var(--danger)', fontSize: '.72rem', marginTop: '.2rem', fontWeight: 600 }}>
+                              ⚠️ Cancelada / Anulada (no genera retención)
+                            </span>
+                          )}
+                        </div>
+                      </label>
+                    );
+                  })}
+                </div>
+              </div>
             </fieldset>
           )}
 

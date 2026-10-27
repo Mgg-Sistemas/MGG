@@ -660,7 +660,10 @@ function impuestosPendientesDeOrden(
     retieneIva = practica.has('iva');
   }
 
-  if (retieneIva && !o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
+  // IVA: solo aplica si la orden tiene IVA gravable y la empresa es agente de retención a la fecha
+  const ivaReal = Math.max(0, Number(o.iva ?? o.iva_monto ?? 0));
+  const tieneIvaGravable = ivaReal > 0 || (!!o.iva_incluido && Number(o.total || 0) > 0);
+  if (retieneIva && tieneIvaGravable && !o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
   if ((!practica || practica.has('islr')) && !o.retencion_islr_path && !ya?.has('islr')) out.push('islr');
   if ((!practica || practica.has('municipal')) && !o.retencion_municipal_path && !ya?.has('municipal')) out.push('municipal');
 
@@ -817,9 +820,13 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
         {!loading && visible.map(({ orden: o, proveedorNombre }) => {
           const fechaDoc = fechaDocumento(o).fecha;
           const pends = impuestosPendientesDeOrden(o, registradas, practica, condiciones);
+          const ivaRealDoc = Math.max(0, Number(o.iva ?? o.iva_monto ?? 0));
+          const tieneIvaGravableDoc = ivaRealDoc > 0 || (!!o.iva_incluido && Number(o.total || 0) > 0);
           const aplicablesDeOrden = (condiciones && condiciones.length > 0)
-            ? IMPUESTOS_PENDIENTES.filter((t) => t.key === 'iva' ? empresaEsAgenteEnFecha(condiciones, fechaDoc, 'IVA') : (!practica || practica.has(t.key)))
-            : (practica ? IMPUESTOS_PENDIENTES.filter((t) => practica.has(t.key)) : IMPUESTOS_PENDIENTES);
+            ? IMPUESTOS_PENDIENTES.filter((t) => t.key === 'iva' ? (empresaEsAgenteEnFecha(condiciones, fechaDoc, 'IVA') && tieneIvaGravableDoc) : (!practica || practica.has(t.key)))
+            : (practica
+              ? IMPUESTOS_PENDIENTES.filter((t) => t.key === 'iva' ? (practica.has('iva') && tieneIvaGravableDoc) : practica.has(t.key))
+              : IMPUESTOS_PENDIENTES.filter((t) => t.key === 'iva' ? tieneIvaGravableDoc : true));
           const total = aplicablesDeOrden.length;
           const regs = Math.max(0, total - pends.length);
           return (

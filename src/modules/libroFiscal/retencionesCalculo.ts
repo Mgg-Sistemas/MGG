@@ -88,12 +88,13 @@ export interface ConfigRetencion {
   licenciaMunicipal?: string | null;
   /** Emisión de comprobantes: imprimir Original (Sujeto Retenido) y Copia (Agente de Retención) */
   imprimirOriginalYCopia?: boolean;
+  /** Estatus del kanban de Compras/Servicios que se consideran en Retenciones. */
+  estatusKanbanRetencion?: string[];
 }
 
 /**
  * Los valores con los que arranca la pantalla mientras se lee la configuración.
- * Golden Touch es agente de retención de IVA desde el 07/10/2026 y no es
- * contribuyente especial. Lo que vale es lo guardado en Parámetros.
+ * Lo que vale es lo guardado en Parámetros.
  */
 export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   rif: null, razonSocial: null, direccionFiscal: null, municipio: null, estado: null,
@@ -104,6 +105,15 @@ export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   valorUt: 0, pctIgtf: 3,
   licenciaMunicipal: null,
   imprimirOriginalYCopia: true,
+  estatusKanbanRetencion: [
+    'confirmada_metodo',
+    'oc_aprobada',
+    'cuenta_abierta',
+    'por_recibir',
+    'pagada',
+    'recibida',
+    'finalizada',
+  ],
 };
 
 /* ───────────────── Qué puede practicar la empresa ───────────────── */
