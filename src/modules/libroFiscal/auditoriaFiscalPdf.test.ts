@@ -35,7 +35,7 @@ describe('auditoriaFiscalPdf', () => {
         severidad: 'exito',
         documentoFiscal: { factura: 'FAC-001' },
         contraparte: { nombre: 'Proveedor Minero C.A.', rif: 'J-12345678-9' },
-        monto: { retenidoBs: 150.75, moneda: 'Bs' },
+        monto: { retenido: 150.75, retenidoBs: 150.75, moneda: 'Bs' },
       },
       {
         id: 'anulacion-1',
