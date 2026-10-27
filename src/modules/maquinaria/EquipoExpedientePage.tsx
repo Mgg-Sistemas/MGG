@@ -19,9 +19,10 @@ import {
   ESTADOS_EQUIPO, ORDEN_ESTADOS, ORDEN_FLUJO, COLUMNAS_COMPRA, URGENCIAS, estadoEfectivo, avisoServicio, avisoMasUrgente,
   accionesEquipo, servicioPorId, siguientesEstadosOrden, columnaCompra, compraAbierta, ordenAbierta,
   faltaSalida, faltaCompra, etiquetaOrigenLectura, ultimoLavado, diasDesde, textoHace, puedeReemplazarPieza, etiquetaServicio,
-  puedeBorrarOrden,
+  puedeBorrarOrden, frecuenciaHrs,
   type AccionEquipo, type EstadoOrdenServicio, type TonoFlota, type AvisoServicio,
 } from './flota';
+import { AlertasMantenimientoBanner, type EquipoConAviso } from './AlertasMantenimiento';
 import {
   listOrdenesServicio, listEventosEstado, comprasDeEquipo, salidasDeOrdenes, fotosDeEquipos, fijarEncuadreFoto,
   lecturaVigenteEquipo, listLecturasEquipo, ultimoSurtidoEquipo,
@@ -181,9 +182,17 @@ export function EquipoExpedientePage() {
   ], () => { void cargar(); });
 
   const estado = eq ? estadoEfectivo(eq) : 'operativa';
-  const avisoH = eq ? avisoServicio(eq.mantenimiento_cada_hrs, horometro, eq.mantenimiento_base_hrs, 'h') : null;
+  // En horas, sin frecuencia cargada rige la de la empresa (250 h, 26/10/2026); en km no hay default.
+  const avisoH = eq ? avisoServicio(frecuenciaHrs(eq), horometro, eq.mantenimiento_base_hrs, 'h') : null;
   const avisoK = eq ? avisoServicio(eq.mantenimiento_cada_km, km, eq.mantenimiento_base_km, 'km') : null;
   const aviso = avisoMasUrgente(avisoH, avisoK);
+  // Banner de alerta de mantenimiento (compacto) solo si el servicio está próximo o vencido.
+  const alertas = useMemo<EquipoConAviso[]>(
+    () => (eq && aviso && aviso.nivel !== 'ok' && estado !== 'retirada'
+      ? [{ equipo: eq, aviso, lectura: aviso.unidad === 'h' ? horometro : km }]
+      : []),
+    [eq, aviso, estado, horometro, km],
+  );
   const acciones = useMemo(
     () => accionesEquipo({ maquinaria: perm.maquinaria, combustible: perm.combustible }, estado, { avisoServicio: !!aviso && aviso.nivel !== 'ok' }),
     [perm.maquinaria, perm.combustible, estado, aviso],
@@ -321,6 +330,10 @@ export function EquipoExpedientePage() {
       </div>
 
       <div className="flo-body">
+        {/* Alerta de mantenimiento (26/10/2026): el mismo cuadro resaltado del catálogo, en compacto, para responder desde el expediente. */}
+        {alertas.length > 0 && (
+          <AlertasMantenimientoBanner items={alertas} actor={actor} actorName={actorName} canWrite={perm.maquinaria} compacto onChanged={() => void cargar()} />
+        )}
         {avisoEstado && (
           <div className={`flo-aviso flo-clic tone-${avisoEstado.tono}`}>
             {/* Toda la tarjeta abre el detalle (motivo completo, informe técnico, documentos). */}
@@ -542,7 +555,7 @@ function Vitales({ vigente, avisoH, avisoK, equipo, ultimoSurtido, lavado, onLav
         <small>Próx. servicio</small>
         <strong>{aviso ? fmtNum(Math.max(0, aviso.restante)) : '—'}{aviso && <em>{aviso.unidad}</em>}</strong>
         {aviso && <div className="flo-meter" style={{ ['--tone' as string]: tono }}><i style={{ width: `${aviso.pct}%` }} /></div>}
-        <span>{!aviso ? 'Define el intervalo en la ficha' : aviso.nivel === 'vencido' ? `Vencido por ${fmtNum(Math.abs(aviso.restante))} ${aviso.unidad}` : aviso.nivel === 'proximo' ? 'Servicio próximo' : `Cada ${fmtNum(aviso.unidad === 'h' ? equipo.mantenimiento_cada_hrs : equipo.mantenimiento_cada_km)} ${aviso.unidad}`}</span>
+        <span>{!aviso ? 'Define el intervalo en la ficha' : aviso.nivel === 'vencido' ? `Vencido por ${fmtNum(Math.abs(aviso.restante))} ${aviso.unidad}` : aviso.nivel === 'proximo' ? 'Servicio próximo' : `Cada ${fmtNum(aviso.unidad === 'h' ? frecuenciaHrs(equipo) : equipo.mantenimiento_cada_km)} ${aviso.unidad}`}</span>
       </div>
       <button type="button" className="flo-vital flo-vital-btn" onClick={onContador} aria-label="Ver el último surtido">
         <small>Último surtido</small>
@@ -860,7 +873,7 @@ function TabFicha({ eq, onPdf }: { eq: MaquinariaEquipo; onPdf: () => void }) {
     ['Equipo', eq.equipo], ['Tipo', eq.tipo], ['Marca', eq.marca], ['Modelo', eq.modelo], ['Año', eq.anio != null ? String(eq.anio) : null],
     ['Color', eq.color], ['Serial / PIN', eq.serial], ['Placa', eq.placa], ['Motor (modelo)', eq.motor_modelo], ['Motor (serial)', eq.motor_serial],
     ['Combustible', eq.combustible], ['Consumo esperado', eq.litros_consume != null ? `${fmtNum(eq.litros_consume)} L` : null],
-    ['Mantenimiento cada', [eq.mantenimiento_cada_hrs ? `${fmtNum(eq.mantenimiento_cada_hrs)} h` : null, eq.mantenimiento_cada_km ? `${fmtNum(eq.mantenimiento_cada_km)} km` : null].filter(Boolean).join(' · ') || null],
+    ['Mantenimiento cada', [`${fmtNum(frecuenciaHrs(eq))} h${eq.mantenimiento_cada_hrs ? '' : ' (por defecto)'}`, eq.mantenimiento_cada_km ? `${fmtNum(eq.mantenimiento_cada_km)} km` : null].filter(Boolean).join(' · ')],
     ['Ficha técnica', eq.ficha_tecnica], ['Ficha de mantenimiento', eq.ficha_mantenimiento], ['Documentación', eq.documentacion],
     ['Estado operativo', `${ESTADOS_EQUIPO[estadoEfectivo(eq)].label}${eq.estado_nota ? ` (${eq.estado_nota})` : ''}`],
   ];

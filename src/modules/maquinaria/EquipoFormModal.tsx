@@ -4,7 +4,8 @@ import { SearchSelect, SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { listActivosMaquinaria, addCatalogoMaquinaria } from './maquinaria.repository';
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
-import { addEquipo, updateEquipo, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo, type MaquinariaEquipoInput } from './maquinariaEquipos.repository';
+import { addEquipo, updateEquipo, vincularEquipoEnCombustible, GRUPOS_MANTENIMIENTO, type MaquinariaEquipo, type MaquinariaEquipoInput } from './maquinariaEquipos.repository';
+import { norm } from '@/shared/lib/texto';
 import { CLASES_EQUIPO, claseEquipo, type ClaseEquipo } from './flota';
 
 const COMBUSTIBLES = ['GASOIL', 'GASOLINA', 'GAS', 'ELÉCTRICO', 'N/A'];
@@ -83,6 +84,7 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
   const [combEquiposTodos, setCombEquiposTodos] = useState<string[]>([]); // todos: para saber si el vinculo existe
   const [ubicaciones, setUbicaciones] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [vinculando, setVinculando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -127,6 +129,30 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
     if (!v || !combEquiposTodos.length) return false;
     return !combEquiposTodos.some((e) => e.trim() === v);
   }, [f.combustible_equipo, combEquiposTodos]);
+
+  /**
+   * Vincula el equipo a un nombre del catálogo de Combustible (26/10/2026). Si el nombre ya
+   * existe (sin que importen mayúsculas ni acentos) se toma ese tal como está escrito; si no,
+   * se crea en Combustible (tipo «equipo», activo) y se suma a las listas del desplegable para
+   * que quede elegido sin recargar. Lo usan la opción «➕ Crear … en Combustible» y el botón
+   * «🔗 Vincular a sí mismo».
+   */
+  async function vincularCon(nombre: string) {
+    const n = nombre.trim();
+    if (!n) return;
+    const existente = combEquiposTodos.find((e) => norm(e) === norm(n));
+    if (existente) { set('combustible_equipo', existente); return; }
+    setVinculando(true);
+    try {
+      const valor = await vincularEquipoEnCombustible(n);
+      setCombEquipos((prev) => (prev.some((e) => norm(e) === norm(valor)) ? prev : [...prev, valor].sort((a, b) => a.localeCompare(b, 'es'))));
+      setCombEquiposTodos((prev) => (prev.some((e) => norm(e) === norm(valor)) ? prev : [...prev, valor]));
+      set('combustible_equipo', valor);
+      toast(`«${valor}» creado en el catálogo de Combustible`, 'success');
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'No se pudo crear el equipo en Combustible.', 'error');
+    } finally { setVinculando(false); }
+  }
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -362,7 +388,41 @@ export function EquipoFormModal({ equipo, actor, onClose, onSaved, tipoInicial, 
         <div className="card" style={{ padding: '.6rem .85rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)', margin: '.25rem 0 .75rem' }}>
           <div className="form-row" style={{ margin: 0 }}>
             <label>⛽ Equipo de Combustible vinculado</label>
-            <SearchSelect value={f.combustible_equipo ?? ''} onChange={(v) => set('combustible_equipo', v || null)} options={combOpts} placeholder="— sin vincular —" />
+            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+              <SearchSelect
+                value={f.combustible_equipo ?? ''}
+                onChange={(v) => {
+                  const val = v.trim();
+                  if (!val) { set('combustible_equipo', null); return; }
+                  // Elegido de la lista → se guarda tal cual; escrito nuevo → se crea en Combustible.
+                  if (combEquiposTodos.some((e) => e === val)) set('combustible_equipo', val);
+                  else void vincularCon(val.toUpperCase());
+                }}
+                options={combOpts}
+                placeholder="— sin vincular —"
+                disabled={vinculando}
+                allowCreate
+                createLabel={(q) => `➕ Crear «${q.toUpperCase()}» en Combustible`}
+                style={{ flex: 1 }}
+              />
+              <button
+                type="button"
+                className="btn btn-ghost btn-sm"
+                style={{ whiteSpace: 'nowrap' }}
+                disabled={vinculando || !f.equipo?.trim()}
+                title={f.equipo?.trim()
+                  ? `Vincular con «${f.equipo.trim()}» (se crea en Combustible si no existe)`
+                  : 'Escribe primero el nombre del equipo (arriba) para poder vincularlo a sí mismo'}
+                onClick={() => void vincularCon(f.equipo.trim())}
+              >
+                {vinculando ? '⏳ Vinculando…' : '🔗 Vincular a sí mismo'}
+              </button>
+            </div>
+            {esNuevo && !(f.combustible_equipo ?? '').trim() && (
+              <small className="muted" style={{ display: 'block' }}>
+                Si lo dejas vacío, el equipo queda vinculado a sí mismo: se crea con su mismo nombre en Combustible.
+              </small>
+            )}
             {vinculoRoto ? (
               <small style={{ color: 'var(--danger)' }}>
                 ⚠ <strong>Vínculo roto.</strong> Este equipo apunta a «{f.combustible_equipo}», que ya no

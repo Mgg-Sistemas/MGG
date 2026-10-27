@@ -18,9 +18,10 @@ import { listEquipos, reiniciarMantenimientoDeEquipo, type MaquinariaEquipo } fr
 import { listCatalogos } from '@/modules/combustible/tanques.repository';
 import { enviarEquiposPorCorreo } from './maquinariaReportes';
 import {
-  BUCKETS_FLOTA, CLASES_EQUIPO, ESTADOS_EQUIPO, estadoEfectivo, claseEquipo, avisoServicio, avisoMasUrgente, coincideEquipo,
+  BUCKETS_FLOTA, CLASES_EQUIPO, ESTADOS_EQUIPO, estadoEfectivo, claseEquipo, avisoServicio, avisoMasUrgente, coincideEquipo, frecuenciaHrs,
   type AvisoServicio, type BucketFlota, type ClaseEquipo, type EstadoEquipo,
 } from './flota';
+import { AlertasMantenimientoBanner, type EquipoConAviso } from './AlertasMantenimiento';
 import { ordenesAbiertasPorEquipo, fotosDeEquipos, lecturasVigentesPorEquipo, type LecturaVigente } from './flota.repository';
 import { FlotaNav } from './FlotaNav';
 import { BarraServicio } from './ServicioMantenimientoPage';
@@ -44,11 +45,12 @@ interface InfoEquipo {
  * tipo. Cada fila abre el expediente del equipo, donde están las acciones.
  */
 export function MaquinariaPage() {
-  const { can } = usePermissions();
+  const { can, appUser } = usePermissions();
   const { user } = useSession();
   const navigate = useNavigate();
   const canWrite = can('maquinaria', 'escritura');
   const actor = user?.email ?? 'sistema';
+  const actorName = appUser?.nombre ?? null;
 
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
   const [lecturas, setLecturas] = useState<Map<string, LecturaVigente>>(new Map()); // contador vigente por equipo
@@ -64,7 +66,6 @@ export function MaquinariaPage() {
   const [clase, setClase] = useState<ClaseEquipo | 'todos'>('todos');
   const [propietario, setPropietario] = useState('');
   const [tipo, setTipo] = useState('');
-  const [soloProximos, setSoloProximos] = useState(false);
 
   const [catalogoOpen, setCatalogoOpen] = useState(false);
   const [resumenOpen, setResumenOpen] = useState(false);
@@ -101,6 +102,7 @@ export function MaquinariaPage() {
   // kilometraje) se traen de Combustible por el equipo vinculado (combustible_equipo);
   // el horómetro cae a la bitácora si no hay dato de Combustible. El aviso salta si
   // faltan ≤ 10% del intervalo (horas o km) o ya se pasó — la misma regla de siempre.
+  // En horas, los equipos sin frecuencia cargada usan la de la empresa (250 h, 26/10/2026).
   const info = useMemo(() => {
     const m = new Map<string, InfoEquipo>();
     for (const e of equipos) {
@@ -108,7 +110,7 @@ export function MaquinariaPage() {
       const lec = lecturas.get(e.id);
       const horo = lec?.horometro ?? null;
       const km = lec?.kilometraje ?? null;
-      const avisoH = avisoServicio(e.mantenimiento_cada_hrs, horo, e.mantenimiento_base_hrs, 'h');
+      const avisoH = avisoServicio(frecuenciaHrs(e), horo, e.mantenimiento_base_hrs, 'h');
       const avisoK = avisoServicio(e.mantenimiento_cada_km, km, e.mantenimiento_base_km, 'km');
       const aviso = avisoMasUrgente(avisoH, avisoK);
       m.set(e.id, { estado: estadoEfectivo(e), clase: claseEquipo(e), horometro: horo, km, avisoH, avisoK, aviso });
@@ -152,18 +154,25 @@ export function MaquinariaPage() {
     }
     if (propietario && (e.propietario ?? '') !== propietario) return false;
     if (ignorar !== 'tipo' && tipo && norm(e.tipo) !== norm(tipo)) return false;
-    if (soloProximos && !(i.aviso && i.aviso.nivel !== 'ok')) return false;
     return coincideEquipo(e, filtro);
-  }), [equipos, info, bucket, clase, propietario, tipo, soloProximos, filtro]);
+  }), [equipos, info, bucket, clase, propietario, tipo, filtro]);
 
   const lista = useMemo(() => filtrar(null), [filtrar]);
   const baseFlota = useMemo(() => filtrar('bucket'), [filtrar]);
   const baseTipos = useMemo(() => filtrar('tipo'), [filtrar]);
   const disponibles = baseFlota.filter((e) => info.get(e.id)?.estado !== 'retirada').length;
-  const proximos = useMemo(
-    () => equipos.filter((e) => e.activo && info.get(e.id)?.aviso && info.get(e.id)?.aviso?.nivel !== 'ok'),
-    [equipos, info],
-  );
+  // Equipos activos (no retirados) con el servicio PRÓXIMO o VENCIDO, para el banner de
+  // alertas (26/10/2026). La lectura va en la unidad del aviso más urgente (horas o km).
+  const alertas = useMemo<EquipoConAviso[]>(() => {
+    const out: EquipoConAviso[] = [];
+    for (const e of equipos) {
+      if (!e.activo) continue;
+      const i = info.get(e.id);
+      if (!i || i.estado === 'retirada' || !i.aviso || i.aviso.nivel === 'ok') continue;
+      out.push({ equipo: e, aviso: i.aviso, lectura: i.aviso.unidad === 'h' ? i.horometro : i.km });
+    }
+    return out;
+  }, [equipos, info]);
 
   const propietarios = useMemo(
     () => [...new Set(equipos.map((e) => e.propietario).filter(Boolean) as string[])].sort((a, b) => a.localeCompare(b, 'es')),
@@ -216,6 +225,10 @@ export function MaquinariaPage() {
         </div>
       </div>
 
+      {/* Alertas de mantenimiento (como el «Dinero por entrar» de Acopio): equipos con servicio
+          próximo o vencido; al tocarlo se ven y se responden (26/10/2026). */}
+      <AlertasMantenimientoBanner items={alertas} actor={actor} actorName={actorName} canWrite={canWrite} onChanged={() => void cargar()} />
+
       <div className="flo-fleet" role="group" aria-label="Filtrar por estado">
         {BUCKETS_FLOTA.map((b) => {
           const n = baseFlota.filter((e) => ESTADOS_EQUIPO[info.get(e.id)?.estado ?? 'operativa'].bucket === b.id).length;
@@ -227,16 +240,6 @@ export function MaquinariaPage() {
           );
         })}
       </div>
-
-      {proximos.length > 0 && (
-        <div className="aviso warning" style={{ marginBottom: '.6rem' }}>
-          <span className="aviso-icono">⚠️</span>
-          <div>
-            <strong>{proximos.length} equipo(s)</strong> con servicio próximo o vencido (horómetro / kilometraje de Combustible): {proximos.slice(0, 6).map((e) => e.equipo).join(', ')}{proximos.length > 6 ? '…' : ''}.{' '}
-            <button type="button" className="btn-link" onClick={() => setSoloProximos(!soloProximos)}>{soloProximos ? 'Ver todos' : 'Ver solo esos'}</button>
-          </div>
-        </div>
-      )}
 
       {vinculosRotos.length > 0 && (
         <div className="aviso danger" style={{ marginBottom: '.6rem' }}>
@@ -322,7 +325,7 @@ export function MaquinariaPage() {
                     {(e.mantenimiento_cada_hrs || i.horometro != null || e.mantenimiento_cada_km || i.km != null) && (
                       <div className="flo-mant-barras" style={{ margin: '.35rem 0' }}>
                         {(e.mantenimiento_cada_hrs || i.horometro != null) && (
-                          <BarraServicio aviso={i.avisoH} cada={e.mantenimiento_cada_hrs} etiqueta="Horas" />
+                          <BarraServicio aviso={i.avisoH} cada={frecuenciaHrs(e)} etiqueta="Horas" />
                         )}
                         {(e.mantenimiento_cada_km || i.km != null) && (
                           <BarraServicio aviso={i.avisoK} cada={e.mantenimiento_cada_km} etiqueta="Kilometraje" />
@@ -397,7 +400,7 @@ export function MaquinariaPage() {
         <AccionConEquipo accion="orden" equipos={equipos} equipoInicial={nuevaOrdenEq.id} onClose={() => setNuevaOrdenEq(null)} onDone={() => void cargar()} />
       )}
       {bitacoraEq && (
-        <BitacoraModal equipo={bitacoraEq} canWrite={canWrite} actor={actor} actorName={user?.email ?? null} onClose={() => setBitacoraEq(null)} />
+        <BitacoraModal equipo={bitacoraEq} canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setBitacoraEq(null)} />
       )}
       {reiniciarEq && (
         <ConfirmDialog

@@ -6,8 +6,11 @@
    - Equipo, Tipo, Empresa/Propietario, Encargado, Estatus, Marca, Modelo,
      Horómetro, Kilometraje, Serial, Placa, Ubicación, Combustible, Mantt.
    - Agrupación por empresa / propietario (secciones separadas con conteos).
-   - Generación de PDF institucional (logo, naranja, membrete, orientación) y
-     Excel profesional con bordes y estilos (ExcelJS).
+   - Filtro por categoría (maquinaria / vehículos / motos / lanchas): el título
+     del PDF y del Excel la nombran cuando no es «Todas».
+   - Generación de PDF institucional en fichas con foto (logo, naranja, membrete,
+     orientación; la foto solo si está marcada «Foto del equipo») y Excel
+     profesional con bordes y estilos (ExcelJS).
    ============================================================ */
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { extraerEncargado } from './maquinariaEquipos.repository';
@@ -99,12 +102,14 @@ export async function descargarEquiposExcelPersonalizado(
   agruparPorEmpresa: boolean,
   contextoMap?: Map<string, ContextoEquipoExportar>,
   orientacion: OrientacionHoja = 'auto',
+  categoria?: string | null,
 ): Promise<void> {
   const campos = camposElegidos(claves);
   if (!campos.length) throw new Error('Marca al menos un dato para descargar.');
   if (!equipos.length) throw new Error('No hay equipos en la lista.');
 
   const [{ default: ExcelJS }] = await Promise.all([import('exceljs')]);
+  const cat = txt(categoria);
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('Equipos', {
@@ -123,12 +128,12 @@ export async function descargarEquiposExcelPersonalizado(
   ws.mergeCells(2, 1, 2, Math.max(1, ultimaCol));
 
   const t = ws.getCell(1, 1);
-  t.value = 'CONTROL DE MAQUINARIA Y VEHÍCULOS · MINERAL GROUP GUAYANA C.A.';
+  t.value = cat ? `${cat.toUpperCase()} · MINERAL GROUP GUAYANA C.A.` : 'CONTROL DE MAQUINARIA Y VEHÍCULOS · MINERAL GROUP GUAYANA C.A.';
   t.font = { name: 'Arial', size: 13, bold: true, color: { argb: 'FFFF8A00' } };
   t.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
 
   const sub = ws.getCell(2, 1);
-  sub.value = `${equipos.length} equipo(s) · ${agruparPorEmpresa ? 'Agrupados por empresa' : 'Listado general'} · ${new Date().toLocaleString('es-VE')}`;
+  sub.value = `${equipos.length} equipo(s)${cat ? ` · Categoría: ${cat}` : ''} · ${agruparPorEmpresa ? 'Agrupados por empresa' : 'Listado general'} · ${new Date().toLocaleString('es-VE')}`;
   sub.font = { name: 'Arial', size: 10, color: { argb: 'FF5C6673' } };
   sub.alignment = { vertical: 'middle', horizontal: 'left', indent: 1 };
 
@@ -253,7 +258,7 @@ async function cargarImagenDataUrl(url: string): Promise<{ data: string; tipo: '
 }
 
 /* ─────────────────────────────────────────────────────────────
-   PDF: Descargar datos de equipos (Fichas Técnicas o Tabla con Fotos)
+   PDF: Descargar datos de equipos (Fichas Técnicas con Foto)
    ───────────────────────────────────────────────────────────── */
 export async function descargarEquiposPdfPersonalizado(
   equipos: MaquinariaEquipo[],
@@ -262,21 +267,24 @@ export async function descargarEquiposPdfPersonalizado(
   contextoMap?: Map<string, ContextoEquipoExportar>,
   orientacion: OrientacionHoja = 'auto',
   fotosMap?: Map<string, string>,
-  formatoPdf: 'fichas' | 'tabla' = 'fichas',
+  categoria?: string | null,
 ): Promise<void> {
   const campos = camposElegidos(claves);
   if (!campos.length) throw new Error('Marca al menos un dato para descargar.');
   if (!equipos.length) throw new Error('No hay equipos en la lista.');
 
-  const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl, dibujarLogoPdf, anchoLogoPdf }] = await Promise.all([
+  const [{ jsPDF }, { loadLogoPdfDataUrl, dibujarLogoPdf, anchoLogoPdf }] = await Promise.all([
     import('jspdf'),
-    import('jspdf-autotable'),
     import('@/shared/lib/pdfLogo'),
   ]);
 
-  // Precarga de fotos de los equipos en DataURLs
+  // La ficha lleva foto solo si el usuario marcó «Foto del equipo»
+  const conFoto = campos.some((c) => c.clave === 'foto');
+  const cat = txt(categoria);
+
+  // Precarga de fotos de los equipos en DataURLs (solo si van a salir)
   let fm = fotosMap;
-  if (!fm) {
+  if (!fm && conFoto) {
     try {
       const fts = await fotosDeEquipos();
       fm = new Map<string, string>();
@@ -289,14 +297,16 @@ export async function descargarEquiposPdfPersonalizado(
   }
 
   const fotosDataUrlMap = new Map<string, { data: string; tipo: 'JPEG' | 'PNG' }>();
-  await Promise.allSettled(
-    equipos.map(async (eq) => {
-      const url = fm?.get(eq.id);
-      if (!url) return;
-      const r = await cargarImagenDataUrl(url);
-      if (r) fotosDataUrlMap.set(eq.id, r);
-    })
-  );
+  if (conFoto) {
+    await Promise.allSettled(
+      equipos.map(async (eq) => {
+        const url = fm?.get(eq.id);
+        if (!url) return;
+        const r = await cargarImagenDataUrl(url);
+        if (r) fotosDataUrlMap.set(eq.id, r);
+      })
+    );
+  }
 
   const logo = await loadLogoPdfDataUrl().catch(() => null);
   const orient = orientacionFinal(claves, orientacion);
@@ -339,7 +349,7 @@ export async function descargarEquiposPdfPersonalizado(
     doc.setFontSize(8.5);
     doc.setTextColor(80, 80, 80);
     doc.text(
-      `MINERAL GROUP GUAYANA C.A. · RIF ${idEmp.rif} · ${equipos.length} equipo(s) · ${agruparPorEmpresa ? 'Agrupados por Empresa' : 'Listado General'} · ${new Date().toLocaleString('es-VE')}`,
+      `MINERAL GROUP GUAYANA C.A. · RIF ${idEmp.rif} · ${equipos.length} equipo(s)${cat ? ` · ${cat}` : ''} · ${agruparPorEmpresa ? 'Agrupados por Empresa' : 'Listado General'} · ${new Date().toLocaleString('es-VE')}`,
       tx,
       y + 27,
     );
@@ -352,10 +362,10 @@ export async function descargarEquiposPdfPersonalizado(
   }
 
   /* ──────────────────────────────────────────────────────────
-     MODO 1: FICHAS TÉCNICAS CON FOTO (Estilo Ficha Técnica elegante)
+     FICHAS TÉCNICAS CON FOTO (Estilo Ficha Técnica elegante)
      ────────────────────────────────────────────────────────── */
-  if (formatoPdf === 'fichas') {
-    dibujarEncabezadoGeneral('CATÁLOGO Y FICHAS TÉCNICAS DE MAQUINARIA Y EQUIPOS');
+  {
+    dibujarEncabezadoGeneral(cat ? `CATÁLOGO Y FICHAS TÉCNICAS · ${cat.toUpperCase()}` : 'CATÁLOGO Y FICHAS TÉCNICAS DE MAQUINARIA Y EQUIPOS');
 
     const grupos = agruparPorEmpresa ? agruparEquiposPorEmpresa(equipos) : new Map([['TODOS LOS EQUIPOS', equipos]]);
     let contadorGeneral = 1;
@@ -429,41 +439,44 @@ export async function descargarEquiposPdfPersonalizado(
           doc.text(plLabel, plX + plW / 2, y + 11.5, { align: 'center' });
         }
 
-        // Recuadro de Foto a la izquierda
+        // Recuadro de Foto a la izquierda (solo si está marcada «Foto del equipo»;
+        // si no, el texto ocupa ese ancho)
         const imgBoxX = MARGIN + 6;
         const imgBoxY = y + 22;
-        const imgBoxW = 68;
+        const imgBoxW = conFoto ? 68 : 0;
         const imgBoxH = 54;
-        doc.setFillColor(241, 245, 249);
-        doc.setDrawColor(226, 232, 240);
-        doc.setLineWidth(0.4);
-        doc.roundedRect(imgBoxX, imgBoxY, imgBoxW, imgBoxH, 3, 3, 'FD');
+        if (conFoto) {
+          doc.setFillColor(241, 245, 249);
+          doc.setDrawColor(226, 232, 240);
+          doc.setLineWidth(0.4);
+          doc.roundedRect(imgBoxX, imgBoxY, imgBoxW, imgBoxH, 3, 3, 'FD');
 
-        const imgData = fotosDataUrlMap.get(eq.id);
-        if (imgData) {
-          try {
-            const prop = doc.getImageProperties(imgData.data);
-            const k = Math.min((imgBoxW - 4) / prop.width, (imgBoxH - 4) / prop.height);
-            const iw = prop.width * k;
-            const ih = prop.height * k;
-            const ix = imgBoxX + (imgBoxW - iw) / 2;
-            const iy = imgBoxY + (imgBoxH - ih) / 2;
-            doc.addImage(imgData.data, imgData.tipo, ix, iy, iw, ih);
-          } catch {
+          const imgData = fotosDataUrlMap.get(eq.id);
+          if (imgData) {
+            try {
+              const prop = doc.getImageProperties(imgData.data);
+              const k = Math.min((imgBoxW - 4) / prop.width, (imgBoxH - 4) / prop.height);
+              const iw = prop.width * k;
+              const ih = prop.height * k;
+              const ix = imgBoxX + (imgBoxW - iw) / 2;
+              const iy = imgBoxY + (imgBoxH - ih) / 2;
+              doc.addImage(imgData.data, imgData.tipo, ix, iy, iw, ih);
+            } catch {
+              doc.setFont('helvetica', 'normal');
+              doc.setFontSize(7.5);
+              doc.setTextColor(148, 163, 184);
+              doc.text('Foto no disp.', imgBoxX + imgBoxW / 2, imgBoxY + imgBoxH / 2 + 2, { align: 'center' });
+            }
+          } else {
             doc.setFont('helvetica', 'normal');
             doc.setFontSize(7.5);
             doc.setTextColor(148, 163, 184);
-            doc.text('Foto no disp.', imgBoxX + imgBoxW / 2, imgBoxY + imgBoxH / 2 + 2, { align: 'center' });
+            doc.text('Sin foto', imgBoxX + imgBoxW / 2, imgBoxY + imgBoxH / 2 + 2, { align: 'center' });
           }
-        } else {
-          doc.setFont('helvetica', 'normal');
-          doc.setFontSize(7.5);
-          doc.setTextColor(148, 163, 184);
-          doc.text('Sin foto', imgBoxX + imgBoxW / 2, imgBoxY + imgBoxH / 2 + 2, { align: 'center' });
         }
 
         // Especificaciones técnicas a la derecha (2 columnas bien proporcionadas)
-        const specX1 = imgBoxX + imgBoxW + 10;
+        const specX1 = conFoto ? imgBoxX + imgBoxW + 10 : imgBoxX;
         const specW1 = (UW - imgBoxW - 24) * 0.52;
         const specX2 = specX1 + specW1 + 8;
 
@@ -508,109 +521,5 @@ export async function descargarEquiposPdfPersonalizado(
 
     pies('Catálogo y Fichas Técnicas de Equipos');
     previewPdf(doc, `fichas-tecnicas-maquinaria-${hoyStr()}.pdf`);
-    return;
   }
-
-  /* ──────────────────────────────────────────────────────────
-     MODO 2: TABLA DE INVENTARIO CON FOTOS
-     ────────────────────────────────────────────────────────── */
-  dibujarEncabezadoGeneral('CONTROL DE MAQUINARIA Y VEHÍCULOS');
-
-  const anchoTotal = campos.reduce((a, c) => a + c.ancho, 0);
-  const util = W - MARGIN * 2 - 26;
-  const columnStyles: Record<number, { cellWidth: number; halign?: 'right' | 'center' | 'left' }> = {
-    0: { cellWidth: 26, halign: 'center' },
-  };
-
-  campos.forEach((c, i) => {
-    columnStyles[i + 1] = {
-      cellWidth: (util * c.ancho) / anchoTotal,
-      halign: c.clave === 'litros_consume' || c.clave === 'anio' || c.clave === 'foto' ? 'center' : 'left',
-    };
-  });
-
-  const letra = Math.max(6.5, Math.min(8.5, Math.floor((util / anchoTotal) * 2 * 2) / 2));
-  const fotoColIdx = campos.findIndex((c) => c.clave === 'foto');
-
-  const dibujarTabla = (lista: MaquinariaEquipo[], startY: number, contadorInicial: number) => {
-    let cont = contadorInicial;
-    autoTable(doc, {
-      theme: 'grid',
-      startY,
-      head: [['N°', ...campos.map((c) => pdfSafe(c.etiqueta.toUpperCase()))]],
-      body: lista.map((eq) => {
-        const ctx = contextoMap?.get(eq.id);
-        return [String(cont++), ...campos.map((c) => pdfSafe(String(c.valor(eq, ctx))))];
-      }),
-      styles: { fontSize: letra, cellPadding: 3, overflow: 'linebreak', valign: 'middle', lineColor: [203, 213, 225], lineWidth: 0.4 },
-      headStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center', fontSize: letra },
-      alternateRowStyles: { fillColor: [252, 250, 246] },
-      columnStyles,
-      margin: MARGIN,
-      didParseCell: (data) => {
-        if (data.section === 'body' && fotoColIdx !== -1 && data.column.index === fotoColIdx + 1) {
-          data.cell.styles.minCellHeight = 32;
-          data.cell.styles.cellPadding = 1.5;
-        }
-      },
-      didDrawCell: (data) => {
-        if (data.section === 'body' && fotoColIdx !== -1 && data.column.index === fotoColIdx + 1) {
-          const eq = lista[data.row.index];
-          if (eq) {
-            const img = fotosDataUrlMap.get(eq.id);
-            if (img) {
-              try {
-                const pad = 2;
-                const maxW = data.cell.width - pad * 2;
-                const maxH = data.cell.height - pad * 2;
-                const p = doc.getImageProperties(img.data);
-                const k = Math.min(maxW / p.width, maxH / p.height, 1);
-                const w = p.width * k;
-                const h = p.height * k;
-                const x = data.cell.x + (data.cell.width - w) / 2;
-                const yPos = data.cell.y + (data.cell.height - h) / 2;
-                doc.addImage(img.data, img.tipo, x, yPos, w, h);
-              } catch {
-                // silenciar si falla el renderizado
-              }
-            }
-          }
-        }
-      },
-    });
-    const lastTable = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
-    return { finalY: lastTable?.finalY ?? startY, nextCount: cont };
-  };
-
-  if (!agruparPorEmpresa) {
-    const res = dibujarTabla(equipos, y, 1);
-    y = res.finalY + 18;
-  } else {
-    const grupos = agruparEquiposPorEmpresa(equipos);
-    let contadorGeneral = 1;
-
-    for (const [empresa, listaEmpresa] of grupos.entries()) {
-      if (y > H - 80) {
-        doc.addPage();
-        y = MARGIN;
-      }
-
-      doc.setFillColor(241, 245, 249);
-      doc.rect(MARGIN, y, UW, 15, 'F');
-      doc.setFillColor(255, 138, 0);
-      doc.rect(MARGIN, y, 3, 15, 'F');
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
-      doc.setTextColor(30, 41, 59);
-      doc.text(pdfSafe(`🏢 EMPRESA: ${empresa.toUpperCase()} (${listaEmpresa.length} equipos)`), MARGIN + 6, y + 11);
-      y += 18;
-
-      const res = dibujarTabla(listaEmpresa, y, contadorGeneral);
-      y = res.finalY + 16;
-      contadorGeneral = res.nextCount;
-    }
-  }
-
-  pies('Control de Maquinaria y Equipos');
-  previewPdf(doc, `control-maquinaria-${hoyStr()}.pdf`);
 }

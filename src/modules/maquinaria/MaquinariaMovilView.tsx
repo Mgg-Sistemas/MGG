@@ -15,6 +15,7 @@ import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -36,6 +37,7 @@ import {
   eliminarLavado,
   lecturasVigentesPorEquipo,
   solicitarCompraDeOrden,
+  notificarComprasPiezasNuevas,
   fotosDeEquipos,
   type OrdenServicio,
   type LavadoEquipo,
@@ -45,12 +47,15 @@ import {
 import {
   avisoServicio,
   avisoMasUrgente,
+  frecuenciaHrs,
   estadoEfectivo,
   claseEquipo,
   SERVICIOS,
   type EstadoEquipo,
   type AvisoServicio,
 } from './flota';
+import { AlertasMantenimientoBanner, type EquipoConAviso } from './AlertasMantenimiento';
+import { TABLAS_ALERTAS_MANT } from './alertasMantenimiento.repository';
 import { listRepuestosEquipo } from './repuestosEquipo.repository';
 import { sistemaDe, type RepuestoEquipo } from './repuestosEquipo';
 import { EquipoFormModal } from './EquipoFormModal';
@@ -68,6 +73,18 @@ type ModoMovil = 'menu' | 'servicio' | 'lavado' | 'averia' | 'filtros' | 'solici
 
 const TIPOS_LAVADO = ['SENCILLO', 'COMPLETO', 'CHASIS / MOTOR', 'ENGRASADO Y LAVADO'];
 
+/** Badge del estado del servicio (verde OK · ámbar próximo · rojo vencido) para la tarjeta y la ventana de opciones. */
+function BadgeServicio({ av }: { av: AvisoServicio | null | undefined }) {
+  if (!av) return <span className="badge" title="Sin intervalo de mantenimiento">Sin intervalo</span>;
+  if (av.nivel === 'vencido') {
+    return <span className="badge danger" title="Mantenimiento vencido">Vencido +{fmtNum(Math.abs(av.restante))} {av.unidad}</span>;
+  }
+  if (av.nivel === 'proximo') {
+    return <span className="badge warning" title="Mantenimiento próximo">Próx. {fmtNum(av.restante)} {av.unidad}</span>;
+  }
+  return <span className="badge success" title={`Faltan ${fmtNum(av.restante)} ${av.unidad} para el servicio`}>OK</span>;
+}
+
 interface InfoMantenimientoMovil {
   horometro: number | null;
   kilometraje: number | null;
@@ -78,9 +95,11 @@ interface InfoMantenimientoMovil {
 
 export function MaquinariaMovilView() {
   const { user } = useSession();
-  const { appUser, soloTelefono } = usePermissions();
+  const { appUser, soloTelefono, can } = usePermissions();
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || 'Operador';
+  // Permiso de escritura del módulo: habilita responder las alertas de mantenimiento desde el teléfono.
+  const canWrite = can('maquinaria', 'escritura');
 
   const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
   const [ordenes, setOrdenes] = useState<OrdenServicio[]>([]);
@@ -169,7 +188,12 @@ export function MaquinariaMovilView() {
     void cargarDatos();
   }, []);
 
-  useRealtime(['maquinaria_equipos', 'maquinaria_ordenes_servicio', 'maquinaria_lavados', 'maquinaria_lecturas'], () => {
+  // Un surtido de combustible (horómetro/km), una anotación en la bitácora o una respuesta a la
+  // alerta deben refrescar el aviso de mantenimiento sin recargar la página.
+  useRealtime([
+    'maquinaria_equipos', 'maquinaria_ordenes_servicio', 'maquinaria_lavados', 'maquinaria_lecturas',
+    'combustible_tanque_movimientos', 'maquinaria_mantenimientos', ...TABLAS_ALERTAS_MANT,
+  ], () => {
     void cargarDatos();
   });
 
@@ -180,7 +204,8 @@ export function MaquinariaMovilView() {
       const lec = lecturas.get(e.id);
       const horo = lec?.horometro ?? null;
       const km = lec?.kilometraje ?? null;
-      const avisoH = avisoServicio(e.mantenimiento_cada_hrs, horo, e.mantenimiento_base_hrs, 'h');
+      // Horas: la frecuencia del equipo o 250 h por defecto (igual que la vista de PC y el banner).
+      const avisoH = avisoServicio(frecuenciaHrs(e), horo, e.mantenimiento_base_hrs, 'h');
       const avisoK = avisoServicio(e.mantenimiento_cada_km, km, e.mantenimiento_base_km, 'km');
       const aviso = avisoMasUrgente(avisoH, avisoK);
       const est = estadoEfectivo(e);
@@ -189,6 +214,19 @@ export function MaquinariaMovilView() {
     }
     return map;
   }, [equipos, lecturas]);
+
+  // Equipos activos (no retirados) con el servicio PRÓXIMO o VENCIDO para el banner de alertas
+  // (26/10/2026). La lectura va en la unidad del aviso más urgente (horas o km).
+  const alertasMant = useMemo<EquipoConAviso[]>(() => {
+    const out: EquipoConAviso[] = [];
+    for (const e of equipos) {
+      if (!e.activo) continue;
+      const inf = infoEquipos.get(e.id);
+      if (!inf || inf.estado === 'retirada' || !inf.aviso || inf.aviso.nivel === 'ok') continue;
+      out.push({ equipo: e, aviso: inf.aviso, lectura: inf.aviso.unidad === 'h' ? inf.horometro : inf.kilometraje });
+    }
+    return out;
+  }, [equipos, infoEquipos]);
 
   // Al elegir equipo, cargar sus repuestos/filtros
   useEffect(() => {
@@ -321,7 +359,18 @@ export function MaquinariaMovilView() {
           }));
           spCodigo = await solicitarCompraDeOrden(res, nuevas);
         } catch (errCompras) {
-          console.warn('Solicitud de compra se procesará manualmente:', errCompras);
+          // Mismo respaldo que la PC (OrdenServicioModal): si no se pudo abrir la solicitud de
+          // pedido, al menos Compras se entera de las piezas nuevas y se avisa que queda pendiente.
+          const motivo = errCompras instanceof Error ? errCompras.message : (errCompras as { message?: string })?.message || 'error';
+          let avisada = false;
+          if (res.repuestos.some((x) => !x.producto_id)) {
+            try { avisada = await notificarComprasPiezasNuevas(res); } catch { /* queda por solicitar */ }
+          }
+          notify(`🔧 ${res.codigo} creada${avisada ? ' · Compras notificada de las piezas nuevas' : ''} — ${equipoActual.equipo}`, 'warning', {
+            link: `#/app/maquinaria/equipo/${equipoActual.id}?tab=servicios`,
+            detail: `Queda por solicitar la solicitud de pedido (${motivo})`,
+          });
+          toast(`Queda por solicitar la solicitud de pedido (${motivo}). Se puede generar después desde la orden.`, 'warning');
         }
       }
 
@@ -450,7 +499,7 @@ export function MaquinariaMovilView() {
   }
 
   return (
-    <div className="surtidor flo-movil-wrap" style={{ maxWidth: '540px', margin: '0 auto', padding: '.5rem' }}>
+    <div className="surtidor flo-movil-wrap" style={{ maxWidth: '540px', margin: '0 auto' }}>
       {/* ── Encabezado Móvil ── */}
       <header className="surt-head" style={{ marginBottom: '.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
@@ -463,6 +512,10 @@ export function MaquinariaMovilView() {
           </Link>
         )}
       </header>
+
+      {/* ── Alertas de mantenimiento (como el «Dinero por entrar» de Acopio): equipos con servicio
+          próximo o vencido; al tocarlo se ven y se responden (26/10/2026). Arriba de todo. ── */}
+      <AlertasMantenimientoBanner compacto items={alertasMant} actor={actor} actorName={actorName} canWrite={canWrite} onChanged={() => void cargarDatos()} />
 
       {/* ── Modal flotante de WhatsApp: aparece al instante centrado en pantalla ── */}
       {mensajeWhatsapp && (
@@ -504,93 +557,45 @@ export function MaquinariaMovilView() {
         ¿QUÉ DESEAS REPORTAR HOY?
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem', marginBottom: '.45rem' }}>
+      <div className="flo-mv-acciones">
         <button
           type="button"
-          className="btn"
-          style={{
-            height: '44px',
-            padding: '.25rem .35rem',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: '.1rem',
-            background: modo === 'servicio' ? 'rgba(255, 138, 0, 0.22)' : 'rgba(255, 138, 0, 0.08)',
-            border: modo === 'servicio' ? '2px solid #ff8a00' : '1px solid rgba(255, 138, 0, 0.35)',
-            borderRadius: '7px',
-            color: '#ff9d2b',
-          }}
+          className="btn btn-ghost flo-mv-accion"
+          aria-pressed={modo === 'servicio'}
           onClick={() => { setModo('servicio'); setMensajeWhatsapp(null); }}
         >
-          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>🔧</span>
-          <span style={{ fontWeight: 700, fontSize: '.72rem', lineHeight: 1.1 }}>Solicitar Servicio</span>
+          <span className="ico">🔧</span>
+          <strong>Solicitar Servicio</strong>
         </button>
 
         <button
           type="button"
-          className="btn"
-          style={{
-            height: '44px',
-            padding: '.25rem .35rem',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: '.1rem',
-            background: modo === 'lavado' ? 'rgba(56, 189, 248, 0.22)' : 'rgba(56, 189, 248, 0.08)',
-            border: modo === 'lavado' ? '2px solid #38bdf8' : '1px solid rgba(56, 189, 248, 0.35)',
-            borderRadius: '7px',
-            color: '#38bdf8',
-          }}
+          className="btn btn-ghost flo-mv-accion tone-info"
+          aria-pressed={modo === 'lavado'}
           onClick={() => { setModo('lavado'); setMensajeWhatsapp(null); }}
         >
-          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>🚿</span>
-          <span style={{ fontWeight: 700, fontSize: '.72rem', lineHeight: 1.1 }}>Registrar Lavado</span>
+          <span className="ico">🚿</span>
+          <strong>Registrar Lavado</strong>
         </button>
 
         <button
           type="button"
-          className="btn"
-          style={{
-            height: '44px',
-            padding: '.25rem .35rem',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: '.1rem',
-            background: modo === 'averia' ? 'rgba(239, 68, 68, 0.22)' : 'rgba(239, 68, 68, 0.08)',
-            border: modo === 'averia' ? '2px solid #ef4444' : '1px solid rgba(239, 68, 68, 0.35)',
-            borderRadius: '7px',
-            color: '#f87171',
-          }}
+          className="btn btn-ghost flo-mv-accion tone-danger"
+          aria-pressed={modo === 'averia'}
           onClick={() => { setModo('averia'); setMensajeWhatsapp(null); }}
         >
-          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>⚠️</span>
-          <span style={{ fontWeight: 700, fontSize: '.72rem', lineHeight: 1.1 }}>Reportar Avería</span>
+          <span className="ico">⚠️</span>
+          <strong>Reportar Avería</strong>
         </button>
 
         <button
           type="button"
-          className="btn"
-          style={{
-            height: '44px',
-            padding: '.25rem .35rem',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            gap: '.1rem',
-            background: modo === 'filtros' ? 'rgba(168, 85, 247, 0.22)' : 'rgba(168, 85, 247, 0.08)',
-            border: modo === 'filtros' ? '2px solid #a855f7' : '1px solid rgba(168, 85, 247, 0.35)',
-            borderRadius: '7px',
-            color: '#c084fc',
-          }}
+          className="btn btn-ghost flo-mv-accion tone-primary-3"
+          aria-pressed={modo === 'filtros'}
           onClick={() => { setModo('filtros'); setMensajeWhatsapp(null); }}
         >
-          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>🔍</span>
-          <span style={{ fontWeight: 700, fontSize: '.72rem', lineHeight: 1.1 }}>Ver Filtros / Rep.</span>
+          <span className="ico">🔍</span>
+          <strong>Ver Filtros / Rep.</strong>
         </button>
       </div>
 
@@ -600,36 +605,15 @@ export function MaquinariaMovilView() {
         return (
           <button
             type="button"
-            className="btn"
-            style={{
-              width: '100%',
-              padding: '.45rem .75rem',
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              marginBottom: '.6rem',
-              borderRadius: '8px',
-              border: modo === 'solicitudes' ? '2px solid #ff8a00' : '1px solid rgba(255, 138, 0, 0.35)',
-              background: modo === 'solicitudes' ? 'rgba(255, 138, 0, 0.16)' : 'var(--surface-2, #182230)',
-              color: '#ffffff',
-            }}
+            className="btn btn-ghost flo-mv-solicitudes"
+            aria-pressed={modo === 'solicitudes'}
             onClick={() => { setModo(modo === 'solicitudes' ? 'menu' : 'solicitudes'); setMensajeWhatsapp(null); }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
-              <span style={{ fontSize: '1.15rem' }}>📋</span>
-              <span style={{ fontWeight: 700, fontSize: '.82rem', color: '#ffffff' }}>Mis Solicitudes y Órdenes de Servicio</span>
-            </div>
-            <span
-              className="badge"
-              style={{
-                fontSize: '.72rem',
-                padding: '.15rem .5rem',
-                borderRadius: '999px',
-                background: ordenesActivas.length > 0 ? '#ff8a00' : 'rgba(255,255,255,0.1)',
-                color: ordenesActivas.length > 0 ? '#000000' : '#cbd5e1',
-                fontWeight: 800,
-              }}
-            >
+            <span>
+              <span className="ico">📋</span>
+              <span>Mis Solicitudes y Órdenes de Servicio</span>
+            </span>
+            <span className={`badge ${ordenesActivas.length > 0 ? 'primary' : ''}`}>
               {ordenesActivas.length} {ordenesActivas.length === 1 ? 'activa' : 'activas'}
             </span>
           </button>
@@ -1350,17 +1334,16 @@ export function MaquinariaMovilView() {
       )}
 
       {/* ── Catálogo de Máquinas y Horas de Mantenimiento ── */}
-      <div style={{ marginTop: '1.25rem', marginBottom: '1rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+      <div className="flo-mv-cat">
+        <div className="flo-mv-cat-head">
           <div>
-            <strong style={{ fontSize: '.95rem' }}>🚜 Catálogo de Equipos y Horas</strong>
-            <span className="badge" style={{ marginLeft: '.4rem' }}>{equiposCatalogo.length} de {equipos.length}</span>
+            <strong>🚜 Catálogo de Equipos y Horas</strong>
+            <span className="badge">{equiposCatalogo.length} de {equipos.length}</span>
           </div>
-          <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
+          <div className="flo-mv-cat-acc">
             <button
               type="button"
               className="btn btn-sm btn-ghost"
-              style={{ fontSize: '.74rem', padding: '.2rem .5rem', border: '1px solid var(--border)', color: '#38bdf8' }}
               title="Descargar Catálogo y Fichas Técnicas en PDF"
               onClick={() => setExportarPdfMovilOpen(true)}
             >
@@ -1369,7 +1352,6 @@ export function MaquinariaMovilView() {
             <button
               type="button"
               className="btn btn-sm btn-primary"
-              style={{ fontSize: '.76rem', padding: '.22rem .6rem', fontWeight: 700 }}
               onClick={() => setNuevoEquipoMovilOpen(true)}
             >
               {filtroCatalogo === 'motos' ? '+ Nueva moto' : filtroCatalogo === 'lanchas' ? '+ Nueva lancha' : filtroCatalogo === 'vehiculos' ? '+ Nuevo vehículo' : filtroCatalogo === 'pesada' ? '+ Nueva maquinaria' : '+ Nuevo equipo'}
@@ -1380,66 +1362,35 @@ export function MaquinariaMovilView() {
         {/* Buscador táctil */}
         <input
           className="input"
-          style={{ width: '100%', marginBottom: '.5rem', fontSize: '.84rem', padding: '.5rem .75rem' }}
           placeholder="🔍 Buscar máquina, modelo, placa, encargado…"
           value={busquedaCatalogo}
           onChange={(e) => setBusquedaCatalogo(e.target.value)}
         />
 
-        {/* Filtros rápidos táctiles por Categoría */}
-        <div style={{ display: 'flex', gap: '.3rem', overflowX: 'auto', paddingBottom: '.4rem', marginBottom: '.6rem' }}>
-          <button
-            type="button"
-            className={`btn btn-sm ${filtroCatalogo === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ fontSize: '.75rem', whiteSpace: 'nowrap' }}
-            onClick={() => setFiltroCatalogo('todos')}
-          >
-            Todos ({conteosCatalogo.total})
+        {/* Filtros rápidos por categoría: chips deslizables (sin scroll horizontal de la página) */}
+        <div className="flo-pills solido" role="tablist" aria-label="Filtrar catálogo por categoría">
+          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'todos'} onClick={() => setFiltroCatalogo('todos')}>
+            Todos<span className="n">{conteosCatalogo.total}</span>
           </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${filtroCatalogo === 'lanchas' ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ fontSize: '.75rem', whiteSpace: 'nowrap' }}
-            onClick={() => setFiltroCatalogo('lanchas')}
-          >
-            🚤 Lanchas ({conteosCatalogo.lanchas})
+          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'lanchas'} onClick={() => setFiltroCatalogo('lanchas')}>
+            🚤 Lanchas<span className="n">{conteosCatalogo.lanchas}</span>
           </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${filtroCatalogo === 'pesada' ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ fontSize: '.75rem', whiteSpace: 'nowrap' }}
-            onClick={() => setFiltroCatalogo('pesada')}
-          >
-            🚜 Maquinaria ({conteosCatalogo.pesada})
+          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'pesada'} onClick={() => setFiltroCatalogo('pesada')}>
+            🚜 Maquinaria<span className="n">{conteosCatalogo.pesada}</span>
           </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${filtroCatalogo === 'vehiculos' ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ fontSize: '.75rem', whiteSpace: 'nowrap' }}
-            onClick={() => setFiltroCatalogo('vehiculos')}
-          >
-            🚚 Vehículos ({conteosCatalogo.vehiculos})
+          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'vehiculos'} onClick={() => setFiltroCatalogo('vehiculos')}>
+            🚚 Vehículos<span className="n">{conteosCatalogo.vehiculos}</span>
           </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${filtroCatalogo === 'motos' ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ fontSize: '.75rem', whiteSpace: 'nowrap' }}
-            onClick={() => setFiltroCatalogo('motos')}
-          >
-            🏍️ Motos ({conteosCatalogo.motos})
+          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'motos'} onClick={() => setFiltroCatalogo('motos')}>
+            🏍️ Motos<span className="n">{conteosCatalogo.motos}</span>
           </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${filtroCatalogo === 'alertas' ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ fontSize: '.75rem', whiteSpace: 'nowrap' }}
-            onClick={() => setFiltroCatalogo('alertas')}
-          >
-            ⚠️ Próx. / Vencidos ({conteosCatalogo.alertas})
+          <button type="button" className="flo-pill" aria-pressed={filtroCatalogo === 'alertas'} onClick={() => setFiltroCatalogo('alertas')}>
+            ⚠️ Próx. / Vencidos<span className="n">{conteosCatalogo.alertas}</span>
           </button>
         </div>
 
         {/* Lista / Tarjetas de equipos tipo catálogo */}
-        <div style={{ display: 'grid', gap: '.55rem' }}>
+        <div className="flo-mv-lista">
           {equiposCatalogo.map((eq) => {
             const inf = infoEquipos.get(eq.id);
             const av = inf?.aviso;
@@ -1447,70 +1398,30 @@ export function MaquinariaMovilView() {
             const km = inf?.kilometraje;
             const enc = inf?.encargado;
             const foto = fotos.get(eq.id);
-
-            // Nivel de mantenimiento
-            const esVencido = av?.nivel === 'vencido';
-            const esProximo = av?.nivel === 'proximo';
-            const esOk = av?.nivel === 'ok';
+            const operativa = !inf?.estado || inf.estado === 'operativa';
 
             return (
               <div
                 key={eq.id}
                 role="button"
                 tabIndex={0}
+                className={`flo-mv-card${av?.nivel === 'vencido' ? ' vencido' : av?.nivel === 'proximo' ? ' proximo' : ''}`}
                 onClick={() => abrirOpcionesEquipo(eq)}
                 onKeyDown={(e) => { if (e.key === 'Enter') abrirOpcionesEquipo(eq); }}
-                style={{
-                  background: 'var(--surface-2, #182230)',
-                  border: esVencido
-                    ? '1.5px solid var(--danger, #ef4444)'
-                    : esProximo
-                    ? '1.5px solid var(--warning, #f59e0b)'
-                    : '1px solid var(--border, #334155)',
-                  borderRadius: '10px',
-                  padding: '.75rem',
-                  cursor: 'pointer',
-                  transition: 'transform 0.1s ease',
-                  position: 'relative',
-                }}
               >
-                <div style={{ display: 'flex', gap: '.65rem', alignItems: 'flex-start' }}>
+                <div className="flo-mv-card-top">
                   {/* Foto miniatura o icono de clase */}
-                  <div style={{ flexShrink: 0, position: 'relative' }}>
-                    {foto ? (
-                      <img
-                        src={foto}
-                        alt={eq.equipo}
-                        style={{ width: 54, height: 54, borderRadius: 8, objectFit: 'cover', border: '1px solid rgba(255,255,255,0.1)' }}
-                      />
-                    ) : (
-                      <div style={{
-                        width: 54,
-                        height: 54,
-                        borderRadius: 8,
-                        background: 'var(--surface-1, #0f172a)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        fontSize: '1.6rem',
-                        border: '1px solid rgba(255,255,255,0.06)',
-                      }}>
-                        {claseEquipo(eq) === 'lancha' ? '🚤' : claseEquipo(eq) === 'moto' ? '🏍️' : claseEquipo(eq) === 'vehiculo' ? '🚚' : '🚜'}
-                      </div>
-                    )}
+                  <div className="flo-mv-thumb">
+                    <div className="flo-thumb">
+                      {foto ? (
+                        <img src={foto} alt={eq.equipo} />
+                      ) : (
+                        claseEquipo(eq) === 'lancha' ? '🚤' : claseEquipo(eq) === 'moto' ? '🏍️' : claseEquipo(eq) === 'vehiculo' ? '🚚' : '🚜'
+                      )}
+                    </div>
                     <button
                       type="button"
-                      className="btn btn-sm btn-ghost"
-                      style={{
-                        position: 'absolute',
-                        bottom: -4,
-                        right: -4,
-                        padding: '1px 4px',
-                        fontSize: '.65rem',
-                        background: 'rgba(0,0,0,0.7)',
-                        borderRadius: 4,
-                        lineHeight: 1,
-                      }}
+                      className="btn btn-sm btn-ghost flo-mv-foto-btn"
                       title="Cambiar foto del equipo"
                       onClick={(e) => {
                         e.stopPropagation();
@@ -1522,82 +1433,40 @@ export function MaquinariaMovilView() {
                   </div>
 
                   {/* Datos del equipo */}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                      <strong style={{ fontSize: '.92rem', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {eq.equipo}
-                      </strong>
-                      <span
-                        className="badge"
-                        style={{
-                          fontSize: '.68rem',
-                          background: inf?.estado === 'operativa' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
-                          color: inf?.estado === 'operativa' ? '#4ade80' : '#f87171',
-                          marginLeft: '.3rem',
-                          flexShrink: 0,
-                        }}
-                      >
+                  <div className="flo-mv-datos">
+                    <div className="flo-mv-nombre">
+                      <strong>{eq.equipo}</strong>
+                      <span className={`badge ${operativa ? 'success' : 'danger'}`}>
                         {inf?.estado?.toUpperCase() || 'OPERATIVA'}
                       </span>
                     </div>
 
-                    <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem', display: 'flex', flexWrap: 'wrap', gap: '.3rem', alignItems: 'center' }}>
-                      <span>{[eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(' · ')}</span>
-                      {eq.placa && (
-                        <span className="badge" style={{ fontSize: '.68rem', padding: '1px 5px', background: 'rgba(255,255,255,0.08)', color: '#38bdf8', fontWeight: 700 }}>
-                          🚗 {eq.placa}
-                        </span>
-                      )}
+                    <div className="flo-mv-sub muted">
+                      <span>{[eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(' · ') || 'Sin tipo'}</span>
+                      {eq.placa && <span className="flo-mv-placa mono">{eq.placa}</span>}
                     </div>
 
                     {enc && (
-                      <div style={{ fontSize: '.73rem', color: 'var(--text-dim, #94a3b8)', marginTop: '.2rem' }}>
-                        👤 Encargado: <strong style={{ color: '#e2e8f0' }}>{enc}</strong>
+                      <div className="flo-mv-enc">
+                        👤 Encargado: <strong>{enc}</strong>
                       </div>
                     )}
                   </div>
                 </div>
 
-                {/* Lecturas y Horas que faltan para mantenimiento */}
-                <div style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  background: 'var(--surface-1, #0f172a)',
-                  padding: '.4rem .6rem',
-                  borderRadius: '6px',
-                  fontSize: '.76rem',
-                  marginTop: '.45rem',
-                }}>
-                  <div>
-                    <span className="muted">Horómetro: </span>
-                    <strong>{horo != null ? `${fmtNum(horo)} h` : km != null ? `${fmtNum(km)} km` : '—'}</strong>
-                  </div>
-
-                  <div>
-                    {esVencido ? (
-                      <span style={{ color: '#f87171', fontWeight: 700 }}>
-                        ⛔ Vencido por {fmtNum(Math.abs(av.restante))} {av.unidad}
-                      </span>
-                    ) : esProximo ? (
-                      <span style={{ color: '#fbbf24', fontWeight: 700 }}>
-                        ⚠️ Próximo en {fmtNum(av.restante)} {av.unidad}
-                      </span>
-                    ) : esOk ? (
-                      <span style={{ color: '#4ade80', fontWeight: 600 }}>
-                        🟢 Faltan {fmtNum(av.restante)} {av.unidad}
-                      </span>
-                    ) : (
-                      <span className="muted">⚪ Sin intervalo</span>
-                    )}
-                  </div>
+                {/* Lectura vigente + estado del servicio en una sola fila */}
+                <div className="flo-mv-lectura">
+                  <span>
+                    <span className="muted">{horo == null && km != null ? 'Kilometraje: ' : 'Horómetro: '}</span>
+                    <span className="mono">{horo != null ? `${fmtNum(horo)} h` : km != null ? `${fmtNum(km)} km` : '—'}</span>
+                  </span>
+                  <BadgeServicio av={av} />
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.35rem', fontSize: '.72rem' }}>
+                <div className="flo-mv-card-acc">
                   <button
                     type="button"
                     className="btn btn-sm btn-ghost"
-                    style={{ fontSize: '.7rem', padding: '.15rem .4rem', color: '#4ade80' }}
                     onClick={(e) => {
                       e.stopPropagation();
                       const txt = textoEstadoEquipoWhatsapp({
@@ -1618,7 +1487,7 @@ export function MaquinariaMovilView() {
                   >
                     📲 WhatsApp
                   </button>
-                  <span style={{ color: 'var(--primary, #38bdf8)' }}>Toque para opciones ▸</span>
+                  <span className="ayuda">Toque para ver opciones ▸</span>
                 </div>
               </div>
             );
@@ -1653,58 +1522,42 @@ export function MaquinariaMovilView() {
 
             return (
               <div style={{ display: 'grid', gap: '.75rem' }}>
-                {/* Resumen del equipo */}
-                <div style={{ background: 'var(--surface-2, #182230)', padding: '.75rem', borderRadius: '8px' }}>
-                  <div style={{ display: 'flex', gap: '.75rem', alignItems: 'center' }}>
-                    {fotos.has(equipoOpciones.id) ? (
-                      <img
-                        src={fotos.get(equipoOpciones.id)}
-                        alt={equipoOpciones.equipo}
-                        style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border)' }}
-                      />
-                    ) : (
-                      <div style={{ width: '60px', height: '60px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem' }}>
-                        🚜
-                      </div>
-                    )}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: '.8rem', color: 'var(--text-dim, #94a3b8)' }}>
-                        {[equipoOpciones.tipo, equipoOpciones.marca, equipoOpciones.modelo].filter(Boolean).join(' · ')}
-                      </div>
-                      {equipoOpciones.placa && (
-                        <div style={{ fontSize: '.82rem', marginTop: '.15rem', color: 'var(--accent, #38bdf8)', fontWeight: 600 }}>
-                          🚗 Placa: {equipoOpciones.placa}
-                        </div>
+                {/* Resumen del equipo (mismo patrón que la tarjeta del catálogo) */}
+                <div className="flo-mv-resumen">
+                  <div className="flo-mv-card-top">
+                    <div className="flo-thumb">
+                      {fotos.has(equipoOpciones.id) ? (
+                        <img src={fotos.get(equipoOpciones.id)} alt={equipoOpciones.equipo} />
+                      ) : (
+                        claseEquipo(equipoOpciones) === 'lancha' ? '🚤' : claseEquipo(equipoOpciones) === 'moto' ? '🏍️' : claseEquipo(equipoOpciones) === 'vehiculo' ? '🚚' : '🚜'
                       )}
-                      {enc && <div style={{ fontSize: '.82rem', marginTop: '.15rem' }}>👤 Encargado: <strong>{enc}</strong></div>}
+                    </div>
+                    <div className="flo-mv-datos">
+                      <div className="flo-mv-sub muted">
+                        <span>{[equipoOpciones.tipo, equipoOpciones.marca, equipoOpciones.modelo].filter(Boolean).join(' · ') || 'Sin tipo'}</span>
+                        {equipoOpciones.placa && <span className="flo-mv-placa mono">{equipoOpciones.placa}</span>}
+                      </div>
+                      {enc && <div className="flo-mv-enc">👤 Encargado: <strong>{enc}</strong></div>}
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '.5rem', fontSize: '.82rem', paddingTop: '.4rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                    <span>⏱️ Horómetro: <strong>{horo != null ? `${fmtNum(horo)} h` : km != null ? `${fmtNum(km)} km` : '—'}</strong></span>
+                  <div className="flo-mv-lectura">
                     <span>
-                      {av?.nivel === 'vencido' ? (
-                        <strong style={{ color: '#f87171' }}>⛔ Vencido por {fmtNum(Math.abs(av.restante))} {av.unidad}</strong>
-                      ) : av?.nivel === 'proximo' ? (
-                        <strong style={{ color: '#fbbf24' }}>⚠️ Próximo en {fmtNum(av.restante)} {av.unidad}</strong>
-                      ) : av ? (
-                        <strong style={{ color: '#4ade80' }}>🟢 Faltan {fmtNum(av.restante)} {av.unidad}</strong>
-                      ) : (
-                        <span className="muted">⚪ Sin intervalo</span>
-                      )}
+                      <span className="muted">{horo == null && km != null ? '⏱️ Kilometraje: ' : '⏱️ Horómetro: '}</span>
+                      <span className="mono">{horo != null ? `${fmtNum(horo)} h` : km != null ? `${fmtNum(km)} km` : '—'}</span>
                     </span>
+                    <BadgeServicio av={av} />
                   </div>
                 </div>
 
-                <div style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text-dim, #94a3b8)', marginTop: '.2rem' }}>
+                <div className="muted" style={{ fontSize: '.82rem', fontWeight: 600, marginTop: '.2rem' }}>
                   ¿Qué deseas registrar para esta máquina?
                 </div>
 
                 {/* Botones de acción directa */}
                 <button
                   type="button"
-                  className="btn btn-primary"
-                  style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem' }}
+                  className="btn btn-primary flo-mv-opcion"
                   onClick={() => {
                     setEquipoSelId(equipoOpciones.id);
                     setModo('servicio');
@@ -1717,8 +1570,7 @@ export function MaquinariaMovilView() {
 
                 <button
                   type="button"
-                  className="btn btn-ghost"
-                  style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', border: '1px solid var(--border)' }}
+                  className="btn btn-ghost flo-mv-opcion"
                   onClick={() => {
                     setSubirFotoEq(equipoOpciones);
                     setEquipoOpciones(null);
@@ -1730,8 +1582,7 @@ export function MaquinariaMovilView() {
 
                 <button
                   type="button"
-                  className="btn btn-ghost"
-                  style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', border: '1px solid var(--border)' }}
+                  className="btn btn-ghost flo-mv-opcion"
                   onClick={() => {
                     setEquipoSelId(equipoOpciones.id);
                     setModo('lavado');
@@ -1744,8 +1595,7 @@ export function MaquinariaMovilView() {
 
                 <button
                   type="button"
-                  className="btn btn-ghost"
-                  style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', border: '1px solid var(--border)' }}
+                  className="btn btn-ghost flo-mv-opcion"
                   onClick={() => {
                     setEquipoSelId(equipoOpciones.id);
                     setModo('averia');
@@ -1758,8 +1608,7 @@ export function MaquinariaMovilView() {
 
                 <button
                   type="button"
-                  className="btn btn-ghost"
-                  style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', border: '1px solid var(--border)' }}
+                  className="btn btn-ghost flo-mv-opcion"
                   onClick={() => {
                     setEquipoSelId(equipoOpciones.id);
                     setModo('filtros');
@@ -1772,8 +1621,7 @@ export function MaquinariaMovilView() {
 
                 <button
                   type="button"
-                  className="btn btn-ghost"
-                  style={{ height: '44px', fontSize: '.84rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.45rem', border: '1px solid rgba(255, 138, 0, 0.4)', color: '#ff9d2b' }}
+                  className="btn btn-ghost flo-mv-opcion ficha"
                   onClick={async () => {
                     try {
                       const fts = await fotosDeEquipos(equipoOpciones.id).catch(() => []);
@@ -1783,8 +1631,8 @@ export function MaquinariaMovilView() {
                         {
                           horometro: horo ?? null,
                           km: km ?? null,
-                          restantesHrs: av?.unidad === 'h' ? av.restante : null,
-                          restantesKm: av?.unidad === 'km' ? av.restante : null,
+                          restantesHrs: (av?.unidad === 'h' && av.restante != null) ? av.restante : null,
+                          restantesKm: (av?.unidad === 'km' && av.restante != null) ? av.restante : null,
                           ultimoSurtido: null,
                         },
                         ordenes.filter((o) => o.equipo_id === equipoOpciones.id),
@@ -1802,8 +1650,7 @@ export function MaquinariaMovilView() {
 
                 <button
                   type="button"
-                  className="btn btn-ghost"
-                  style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80' }}
+                  className="btn btn-success flo-mv-opcion"
                   onClick={() => {
                     const txt = textoEstadoEquipoWhatsapp({
                       equipo: equipoOpciones.equipo,

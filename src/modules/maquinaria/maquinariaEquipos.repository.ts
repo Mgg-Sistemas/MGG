@@ -6,7 +6,7 @@
    se traen del módulo de Combustible.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { ultimoHorometroEquipo, consumoPorEquipo } from '@/modules/combustible/tanques.repository';
+import { ultimoHorometroEquipo, consumoPorEquipo, asegurarCatalogo } from '@/modules/combustible/tanques.repository';
 import { norm } from '@/shared/lib/texto';
 import { pathsDocumentosDeEquipo, borrarArchivosDocumentos } from './maquinariaDocumentos.repository';
 import { pathsFotosDeEquipo, borrarArchivosFotosOrden } from './osFotos.repository';
@@ -135,10 +135,35 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
   };
 }
 
+/**
+ * Deja al equipo vinculado a sí mismo en Combustible (26/10/2026): crea su nombre en el
+ * catálogo de equipos de Combustible si no estaba (sin duplicar por mayúsculas/acentos) y
+ * devuelve el nombre tal como quedó en el catálogo, listo para guardarlo en
+ * `combustible_equipo`. Lo usa el formulario (botón «Vincular a sí mismo» y la opción de
+ * crear) y el alta de equipos nuevos.
+ */
+export async function vincularEquipoEnCombustible(nombre: string): Promise<string> {
+  const n = nombre.trim();
+  if (!n) throw new Error('Indica el nombre del equipo.');
+  const fila = await asegurarCatalogo('equipo', n);
+  return fila.valor;
+}
+
 export async function addEquipo(input: MaquinariaEquipoInput, actor: string): Promise<MaquinariaEquipo> {
   if (!input.equipo?.trim()) throw new Error('Indica el equipo.');
+  const fila = sanitize(input);
+  // Equipo NUEVO sin vínculo → queda vinculado a sí mismo (26/10/2026): el mismo nombre se
+  // crea en el catálogo de Combustible. La base lo garantiza con un trigger (también crea el
+  // valor del catálogo con SECURITY DEFINER, por si quien registra no tiene permiso de
+  // Combustible); aquí se hace además desde la app para que la ficha ya salga vinculada sin
+  // esperar a recargar, y el catálogo se intenta best-effort (si falla por permiso, lo
+  // termina el trigger). Al EDITAR no se vincula solo: eso lo decide el botón del formulario.
+  if (!fila.combustible_equipo) {
+    const nombre = fila.equipo as string;
+    fila.combustible_equipo = await vincularEquipoEnCombustible(nombre).catch(() => nombre);
+  }
   const { data, error } = await supabase.from(TABLE)
-    .insert({ ...sanitize(input), created_by: actor })
+    .insert({ ...fila, created_by: actor })
     .select('*').single();
   if (error) throw error;
   return data as MaquinariaEquipo;

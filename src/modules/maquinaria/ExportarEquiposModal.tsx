@@ -3,15 +3,19 @@
    (26/10/2026)
 
    Casillas para elegir qué datos salen (idéntico a RRHH):
-   - Selección de columnas personalizables.
+   - Selección de columnas personalizables («Foto del equipo» decide si la
+     ficha PDF lleva el recuadro de la foto).
+   - Filtro por propietario y por categoría (maquinaria / vehículos / motos /
+     lanchas), combinados; el título del PDF y del Excel nombran la categoría.
    - Opción para agrupar por empresa / propietario.
-   - Excel o PDF (con vista previa para imprimir).
+   - Excel o PDF en fichas con foto (con vista previa para imprimir).
    - Recuerda las preferencias del usuario en localStorage.
    ============================================================ */
 import { useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
+import { CLASES_EQUIPO, claseEquipo, type ClaseEquipo } from './flota';
 import {
   CAMPOS_EQUIPO,
   CAMPOS_POR_DEFECTO_EQUIPOS,
@@ -22,7 +26,9 @@ import {
   type OrientacionHoja,
 } from './exportarEquipos';
 
-const CLAVE_LOCAL_CAMPOS = 'maquinaria.exportar-equipos.campos';
+// «.v2» (26/10/2026): la selección guardada antes no traía «Foto del equipo» y el
+// usuario creía que la casilla no hacía nada; con la clave nueva vuelve a salir marcada.
+const CLAVE_LOCAL_CAMPOS = 'maquinaria.exportar-equipos.campos.v2';
 const CLAVE_LOCAL_AGRUPAR = 'maquinaria.exportar-equipos.agrupar';
 
 function seleccionGuardada(): string[] {
@@ -61,7 +67,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
   const [marcados, setMarcados] = useState<string[]>(seleccionGuardada);
   const [agrupar, setAgrupar] = useState<boolean>(agruparGuardado);
   const [propietarioSel, setPropietarioSel] = useState<string>('todos');
-  const [formatoPdf, setFormatoPdf] = useState<'fichas' | 'tabla'>('fichas');
+  const [categoriaSel, setCategoriaSel] = useState<'todas' | ClaseEquipo>('todas');
   const [ocupado, setOcupado] = useState<'xlsx' | 'pdf' | null>(null);
   const [orientacion, setOrientacion] = useState<OrientacionHoja>('auto');
 
@@ -74,11 +80,30 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
     return Array.from(s).sort((a, b) => a.localeCompare(b, 'es'));
   }, [equipos]);
 
-  const equiposAExportar = useMemo(() => {
+  // Primer filtro: propietario (los conteos de las categorías se calculan sobre este grupo)
+  const equiposDelPropietario = useMemo(() => {
     if (propietarioSel === 'todos') return equipos;
     if (propietarioSel === '__sin__') return equipos.filter((e) => !(e.propietario ?? '').trim());
     return equipos.filter((e) => (e.propietario ?? '').trim().toUpperCase() === propietarioSel.toUpperCase());
   }, [equipos, propietarioSel]);
+
+  // Segundo filtro: categoría (misma clasificación que el catálogo: claseEquipo)
+  const equiposAExportar = useMemo(() => {
+    if (categoriaSel === 'todas') return equiposDelPropietario;
+    return equiposDelPropietario.filter((e) => claseEquipo(e) === categoriaSel);
+  }, [equiposDelPropietario, categoriaSel]);
+
+  const conteoCategorias = useMemo(() => {
+    const m = new Map<ClaseEquipo, number>();
+    for (const e of equiposDelPropietario) {
+      const c = claseEquipo(e);
+      m.set(c, (m.get(c) ?? 0) + 1);
+    }
+    return m;
+  }, [equiposDelPropietario]);
+
+  const categoriaLabel = categoriaSel === 'todas' ? null : (CLASES_EQUIPO.find((c) => c.id === categoriaSel)?.label ?? null);
+  const propietarioLabel = propietarioSel === 'todos' ? null : propietarioSel === '__sin__' ? 'Sin propietario' : propietarioSel;
 
   const alternar = (clave: string) =>
     setMarcados((m) => (m.includes(clave) ? m.filter((x) => x !== clave) : [...m, clave]));
@@ -88,7 +113,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
     try {
       guardarPreferencias(marcados, agrupar);
       if (formato === 'xlsx') {
-        await descargarEquiposExcelPersonalizado(equiposAExportar, marcados, agrupar, contextoMap, orientacion);
+        await descargarEquiposExcelPersonalizado(equiposAExportar, marcados, agrupar, contextoMap, orientacion, categoriaLabel);
       } else {
         await descargarEquiposPdfPersonalizado(
           equiposAExportar,
@@ -97,7 +122,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
           contextoMap,
           orientacion,
           fotosMap,
-          formatoPdf,
+          categoriaLabel,
         );
       }
     } catch (e) {
@@ -136,8 +161,8 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
     >
       <p className="muted" style={{ fontSize: '.84rem', marginTop: 0 }}>
         Marca los datos que quieres que salgan. Se descargan <strong>{equiposAExportar.length}</strong> equipo(s)
-        {propietarioSel !== 'todos' ? (
-          <> de <strong>{propietarioSel === '__sin__' ? 'Sin propietario' : propietarioSel}</strong></>
+        {categoriaLabel || propietarioLabel ? (
+          <> de <strong>{[categoriaLabel, propietarioLabel].filter(Boolean).join(' · ')}</strong></>
         ) : (
           equipos.length !== total ? <> de {total}, los que deja ver el filtro aplicado</> : null
         )}.
@@ -181,7 +206,7 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
         </select>
       </div>
 
-      {/* Selector de Presentación del PDF */}
+      {/* Categoría a exportar (misma clasificación que el catálogo); se combina con el propietario */}
       <div style={{
         background: 'var(--surface-2, #182230)',
         border: '1px solid var(--border)',
@@ -189,26 +214,18 @@ export function ExportarEquiposModal({ equipos, total, contextoMap, fotosMap, on
         padding: '.6rem .75rem',
         marginBottom: '.5rem',
       }}>
-        <div style={{ fontSize: '.84rem', fontWeight: 700, marginBottom: '.4rem', color: '#ff9d2b', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-          <span>📑</span> Presentación del PDF (como la Ficha Técnica):
+        <div style={{ fontSize: '.86rem', fontWeight: 600, marginBottom: '.4rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+          🚜 Categoría a exportar:
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.4rem' }}>
-          <button
-            type="button"
-            className={`btn btn-sm ${formatoPdf === 'fichas' ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ fontSize: '.78rem', padding: '.4rem .5rem', fontWeight: 700, border: formatoPdf === 'fichas' ? '2px solid #ff8a00' : '1px solid var(--border)' }}
-            onClick={() => setFormatoPdf('fichas')}
-          >
-            📋 Fichas con Foto
+        <div className="flo-pills solido" role="group" aria-label="Categoría a exportar" style={{ marginBottom: 0 }}>
+          <button type="button" className="flo-pill" aria-pressed={categoriaSel === 'todas'} onClick={() => setCategoriaSel('todas')}>
+            Todas<span className="n">{equiposDelPropietario.length}</span>
           </button>
-          <button
-            type="button"
-            className={`btn btn-sm ${formatoPdf === 'tabla' ? 'btn-primary' : 'btn-ghost'}`}
-            style={{ fontSize: '.78rem', padding: '.4rem .5rem', fontWeight: 700, border: formatoPdf === 'tabla' ? '2px solid #ff8a00' : '1px solid var(--border)' }}
-            onClick={() => setFormatoPdf('tabla')}
-          >
-            📊 Tabla de Inventario
-          </button>
+          {CLASES_EQUIPO.map((c) => (
+            <button key={c.id} type="button" className="flo-pill" aria-pressed={categoriaSel === c.id} onClick={() => setCategoriaSel(c.id)}>
+              {c.icon} {c.label}<span className="n">{conteoCategorias.get(c.id) ?? 0}</span>
+            </button>
+          ))}
         </div>
       </div>
 

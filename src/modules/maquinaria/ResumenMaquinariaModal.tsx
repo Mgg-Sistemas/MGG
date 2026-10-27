@@ -5,6 +5,8 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { num as fmtNum } from '@/shared/lib/format';
 import { consumoPorEquipo } from '@/modules/combustible/tanques.repository';
 import { horasUltimoPorEquipo } from './maquinariaMant.repository';
+import { lecturasVigentesPorEquipo, type LecturaVigente } from './flota.repository';
+import { avisoDeEquipo, textoAviso, tonoAviso } from './avisoEquipo';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { norm } from '@/shared/lib/texto';
 
@@ -13,6 +15,8 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
   const [hasta, setHasta] = useState('');
   const [gasoil, setGasoil] = useState<{ nombre: string; cantidad: number; valor: number }[]>([]);
   const [horasMap, setHorasMap] = useState<Map<string, { horasUltimo: number | null; ultimoHorometro: number | null }>>(new Map());
+  // Lectura vigente unificada por equipo (una sola consulta): la misma que usa el catálogo.
+  const [lecturas, setLecturas] = useState<Map<string, LecturaVigente>>(new Map());
   const [loading, setLoading] = useState(true);
   const [detalle, setDetalle] = useState<string | null>(null); // nombre (equipo de combustible) seleccionado
   const [statusSel, setStatusSel] = useState<string | null>(null); // status seleccionado (drill-down)
@@ -22,15 +26,16 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
     try {
       const d = desde ? new Date(`${desde}T00:00:00`) : new Date(2000, 0, 1);
       const h = hasta ? new Date(`${hasta}T23:59:59`) : new Date();
-      const [g, hm] = await Promise.all([
+      const [g, hm, lv] = await Promise.all([
         consumoPorEquipo(d, h).catch(() => []),
         horasUltimoPorEquipo().catch(() => new Map()),
+        lecturasVigentesPorEquipo().catch(() => new Map<string, LecturaVigente>()),
       ]);
-      setGasoil(g); setHorasMap(hm);
+      setGasoil(g); setHorasMap(hm); setLecturas(lv);
     } finally { setLoading(false); }
   }, [desde, hasta]);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['maquinaria_mantenimientos', 'combustible_tanque_movimientos'], () => { void cargar(); });
+  useRealtime(['maquinaria_mantenimientos', 'maquinaria_lecturas', 'combustible_tanque_movimientos'], () => { void cargar(); });
 
   // Distribución por status.
   const porStatus = useMemo(() => {
@@ -45,18 +50,27 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
     [gasoil],
   );
 
-  // Mantenimiento preventivo: equipos con frecuencia cuyas horas del último período la superan.
-  const preventivo = useMemo(() => equipos
-    .filter((e) => e.mantenimiento_cada_hrs != null && e.mantenimiento_cada_hrs > 0)
-    .map((e) => {
-      const hm = horasMap.get(e.id);
-      const horas = hm?.horasUltimo ?? null;
-      const freq = e.mantenimiento_cada_hrs!;
-      return { equipo: e, horas, freq, toca: horas != null && horas >= freq };
-    })
-    .sort((a, b) => (b.toca ? 1 : 0) - (a.toca ? 1 : 0)), [equipos, horasMap]);
+  // Mantenimiento preventivo: la MISMA regla del catálogo (avisoServicio con la lectura vigente
+  // unificada, la base del último mantenimiento y 250 h si la ficha no trae frecuencia; km si
+  // aplica). Las horas del último período de la bitácora quedan solo como información.
+  const preventivo = useMemo(() => {
+    const peso = { vencido: 0, proximo: 1, ok: 2 } as const;
+    return equipos
+      .map((e) => {
+        const lec = lecturas.get(e.id) ?? null;
+        const av = avisoDeEquipo(e, lec);
+        return { equipo: e, horas: horasMap.get(e.id)?.horasUltimo ?? null, lectura: lec, av, toca: !!av.aviso && av.aviso.nivel !== 'ok' };
+      })
+      .sort((a, b) => {
+        const pa = a.av.aviso ? peso[a.av.aviso.nivel] : 3;
+        const pb = b.av.aviso ? peso[b.av.aviso.nivel] : 3;
+        if (pa !== pb) return pa - pb;
+        return (b.av.aviso?.ratio ?? 0) - (a.av.aviso?.ratio ?? 0);
+      });
+  }, [equipos, horasMap, lecturas]);
 
-  const tocan = preventivo.filter((p) => p.toca).length;
+  // Igual que el banner del catálogo: solo equipos activos con aviso próximo o vencido.
+  const tocan = preventivo.filter((p) => p.toca && p.equipo.activo).length;
 
   // Detalle del equipo seleccionado (al hacer click en su barra de gasoil).
   const detalleData = useMemo(() => {
@@ -65,8 +79,10 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
     const g = gasoil.find((x) => norm(x.nombre) === norm(detalle));
     const eq = equipos.find((e) => norm(e.combustible_equipo) === norm(detalle));
     const hm = eq ? horasMap.get(eq.id) : null;
-    return { nombre: detalle, cantidad: g?.cantidad ?? 0, valor: g?.valor ?? 0, eq: eq ?? null, hm: hm ?? null };
-  }, [detalle, gasoil, equipos, horasMap]);
+    const lec = eq ? lecturas.get(eq.id) ?? null : null;
+    const av = eq ? avisoDeEquipo(eq, lec) : null;
+    return { nombre: detalle, cantidad: g?.cantidad ?? 0, valor: g?.valor ?? 0, eq: eq ?? null, hm: hm ?? null, lec, av };
+  }, [detalle, gasoil, equipos, horasMap, lecturas]);
 
   const footer = <button className="btn btn-primary" onClick={onClose}>Cerrar</button>;
 
@@ -94,7 +110,7 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
         </div>
         <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
           <div className="muted" style={{ fontSize: '.68rem' }}>REQUIEREN MANTT.</div>
-          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: tocan ? 'var(--warning)' : undefined }}>{tocan}</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: tocan ? (preventivo.some((p) => p.equipo.activo && p.av.aviso?.nivel === 'vencido') ? 'var(--danger)' : 'var(--warning)') : undefined }}>{tocan}</div>
         </div>
       </div>
 
@@ -110,20 +126,23 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
       </div>
 
       {/* Mantenimiento preventivo */}
-      <div className="card-title" style={{ margin: '1rem 0 .4rem' }}><span>Mantenimiento preventivo</span></div>
+      <div className="card-title" style={{ margin: '1rem 0 .4rem' }}><span>Mantenimiento preventivo</span><span className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>misma regla que el catálogo · 250 h si la ficha no trae frecuencia</span></div>
       {!preventivo.length ? (
-        <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Ningún equipo tiene definida una frecuencia de mantenimiento (campo «Mantenimiento cada hrs»).</p>
+        <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Sin equipos.</p>
       ) : (
         <div className="table-wrap" style={{ maxHeight: 240, overflow: 'auto' }}>
           <table className="table" style={{ fontSize: '.82rem' }}>
-            <thead><tr><th>Equipo</th><th style={{ textAlign: 'right' }}>HRS. último período</th><th style={{ textAlign: 'right' }}>Frecuencia</th><th style={{ textAlign: 'center' }}>Estado</th></tr></thead>
+            <thead><tr><th>Equipo</th><th style={{ textAlign: 'right' }}>Lectura vigente</th><th style={{ textAlign: 'right' }}>HRS. último período</th><th style={{ textAlign: 'right' }}>Frecuencia</th><th style={{ textAlign: 'center' }}>Estado</th></tr></thead>
             <tbody>
               {preventivo.map((p) => (
-                <tr key={p.equipo.id}>
-                  <td>{p.equipo.equipo}</td>
+                <tr key={p.equipo.id} style={p.equipo.activo ? undefined : { opacity: .6 }}>
+                  <td>{p.equipo.equipo}{p.equipo.activo ? '' : <span className="muted" style={{ fontSize: '.72rem' }}> · inactivo</span>}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>
+                    {[p.lectura?.horometro != null ? `${fmtNum(p.lectura.horometro)} h` : null, p.lectura?.kilometraje != null ? `${fmtNum(p.lectura.kilometraje)} km` : null].filter(Boolean).join(' · ') || '—'}
+                  </td>
                   <td className="mono" style={{ textAlign: 'right' }}>{p.horas != null ? fmtNum(p.horas) : '—'}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(p.freq)} h</td>
-                  <td style={{ textAlign: 'center' }}>{p.toca ? <span className="badge" style={{ color: 'var(--warning)' }}>⚠️ Toca servicio</span> : <span className="badge" style={{ color: 'var(--success)' }}>OK</span>}</td>
+                  <td className="mono" style={{ textAlign: 'right' }}>{fmtNum(p.av.frecuenciaH)} h{Number(p.equipo.mantenimiento_cada_km) > 0 ? ` · ${fmtNum(p.equipo.mantenimiento_cada_km)} km` : ''}</td>
+                  <td style={{ textAlign: 'center' }}><span className={`badge ${tonoAviso(p.av.aviso)}`} style={{ fontWeight: 700 }}>{textoAviso(p.av.aviso)}</span></td>
                 </tr>
               ))}
             </tbody>
@@ -171,13 +190,19 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
               <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{fmtNum(detalleData.valor)}</div>
             </div>
             <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
-              <div className="muted" style={{ fontSize: '.68rem' }}>ÚLTIMO HORÓMETRO</div>
-              <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{detalleData.hm?.ultimoHorometro != null ? `${fmtNum(detalleData.hm.ultimoHorometro)} h` : '—'}</div>
+              <div className="muted" style={{ fontSize: '.68rem' }}>HORÓMETRO VIGENTE</div>
+              <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{(detalleData.lec?.horometro ?? detalleData.hm?.ultimoHorometro) != null ? `${fmtNum(detalleData.lec?.horometro ?? detalleData.hm?.ultimoHorometro)} h` : '—'}</div>
             </div>
             <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
               <div className="muted" style={{ fontSize: '.68rem' }}>HRS. ÚLTIMO PERÍODO</div>
               <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{detalleData.hm?.horasUltimo != null ? `${fmtNum(detalleData.hm.horasUltimo)} h` : '—'}</div>
             </div>
+            {detalleData.av && (
+              <div className="card" style={{ margin: 0, padding: '.55rem .8rem' }}>
+                <div className="muted" style={{ fontSize: '.68rem' }}>SERVICIO</div>
+                <div style={{ marginTop: '.15rem' }}><span className={`badge ${tonoAviso(detalleData.av.aviso)}`} style={{ fontWeight: 700 }}>{textoAviso(detalleData.av.aviso)}</span></div>
+              </div>
+            )}
           </div>
 
           {detalleData.eq ? (
@@ -196,7 +221,7 @@ export function ResumenMaquinariaModal({ equipos, onClose }: { equipos: Maquinar
                   ['Placa', detalleData.eq.placa],
                   ['Motor (modelo / serial)', [detalleData.eq.motor_modelo, detalleData.eq.motor_serial].filter(Boolean).join(' / ') || null],
                   ['Combustible', detalleData.eq.combustible],
-                  ['Mantenimiento cada', detalleData.eq.mantenimiento_cada_hrs != null ? `${fmtNum(detalleData.eq.mantenimiento_cada_hrs)} h` : null],
+                  ['Mantenimiento cada', detalleData.av ? `${fmtNum(detalleData.av.frecuenciaH)} h${Number(detalleData.eq.mantenimiento_cada_hrs) > 0 ? '' : ' (empresa)'}${Number(detalleData.eq.mantenimiento_cada_km) > 0 ? ` · ${fmtNum(detalleData.eq.mantenimiento_cada_km)} km` : ''}` : null],
                   ['Notas', detalleData.eq.notas],
                 ] as [string, string | null][])
                   .filter(([, v]) => v != null && v !== '')

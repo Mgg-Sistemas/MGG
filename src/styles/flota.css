@@ -581,3 +581,98 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
   .compras-ficha-pc { display: none !important; }
   .compras-ficha-movil { display: block !important; }
 }
+
+/* ───────── Vista de teléfono (MaquinariaMovilView, 26/10/2026) ─────────
+   Acciones rápidas, catálogo con chips deslizables y tarjetas de equipo.
+   Solo tokens del tema: cada botón toma --tone (primary / info / danger / primary-3)
+   y se distingue por el icono; nada de colores sueltos ni degradados. */
+.flo-movil-wrap { min-width: 0; padding: .5rem 14px 2rem; }
+.flo-movil-wrap > * { min-width: 0; }
+
+/* Acciones rápidas: 2 columnas, mismo tamaño y estilo base (btn-ghost de 44 px) */
+.flo-mv-acciones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .4rem; margin-bottom: .45rem; }
+.flo-mv-accion {
+  --tone: var(--primary);
+  width: 100%; min-height: 44px; padding: .25rem .5rem; min-width: 0;
+  flex-direction: column; justify-content: center; gap: .1rem; line-height: 1.1;
+  color: var(--tone); border-color: color-mix(in srgb, var(--tone) 40%, var(--border));
+  background: color-mix(in srgb, var(--tone) 8%, transparent);
+}
+.flo-mv-accion .ico { font-size: 1.05rem; line-height: 1; }
+.flo-mv-accion strong { font-size: .72rem; white-space: normal; text-align: center; }
+.flo-mv-accion:hover { color: var(--tone); border-color: var(--tone); }
+.flo-mv-accion[aria-pressed="true"] { border-color: var(--tone); box-shadow: inset 0 0 0 1px var(--tone); background: color-mix(in srgb, var(--tone) 18%, transparent); }
+.flo-mv-accion.tone-info { --tone: var(--info); }
+.flo-mv-accion.tone-danger { --tone: var(--danger); }
+.flo-mv-accion.tone-primary-3 { --tone: var(--primary-3); }
+
+/* Acceso a «Mis Solicitudes y Órdenes» */
+.flo-mv-solicitudes {
+  width: 100%; min-height: 44px; min-width: 0; margin-bottom: .6rem; padding: .45rem .75rem;
+  justify-content: space-between; gap: .5rem;
+  border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); background: var(--surface-2);
+}
+.flo-mv-solicitudes > span:first-child { display: inline-flex; align-items: center; gap: .5rem; min-width: 0; white-space: normal; text-align: left; font-weight: 700; font-size: .82rem; }
+.flo-mv-solicitudes .ico { font-size: 1.15rem; line-height: 1; }
+.flo-mv-solicitudes .badge { flex: none; }
+.flo-mv-solicitudes[aria-pressed="true"] { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); background: var(--grad-primary-soft), var(--surface-2); }
+
+/* Encabezado del catálogo: título + contador y botones PDF / Nuevo en una fila con wrap */
+.flo-mv-cat { margin: 1.25rem 0 1rem; min-width: 0; }
+.flo-mv-cat-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .4rem .6rem; margin-bottom: .5rem; min-width: 0; }
+.flo-mv-cat-head > div { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem; min-width: 0; }
+.flo-mv-cat-head strong { font-size: .95rem; }
+.flo-mv-cat-acc .btn { min-height: 40px; font-size: .78rem; }
+.flo-mv-cat .input { margin-bottom: .5rem; }
+
+/* Chips de filtro: deslizan en horizontal sin barra y sin ensanchar la página; el activo en --primary */
+.flo-pills.solido { max-width: 100%; margin-bottom: .6rem; white-space: nowrap; }
+.flo-pills.solido .flo-pill { display: inline-flex; align-items: center; min-height: 40px; }
+.flo-pills.solido .flo-pill[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #1a0e00; }
+.flo-pills.solido .flo-pill[aria-pressed="true"] .n { color: #1a0e00; opacity: .75; }
+
+/* Tarjeta de equipo */
+.flo-mv-lista { display: grid; gap: .55rem; }
+.flo-mv-card {
+  --tone: var(--border);
+  display: grid; gap: .5rem; padding: .7rem; min-width: 0;
+  border-radius: var(--r-lg); border: 1px solid var(--tone); background: var(--surface); cursor: pointer;
+  transition: border-color .15s ease;
+}
+.flo-mv-card.proximo { --tone: var(--warning); }
+.flo-mv-card.vencido { --tone: var(--danger); }
+.flo-mv-card:hover { border-color: color-mix(in srgb, var(--tone) 70%, var(--border-strong)); }
+.flo-mv-card:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.flo-mv-card-top { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: .65rem; align-items: start; }
+.flo-mv-thumb { position: relative; width: 64px; }
+.flo-mv-foto-btn {
+  position: absolute; right: -4px; bottom: -4px; min-height: 0; padding: 2px 5px; line-height: 1; font-size: .7rem;
+  background: var(--surface-3); border-radius: var(--r-sm);
+}
+.flo-mv-datos { min-width: 0; display: grid; gap: .15rem; align-content: start; }
+.flo-mv-nombre { display: flex; justify-content: space-between; align-items: flex-start; gap: .4rem; min-width: 0; }
+.flo-mv-nombre strong { font-size: .95rem; line-height: 1.25; min-width: 0; overflow-wrap: anywhere; }
+.flo-mv-nombre .badge { flex: none; }
+.flo-mv-sub { display: flex; flex-wrap: wrap; align-items: center; gap: .25rem .4rem; font-size: .76rem; min-width: 0; }
+.flo-mv-sub > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.flo-mv-placa {
+  font-family: var(--font-mono); font-size: .7rem; font-weight: 700; letter-spacing: .03em; color: var(--text);
+  padding: .1rem .45rem; border-radius: var(--r-sm); background: var(--surface-2); border: 1px solid var(--border); white-space: nowrap;
+}
+.flo-mv-enc { font-size: .74rem; color: var(--text-muted); overflow-wrap: anywhere; }
+.flo-mv-lectura {
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .3rem .5rem; min-width: 0;
+  padding: .4rem .6rem; border-radius: var(--r-md); background: var(--surface-2); font-size: .78rem;
+}
+.flo-mv-lectura > span:first-child { min-width: 0; }
+.flo-mv-lectura .mono { font-weight: 700; font-variant-numeric: tabular-nums; }
+.flo-mv-lectura .badge { flex: none; }
+.flo-mv-card-acc { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: .3rem .5rem; min-width: 0; }
+.flo-mv-card-acc .btn { min-height: 36px; color: var(--success); border-color: color-mix(in srgb, var(--success) 45%, var(--border)); }
+.flo-mv-card-acc .btn:hover { color: var(--success); border-color: var(--success); }
+.flo-mv-card-acc .ayuda { flex: 1 1 140px; min-width: 0; text-align: right; font-size: .72rem; color: var(--text-muted); overflow-wrap: anywhere; }
+
+/* Ventana «Opciones del equipo»: mismo resumen que la tarjeta y botones en tokens */
+.flo-mv-resumen { display: grid; gap: .5rem; padding: .75rem; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--border); min-width: 0; }
+.flo-mv-opcion { min-height: 48px; justify-content: center; gap: .5rem; white-space: normal; text-align: center; }
+.flo-mv-opcion.ficha { color: var(--primary-2); border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }

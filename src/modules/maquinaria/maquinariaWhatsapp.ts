@@ -305,3 +305,63 @@ export function textoEstadoEquipoWhatsapp(d: DatosEstadoEquipoWhatsapp): string 
   lineas.push(sinSelector(`_Generado desde la vista móvil de MGG_`));
   return lineas.join('\n');
 }
+
+/* ── 7. Alerta de mantenimiento próximo / vencido con la respuesta del encargado ── */
+
+export interface DatosAlertaMantenimientoWhatsapp {
+  equipo: string;
+  placa?: string | null;
+  nivel: 'proximo' | 'vencido';
+  unidad: 'h' | 'km';
+  /** Lectura vigente del contador (horómetro en h, odómetro en km). */
+  lectura: number | null;
+  /** Frecuencia del servicio (cada N h / km). */
+  frecuencia: number | null;
+  /** Lo que resta para el servicio (negativo = ya pasado). */
+  restante: number | null;
+  decision: 'hara' | 'no_hara';
+  mensaje: string;
+  responsable: string;
+  /** ISO o dd/mm/aaaa: si ya viene como dd/mm/aaaa se usa tal cual. */
+  fecha: string;
+}
+
+const fechaAlerta = (f: string): string => {
+  if (/^\d{2}\/\d{2}\/\d{4}/.test(f)) return f;
+  const d = new Date(f);
+  return Number.isNaN(d.getTime()) ? f : fechaHoraVE(d);
+};
+
+/**
+ * Texto de la alerta de mantenimiento (26/10/2026). La primera línea cambia según el nivel:
+ * «ALERTA MANTENIMIENTO - RETRASADO» (vencido) o «ALERTA MANTENIMIENTO - PRÓXIMO».
+ * Vencido → «pasado por N h»; próximo → «faltan N h».
+ */
+export function textoAlertaMantenimientoWhatsapp(d: DatosAlertaMantenimientoWhatsapp): string {
+  const vencido = d.nivel === 'vencido';
+  const u = d.unidad;
+  const lecturaLinea = d.lectura == null
+    ? ''
+    : u === 'h' ? `⏱ Horómetro: ${fmtNum(d.lectura)} h` : `🛣 Kilometraje: ${fmtNum(d.lectura)} km`;
+  const cada = d.frecuencia != null
+    ? `Servicio cada ${fmtNum(d.frecuencia)} ${u}`
+    : `Servicio por ${u === 'h' ? 'horas' : 'kilómetros'}`;
+  const resto = d.restante == null
+    ? ''
+    : vencido ? `pasado por ${fmtNum(Math.abs(d.restante))} ${u}` : `faltan ${fmtNum(d.restante)} ${u}`;
+
+  const lineas: string[] = [
+    sinSelector(vencido ? '🚨 *ALERTA MANTENIMIENTO - RETRASADO*' : '⚠️ *ALERTA MANTENIMIENTO - PRÓXIMO*'),
+    sinSelector(`🚜 Equipo: ${d.equipo}${d.placa ? ` · Placa ${d.placa}` : ''}`),
+    sinSelector(lecturaLinea),
+    sinSelector(`🔧 ${cada}${resto ? ` · ${resto}` : ''}`),
+    sinSelector(`📅 ${fechaAlerta(d.fecha)}`),
+    sinSelector(d.decision === 'hara' ? '✅ Decisión: SÍ se hará el mantenimiento' : '❌ Decisión: NO se hará el mantenimiento'),
+    sinSelector(`📝 Mensaje: ${d.mensaje.trim()}`),
+    sinSelector(`👤 Responsable: ${d.responsable}`),
+  ].filter(Boolean);
+
+  lineas.push('');
+  lineas.push(sinSelector(`_Enviado desde el Sistema MGG_`));
+  return lineas.join('\n');
+}

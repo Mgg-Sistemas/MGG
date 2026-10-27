@@ -107,6 +107,18 @@ export function claseEquipo(e: { tipo?: string | null; grupo_mantenimiento?: str
 /** % del intervalo con el que se avisa «servicio próximo» (cada 250 h → avisa con ≤ 25 h). */
 export const MARGEN_ALERTA_PCT = 0.1;
 
+/**
+ * Frecuencia de servicio por defecto (26/10/2026): regla de la empresa, todo equipo recibe
+ * mantenimiento cada 250 horas y la alerta salta al superarlas. Es también el `default`
+ * de la columna `maquinaria_equipos.mantenimiento_cada_hrs`.
+ */
+export const FRECUENCIA_HRS_DEFAULT = 250;
+
+/** Frecuencia de servicio por horas del equipo; si no tiene una cargada (o es 0), la de la empresa (250 h). */
+export function frecuenciaHrs(e: { mantenimiento_cada_hrs?: number | null }): number {
+  return Number(e.mantenimiento_cada_hrs) > 0 ? Number(e.mantenimiento_cada_hrs) : FRECUENCIA_HRS_DEFAULT;
+}
+
 /** Unidades restantes hasta el próximo servicio. Con base: N − (lectura − base); sin base: siguiente múltiplo de N. */
 export function restantesServicio(frecuencia: number | null | undefined, lectura: number | null | undefined, base: number | null | undefined): number | null {
   if (!frecuencia || frecuencia <= 0 || lectura == null) return null;

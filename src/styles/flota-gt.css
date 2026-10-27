@@ -1,0 +1,103 @@
+/* ═══════════════════════════════════════════════════════════════════════
+   flota-gt.css · Reglas traídas de Golden Touch (GT, commit 8b5d5dbc) el 26-10-2026
+   para que el módulo Control de Maquinaria se vea IGUAL en MGG que en GT.
+
+   flota.css y flotaDetalle.css ya son copias idénticas de GT (diff vacío). Lo que
+   faltaba son clases que en GT viven en theme.css / surtidor.css y que ningún CSS
+   de MGG define:
+     · .btn-link                           MaquinariaPage («Ver todos / Ver solo esos»)
+     · .confirm-preview*, .confirm-datos   shared/ui/VistaPrevia (13 modales del módulo)
+     · .surt-compartir*, .btn.btn-wsp      shared/ui/CompartirWhatsapp (4 pantallas)
+     · .tags                               EquipoExpedientePage (tile «Servicio»)
+
+   Y dos reglas que en MGG existen con otro aspecto, ACOTADAS a las raíces del
+   módulo (.flo en escritorio, .flo-movil-wrap en teléfono) para no tocar el
+   resto del sistema. No alcanzan a los modales (se montan en <body> por
+   createPortal); si se quiere el mismo aspecto en todo MGG basta quitar el
+   prefijo de ámbito:
+     · .btn:disabled     GT atenúa el botón inactivo (opacity .45 + gris); MGG no lo distingue.
+     · .aviso.{info,success,warning,danger}   GT tiñe el fondo según gravedad; MGG solo colorea el borde.
+
+   Se importa en index.css justo después de flotaDetalle.css.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+/* ───────── theme.css (GT) · botón que se lee como enlace ───────── */
+.btn-link {
+  background: none; border: 0; padding: 0; font: inherit; color: var(--text);
+  cursor: pointer; text-align: left; border-bottom: 1px dashed transparent;
+}
+.btn-link:hover { color: var(--primary-2); border-bottom-color: var(--primary-2); }
+.btn-link:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+/* ───────── theme.css (GT) · etiquetas cortas (chips que envuelven) ───────── */
+.tags { display: flex; flex-wrap: wrap; gap: .25rem; align-items: center; }
+
+/* ───────── theme.css (GT) · vista previa dentro de una confirmación ─────────
+   Recuadro bajo el mensaje de un «¿Eliminar…?» que muestra QUÉ está en juego
+   (foto, datos de la fila, lo que se borra en cascada). Sube un escalón
+   (--surface-3) sobre el cuerpo del modal para despegarse. */
+.confirm-preview {
+  margin-top: .85rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  background: var(--surface-3);
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.confirm-preview-titulo {
+  padding: .4rem .75rem;
+  font-size: .7rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--text-muted);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--border-strong);
+}
+.confirm-preview-cuerpo {
+  padding: .65rem .75rem;
+  display: flex; gap: .8rem; align-items: flex-start; flex-wrap: wrap;
+}
+/* Etiqueta y valor en dos columnas: la etiqueta tan angosta como su texto. */
+.confirm-datos {
+  margin: 0; flex: 1; min-width: 0;
+  display: grid; grid-template-columns: auto 1fr; gap: .25rem .7rem;
+  font-size: .82rem; line-height: 1.4;
+}
+.confirm-datos dt { color: var(--text-muted); }
+.confirm-datos dd { margin: 0; color: var(--text); overflow-wrap: anywhere; }
+.confirm-datos dd strong { color: var(--text); }
+/* La miniatura: foto del equipo o el documento que se va a quitar. */
+.confirm-preview-foto {
+  width: 84px; height: 84px; object-fit: cover; flex-shrink: 0;
+  border-radius: 8px; border: 1px solid var(--border-strong);
+  background: var(--surface-2);
+}
+
+/* ───────── surtidor.css (GT) · pasar el movimiento por WhatsApp ───────── */
+.surt-compartir { margin-bottom: .9rem; padding: .7rem; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-3); }
+.surt-compartir-txt {
+  max-height: 168px; overflow-y: auto; margin-bottom: .6rem; padding: .55rem .65rem;
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface-2);
+  font-size: .88rem; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
+  -webkit-user-select: text; user-select: text;
+}
+.surt-compartir-btns { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.surt-compartir-btns > * { width: 100%; justify-content: center; text-align: center; }
+.btn.btn-wsp { border: 1px solid #1da851; background: #25d366; color: #0b2e18; font-weight: 800; text-decoration: none; }
+.btn.btn-wsp:hover { background: #1fbb5a; }
+@media (max-width: 420px) { .surt-compartir-btns { grid-template-columns: 1fr; } }
+
+/* ───────── theme.css (GT) · botón deshabilitado claramente inactivo ─────────
+   Acotado al módulo (ver cabecera). */
+.flo .btn:disabled, .flo .btn[disabled],
+.flo-movil-wrap .btn:disabled, .flo-movil-wrap .btn[disabled] { opacity: .45; cursor: not-allowed; filter: grayscale(.35); }
+.flo .btn:disabled:hover, .flo .btn[disabled]:hover,
+.flo-movil-wrap .btn:disabled:hover, .flo-movil-wrap .btn[disabled]:hover { border-color: var(--border-strong); color: var(--text); transform: none; }
+
+/* ───────── theme.css (GT) · avisos con fondo teñido según gravedad ─────────
+   En MGG .aviso vive en choferes.css y solo colorea el borde izquierdo; GT además
+   tiñe el fondo. Acotado al módulo (ver cabecera). */
+.flo .aviso, .flo-movil-wrap .aviso { padding: .7rem .9rem; border-left-color: var(--text-muted); color: var(--text); font-size: .85rem; line-height: 1.45; }
+.flo .aviso.info,    .flo-movil-wrap .aviso.info    { border-left-color: #4aa8ff; background: rgba(74,168,255,.08); }
+.flo .aviso.success, .flo-movil-wrap .aviso.success { border-left-color: #29c081; background: rgba(41,192,129,.08); }
+.flo .aviso.warning, .flo-movil-wrap .aviso.warning { border-left-color: #f5b133; background: rgba(245,177,51,.09); }
+.flo .aviso.danger,  .flo-movil-wrap .aviso.danger  { border-left-color: #ef4f5e; background: rgba(239,79,94,.09); }
+.flo .aviso.sm,      .flo-movil-wrap .aviso.sm      { padding: .5rem .7rem; font-size: .8rem; }
