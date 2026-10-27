@@ -1,0 +1,2057 @@
+/* ============================================================
+   Golden Touch · Control de Maquinaria · Vista de Teléfono (Móvil)
+   (26/10/2026)
+
+   Diseñada específicamente para smartphones en campo (taller, mina, garaje):
+   - «Puro botón» con tarjetas grandes, legibles y táctiles
+   - Solicitar Servicio con piezas y contador de horómetro/km
+   - Registrar Lavado rápido (sencillo, completo, motor)
+   - Reportar Avería / Parada / Cambio de estado al instante
+   - Consultar marcas de filtros (Donaldson, Fleetguard, OEM)
+   - Envío inmediato de reportes por WhatsApp de CADA movimiento
+   ============================================================ */
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useSession } from '@/modules/auth/authStore';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { toast } from '@/shared/ui/Toast';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
+import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { num as fmtNum, dateTime } from '@/shared/lib/format';
+import { ExportarEquiposModal } from './ExportarEquiposModal';
+import {
+  listEquipos,
+  extraerEncargado,
+  type MaquinariaEquipo,
+} from './maquinariaEquipos.repository';
+import {
+  crearOrdenServicio,
+  cambiarEstadoEquipo,
+  listOrdenesServicio,
+  eliminarOrdenServicio,
+  registrarLavado,
+  listLavadosTodos,
+  eliminarLavado,
+  lecturasVigentesPorEquipo,
+  solicitarCompraDeOrden,
+  fotosDeEquipos,
+  type OrdenServicio,
+  type LavadoEquipo,
+  type LecturaVigente,
+  type FotoEquipo,
+} from './flota.repository';
+import {
+  avisoServicio,
+  avisoMasUrgente,
+  estadoEfectivo,
+  claseEquipo,
+  SERVICIOS,
+  type EstadoEquipo,
+  type AvisoServicio,
+} from './flota';
+import { listRepuestosEquipo } from './repuestosEquipo.repository';
+import { sistemaDe, type RepuestoEquipo } from './repuestosEquipo';
+import { EquipoFormModal } from './EquipoFormModal';
+import { SubirFotoEquipoModal } from './SubirFotoEquipoModal';
+import { addMantenimiento } from './maquinariaMant.repository';
+import {
+  textoServicioWhatsapp,
+  textoLavadoWhatsapp,
+  textoAveriaEstadoWhatsapp,
+  textoFichaFiltrosWhatsapp,
+  textoEstadoEquipoWhatsapp,
+} from './maquinariaWhatsapp';
+
+type ModoMovil = 'menu' | 'servicio' | 'lavado' | 'averia' | 'filtros' | 'solicitudes';
+
+const TIPOS_LAVADO = ['SENCILLO', 'COMPLETO', 'CHASIS / MOTOR', 'ENGRASADO Y LAVADO'];
+
+interface InfoMantenimientoMovil {
+  horometro: number | null;
+  kilometraje: number | null;
+  aviso: AvisoServicio | null;
+  estado: EstadoEquipo;
+  encargado: string | null;
+}
+
+export function MaquinariaMovilView() {
+  const { user } = useSession();
+  const { appUser, soloTelefono } = usePermissions();
+  const actor = user?.email ?? 'sistema';
+  const actorName = appUser?.nombre?.trim() || user?.email || 'Operador';
+
+  const [equipos, setEquipos] = useState<MaquinariaEquipo[]>([]);
+  const [ordenes, setOrdenes] = useState<OrdenServicio[]>([]);
+  const [lavados, setLavados] = useState<LavadoEquipo[]>([]);
+  const [lecturas, setLecturas] = useState<Map<string, LecturaVigente>>(new Map());
+  const [fotos, setFotos] = useState<Map<string, string>>(new Map());
+  const [subirFotoEq, setSubirFotoEq] = useState<MaquinariaEquipo | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Modo / pantalla activa dentro de la vista móvil
+  const [modo, setModo] = useState<ModoMovil>('menu');
+  const [equipoSelId, setEquipoSelId] = useState<string>('');
+  const [repuestosEquipo, setRepuestosEquipo] = useState<RepuestoEquipo[]>([]);
+
+  // Estados de catálogo y opciones táctiles
+  const [busquedaCatalogo, setBusquedaCatalogo] = useState('');
+  const [filtroCatalogo, setFiltroCatalogo] = useState<'todos' | 'alertas' | 'lanchas' | 'pesada' | 'vehiculos' | 'motos'>('todos');
+  const [equipoOpciones, setEquipoOpciones] = useState<MaquinariaEquipo | null>(null);
+  const [nuevoEquipoMovilOpen, setNuevoEquipoMovilOpen] = useState(false);
+  const [exportarPdfMovilOpen, setExportarPdfMovilOpen] = useState(false);
+
+  // Borrado de movimientos
+  const [borrandoMov, setBorrandoMov] = useState<{ tipo: 'orden' | 'lavado'; id: string; codigo: string } | null>(null);
+
+  // Estados de los formularios móviles
+  const [saving, setSaving] = useState(false);
+  const [mensajeWhatsapp, setMensajeWhatsapp] = useState<string | null>(null);
+
+  function mostrarWhatsapp(texto: string) {
+    setMensajeWhatsapp(texto);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }
+
+  // Formulario Servicio (Intervenciones y Solicitud a Compras)
+  const [tipoServicio, setTipoServicio] = useState<string>('preventivo');
+  const [intervencionesServicio, setIntervencionesServicio] = useState<string[]>(['preventivo']);
+  const [urgenciaServicio, setUrgenciaServicio] = useState<'normal' | 'urgente'>('normal');
+  const [horasServicio, setHorasServicio] = useState<string>('');
+  const [kmServicio, setKmServicio] = useState<string>('');
+  const [responsableServicio, setResponsableServicio] = useState<string>(actorName);
+  const [descripcionServicio, setDescripcionServicio] = useState<string>('');
+  const [piezasSeleccionadas, setPiezasSeleccionadas] = useState<Array<{ nombre: string; cantidad: number; unidad: string }>>([]);
+  const [nombrePiezaLibre, setNombrePiezaLibre] = useState<string>('');
+  const [cantPiezaLibre, setCantPiezaLibre] = useState<string>('1');
+  const [unidadPiezaLibre, setUnidadPiezaLibre] = useState<string>('und');
+
+  // Formulario Lavado
+  const [tipoLavado, setTipoLavado] = useState<string>('SENCILLO');
+  const [lavador, setLavador] = useState<string>(actorName);
+  const [notasLavado, setNotasLavado] = useState<string>('');
+
+  // Formulario Avería
+  const [estadoAveria, setEstadoAveria] = useState<EstadoEquipo>('averiada');
+  const [motivoAveria, setMotivoAveria] = useState<string>('');
+
+  async function cargarDatos() {
+    try {
+      const [eqs, ords, lavs, lecs, fts] = await Promise.all([
+        listEquipos(),
+        listOrdenesServicio(),
+        listLavadosTodos(),
+        lecturasVigentesPorEquipo().catch(() => new Map<string, LecturaVigente>()),
+        fotosDeEquipos().catch(() => [] as FotoEquipo[]),
+      ]);
+
+      const mapFotos = new Map<string, string>();
+      for (const f of fts) {
+        if (!mapFotos.has(f.equipo_id)) mapFotos.set(f.equipo_id, f.url);
+      }
+
+      setEquipos(eqs.filter((e) => e.activo));
+      setOrdenes(ords);
+      setLavados(lavs);
+      setLecturas(lecs);
+      setFotos(mapFotos);
+    } catch (e) {
+      console.error('Error al cargar datos de maquinaria móvil:', e);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    void cargarDatos();
+  }, []);
+
+  useRealtime(['maquinaria_equipos', 'maquinaria_ordenes_servicio', 'maquinaria_lavados', 'maquinaria_lecturas'], () => {
+    void cargarDatos();
+  });
+
+  // Mapa de info de mantenimiento para cada equipo
+  const infoEquipos = useMemo(() => {
+    const map = new Map<string, InfoMantenimientoMovil>();
+    for (const e of equipos) {
+      const lec = lecturas.get(e.id);
+      const horo = lec?.horometro ?? null;
+      const km = lec?.kilometraje ?? null;
+      const avisoH = avisoServicio(e.mantenimiento_cada_hrs, horo, e.mantenimiento_base_hrs, 'h');
+      const avisoK = avisoServicio(e.mantenimiento_cada_km, km, e.mantenimiento_base_km, 'km');
+      const aviso = avisoMasUrgente(avisoH, avisoK);
+      const est = estadoEfectivo(e);
+      const enc = extraerEncargado(e);
+      map.set(e.id, { horometro: horo, kilometraje: km, aviso, estado: est, encargado: enc });
+    }
+    return map;
+  }, [equipos, lecturas]);
+
+  // Al elegir equipo, cargar sus repuestos/filtros
+  useEffect(() => {
+    if (!equipoSelId) {
+      setRepuestosEquipo([]);
+      return;
+    }
+    listRepuestosEquipo(equipoSelId)
+      .then((rs) => setRepuestosEquipo(rs))
+      .catch(() => setRepuestosEquipo([]));
+
+    const eq = equipos.find((e) => e.id === equipoSelId);
+    if (eq) {
+      const enc = extraerEncargado(eq);
+      if (enc) setResponsableServicio(enc);
+      const lec = lecturas.get(eq.id);
+      if (lec?.horometro != null) setHorasServicio(String(lec.horometro));
+      if (lec?.kilometraje != null) setKmServicio(String(lec.kilometraje));
+    }
+  }, [equipoSelId, equipos, lecturas]);
+
+  const equipoActual = useMemo(
+    () => equipos.find((e) => e.id === equipoSelId) ?? null,
+    [equipos, equipoSelId]
+  );
+
+  const opcionesEquipos = useMemo(
+    () => equipos.map((e) => ({ value: e.id, label: `${e.equipo}${e.tipo ? ` (${e.tipo})` : ''}` })),
+    [equipos]
+  );
+
+  // Equipos filtrados para la vista de catálogo
+  const equiposCatalogo = useMemo(() => {
+    let lista = equipos;
+    if (filtroCatalogo === 'alertas') {
+      lista = lista.filter((e) => {
+        const inf = infoEquipos.get(e.id);
+        return inf?.aviso && inf.aviso.nivel !== 'ok';
+      });
+    } else if (filtroCatalogo === 'lanchas') {
+      lista = lista.filter((e) => claseEquipo(e) === 'lancha');
+    } else if (filtroCatalogo === 'pesada') {
+      lista = lista.filter((e) => claseEquipo(e) === 'maquinaria');
+    } else if (filtroCatalogo === 'vehiculos') {
+      lista = lista.filter((e) => claseEquipo(e) === 'vehiculo');
+    } else if (filtroCatalogo === 'motos') {
+      lista = lista.filter((e) => claseEquipo(e) === 'moto');
+    }
+
+    if (busquedaCatalogo.trim()) {
+      const q = busquedaCatalogo.trim().toLowerCase();
+      lista = lista.filter((e) => {
+        const enc = infoEquipos.get(e.id)?.encargado ?? '';
+        return (
+          e.equipo.toLowerCase().includes(q) ||
+          (e.tipo && e.tipo.toLowerCase().includes(q)) ||
+          (e.marca && e.marca.toLowerCase().includes(q)) ||
+          (e.modelo && e.modelo.toLowerCase().includes(q)) ||
+          enc.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    return lista;
+  }, [equipos, filtroCatalogo, busquedaCatalogo, infoEquipos]);
+
+  // Contadores por categoría para los botones táctiles
+  const conteosCatalogo = useMemo(() => {
+    let lanchas = 0;
+    let pesada = 0;
+    let vehiculos = 0;
+    let motos = 0;
+    let alertas = 0;
+
+    for (const e of equipos) {
+      const c = claseEquipo(e);
+      if (c === 'lancha') lanchas++;
+      else if (c === 'maquinaria') pesada++;
+      else if (c === 'vehiculo') vehiculos++;
+      else if (c === 'moto') motos++;
+
+      const inf = infoEquipos.get(e.id);
+      if (inf?.aviso && inf.aviso.nivel !== 'ok') alertas++;
+    }
+
+    return { lanchas, pesada, vehiculos, motos, alertas, total: equipos.length };
+  }, [equipos, infoEquipos]);
+
+  // Abrir opciones de una máquina desde el catálogo
+  function abrirOpcionesEquipo(eq: MaquinariaEquipo) {
+    setEquipoOpciones(eq);
+    setEquipoSelId(eq.id);
+  }
+
+  // ── Guardar Servicio (Solicitud Directa a Compras + Bitácora) ──
+  async function guardarServicio() {
+    if (!equipoActual) { toast('Selecciona la máquina o vehículo', 'error'); return; }
+    if (!descripcionServicio.trim()) { toast('Indica el trabajo o falla', 'error'); return; }
+
+    setSaving(true);
+    try {
+      // 1. Crear Orden de Servicio (sin tocar inventario: nombres generales para compras)
+      const res = await crearOrdenServicio({
+        equipo_id: equipoActual.id,
+        tipo: tipoServicio,
+        urgencia: urgenciaServicio === 'urgente' ? 'urgente' : 'normal',
+        intervenciones: intervencionesServicio.length ? intervencionesServicio : [tipoServicio],
+        trabajos: [descripcionServicio.trim()],
+        origen: 'interno',
+        responsable: responsableServicio.trim() || actorName,
+        descripcion: descripcionServicio.trim(),
+        horometro: horasServicio ? Number(horasServicio) : null,
+        kilometraje: kmServicio ? Number(kmServicio) : null,
+        repuestos: piezasSeleccionadas.map((p) => ({
+          producto_id: null,
+          nombre: p.nombre,
+          unidad: p.unidad || 'und',
+          cantidad: Number(p.cantidad) || 1,
+        })),
+      });
+
+      // 2. Si hay piezas/repuestos o solicitud de trabajo, enviar DIRECTAMENTE a Compras
+      let spCodigo: string | null = null;
+      if (piezasSeleccionadas.length > 0) {
+        try {
+          const nuevas = piezasSeleccionadas.map((p) => ({
+            nombre: p.nombre.trim().toUpperCase(),
+            categoria: 'REPUESTOS MAQUINARIA',
+            unidad: p.unidad || 'UND',
+          }));
+          spCodigo = await solicitarCompraDeOrden(res, nuevas);
+        } catch (errCompras) {
+          console.warn('Solicitud de compra se procesará manualmente:', errCompras);
+        }
+      }
+
+      // 3. Registrar todo en la Bitácora del equipo (historial completo de mantenimientos)
+      try {
+        await addMantenimiento({
+          equipo_id: equipoActual.id,
+          fecha: new Date().toISOString().slice(0, 10),
+          tipo: tipoServicio,
+          pieza: piezasSeleccionadas.map((p) => p.nombre).join(', ') || null,
+          horometro: horasServicio ? Number(horasServicio) : null,
+          kilometraje: kmServicio ? Number(kmServicio) : null,
+          trabajo: descripcionServicio.trim(),
+          observacion: `Orden de servicio ${res.codigo}${spCodigo ? ` · Solicitud a Compras ${spCodigo}` : ''}. Piezas solicitadas con nombres generales para cotización y número de parte en Compras.`,
+          mecanico: responsableServicio.trim() || actorName,
+        }, actor, actorName);
+      } catch (errBit) {
+        console.warn('Registro en bitácora:', errBit);
+      }
+
+      // 4. Cambiar estado a 'repuestos' si es correctivo o tiene piezas pendientes
+      if (piezasSeleccionadas.length > 0 || urgenciaServicio === 'urgente') {
+        try {
+          await cambiarEstadoEquipo(equipoActual.id, 'repuestos', `Esperando repuestos solicitados a Compras (${res.codigo}${spCodigo ? ` · ${spCodigo}` : ''})`);
+        } catch { /* continua */ }
+      }
+
+      // 5. Mensaje formateado para WhatsApp
+      const txt = textoServicioWhatsapp({
+        codigo: `${res.codigo}${spCodigo ? ` (Compras: ${spCodigo})` : ''}`,
+        equipo: equipoActual.equipo,
+        tipoEquipo: equipoActual.tipo,
+        marca: equipoActual.marca,
+        modelo: equipoActual.modelo,
+        tipoServicio,
+        urgencia: urgenciaServicio,
+        horasActuales: horasServicio ? Number(horasServicio) : null,
+        kmActuales: kmServicio ? Number(kmServicio) : null,
+        responsable: responsableServicio.trim() || actorName,
+        solicitante: actorName,
+        descripcion: descripcionServicio.trim(),
+        repuestos: piezasSeleccionadas.map((p) => ({
+          nombre: p.nombre,
+          cantidad: p.cantidad,
+          unidad: p.unidad,
+          a_comprar: p.cantidad,
+        })),
+      });
+
+      toast(`Orden ${res.codigo} creada ${spCodigo ? `· Solicitud a Compras ${spCodigo}` : ''}`, 'success');
+      mostrarWhatsapp(txt);
+      setDescripcionServicio('');
+      setPiezasSeleccionadas([]);
+      setModo('solicitudes');
+      await cargarDatos();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Error al solicitar el servicio', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Guardar Lavado ──
+  async function guardarLavado() {
+    if (!equipoActual) { toast('Selecciona la máquina o vehículo', 'error'); return; }
+
+    setSaving(true);
+    try {
+      await registrarLavado({
+        equipo_id: equipoActual.id,
+        tipo: tipoLavado,
+        responsable: lavador.trim() || actorName,
+        horometro: null,
+        kilometraje: null,
+        nota: notasLavado.trim() || null,
+        fecha: new Date().toISOString(),
+      }, { email: actor, nombre: actorName });
+
+      const txt = textoLavadoWhatsapp({
+        equipo: equipoActual.equipo,
+        tipoEquipo: equipoActual.tipo,
+        tipoLavado,
+        lavador: lavador.trim() || actorName,
+        responsable: actorName,
+        notas: notasLavado.trim() || null,
+      });
+
+      toast('Lavado registrado con éxito', 'success');
+      mostrarWhatsapp(txt);
+      setNotasLavado('');
+      await cargarDatos();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Error al registrar el lavado', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // ── Guardar Avería / Cambio de Estado ──
+  async function guardarAveria() {
+    if (!equipoActual) { toast('Selecciona la máquina o vehículo', 'error'); return; }
+    if (!motivoAveria.trim()) { toast('Indica el motivo o daño del equipo', 'error'); return; }
+
+    setSaving(true);
+    try {
+      await cambiarEstadoEquipo(equipoActual.id, estadoAveria, motivoAveria.trim());
+
+      const txt = textoAveriaEstadoWhatsapp({
+        equipo: equipoActual.equipo,
+        tipoEquipo: equipoActual.tipo,
+        estadoNuevo: estadoAveria,
+        motivo: motivoAveria.trim(),
+        responsable: actorName,
+        ubicacion: equipoActual.ubicacion,
+      });
+
+      toast(`Estado actualizado a ${estadoAveria.toUpperCase()}`, 'success');
+      mostrarWhatsapp(txt);
+      setMotivoAveria('');
+      await cargarDatos();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Error al cambiar estado', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="surtidor flo-movil-wrap" style={{ maxWidth: '540px', margin: '0 auto', padding: '.5rem' }}>
+      {/* ── Encabezado Móvil ── */}
+      <header className="surt-head" style={{ marginBottom: '.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div>
+          <h1 style={{ fontSize: '1.15rem', margin: 0, fontWeight: 800 }}>📱 Maquinaria y Equipos</h1>
+          <div className="muted" style={{ fontSize: '.74rem' }}>{actorName}</div>
+        </div>
+        {!soloTelefono && (
+          <Link to="/app/maquinaria" className="btn btn-sm btn-ghost" style={{ padding: '.2rem .5rem', fontSize: '.74rem', border: '1px solid var(--border)' }} title="Ir a la vista completa de computadora">
+            💻 Modo PC
+          </Link>
+        )}
+      </header>
+
+      {/* ── Modal flotante de WhatsApp: aparece al instante centrado en pantalla ── */}
+      {mensajeWhatsapp && (
+        <Modal title="📲 Compartir por WhatsApp" size="md" onClose={() => setMensajeWhatsapp(null)}>
+          <div style={{ marginBottom: '.75rem', fontSize: '.84rem', color: 'var(--text-secondary, #94a3b8)' }}>
+            Reporte generado listo para enviar por WhatsApp o copiar:
+          </div>
+          <CompartirWhatsapp texto={mensajeWhatsapp} />
+          <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => setMensajeWhatsapp(null)}
+            >
+              Cerrar
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Si hay un mensaje de WhatsApp reciente, banner superior de respaldo */}
+      {mensajeWhatsapp && (
+        <div className="card" style={{
+          marginBottom: '.65rem',
+          borderColor: 'var(--success, #22c55e)',
+          background: 'rgba(34, 197, 94, 0.08)',
+          padding: '.65rem',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+            <strong style={{ color: 'var(--success, #22c55e)', fontSize: '.82rem' }}>✅ Movimiento registrado con éxito</strong>
+            <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.74rem', padding: '.15rem .45rem' }} onClick={() => setMensajeWhatsapp(null)}>✕ Cerrar</button>
+          </div>
+          <CompartirWhatsapp texto={mensajeWhatsapp} />
+        </div>
+      )}
+
+      {/* ── Menú de Acciones Rápidas (Compacto con colores institucionales) ── */}
+      <div className="surt-rotulo" style={{ fontSize: '.72rem', fontWeight: 700, margin: '.15rem 0 .3rem', color: 'var(--text-secondary, #94a3b8)', letterSpacing: '.04em' }}>
+        ¿QUÉ DESEAS REPORTAR HOY?
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem', marginBottom: '.45rem' }}>
+        <button
+          type="button"
+          className="btn"
+          style={{
+            height: '44px',
+            padding: '.25rem .35rem',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '.1rem',
+            background: modo === 'servicio' ? 'rgba(255, 138, 0, 0.22)' : 'rgba(255, 138, 0, 0.08)',
+            border: modo === 'servicio' ? '2px solid #ff8a00' : '1px solid rgba(255, 138, 0, 0.35)',
+            borderRadius: '7px',
+            color: '#ff9d2b',
+          }}
+          onClick={() => { setModo('servicio'); setMensajeWhatsapp(null); }}
+        >
+          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>🔧</span>
+          <span style={{ fontWeight: 700, fontSize: '.72rem', lineHeight: 1.1 }}>Solicitar Servicio</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn"
+          style={{
+            height: '44px',
+            padding: '.25rem .35rem',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '.1rem',
+            background: modo === 'lavado' ? 'rgba(56, 189, 248, 0.22)' : 'rgba(56, 189, 248, 0.08)',
+            border: modo === 'lavado' ? '2px solid #38bdf8' : '1px solid rgba(56, 189, 248, 0.35)',
+            borderRadius: '7px',
+            color: '#38bdf8',
+          }}
+          onClick={() => { setModo('lavado'); setMensajeWhatsapp(null); }}
+        >
+          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>🚿</span>
+          <span style={{ fontWeight: 700, fontSize: '.72rem', lineHeight: 1.1 }}>Registrar Lavado</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn"
+          style={{
+            height: '44px',
+            padding: '.25rem .35rem',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '.1rem',
+            background: modo === 'averia' ? 'rgba(239, 68, 68, 0.22)' : 'rgba(239, 68, 68, 0.08)',
+            border: modo === 'averia' ? '2px solid #ef4444' : '1px solid rgba(239, 68, 68, 0.35)',
+            borderRadius: '7px',
+            color: '#f87171',
+          }}
+          onClick={() => { setModo('averia'); setMensajeWhatsapp(null); }}
+        >
+          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>⚠️</span>
+          <span style={{ fontWeight: 700, fontSize: '.72rem', lineHeight: 1.1 }}>Reportar Avería</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn"
+          style={{
+            height: '44px',
+            padding: '.25rem .35rem',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            gap: '.1rem',
+            background: modo === 'filtros' ? 'rgba(168, 85, 247, 0.22)' : 'rgba(168, 85, 247, 0.08)',
+            border: modo === 'filtros' ? '2px solid #a855f7' : '1px solid rgba(168, 85, 247, 0.35)',
+            borderRadius: '7px',
+            color: '#c084fc',
+          }}
+          onClick={() => { setModo('filtros'); setMensajeWhatsapp(null); }}
+        >
+          <span style={{ fontSize: '1.05rem', lineHeight: 1 }}>🔍</span>
+          <span style={{ fontWeight: 700, fontSize: '.72rem', lineHeight: 1.1 }}>Ver Filtros / Rep.</span>
+        </button>
+      </div>
+
+      {/* Botón de acceso directo a Solicitudes / Órdenes (Compacto) */}
+      {(() => {
+        const ordenesActivas = ordenes.filter((o) => o.estado !== 'cancelada' && o.estado !== 'anulada' && o.estado !== 'realizada');
+        return (
+          <button
+            type="button"
+            className="btn"
+            style={{
+              width: '100%',
+              padding: '.45rem .75rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '.6rem',
+              borderRadius: '8px',
+              border: modo === 'solicitudes' ? '2px solid #ff8a00' : '1px solid rgba(255, 138, 0, 0.35)',
+              background: modo === 'solicitudes' ? 'rgba(255, 138, 0, 0.16)' : 'var(--surface-2, #182230)',
+              color: '#ffffff',
+            }}
+            onClick={() => { setModo(modo === 'solicitudes' ? 'menu' : 'solicitudes'); setMensajeWhatsapp(null); }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+              <span style={{ fontSize: '1.15rem' }}>📋</span>
+              <span style={{ fontWeight: 700, fontSize: '.82rem', color: '#ffffff' }}>Mis Solicitudes y Órdenes de Servicio</span>
+            </div>
+            <span
+              className="badge"
+              style={{
+                fontSize: '.72rem',
+                padding: '.15rem .5rem',
+                borderRadius: '999px',
+                background: ordenesActivas.length > 0 ? '#ff8a00' : 'rgba(255,255,255,0.1)',
+                color: ordenesActivas.length > 0 ? '#000000' : '#cbd5e1',
+                fontWeight: 800,
+              }}
+            >
+              {ordenesActivas.length} {ordenesActivas.length === 1 ? 'activa' : 'activas'}
+            </span>
+          </button>
+        );
+      })()}
+
+      {/* ── Vista: Lista de Solicitudes y Órdenes de Servicio (Compacta) ── */}
+      {modo === 'solicitudes' && (
+        <div className="card" style={{ padding: '.65rem', marginBottom: '.65rem', background: 'var(--surface-2, #182230)', border: '1px solid var(--border)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem' }}>
+            <h3 style={{ margin: 0, fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: '.35rem', color: '#ffffff' }}>
+              <span>📋</span> Solicitudes y Órdenes ({ordenes.length})
+            </h3>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              style={{ border: '1px solid var(--border)', color: 'var(--text-secondary, #94a3b8)', padding: '.15rem .45rem', fontSize: '.74rem' }}
+              onClick={() => setModo('menu')}
+            >
+              ✕ Volver
+            </button>
+          </div>
+
+          {ordenes.length === 0 ? (
+            <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--muted, #94a3b8)' }}>
+              <div style={{ fontSize: '1.8rem', marginBottom: '.35rem' }}>📭</div>
+              <div style={{ fontSize: '.82rem' }}>No hay solicitudes registradas todavía.</div>
+              <button
+                type="button"
+                className="btn btn-sm btn-primary"
+                style={{ marginTop: '.6rem', fontSize: '.76rem', padding: '.25rem .6rem' }}
+                onClick={() => setModo('servicio')}
+              >
+                + Crear primera solicitud
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'grid', gap: '.5rem' }}>
+              {ordenes.map((o) => {
+                const eq = equipos.find((e) => e.id === o.equipo_id);
+                const foto = eq ? fotos.get(eq.id) : null;
+                const isCancelada = o.estado === 'cancelada';
+                const isRepuestos = o.estado === 'repuestos';
+                const isRealizada = o.estado === 'realizada';
+                return (
+                  <div
+                    key={o.id}
+                    style={{
+                      padding: '.65rem',
+                      background: 'var(--surface-1, #0d141f)',
+                      borderRadius: '8px',
+                      border: isCancelada
+                        ? '1px solid rgba(239, 68, 68, 0.35)'
+                        : isRepuestos
+                        ? '1px solid rgba(245, 158, 11, 0.35)'
+                        : '1px solid rgba(255, 255, 255, 0.08)',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '.3rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontWeight: 800, fontSize: '.88rem', color: '#ff8a00' }}>
+                          {o.codigo}
+                        </span>
+                        <span
+                          className="badge"
+                          style={{
+                            fontSize: '.68rem',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            background: isCancelada
+                              ? 'rgba(239, 68, 68, 0.2)'
+                              : isRepuestos
+                              ? 'rgba(245, 158, 11, 0.2)'
+                              : isRealizada
+                              ? 'rgba(34, 197, 94, 0.2)'
+                              : 'rgba(56, 189, 248, 0.2)',
+                            color: isCancelada
+                              ? '#f87171'
+                              : isRepuestos
+                              ? '#fbbf24'
+                              : isRealizada
+                              ? '#4ade80'
+                              : '#38bdf8',
+                            border: `1px solid ${
+                              isCancelada
+                                ? 'rgba(239, 68, 68, 0.4)'
+                                : isRepuestos
+                                ? 'rgba(245, 158, 11, 0.4)'
+                                : isRealizada
+                                ? 'rgba(34, 197, 94, 0.4)'
+                                : 'rgba(56, 189, 248, 0.4)'
+                            }`,
+                          }}
+                        >
+                          {isCancelada ? '❌ CANCELADA (COMPRAS)' : o.estado}
+                        </span>
+                        {o.urgencia === 'urgente' && (
+                          <span className="badge" style={{ fontSize: '.66rem', background: 'rgba(239, 68, 68, 0.25)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.5)' }}>
+                            🚨 URGENTE
+                          </span>
+                        )}
+                      </div>
+                      <div className="muted" style={{ fontSize: '.7rem', color: '#94a3b8' }}>
+                        {dateTime(o.created_at)}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', margin: '.4rem 0' }}>
+                      {foto ? (
+                        <img src={foto} alt={eq?.equipo ?? 'Equipo'} style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover' }} />
+                      ) : (
+                        <div style={{ width: 44, height: 44, borderRadius: 6, background: 'var(--surface-2, #1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem' }}>
+                          {eq ? (claseEquipo(eq) === 'lancha' ? '🚤' : claseEquipo(eq) === 'moto' ? '🏍️' : claseEquipo(eq) === 'vehiculo' ? '🚚' : '🚜') : '🚜'}
+                        </div>
+                      )}
+                      <div>
+                        <div style={{ fontWeight: 700, fontSize: '.88rem' }}>{eq?.equipo ?? 'Equipo'}</div>
+                        <div className="muted" style={{ fontSize: '.74rem' }}>
+                          {[eq?.marca, eq?.modelo].filter(Boolean).join(' · ')}
+                          {eq?.placa && <span style={{ marginLeft: '.4rem', padding: '1px 5px', background: 'rgba(255,255,255,0.08)', borderRadius: 3, fontWeight: 600 }}>🚗 {eq.placa}</span>}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ fontSize: '.82rem', marginBottom: '.35rem', color: 'var(--text-primary, #e2e8f0)' }}>
+                      <strong>Trabajo / Falla:</strong> {o.descripcion || 'Sin descripción'}
+                    </div>
+
+                    {(o.horometro != null || o.kilometraje != null || o.responsable) && (
+                      <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem', display: 'flex', flexWrap: 'wrap', gap: '.6rem' }}>
+                        {o.responsable && <span>👤 Responsable: {o.responsable}</span>}
+                        {o.horometro != null && <span>⏱️ Horómetro: {fmtNum(o.horometro)} h</span>}
+                        {o.kilometraje != null && <span>🚗 Km: {fmtNum(o.kilometraje)} km</span>}
+                      </div>
+                    )}
+
+                    {o.repuestos && o.repuestos.length > 0 && (
+                      <div style={{ fontSize: '.75rem', padding: '.35rem .5rem', background: 'rgba(255,255,255,0.04)', borderRadius: '4px', marginBottom: '.5rem' }}>
+                        <strong style={{ display: 'block', marginBottom: '.15rem', color: 'var(--warning, #f59e0b)' }}>
+                          🛒 Piezas enviadas a Compras ({o.repuestos.length}):
+                        </strong>
+                        {o.repuestos.map((r, ri) => (
+                          <div key={ri} className="muted">
+                            • {r.nombre} ({fmtNum(r.cantidad)} {r.unidad})
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.45rem' }}>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{
+                          fontSize: '.78rem',
+                          fontWeight: 700,
+                          color: '#4ade80',
+                          background: 'rgba(34, 197, 94, 0.18)',
+                          border: '1px solid rgba(34, 197, 94, 0.5)',
+                          borderRadius: '6px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '.35rem',
+                        }}
+                        onClick={() => {
+                          const txt = textoServicioWhatsapp({
+                            codigo: o.codigo,
+                            equipo: eq?.equipo ?? 'Equipo',
+                            tipoEquipo: eq?.tipo,
+                            marca: eq?.marca,
+                            modelo: eq?.modelo,
+                            tipoServicio: o.tipo,
+                            urgencia: o.urgencia === 'urgente' ? 'urgente' : 'normal',
+                            horasActuales: o.horometro,
+                            kmActuales: o.kilometraje,
+                            responsable: o.responsable,
+                            descripcion: o.descripcion,
+                            repuestos: o.repuestos.map((r) => ({ nombre: r.nombre, cantidad: r.cantidad, unidad: r.unidad })),
+                            fecha: o.created_at,
+                          });
+                          mostrarWhatsapp(txt);
+                        }}
+                      >
+                        <span>📲</span> Compartir por WhatsApp
+                      </button>
+
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        style={{
+                          fontSize: '.75rem',
+                          fontWeight: 600,
+                          color: '#f87171',
+                          background: 'rgba(239, 68, 68, 0.14)',
+                          border: '1px solid rgba(239, 68, 68, 0.4)',
+                          borderRadius: '6px',
+                        }}
+                        title="Eliminar orden"
+                        onClick={() => setBorrandoMov({ tipo: 'orden', id: o.id, codigo: o.codigo })}
+                      >
+                        🗑 Borrar
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Formulario: Solicitar Servicio (Solicitud a Compras) ── */}
+      {modo === 'servicio' && (
+        <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              <span>🛒</span> Solicitud de Servicio / Pedido a Compras
+            </h3>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModo('menu')}>✕ Volver</button>
+          </div>
+
+          <div style={{ display: 'grid', gap: '.75rem' }}>
+            <div>
+              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Máquina / Vehículo *</label>
+              <SearchSelect
+                value={equipoSelId}
+                onChange={setEquipoSelId}
+                options={opcionesEquipos}
+                placeholder="Busca y toca la máquina…"
+              />
+            </div>
+
+            {equipoActual && (
+              <div style={{ padding: '.5rem .65rem', background: 'var(--surface-1, #0f172a)', borderRadius: '6px', fontSize: '.78rem', display: 'flex', gap: '.6rem', alignItems: 'center' }}>
+                {fotos.has(equipoActual.id) ? (
+                  <img src={fotos.get(equipoActual.id)} alt={equipoActual.equipo} style={{ width: 46, height: 46, borderRadius: 6, objectFit: 'cover' }} />
+                ) : (
+                  <div style={{ width: 46, height: 46, borderRadius: 6, background: 'var(--surface-2, #1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
+                    {claseEquipo(equipoActual) === 'lancha' ? '🚤' : claseEquipo(equipoActual) === 'moto' ? '🏍️' : claseEquipo(equipoActual) === 'vehiculo' ? '🚚' : '🚜'}
+                  </div>
+                )}
+                <div style={{ flex: 1 }}>
+                  <div><strong>{equipoActual.equipo}</strong> · {[equipoActual.marca, equipoActual.modelo].filter(Boolean).join(' ')}</div>
+                  {equipoActual.placa && <div><span className="badge" style={{ fontSize: '.7rem', padding: '1px 5px' }}>🚗 Placa: {equipoActual.placa}</span></div>}
+                  {extraerEncargado(equipoActual) && <div className="muted" style={{ fontSize: '.73rem' }}>👤 Encargado: {extraerEncargado(equipoActual)}</div>}
+                </div>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  style={{ fontSize: '.72rem', padding: '.25rem .45rem' }}
+                  onClick={() => setSubirFotoEq(equipoActual)}
+                >
+                  📷 Foto
+                </button>
+              </div>
+            )}
+
+            {/* Opciones de Intervención / Tipo de Falla (Aceite, Pieza, Sistema Hidráulico, etc.) */}
+            <div>
+              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>
+                Sistema / Intervención requerida *
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.35rem' }}>
+                {SERVICIOS.slice(0, 9).map((s) => {
+                  const activa = intervencionesServicio.includes(s.id);
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      className={`btn btn-sm ${activa ? 'btn-primary' : 'btn-ghost'}`}
+                      style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '.45rem .2rem',
+                        gap: '.15rem',
+                        fontSize: '.72rem',
+                        height: '52px',
+                        fontWeight: activa ? 700 : 500,
+                        border: activa ? '2px solid var(--primary, #3b82f6)' : undefined,
+                      }}
+                      onClick={() => {
+                        setTipoServicio(s.id);
+                        if (activa) {
+                          setIntervencionesServicio((prev) => prev.filter((x) => x !== s.id));
+                        } else {
+                          setIntervencionesServicio((prev) => [...prev, s.id]);
+                        }
+                        if (!descripcionServicio.trim()) {
+                          if (s.id === 'aceite') setDescripcionServicio('Cambio de aceite de motor y filtros');
+                          else if (s.id === 'hidraulico') setDescripcionServicio('Revisión de fuga / manguera hidráulica y reposición');
+                          else if (s.id === 'cambio_pieza') setDescripcionServicio('Reemplazo de pieza / repuesto');
+                          else if (s.id === 'frenos') setDescripcionServicio('Mantenimiento de sistema de frenos');
+                          else if (s.id === 'electrico') setDescripcionServicio('Revisión sistema eléctrico / batería');
+                          else if (s.id === 'cauchos') setDescripcionServicio('Reparación / cambio de cauchos');
+                        }
+                      }}
+                    >
+                      <span style={{ fontSize: '1.1rem' }}>{s.icon}</span>
+                      <span style={{ textAlign: 'center', lineHeight: 1.1 }}>{s.label.split(' ')[0]} {s.label.split(' ')[1] || ''}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem' }}>
+              <div>
+                <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Urgencia</label>
+                <select className="select" value={urgenciaServicio} onChange={(e) => setUrgenciaServicio(e.target.value as 'normal' | 'urgente')}>
+                  <option value="normal">NORMAL</option>
+                  <option value="urgente">🚨 URGENTE</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Responsable / Mecánico</label>
+                <input
+                  type="text"
+                  className="input"
+                  value={responsableServicio}
+                  onChange={(e) => setResponsableServicio(e.target.value)}
+                  placeholder="Nombre de quien revisa…"
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem' }}>
+              <div>
+                <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Horómetro actual</label>
+                <input
+                  type="number"
+                  className="input mono"
+                  value={horasServicio}
+                  onChange={(e) => setHorasServicio(e.target.value)}
+                  placeholder="Ej. 4500"
+                />
+              </div>
+
+              <div>
+                <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Kilometraje actual</label>
+                <input
+                  type="number"
+                  className="input mono"
+                  value={kmServicio}
+                  onChange={(e) => setKmServicio(e.target.value)}
+                  placeholder="Ej. 120000"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Trabajo o falla a reparar *</label>
+              <textarea
+                className="input"
+                rows={2}
+                value={descripcionServicio}
+                onChange={(e) => setDescripcionServicio(e.target.value)}
+                placeholder="Describe qué trabajo necesita la máquina o qué repuesto hace falta…"
+              />
+            </div>
+
+            {/* Repuestos de la ficha para añadir con un toque */}
+            {repuestosEquipo.length > 0 && (
+              <div>
+                <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>
+                  🔩 Agregar repuestos de la ficha ({repuestosEquipo.length})
+                </label>
+                <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', maxHeight: '100px', overflowY: 'auto' }}>
+                  {repuestosEquipo.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: '.72rem', padding: '.2rem .4rem' }}
+                      onClick={() => {
+                        const ya = piezasSeleccionadas.some((p) => p.nombre === r.tipo);
+                        if (!ya) {
+                          setPiezasSeleccionadas((prev) => [...prev, { nombre: r.tipo, cantidad: r.cantidad || 1, unidad: r.unidad || 'und' }]);
+                        }
+                      }}
+                    >
+                      + {r.tipo}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Agregar pieza libre con nombre general (Compras formalizará con N° de parte) */}
+            <div style={{ padding: '.65rem', background: 'var(--surface-1, #0f172a)', borderRadius: '6px', border: '1px dashed var(--border-color, rgba(255,255,255,0.15))' }}>
+              <label style={{ fontSize: '.8rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>
+                🛒 Pedir pieza o repuesto a Compras (nombre general):
+              </label>
+              <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr auto', gap: '.35rem', alignItems: 'center' }}>
+                <input
+                  type="text"
+                  className="input"
+                  style={{ fontSize: '.78rem', padding: '.35rem .5rem' }}
+                  placeholder="Ej. Filtro de aceite, Manguera 1/2…"
+                  value={nombrePiezaLibre}
+                  onChange={(e) => setNombrePiezaLibre(e.target.value)}
+                />
+                <input
+                  type="number"
+                  className="input mono"
+                  style={{ fontSize: '.78rem', padding: '.35rem .5rem' }}
+                  placeholder="Cant"
+                  value={cantPiezaLibre}
+                  onChange={(e) => setCantPiezaLibre(e.target.value)}
+                />
+                <select
+                  className="select"
+                  style={{ fontSize: '.78rem', padding: '.35rem .4rem' }}
+                  value={unidadPiezaLibre}
+                  onChange={(e) => setUnidadPiezaLibre(e.target.value)}
+                >
+                  <option value="und">und</option>
+                  <option value="lts">lts</option>
+                  <option value="jgo">jgo</option>
+                  <option value="mts">mts</option>
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-primary"
+                  style={{ fontSize: '.75rem', padding: '.35rem .6rem' }}
+                  onClick={() => {
+                    if (!nombrePiezaLibre.trim()) return;
+                    setPiezasSeleccionadas((prev) => [
+                      ...prev,
+                      {
+                        nombre: nombrePiezaLibre.trim().toUpperCase(),
+                        cantidad: Number(cantPiezaLibre) || 1,
+                        unidad: unidadPiezaLibre,
+                      },
+                    ]);
+                    setNombrePiezaLibre('');
+                    setCantPiezaLibre('1');
+                  }}
+                >
+                  + Agregar
+                </button>
+              </div>
+              <small className="muted" style={{ fontSize: '.7rem', display: 'block', marginTop: '.35rem' }}>
+                💡 Escribe nombres generales. Compras recibirá la solicitud directa para cotizar y asignar el N° de parte oficial.
+              </small>
+            </div>
+
+            {/* Piezas agregadas */}
+            {piezasSeleccionadas.length > 0 && (
+              <div style={{ padding: '.5rem', background: 'var(--surface-1, #0f172a)', borderRadius: '6px' }}>
+                <small style={{ fontWeight: 600, display: 'block', marginBottom: '.25rem', color: 'var(--warning, #f59e0b)' }}>
+                  Piezas que se enviarán a Compras ({piezasSeleccionadas.length}):
+                </small>
+                {piezasSeleccionadas.map((p, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '.78rem', marginBottom: '.2rem' }}>
+                    <span>• {p.nombre} ({fmtNum(p.cantidad)} {p.unidad})</span>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ padding: '0 .3rem', color: 'var(--danger, #ef4444)' }}
+                      onClick={() => setPiezasSeleccionadas((prev) => prev.filter((_, idx) => idx !== i))}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ padding: '.75rem', fontWeight: 700, fontSize: '.92rem' }}
+              disabled={saving}
+              onClick={() => void guardarServicio()}
+            >
+              {saving ? 'Enviando a Compras…' : '🛒 Guardar y Enviar a Compras'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Formulario: Registrar Lavado ── */}
+      {modo === 'lavado' && (
+        <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.05rem' }}>🚿 Registrar Lavado de Equipo</h3>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModo('menu')}>✕ Volver</button>
+          </div>
+
+          <div style={{ display: 'grid', gap: '.75rem' }}>
+            <div>
+              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Máquina / Vehículo *</label>
+              <SearchSelect
+                value={equipoSelId}
+                onChange={setEquipoSelId}
+                options={opcionesEquipos}
+                placeholder="Busca la máquina que se lavó…"
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Tipo de lavado</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem' }}>
+                {TIPOS_LAVADO.map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    className={`btn btn-sm ${tipoLavado === t ? 'btn-primary' : 'btn-ghost'}`}
+                    onClick={() => setTipoLavado(t)}
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Lavador / Responsable</label>
+              <input
+                className="input"
+                value={lavador}
+                onChange={(e) => setLavador(e.target.value)}
+                placeholder="Nombre de quien realizó el lavado…"
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Observaciones (opcional)</label>
+              <input
+                className="input"
+                value={notasLavado}
+                onChange={(e) => setNotasLavado(e.target.value)}
+                placeholder="Ej. Lavado con desengrasante, chasis limpio"
+              />
+            </div>
+
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ padding: '.75rem', fontWeight: 700 }}
+              disabled={saving}
+              onClick={() => void guardarLavado()}
+            >
+              {saving ? 'Guardando…' : '💾 Guardar y Enviar por WhatsApp'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Formulario: Reportar Avería / Estado ── */}
+      {modo === 'averia' && (
+        <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.05rem' }}>⚠️ Reportar Avería / Parada</h3>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModo('menu')}>✕ Volver</button>
+          </div>
+
+          <div style={{ display: 'grid', gap: '.75rem' }}>
+            <div>
+              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Máquina / Vehículo *</label>
+              <SearchSelect
+                value={equipoSelId}
+                onChange={setEquipoSelId}
+                options={opcionesEquipos}
+                placeholder="Busca la máquina con la avería…"
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Nuevo estado del equipo</label>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem' }}>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${estadoAveria === 'averiada' ? 'btn-danger' : 'btn-ghost'}`}
+                  onClick={() => setEstadoAveria('averiada')}
+                >
+                  🚨 AVERIADA
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${estadoAveria === 'parada' ? 'btn-danger' : 'btn-ghost'}`}
+                  onClick={() => setEstadoAveria('parada')}
+                >
+                  🛑 PARADA
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${estadoAveria === 'taller' ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setEstadoAveria('taller')}
+                >
+                  🛠️ EN TALLER
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${estadoAveria === 'espera' ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setEstadoAveria('espera')}
+                >
+                  ⏳ ESPERANDO REP.
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-sm ${estadoAveria === 'operativa' ? 'btn-success' : 'btn-ghost'}`}
+                  style={{ gridColumn: '1 / -1' }}
+                  onClick={() => setEstadoAveria('operativa')}
+                >
+                  ✅ OPERATIVA
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '.82rem', fontWeight: 600, display: 'block', marginBottom: '.25rem' }}>Motivo / Falla detectada *</label>
+              <textarea
+                className="input"
+                rows={2}
+                value={motivoAveria}
+                onChange={(e) => setMotivoAveria(e.target.value)}
+                placeholder="Explica qué daño tiene o por qué se paró el equipo…"
+              />
+            </div>
+
+            <button
+              type="button"
+              className="btn btn-primary"
+              style={{ padding: '.75rem', fontWeight: 700 }}
+              disabled={saving}
+              onClick={() => void guardarAveria()}
+            >
+              {saving ? 'Guardando…' : '💾 Guardar y Enviar por WhatsApp'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Consulta de Filtros / Repuestos ── */}
+      {modo === 'filtros' && (
+        <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
+            <h3 style={{ margin: 0, fontSize: '1.05rem' }}>🔍 Filtros y Marcas de la Máquina</h3>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModo('menu')}>✕ Volver</button>
+          </div>
+
+          <div style={{ marginBottom: '.75rem' }}>
+            <SearchSelect
+              value={equipoSelId}
+              onChange={setEquipoSelId}
+              options={opcionesEquipos}
+              placeholder="Elige una máquina para ver sus filtros…"
+            />
+          </div>
+
+          {equipoActual ? (
+            <div>
+              <div style={{ padding: '.5rem', background: 'var(--surface-1, #0f172a)', borderRadius: '6px', fontSize: '.8rem', marginBottom: '.75rem' }}>
+                <div><strong>{equipoActual.equipo}</strong> · {[equipoActual.marca, equipoActual.modelo].filter(Boolean).join(' ')}</div>
+                {extraerEncargado(equipoActual) && <div className="muted">👤 Encargado: {extraerEncargado(equipoActual)}</div>}
+                {(equipoActual.motor_modelo || equipoActual.motor_serial) && (
+                  <div className="muted" style={{ fontSize: '.75rem' }}>⚙️ Motor: {[equipoActual.motor_modelo, equipoActual.motor_serial].filter(Boolean).join(' · ')}</div>
+                )}
+              </div>
+
+              {repuestosEquipo.length === 0 ? (
+                <div className="muted" style={{ fontSize: '.78rem' }}>Sin ficha de repuestos cargada aún.</div>
+              ) : (
+                <div style={{ display: 'grid', gap: '.4rem', marginBottom: '.75rem' }}>
+                  {repuestosEquipo.map((r) => {
+                    const sis = sistemaDe(r.sistema);
+                    return (
+                      <div key={r.id} style={{ padding: '.5rem', background: 'var(--surface-1, #0f172a)', borderRadius: '6px', fontSize: '.78rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                          <strong>{sis.icon} {r.tipo}</strong>
+                          <span className="muted">{fmtNum(r.cantidad)} {r.unidad}</span>
+                        </div>
+                        {r.numero_parte && <div className="mono" style={{ color: 'var(--brand, #ff8a00)', marginTop: '.1rem' }}>OEM: {r.numero_parte}</div>}
+                        {r.equivalencias && r.equivalencias.length > 0 && (
+                          <div style={{ color: '#38bdf8', marginTop: '.1rem' }}>Marcas: {r.equivalencias.join(' · ')}</div>
+                        )}
+                        {r.especificacion && <div className="muted" style={{ fontSize: '.72rem' }}>Esp: {r.especificacion}</div>}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="btn btn-primary"
+                style={{ width: '100%' }}
+                onClick={() => {
+                  const txt = textoFichaFiltrosWhatsapp({
+                    equipo: equipoActual.equipo,
+                    tipo: equipoActual.tipo,
+                    marca: equipoActual.marca,
+                    modelo: equipoActual.modelo,
+                    motor: [equipoActual.motor_modelo, equipoActual.motor_serial].filter(Boolean).join(' · '),
+                    horasActuales: equipoActual.mantenimiento_base_hrs ?? null,
+                    filtros: repuestosEquipo.map((f) => ({
+                      sistema: f.sistema,
+                      tipo: f.tipo,
+                      numeroParte: f.numero_parte,
+                      equivalencias: f.equivalencias,
+                      especificacion: f.especificacion,
+                    })),
+                  });
+                  setMensajeWhatsapp(txt);
+                }}
+              >
+                📲 Compartir filtros por WhatsApp
+              </button>
+            </div>
+          ) : (
+            <div className="muted" style={{ fontSize: '.8rem' }}>Selecciona una máquina arriba para consultar sus especificaciones técnicas y filtros.</div>
+          )}
+        </div>
+      )}
+
+      {/* ── Catálogo de Máquinas y Horas de Mantenimiento ── */}
+      <div style={{ marginTop: '1.25rem', marginBottom: '1rem' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+          <div>
+            <strong style={{ fontSize: '.95rem' }}>🚜 Catálogo de Equipos y Horas</strong>
+            <span className="badge" style={{ marginLeft: '.4rem' }}>{equiposCatalogo.length} de {equipos.length}</span>
+          </div>
+          <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              style={{ fontSize: '.74rem', padding: '.2rem .5rem', border: '1px solid var(--border)', color: '#38bdf8' }}
+              title="Descargar Catálogo y Fichas Técnicas en PDF"
+              onClick={() => setExportarPdfMovilOpen(true)}
+            >
+              📄 PDF
+            </button>
+            <button
+              type="button"
+              className="btn btn-sm btn-primary"
+              style={{ fontSize: '.76rem', padding: '.22rem .6rem', fontWeight: 700 }}
+              onClick={() => setNuevoEquipoMovilOpen(true)}
+            >
+              {filtroCatalogo === 'motos' ? '+ Nueva moto' : filtroCatalogo === 'lanchas' ? '+ Nueva lancha' : filtroCatalogo === 'vehiculos' ? '+ Nuevo vehículo' : filtroCatalogo === 'pesada' ? '+ Nueva maquinaria' : '+ Nuevo equipo'}
+            </button>
+          </div>
+        </div>
+
+        {/* Buscador táctil */}
+        <input
+          className="input"
+          style={{ width: '100%', marginBottom: '.5rem', fontSize: '.84rem', padding: '.5rem .75rem' }}
+          placeholder="🔍 Buscar máquina, modelo, placa, encargado…"
+          value={busquedaCatalogo}
+          onChange={(e) => setBusquedaCatalogo(e.target.value)}
+        />
+
+        {/* Filtros rápidos táctiles por Categoría */}
+        <div style={{ display: 'flex', gap: '.3rem', overflowX: 'auto', paddingBottom: '.4rem', marginBottom: '.6rem' }}>
+          <button
+            type="button"
+            className={`btn btn-sm ${filtroCatalogo === 'todos' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: '.75rem', whiteSpace: 'nowrap' }}
+            onClick={() => setFiltroCatalogo('todos')}
+          >
+            Todos ({conteosCatalogo.total})
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${filtroCatalogo === 'lanchas' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: '.75rem', whiteSpace: 'nowrap' }}
+            onClick={() => setFiltroCatalogo('lanchas')}
+          >
+            🚤 Lanchas ({conteosCatalogo.lanchas})
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${filtroCatalogo === 'pesada' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: '.75rem', whiteSpace: 'nowrap' }}
+            onClick={() => setFiltroCatalogo('pesada')}
+          >
+            🚜 Maquinaria ({conteosCatalogo.pesada})
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${filtroCatalogo === 'vehiculos' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: '.75rem', whiteSpace: 'nowrap' }}
+            onClick={() => setFiltroCatalogo('vehiculos')}
+          >
+            🚚 Vehículos ({conteosCatalogo.vehiculos})
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${filtroCatalogo === 'motos' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: '.75rem', whiteSpace: 'nowrap' }}
+            onClick={() => setFiltroCatalogo('motos')}
+          >
+            🏍️ Motos ({conteosCatalogo.motos})
+          </button>
+          <button
+            type="button"
+            className={`btn btn-sm ${filtroCatalogo === 'alertas' ? 'btn-primary' : 'btn-ghost'}`}
+            style={{ fontSize: '.75rem', whiteSpace: 'nowrap' }}
+            onClick={() => setFiltroCatalogo('alertas')}
+          >
+            ⚠️ Próx. / Vencidos ({conteosCatalogo.alertas})
+          </button>
+        </div>
+
+        {/* Lista / Tarjetas de equipos tipo catálogo */}
+        <div style={{ display: 'grid', gap: '.55rem' }}>
+          {equiposCatalogo.map((eq) => {
+            const inf = infoEquipos.get(eq.id);
+            const av = inf?.aviso;
+            const horo = inf?.horometro;
+            const km = inf?.kilometraje;
+            const enc = inf?.encargado;
+            const foto = fotos.get(eq.id);
+
+            // Nivel de mantenimiento
+            const esVencido = av?.nivel === 'vencido';
+            const esProximo = av?.nivel === 'proximo';
+            const esOk = av?.nivel === 'ok';
+
+            return (
+              <div
+                key={eq.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => abrirOpcionesEquipo(eq)}
+                onKeyDown={(e) => { if (e.key === 'Enter') abrirOpcionesEquipo(eq); }}
+                style={{
+                  background: 'var(--surface-2, #182230)',
+                  border: esVencido
+                    ? '1.5px solid var(--danger, #ef4444)'
+                    : esProximo
+                    ? '1.5px solid var(--warning, #f59e0b)'
+                    : '1px solid var(--border, #334155)',
+                  borderRadius: '10px',
+                  padding: '.75rem',
+                  cursor: 'pointer',
+                  transition: 'transform 0.1s ease',
+                  position: 'relative',
+                }}
+              >
+                <div style={{ display: 'flex', gap: '.65rem', alignItems: 'flex-start' }}>
+                  {/* Foto miniatura o icono de clase */}
+                  <div style={{ flexShrink: 0, position: 'relative' }}>
+                    {foto ? (
+                      <img
+                        src={foto}
+                        alt={eq.equipo}
+                        style={{ width: 54, height: 54, borderRadius: 8, objectFit: 'cover', border: '1px solid rgba(255,255,255,0.1)' }}
+                      />
+                    ) : (
+                      <div style={{
+                        width: 54,
+                        height: 54,
+                        borderRadius: 8,
+                        background: 'var(--surface-1, #0f172a)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        fontSize: '1.6rem',
+                        border: '1px solid rgba(255,255,255,0.06)',
+                      }}>
+                        {claseEquipo(eq) === 'lancha' ? '🚤' : claseEquipo(eq) === 'moto' ? '🏍️' : claseEquipo(eq) === 'vehiculo' ? '🚚' : '🚜'}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{
+                        position: 'absolute',
+                        bottom: -4,
+                        right: -4,
+                        padding: '1px 4px',
+                        fontSize: '.65rem',
+                        background: 'rgba(0,0,0,0.7)',
+                        borderRadius: 4,
+                        lineHeight: 1,
+                      }}
+                      title="Cambiar foto del equipo"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSubirFotoEq(eq);
+                      }}
+                    >
+                      📷
+                    </button>
+                  </div>
+
+                  {/* Datos del equipo */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                      <strong style={{ fontSize: '.92rem', color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {eq.equipo}
+                      </strong>
+                      <span
+                        className="badge"
+                        style={{
+                          fontSize: '.68rem',
+                          background: inf?.estado === 'operativa' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(239, 68, 68, 0.2)',
+                          color: inf?.estado === 'operativa' ? '#4ade80' : '#f87171',
+                          marginLeft: '.3rem',
+                          flexShrink: 0,
+                        }}
+                      >
+                        {inf?.estado?.toUpperCase() || 'OPERATIVA'}
+                      </span>
+                    </div>
+
+                    <div className="muted" style={{ fontSize: '.74rem', marginTop: '.15rem', display: 'flex', flexWrap: 'wrap', gap: '.3rem', alignItems: 'center' }}>
+                      <span>{[eq.tipo, eq.marca, eq.modelo].filter(Boolean).join(' · ')}</span>
+                      {eq.placa && (
+                        <span className="badge" style={{ fontSize: '.68rem', padding: '1px 5px', background: 'rgba(255,255,255,0.08)', color: '#38bdf8', fontWeight: 700 }}>
+                          🚗 {eq.placa}
+                        </span>
+                      )}
+                    </div>
+
+                    {enc && (
+                      <div style={{ fontSize: '.73rem', color: 'var(--text-dim, #94a3b8)', marginTop: '.2rem' }}>
+                        👤 Encargado: <strong style={{ color: '#e2e8f0' }}>{enc}</strong>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Lecturas y Horas que faltan para mantenimiento */}
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: 'var(--surface-1, #0f172a)',
+                  padding: '.4rem .6rem',
+                  borderRadius: '6px',
+                  fontSize: '.76rem',
+                  marginTop: '.45rem',
+                }}>
+                  <div>
+                    <span className="muted">Horómetro: </span>
+                    <strong>{horo != null ? `${fmtNum(horo)} h` : km != null ? `${fmtNum(km)} km` : '—'}</strong>
+                  </div>
+
+                  <div>
+                    {esVencido ? (
+                      <span style={{ color: '#f87171', fontWeight: 700 }}>
+                        ⛔ Vencido por {fmtNum(Math.abs(av.restante))} {av.unidad}
+                      </span>
+                    ) : esProximo ? (
+                      <span style={{ color: '#fbbf24', fontWeight: 700 }}>
+                        ⚠️ Próximo en {fmtNum(av.restante)} {av.unidad}
+                      </span>
+                    ) : esOk ? (
+                      <span style={{ color: '#4ade80', fontWeight: 600 }}>
+                        🟢 Faltan {fmtNum(av.restante)} {av.unidad}
+                      </span>
+                    ) : (
+                      <span className="muted">⚪ Sin intervalo</span>
+                    )}
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.35rem', fontSize: '.72rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-ghost"
+                    style={{ fontSize: '.7rem', padding: '.15rem .4rem', color: '#4ade80' }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const txt = textoEstadoEquipoWhatsapp({
+                        equipo: eq.equipo,
+                        tipo: eq.tipo,
+                        marca: eq.marca,
+                        modelo: eq.modelo,
+                        estado: inf?.estado || 'operativa',
+                        encargado: enc,
+                        horometro: horo,
+                        kilometraje: km,
+                        horasFaltantes: av?.restante ?? null,
+                        nivelAviso: av?.nivel ?? null,
+                        unidadAviso: av?.unidad ?? 'h',
+                      });
+                      mostrarWhatsapp(txt);
+                    }}
+                  >
+                    📲 WhatsApp
+                  </button>
+                  <span style={{ color: 'var(--primary, #38bdf8)' }}>Toque para opciones ▸</span>
+                </div>
+              </div>
+            );
+          })}
+
+          {!equiposCatalogo.length && (
+            <div className="muted" style={{ padding: '1rem', textAlign: 'center', fontSize: '.84rem' }}>
+              No se encontraron equipos con ese filtro o búsqueda.
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Modal de Opciones para un Equipo (al tocarlo en el catálogo) ── */}
+      {equipoOpciones && (
+        <Modal
+          title={`🚜 ${equipoOpciones.equipo}`}
+          size="md"
+          onClose={() => setEquipoOpciones(null)}
+          footer={
+            <button type="button" className="btn btn-ghost btn-grande" onClick={() => setEquipoOpciones(null)}>
+              ✕ Volver al Catálogo
+            </button>
+          }
+        >
+          {(() => {
+            const inf = infoEquipos.get(equipoOpciones.id);
+            const av = inf?.aviso;
+            const horo = inf?.horometro;
+            const km = inf?.kilometraje;
+            const enc = inf?.encargado;
+
+            return (
+              <div style={{ display: 'grid', gap: '.75rem' }}>
+                {/* Resumen del equipo */}
+                <div style={{ background: 'var(--surface-2, #182230)', padding: '.75rem', borderRadius: '8px' }}>
+                  <div style={{ display: 'flex', gap: '.75rem', alignItems: 'center' }}>
+                    {fotos.has(equipoOpciones.id) ? (
+                      <img
+                        src={fotos.get(equipoOpciones.id)}
+                        alt={equipoOpciones.equipo}
+                        style={{ width: '60px', height: '60px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border)' }}
+                      />
+                    ) : (
+                      <div style={{ width: '60px', height: '60px', borderRadius: '8px', background: 'rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.8rem' }}>
+                        🚜
+                      </div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: '.8rem', color: 'var(--text-dim, #94a3b8)' }}>
+                        {[equipoOpciones.tipo, equipoOpciones.marca, equipoOpciones.modelo].filter(Boolean).join(' · ')}
+                      </div>
+                      {equipoOpciones.placa && (
+                        <div style={{ fontSize: '.82rem', marginTop: '.15rem', color: 'var(--accent, #38bdf8)', fontWeight: 600 }}>
+                          🚗 Placa: {equipoOpciones.placa}
+                        </div>
+                      )}
+                      {enc && <div style={{ fontSize: '.82rem', marginTop: '.15rem' }}>👤 Encargado: <strong>{enc}</strong></div>}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '.5rem', fontSize: '.82rem', paddingTop: '.4rem', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                    <span>⏱️ Horómetro: <strong>{horo != null ? `${fmtNum(horo)} h` : km != null ? `${fmtNum(km)} km` : '—'}</strong></span>
+                    <span>
+                      {av?.nivel === 'vencido' ? (
+                        <strong style={{ color: '#f87171' }}>⛔ Vencido por {fmtNum(Math.abs(av.restante))} {av.unidad}</strong>
+                      ) : av?.nivel === 'proximo' ? (
+                        <strong style={{ color: '#fbbf24' }}>⚠️ Próximo en {fmtNum(av.restante)} {av.unidad}</strong>
+                      ) : av ? (
+                        <strong style={{ color: '#4ade80' }}>🟢 Faltan {fmtNum(av.restante)} {av.unidad}</strong>
+                      ) : (
+                        <span className="muted">⚪ Sin intervalo</span>
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                <div style={{ fontSize: '.82rem', fontWeight: 600, color: 'var(--text-dim, #94a3b8)', marginTop: '.2rem' }}>
+                  ¿Qué deseas registrar para esta máquina?
+                </div>
+
+                {/* Botones de acción directa */}
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem' }}
+                  onClick={() => {
+                    setEquipoSelId(equipoOpciones.id);
+                    setModo('servicio');
+                    setEquipoOpciones(null);
+                  }}
+                >
+                  <span>🔧</span>
+                  <span>Solicitar Servicio a este Equipo</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', border: '1px solid var(--border)' }}
+                  onClick={() => {
+                    setSubirFotoEq(equipoOpciones);
+                    setEquipoOpciones(null);
+                  }}
+                >
+                  <span>📷</span>
+                  <span>{fotos.has(equipoOpciones.id) ? 'Ver / Actualizar Foto del Equipo' : 'Subir Foto de la Máquina'}</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', border: '1px solid var(--border)' }}
+                  onClick={() => {
+                    setEquipoSelId(equipoOpciones.id);
+                    setModo('lavado');
+                    setEquipoOpciones(null);
+                  }}
+                >
+                  <span>🚿</span>
+                  <span>Registrar Lavado</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', border: '1px solid var(--border)' }}
+                  onClick={() => {
+                    setEquipoSelId(equipoOpciones.id);
+                    setModo('averia');
+                    setEquipoOpciones(null);
+                  }}
+                >
+                  <span>⚠️</span>
+                  <span>Reportar Avería o Parada</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', border: '1px solid var(--border)' }}
+                  onClick={() => {
+                    setEquipoSelId(equipoOpciones.id);
+                    setModo('filtros');
+                    setEquipoOpciones(null);
+                  }}
+                >
+                  <span>🔍</span>
+                  <span>Ver Filtros y Repuestos (OEM / Marcas)</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ height: '44px', fontSize: '.84rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.45rem', border: '1px solid rgba(255, 138, 0, 0.4)', color: '#ff9d2b' }}
+                  onClick={async () => {
+                    try {
+                      const fts = await fotosDeEquipos(equipoOpciones.id).catch(() => []);
+                      const { fichaEquipoPdf } = await import('./flotaPdf');
+                      await fichaEquipoPdf(
+                        equipoOpciones,
+                        {
+                          horometro: horo ?? null,
+                          km: km ?? null,
+                          restantesHrs: av?.unidad === 'h' ? av.restante : null,
+                          restantesKm: av?.unidad === 'km' ? av.restante : null,
+                          ultimoSurtido: null,
+                        },
+                        ordenes.filter((o) => o.equipo_id === equipoOpciones.id),
+                        fts,
+                        lavados.filter((l) => l.equipo_id === equipoOpciones.id)
+                      );
+                    } catch (err) {
+                      toast(err instanceof Error ? err.message : 'Error al generar ficha técnica', 'error');
+                    }
+                  }}
+                >
+                  <span>📄</span>
+                  <span>Descargar Ficha Técnica Oficial (PDF)</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ height: '48px', fontSize: '.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem', background: 'rgba(34, 197, 94, 0.15)', color: '#4ade80' }}
+                  onClick={() => {
+                    const txt = textoEstadoEquipoWhatsapp({
+                      equipo: equipoOpciones.equipo,
+                      tipo: equipoOpciones.tipo,
+                      marca: equipoOpciones.marca,
+                      modelo: equipoOpciones.modelo,
+                      estado: inf?.estado || 'operativa',
+                      encargado: enc,
+                      horometro: horo,
+                      kilometraje: km,
+                      horasFaltantes: av?.restante ?? null,
+                      nivelAviso: av?.nivel ?? null,
+                      unidadAviso: av?.unidad ?? 'h',
+                    });
+                    mostrarWhatsapp(txt);
+                    setEquipoOpciones(null);
+                  }}
+                >
+                  <span>📲</span>
+                  <span>Compartir Estado por WhatsApp</span>
+                </button>
+              </div>
+            );
+          })()}
+        </Modal>
+      )}
+
+      {/* ── Últimos Movimientos de la Flota (con reenvío WhatsApp y Borrado) ── */}
+      <div style={{ marginTop: '1.25rem' }}>
+        <div style={{ fontSize: '.86rem', fontWeight: 600, marginBottom: '.5rem', display: 'flex', justifyContent: 'space-between' }}>
+          <span>📋 Últimos movimientos</span>
+          <span className="muted" style={{ fontSize: '.75rem' }}>{ordenes.length + lavados.length} registros</span>
+        </div>
+
+        {loading ? (
+          <div className="muted" style={{ fontSize: '.8rem' }}>Cargando movimientos…</div>
+        ) : (
+          <div style={{ display: 'grid', gap: '.45rem' }}>
+            {ordenes.slice(0, 5).map((o) => {
+              const eq = equipos.find((e) => e.id === o.equipo_id);
+              return (
+                <div key={o.id} className="flo-linea" style={{
+                  padding: '.55rem .75rem',
+                  background: 'var(--surface-2, #182230)',
+                  borderRadius: 'var(--r-md, 8px)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}>
+                  <div style={{ minWidth: 0, marginRight: '.5rem' }}>
+                    <div style={{ fontWeight: 600, fontSize: '.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      🔧 {o.codigo} · {eq?.equipo ?? 'Equipo'}
+                    </div>
+                    <div className="muted" style={{ fontSize: '.72rem' }}>
+                      {o.tipo.toUpperCase()} · {o.responsable ?? 'Sin resp.'} · {dateTime(o.created_at)}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '.3rem', flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: '.72rem', padding: '.2rem .4rem' }}
+                      title="Compartir por WhatsApp"
+                      onClick={() => {
+                        const txt = textoServicioWhatsapp({
+                          codigo: o.codigo,
+                          equipo: eq?.equipo ?? 'Equipo',
+                          tipoEquipo: eq?.tipo,
+                          marca: eq?.marca,
+                          modelo: eq?.modelo,
+                          tipoServicio: o.tipo,
+                          urgencia: o.urgencia,
+                          horasActuales: o.horometro,
+                          kmActuales: o.kilometraje,
+                          responsable: o.responsable,
+                          descripcion: o.descripcion,
+                          repuestos: o.repuestos.map((r) => ({ nombre: r.nombre, cantidad: r.cantidad, unidad: r.unidad })),
+                          fecha: o.created_at,
+                        });
+                        setMensajeWhatsapp(txt);
+                      }}
+                    >
+                      📲 WhatsApp
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: '.72rem', padding: '.2rem .35rem', color: 'var(--danger, #ef4444)' }}
+                      title="Eliminar este movimiento"
+                      onClick={() => setBorrandoMov({ tipo: 'orden', id: o.id, codigo: o.codigo })}
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {lavados.slice(0, 3).map((l) => {
+              const eq = equipos.find((e) => e.id === l.equipo_id);
+              return (
+                <div key={l.id} className="flo-linea" style={{
+                  padding: '.55rem .75rem',
+                  background: 'var(--surface-2, #182230)',
+                  borderRadius: 'var(--r-md, 8px)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}>
+                  <div style={{ minWidth: 0, marginRight: '.5rem' }}>
+                    <div style={{ fontWeight: 600, fontSize: '.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      🚿 Lavado {l.tipo} · {eq?.equipo ?? 'Equipo'}
+                    </div>
+                    <div className="muted" style={{ fontSize: '.72rem' }}>
+                      Lavador: {l.responsable ?? '—'} · {dateTime(l.fecha)}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '.3rem', flexShrink: 0 }}>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: '.72rem', padding: '.2rem .4rem' }}
+                      title="Compartir por WhatsApp"
+                      onClick={() => {
+                        const txt = textoLavadoWhatsapp({
+                          equipo: eq?.equipo ?? 'Equipo',
+                          tipoEquipo: eq?.tipo,
+                          tipoLavado: l.tipo,
+                          lavador: l.responsable,
+                          notas: l.nota,
+                          fecha: l.fecha,
+                        });
+                        mostrarWhatsapp(txt);
+                      }}
+                    >
+                      📲 WhatsApp
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-sm btn-ghost"
+                      style={{ fontSize: '.72rem', padding: '.2rem .35rem', color: 'var(--danger, #ef4444)' }}
+                      title="Eliminar este lavado"
+                      onClick={() => setBorrandoMov({ tipo: 'lavado', id: l.id, codigo: `Lavado ${l.tipo}` })}
+                    >
+                      🗑
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            {!ordenes.length && !lavados.length && (
+              <div className="muted" style={{ fontSize: '.8rem', padding: '.6rem', textAlign: 'center' }}>
+                Sin movimientos recientes registrados.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Confirmación para borrar movimiento */}
+      {borrandoMov && (
+        <ConfirmDialog
+          title="Eliminar movimiento"
+          message={`¿Estás seguro de eliminar el registro «${borrandoMov.codigo}»? Esta acción no se puede deshacer.`}
+          confirmText="Sí, eliminar"
+          danger
+          onConfirm={async () => {
+            try {
+              if (borrandoMov.tipo === 'orden') {
+                await eliminarOrdenServicio({ id: borrandoMov.id, codigo: borrandoMov.codigo });
+              } else {
+                await eliminarLavado(borrandoMov.id);
+              }
+              toast('Movimiento eliminado correctamente', 'success');
+              setBorrandoMov(null);
+              await cargarDatos();
+            } catch (err) {
+              toast(err instanceof Error ? err.message : 'No se pudo eliminar el movimiento', 'error');
+            }
+          }}
+          onCancel={() => setBorrandoMov(null)}
+        />
+      )}
+
+      {/* Modal para Subir / Actualizar Foto del Equipo desde Móvil */}
+      {subirFotoEq && (
+        <SubirFotoEquipoModal
+          equipoId={subirFotoEq.id}
+          equipoNombre={subirFotoEq.equipo}
+          fotos={fotos.has(subirFotoEq.id) ? 1 : 0}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => setSubirFotoEq(null)}
+          onSubida={cargarDatos}
+          onVerFotos={() => {}}
+          onDocumentos={() => {}}
+        />
+      )}
+
+      {/* Modal para Crear Nuevo Equipo / Moto / Lancha desde Móvil */}
+      {nuevoEquipoMovilOpen && (
+        <EquipoFormModal
+          equipo={null}
+          actor={actor}
+          claseInicial={
+            filtroCatalogo === 'lanchas' ? 'lancha' :
+            filtroCatalogo === 'motos' ? 'moto' :
+            filtroCatalogo === 'vehiculos' ? 'vehiculo' :
+            filtroCatalogo === 'pesada' ? 'maquinaria' : null
+          }
+          tipoInicial={
+            filtroCatalogo === 'lanchas' ? 'LANCHA' :
+            filtroCatalogo === 'motos' ? 'MOTO' :
+            filtroCatalogo === 'vehiculos' ? 'VEHÍCULO' :
+            filtroCatalogo === 'pesada' ? 'MAQUINARIA PESADA' : null
+          }
+          onClose={() => setNuevoEquipoMovilOpen(false)}
+          onSaved={cargarDatos}
+        />
+      )}
+
+      {/* Modal para Exportar Catálogo y Fichas Técnicas en PDF desde Móvil */}
+      {exportarPdfMovilOpen && (
+        <ExportarEquiposModal
+          equipos={equiposCatalogo}
+          total={equipos.length}
+          fotosMap={fotos}
+          contextoMap={new Map(
+            equiposCatalogo.map((e) => {
+              const inf = infoEquipos.get(e.id);
+              return [
+                e.id,
+                {
+                  horometro: inf?.horometro ?? null,
+                  kilometraje: inf?.kilometraje ?? null,
+                  encargado: inf?.encargado ?? null,
+                  avisoServicio: inf?.aviso
+                    ? `${inf.aviso.nivel === 'vencido' ? '⛔ Vencido' : inf.aviso.nivel === 'proximo' ? '⚠️ Próximo' : '🟢 Al día'} (${fmtNum(Math.abs(inf.aviso.restante))} ${inf.aviso.unidad})`
+                    : null,
+                },
+              ];
+            })
+          )}
+          onClose={() => setExportarPdfMovilOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+export default MaquinariaMovilView;

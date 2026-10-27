@@ -39,6 +39,8 @@ const OrdenesServicioPage = lazyReload(() => import('./modules/maquinaria/Ordene
 const AveriasEstadosPage = lazyReload(() => import('./modules/maquinaria/AveriasEstadosPage').then((m) => ({ default: m.AveriasEstadosPage })));
 const LavadosPage = lazyReload(() => import('./modules/maquinaria/LavadosPage').then((m) => ({ default: m.LavadosPage })));
 const RepuestosComprasPage = lazyReload(() => import('./modules/maquinaria/RepuestosComprasPage').then((m) => ({ default: m.RepuestosComprasPage })));
+const RepuestosPorEquipoPage = lazyReload(() => import('./modules/maquinaria/RepuestosPorEquipoPage').then((m) => ({ default: m.RepuestosPorEquipoPage })));
+const MaquinariaMovilView = lazyReload(() => import('./modules/maquinaria/MaquinariaMovilView').then((m) => ({ default: m.MaquinariaMovilView })));
 const ChoferesPage = lazyReload(() => import('./modules/choferes/ChoferesPage').then((m) => ({ default: m.ChoferesPage })));
 const VentasPage = lazyReload(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
 const TesoreriaPage = lazyReload(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
@@ -171,6 +173,8 @@ export function App() {
           <Route path="maquinaria/averias" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><AveriasEstadosPage /></Suspense></RequireModule>} />
           <Route path="maquinaria/lavados" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><LavadosPage /></Suspense></RequireModule>} />
           <Route path="maquinaria/repuestos" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><RepuestosComprasPage /></Suspense></RequireModule>} />
+          <Route path="maquinaria/repuestos-equipo" element={<RequireModule module="maquinaria"><Suspense fallback={<PageLoader />}><RepuestosPorEquipoPage /></Suspense></RequireModule>} />
+          <Route path="maquinaria/telefono" element={<RequireVistaTelefono vista="maquinaria"><Suspense fallback={<PageLoader />}><MaquinariaMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="choferes" element={<RequireModule module="choferes"><Suspense fallback={<PageLoader />}><ChoferesPage /></Suspense></RequireModule>} />
           <Route path="ventas" element={<RequireModule module="ventas"><Suspense fallback={<PageLoader />}><VentasPage /></Suspense></RequireModule>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />

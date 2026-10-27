@@ -1,24 +1,64 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import { prefetchRoute } from '@/shared/lib/routePrefetch';
 
-/** Submódulos simplificados de Control de Maquinaria. */
-const SUBMODULOS_FLOTA: { to: string; icon: string; label: string }[] = [
-  { to: '/app/maquinaria', icon: '🚜', label: 'Flota y Equipos' },
-  { to: '/app/maquinaria/ordenes', icon: '🛠️', label: 'Servicios y Mantenimiento' },
-  { to: '/app/maquinaria/repuestos', icon: '🛒', label: 'Repuestos y Compras' },
-  { to: '/app/maquinaria/lavados', icon: '🚿', label: 'Lavados' },
+/** Submódulos simplificados de Control de Maquinaria (4 pestañas esenciales y directas). */
+const SUBMODULOS_FLOTA = [
+  {
+    to: '/app/maquinaria',
+    icon: '🚜',
+    label: 'Flota y Equipos',
+    match: (p: string) => p === '/app/maquinaria' || p.startsWith('/app/maquinaria/equipo/'),
+  },
+  {
+    to: '/app/maquinaria/ordenes',
+    icon: '🔧',
+    label: 'Mantenimiento y Servicios',
+    match: (p: string) =>
+      p.startsWith('/app/maquinaria/ordenes') ||
+      p.startsWith('/app/maquinaria/servicio-mantenimiento') ||
+      p.startsWith('/app/maquinaria/averias'),
+  },
+  {
+    to: '/app/maquinaria/repuestos',
+    icon: '🛒',
+    label: 'Repuestos',
+    match: (p: string) => p.startsWith('/app/maquinaria/repuestos'),
+  },
+  {
+    to: '/app/maquinaria/lavados',
+    icon: '🚿',
+    label: 'Lavados',
+    match: (p: string) => p.startsWith('/app/maquinaria/lavados'),
+  },
+  {
+    to: '/app/maquinaria/telefono',
+    icon: '📱',
+    label: 'Modo Teléfono',
+    match: (p: string) => p === '/app/maquinaria/telefono',
+  },
 ];
 
-/** Tira de submódulos arriba de cada página: en el teléfono se desliza de lado dentro de sí misma. */
+/** Tira de navegación superior limpia y amigable para operarios y usuarios de campo. */
 export function FlotaNav() {
+  const { pathname } = useLocation();
+
   return (
     <nav className="flo-subnav" aria-label="Submódulos de Control de Maquinaria">
-      {SUBMODULOS_FLOTA.map((s) => (
-        <NavLink key={s.to} to={s.to} end className={({ isActive }) => (isActive ? 'activo' : '')}
-          onMouseEnter={() => prefetchRoute(s.to)} onFocus={() => prefetchRoute(s.to)} onTouchStart={() => prefetchRoute(s.to)}>
-          <span aria-hidden="true">{s.icon}</span> {s.label}
-        </NavLink>
-      ))}
+      {SUBMODULOS_FLOTA.map((s) => {
+        const activo = s.match(pathname);
+        return (
+          <NavLink
+            key={s.to}
+            to={s.to}
+            className={activo ? 'activo' : ''}
+            onMouseEnter={() => prefetchRoute(s.to)}
+            onFocus={() => prefetchRoute(s.to)}
+            onTouchStart={() => prefetchRoute(s.to)}
+          >
+            <span aria-hidden="true">{s.icon}</span> {s.label}
+          </NavLink>
+        );
+      })}
     </nav>
   );
 }

@@ -1,14 +1,13 @@
 /* ============================================================
-   MGG · Control de Maquinaria · catálogos (Supabase)
+   Golden Touch · Control de Maquinaria · catálogos (Supabase)
    Catálogo gestionable en 2 partes: TIPO DE MAQUINARIA y PROPIETARIO.
    Mismo patrón que el catálogo de la OP (pedido_catalogos): listar,
    agregar, editar, activar/desactivar y eliminar. En vivo (Realtime).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 
-/** 'documento' = nombres reutilizables de los documentos de cada equipo (contrato, ficha técnica…). */
-/** 'responsable' = catálogo de nombres de encargados responsables de equipos. */
-export type TipoCatalogoMaquinaria = 'tipo_maquinaria' | 'propietario' | 'responsable' | 'status' | 'documento' | 'grupo_mantenimiento';
+/** 'documento' = nombres de los documentos del equipo (📎), guardados para reusarlos. */
+export type TipoCatalogoMaquinaria = 'tipo_maquinaria' | 'propietario' | 'status' | 'documento' | 'encargado_responsable' | 'grupo_mantenimiento';
 
 export interface CatalogoMaquinaria {
   id: string;
@@ -43,14 +42,14 @@ export async function listActivosMaquinaria(tipo: TipoCatalogoMaquinaria): Promi
 
 export async function addCatalogoMaquinaria(tipo: TipoCatalogoMaquinaria, valor: string): Promise<CatalogoMaquinaria> {
   const v = valor.trim();
-  if (!v) throw new Error('Indicá el valor.');
+  if (!v) throw new Error('Indica el valor.');
   const { data, error } = await supabase
     .from(TABLE)
     .insert({ tipo, valor: v, orden: 999 })
     .select('*')
     .single();
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo (los acentos no cuentan: «MARÍA» y «MARIA» son el mismo).');
     throw error;
   }
   return data as CatalogoMaquinaria;
@@ -58,10 +57,10 @@ export async function addCatalogoMaquinaria(tipo: TipoCatalogoMaquinaria, valor:
 
 export async function updateCatalogoMaquinaria(id: string, valor: string): Promise<void> {
   const v = valor.trim();
-  if (!v) throw new Error('Indicá el valor.');
+  if (!v) throw new Error('Indica el valor.');
   const { error } = await supabase.from(TABLE).update({ valor: v }).eq('id', id);
   if (error) {
-    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo.');
+    if ((error as { code?: string }).code === '23505') throw new Error('Ese valor ya existe en el catálogo (los acentos no cuentan: «MARÍA» y «MARIA» son el mismo).');
     throw error;
   }
 }

@@ -6,8 +6,6 @@ import { num as fmtNum, dateTime } from '@/shared/lib/format';
 import { validarLectura, etiquetaOrigenLectura } from './flota';
 import { registrarLectura, getLectura, editarLectura, type LecturaVigente, type LecturaMaquinaria } from './flota.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
-import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
-import { mensajeLecturaHorometro } from './mensajeMaquinaria';
 
 /** «2026-10-09T14:30» en hora local, para el input datetime-local. */
 function ahoraLocal(iso?: string | null): string {
@@ -46,7 +44,6 @@ export function LecturaModal({ equipo, vigente, isAdmin, lecturaId, onClose, onS
   const [motivo, setMotivo] = useState('');
   const [saving, setSaving] = useState(false);
   const [original, setOriginal] = useState<LecturaMaquinaria | null>(null);
-  const [wsTexto, setWsTexto] = useState<string | null>(null);
   const editando = !!lecturaId;
   const cerrar = useRef(onClose);
   cerrar.current = onClose;
@@ -74,7 +71,7 @@ export function LecturaModal({ equipo, vigente, isAdmin, lecturaId, onClose, onS
     : validarLectura(nueva, vigente, { correccion, admin: isAdmin, motivo });
   const sinVinculo = !(equipo.combustible_equipo ?? '').trim();
 
-  async function guardar(conWs = false) {
+  async function guardar() {
     if (problema) { toast(problema, 'warning'); return; }
     setSaving(true);
     try {
@@ -92,16 +89,6 @@ export function LecturaModal({ equipo, vigente, isAdmin, lecturaId, onClose, onS
         toast(`Contador de ${equipo.equipo} actualizado${sinVinculo ? '' : ': el próximo surtido arranca desde esta lectura'}.`, 'success');
       }
       onSaved();
-      if (conWs) {
-        const txt = mensajeLecturaHorometro({
-          equipoNombre: equipo.equipo,
-          horometro: nueva.horometro,
-          kilometraje: nueva.kilometraje,
-          nota: nota.trim() || null,
-        });
-        setWsTexto(txt);
-        return;
-      }
       onClose();
     } catch (e) {
       toast(e instanceof Error ? e.message : (e as { message?: string })?.message || 'No se pudo registrar la lectura', 'error');
@@ -109,19 +96,13 @@ export function LecturaModal({ equipo, vigente, isAdmin, lecturaId, onClose, onS
   }
 
   return (
-    <>
-      <Modal title={`${editando ? '✎ Editar lectura' : '⏱️ Registrar horómetro / km'} · ${equipo.equipo}`} onClose={onClose}
-        footer={<>
-          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-          {!editando && (
-            <button className="btn btn-ghost" onClick={() => void guardar(true)} disabled={saving || !!problema} title="Guardar y abrir WhatsApp para compartir la lectura">
-              💬 Guardar y avisar WhatsApp
-            </button>
-          )}
-          <button className={`btn ${correccion ? 'btn-danger' : 'btn-primary'}`} onClick={() => void guardar(false)} disabled={saving || !!problema}>
-            {saving ? 'Guardando…' : editando ? 'Guardar cambios' : correccion ? 'Guardar corrección' : 'Registrar lectura'}
-          </button>
-        </>}>
+    <Modal title={`${editando ? '✎ Editar lectura' : '⏱️ Registrar horómetro / km'} · ${equipo.equipo}`} onClose={onClose}
+      footer={<>
+        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button className={`btn ${correccion ? 'btn-danger' : 'btn-primary'}`} onClick={() => void guardar()} disabled={saving || !!problema}>
+          {saving ? 'Guardando…' : editando ? 'Guardar cambios' : correccion ? 'Guardar corrección' : 'Registrar lectura'}
+        </button>
+      </>}>
       <div className="flo" style={{ display: 'grid', gap: '.8rem' }}>
         <div className="flo-contador-mini">
           <div><small>Horómetro vigente</small><strong>{vigente.horometro != null ? `${fmtNum(vigente.horometro)} h` : '—'}</strong>
@@ -163,13 +144,5 @@ export function LecturaModal({ equipo, vigente, isAdmin, lecturaId, onClose, onS
         </VistaPrevia>
       </div>
     </Modal>
-    {wsTexto && (
-      <MensajeWhatsappModal
-        titulo={`Horómetro / Km · ${equipo.equipo}`}
-        texto={wsTexto}
-        onClose={() => { setWsTexto(null); onClose(); }}
-      />
-    )}
-    </>
   );
 }

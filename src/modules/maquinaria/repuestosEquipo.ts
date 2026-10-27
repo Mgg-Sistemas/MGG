@@ -1,239 +1,288 @@
 /* ============================================================
-   MGG · Control de Maquinaria · Ficha de repuestos y consumibles del equipo
-   Reglas puras (sin Supabase): sistemas, validación, agrupado, stock,
-   «¿toca en este servicio?», buscador «¿para qué equipo sirve?» y
-   «qué comprar para el próximo servicio».
-   La ficha es POR EQUIPO (decisión de la administradora, 14-10-2026):
-   se carga una vez y se copia a los equipos iguales.
+   Golden Touch · Control de Maquinaria · Ficha de repuestos del equipo
+   (14/10/2026)
+
+   Cada equipo tiene su lista de lo que lleva: filtros, aceites, cauchos,
+   baterías, correas… con el número de parte original, sus equivalencias por
+   marca (Donaldson, Fleetguard, Baldwin…), la especificación (15W-40,
+   23.5R25), la cantidad por servicio y, si existe, el producto del
+   inventario. Con eso se sabe qué comprar, se busca «¿para qué equipo
+   sirve este filtro?» y la orden de servicio se llena desde la ficha.
+
+   Lógica pura (sin red): la usan la pestaña del expediente, el submódulo
+   «Repuestos por equipo» y la orden de servicio.
    ============================================================ */
 import { norm } from '@/shared/lib/texto';
+import { num as fmtNum } from '@/shared/lib/format';
+import type { AvisoServicio } from './flota';
 
 export type SistemaRepuesto =
   | 'motor' | 'hidraulico' | 'transmision' | 'refrigeracion' | 'combustible' | 'aire'
-  | 'cabina' | 'cauchos' | 'electrico' | 'correas' | 'frenos' | 'otros';
+  | 'cabina' | 'cauchos' | 'electrico' | 'frenos' | 'rodaje' | 'otros';
 
-export interface SistemaMeta {
-  id: SistemaRepuesto;
-  label: string;
-  icon: string;
-  /** Tipos sugeridos al cargar (se puede escribir otro). */
-  tipos: string[];
-}
-
-export const SISTEMAS: SistemaMeta[] = [
-  { id: 'motor', label: 'Motor', icon: '🔩', tipos: ['Aceite de motor', 'Filtro de aceite', 'Bujía', 'Inyector', 'Empacadura de tapa'] },
-  { id: 'hidraulico', label: 'Hidráulico', icon: '💧', tipos: ['Aceite hidráulico', 'Filtro hidráulico', 'Manguera hidráulica', 'Sello de cilindro'] },
-  { id: 'transmision', label: 'Transmisión', icon: '⚙️', tipos: ['Aceite de caja', 'Aceite de diferencial', 'Filtro de transmisión', 'Grasa'] },
-  { id: 'refrigeracion', label: 'Refrigeración', icon: '🧊', tipos: ['Refrigerante', 'Termostato', 'Manguera de radiador', 'Tapa de radiador'] },
-  { id: 'combustible', label: 'Combustible', icon: '⛽', tipos: ['Filtro de combustible', 'Filtro separador de agua', 'Bomba de combustible'] },
-  { id: 'aire', label: 'Aire', icon: '🌬️', tipos: ['Filtro de aire primario', 'Filtro de aire secundario', 'Filtro de cabina'] },
-  { id: 'cabina', label: 'Cabina', icon: '🪟', tipos: ['Plumilla', 'Vidrio', 'Espejo', 'Asiento'] },
-  { id: 'cauchos', label: 'Cauchos', icon: '🛞', tipos: ['Caucho delantero', 'Caucho trasero', 'Caucho', 'Tripa', 'Ring'] },
-  { id: 'electrico', label: 'Eléctrico', icon: '🔋', tipos: ['Batería', 'Alternador', 'Motor de arranque', 'Bombillo', 'Fusible'] },
-  { id: 'correas', label: 'Correas', icon: '➰', tipos: ['Correa de alternador', 'Correa de aire', 'Correa de ventilador'] },
-  { id: 'frenos', label: 'Frenos', icon: '🛑', tipos: ['Pastillas de freno', 'Bandas de freno', 'Líquido de frenos', 'Disco de freno'] },
-  { id: 'otros', label: 'Otros', icon: '📦', tipos: [] },
+export const SISTEMAS_REPUESTO: { id: SistemaRepuesto; label: string; icon: string }[] = [
+  { id: 'motor', label: 'Motor', icon: '⚙️' },
+  { id: 'combustible', label: 'Combustible', icon: '⛽' },
+  { id: 'aire', label: 'Aire', icon: '🌬️' },
+  { id: 'hidraulico', label: 'Hidráulico', icon: '💧' },
+  { id: 'transmision', label: 'Transmisión', icon: '🔩' },
+  { id: 'refrigeracion', label: 'Refrigeración', icon: '❄️' },
+  { id: 'frenos', label: 'Frenos', icon: '🛑' },
+  { id: 'cauchos', label: 'Cauchos', icon: '🛞' },
+  { id: 'rodaje', label: 'Tren de rodaje', icon: '⛓️' },
+  { id: 'electrico', label: 'Eléctrico', icon: '🔋' },
+  { id: 'cabina', label: 'Cabina', icon: '🪟' },
+  { id: 'otros', label: 'Otros', icon: '📦' },
 ];
 
-export function sistemaDe(id: string | null | undefined): SistemaMeta {
-  return SISTEMAS.find((s) => s.id === id) ?? SISTEMAS[SISTEMAS.length - 1];
-}
+/** Sugerencias para el campo «Tipo» según el sistema (se puede escribir otro). */
+export const TIPOS_SUGERIDOS: Record<SistemaRepuesto, string[]> = {
+  motor: ['Aceite de motor', 'Filtro de aceite', 'Filtro de aceite (by-pass)', 'Correa', 'Tapa de llenado'],
+  combustible: ['Filtro de combustible', 'Filtro separador de agua', 'Filtro racor', 'Prefiltro'],
+  aire: ['Filtro de aire primario', 'Filtro de aire secundario', 'Prefiltro de aire'],
+  hidraulico: ['Aceite hidráulico', 'Filtro hidráulico de retorno', 'Filtro hidráulico de succión', 'Filtro hidráulico de línea', 'Filtro piloto', 'Respiradero'],
+  transmision: ['Aceite de transmisión', 'Filtro de transmisión', 'Aceite de diferencial', 'Aceite de mandos finales'],
+  refrigeracion: ['Refrigerante', 'Filtro de refrigerante', 'Termostato', 'Correa del ventilador'],
+  frenos: ['Líquido de frenos', 'Pastillas', 'Bandas', 'Filtro de aire de frenos'],
+  cauchos: ['Caucho delantero', 'Caucho trasero', 'Caucho de repuesto', 'Tripa', 'Protector'],
+  rodaje: ['Zapata', 'Cadena', 'Rodillo', 'Rueda guía', 'Sprocket', 'Cuchilla', 'Uña / diente'],
+  electrico: ['Batería', 'Alternador', 'Motor de arranque', 'Bombillo', 'Fusible'],
+  cabina: ['Filtro de cabina', 'Filtro de aire acondicionado', 'Plumilla'],
+  otros: ['Grasa', 'Otro'],
+};
+
+export const UNIDADES_REPUESTO = ['und', 'L', 'gal', 'kg', 'juego', 'par', 'paila', 'tambor'];
 
 export interface RepuestoEquipo {
   id: string;
   equipo_id: string;
-  sistema: string;
+  sistema: SistemaRepuesto;
   tipo: string;
   numero_parte: string | null;
-  equivalencias: string | null;
+  equivalencias: string[];
   especificacion: string | null;
   cantidad: number;
   unidad: string;
-  cada_horas: number | null;
+  cada_hrs: number | null;
   cada_km: number | null;
+  /** Se cambia en cada servicio preventivo (cuenta para «qué comprar» y se marca solo en la OS). */
+  en_servicio: boolean;
   producto_id: string | null;
   nota: string | null;
   orden: number;
-  actor: string | null;
-  actor_name: string | null;
+  created_by: string | null;
   created_at: string;
-  updated_at: string | null;
+  updated_by: string | null;
+  updated_at: string;
 }
 
-/** Lo que se escribe en la ventana (sin id ni auditoría). */
-export type DatosRepuestoEquipo = Pick<RepuestoEquipo,
-  'sistema' | 'tipo' | 'numero_parte' | 'equivalencias' | 'especificacion' | 'cantidad' | 'unidad' | 'cada_horas' | 'cada_km' | 'producto_id' | 'nota'>;
+export type DatosRepuesto = Pick<RepuestoEquipo,
+  'sistema' | 'tipo' | 'numero_parte' | 'equivalencias' | 'especificacion' | 'cantidad' | 'unidad'
+  | 'cada_hrs' | 'cada_km' | 'en_servicio' | 'producto_id' | 'nota'>;
 
-/** Texto del error de validación, o null si está bien. */
-export function validarRepuestoEquipo(d: Partial<DatosRepuestoEquipo>): string | null {
-  if (!SISTEMAS.some((s) => s.id === d.sistema)) return 'Elige el sistema (motor, hidráulico, cauchos…).';
-  if ((d.tipo ?? '').trim().length < 2) return 'Escribe qué es (filtro de aceite, aceite de motor, caucho…).';
-  if (!(Number(d.cantidad) > 0)) return 'La cantidad por servicio tiene que ser mayor que cero.';
-  if (d.cada_horas != null && !(d.cada_horas > 0)) return '«Cada cuántas horas» tiene que ser mayor que cero (o déjalo vacío).';
-  if (d.cada_km != null && !(d.cada_km > 0)) return '«Cada cuántos km» tiene que ser mayor que cero (o déjalo vacío).';
-  if (!(d.numero_parte ?? '').trim() && !(d.especificacion ?? '').trim() && !(d.equivalencias ?? '').trim() && !d.producto_id) {
-    return 'Indica al menos el número de parte, la especificación, una equivalencia o el producto del inventario: sin eso Compras no sabe qué comprar.';
+/** Lo mínimo del producto del inventario que hace falta aquí. */
+export interface ProductoRepuesto {
+  id: string;
+  nombre: string;
+  unidad: string;
+  stock: number;
+  sku?: string | null;
+  categoria?: string | null;
+  almacen?: string | null;
+  nombre_busqueda?: string | null;
+}
+
+export const sistemaDe = (id: string) => SISTEMAS_REPUESTO.find((s) => s.id === id) ?? SISTEMAS_REPUESTO[SISTEMAS_REPUESTO.length - 1];
+
+/** Mayúsculas y espacios simples: los números de parte se guardan así. */
+export const limpiarCodigo = (s: string | null | undefined): string => (s ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+
+/**
+ * «DONALDSON P553771; FLEETGUARD LF3413» (o una por renglón) → lista sin repetidos.
+ * No se parte por «/» ni «-» porque muchos números de parte los llevan.
+ */
+export function separarEquivalencias(txt: string): string[] {
+  const vistos = new Set<string>();
+  const out: string[] = [];
+  for (const parte of (txt ?? '').split(/[\n;,·]+/)) {
+    const c = limpiarCodigo(parte);
+    if (c && !vistos.has(c)) { vistos.add(c); out.push(c); }
   }
-  return null;
+  return out;
 }
 
-/** Nombre con el que se pide o se da de alta la pieza: «FILTRO DE ACEITE 17457469» / «ACEITE DE MOTOR 15W-40». */
-export function nombreRepuesto(r: Pick<RepuestoEquipo, 'tipo' | 'numero_parte' | 'especificacion'>): string {
-  const extra = (r.numero_parte ?? '').trim() || (r.especificacion ?? '').trim();
-  return `${r.tipo.trim()}${extra ? ` ${extra}` : ''}`.toUpperCase().replace(/\s+/g, ' ');
+/** «250 h · 10.000 km» (cada cuánto se cambia). */
+export const textoCada = (r: Pick<RepuestoEquipo, 'cada_hrs' | 'cada_km'>): string =>
+  [r.cada_hrs ? `${fmtNum(r.cada_hrs)} h` : null, r.cada_km ? `${fmtNum(r.cada_km)} km` : null].filter(Boolean).join(' · ');
+
+export const textoEquivalencias = (eq: string[] | null | undefined): string => (eq ?? []).join(' · ');
+
+/** Sin espacios, guiones, puntos ni barras: «P-553 771» encuentra «P553771». */
+const compacto = (s: string) => norm(s).replace(/[\s\-./_]+/g, '');
+
+/**
+ * ¿El renglón coincide con la búsqueda? Cada palabra tiene que aparecer en el
+ * tipo, el número de parte, las equivalencias, la especificación, la nota, el
+ * producto enlazado o el equipo (nombre, marca, modelo, serial).
+ */
+export function coincideRepuesto(r: Pick<RepuestoEquipo, 'tipo' | 'numero_parte' | 'equivalencias' | 'especificacion' | 'nota' | 'sistema'>,
+  q: string, extra: (string | null | undefined)[] = []): boolean {
+  const terms = norm(q).split(/\s+/).filter(Boolean);
+  if (!terms.length) return true;
+  const campos = [r.tipo, r.numero_parte, ...(r.equivalencias ?? []), r.especificacion, r.nota, sistemaDe(r.sistema).label, ...extra];
+  const texto = norm(campos.filter(Boolean).join(' '));
+  const comp = compacto(campos.filter(Boolean).join(' '));
+  return terms.every((t) => texto.includes(t) || (compacto(t).length >= 3 && comp.includes(compacto(t))));
 }
 
-/** Detalle en una línea para listas, PDF y Compras («17457469 · Donaldson P553771 · 15W-40»). */
-export function detalleRepuesto(r: Pick<RepuestoEquipo, 'numero_parte' | 'equivalencias' | 'especificacion'>): string {
-  return [r.numero_parte, r.equivalencias, r.especificacion].map((x) => (x ?? '').trim()).filter(Boolean).join(' · ');
+/** ¿El producto del inventario coincide con la búsqueda? (nombre, alias, SKU). */
+export function coincideProducto(p: ProductoRepuesto, q: string): boolean {
+  const terms = norm(q).split(/\s+/).filter(Boolean);
+  if (!terms.length) return false;
+  const campos = [p.nombre, p.nombre_busqueda, p.sku].filter(Boolean).join(' ');
+  const texto = norm(campos);
+  const comp = compacto(campos);
+  return terms.every((t) => texto.includes(t) || (compacto(t).length >= 3 && comp.includes(compacto(t))));
 }
 
-/** Cada cuánto toca, en palabras («cada 500 h», «cada 10.000 km», «en todos los servicios»). */
-export function textoCada(r: Pick<RepuestoEquipo, 'cada_horas' | 'cada_km'>, fmt: (n: number) => string = (n) => String(n)): string {
-  const partes = [r.cada_horas != null ? `cada ${fmt(r.cada_horas)} h` : '', r.cada_km != null ? `cada ${fmt(r.cada_km)} km` : ''].filter(Boolean);
-  return partes.length ? partes.join(' / ') : 'en todos los servicios';
+/** Los renglones agrupados por sistema, en el orden de SISTEMAS_REPUESTO. */
+export function agruparPorSistema<T extends Pick<RepuestoEquipo, 'sistema' | 'orden' | 'tipo'>>(rs: T[]): { sistema: (typeof SISTEMAS_REPUESTO)[number]; items: T[] }[] {
+  return SISTEMAS_REPUESTO
+    .map((s) => ({
+      sistema: s,
+      items: rs.filter((r) => sistemaDe(r.sistema).id === s.id)
+        .sort((a, b) => (a.orden - b.orden) || a.tipo.localeCompare(b.tipo, 'es', { sensitivity: 'base' })),
+    }))
+    .filter((g) => g.items.length > 0);
 }
 
-/** Mismo repuesto ya cargado en la ficha del equipo (mismo tipo y mismo número de parte / especificación). */
-export function duplicadoEnFicha(lista: RepuestoEquipo[], d: Pick<DatosRepuestoEquipo, 'tipo' | 'numero_parte' | 'especificacion'>, excluirId?: string | null): boolean {
-  const clave = norm(nombreRepuesto({ tipo: d.tipo, numero_parte: d.numero_parte, especificacion: d.especificacion }));
-  return lista.some((r) => r.id !== excluirId && norm(nombreRepuesto(r)) === clave);
+export type EstadoStockRepuesto = 'hay' | 'poco' | 'no_hay' | 'sin_producto';
+
+/** ¿Alcanza el inventario para un servicio? */
+export function estadoStock(cantidad: number, producto: Pick<ProductoRepuesto, 'stock'> | null | undefined): EstadoStockRepuesto {
+  if (!producto) return 'sin_producto';
+  const s = Number(producto.stock) || 0;
+  if (s <= 0) return 'no_hay';
+  return s >= (Number(cantidad) || 0) ? 'hay' : 'poco';
 }
 
-const ORDEN_SISTEMA = new Map(SISTEMAS.map((s, i) => [s.id, i]));
-
-/** Agrupa la ficha por sistema (en el orden de SISTEMAS); dentro, por orden y tipo. */
-export function agruparPorSistema(lista: RepuestoEquipo[]): { sistema: SistemaMeta; items: RepuestoEquipo[] }[] {
-  const grupos = new Map<string, RepuestoEquipo[]>();
-  for (const r of lista) {
-    const s = sistemaDe(r.sistema).id;
-    if (!grupos.has(s)) grupos.set(s, []);
-    grupos.get(s)!.push(r);
-  }
-  return [...grupos.entries()]
-    .sort((a, b) => (ORDEN_SISTEMA.get(a[0] as SistemaRepuesto) ?? 99) - (ORDEN_SISTEMA.get(b[0] as SistemaRepuesto) ?? 99))
-    .map(([s, items]) => ({ sistema: sistemaDe(s), items: [...items].sort((a, b) => a.orden - b.orden || a.tipo.localeCompare(b.tipo, 'es')) }));
-}
-
-export type EstadoStock = 'hay' | 'no_hay' | 'sin_producto';
-export const ESTADOS_STOCK: Record<EstadoStock, { label: string; icon: string }> = {
-  hay: { label: 'Hay en inventario', icon: '🟢' },
-  no_hay: { label: 'No hay suficiente', icon: '🔴' },
-  sin_producto: { label: 'No está en el inventario', icon: '⚪' },
+export const ESTADO_STOCK: Record<EstadoStockRepuesto, { label: string; icon: string; tono: 'success' | 'warning' | 'danger' | 'info' }> = {
+  hay: { label: 'Hay en inventario', icon: '🟢', tono: 'success' },
+  poco: { label: 'No alcanza', icon: '🟡', tono: 'warning' },
+  no_hay: { label: 'Sin stock', icon: '🔴', tono: 'danger' },
+  sin_producto: { label: 'No está en el inventario', icon: '⚪', tono: 'info' },
 };
 
-/** Stock del producto vinculado frente a la cantidad por servicio. */
-export function estadoStock(r: Pick<RepuestoEquipo, 'cantidad' | 'producto_id'>, producto: { stock: number } | null | undefined): { estado: EstadoStock; stock: number | null } {
-  if (!r.producto_id || !producto) return { estado: 'sin_producto', stock: null };
-  const stock = Math.max(0, Number(producto.stock) || 0);
-  return { estado: stock >= r.cantidad ? 'hay' : 'no_hay', stock };
+/** Clave para no duplicar al copiar: mismo sistema, tipo y número de parte. */
+const claveRenglon = (r: Pick<RepuestoEquipo, 'sistema' | 'tipo' | 'numero_parte'>) =>
+  `${r.sistema}|${norm(r.tipo)}|${compacto(r.numero_parte ?? '')}`;
+
+/** Lo que se copia de otro equipo: todo, salvo lo que el destino ya tiene. */
+export function filasParaCopiar(origen: RepuestoEquipo[], destino: Pick<RepuestoEquipo, 'sistema' | 'tipo' | 'numero_parte'>[]): DatosRepuesto[] {
+  const ya = new Set(destino.map(claveRenglon));
+  const out: DatosRepuesto[] = [];
+  for (const r of origen) {
+    const k = claveRenglon(r);
+    if (ya.has(k)) continue;
+    ya.add(k);
+    out.push({
+      sistema: r.sistema, tipo: r.tipo, numero_parte: r.numero_parte, equivalencias: [...(r.equivalencias ?? [])],
+      especificacion: r.especificacion, cantidad: r.cantidad, unidad: r.unidad, cada_hrs: r.cada_hrs, cada_km: r.cada_km,
+      en_servicio: r.en_servicio, producto_id: r.producto_id, nota: r.nota,
+    });
+  }
+  return out;
 }
 
-/**
- * Lectura NOMINAL del próximo servicio: el múltiplo del intervalo que toca.
- * Con base (último mantenimiento) es base + intervalo, redondeado al múltiplo
- * más cercano (si se hizo a 260 h con intervalo 250, el próximo es el de 500).
- */
-export function proximoServicioNominal(frecuencia: number | null | undefined, lectura: number | null | undefined, base: number | null | undefined): number | null {
-  if (!frecuencia || frecuencia <= 0) return null;
-  if (base != null && base >= 0) return Math.max(frecuencia, Math.round((base + frecuencia) / frecuencia) * frecuencia);
-  if (lectura == null || lectura < 0) return null;
-  return Math.max(frecuencia, Math.ceil(lectura / frecuencia) * frecuencia);
+/** Nombre con el que entra una pieza a la orden cuando no está enlazada al inventario. */
+export const nombrePiezaNueva = (r: Pick<RepuestoEquipo, 'tipo' | 'numero_parte' | 'especificacion'>): string =>
+  limpiarCodigo([r.tipo, r.numero_parte || r.especificacion].filter(Boolean).join(' '));
+
+/** Tipos de orden de servicio que marcan solos los renglones «en cada servicio». */
+const OS_DE_SERVICIO = new Set(['preventivo', 'aceite']);
+
+/** ¿Este renglón viene marcado al cargar la ficha en una OS de este tipo? */
+export function marcadoParaOrden(r: Pick<RepuestoEquipo, 'sistema' | 'en_servicio'>, tipoOrden: string | null | undefined): boolean {
+  if (tipoOrden === 'cauchos') return r.sistema === 'cauchos';
+  if (tipoOrden && OS_DE_SERVICIO.has(tipoOrden)) return r.en_servicio && r.sistema !== 'cauchos';
+  return false;
 }
 
-/**
- * ¿Toca en el servicio que viene? Sin «cada cuánto» entra siempre. Con «cada 500 h»
- * entra cuando el próximo servicio nominal es múltiplo de 500 (si no hay lectura, entra).
- */
-export function tocaEnServicio(r: Pick<RepuestoEquipo, 'cada_horas' | 'cada_km'>, proximo: { horas: number | null; km: number | null }): boolean {
-  const multiplo = (valor: number | null, cada: number | null) => {
-    if (cada == null) return null;
-    if (valor == null) return true;
-    const resto = Math.abs(valor % cada);
-    return resto < 1e-6 || Math.abs(resto - cada) < 1e-6;
-  };
-  const h = multiplo(proximo.horas, r.cada_horas);
-  const k = multiplo(proximo.km, r.cada_km);
-  if (h == null && k == null) return true;
-  return h === true || k === true;
+export interface LineaDesdeFicha {
+  productoId: string | null; nombre: string; unidad: string; cantidad: number; stock: number; almacen: string | null;
 }
 
-/** «¿Para qué equipo sirve?»: todas las palabras en el número original, las equivalencias, la especificación, el tipo o el producto. */
-export function buscarCompatibles<T extends RepuestoEquipo>(lista: T[], q: string, productos: Map<string, { nombre: string; sku: string }>): T[] {
-  const tokens = norm(q).split(/\s+/).filter(Boolean);
-  if (!tokens.length) return [];
-  return lista.filter((r) => {
-    const p = r.producto_id ? productos.get(r.producto_id) : null;
-    const texto = norm([r.tipo, r.numero_parte, r.equivalencias, r.especificacion, p?.nombre, p?.sku].filter(Boolean).join(' '));
-    return tokens.every((t) => texto.includes(t));
-  });
+/** Los renglones elegidos de la ficha → líneas de la orden (enlazados con su stock; los demás como pieza nueva). */
+export function lineasDesdeFicha(rs: RepuestoEquipo[], productos: Map<string, ProductoRepuesto>): LineaDesdeFicha[] {
+  const out: LineaDesdeFicha[] = [];
+  const vistos = new Set<string>();
+  for (const r of rs) {
+    const p = r.producto_id ? productos.get(r.producto_id) : undefined;
+    const clave = p ? `p:${p.id}` : `n:${nombrePiezaNueva(r)}`;
+    const cantidad = Number(r.cantidad) > 0 ? Number(r.cantidad) : 1;
+    if (vistos.has(clave)) {
+      const l = out.find((x) => (p ? x.productoId === p.id : !x.productoId && x.nombre === nombrePiezaNueva(r)));
+      if (l) l.cantidad += cantidad;
+      continue;
+    }
+    vistos.add(clave);
+    out.push(p
+      ? { productoId: p.id, nombre: p.nombre, unidad: p.unidad || r.unidad || 'und', cantidad, stock: Math.max(0, Number(p.stock) || 0), almacen: p.almacen ?? null }
+      : { productoId: null, nombre: nombrePiezaNueva(r), unidad: r.unidad || 'und', cantidad, stock: 0, almacen: null });
+  }
+  return out;
 }
 
-export interface EquipoProximo {
+/* ───────── Qué comprar para el próximo servicio ───────── */
+
+export interface EquipoPorServicio {
   id: string;
   equipo: string;
-  /** Próximo servicio nominal (ver proximoServicioNominal). */
-  proximoH: number | null;
-  proximoK: number | null;
+  aviso: AvisoServicio | null;
 }
 
-export interface NecesidadServicio {
-  /** producto_id o el nombre normalizado si no está en el inventario. */
-  clave: string;
-  nombre: string;
-  detalle: string;
-  unidad: string;
-  producto_id: string | null;
-  sku: string | null;
-  necesario: number;
-  /** null si la pieza no está en el inventario. */
-  stock: number | null;
+export interface NecesidadProducto {
+  producto: ProductoRepuesto;
+  cantidad: number;
+  stock: number;
   faltante: number;
-  equipos: { equipo_id: string; equipo: string; cantidad: number }[];
+  equipos: string[];
+}
+
+export interface NecesidadSinProducto {
+  equipo: string;
+  renglon: RepuestoEquipo;
+}
+
+/** Equipos con el servicio vencido o próximo (según su contador), del más urgente al menos. */
+export function equiposPorServicio(es: EquipoPorServicio[]): EquipoPorServicio[] {
+  return es.filter((e) => e.aviso && e.aviso.nivel !== 'ok')
+    .sort((a, b) => (b.aviso!.ratio - a.aviso!.ratio) || a.equipo.localeCompare(b.equipo, 'es'));
 }
 
 /**
- * «Qué comprar para el próximo servicio»: suma lo que necesitan los equipos próximos o
- * vencidos según su ficha (solo lo que toca a esas horas / km), le resta el stock y deja
- * el faltante. Se agrupa por producto; las piezas que no están en el inventario, por nombre.
+ * Suma lo que piden las fichas (renglones «en cada servicio») de los equipos que
+ * están por servicio, por producto del inventario, y le resta el stock. Lo que
+ * no está enlazado al inventario sale aparte, para que Compras lo identifique.
  */
-export function faltantesProximoServicio(
-  equipos: EquipoProximo[], fichas: RepuestoEquipo[],
-  productos: Map<string, { nombre: string; sku: string; stock: number; unidad: string }>,
-): NecesidadServicio[] {
-  const porEquipo = new Map(equipos.map((e) => [e.id, e]));
-  const out = new Map<string, NecesidadServicio>();
-  for (const r of fichas) {
-    const e = porEquipo.get(r.equipo_id);
-    if (!e || !tocaEnServicio(r, { horas: e.proximoH, km: e.proximoK })) continue;
-    const p = r.producto_id ? productos.get(r.producto_id) : null;
-    const clave = p && r.producto_id ? r.producto_id : `nombre:${norm(nombreRepuesto(r))}`;
-    let n = out.get(clave);
-    if (!n) {
-      n = {
-        clave, nombre: p?.nombre ?? nombreRepuesto(r), detalle: detalleRepuesto(r), unidad: p?.unidad || r.unidad || 'und',
-        producto_id: p ? r.producto_id : null, sku: p?.sku ?? null, necesario: 0, stock: p ? Math.max(0, Number(p.stock) || 0) : null, faltante: 0, equipos: [],
-      };
-      out.set(clave, n);
-    }
-    n.necesario = Math.round((n.necesario + r.cantidad) * 100) / 100;
-    const ya = n.equipos.find((x) => x.equipo_id === e.id);
-    if (ya) ya.cantidad = Math.round((ya.cantidad + r.cantidad) * 100) / 100;
-    else n.equipos.push({ equipo_id: e.id, equipo: e.equipo, cantidad: r.cantidad });
+export function necesidadesProximoServicio(
+  equipos: EquipoPorServicio[], renglones: RepuestoEquipo[], productos: Map<string, ProductoRepuesto>,
+): { porProducto: NecesidadProducto[]; sinProducto: NecesidadSinProducto[] } {
+  const porProducto = new Map<string, NecesidadProducto>();
+  const sinProducto: NecesidadSinProducto[] = [];
+  const nombres = new Map(equipos.map((e) => [e.id, e.equipo]));
+  for (const r of renglones) {
+    const eq = nombres.get(r.equipo_id);
+    if (!eq || !r.en_servicio) continue;
+    const p = r.producto_id ? productos.get(r.producto_id) : undefined;
+    if (!p) { sinProducto.push({ equipo: eq, renglon: r }); continue; }
+    const n = porProducto.get(p.id) ?? { producto: p, cantidad: 0, stock: Math.max(0, Number(p.stock) || 0), faltante: 0, equipos: [] };
+    n.cantidad += Number(r.cantidad) || 0;
+    if (!n.equipos.includes(eq)) n.equipos.push(eq);
+    porProducto.set(p.id, n);
   }
-  for (const n of out.values()) n.faltante = n.stock == null ? n.necesario : Math.max(0, Math.round((n.necesario - n.stock) * 100) / 100);
-  return [...out.values()].sort((a, b) => b.faltante - a.faltante || a.nombre.localeCompare(b.nombre, 'es'));
-}
-
-/** Copia de una ficha para otro equipo (sin id, sin auditoría). */
-export function copiaDeRepuesto(r: RepuestoEquipo): DatosRepuestoEquipo {
-  return {
-    sistema: r.sistema, tipo: r.tipo, numero_parte: r.numero_parte, equivalencias: r.equivalencias, especificacion: r.especificacion,
-    cantidad: r.cantidad, unidad: r.unidad, cada_horas: r.cada_horas, cada_km: r.cada_km, producto_id: r.producto_id, nota: r.nota,
-  };
-}
-
-/** Las fichas de `origen` que todavía no están en `destino` (mismo tipo + número / especificación). */
-export function repuestosParaCopiar(origen: RepuestoEquipo[], destino: RepuestoEquipo[]): RepuestoEquipo[] {
-  return origen.filter((r) => !duplicadoEnFicha(destino, r));
+  const lista = [...porProducto.values()].map((n) => ({ ...n, cantidad: Math.round(n.cantidad * 100) / 100, faltante: Math.max(0, Math.round((n.cantidad - n.stock) * 100) / 100) }));
+  lista.sort((a, b) => (Number(b.faltante > 0) - Number(a.faltante > 0)) || a.producto.nombre.localeCompare(b.producto.nombre, 'es'));
+  sinProducto.sort((a, b) => a.equipo.localeCompare(b.equipo, 'es') || a.renglon.tipo.localeCompare(b.renglon.tipo, 'es'));
+  return { porProducto: lista, sinProducto };
 }

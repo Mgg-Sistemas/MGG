@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Control de Maquinaria · listados de los submódulos
+   Golden Touch · Control de Maquinaria · listados de los submódulos
    Reglas puras (sin Supabase) de Órdenes de servicio, Averías y
    estados, Lavados y Repuestos y compras: filtros sin acentos, rango
    de fechas, conteos por estado y equipos que llevan más días sin

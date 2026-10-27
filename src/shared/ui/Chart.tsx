@@ -145,6 +145,69 @@ export function RankedBarChart({ data, valueFormatter = String, emptyMessage, on
   );
 }
 
+/** Color por nivel (0% → rojo, 100% → verde), estilo semáforo suave. */
+function colorEscala(pct: number): string {
+  const p = Math.max(0, Math.min(100, pct));
+  const hue = Math.round((p / 100) * 130); // 0 rojo → 130 verde
+  return `hsl(${hue}, 66%, 46%)`;
+}
+
+/**
+ * Gráfica de barras HORIZONTALES tipo "píldora": una fila por ítem con la
+ * etiqueta a la izquierda (legible, sin rotar), una barra redondeada cuyo largo
+ * es proporcional al valor y un color por nivel (verde = mayor, rojo = menor).
+ * Ideal cuando hay MUCHAS categorías (p. ej. vehículos): la lista hace scroll y
+ * nunca se solapan los nombres. (Traída de Golden Touch para Maquinaria.)
+ */
+export function HBarChart({ data, color, yFormatter = String, emptyMessage, onBarClick }: BaseProps & { onBarClick?: (point: ChartPoint, index: number) => void }) {
+  if (!data.length) {
+    return (
+      <div style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted)' }}>
+        {emptyMessage ?? 'Sin datos para el periodo seleccionado.'}
+      </div>
+    );
+  }
+  const max = Math.max(1, ...data.map((d) => d.value));
+  const BAR_H = 16;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.45rem', maxHeight: 360, overflowY: 'auto', paddingRight: '.25rem' }}>
+      {data.map((d, i) => {
+        const pct = Math.max(0, Math.min(100, (d.value / max) * 100));
+        const fondo = color ?? colorEscala(pct);
+        return (
+          <div
+            key={i}
+            title={onBarClick ? `Ver detalle de ${d.label}` : (d.tooltip ?? `${d.label}: ${yFormatter(d.value)}`)}
+            onClick={onBarClick ? () => onBarClick(d, i) : undefined}
+            style={{ display: 'grid', gridTemplateColumns: 'minmax(90px, 150px) 1fr auto', gap: '.55rem', alignItems: 'center', cursor: onBarClick ? 'pointer' : undefined }}
+          >
+            <span style={{ fontSize: '.78rem', color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              {d.label}
+            </span>
+            <div style={{ height: BAR_H, borderRadius: 999, background: 'rgba(226,232,240,0.07)', border: '1px solid rgba(226,232,240,0.14)', overflow: 'hidden' }}>
+              <div
+                style={{
+                  width: `${pct}%`,
+                  minWidth: BAR_H,
+                  height: '100%',
+                  borderRadius: 999,
+                  background: `linear-gradient(180deg, rgba(255,255,255,.35), rgba(255,255,255,0) 55%), ${fondo}`,
+                  boxShadow: 'inset 0 -1px 2px rgba(0,0,0,.2)',
+                  transition: 'width .3s ease',
+                }}
+              />
+            </div>
+            <span className="mono" style={{ fontSize: '.78rem', fontWeight: 700, color: '#e2e8f0', whiteSpace: 'nowrap' }}>
+              {yFormatter(d.value)}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function BarChart({ data, height = 220, color = '#10b981', yFormatter = String, emptyMessage }: BaseProps) {
   const width = 720;
   const innerW = width - PAD.left - PAD.right;

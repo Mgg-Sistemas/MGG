@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Control de Maquinaria · Fotos de la orden de servicio
+   Golden Touch · Control de Maquinaria · Fotos de la orden de servicio
    Reglas puras (sin Supabase): cuántas fotos admite una orden, qué
    archivos se aceptan y dónde se guardan. Tabla `maquinaria_os_fotos`
    + bucket privado `maquinaria-os-fotos` (la base también exige el

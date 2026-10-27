@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Control de Maquinaria · Flota y Servicio (Supabase)
+   Golden Touch · Control de Maquinaria · Flota y Servicio (Supabase)
    Estado operativo del equipo (con historial), órdenes de servicio y
    las lecturas del expediente (compras, surtidos, fotos).
 
@@ -8,17 +8,18 @@
        (Salidas, queda «por aprobar» y descuenta al ejecutarse);
      · lo que falta se pide con una SOLICITUD DE PEDIDO (Pedidos, SP).
    La salida se crea con el permiso de Salidas; si el usuario no lo tiene,
-   queda «por solicitar». La SP la crea la app con el flujo de Pedidos de MGG
-   (crearOrden) y da de alta las piezas que no estaban en el inventario
-   (createProducto, stock 0) antes de pedirlas (13-10).
+   queda «por solicitar». En MGG la SP la arma la app con el flujo de Pedidos
+   (crearOrden + unidad «MANTENIMIENTO DE MAQUINARIA»); las piezas nuevas NO se
+   dan de alta en el inventario: las nombra y crea Compras (13-10).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { ItemOrden, ItemSolicitudSalida } from '@/shared/lib/types';
 import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
 import { crearOrden, ensureUnidadSolicitante } from '@/modules/pedidos/pedidos.repository';
 import { notify } from '@/shared/lib/notify';
+import { BUCKET_DOCUMENTOS } from './maquinariaDocumentos.repository';
+import { ordenarFotosEquipo } from './maquinariaDocumentos';
 import { listFotosOrden, borrarArchivosFotosOrden } from './osFotos.repository';
-import { listFotosEquipo, urlsFotosEquipo } from './fotosEquipo.repository';
 import type { EstadoEquipo, EstadoOrdenServicio, RepuestoOrden } from './flota';
 import { servicioPorId, piezasNuevas } from './flota';
 export { faltaSalida, faltaCompra } from './flota';
@@ -153,14 +154,27 @@ async function vincular(id: string, salida: string | null, compra: string | null
 
 interface Actor { email: string; nombre: string | null }
 
+/** Unidad solicitante con la que Maquinaria pide salidas y compras (catálogo de Pedidos). */
+export const UNIDAD_MAQUINARIA = 'MANTENIMIENTO DE MAQUINARIA';
+
+/**
+ * Quién pide, cuando el llamador no lo pasa: el correo de la sesión y el nombre de su
+ * ficha en `usuarios` (igual que `actor`/`actorName` en las páginas del módulo).
+ */
+async function actorDeSesion(): Promise<Actor> {
+  const { data: auth } = await supabase.auth.getUser();
+  const u = auth.user;
+  if (!u?.email) return { email: 'sistema', nombre: null };
+  const { data } = await supabase.from('usuarios').select('nombre').eq('id', u.id).maybeSingle();
+  return { email: u.email, nombre: (data as { nombre?: string | null } | null)?.nombre ?? null };
+}
+
 /**
  * Pide al inventario lo que sale de stock: una solicitud de salida «por aprobar»
  * (flujo de Salidas). No descuenta nada hasta que Salidas la ejecute.
  */
-/** Unidad solicitante con la que Maquinaria pide salidas y compras (catálogo de Pedidos). */
-export const UNIDAD_MAQUINARIA = 'MANTENIMIENTO DE MAQUINARIA';
-
-export async function solicitarSalidaDeOrden(o: OrdenServicio, equipoNombre: string, actor: Actor): Promise<string> {
+export async function solicitarSalidaDeOrden(o: OrdenServicio, equipoNombre: string, actor?: Actor): Promise<string> {
+  const quien = actor ?? await actorDeSesion();
   const items: ItemSolicitudSalida[] = o.repuestos
     .filter((r) => r.producto_id && r.desde_inventario > 0)
     .map((r) => ({
@@ -180,19 +194,23 @@ export async function solicitarSalidaDeOrden(o: OrdenServicio, equipoNombre: str
   if (sin) throw new Error(`«${sin.producto_nombre}» no tiene almacén en el inventario: corrígelo en Inventario y vuelve a intentar.`);
   const servicio = servicioPorId(o.tipo)?.label ?? o.tipo;
   // En MGG el «destino» de una salida de material es la unidad solicitante (catálogo de Pedidos).
-  await ensureUnidadSolicitante(UNIDAD_MAQUINARIA, actor.email);
+  await ensureUnidadSolicitante(UNIDAD_MAQUINARIA, quien.email);
   const sol = await crearSolicitudSalida({
     scope: 'salida', tipo: 'material',
-    solicitante: (actor.nombre || actor.email).toUpperCase(),
+    solicitante: (quien.nombre || quien.email).toUpperCase(),
     destino: UNIDAD_MAQUINARIA,
     motivo: `Orden de servicio ${o.codigo} · ${equipoNombre} · ${servicio}`,
-    items, actor: actor.email, actorName: actor.nombre,
+    items, actor: quien.email, actorName: quien.nombre,
   });
   await vincular(o.id, sol.id, null);
   return sol.codigo;
 }
 
-/** Datos de una pieza nueva para darla de alta al pedir la compra. */
+/**
+ * Datos de una pieza nueva al pedir la compra. En MGG se aceptan por compatibilidad con los
+ * llamadores (OrdenServicioModal, PedirCompraModal, vista móvil) pero NO se dan de alta en el
+ * inventario: Compras pone el nombre comercial y crea el producto al recibir.
+ */
 export interface PiezaNuevaAlta { nombre: string; categoria: string; unidad?: string }
 
 /** «Caucho 11R22.5 para CAMION NHR (PLACA A12BC3D)»: la finalidad de la solicitud de pedido. */
@@ -209,11 +227,15 @@ function finalidadDeOrden(o: OrdenServicio, equipo: { equipo: string; placa?: st
 
 /**
  * Pide la compra de lo que falta: crea la SOLICITUD DE PEDIDO en Pedidos («pendiente», flujo
- * normal de MGG) y antes da de alta como producto (stock 0, categoría elegida o REPUESTOS)
- * las piezas que no estaban en el inventario. Devuelve el código de la SP.
+ * normal de MGG), casada al equipo, con la unidad MANTENIMIENTO DE MAQUINARIA y clasificación
+ * Mantenimiento. Las piezas que no están en el inventario van con su nombre general (no se
+ * crean productos). Devuelve el código de la SP.
+ *
+ * Firmas aceptadas: `(o, nuevas)` (llamadores traídos de GT), `(o, actor)` y `(o, nuevas, actor)`.
+ * Sin actor se usa el de la sesión.
  */
 export async function solicitarCompraDeOrden(o: Pick<OrdenServicio, 'id'>, nuevasOactor?: PiezaNuevaAlta[] | Actor, actorOpt?: Actor): Promise<string> {
-  const actor: Actor = (actorOpt ?? (Array.isArray(nuevasOactor) ? { email: 'sistema', nombre: null } : nuevasOactor)) as Actor;
+  const actor: Actor = actorOpt ?? (nuevasOactor && !Array.isArray(nuevasOactor) ? nuevasOactor : await actorDeSesion());
   const { data: fila, error: eo } = await supabase.from('maquinaria_ordenes_servicio').select('*').eq('id', o.id).maybeSingle();
   if (eo) throw eo;
   if (!fila) throw new Error('La orden no existe (puede que la hayan borrado).');
@@ -352,7 +374,7 @@ export interface SurtidoEquipo {
   autorizado_por: string | null;
 }
 
-/** Últimos surtidos (consumo) del equipo vinculado en Combustible. */
+/** Últimos surtidos (uso) del equipo vinculado en Combustible. */
 export async function surtidosDeEquipo(nombreCombustible: string | null | undefined, limite = 25): Promise<SurtidoEquipo[]> {
   const nombre = (nombreCombustible ?? '').trim();
   if (!nombre) return [];
@@ -366,21 +388,27 @@ export async function surtidosDeEquipo(nombreCombustible: string | null | undefi
     .map((r) => ({ id: r.id, fecha: r.fecha, litros: Number(r.litros) || 0, horometro_fin: r.horometro_final, kilometraje: r.kilometraje_final, ubicacion: r.destino, autorizado_por: r.autorizado_por }));
 }
 
-/* ───────── Fotos del equipo (tabla maquinaria_fotos, 16-10-2026) ─────────
-   Antes salían de las IMÁGENES de los documentos (📎): la portada terminaba siendo
-   el RCV. Ahora las fotos tienen su tabla, con orden (0 = portada). */
+/* ───────── Fotos (las imágenes de los documentos del equipo) ───────── */
 
-export interface FotoEquipo { id: string; equipo_id: string; nombre: string; url: string; path: string; orden: number; created_at: string; encuadre: 'cubrir' | 'completa' }
+export interface FotoEquipo { id: string; equipo_id: string; nombre: string; url: string; encuadre?: { zoom: number; x: number; y: number } | null }
 
-/** Fotos de uno o de todos los equipos, portada primero, con URL firmada (1 h). */
+/** Imágenes de los documentos (📎) de uno o de todos los equipos, con URL firmada (1 h). */
 export async function fotosDeEquipos(equipoId?: string): Promise<FotoEquipo[]> {
-  const rows = await listFotosEquipo(equipoId);
+  let q = supabase.from('maquinaria_documentos').select('id, equipo_id, nombre, path, content_type, espacio, encuadre')
+    .like('content_type', 'image/%').order('espacio', { ascending: true });
+  if (equipoId) q = q.eq('equipo_id', equipoId);
+  const { data, error } = await q;
+  if (error) throw error;
+  const rows = (data ?? []) as { id: string; equipo_id: string; nombre: string; path: string; encuadre: FotoEquipo['encuadre'] }[];
   if (!rows.length) return [];
-  const urls = await urlsFotosEquipo(rows.map((r) => r.path));
-  return rows.flatMap((r) => {
-    const url = urls.get(r.path);
-    return url ? [{ id: r.id, equipo_id: r.equipo_id, nombre: r.nombre || r.filename, url, path: r.path, orden: r.orden, created_at: r.created_at, encuadre: r.encuadre === 'completa' ? 'completa' : 'cubrir' }] : [];
+  const { data: urls, error: ue } = await supabase.storage.from(BUCKET_DOCUMENTOS).createSignedUrls(rows.map((r) => r.path), 3600);
+  if (ue) throw ue;
+  // La foto que se llama «FOTO DEL EQUIPO» va primero: es la que se muestra por defecto.
+  const lista = rows.flatMap((r, i) => {
+    const url = urls?.[i]?.signedUrl;
+    return url ? [{ id: r.id, equipo_id: r.equipo_id, nombre: r.nombre, url, encuadre: r.encuadre ?? null }] : [];
   });
+  return ordenarFotosEquipo(lista);
 }
 
 /* ───────── Piezas nuevas: aviso a Compras y cambio por el producto ───────── */
@@ -435,20 +463,6 @@ export async function eliminarOrdenServicio(o: Pick<OrdenServicio, 'id' | 'codig
   if (error) throw error;
   if (!data?.length) throw new Error(`No se pudo borrar la orden ${o.codigo} (puede que ya no exista o que no tengas permiso).`);
   await borrarArchivosFotosOrden(fotos.map((f) => f.path));
-}
-
-/** Elimina todas las órdenes de servicio registradas como prueba en Maquinaria. */
-export async function eliminarTodasLasOrdenesPrueba(): Promise<number> {
-  const { data: ords } = await supabase.from('maquinaria_ordenes_servicio').select('id, codigo');
-  if (!ords || !ords.length) return 0;
-  let borradas = 0;
-  for (const o of ords) {
-    try {
-      await eliminarOrdenServicio(o);
-      borradas++;
-    } catch { /* continua con las demas */ }
-  }
-  return borradas;
 }
 
 /** Cambia una pieza nueva por el producto del inventario y vuelve a decidir inventario / compra. */
@@ -693,7 +707,7 @@ export interface UltimoSurtido {
   quien: string | null;
 }
 
-/** Último surtido (consumo) del equipo en Combustible. Solo lectura: el surtido se hace en Combustible. */
+/** Último surtido (uso) del equipo en Combustible. Solo lectura: el surtido se hace en Combustible. */
 export async function ultimoSurtidoEquipo(nombreCombustible: string | null | undefined): Promise<UltimoSurtido | null> {
   const nombre = (nombreCombustible ?? '').trim();
   if (!nombre) return null;
@@ -713,4 +727,10 @@ export async function ultimoSurtidoEquipo(nombreCombustible: string | null | und
   // En MGG la fecha del movimiento ya trae la hora (timestamptz): se muestra en hora de Venezuela.
   const hora = r.fecha ? new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', hour: '2-digit', minute: '2-digit' }).format(new Date(r.fecha)) : null;
   return { fecha: r.fecha, hora, litros: Number(r.litros) || 0, tanque, quien: r.autorizado_por || r.actor_name || r.actor };
+}
+
+/** Guarda el encuadre de una foto del equipo (null = cubrir y centrar, como antes). 16/10/2026. */
+export async function fijarEncuadreFoto(documentoId: string, encuadre: { zoom: number; x: number; y: number } | null): Promise<void> {
+  const { error } = await supabase.from('maquinaria_documentos').update({ encuadre }).eq('id', documentoId);
+  if (error) throw error;
 }

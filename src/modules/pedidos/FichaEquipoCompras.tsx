@@ -1,240 +1,299 @@
-import { useEffect, useState } from 'react';
-import { supabase } from '@/shared/lib/supabase';
-import type { MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
-import type { RepuestoEquipo } from '@/modules/maquinaria/repuestosEquipo';
-import { listRepuestosEquipo } from '@/modules/maquinaria/repuestosEquipo.repository';
-import { num } from '@/shared/lib/format';
+/* ============================================================
+   Golden Touch · Compras · Ficha técnica y de filtros del equipo
+   (26/10/2026)
 
-interface Props {
+   Permite a los analistas de Compras consultar al instante:
+   - La máquina o vehículo al que va destinado el pedido/servicio
+   - Las marcas exactas de los filtros (Donaldson, Fleetguard, Baldwin...)
+   - Los números de parte originales (OEM) y equivalencias comerciales
+   - Especificaciones de aceite, viscosidad y cantidades por servicio
+   - Encargado responsable y horas actuales
+
+   Visto desde PC: tabla completa, desglosada y detallada con botones de copia.
+   Visto desde Teléfono: vista ultra-resumida, táctil, compacta y directa.
+   ============================================================ */
+import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { supabase } from '@/shared/lib/supabase';
+import { num as fmtNum } from '@/shared/lib/format';
+import { toast } from '@/shared/ui/Toast';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { textoFichaFiltrosWhatsapp } from '@/modules/maquinaria/maquinariaWhatsapp';
+import { listRepuestosEquipo } from '@/modules/maquinaria/repuestosEquipo.repository';
+import { sistemaDe, type RepuestoEquipo } from '@/modules/maquinaria/repuestosEquipo';
+import { extraerEncargado, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
+
+interface FichaEquipoComprasProps {
   equipoId?: string | null;
   equipoNombre?: string | null;
+  spId?: string | null;
+  ordenCodigo?: string | null;
 }
 
-/**
- * Ficha técnica y repuestos de la máquina para el analista de Compras.
- * En PC muestra todos los detalles (marca de filtros, modelo de motor, viscosidad de aceite, serial).
- * En teléfono muestra una vista resumida, limpia y táctil.
- */
-export function FichaEquipoCompras({ equipoId, equipoNombre }: Props) {
-  const [equipo, setEquipo] = useState<MaquinariaEquipo | null>(null);
+export function FichaEquipoCompras({ equipoId, equipoNombre, spId, ordenCodigo }: FichaEquipoComprasProps) {
+  const [eq, setEq] = useState<MaquinariaEquipo | null>(null);
   const [repuestos, setRepuestos] = useState<RepuestoEquipo[]>([]);
-  const [abiertoMovil, setAbiertoMovil] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [expandidoMovil, setExpandidoMovil] = useState(false);
+  const [mostrarWa, setMostrarWa] = useState(false);
 
   useEffect(() => {
     let cancel = false;
+
     async function cargar() {
-      if (!equipoId && !equipoNombre) {
-        setEquipo(null);
-        setRepuestos([]);
-        return;
-      }
       setLoading(true);
       try {
-        let eq: MaquinariaEquipo | null = null;
-        if (equipoId) {
-          const { data } = await supabase.from('maquinaria_equipos').select('*').eq('id', equipoId).maybeSingle();
-          if (data) eq = data as MaquinariaEquipo;
-        }
-        if (!eq && equipoNombre) {
-          const { data } = await supabase.from('maquinaria_equipos').select('*').ilike('equipo', equipoNombre.trim()).maybeSingle();
-          if (data) eq = data as MaquinariaEquipo;
-        }
-        if (cancel) return;
-        setEquipo(eq);
+        let id = equipoId;
 
-        if (eq?.id) {
-          const reps = await listRepuestosEquipo(eq.id).catch(() => []);
-          if (!cancel) setRepuestos(reps);
-        } else {
-          setRepuestos([]);
+        // 1. Si no hay equipoId pero sí spId, buscar la OS que generó esta orden de compra
+        if (!id && spId) {
+          const { data: os } = await supabase
+            .from('maquinaria_ordenes_servicio')
+            .select('equipo_id')
+            .eq('orden_compra_id', spId)
+            .maybeSingle();
+          if (os?.equipo_id) id = os.equipo_id;
         }
+
+        // 2. Si no hay id pero sí nombre, buscar el equipo por nombre
+        if (!id && equipoNombre?.trim()) {
+          const { data: eqs } = await supabase
+            .from('maquinaria_equipos')
+            .select('*')
+            .ilike('equipo', `%${equipoNombre.trim()}%`)
+            .limit(1);
+          if (eqs && eqs[0]) {
+            if (!cancel) {
+              setEq(eqs[0] as MaquinariaEquipo);
+              const rep = await listRepuestosEquipo(eqs[0].id);
+              if (!cancel) setRepuestos(rep);
+            }
+            return;
+          }
+        }
+
+        if (!id) {
+          if (!cancel) { setEq(null); setRepuestos([]); }
+          return;
+        }
+
+        const [{ data: equipoData }, repData] = await Promise.all([
+          supabase.from('maquinaria_equipos').select('*').eq('id', id).maybeSingle(),
+          listRepuestosEquipo(id).catch(() => [] as RepuestoEquipo[]),
+        ]);
+
+        if (!cancel) {
+          setEq((equipoData as MaquinariaEquipo) ?? null);
+          setRepuestos(repData);
+        }
+      } catch (err) {
+        console.error('Error al cargar ficha de equipo para compras:', err);
       } finally {
         if (!cancel) setLoading(false);
       }
     }
+
     void cargar();
     return () => { cancel = true; };
-  }, [equipoId, equipoNombre]);
+  }, [equipoId, equipoNombre, spId]);
+
+  const filtros = useMemo(() => {
+    return repuestos.filter((r) =>
+      /filtro|aceite|separador|refrigerante|correa|bateria/i.test(r.tipo) ||
+      ['motor', 'combustible', 'aire', 'hidraulico', 'refrigeracion'].includes(r.sistema)
+    );
+  }, [repuestos]);
+
+  const encargado = useMemo(() => eq ? extraerEncargado(eq) : null, [eq]);
 
   if (loading) {
-    return <div className="muted" style={{ fontSize: '.78rem', padding: '.4rem 0' }}>Cargando ficha del equipo…</div>;
+    return (
+      <div className="card muted" style={{ padding: '.65rem .85rem', margin: '.6rem 0', fontSize: '.82rem' }}>
+        ⏳ Cargando especificaciones de la máquina y marcas de filtros…
+      </div>
+    );
   }
 
-  if (!equipo && !repuestos.length) {
-    return null;
-  }
+  if (!eq) return null;
 
-  // Filtros del equipo agrupados
-  const filtros = repuestos.filter((r) => /filtro/i.test(r.sistema || '') || /filtro/i.test(r.tipo || ''));
-  const otrosRepuestos = repuestos.filter((r) => !filtros.includes(r));
+  const textoWa = textoFichaFiltrosWhatsapp({
+    equipo: eq.equipo,
+    tipo: eq.tipo,
+    marca: eq.marca,
+    modelo: eq.modelo,
+    motor: [eq.motor_modelo, eq.motor_serial].filter(Boolean).join(' · '),
+    horasActuales: eq.mantenimiento_base_hrs ?? null,
+    filtros: filtros.map((f) => ({
+      sistema: f.sistema,
+      tipo: f.tipo,
+      numeroParte: f.numero_parte,
+      equivalencias: f.equivalencias,
+      especificacion: f.especificacion,
+    })),
+  });
+
+  function copiarFiltrosTexto() {
+    if (navigator.clipboard?.writeText) {
+      void navigator.clipboard.writeText(textoWa);
+      toast('Lista de filtros y especificaciones copiada al portapapeles', 'success');
+    }
+  }
 
   return (
-    <div
-      style={{
-        border: '1px solid color-mix(in srgb, var(--primary, #3b82f6) 40%, var(--border))',
-        background: 'color-mix(in srgb, var(--primary, #3b82f6) 5%, var(--surface))',
-        borderRadius: 'var(--r-md, 8px)',
-        padding: '.75rem .9rem',
-        margin: '.75rem 0',
-      }}
-    >
-      {/* Encabezado visible en PC y Móvil */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-          <span style={{ fontSize: '1.2rem' }}>🚜</span>
-          <div>
-            <strong style={{ fontSize: '.95rem', color: 'var(--text)' }}>
-              {equipo?.equipo || equipoNombre}
-            </strong>
-            <span className="muted" style={{ fontSize: '.78rem', marginLeft: '.45rem' }}>
-              {[equipo?.marca, equipo?.modelo, equipo?.placa || equipo?.serial].filter(Boolean).join(' · ')}
-            </span>
+    <div className="ficha-equipo-compras" style={{
+      margin: '.85rem 0',
+      padding: '.85rem',
+      background: 'var(--surface-2, #182230)',
+      border: '1px solid var(--border, rgba(255,255,255,0.1))',
+      borderRadius: 'var(--r-md, 8px)',
+    }}>
+      {/* ── Encabezado común ── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '.5rem' }}>
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '1.1rem' }}>🚜</span>
+            <strong style={{ fontSize: '.95rem', color: 'var(--text-strong, #fff)' }}>{eq.equipo}</strong>
+            {ordenCodigo && <span className="muted" style={{ fontSize: '.75rem' }}>({ordenCodigo})</span>}
+            {eq.tipo && <span className="badge" style={{ fontSize: '.68rem' }}>{eq.tipo}</span>}
+            {encargado && (
+              <span className="badge" style={{ fontSize: '.68rem', background: 'rgba(59,130,246,0.15)', color: '#38bdf8' }}>
+                👤 {encargado}
+              </span>
+            )}
           </div>
+          <div className="muted" style={{ fontSize: '.78rem', marginTop: '.2rem' }}>
+            {[eq.marca, eq.modelo, eq.placa && `Placa: ${eq.placa}`, eq.serial && `Serial: ${eq.serial}`].filter(Boolean).join(' · ')}
+          </div>
+          {(eq.motor_modelo || eq.motor_serial) && (
+            <div className="muted" style={{ fontSize: '.75rem', marginTop: '.1rem' }}>
+              ⚙️ Motor: {[eq.motor_modelo, eq.motor_serial && `S/N ${eq.motor_serial}`].filter(Boolean).join(' · ')}
+            </div>
+          )}
         </div>
 
-        {/* Botón para desplegar / plegar en teléfono */}
-        <button
-          type="button"
-          className="btn btn-sm btn-ghost"
-          onClick={() => setAbiertoMovil(!abiertoMovil)}
-          style={{ fontSize: '.8rem', display: 'inline-flex', alignItems: 'center', gap: '.3rem' }}
-        >
-          {abiertoMovil ? '▲ Ocultar ficha' : '▼ Ver detalles y filtros'}
-        </button>
+        <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setMostrarWa(!mostrarWa)} title="Compartir ficha por WhatsApp">
+            📲 WhatsApp
+          </button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={copiarFiltrosTexto} title="Copiar especificaciones y marcas de filtros">
+            📋 Copiar
+          </button>
+          <Link to={`/app/maquinaria/equipo/${eq.id}`} target="_blank" rel="noopener noreferrer" className="btn btn-sm" title="Ver expediente en Maquinaria">
+            📂 Expediente
+          </Link>
+        </div>
       </div>
 
-      {/* Resumen rápido visible en teléfono cuando está cerrado */}
-      {!abiertoMovil && (
-        <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginTop: '.35rem', display: 'flex', gap: '.7rem', flexWrap: 'wrap' }}>
-          {equipo?.responsable && <span>👤 Responsable: <strong style={{ color: 'var(--text)' }}>{equipo.responsable}</strong></span>}
-          {equipo?.motor_modelo && <span>⚙️ Motor: {equipo.motor_modelo}</span>}
-          {filtros.length > 0 && <span>🧴 {filtros.length} filtro(s) registrados</span>}
+      {/* Modal / Acordeón de WhatsApp si se activó */}
+      {mostrarWa && (
+        <div style={{ marginTop: '.65rem', padding: '.65rem', background: 'var(--surface-1, #0f172a)', borderRadius: 'var(--r-sm, 6px)' }}>
+          <CompartirWhatsapp texto={textoWa} />
         </div>
       )}
 
-      {/* Contenido detallado (visible en PC por CSS o en teléfono cuando está abierto) */}
-      <div style={{ display: abiertoMovil ? 'block' : undefined }} className={abiertoMovil ? '' : 'hide-mobile'}>
-        {/* Datos técnicos */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-            gap: '.5rem',
-            margin: '.6rem 0',
-            fontSize: '.8rem',
-            background: 'var(--bg-1, #13171d)',
-            padding: '.6rem .75rem',
-            borderRadius: 'var(--r-sm, 6px)',
-          }}
-        >
-          {equipo?.responsable && (
-            <div>
-              <span className="muted" style={{ display: 'block', fontSize: '.72rem' }}>Encargado responsable</span>
-              <strong style={{ color: 'var(--primary, #3b82f6)' }}>👤 {equipo.responsable}</strong>
-            </div>
-          )}
-          {equipo?.motor_modelo && (
-            <div>
-              <span className="muted" style={{ display: 'block', fontSize: '.72rem' }}>Modelo de motor</span>
-              <strong>{equipo.motor_modelo}</strong>
-            </div>
-          )}
-          {equipo?.motor_serial && (
-            <div>
-              <span className="muted" style={{ display: 'block', fontSize: '.72rem' }}>Serial de motor</span>
-              <strong className="mono">{equipo.motor_serial}</strong>
-            </div>
-          )}
-          {equipo?.serial && (
-            <div>
-              <span className="muted" style={{ display: 'block', fontSize: '.72rem' }}>Serial / PIN</span>
-              <strong className="mono">{equipo.serial}</strong>
-            </div>
-          )}
-          {equipo?.placa && (
-            <div>
-              <span className="muted" style={{ display: 'block', fontSize: '.72rem' }}>Placa</span>
-              <strong>{equipo.placa}</strong>
-            </div>
-          )}
-          {equipo?.combustible && (
-            <div>
-              <span className="muted" style={{ display: 'block', fontSize: '.72rem' }}>Combustible</span>
-              <strong>{equipo.combustible}</strong>
-            </div>
-          )}
+      {/* ── VISTA PC (Desktop) ── */}
+      <div className="compras-ficha-pc" style={{ marginTop: '.75rem' }}>
+        <div style={{ fontSize: '.8rem', fontWeight: 600, marginBottom: '.4rem', color: 'var(--text-strong, #fff)' }}>
+          🔍 Marcas de Filtros y Especificaciones para Compra ({filtros.length})
         </div>
 
-        {/* Tabla de Filtros registrados */}
-        {filtros.length > 0 ? (
-          <div style={{ marginTop: '.6rem' }}>
-            <div style={{ fontSize: '.82rem', fontWeight: 700, marginBottom: '.35rem', color: 'var(--text)' }}>
-              🧴 Filtros especificados para este equipo (para cotización exacta):
-            </div>
-            <div style={{ overflowX: 'auto' }}>
-              <table className="items-table" style={{ fontSize: '.8rem', margin: 0 }}>
-                <thead>
-                  <tr>
-                    <th>Filtro / Insumo</th>
-                    <th>Equivalencias</th>
-                    <th>Nº de Parte / Ref.</th>
-                    <th>Especificaciones</th>
-                    <th style={{ textAlign: 'right' }}>Cant. x servicio</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtros.map((f) => (
-                    <tr key={f.id}>
-                      <td style={{ fontWeight: 600 }}>{f.tipo}</td>
-                      <td>
-                        {f.equivalencias ? (
-                          <span style={{ color: 'var(--primary, #3b82f6)', fontWeight: 600 }}>🏷️ {f.equivalencias}</span>
-                        ) : (
-                          <span className="muted">—</span>
-                        )}
-                      </td>
-                      <td className="mono">{f.numero_parte || '—'}</td>
-                      <td>{f.especificacion || f.nota || '—'}</td>
-                      <td style={{ textAlign: 'right' }}>{f.cantidad != null ? `${num(f.cantidad)} ${f.unidad ?? ''}`.trim() : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        {filtros.length === 0 ? (
+          <div className="muted" style={{ fontSize: '.78rem' }}>
+            Este equipo aún no tiene ficha de repuestos cargada en Maquinaria.
           </div>
         ) : (
-          <div className="muted" style={{ fontSize: '.78rem', marginTop: '.4rem' }}>
-            ℹ️ No hay filtros precargados en la ficha técnica de este equipo. El nombre que se coloque se guardará para el próximo servicio.
+          <div style={{ overflowX: 'auto' }}>
+            <table className="items-table" style={{ fontSize: '.78rem', width: '100%' }}>
+              <thead>
+                <tr>
+                  <th style={{ textAlign: 'left' }}>Sistema</th>
+                  <th style={{ textAlign: 'left' }}>Filtro / Insumo</th>
+                  <th style={{ textAlign: 'left' }}>N° Parte OEM</th>
+                  <th style={{ textAlign: 'left' }}>Marcas y Equivalencias (Donaldson / Fleetguard)</th>
+                  <th style={{ textAlign: 'left' }}>Especificación</th>
+                  <th style={{ textAlign: 'center' }}>Cant.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtros.map((f) => {
+                  const sis = sistemaDe(f.sistema);
+                  return (
+                    <tr key={f.id}>
+                      <td>{sis.icon} {sis.label}</td>
+                      <td><strong>{f.tipo}</strong></td>
+                      <td>
+                        {f.numero_parte ? (
+                          <span className="mono" style={{ fontWeight: 600, color: 'var(--brand, #ff8a00)' }}>
+                            {f.numero_parte}
+                          </span>
+                        ) : <span className="muted">—</span>}
+                      </td>
+                      <td>
+                        {f.equivalencias && f.equivalencias.length > 0 ? (
+                          <div style={{ display: 'flex', gap: '.25rem', flexWrap: 'wrap' }}>
+                            {f.equivalencias.map((eqStr, i) => (
+                              <span key={i} className="badge tone-primary" style={{ fontSize: '.7rem', padding: '.05rem .35rem' }}>
+                                {eqStr}
+                              </span>
+                            ))}
+                          </div>
+                        ) : <span className="muted">—</span>}
+                      </td>
+                      <td>{f.especificacion || <span className="muted">—</span>}</td>
+                      <td style={{ textAlign: 'center' }}>{fmtNum(f.cantidad)} {f.unidad}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
+      </div>
 
-        {/* Otros repuestos */}
-        {otrosRepuestos.length > 0 && (
-          <div style={{ marginTop: '.6rem' }}>
-            <div style={{ fontSize: '.82rem', fontWeight: 700, marginBottom: '.35rem' }}>
-              ⚙️ Otros repuestos y lubricantes registrados:
-            </div>
-            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-              {otrosRepuestos.map((r) => (
-                <span
-                  key={r.id}
-                  style={{
-                    fontSize: '.76rem',
-                    padding: '.2rem .5rem',
-                    background: 'var(--surface-2)',
-                    borderRadius: '4px',
-                    border: '1px solid var(--border)',
-                  }}
-                >
-                  {r.tipo}
-                  {r.numero_parte ? ` (${r.numero_parte})` : ''}
-                  {r.especificacion ? ` · ${r.especificacion}` : ''}
-                </span>
-              ))}
-            </div>
-          </div>
-        )}
+      {/* ── VISTA TELÉFONO (Móvil) ── */}
+      <div className="compras-ficha-movil" style={{ marginTop: '.65rem' }}>
+        <div style={{ fontSize: '.8rem', fontWeight: 600, marginBottom: '.35rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span>🏷️ Filtros principales ({filtros.length})</span>
+          <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.72rem', padding: '.15rem .4rem' }}
+            onClick={() => setExpandidoMovil(!expandidoMovil)}>
+            {expandidoMovil ? '▲ Resumir' : '▼ Ver todos'}
+          </button>
+        </div>
+
+        <div style={{ display: 'grid', gap: '.4rem' }}>
+          {(expandidoMovil ? filtros : filtros.slice(0, 3)).map((f) => {
+            const sis = sistemaDe(f.sistema);
+            const marcas = (f.equivalencias ?? []).join(' · ');
+            return (
+              <div key={f.id} style={{
+                padding: '.45rem .65rem',
+                background: 'var(--surface-1, #0f172a)',
+                borderRadius: 'var(--r-sm, 6px)',
+                fontSize: '.78rem',
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <strong>{sis.icon} {f.tipo}</strong>
+                  <span className="muted">{fmtNum(f.cantidad)} {f.unidad}</span>
+                </div>
+                {f.numero_parte && (
+                  <div className="mono" style={{ fontSize: '.74rem', color: 'var(--brand, #ff8a00)', marginTop: '.1rem' }}>
+                    OEM: {f.numero_parte}
+                  </div>
+                )}
+                {marcas && (
+                  <div style={{ fontSize: '.74rem', color: '#38bdf8', marginTop: '.1rem' }}>
+                    Marcas: {marcas}
+                  </div>
+                )}
+                {f.especificacion && (
+                  <div className="muted" style={{ fontSize: '.72rem', marginTop: '.05rem' }}>
+                    Esp: {f.especificacion}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Control de Maquinaria · PDFs de Flota y Servicio
+   Golden Touch · Control de Maquinaria · PDFs de Flota y Servicio
    · Ficha técnico-operativa del equipo: identificación (tablas
      pareadas), observaciones, registro fotográfico e historial de
      servicio, con pastilla de estado y «Página X de Y».
@@ -7,17 +7,16 @@
      origen (inventario / compra), solicitudes vinculadas y firmas.
    Se abren en la vista previa del sistema (previewPdf).
    ============================================================ */
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import type { jsPDF as JsPDF } from 'jspdf';
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { identidadEmpresa } from '@/shared/lib/empresa';
-import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
+import { loadLogoPdfEmpresa, dibujarLogoPdf, anchoLogoPdf } from '@/shared/lib/pdfLogo';
 import { num as fmtNum, date as fmtDate } from '@/shared/lib/format';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import type { FotoEquipo, LavadoEquipo, OrdenServicio } from './flota.repository';
 import { fotosOrdenConUrl } from './osFotos.repository';
 import { ESTADOS_EQUIPO, ORDEN_ESTADOS, URGENCIAS, estadoEfectivo, servicioPorId, etiquetaServicio, type EstadoEquipo } from './flota';
-import { agruparPorSistema, textoCada, type RepuestoEquipo } from './repuestosEquipo';
-import { resolvedorNombresUsuarios } from '@/shared/lib/useNombreUsuario';
 
 type AutoTable = (doc: JsPDF, opts: Record<string, unknown>) => void;
 
@@ -42,10 +41,10 @@ const finalY = (doc: JsPDF) => (doc as unknown as { lastAutoTable: { finalY: num
 /** Membrete: logo, título, subtítulo y pastilla de estado. Devuelve la Y siguiente. */
 async function encabezado(doc: JsPDF, titulo: string, subtitulo: string, estado: EstadoEquipo | null): Promise<number> {
   const W = doc.internal.pageSize.getWidth();
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const logo = await loadLogoPdfEmpresa().catch(() => null);
   const caja = 20;
-  if (logo) { try { doc.addImage(logo, 'JPEG', M, 9, caja, caja); } catch { /* el logo es adorno */ } }
-  const x0 = M + (logo ? caja + 6 : 0);
+  if (logo) dibujarLogoPdf(doc, logo, M, 10, caja);
+  const x0 = M + (logo ? anchoLogoPdf(caja) + 6 : 0);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...NARANJA);
   doc.text(titulo, x0, 18);
   doc.setFontSize(9); doc.setTextColor(71, 85, 105);
@@ -127,7 +126,7 @@ export interface DatosFicha {
 }
 
 /** Ficha técnico-operativa del equipo. */
-export async function fichaEquipoPdf(e: MaquinariaEquipo, datos: DatosFicha, ordenes: OrdenServicio[], fotos: FotoEquipo[], lavados: LavadoEquipo[] = [], repuestos: RepuestoEquipo[] = []): Promise<void> {
+export async function fichaEquipoPdf(e: MaquinariaEquipo, datos: DatosFicha, ordenes: OrdenServicio[], fotos: FotoEquipo[], lavados: LavadoEquipo[] = []): Promise<void> {
   const { jsPDF, autoTable } = await cargarPdf();
   const doc = new jsPDF({ unit: 'mm', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
@@ -226,25 +225,6 @@ export async function fichaEquipoPdf(e: MaquinariaEquipo, datos: DatosFicha, ord
     });
   }
 
-  // Ficha de repuestos y consumibles (14/10/2026): lo que lleva el equipo, por sistema.
-  if (repuestos.length) {
-    let yr = ordenes.length || lavados.length ? finalY(doc) + 10 : y;
-    if (yr + 30 > H - 20) { doc.addPage(); yr = 20; }
-    yr = sec(yr, 'REPUESTOS Y CONSUMIBLES');
-    autoTable(doc, {
-      startY: yr, margin: { left: M, right: M },
-      head: [['Sistema', 'Repuesto', 'N° de parte / equivalencias', 'Especificación', 'Por servicio', 'Cada']],
-      body: agruparPorSistema(repuestos).flatMap((g) => g.items.map((r) => [
-        g.sistema.label, r.tipo, [r.numero_parte, r.equivalencias].filter(Boolean).join(' · '), r.especificacion ?? '',
-        `${fmtNum(r.cantidad)} ${r.unidad}`, textoCada(r, fmtNum),
-      ])),
-      theme: 'grid',
-      styles: { fontSize: 8, cellPadding: 2.2, lineColor: BORDE, lineWidth: 0.25, textColor: TINTA },
-      headStyles: { fillColor: NARANJA, textColor: [26, 14, 0], fontStyle: 'bold' },
-      columnStyles: { 0: { cellWidth: 24 }, 1: { cellWidth: 36 }, 4: { cellWidth: 22 }, 5: { cellWidth: 26 } },
-    });
-  }
-
   pies(doc, `Ficha ${e.equipo}${e.serial ? ` · PIN ${e.serial}` : e.placa ? ` · Placa ${e.placa}` : ''}`);
   previewPdf(doc, `${nombreArchivo(`Ficha tecnica ${e.equipo}`)}.pdf`);
 }
@@ -254,7 +234,6 @@ export async function ordenServicioPdf(
   o: OrdenServicio, e: MaquinariaEquipo,
   vinculos: { salida: { codigo: string; estado: string } | null; compra: { codigo: string; estado: string } | null },
 ): Promise<void> {
-  const nombreDe = await resolvedorNombresUsuarios();
   const { jsPDF, autoTable } = await cargarPdf();
   const doc = new jsPDF({ unit: 'mm', format: 'letter' });
   const W = doc.internal.pageSize.getWidth();
@@ -345,7 +324,7 @@ export async function ordenServicioPdf(
     doc.text(t, x + fw / 2, y + 4.5, { align: 'center' });
   });
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(100, 116, 139);
-  doc.text(`Creada por ${nombreDe(o.actor_name, o.created_by) || '—'}`, M, y + 10);
+  doc.text(`Creada por ${quienSync(o.actor_name, o.created_by) || '—'}`, M, y + 10);
 
   pies(doc, `${o.codigo} · ${e.equipo}`);
   previewPdf(doc, `${nombreArchivo(`${o.codigo} ${e.equipo}`)}.pdf`);

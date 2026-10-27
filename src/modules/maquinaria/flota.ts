@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Control de Maquinaria · Flota y Servicio
+   Golden Touch · Control de Maquinaria · Flota y Servicio
    Reglas puras (sin Supabase) del catálogo y del expediente del equipo:
    estados operativos, franja de flota, tipos de servicio, la decisión
    inventario / parcial / compra de cada repuesto, el tablero de compras
@@ -66,7 +66,7 @@ export function estadoExigeMotivo(estado: EstadoEquipo): boolean {
 
 /* ───────── Clase del equipo (para el filtro Maquinaria y Equipos / Vehículos / Motos / Lanchas) ───────── */
 
-export type ClaseEquipo = 'maquinaria' | 'vehiculo' | 'moto' | 'lancha';
+export type ClaseEquipo = 'maquinaria' | 'vehiculo' | 'moto' | 'lancha' | 'equipo';
 
 export const CLASES_EQUIPO: { id: ClaseEquipo; label: string; icon: string }[] = [
   { id: 'maquinaria', label: 'Maquinaria y Equipos', icon: '🚜' },
@@ -75,19 +75,30 @@ export const CLASES_EQUIPO: { id: ClaseEquipo; label: string; icon: string }[] =
   { id: 'lancha', label: 'Lanchas', icon: '🚤' },
 ];
 
-const RE_MOTO_AGUA = /moto\s+de\s+agua|jetski|jet\s+ski/;
-const RE_MOTO = /\b(moto|motos|motocicleta|motocicletas|cuatrimoto|cuatrimotos|scooter|scooters)\b/;
-const RE_LANCHA = /\b(lancha|lanchas|bote|botes|embarcacion|embarcaciones|canoa|canoas|curiara|curiaras|yate|yates|penero|peneros|marino|marina|fluvial|balsa|balsas|planchon|planchones)\b/;
-const RE_VEHICULO = /vehiculo|carro|camion|gandola|camioneta|pickup|\bauto\b|van\b|autobus|\bbus\b|encava|jeep|chuto|remolque/;
-
 /** Deduce la clase del grupo de mantenimiento (si lo tiene) o del tipo del equipo. */
 export function claseEquipo(e: { tipo?: string | null; grupo_mantenimiento?: string | null }): ClaseEquipo {
   const g = norm(e.grupo_mantenimiento);
   const t = norm(e.tipo);
-  if (RE_MOTO_AGUA.test(g) || RE_MOTO_AGUA.test(t)) return 'lancha';
-  if (RE_MOTO.test(g) || RE_MOTO.test(t)) return 'moto';
-  if (RE_LANCHA.test(g) || RE_LANCHA.test(t)) return 'lancha';
-  if (g.includes('vehiculo') || RE_VEHICULO.test(t)) return 'vehiculo';
+
+  // 1. Lanchas y embarcaciones
+  if (/lancha|bote|embarca|penero|penyero|yate|canoa|flotante|marino|maritimo|fuera de borda/.test(t) ||
+      /lancha|bote|embarca/.test(g)) {
+    return 'lancha';
+  }
+
+  // 2. Motos y motocicletas (excluye maquinaria pesada con prefijo moto como motoniveladora, motobomba, motosierra)
+  const esEquipoConPrefijoMoto = /motoniveladora|motobomba|motosierra/.test(t);
+  if (!esEquipoConPrefijoMoto && (/\bmoto\b|\bmotos\b|motocicleta|cuatrimoto|fourtrack|trimoto/.test(t) || /\bmoto\b|\bmotos\b|motocicleta/.test(g))) {
+    return 'moto';
+  }
+
+  // 3. Vehículos terrestres (carros, camiones, camionetas, gandolas, buses, etc.)
+  if (g.includes('vehiculo')) return 'vehiculo';
+  if (/vehiculo|carro|camion|gandola|camioneta|pickup|\bauto\b|\bautos\b|van\b|autobus|\bbus\b|encava|jeep|chuto|remolque|volteo|cisterna/.test(t)) {
+    return 'vehiculo';
+  }
+
+  // 4. Maquinaria y Equipos unificados (excavadoras, plantas eléctricas, generadores, compresores, bombas, soldadores, tractores, etc.)
   return 'maquinaria';
 }
 
@@ -235,7 +246,7 @@ export function ajustarIntervenciones(tipo: string | null | undefined, actuales:
   return quedan.length ? quedan : opciones.slice(0, 1);
 }
 
-export type EstadoOrdenServicio = 'abierta' | 'repuestos' | 'en_proceso' | 'realizada' | 'anulada';
+export type EstadoOrdenServicio = 'abierta' | 'repuestos' | 'en_proceso' | 'realizada' | 'anulada' | 'cancelada';
 
 export const ORDEN_ESTADOS: Record<EstadoOrdenServicio, { label: string; icon: string; tono: TonoFlota }> = {
   abierta: { label: 'Abierta', icon: '🟠', tono: 'primary' },
@@ -243,6 +254,7 @@ export const ORDEN_ESTADOS: Record<EstadoOrdenServicio, { label: string; icon: s
   en_proceso: { label: 'En proceso', icon: '🔧', tono: 'info' },
   realizada: { label: 'Realizada', icon: '✅', tono: 'success' },
   anulada: { label: 'Anulada', icon: '⛔', tono: 'retired' },
+  cancelada: { label: 'Cancelada en compras', icon: '❌', tono: 'retired' },
 };
 
 export const ORDEN_FLUJO: EstadoOrdenServicio[] = ['abierta', 'repuestos', 'en_proceso', 'realizada'];
@@ -422,6 +434,7 @@ export function columnaCompra(estado: string | null | undefined): ColumnaCompra 
     case 'pendiente': return 'solicitada';
     case 'aprobada': return 'aprobada';
     case 'oc_creada': case 'confirmada_metodo': case 'oc_aprobada': case 'cuenta_abierta': case 'oc_emitida': case 'por_recibir':
+    case 'asignada': // MGG: la OP repartida entre proveedores (sus sub-OC siguen su curso)
       return 'ordenada';
     case 'pagada': return 'pagada';
     case 'recibida': return 'recibida';

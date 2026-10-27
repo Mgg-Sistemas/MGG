@@ -1,10 +1,10 @@
+import { Quien } from '@/shared/ui/Quien';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { VistaPrevia, Dato } from '@/shared/ui/VistaPrevia';
 import { toast } from '@/shared/ui/Toast';
 import { num as fmtNum, date as fmtDate } from '@/shared/lib/format';
 import { ORDEN_ESTADOS, ordenAbierta, servicioPorId } from './flota';
 import { eliminarOrdenServicio, type OrdenServicio } from './flota.repository';
-import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 /**
  * Confirmación para borrar una orden de servicio (hay que escribir su código). Explica qué
@@ -23,9 +23,11 @@ export function BorrarOrdenDialog({ orden, equipo, salida, compra, onClose, onDo
   const s = servicioPorId(orden.tipo);
   const enCurso = ordenAbierta(orden.estado);
   const vinculos = [salida ? `la salida ${salida}` : null, compra ? `el pedido ${compra}` : null].filter(Boolean).join(' y ');
+  const exigeTexto = orden.estado === 'realizada';
   return (
-    <ConfirmDialog title={`Borrar orden ${orden.codigo}`} danger confirmText="Borrar orden" requireText={orden.codigo}
-      requireLabel={`Escribe ${orden.codigo} para confirmar`}
+    <ConfirmDialog title={`Borrar orden ${orden.codigo}`} danger confirmText="Borrar orden"
+      requireText={exigeTexto ? orden.codigo : undefined}
+      requireLabel={exigeTexto ? `Escribe ${orden.codigo} para confirmar` : undefined}
       message={
         <div style={{ display: 'grid', gap: '.45rem' }}>
           <span>Se borra la orden con sus fotos. No se puede deshacer; queda registrada en la auditoría.</span>
@@ -40,7 +42,7 @@ export function BorrarOrdenDialog({ orden, equipo, salida, compra, onClose, onDo
           <Dato label="Equipo">{equipo ?? undefined}</Dato>
           <Dato label="Servicio">{s?.label ?? orden.tipo}</Dato>
           <Dato label="Estado">{ORDEN_ESTADOS[orden.estado]?.label ?? orden.estado}</Dato>
-          <Dato label="Abierta">{fmtDate(orden.created_at)}{orden.actor_name ? <> · <NombreUsuario nombre={orden.actor_name} /></> : null}</Dato>
+          <Dato label="Abierta">{fmtDate(orden.created_at)}{orden.actor_name ? <> · <Quien nombre={orden.actor_name} correo={orden.created_by} /></> : ''}</Dato>
           <Dato label="Repuestos">{orden.repuestos.length ? orden.repuestos.map((r) => `${fmtNum(r.cantidad)} ${r.unidad} ${r.nombre}`).join(' · ') : undefined}</Dato>
         </VistaPrevia>
       }

@@ -9,7 +9,6 @@ import { errorMotivoCambio, lineaCambioProveedor, lineaReaperturaOc } from './ca
 import { textoOrdenAprobacion, textoOrdenPago } from './ordenPagoTxt';
 import { MensajeWhatsappModal } from './MensajeWhatsappModal';
 import { FichaEquipoCompras } from './FichaEquipoCompras';
-import { sincronizarRepuestosMaquinariaDesdeCompras } from '@/modules/maquinaria/sincronizarComprasMaquinaria';
 import { MAX_MINIMIZADAS, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -5073,11 +5072,6 @@ function CrearOrdenModal({
           .filter((i) => (i.nombre ?? '').trim() && i.nombre !== orig.get(i.sku))
           .map((i) => ({ productoId: i.productoId, sku: i.sku, nombre: i.nombre }));
         if (cambios.length) await sincronizarNombreProductos(cambios).catch(() => { /* no bloquear */ });
-        // Sincroniza nombres de repuestos de maquinaria para el próximo servicio.
-        await sincronizarRepuestosMaquinariaDesdeCompras({
-          ordenId: orden!.id, spCodigo: orden!.codigo, items: itemsValor, itemsAnteriores: orden!.items ?? [],
-          actor: { email, nombre: usuario?.nombre ?? null },
-        }).catch(() => { /* no bloquear */ });
         if (imagenes.length || imagenesQuitar.length) {
           try { await guardarImagenesOrden(saved.id, imagenes, imagenesExist, imagenesQuitar); }
           catch (e) { toast(`Orden guardada, pero no se pudieron subir las imágenes: ${e instanceof Error ? e.message : ''}`, 'warning'); }

@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Control de Maquinaria · Seguimiento de una compra (12/10/2026)
+   Golden Touch · Control de Maquinaria · Seguimiento de una compra (12/10/2026)
 
    «Ver compra» abre esta ventana: el camino de la solicitud de pedido en
    Pedidos (solicitada → aprobada → orden de compra → pagada → recibida) con
@@ -17,7 +17,7 @@ import { columnaCompra, type ColumnaCompra } from './flota';
 import { FotosOrden } from './FotosOrdenServicio';
 
 interface CompraSeguimiento {
-  codigo: string; oc_codigo: string | null; estado: string; clase: string | null;
+  codigo: string; oc_codigo: string | null; estado: string; tipo: string | null;
   created_at: string; aprobada_en: string | null; oc_creada_en: string | null; oc_aprobada_en: string | null;
   pagada_en: string | null; recibida_en: string | null; finalizada_en: string | null; rechazada_en: string | null;
   solicitante: string | null; proveedor_id: string | null;
@@ -64,7 +64,7 @@ export function SeguimientoCompraModal({ compraId, equipoId, ordenServicio, pued
 
   const cargar = useCallback(async () => {
     const { data, error: e } = await supabase.from('ordenes')
-      .select('codigo, oc_codigo, estado, clase, created_at, aprobada_en, oc_creada_en, oc_aprobada_en, pagada_en, recibida_en, finalizada_en, rechazada_en, solicitante, proveedor_id, items')
+      .select('codigo, oc_codigo, estado, tipo:clase, created_at, aprobada_en, oc_creada_en, oc_aprobada_en, pagada_en, recibida_en, finalizada_en, rechazada_en, solicitante, proveedor_id, items')
       .eq('id', compraId).maybeSingle();
     if (e) { setError(e.message); return; }
     if (!data) { setError('La compra ya no existe en Pedidos.'); return; }

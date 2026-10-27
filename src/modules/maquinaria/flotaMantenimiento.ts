@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Servicio de Mantenimiento · reglas puras
+   Golden Touch · Servicio de Mantenimiento · reglas puras
    Grupos de flota (asignado o deducido del tipo), estado del servicio
    de cada equipo (vencido / próximo / al día / sin datos) con la MISMA
    regla del catálogo (avisoServicio: ≤ 10 % del intervalo, con la base
@@ -25,26 +25,10 @@ export function grupoPorTipo(tipo: string | null | undefined): string {
   return 'FLOTA PESADA';
 }
 
-/**
- * Grupo efectivo: el asignado en la ficha (CUALQUIERA, desde el 16-10-2026 los grupos se
- * crean en línea desde la ficha) o, si no tiene, el deducido del tipo.
- */
+/** Grupo efectivo: el asignado en la ficha (si es uno de los grupos) o el deducido del tipo. */
 export function grupoDeEquipo(e: { grupo_mantenimiento?: string | null; tipo?: string | null }): string {
   const g = (e.grupo_mantenimiento ?? '').trim();
-  return g || grupoPorTipo(e.tipo);
-}
-
-/** Los grupos que se muestran: los de siempre, los del catálogo y cualquiera que ya tenga un equipo, sin repetir. */
-export function gruposVisibles(catalogo: readonly string[], equipos: ReadonlyArray<{ grupo_mantenimiento?: string | null }>): string[] {
-  const vistos = new Set<string>();
-  const out: string[] = [];
-  for (const g of [...GRUPOS_MANTENIMIENTO, ...catalogo, ...equipos.map((e) => (e.grupo_mantenimiento ?? '').trim())]) {
-    const k = g.trim().toUpperCase();
-    if (!k || vistos.has(k)) continue;
-    vistos.add(k);
-    out.push(g.trim());
-  }
-  return out;
+  return (GRUPOS_MANTENIMIENTO as readonly string[]).includes(g) ? g : grupoPorTipo(e.tipo);
 }
 
 export type EstadoServicio = 'vencido' | 'proximo' | 'al_dia' | 'sin_datos';

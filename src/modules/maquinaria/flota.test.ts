@@ -39,19 +39,29 @@ describe('estadoEfectivo (equipos de antes y de ahora)', () => {
 });
 
 describe('claseEquipo', () => {
-  it('usa el grupo de mantenimiento y si no, el tipo', () => {
+  it('unifica maquinaria y equipos en maquinaria', () => {
     expect(claseEquipo({ grupo_mantenimiento: 'PLANTAS ELÉCTRICAS' })).toBe('maquinaria');
+    expect(claseEquipo({ tipo: 'Planta eléctrica' })).toBe('maquinaria');
+    expect(claseEquipo({ tipo: 'Generador' })).toBe('maquinaria');
+    expect(claseEquipo({ tipo: 'Bomba de agua' })).toBe('maquinaria');
+    expect(claseEquipo({ tipo: 'EXCAVADORA' })).toBe('maquinaria');
+    expect(claseEquipo({ tipo: 'Motoniveladora' })).toBe('maquinaria');
+    expect(claseEquipo({ tipo: 'Motobomba' })).toBe('maquinaria');
+  });
+
+  it('clasifica vehículos correctamente', () => {
     expect(claseEquipo({ grupo_mantenimiento: 'VEHÍCULOS DE CARGA' })).toBe('vehiculo');
     expect(claseEquipo({ tipo: 'Camión volteo' })).toBe('vehiculo');
-    expect(claseEquipo({ tipo: 'EXCAVADORA' })).toBe('maquinaria');
-    expect(claseEquipo({ tipo: 'Planta eléctrica' })).toBe('maquinaria');
-    expect(claseEquipo({ tipo: 'Moto' })).toBe('moto');
-    expect(claseEquipo({ tipo: 'Motocicleta Suzuki' })).toBe('moto');
-    expect(claseEquipo({ grupo_mantenimiento: 'MOTOS' })).toBe('moto');
+    expect(claseEquipo({ tipo: 'Camioneta Hilux' })).toBe('vehiculo');
+  });
+
+  it('clasifica motos y lanchas en sus propias clases', () => {
+    expect(claseEquipo({ tipo: 'Moto DT 175' })).toBe('moto');
+    expect(claseEquipo({ tipo: 'Motocicleta Honda' })).toBe('moto');
+    expect(claseEquipo({ tipo: 'Cuatrimoto' })).toBe('moto');
     expect(claseEquipo({ tipo: 'Lancha rápida' })).toBe('lancha');
-    expect(claseEquipo({ tipo: 'Bote con motor fuera de borda' })).toBe('lancha');
-    expect(claseEquipo({ grupo_mantenimiento: 'LANCHAS' })).toBe('lancha');
-    expect(claseEquipo({ tipo: 'Motoniveladora CAT 120H' })).toBe('maquinaria');
+    expect(claseEquipo({ tipo: 'Bote peñero' })).toBe('lancha');
+    expect(claseEquipo({ tipo: 'Embarcación' })).toBe('lancha');
   });
 });
 

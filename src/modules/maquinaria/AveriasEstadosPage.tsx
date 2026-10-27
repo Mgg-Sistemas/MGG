@@ -1,3 +1,4 @@
+import { quienSync } from '@/shared/lib/directorioUsuarios';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -70,7 +71,7 @@ export function AveriasEstadosPage() {
     encabezados: ['Fecha', 'Equipo', 'Antes', 'Después', 'Motivo', 'Falta', 'Nota', 'Registró'],
     anchos: [2.6, 3.2, 2.2, 2.2, 5, 1.6, 3, 2.8],
     filas: historial.map((ev) => [dateTime(ev.created_at), porId.get(ev.equipo_id)?.equipo ?? '—', etiqueta(ev.estado_anterior), etiqueta(ev.estado),
-      ev.motivo ?? '', ev.material ?? '', ev.nota ?? '', ev.actor_name || ev.actor || '']),
+      ev.motivo ?? '', ev.material ?? '', ev.nota ?? '', quienSync(ev.actor_name, ev.actor)]),
   });
 
   async function exportar(l: ListadoFlota, tipo: 'pdf' | 'excel') {

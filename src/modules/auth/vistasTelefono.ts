@@ -17,7 +17,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'maquinaria';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -37,6 +37,10 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
   {
     key: 'comidas', label: 'Comidas', icono: '🍳', modulo: 'cocina',
     ruta: '/app/cocina/telefono', descripcion: 'Desayuno, almuerzo y cena, con lo consumido y las personas',
+  },
+  {
+    key: 'maquinaria', label: 'Maquinaria y Flota', icono: '🚜', modulo: 'maquinaria',
+    ruta: '/app/maquinaria/telefono', descripcion: 'Servicios, lavados, averías y reportes por WhatsApp',
   },
 ];
 

@@ -7,42 +7,28 @@ import { norm } from '@/shared/lib/texto';
 import { num as fmtNum } from '@/shared/lib/format';
 import { listProductosActivos } from '@/modules/pedidos/pedidos.repository';
 import { buscarProductosParecidos, type ProductoParecido } from '@/modules/inventario/inventario.repository';
+import { CategoriaProductoSelect } from '@/modules/inventario/CategoriaProductoSelect';
 import type { Producto } from '@/shared/lib/types';
 import {
-  SERVICIOS, URGENCIAS, intervencionesDe, ajustarIntervenciones, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, trabajosDe, etiquetaServicio, CATEGORIA_REPUESTOS,
+  SERVICIOS, URGENCIAS, intervencionesDe, ajustarIntervenciones, ESTADOS_EQUIPO, ORDEN_ESTADOS, decidirRepuesto, efectoOrden, servicioPorId, sugerirServicio, trabajosDe, etiquetaServicio, CATEGORIA_REPUESTOS, categoriaFijaEnTelefono,
   repuestosEditables, type AvisoServicio, type TonoFlota,
 } from './flota';
 import {
-  crearOrdenServicio, editarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden, faltaSalida, faltaCompra,
+  crearOrdenServicio, editarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden, notificarComprasPiezasNuevas, faltaSalida, faltaCompra,
   type OrdenServicio,
 } from './flota.repository';
 import type { MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { FotosNuevaOrden, FotosOrden } from './FotosOrdenServicio';
 import { useFotosLocales } from './useFotosLocales';
 import { subirFotosOrden } from './osFotos.repository';
-import { tocaEnServicio, proximoServicioNominal, nombreRepuesto, type RepuestoEquipo } from './repuestosEquipo';
 import { listRepuestosEquipo } from './repuestosEquipo.repository';
-import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
-import { mensajeSolicitudServicio } from './mensajeMaquinaria';
+import { marcadoParaOrden, lineasDesdeFicha, sistemaDe, textoEquivalencias, type ProductoRepuesto, type RepuestoEquipo } from './repuestosEquipo';
 
 interface Linea {
   productoId: string | null; nombre: string; unidad: string; cantidad: number; stock: number; almacen: string | null;
   /** Pieza nueva: categoría con la que se da de alta en el inventario al pedir la compra. */
   categoria?: string;
 }
-
-const REPUESTOS_RAPIDOS = [
-  { nombre: 'FILTRO DE ACEITE', unidad: 'und', icon: '🛢️' },
-  { nombre: 'FILTRO DE AIRE', unidad: 'und', icon: '🌬️' },
-  { nombre: 'FILTRO DE COMBUSTIBLE', unidad: 'und', icon: '⛽' },
-  { nombre: 'ACEITE DE MOTOR 15W-40', unidad: 'L', icon: '💧' },
-  { nombre: 'ACEITE HIDRÁULICO 68', unidad: 'L', icon: '⚙️' },
-  { nombre: 'PASTILLAS DE FRENO', unidad: 'juego', icon: '🛑' },
-  { nombre: 'BATERÍA', unidad: 'und', icon: '🔋' },
-  { nombre: 'CORREA DE ALTERNADOR', unidad: 'und', icon: '➰' },
-  { nombre: 'GRASA ROJA', unidad: 'kg', icon: '🧈' },
-  { nombre: 'REFRIGERANTE', unidad: 'gal', icon: '🧊' },
-];
 
 /** Lo que importa para saber si los repuestos cambiaron al editar. */
 const firmaRepuestos = (ls: { producto_id: string | null; nombre: string; cantidad: number }[]) =>
@@ -112,14 +98,21 @@ export function OrdenServicioModal({
   const [productos, setProductos] = useState<Producto[]>([]);
   const [busqueda, setBusqueda] = useState('');
   const [saving, setSaving] = useState(false);
-  const [wsTexto, setWsTexto] = useState<string | null>(null);
   // «¿Es alguno de estos?»: productos de nombre parecido antes de agregar una pieza nueva.
   const [sugeridos, setSugeridos] = useState<{ nombre: string; lista: ProductoParecido[] } | null>(null);
   const [buscandoParecidos, setBuscandoParecidos] = useState(false);
-  // Ficha de repuestos del equipo (14/10/2026): se carga con un botón lo que toca en este servicio.
-  const [fichaRep, setFichaRep] = useState<RepuestoEquipo[]>([]);
+  // En el teléfono las piezas nuevas van siempre a REPUESTOS; en la computadora se puede cambiar.
+  const [categoriaFija] = useState(categoriaFijaEnTelefono);
   // Fotos (hasta 4): se comprimen al elegirlas y se suben al crear la orden.
   const fotosOS = useFotosLocales();
+  // Ficha de repuestos del equipo (14/10/2026): «📋 Cargar de la ficha» llena las líneas.
+  const [ficha, setFicha] = useState<RepuestoEquipo[]>([]);
+  const [verFicha, setVerFicha] = useState(false);
+  const [marcados, setMarcados] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    listRepuestosEquipo(equipo.id).then(setFicha).catch(() => setFicha([]));
+  }, [equipo.id]);
 
   useEffect(() => {
     listProductosActivos().then((ps) => {
@@ -132,35 +125,6 @@ export function OrdenServicioModal({
       }));
     }).catch(() => setProductos([]));
   }, []);
-
-  useEffect(() => {
-    if (!editables) return;
-    listRepuestosEquipo(equipo.id).then(setFichaRep).catch(() => setFichaRep([]));
-  }, [equipo.id, editables]);
-  const proximo = {
-    horas: proximoServicioNominal(equipo.mantenimiento_cada_hrs, horometro, equipo.mantenimiento_base_hrs),
-    km: proximoServicioNominal(equipo.mantenimiento_cada_km, kilometraje, equipo.mantenimiento_base_km),
-  };
-  const deFicha = fichaRep.map((r) => ({ r, toca: tocaEnServicio(r, proximo) }));
-  const tocan = deFicha.filter((x) => x.toca).length;
-  /** Agrega a la orden los renglones de la ficha (los que tocan, o todos), sin repetir los que ya están. */
-  function cargarDeFicha(todos: boolean) {
-    const porId = new Map(productos.map((p) => [p.id, p]));
-    const out = [...lineas];
-    let agregados = 0;
-    for (const { r, toca } of deFicha) {
-      if (!todos && !toca) continue;
-      const p = r.producto_id ? porId.get(r.producto_id) : null;
-      const nombre = p ? p.nombre : nombreRepuesto(r);
-      if (out.some((l) => (p ? l.productoId === p.id : !l.productoId && l.nombre === nombre))) continue;
-      out.push(p
-        ? { productoId: p.id, nombre: p.nombre, unidad: p.unidad || 'und', cantidad: r.cantidad, stock: Math.max(0, Number(p.stock) || 0), almacen: p.almacen || null }
-        : { productoId: null, nombre, unidad: r.unidad || 'und', cantidad: r.cantidad, stock: 0, almacen: null, categoria: CATEGORIA_REPUESTOS });
-      agregados += 1;
-    }
-    setLineas(out);
-    toast(agregados ? `📋 ${agregados} repuesto(s) de la ficha agregados a la orden` : 'Todo lo de la ficha ya estaba en la orden.', agregados ? 'success' : 'info');
-  }
 
   const resultados = useMemo(() => {
     const q = norm(busqueda);
@@ -204,8 +168,23 @@ export function OrdenServicioModal({
     else toast('Ese producto no se pudo cargar. Búscalo por su nombre en el buscador.', 'warning');
     setSugeridos(null);
   }
+  const setCategoria = (i: number, categoria: string) => setLineas((prev) => prev.map((l, k) => (k === i ? { ...l, categoria } : l)));
+  const nuevasSinCategoria = lineas.filter((l) => !l.productoId && !(l.categoria ?? '').trim()).length;
+  function abrirFicha() {
+    setMarcados(new Set(ficha.filter((r) => marcadoParaOrden(r, tipo)).map((r) => r.id)));
+    setVerFicha(true);
+  }
+  /** Agrega a la orden lo marcado de la ficha (lo que ya está en la orden no se repite). */
+  function cargarDeFicha() {
+    const porId = new Map<string, ProductoRepuesto>(productos.map((p) => [p.id, p]));
+    const nuevas = lineasDesdeFicha(ficha.filter((r) => marcados.has(r.id)), porId)
+      .filter((n) => !lineas.some((l) => (n.productoId ? l.productoId === n.productoId : !l.productoId && l.nombre === n.nombre)));
+    if (!nuevas.length) { toast('Eso ya está en la orden.', 'info'); setVerFicha(false); return; }
+    setLineas((prev) => [...prev, ...nuevas.map((n) => (n.productoId ? n : { ...n, categoria: CATEGORIA_REPUESTOS }))]);
+    toast(`📋 ${nuevas.length} repuesto(s) de la ficha agregado(s).`, 'success');
+    setVerFicha(false);
+  }
   const setCant = (i: number, v: number) => setLineas((prev) => prev.map((l, k) => (k === i ? { ...l, cantidad: Math.max(1, Math.round((Number(v) || 1) * 100) / 100) } : l)));
-
 
   async function guardarEdicion() {
     if (!tipo || !orden) return;
@@ -230,7 +209,7 @@ export function OrdenServicioModal({
     } finally { setSaving(false); }
   }
 
-  async function crear(conWs = false) {
+  async function crear() {
     if (!tipo) return;
     setSaving(true);
     try {
@@ -258,12 +237,17 @@ export function OrdenServicioModal({
           catch (e) { pendientes.push(`la salida de inventario (${e instanceof Error ? e.message : 'error'})`); }
         } else pendientes.push('la salida de inventario (no tienes permiso de Salidas)');
       }
-      // Lo que falta entra a Pedidos como solicitud de pedido. Los productos no se guardan en el
-      // inventario: el analista de compras colocará el nombre comercial exacto en Pedidos.
+      // Lo que falta entra a Pedidos como solicitud de pedido. Las piezas que no están en el
+      // inventario se dan de alta ahí mismo (stock 0, con la categoría elegida).
       if (faltaCompra(orden)) {
-        try { partes.push(`solicitud de pedido ${await solicitarCompraDeOrden(orden, actor)}`); }
+        const nuevas = lineas.filter((l) => !l.productoId).map((l) => ({ nombre: l.nombre, categoria: (l.categoria ?? '').trim(), unidad: l.unidad }));
+        try { partes.push(`solicitud de pedido ${await solicitarCompraDeOrden(orden, nuevas)}`); }
         catch (e) {
           pendientes.push(`la solicitud de pedido (${e instanceof Error ? e.message : (e as { message?: string })?.message || 'error'})`);
+          // Si no se pudo, al menos Compras se entera de las piezas nuevas.
+          if (r.repuestos.some((x) => !x.producto_id)) {
+            try { await notificarComprasPiezasNuevas(orden); partes.push('Compras notificada de las piezas nuevas'); } catch { /* queda por solicitar */ }
+          }
         }
       }
       notify(`🔧 ${partes.join(' · ')} — ${equipo.equipo}`, 'success', {
@@ -272,32 +256,16 @@ export function OrdenServicioModal({
       });
       if (pendientes.length) toast(`Queda por solicitar: ${pendientes.join('; ')}. Se puede generar después desde la orden.`, 'warning');
       onCreated();
-      if (conWs) {
-        const txt = mensajeSolicitudServicio({
-          codigo: r.codigo,
-          tipo,
-          urgencia,
-          equipoNombre: equipo.equipo,
-          placaOSerial: equipo.placa || equipo.serial,
-          horometro,
-          kilometraje,
-          repuestos: lineas.map((l) => ({ nombre: l.nombre, cantidad: l.cantidad, unidad: l.unidad })),
-          nota: descripcion || null,
-          solicitante: actor.nombre || actor.email,
-        });
-        setWsTexto(txt);
-        return;
-      }
       onClose();
     } catch (e) {
       toast(e instanceof Error ? e.message : (e as { message?: string })?.message || 'No se pudo crear la orden', 'error');
     } finally { setSaving(false); }
   }
 
-  const listo = paso === 0 ? !!tipo : true;
+  // Paso 2: cada pieza nueva necesita su categoría (con ella se da de alta en el inventario).
+  const listo = paso === 0 ? !!tipo : paso === 1 && !editando ? nuevasSinCategoria === 0 : true;
 
   return (
-    <>
     <Modal title={editando ? `✎ Editar ${orden?.codigo} · ${equipo.equipo}` : `🔧 Orden de servicio · ${equipo.equipo}`} size="lg" onClose={onClose}
       footer={<>
         {paso > 0
@@ -307,16 +275,7 @@ export function OrdenServicioModal({
           ? <button className="btn btn-primary" disabled={!listo} onClick={() => setPaso(paso + 1)}>{paso === 0 ? (editables ? 'Elegir repuestos' : 'Ver repuestos') : editando ? 'Revisar cambios' : 'Revisar orden'}</button>
           : editando
             ? <button className="btn btn-primary" disabled={saving} onClick={() => void guardarEdicion()}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>
-            : (
-              <>
-                <button className="btn btn-ghost" disabled={saving || fotosOS.preparando > 0} onClick={() => void crear(true)} title="Crear orden y abrir WhatsApp para compartir la solicitud">
-                  💬 Crear y avisar WhatsApp
-                </button>
-                <button className="btn btn-primary" disabled={saving || fotosOS.preparando > 0} onClick={() => void crear(false)}>
-                  {saving ? 'Creando…' : fotosOS.preparando > 0 ? 'Preparando fotos…' : 'Crear orden de servicio'}
-                </button>
-              </>
-            )}
+            : <button className="btn btn-primary" disabled={saving || fotosOS.preparando > 0} onClick={() => void crear()}>{saving ? 'Creando…' : fotosOS.preparando > 0 ? 'Preparando fotos…' : 'Crear orden de servicio'}</button>}
       </>}>
       <div className="flo" style={{ display: 'grid', gap: '.8rem' }}>
         <ol className="flo-wizard-steps" aria-label="Pasos">
@@ -398,39 +357,34 @@ export function OrdenServicioModal({
 
         {paso === 1 && editables && (
           <>
-            {fichaRep.length > 0 && (
+            {ficha.length > 0 && !verFicha && (
+              <button type="button" className="btn" style={{ justifyContent: 'center' }} onClick={abrirFicha}>📋 Cargar de la ficha del equipo ({ficha.length})</button>
+            )}
+            {verFicha && (
               <div className="aviso info sm"><span className="aviso-icono">📋</span><div style={{ display: 'grid', gap: '.4rem', minWidth: 0 }}>
-                <strong>Ficha de repuestos de {equipo.equipo}: {fichaRep.length} renglón(es) · {tocan} {tocan === 1 ? 'toca' : 'tocan'} en este servicio{proximo.horas != null ? ` (el de ${fmtNum(proximo.horas)} h)` : proximo.km != null ? ` (el de ${fmtNum(proximo.km)} km)` : ''}.</strong>
+                <strong>Ficha de repuestos de {equipo.equipo}</strong>
+                <span>Marca lo que lleva esta orden. {tipo === 'preventivo' || tipo === 'aceite' ? 'Vienen marcados los que se cambian en cada servicio.' : tipo === 'cauchos' ? 'Vienen marcados los cauchos.' : ''}</span>
+                <div className="flo-rep-check">
+                  {ficha.map((r) => {
+                    const p = r.producto_id ? productos.find((x) => x.id === r.producto_id) : null;
+                    return (
+                      <label key={r.id}>
+                        <input type="checkbox" checked={marcados.has(r.id)} onChange={(e) => setMarcados((prev) => { const n = new Set(prev); if (e.target.checked) n.add(r.id); else n.delete(r.id); return n; })} />
+                        <span style={{ minWidth: 0 }}>
+                          <strong>{sistemaDe(r.sistema).icon} {r.tipo}{r.numero_parte ? ` · ${r.numero_parte}` : ''}</strong> <span className="mono">{fmtNum(r.cantidad)} {r.unidad}</span>
+                          <small className="muted" style={{ display: 'block' }}>{p ? `${p.nombre} · ${Number(p.stock) > 0 ? `${fmtNum(p.stock)} ${p.unidad} en stock` : 'sin stock'}` : ['No está en el inventario: entra como pieza nueva', textoEquivalencias(r.equivalencias)].filter(Boolean).join(' · ')}</small>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
                 <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-                  <button type="button" className="btn btn-sm btn-primary" disabled={!tocan} onClick={() => cargarDeFicha(false)}>📋 Cargar los que tocan ({tocan})</button>
-                  {tocan < fichaRep.length && <button type="button" className="btn btn-sm" onClick={() => cargarDeFicha(true)}>Cargar toda la ficha ({fichaRep.length})</button>}
+                  <button type="button" className="btn btn-sm btn-primary" disabled={!marcados.size} onClick={cargarDeFicha}>Agregar {marcados.size} a la orden</button>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setVerFicha(false)}>Cancelar</button>
                 </div>
               </div></div>
             )}
-
-            <div style={{ marginBottom: '.75rem' }}>
-              <label style={{ fontSize: '.78rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>⚡ Repuestos rápidos (un toque para agregar):</label>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: '.4rem' }}>
-                {REPUESTOS_RAPIDOS.map((rr) => {
-                  const idx = lineas.findIndex((l) => l.nombre === rr.nombre);
-                  const ya = idx >= 0 ? lineas[idx] : null;
-                  return (
-                    <button key={rr.nombre} type="button" className={`btn btn-sm ${ya ? 'btn-primary' : 'btn-ghost'}`}
-                      style={{ fontSize: '.76rem', padding: '.4rem .5rem', textAlign: 'center', justifyContent: 'center' }}
-                      onClick={() => {
-                        if (ya) {
-                          setCant(idx, ya.cantidad + 1);
-                        } else {
-                          setLineas((p) => [...p, { productoId: null, nombre: rr.nombre, cantidad: 1, unidad: rr.unidad, stock: 0, almacen: null }]);
-                        }
-                      }}>
-                      <span aria-hidden="true">{rr.icon}</span> {rr.nombre} {ya ? `(${ya.cantidad})` : ''}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-            <div className="form-row"><label htmlFor="os-inv">Buscar en inventario o escribir otro repuesto</label>
+            <div className="form-row"><label htmlFor="os-inv">Buscar en inventario</label>
               <input id="os-inv" className="input" type="search" autoComplete="off" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="🔍 Filtro, caucho, aceite, manguera…" />
             </div>
             <div style={{ display: 'grid', gap: '.35rem', maxHeight: 260, overflowY: 'auto' }}>
@@ -482,11 +436,17 @@ export function OrdenServicioModal({
                     </div>
                   </div>
                   <Decision l={l} />
-                  {!l.productoId && (
-                    <small className="muted" style={{ display: 'block', marginTop: '.2rem' }}>🛒 Para compras · El analista colocará el nombre comercial exacto</small>
-                  )}
+                  {!l.productoId && !editando && (categoriaFija
+                    ? <small className="muted">Categoría en el inventario: <strong>{CATEGORIA_REPUESTOS}</strong></small>
+                    : (
+                      <div className="form-row" style={{ marginBottom: 0 }}>
+                        <label htmlFor={`os-cat-${i}`}>Categoría en el inventario *</label>
+                        <CategoriaProductoSelect id={`os-cat-${i}`} value={l.categoria ?? ''} onChange={(c) => setCategoria(i, c)} />
+                      </div>
+                    ))}
                 </div>
               )) : <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>Sin repuestos. Puedes seguir si el servicio es solo mano de obra.</p>}
+              {!editando && nuevasSinCategoria > 0 && <p className="muted" style={{ fontSize: '.78rem', margin: '.3rem 0 0' }}>⚠️ Elige la categoría de {nuevasSinCategoria === 1 ? 'la pieza nueva' : `las ${nuevasSinCategoria} piezas nuevas`} para seguir.</p>}
             </div>
           </>
         )}
@@ -539,13 +499,5 @@ export function OrdenServicioModal({
         )}
       </div>
     </Modal>
-    {wsTexto && (
-      <MensajeWhatsappModal
-        titulo={`Servicio · ${equipo.equipo}`}
-        texto={wsTexto}
-        onClose={() => { setWsTexto(null); onClose(); }}
-      />
-    )}
-    </>
   );
 }

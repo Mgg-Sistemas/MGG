@@ -98,13 +98,15 @@ export function EquipoMovimientosModal({ equipo, onClose }: { equipo: Maquinaria
         fecha: d.finalizada_at ?? d.created_at, origen: 'Servicio',
         tipo: `${d.codigo ?? 'Servicio directo'} (${d.estado === 'finalizada' ? 'pagado' : 'en proceso'})`,
         detalle,
+        // En MGG el repuesto del servicio directo viaja como `producto_*` (no hay casilla
+        // «sin repuesto»: un renglón sin producto es mano de obra / sin pieza del inventario).
         repuesto: etiquetaRepuesto(lineas.map((x) => ({
-          insumoNombre: x.producto_nombre ?? null, sinInsumo: false,
+          insumoNombre: x.producto_nombre ?? null, sinInsumo: !x.producto_id,
         }))),
       });
     }
     return out.sort((a, b) => (a.fecha < b.fecha ? 1 : a.fecha > b.fecha ? -1 : 0));
-  }, [bitacora, servicios, directos]);
+  }, [bitacora, servicios, directos, equipo.id]);
 
   // ── Qué consume este equipo ────────────────────────────────────────────────
   // Los repuestos declarados en sus servicios, agrupados por producto. `veces` es
@@ -131,6 +133,7 @@ export function EquipoMovimientosModal({ equipo, onClose }: { equipo: Maquinaria
       if (!dentroDelRango(d.finalizada_at ?? d.created_at)) continue;
       const propios = (d.items ?? []).filter((x) => x.equipo_id === equipo.id);
       const lineas = propios.length ? propios : (d.equipo_id === equipo.id ? (d.items ?? []) : []);
+      // Cantidad del repuesto (`producto_cantidad`); si no viene, la del renglón.
       for (const x of lineas) sumar(x.producto_id ?? null, x.producto_nombre ?? null, Number(x.producto_cantidad ?? x.cantidad) || 0);
     }
     return [...acc.entries()]

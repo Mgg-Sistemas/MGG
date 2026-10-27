@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { norm } from '@/shared/lib/texto';
 import {
   listCatalogosMaquinaria, addCatalogoMaquinaria, updateCatalogoMaquinaria,
   setCatalogoMaquinariaActivo, eliminarCatalogoMaquinaria,
@@ -11,20 +12,22 @@ import {
 const TABS: { key: TipoCatalogoMaquinaria; label: string; singular: string }[] = [
   { key: 'tipo_maquinaria', label: 'Tipo de maquinaria', singular: 'tipo de maquinaria' },
   { key: 'propietario', label: 'Propietario', singular: 'propietario' },
-  { key: 'responsable', label: 'Encargados responsables', singular: 'encargado responsable' },
   { key: 'status', label: 'Status', singular: 'status' },
-  // Nombres de los documentos de cada equipo (📁): desactivar uno lo quita del selector;
-  // los documentos ya cargados conservan su nombre.
   { key: 'documento', label: 'Nombres de documentos', singular: 'nombre de documento' },
 ];
 
 /**
- * Catálogo de Control de Maquinaria: tipo de maquinaria, propietario, status y nombres de documentos.
+ * Catálogo de Control de Maquinaria (2 partes: tipo de maquinaria + propietario).
  * Mismo patrón que el catálogo de la OP: pestañas, agregar, filtrar, editar y
  * activar/desactivar (los inactivos dejan de aparecer en los selectores). En vivo.
  */
-export function MaquinariaCatalogoModal({ canWrite, onClose }: { canWrite: boolean; onClose: () => void }) {
-  const [tab, setTab] = useState<TipoCatalogoMaquinaria>('tipo_maquinaria');
+export function MaquinariaCatalogoModal({ canWrite, onClose, tabInicial }: {
+  canWrite: boolean;
+  onClose: () => void;
+  /** Pestaña con la que abre (📎 Documentos la abre en «Nombres de documentos»). */
+  tabInicial?: TipoCatalogoMaquinaria;
+}) {
+  const [tab, setTab] = useState<TipoCatalogoMaquinaria>(tabInicial ?? 'tipo_maquinaria');
   const [items, setItems] = useState<CatalogoMaquinaria[]>([]);
   const [valor, setValor] = useState('');
   const [valorKey, setValorKey] = useState(0);
@@ -40,12 +43,12 @@ export function MaquinariaCatalogoModal({ canWrite, onClose }: { canWrite: boole
   useRealtime(['maquinaria_catalogos'], () => { void recargar(); });
 
   const lista = useMemo(() => {
-    const q = filtro.trim().toLowerCase();
-    return items.filter((i) => i.tipo === tab && (!q || i.valor.toLowerCase().includes(q)));
+    const q = norm(filtro);
+    return items.filter((i) => i.tipo === tab && (!q || norm(i.valor).includes(q)));
   }, [items, tab, filtro]);
 
   async function agregar() {
-    if (!valor.trim()) { toast(`Indicá el ${tabActual.singular}`, 'error'); return; }
+    if (!valor.trim()) { toast(`Indica el ${tabActual.singular}`, 'error'); return; }
     setBusy(true);
     try {
       await addCatalogoMaquinaria(tab, valor.trim().toUpperCase());
@@ -128,9 +131,7 @@ export function MaquinariaCatalogoModal({ canWrite, onClose }: { canWrite: boole
       {borrarId && (
         <ConfirmDialog
           title="Eliminar del catálogo"
-          message={tab === 'documento'
-            ? '¿Eliminar este nombre de documento del catálogo? Los documentos ya cargados conservan su nombre.'
-            : `¿Eliminar este ${tabActual.singular} del catálogo?`}
+          message={`¿Eliminar este ${tabActual.singular} del catálogo?`}
           confirmText="Eliminar"
           danger
           onCancel={() => setBorrarId(null)}

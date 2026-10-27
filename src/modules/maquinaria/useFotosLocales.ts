@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Control de Maquinaria · Fotos de una orden por crear
+   Golden Touch · Control de Maquinaria · Fotos de una orden por crear
    Las fotos que se eligen en el asistente de la orden de servicio
    antes de que la orden exista: se comprimen al elegirlas y se suben
    al crear (la carpeta del bucket lleva el id de la orden).

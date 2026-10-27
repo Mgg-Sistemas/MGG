@@ -170,3 +170,13 @@ export function dibujarLogoPdf(doc: any, dataUrl: string, x: number, y: number, 
 export async function loadLogoPdfDataUrl(): Promise<string> {
   return loadLogoDataUrl();
 }
+
+/**
+ * Logo de PDF según la empresa de una nómina (misma firma que en Golden Touch,
+ * donde cada empresa tiene su archivo). En MGG todas las nóminas comparten el
+ * logo de Mineral Group Guayana, así que el parámetro se acepta por
+ * compatibilidad con los módulos traídos de GT y siempre devuelve el mismo logo.
+ */
+export async function loadLogoPdfEmpresa(_empresa?: string | null): Promise<string> {
+  return loadLogoPdfDataUrl();
+}

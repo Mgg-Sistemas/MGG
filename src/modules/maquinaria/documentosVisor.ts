@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Control de Maquinaria · Ver documentos del equipo
+   Golden Touch · Control de Maquinaria · Ver documentos del equipo
    Abre un documento (o directo el informe técnico) en el visor del
    sistema con su enlace temporal, como la ventana 📎 Documentos.
    ============================================================ */
@@ -7,7 +7,7 @@ import { toast } from '@/shared/ui/Toast';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { mensajeError } from '@/shared/lib/errores';
 import { listDocumentosEquipo, urlDocumentoEquipo, type DocumentoEquipo } from './maquinariaDocumentos.repository';
-import { nombreDescargaDocumento } from './documentosEquipo';
+import { nombreDescargaDocumento } from './maquinariaDocumentos';
 import { documentoInforme } from './flotaDetalle';
 
 /** Abre el documento en el visor del sistema con su enlace temporal (10 min). */

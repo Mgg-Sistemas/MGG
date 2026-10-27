@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Control de Maquinaria · Detalle de un estado
+   Golden Touch · Control de Maquinaria · Detalle de un estado
    Reglas puras (sin Supabase) de la ventana de detalle que se abre
    desde «Averías y estados» y desde el expediente: cómo se reconoce
    un cambio de estado que vino de la carga de informes técnicos,

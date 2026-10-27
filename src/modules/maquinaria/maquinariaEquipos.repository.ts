@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Control de Maquinaria · registro de equipos
+   Golden Touch · Control de Maquinaria · registro de equipos
    Ficha técnica de cada equipo/maquinaria (réplica de la hoja
    DATOS MAQUINARIA). Integra con Combustible: si el equipo se
    vincula (combustible_equipo), el horómetro y el gasoil consumido
@@ -10,14 +10,12 @@ import { ultimoHorometroEquipo, consumoPorEquipo } from '@/modules/combustible/t
 import { norm } from '@/shared/lib/texto';
 import { pathsDocumentosDeEquipo, borrarArchivosDocumentos } from './maquinariaDocumentos.repository';
 import { pathsFotosDeEquipo, borrarArchivosFotosOrden } from './osFotos.repository';
-import { pathsFotosEquipo } from './fotosEquipo.repository';
 
 export interface MaquinariaEquipo {
   id: string;
   equipo: string;
   tipo: string | null;
   propietario: string | null;
-  responsable: string | null;
   status: string;
   ubicacion: string | null;
   anio: number | null;
@@ -51,6 +49,8 @@ export interface MaquinariaEquipo {
   esp_tecnicas: boolean;
   revision_mina: boolean;
   notas: string | null;
+  /** Encargado responsable del equipo o vehículo (chofer, operador, mecánico). */
+  encargado_responsable?: string | null;
   /** Estado operativo (Flota y Servicio, 09/10/2026). null = se deduce de status/activo
    *  (ver `estadoEfectivo` en flota.ts). Lo cambia el RPC `maquinaria_cambiar_estado`. */
   estado_operativo?: string | null;
@@ -65,6 +65,31 @@ export interface MaquinariaEquipo {
 
 export type MaquinariaEquipoInput = Partial<Omit<MaquinariaEquipo, 'id' | 'created_at' | 'updated_at'>> & { equipo: string };
 
+/** Extrae el encargado responsable del campo directo o del tag [Encargado: Nombre] en notas. */
+export function extraerEncargado(eq: { notas?: string | null; encargado_responsable?: string | null }): string | null {
+  if (eq.encargado_responsable?.trim()) return eq.encargado_responsable.trim();
+  const m = (eq.notas ?? '').match(/\[(?:Encargado|Responsable):\s*([^\]]+)\]/i);
+  return m ? m[1].trim() : null;
+}
+
+/** Inserta o actualiza el tag [Encargado: Nombre] en notas sin perder el resto del texto. */
+export function componerNotasConEncargado(notas?: string | null, encargado?: string | null): string | null {
+  const encLimpio = (encargado ?? '').trim();
+  let base = (notas ?? '').replace(/\[(?:Encargado|Responsable):\s*[^\]]+\]\s*/gi, '').trim();
+  if (encLimpio) {
+    base = base ? `${base}\n[Encargado: ${encLimpio}]` : `[Encargado: ${encLimpio}]`;
+  }
+  return base || null;
+}
+
+function parseEquipo(r: Record<string, unknown>): MaquinariaEquipo {
+  const eq = r as unknown as MaquinariaEquipo;
+  return {
+    ...eq,
+    encargado_responsable: extraerEncargado(eq),
+  };
+}
+
 /** Grupos del submódulo Servicio de Mantenimiento (switches). Orden = orden de los switches. */
 export const GRUPOS_MANTENIMIENTO = ['FLOTA PESADA', 'VEHÍCULOS DE CARGA', 'PLANTAS ELÉCTRICAS'] as const;
 export type GrupoMantenimiento = (typeof GRUPOS_MANTENIMIENTO)[number];
@@ -75,22 +100,22 @@ export async function listEquipos(): Promise<MaquinariaEquipo[]> {
   const { data, error } = await supabase.from(TABLE).select('*')
     .order('equipo', { ascending: true });
   if (error) throw error;
-  return (data ?? []) as MaquinariaEquipo[];
+  return (data ?? []).map((r) => parseEquipo(r as Record<string, unknown>));
 }
 
 export async function getEquipo(id: string): Promise<MaquinariaEquipo | null> {
   const { data, error } = await supabase.from(TABLE).select('*').eq('id', id).maybeSingle();
   if (error) throw error;
-  return (data as MaquinariaEquipo) ?? null;
+  return data ? parseEquipo(data as Record<string, unknown>) : null;
 }
 
 function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
   const v = (s?: string | null) => (s == null ? null : String(s).trim() || null);
   const n = (x?: number | null) => (x == null || Number.isNaN(Number(x)) ? null : Number(x));
+  const notasFinal = componerNotasConEncargado(input.notas, input.encargado_responsable);
   return {
     equipo: input.equipo.trim().toUpperCase(),
     tipo: v(input.tipo), propietario: v(input.propietario),
-    responsable: v(input.responsable),
     status: v(input.status) ?? 'ACTIVO',
     ubicacion: v(input.ubicacion), anio: n(input.anio),
     marca: v(input.marca), modelo: v(input.modelo), color: v(input.color),
@@ -106,7 +131,7 @@ function sanitize(input: MaquinariaEquipoInput): Record<string, unknown> {
     grupo_mantenimiento: v(input.grupo_mantenimiento),
     doc_fisico: !!input.doc_fisico, ficha_mantt: !!input.ficha_mantt, doc_drive: !!input.doc_drive,
     esp_tecnicas: !!input.esp_tecnicas, revision_mina: !!input.revision_mina,
-    notas: v(input.notas),
+    notas: notasFinal,
   };
 }
 
@@ -142,13 +167,11 @@ export async function eliminarEquipo(id: string): Promise<void> {
   const archivos = await pathsDocumentosDeEquipo(id).catch(() => [] as string[]);
   // Igual con las fotos de sus órdenes de servicio (bucket maquinaria-os-fotos).
   const fotosOs = await pathsFotosDeEquipo(id).catch(() => [] as string[]);
-  // Y las fotos del equipo (tabla maquinaria_fotos, mismo bucket equipos-docs, 16-10-2026).
-  const fotosEq = await pathsFotosEquipo(id).catch(() => [] as string[]);
   // Borra la bitácora del equipo (mantenimientos) antes que el equipo.
   await supabase.from('maquinaria_mantenimientos').delete().eq('equipo_id', id);
   const { error } = await supabase.from(TABLE).delete().eq('id', id);
   if (error) throw error;
-  await borrarArchivosDocumentos([...archivos, ...fotosEq]);
+  await borrarArchivosDocumentos(archivos);
   await borrarArchivosFotosOrden(fotosOs);
 }
 

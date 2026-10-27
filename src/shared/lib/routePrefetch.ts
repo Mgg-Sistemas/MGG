@@ -23,6 +23,7 @@ const THUNKS: Record<string, () => Promise<unknown>> = {
   '/app/maquinaria/averias': () => import('@/modules/maquinaria/AveriasEstadosPage'),
   '/app/maquinaria/lavados': () => import('@/modules/maquinaria/LavadosPage'),
   '/app/maquinaria/repuestos': () => import('@/modules/maquinaria/RepuestosComprasPage'),
+  '/app/maquinaria/repuestos-equipo': () => import('@/modules/maquinaria/RepuestosPorEquipoPage'),
   '/app/maquinaria/servicio-mantenimiento': () => import('@/modules/maquinaria/ServicioMantenimientoPage'),
   '/app/tesoreria': () => import('@/modules/tesoreria/TesoreriaPage'),
   '/app/retenciones': () => import('@/modules/retenciones/RetencionesPage'),

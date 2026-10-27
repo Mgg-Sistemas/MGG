@@ -7,10 +7,9 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { num as fmtNum, date as fmtDate, statusBadge } from '@/shared/lib/format';
-import { ConfirmDialog } from '@/shared/ui/Modal';
 import { listEquipos, type MaquinariaEquipo } from './maquinariaEquipos.repository';
 import { ORDEN_ESTADOS, SERVICIOS, URGENCIAS, servicioPorId, etiquetaServicio, faltaCompra, faltaSalida, puedeBorrarOrden, type EstadoOrdenServicio } from './flota';
-import { listOrdenesServicio, salidasDeOrdenes, comprasPorIds, eliminarTodasLasOrdenesPrueba, type OrdenServicio, type CompraResumen } from './flota.repository';
+import { listOrdenesServicio, salidasDeOrdenes, comprasPorIds, type OrdenServicio, type CompraResumen } from './flota.repository';
 import { filtrarOrdenes, contarPorEstado, type FiltroOrdenes } from './flotaListados';
 import { ordenServicioPdf, listadoFlotaPdf, type ListadoFlota } from './flotaPdf';
 import { listadoFlotaExcel } from './flotaExcel';
@@ -38,7 +37,7 @@ const ESTADO_SALIDA: Record<string, string> = { por_aprobar: 'Por aprobar', apro
  * con filtros, búsqueda sin acentos, «+ Nueva orden» y PDF/Excel del listado.
  */
 export function OrdenesServicioPage() {
-  const { can, isAdmin, appUser } = usePermissions();
+  const { can, appUser } = usePermissions();
   const { user } = useSession();
   const canWrite = can('maquinaria', 'escritura');
   const [editar, setEditar] = useState<OrdenServicio | null>(null);
@@ -52,8 +51,6 @@ export function OrdenesServicioPage() {
   const [nueva, setNueva] = useState(false);
   const [nFotos, setNFotos] = useState<Map<string, number>>(new Map());
   const [verFotos, setVerFotos] = useState<OrdenServicio | null>(null);
-  const [limpiandoPruebas, setLimpiandoPruebas] = useState(false);
-  const [confirmLimpiar, setConfirmLimpiar] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -130,20 +127,6 @@ export function OrdenesServicioPage() {
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
   }
 
-  async function limpiarPruebas() {
-    setLimpiandoPruebas(true);
-    try {
-      const n = await eliminarTodasLasOrdenesPrueba();
-      toast(`Se eliminaron ${n} órdenes de servicio de prueba.`, 'success');
-      await cargar();
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Error al limpiar', 'error');
-    } finally {
-      setLimpiandoPruebas(false);
-      setConfirmLimpiar(false);
-    }
-  }
-
   return (
     <div className="flo">
       <FlotaNav />
@@ -154,11 +137,6 @@ export function OrdenesServicioPage() {
         </div>
         <div className="actions">
           {canWrite && <button className="btn btn-primary" onClick={() => setNueva(true)}>+ Nueva orden</button>}
-          {isAdmin && ordenes.length > 0 && (
-            <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setConfirmLimpiar(true)} title="Eliminar órdenes de servicio de prueba">
-              🗑️ Limpiar pruebas
-            </button>
-          )}
           <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void exportar('pdf')}>↓ PDF</button>
           <button className="btn btn-ghost" disabled={!lista.length} onClick={() => void exportar('excel')}>↓ Excel</button>
         </div>
@@ -233,7 +211,7 @@ export function OrdenesServicioPage() {
                   <button className="btn" onClick={() => setVerFotos(o)}>📷 Fotos{nFotos.get(o.id) ? ` (${nFotos.get(o.id)})` : ''}</button>
                   <button className="btn" onClick={() => void pdfOrden(o)}>📄 PDF</button>
                   {canWrite && eq && <button className="btn btn-ghost" onClick={() => setEditar(o)}>✎ Editar</button>}
-                  {puedeBorrarOrden(o, { maquinaria: canWrite, admin: isAdmin }) && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(o)}>🗑 Borrar</button>}
+                  {puedeBorrarOrden(o, { maquinaria: canWrite, admin: can('maquinaria', 'full') }) && <button className="btn btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(o)}>🗑 Borrar</button>}
                 </div>
               </div>
             );
@@ -257,16 +235,6 @@ export function OrdenesServicioPage() {
       {verFotos && (
         <FotosOrdenModal ordenId={verFotos.id} codigo={verFotos.codigo} equipo={porId.get(verFotos.equipo_id)?.equipo}
           canWrite={canWrite} onClose={() => setVerFotos(null)} />
-      )}
-      {confirmLimpiar && (
-        <ConfirmDialog
-          title="Limpiar órdenes de servicio de prueba"
-          message={`¿Estás seguro de eliminar las ${ordenes.length} órdenes de servicio de prueba? Se borrarán del sistema y se restaurará el estado de los equipos.`}
-          confirmText={limpiandoPruebas ? 'Limpiando…' : 'Sí, eliminar pruebas'}
-          danger
-          onCancel={() => setConfirmLimpiar(false)}
-          onConfirm={() => void limpiarPruebas()}
-        />
       )}
     </div>
   );

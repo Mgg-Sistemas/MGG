@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useQuien } from '@/shared/lib/directorioUsuarios';
+import { Quien } from '@/shared/ui/Quien';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
@@ -14,14 +16,14 @@ import {
 } from './maquinariaEquipos.repository';
 import { addMantenimiento } from './maquinariaMant.repository';
 import {
-  ESTADOS_EQUIPO, ORDEN_ESTADOS, ORDEN_FLUJO, COLUMNAS_COMPRA, URGENCIAS, CLASES_EQUIPO, claseEquipo, estadoEfectivo, avisoServicio, avisoMasUrgente,
+  ESTADOS_EQUIPO, ORDEN_ESTADOS, ORDEN_FLUJO, COLUMNAS_COMPRA, URGENCIAS, estadoEfectivo, avisoServicio, avisoMasUrgente,
   accionesEquipo, servicioPorId, siguientesEstadosOrden, columnaCompra, compraAbierta, ordenAbierta,
   faltaSalida, faltaCompra, etiquetaOrigenLectura, ultimoLavado, diasDesde, textoHace, puedeReemplazarPieza, etiquetaServicio,
   puedeBorrarOrden,
   type AccionEquipo, type EstadoOrdenServicio, type TonoFlota, type AvisoServicio,
 } from './flota';
 import {
-  listOrdenesServicio, listEventosEstado, comprasDeEquipo, salidasDeOrdenes, fotosDeEquipos,
+  listOrdenesServicio, listEventosEstado, comprasDeEquipo, salidasDeOrdenes, fotosDeEquipos, fijarEncuadreFoto,
   lecturaVigenteEquipo, listLecturasEquipo, ultimoSurtidoEquipo,
   avanzarOrdenServicio, solicitarSalidaDeOrden, solicitarCompraDeOrden,
   listLavados, eliminarLavado, eliminarLectura,
@@ -29,20 +31,16 @@ import {
   type OrdenServicio, type EventoEstado, type CompraEquipo, type FotoEquipo,
   type LecturaVigente, type LecturaMedidor, type UltimoSurtido,
 } from './flota.repository';
-import { fichaEquipoPdf, ordenServicioPdf, listadoFlotaPdf, type ListadoFlota } from './flotaPdf';
-import { listadoFlotaExcel } from './flotaExcel';
-import type { Producto } from '@/shared/lib/types';
-import { agruparPorSistema, estadoStock, ESTADOS_STOCK, nombreRepuesto, detalleRepuesto, textoCada, sistemaDe, type RepuestoEquipo } from './repuestosEquipo';
-import { listRepuestosEquipo, productosDeFichas, eliminarRepuestoEquipo } from './repuestosEquipo.repository';
-import { RepuestoEquipoModal } from './RepuestoEquipoModal';
-import { CopiarRepuestosModal } from './CopiarRepuestosModal';
+import { fichaEquipoPdf, ordenServicioPdf } from './flotaPdf';
 import { EstadoEquipoModal, type ModoEstado } from './EstadoEquipoModal';
 import { OrdenServicioModal } from './OrdenServicioModal';
 import { PedirCompraModal } from './PedirCompraModal';
 import { BitacoraModal } from './BitacoraModal';
-import { DocumentosEquipoModal } from './DocumentosEquipoModal';
-import { subirFotosEquipo, eliminarFotoEquipo, hacerPortadaFoto, cambiarEncuadreFoto } from './fotosEquipo.repository';
-import { MAX_FOTOS_EQUIPO, avisoCupoFotos, cupoFotos } from './fotosEquipo';
+import { EquipoDocumentosModal } from './EquipoDocumentosModal';
+import { SubirFotoEquipoModal } from './SubirFotoEquipoModal';
+import { ImagenEncuadrada } from './ImagenEncuadrada';
+import { AjustarFoto } from '@/modules/rrhh/AjustarFoto';
+import { esNeutro, type Encuadre } from '@/modules/rrhh/encuadreFoto';
 import { EquipoMovimientosModal } from './EquipoMovimientosModal';
 import { EquipoFormModal } from './EquipoFormModal';
 import { LavadoModal } from './LavadoModal';
@@ -52,14 +50,14 @@ import { FotosOrden, FotosOrdenModal } from './FotosOrdenServicio';
 import { EstadoDetalleModal } from './EstadoDetalleModal';
 import { BorrarOrdenDialog } from './BorrarOrdenDialog';
 import { SeguimientoCompraModal } from './SeguimientoCompraModal';
-import { NombreUsuario } from '@/shared/ui/NombreUsuario';
+import { RepuestosEquipoTab } from './RepuestosEquipoTab';
 
-type Tab = 'resumen' | 'servicios' | 'repuestos' | 'compras' | 'contador' | 'lavados' | 'fotos' | 'ficha';
+type Tab = 'resumen' | 'servicios' | 'compras' | 'repuestos' | 'contador' | 'lavados' | 'fotos' | 'ficha';
 const TABS: { id: Tab; label: string }[] = [
   { id: 'resumen', label: 'Resumen' },
   { id: 'servicios', label: 'Servicios' },
-  { id: 'repuestos', label: 'Repuestos' },
   { id: 'compras', label: 'Compras' },
+  { id: 'repuestos', label: 'Repuestos' },
   { id: 'contador', label: 'Contador' },
   { id: 'lavados', label: 'Lavados' },
   { id: 'fotos', label: 'Fotos y documentos' },
@@ -83,7 +81,9 @@ export function EquipoExpedientePage() {
   const { id = '' } = useParams();
   const [sp, setSp] = useSearchParams();
   const navigate = useNavigate();
-  const { can, appUser, isAdmin } = usePermissions();
+  const { can, appUser } = usePermissions();
+  // Full control de Maquinaria: corrige y borra lecturas como el admin (17/10/2026).
+  const fullMaq = can('maquinaria', 'full');
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
@@ -92,7 +92,7 @@ export function EquipoExpedientePage() {
     combustible: can('combustible', 'escritura'),
     salidas: can('salidas', 'escritura'),
     pedidos: can('pedidos', 'escritura'),
-    admin: isAdmin,
+    admin: fullMaq,
   };
   const tab = (TABS.some((t) => t.id === sp.get('tab')) ? sp.get('tab') : 'resumen') as Tab;
   const setTab = (t: Tab) => setSp((p) => { const n = new URLSearchParams(p); n.set('tab', t); return n; }, { replace: true });
@@ -111,18 +111,14 @@ export function EquipoExpedientePage() {
   const [salidas, setSalidas] = useState<Map<string, { codigo: string; estado: string }>>(new Map());
   const [fotos, setFotos] = useState<FotoEquipo[]>([]);
   const [lavados, setLavados] = useState<LavadoEquipo[]>([]);
-  // Ficha de repuestos y consumibles del equipo (14/10/2026) con el stock de los productos vinculados.
-  const [fichaRep, setFichaRep] = useState<RepuestoEquipo[]>([]);
-  const [productosRep, setProductosRep] = useState<Map<string, Producto>>(new Map());
-  const [nuevoRep, setNuevoRep] = useState(false);
-  const [editarRep, setEditarRep] = useState<RepuestoEquipo | null>(null);
-  const [borrarRep, setBorrarRep] = useState<RepuestoEquipo | null>(null);
-  const [copiarRep, setCopiarRep] = useState(false);
 
   const [modoEstado, setModoEstado] = useState<ModoEstado | null>(null);
   const [nuevaOrden, setNuevaOrden] = useState(false);
   const [bitacora, setBitacora] = useState(false);
   const [documentos, setDocumentos] = useState(false);
+  const [subirFoto, setSubirFoto] = useState(false);
+  const [ajustarFoto, setAjustarFoto] = useState(false);
+  const [guardandoEncuadre, setGuardandoEncuadre] = useState(false);
   const [movimientos, setMovimientos] = useState(false);
   const [editar, setEditar] = useState(false);
   const [confirmMantt, setConfirmMantt] = useState(false);
@@ -150,7 +146,7 @@ export function EquipoExpedientePage() {
       if (!e) return;
       const vinc = (e.combustible_equipo ?? '').trim();
       // Contador vigente UNIFICADO (Combustible, Maquinaria y bitácora): el mismo que usa el surtidor.
-      const [vig, lecs, surt, ords, evs, fts, lavs, reps] = await Promise.all([
+      const [vig, lecs, surt, ords, evs, fts, lavs] = await Promise.all([
         lecturaVigenteEquipo(e.id).catch(() => null),
         listLecturasEquipo(e.id).catch(() => [] as LecturaMedidor[]),
         ultimoSurtidoEquipo(vinc).catch(() => null),
@@ -158,7 +154,6 @@ export function EquipoExpedientePage() {
         listEventosEstado(e.id).catch(() => [] as EventoEstado[]),
         fotosDeEquipos(e.id).catch(() => [] as FotoEquipo[]),
         listLavados(e.id).catch(() => [] as LavadoEquipo[]),
-        listRepuestosEquipo(e.id).catch(() => [] as RepuestoEquipo[]),
       ]);
       setVigente(vig);
       setHorometro(vig?.horometro ?? null);
@@ -169,15 +164,12 @@ export function EquipoExpedientePage() {
       setEventos(evs);
       setFotos(fts);
       setLavados(lavs);
-      setFichaRep(reps);
-      const [cps, sals, prods] = await Promise.all([
+      const [cps, sals] = await Promise.all([
         comprasDeEquipo(e.id, ords).catch(() => [] as CompraEquipo[]),
         salidasDeOrdenes(ords).catch(() => new Map<string, { codigo: string; estado: string }>()),
-        productosDeFichas(reps).catch(() => new Map<string, Producto>()),
       ]);
       setCompras(cps);
       setSalidas(sals);
-      setProductosRep(prods);
     } catch (err) {
       toast(errMsg(err, 'No se pudo cargar el equipo'), 'error');
     } finally { setLoading(false); }
@@ -185,40 +177,8 @@ export function EquipoExpedientePage() {
   useEffect(() => { setLoading(true); void cargar(); }, [cargar]);
   useRealtime([
     'maquinaria_equipos', 'maquinaria_ordenes_servicio', 'maquinaria_estado_eventos', 'maquinaria_mantenimientos',
-    'maquinaria_documentos', 'maquinaria_fotos', 'maquinaria_lavados', 'maquinaria_lecturas', 'maquinaria_repuestos_equipo', 'ordenes', 'solicitudes_salida', 'combustible_tanque_movimientos',
+    'maquinaria_documentos', 'maquinaria_lavados', 'maquinaria_lecturas', 'ordenes', 'solicitudes_salida', 'combustible_tanque_movimientos',
   ], () => { void cargar(); });
-
-  // Fotos del equipo (16-10-2026): subir (cámara o galería), eliminar y elegir la portada.
-  const [subiendoFotos, setSubiendoFotos] = useState(0);
-  const [borrarFoto, setBorrarFoto] = useState<FotoEquipo | null>(null);
-  const portadaInputRef = useRef<HTMLInputElement>(null);
-  const subirFotos = useCallback(async (files: File[]) => {
-    if (!eq || !files.length) return;
-    const { tomar, descartadas } = cupoFotos(fotos.length, files);
-    const aviso = avisoCupoFotos(descartadas);
-    if (aviso) toast(aviso, 'warning');
-    if (!tomar.length) return;
-    setSubiendoFotos(tomar.length);
-    try {
-      const r = await subirFotosEquipo(eq.id, tomar, actor);
-      if (r.subidas) toast(r.subidas === 1 ? 'Foto subida' : `${r.subidas} fotos subidas`, 'success');
-      if (r.fallos.length) toast(`No se pudieron subir ${r.fallos.length} foto(s): ${r.fallos.join('; ')}`, 'error');
-      await cargar();
-    } finally { setSubiendoFotos(0); }
-  }, [eq, fotos.length, actor, cargar]);
-  // Encuadre de la foto en la portada: «cubrir» (recorta para llenar) o «completa» (se ve entera).
-  const alternarEncuadre = useCallback((f: FotoEquipo) => {
-    const nuevo = f.encuadre === 'completa' ? 'cubrir' : 'completa';
-    void cambiarEncuadreFoto(f.id, nuevo)
-      .then(() => { toast(nuevo === 'completa' ? 'La foto se muestra completa' : 'La foto llena la portada (recortada)', 'success'); void cargar(); })
-      .catch((e) => toast(errMsg(e, 'No se pudo cambiar el encuadre'), 'error'));
-  }, [cargar]);
-  const elegirPortada = useCallback((f: FotoEquipo) => {
-    if (!eq) return;
-    void hacerPortadaFoto(eq.id, f.id)
-      .then(() => { toast('Esa foto ahora es la portada', 'success'); void cargar(); })
-      .catch((e) => toast(errMsg(e, 'No se pudo cambiar la portada'), 'error'));
-  }, [eq, cargar]);
 
   const estado = eq ? estadoEfectivo(eq) : 'operativa';
   const avisoH = eq ? avisoServicio(eq.mantenimiento_cada_hrs, horometro, eq.mantenimiento_base_hrs, 'h') : null;
@@ -231,7 +191,7 @@ export function EquipoExpedientePage() {
   const puede = (a: AccionEquipo) => acciones.includes(a);
   const abiertas = ordenes.filter((o) => ordenAbierta(o.estado));
   const comprasAbiertas = compras.filter((c) => compraAbierta(c.estado));
-  const cuenta: Partial<Record<Tab, number>> = { servicios: abiertas.length, repuestos: fichaRep.length, compras: comprasAbiertas.length, lavados: lavados.length, fotos: fotos.length };
+  const cuenta: Partial<Record<Tab, number>> = { servicios: abiertas.length, compras: comprasAbiertas.length, lavados: lavados.length, fotos: fotos.length };
   const lavado = ultimoLavado(lavados);
 
   if (loading && !eq) return <EmptyState message="Cargando expediente…" />;
@@ -253,29 +213,8 @@ export function EquipoExpedientePage() {
       await fichaEquipoPdf(eq, {
         horometro, km, restantesHrs: avisoH?.restante ?? null, restantesKm: avisoK?.restante ?? null,
         ultimoSurtido: ultimoSurtido ? `${fmtDate(ultimoSurtido.fecha)} · ${fmtNum(ultimoSurtido.litros)} L${ultimoSurtido.tanque ? ` · ${ultimoSurtido.tanque}` : ''}` : null,
-      }, ordenes, fotos, lavados, fichaRep);
+      }, ordenes, fotos, lavados);
     } catch (e) { toast(errMsg(e, 'No se pudo generar la ficha'), 'error'); }
-  }
-
-  /** La ficha de repuestos del equipo como listado (PDF / Excel) para el mecánico o para pedir cotización. */
-  function listadoRepuestos(): ListadoFlota & { numeros: number[] } {
-    if (!eq) throw new Error('Sin equipo');
-    return {
-      titulo: `FICHA DE REPUESTOS · ${eq.equipo}`,
-      subtitulo: [eq.marca, eq.modelo, eq.serial ? `Serial ${eq.serial}` : '', eq.placa ? `Placa ${eq.placa}` : ''].filter(Boolean).join(' · ') || 'Repuestos y consumibles',
-      archivo: `ficha-repuestos-${eq.equipo}-${new Date().toISOString().slice(0, 10)}`,
-      encabezados: ['Sistema', 'Repuesto', 'N° de parte', 'Equivalencias', 'Especificación', 'Cant.', 'Unidad', 'Cada', 'Producto', 'Stock', 'Nota'],
-      anchos: [1.8, 2.8, 2.2, 3.2, 2.6, 1, 1.2, 2, 3, 1.4, 2.6],
-      numeros: [5, 9],
-      filas: agruparPorSistema(fichaRep).flatMap((g) => g.items.map((r) => {
-        const p = r.producto_id ? productosRep.get(r.producto_id) : null;
-        return [g.sistema.label, r.tipo, r.numero_parte, r.equivalencias, r.especificacion, r.cantidad, r.unidad, textoCada(r, fmtNum), p ? `${p.nombre} (${p.sku})` : 'No está en el inventario', p ? Math.max(0, Number(p.stock) || 0) : null, r.nota];
-      })),
-    };
-  }
-  async function exportarRepuestos(tipo: 'pdf' | 'excel') {
-    try { if (tipo === 'pdf') await listadoFlotaPdf(listadoRepuestos()); else await listadoFlotaExcel(listadoRepuestos()); }
-    catch (e) { toast(errMsg(e, 'No se pudo exportar la ficha de repuestos'), 'error'); }
   }
 
   async function pdfOrden(o: OrdenServicio) {
@@ -303,7 +242,7 @@ export function EquipoExpedientePage() {
     try {
       const codigo = que === 'salida'
         ? await solicitarSalidaDeOrden(o, eq.equipo, { email: actor, nombre: actorName })
-        : await solicitarCompraDeOrden(o, [], { email: actor, nombre: actorName });
+        : await solicitarCompraDeOrden(o);
       toast(`${o.codigo}: ${que === 'salida' ? 'salida' : 'solicitud de pedido'} ${codigo} creada.`, 'success');
       await cargar();
     } catch (e) { toast(errMsg(e, 'No se pudo crear la solicitud'), 'error'); }
@@ -353,42 +292,30 @@ export function EquipoExpedientePage() {
     }
   })();
 
-  const clEquipo = eq ? CLASES_EQUIPO.find((c) => c.id === claseEquipo(eq)) : null;
-
   return (
     <div className="flo flo-exp">
       <Link className="flo-volver" to="/app/maquinaria">← Catálogo</Link>
 
       <div className="flo-hero">
         <div className="flo-media">
-          {foto ? <img src={foto} alt={`${eq.equipo}: ${fotos[0].nombre}`} style={fotos[0].encuadre === 'completa' ? { objectFit: 'contain', background: '#0b0d10' } : undefined} /> : <div className="sin-foto"><span className="ico">{clEquipo?.icon ?? '🚜'}</span><span>Sin foto del equipo</span></div>}
+          {foto ? <ImagenEncuadrada src={foto} alt={`${eq.equipo}: ${fotos[0].nombre}`} encuadre={fotos[0].encuadre} /> : <div className="sin-foto"><span className="ico">🚜</span><span>Sin foto del equipo</span></div>}
           {foto && perm.maquinaria && (
-            <button className="fotos-btn" type="button" style={{ right: 'auto', left: '.6rem' }} title="Cambiar cómo se ajusta la foto en la portada"
-              onClick={() => alternarEncuadre(fotos[0])}>
-              ⤢ {fotos[0].encuadre === 'completa' ? 'Ver recortada' : 'Ver completa'}
-            </button>
+            <button className="ajustar-btn" type="button" onClick={() => setAjustarFoto(true)} title="Acercar o alejar la foto y elegir qué queda en el centro">✂ Ajustar foto</button>
           )}
           <div className={`estado tone-${st.tono}`}><Chip tono={st.tono} lg>{st.icon} {st.label}</Chip></div>
-          {/* Sin foto y con escritura: el botón abre DIRECTO la galería o la cámara del teléfono
-              (el selector nativo ofrece las dos). Con fotos, va a la pestaña Fotos (ahí se elige la portada). */}
-          <button className="fotos-btn" type="button" disabled={subiendoFotos > 0}
-            onClick={() => (fotos.length || !perm.maquinaria ? setTab('fotos') : portadaInputRef.current?.click())}>
-            📷 {subiendoFotos ? 'Subiendo…' : fotos.length ? `${fotos.length} foto(s)` : perm.maquinaria ? 'Subir foto' : 'Fotos'}
+          {/* Quien edita Maquinaria elige aquí: tomar foto con la cámara o subirla de un archivo (16/10/2026). */}
+          <button className="fotos-btn" type="button" onClick={() => (perm.maquinaria ? setSubirFoto(true) : fotos.length ? setTab('fotos') : setDocumentos(true))}>
+            📷 {perm.maquinaria ? (fotos.length ? `${fotos.length} foto(s) · Subir foto` : 'Subir foto') : fotos.length ? `${fotos.length} foto(s)` : 'Documentos'}
           </button>
-          <input ref={portadaInputRef} type="file" accept="image/*" multiple hidden aria-label="Subir foto del equipo"
-            onChange={(e) => { const fs = Array.from(e.currentTarget.files ?? []); e.currentTarget.value = ''; void subirFotos(fs); }} />
         </div>
         <div className="flo-plate">
-          <div className="fila">
-            <span className="marca">{eq.marca || 'Sin marca'}</span>
-            <span className="prop">{eq.propietario || ''}</span>
-            {eq.responsable && <span className="prop" style={{ color: 'var(--primary, #3b82f6)' }}>👤 {eq.responsable}</span>}
-          </div>
+          <div className="fila"><span className="marca">{eq.marca || 'Sin marca'}</span><span className="prop">{eq.propietario || ''}</span></div>
           <h1>{eq.equipo}</h1>
           <div className="modelo">{[eq.modelo, eq.anio].filter(Boolean).join(' · ') || eq.tipo || '—'}</div>
           <div className="pin">
             <small>SERIAL / PIN</small><b>{eq.serial || '—'}</b>
             {eq.placa && <><small>PLACA</small><b>{eq.placa}</b></>}
+            {eq.encargado_responsable && <><small>ENCARGADO</small><b>{eq.encargado_responsable}</b></>}
           </div>
         </div>
       </div>
@@ -464,18 +391,11 @@ export function EquipoExpedientePage() {
               onEditar={setEditarOrden} onBorrar={setBorrarOrden}
             />
           )}
-          {tab === 'repuestos' && (
-            <TabRepuestos ficha={fichaRep} productos={productosRep} puedeEditar={perm.maquinaria}
-              onNuevo={() => setNuevoRep(true)} onCopiar={() => setCopiarRep(true)} onEditar={setEditarRep} onBorrar={setBorrarRep}
-              onPdf={() => void exportarRepuestos('pdf')} onExcel={() => void exportarRepuestos('excel')} />
-          )}
+          {tab === 'repuestos' && <RepuestosEquipoTab equipo={eq} canWrite={perm.maquinaria} actor={actor} />}
           {tab === 'compras' && <TabCompras compras={compras} puedePedidos={perm.pedidos} onVer={setVerCompra} />}
           {tab === 'contador' && <TabContador eq={eq} vigente={vigente} lecturas={lecturas} ultimoSurtido={ultimoSurtido} puede={puede('lectura')} onRegistrar={() => setLecturaOpen(true)}
-            puedeEditar={perm.maquinaria} isAdmin={isAdmin} onEditar={setEditarLectura} onBorrar={setBorrarLectura} />}
-          {tab === 'fotos' && (
-            <TabFotos fotos={fotos} puedeEditar={perm.maquinaria} subiendo={subiendoFotos} onDocs={() => setDocumentos(true)}
-              onSubir={(fs) => void subirFotos(fs)} onBorrar={setBorrarFoto} onPortada={elegirPortada} onEncuadre={alternarEncuadre} />
-          )}
+            puedeEditar={perm.maquinaria} isAdmin={fullMaq} onEditar={setEditarLectura} onBorrar={setBorrarLectura} />}
+          {tab === 'fotos' && <TabFotos fotos={fotos} onDocs={() => setDocumentos(true)} onSubir={perm.maquinaria ? () => setSubirFoto(true) : undefined} />}
           {tab === 'ficha' && <TabFicha eq={eq} onPdf={() => void pdfFicha()} />}
         </section>
       </div>
@@ -504,12 +424,12 @@ export function EquipoExpedientePage() {
           actor={actor} actorName={actorName} onClose={() => setCerrar(null)} onDone={() => void cargar()} />
       )}
       {lecturaOpen && (
-        <LecturaModal equipo={eq} isAdmin={isAdmin}
+        <LecturaModal equipo={eq} isAdmin={fullMaq}
           vigente={vigente ?? { horometro: null, horometro_fecha: null, horometro_origen: null, kilometraje: null, km_fecha: null, km_origen: null }}
           onClose={() => setLecturaOpen(false)} onSaved={() => void cargar()} />
       )}
       {editarLectura && (
-        <LecturaModal equipo={eq} isAdmin={isAdmin} lecturaId={editarLectura}
+        <LecturaModal equipo={eq} isAdmin={fullMaq} lecturaId={editarLectura}
           vigente={vigente ?? { horometro: null, horometro_fecha: null, horometro_origen: null, kilometraje: null, km_fecha: null, km_origen: null }}
           onClose={() => setEditarLectura(null)} onSaved={() => void cargar()} />
       )}
@@ -521,25 +441,12 @@ export function EquipoExpedientePage() {
       {borrarLectura && (
         <ConfirmDialog title="Borrar lectura" danger confirmText="Borrar"
           message="Se borra esta lectura del contador. El horómetro / km vigente se recalcula con las demás lecturas (también el arranque del próximo surtido en Combustible). No se puede deshacer."
-          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lectura">{[borrarLectura.horometro != null ? `${fmtNum(borrarLectura.horometro)} h` : null, borrarLectura.kilometraje != null ? `${fmtNum(borrarLectura.kilometraje)} km` : null].filter(Boolean).join(' · ')}</Dato><Dato label="Fecha">{dateTime(borrarLectura.fecha)}</Dato><Dato label="Tipo">{borrarLectura.es_correccion ? 'Corrección (solo administrador)' : undefined}</Dato><Dato label="Registró">{borrarLectura.actor ? <NombreUsuario correo={borrarLectura.actor} /> : undefined}</Dato></VistaPrevia>}
+          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lectura">{[borrarLectura.horometro != null ? `${fmtNum(borrarLectura.horometro)} h` : null, borrarLectura.kilometraje != null ? `${fmtNum(borrarLectura.kilometraje)} km` : null].filter(Boolean).join(' · ')}</Dato><Dato label="Fecha">{dateTime(borrarLectura.fecha)}</Dato><Dato label="Tipo">{borrarLectura.es_correccion ? 'Corrección (solo administrador)' : undefined}</Dato><Dato label="Registró">{borrarLectura.actor ? <Quien correo={borrarLectura.actor} /> : undefined}</Dato></VistaPrevia>}
           onCancel={() => setBorrarLectura(null)}
           onConfirm={() => {
             const l = borrarLectura; setBorrarLectura(null);
             void eliminarLectura(l.referencia).then(() => { toast('Lectura borrada: el contador vigente se recalculó.', 'success'); void cargar(); })
               .catch((e) => toast(errMsg(e, 'No se pudo borrar la lectura'), 'error'));
-          }} />
-      )}
-      {nuevoRep && <RepuestoEquipoModal equipo={eq} ficha={fichaRep} actor={{ email: actor, nombre: actorName }} onClose={() => setNuevoRep(false)} onSaved={() => void cargar()} />}
-      {editarRep && <RepuestoEquipoModal equipo={eq} ficha={fichaRep} repuesto={editarRep} actor={{ email: actor, nombre: actorName }} onClose={() => setEditarRep(null)} onSaved={() => void cargar()} />}
-      {copiarRep && <CopiarRepuestosModal equipo={eq} ficha={fichaRep} actor={{ email: actor, nombre: actorName }} onClose={() => setCopiarRep(false)} onDone={() => void cargar()} />}
-      {borrarRep && (
-        <ConfirmDialog title="Quitar de la ficha" danger confirmText="Quitar"
-          message={<>Se quita <strong>{nombreRepuesto(borrarRep)}</strong> de la ficha de repuestos de {eq.equipo}. Las órdenes de servicio que ya lo pidieron no cambian.</>}
-          onCancel={() => setBorrarRep(null)}
-          onConfirm={() => {
-            const r = borrarRep; setBorrarRep(null);
-            void eliminarRepuestoEquipo(r.id).then(() => { toast(`${nombreRepuesto(r)} quitado de la ficha`, 'success'); void cargar(); })
-              .catch((e) => toast(errMsg(e, 'No se pudo quitar'), 'error'));
           }} />
       )}
       {editarLavado && (
@@ -556,7 +463,7 @@ export function EquipoExpedientePage() {
       {borrarLavado && (
         <ConfirmDialog title="Borrar lavado" danger confirmText="Borrar"
           message="Se borra este registro de lavado. No se puede deshacer."
-          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lavado">{borrarLavado.tipo}</Dato><Dato label="Fecha">{dateTime(borrarLavado.fecha)}</Dato><Dato label="Lo realizó">{borrarLavado.responsable ?? undefined}</Dato><Dato label="Registró">{borrarLavado.actor_name || borrarLavado.actor ? <NombreUsuario nombre={borrarLavado.actor_name} correo={borrarLavado.actor} /> : undefined}</Dato></VistaPrevia>}
+          preview={<VistaPrevia><Dato label="Equipo">{eq.equipo}</Dato><Dato label="Lavado">{borrarLavado.tipo}</Dato><Dato label="Fecha">{dateTime(borrarLavado.fecha)}</Dato><Dato label="Lo realizó">{borrarLavado.responsable ?? undefined}</Dato><Dato label="Registró">{borrarLavado.actor_name || borrarLavado.actor ? <Quien nombre={borrarLavado.actor_name} correo={borrarLavado.actor} /> : undefined}</Dato></VistaPrevia>}
           onCancel={() => setBorrarLavado(null)}
           onConfirm={() => {
             const l = borrarLavado; setBorrarLavado(null);
@@ -565,19 +472,26 @@ export function EquipoExpedientePage() {
           }} />
       )}
       {bitacora && <BitacoraModal equipo={eq} canWrite={perm.maquinaria} actor={actor} actorName={actorName} onClose={() => setBitacora(false)} />}
-      {documentos && <DocumentosEquipoModal equipo={eq} canWrite={perm.maquinaria} actor={actor} onClose={() => { setDocumentos(false); void cargar(); }} />}
-      {borrarFoto && (
-        <ConfirmDialog
-          title="Eliminar foto"
-          message={<>Se elimina la foto <strong>{borrarFoto.nombre}</strong> de {eq.equipo}. Se borra el archivo; no se puede deshacer.</>}
-          confirmText="Eliminar" danger
-          onCancel={() => setBorrarFoto(null)}
-          onConfirm={() => {
-            const f = borrarFoto; setBorrarFoto(null);
-            void eliminarFotoEquipo(f).then(() => { toast('Foto eliminada', 'success'); void cargar(); })
-              .catch((e) => toast(errMsg(e, 'No se pudo eliminar la foto'), 'error'));
-          }}
-        />
+      {documentos && <EquipoDocumentosModal equipo={eq} canWrite={perm.maquinaria} actor={actor} actorName={actorName} onClose={() => { setDocumentos(false); void cargar(); }} />}
+      {ajustarFoto && fotos[0] && (
+        <AjustarFoto fotoDataUrl={fotos[0].url} encuadreInicial={fotos[0].encuadre ?? null} guardando={guardandoEncuadre}
+          vistaW={480} vistaH={270} destino="la foto del expediente"
+          onCerrar={() => setAjustarFoto(false)}
+          onGuardar={async (e: Encuadre) => {
+            setGuardandoEncuadre(true);
+            try {
+              await fijarEncuadreFoto(fotos[0].id, esNeutro(e) ? null : e);
+              toast('Encuadre de la foto guardado', 'success');
+              setAjustarFoto(false);
+              await cargar();
+            } catch (err) { toast(errMsg(err, 'No se pudo guardar el encuadre'), 'error'); }
+            finally { setGuardandoEncuadre(false); }
+          }} />
+      )}
+      {subirFoto && (
+        <SubirFotoEquipoModal equipoId={eq.id} equipoNombre={eq.equipo} fotos={fotos.length} actor={actor} actorName={actorName}
+          onClose={() => setSubirFoto(false)} onSubida={() => cargar()}
+          onVerFotos={() => setTab('fotos')} onDocumentos={() => setDocumentos(true)} />
       )}
       {movimientos && <EquipoMovimientosModal equipo={eq} onClose={() => setMovimientos(false)} />}
       {editar && <EquipoFormModal equipo={eq} actor={actor} onClose={() => setEditar(false)} onSaved={() => void cargar()} />}
@@ -645,14 +559,15 @@ function Vitales({ vigente, avisoH, avisoK, equipo, ultimoSurtido, lavado, onLav
 }
 
 function TabResumen({ eq, eventos, ordenes, lavados }: { eq: MaquinariaEquipo; eventos: EventoEstado[]; ordenes: OrdenServicio[]; lavados: LavadoEquipo[] }) {
+  const quien = useQuien();
   const actividad = [
     ...eventos.map((e) => ({
       at: e.created_at, icon: ESTADOS_EQUIPO[e.estado]?.icon ?? '•',
       titulo: `${e.estado_anterior && ESTADOS_EQUIPO[e.estado_anterior as keyof typeof ESTADOS_EQUIPO] ? `${ESTADOS_EQUIPO[e.estado_anterior as keyof typeof ESTADOS_EQUIPO].label} → ` : ''}${ESTADOS_EQUIPO[e.estado]?.label ?? e.estado}`,
-      detalle: [e.motivo, e.material ? `falta ${e.material}` : null, e.nota, e.actor_name || e.actor].filter(Boolean).join(' · '),
+      detalle: [e.motivo, e.material ? `falta ${e.material}` : null, e.nota, quien(e.actor_name, e.actor)].filter(Boolean).join(' · '),
     })),
-    ...ordenes.map((o) => ({ at: o.created_at, icon: servicioPorId(o.tipo)?.icon ?? '🔧', titulo: `${o.codigo} abierta`, detalle: [servicioPorId(o.tipo)?.label, o.actor_name || o.created_by].filter(Boolean).join(' · ') })),
-    ...lavados.map((l) => ({ at: l.fecha, icon: '🚿', titulo: `Lavado ${l.tipo.toLowerCase()}`, detalle: [l.responsable, l.nota, l.actor_name || l.actor].filter(Boolean).join(' · ') })),
+    ...ordenes.map((o) => ({ at: o.created_at, icon: servicioPorId(o.tipo)?.icon ?? '🔧', titulo: `${o.codigo} abierta`, detalle: [servicioPorId(o.tipo)?.label, quien(o.actor_name, o.created_by)].filter(Boolean).join(' · ') })),
+    ...lavados.map((l) => ({ at: l.fecha, icon: '🚿', titulo: `Lavado ${l.tipo.toLowerCase()}`, detalle: [l.responsable, l.nota, quien(l.actor_name, l.actor)].filter(Boolean).join(' · ') })),
   ].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 12);
   return (
     <div className="flo-2col">
@@ -863,7 +778,7 @@ function TabContador({ eq, vigente, lecturas, ultimoSurtido, puede, onRegistrar,
                 <span>{l.origen === 'combustible' ? '⛽' : l.origen === 'bitacora' ? '📒' : '🚜'}</span>
                 <div style={{ minWidth: 0 }}>
                   <strong className="mono">{[l.horometro != null ? `${fmtNum(l.horometro)} h` : null, l.kilometraje != null ? `${fmtNum(l.kilometraje)} km` : null].filter(Boolean).join(' · ')}</strong>
-                  <small>{dateTime(l.fecha)} · {etiquetaOrigenLectura(l.origen)}{l.es_correccion ? ' · corrección' : ''}{l.actor ? <> · <NombreUsuario correo={l.actor} /></> : null}</small>
+                  <small>{dateTime(l.fecha)} · {etiquetaOrigenLectura(l.origen)}{l.es_correccion ? ' · corrección' : ''}{l.actor ? <> · <Quien correo={l.actor} /></> : ''}</small>
                 </div>
                 {l.origen === 'maquinaria' && puedeEditar && (!l.es_correccion || isAdmin) ? (
                   <span style={{ display: 'flex', gap: '.25rem' }}>
@@ -924,54 +839,18 @@ function TabLavados({ lavados, puedeRegistrar, puedeEditar, onNuevo, onEditar, o
   );
 }
 
-/** Fotos del equipo (16-10-2026): cámara o galería, eliminar y ELEGIR la portada. Los documentos (RCV, placa…) van aparte. */
-function TabFotos({ fotos, puedeEditar, subiendo, onDocs, onSubir, onBorrar, onPortada, onEncuadre }: {
-  fotos: FotoEquipo[]; puedeEditar: boolean; subiendo: number; onDocs: () => void;
-  onSubir: (files: File[]) => void; onBorrar: (f: FotoEquipo) => void; onPortada: (f: FotoEquipo) => void; onEncuadre: (f: FotoEquipo) => void;
-}) {
-  const camaraRef = useRef<HTMLInputElement>(null);
-  const galeriaRef = useRef<HTMLInputElement>(null);
-  const lleno = fotos.length >= MAX_FOTOS_EQUIPO;
-  const recibir = (input: HTMLInputElement) => {
-    const files = Array.from(input.files ?? []);
-    input.value = '';
-    if (files.length) onSubir(files);
-  };
+function TabFotos({ fotos, onDocs, onSubir }: { fotos: FotoEquipo[]; onDocs: () => void; onSubir?: () => void }) {
   return (
     <>
-      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        {puedeEditar && !lleno && (
-          <>
-            <button type="button" className="btn btn-primary" disabled={subiendo > 0} onClick={() => camaraRef.current?.click()}>📷 Tomar foto</button>
-            <button type="button" className="btn" disabled={subiendo > 0} onClick={() => galeriaRef.current?.click()}>🖼 Subir de la galería</button>
-            <input ref={camaraRef} type="file" accept="image/*" capture="environment" hidden aria-label="Tomar foto con la cámara" onChange={(e) => recibir(e.currentTarget)} />
-            <input ref={galeriaRef} type="file" accept="image/*" multiple hidden aria-label="Elegir fotos de la galería" onChange={(e) => recibir(e.currentTarget)} />
-          </>
-        )}
-        <button type="button" className="btn btn-ghost" onClick={onDocs}>📎 Documentos (RCV, placa, contrato…)</button>
-        <span className="muted" style={{ fontSize: '.8rem' }}>{subiendo ? `Subiendo ${subiendo} foto(s)…` : `${fotos.length} de ${MAX_FOTOS_EQUIPO} fotos`}</span>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '.5rem' }}>
+        {onSubir && <button className="btn btn-primary" style={{ justifyContent: 'center' }} onClick={onSubir}>📷 Agregar foto (cámara o archivo)</button>}
+        <button className="btn" style={{ justifyContent: 'center' }} onClick={onDocs}>📎 Documentos del equipo (contrato, catálogo, fotos…)</button>
       </div>
-      {lleno && puedeEditar && <p className="hint muted">Ya tiene las {MAX_FOTOS_EQUIPO} fotos. Elimina una para agregar otra.</p>}
-      {fotos.length > 1 && puedeEditar && <p className="hint muted" style={{ marginTop: '.4rem' }}>La <strong>portada</strong> (marcada con ★) es la que se muestra arriba, en el catálogo y en la ficha PDF. Toca «★ Portada» en otra foto para cambiarla.</p>}
       {fotos.length ? (
-        <div className="flo-fotos" style={{ marginTop: '.6rem' }}>
-          {fotos.map((f, i) => (
-            <figure key={f.id} style={i === 0 ? { outline: '2px solid var(--brand, #ff8a00)' } : undefined}>
-              <a href={f.url} target="_blank" rel="noreferrer"><img src={f.url} alt={f.nombre} loading="lazy" /></a>
-              <figcaption style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
-                <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{i === 0 ? '★ Portada · ' : ''}{f.nombre}</span>
-                {puedeEditar && i > 0 && <button type="button" className="btn btn-sm btn-ghost" title="Mostrar esta foto como portada" onClick={() => onPortada(f)}>★ Portada</button>}
-                {puedeEditar && i === 0 && <button type="button" className="btn btn-sm btn-ghost" title="Cambiar cómo se ajusta en la portada" onClick={() => onEncuadre(f)}>⤢ {f.encuadre === 'completa' ? 'Completa' : 'Recortada'}</button>}
-                {puedeEditar && <button type="button" className="btn btn-sm btn-danger" title="Eliminar foto" onClick={() => onBorrar(f)}>🗑</button>}
-              </figcaption>
-            </figure>
-          ))}
+        <div className="flo-fotos">
+          {fotos.map((f, i) => <figure key={f.id}><a href={f.url} target="_blank" rel="noreferrer"><img src={f.url} alt={f.nombre} loading="lazy" /></a><figcaption>{f.nombre}{i === 0 ? ' · principal' : ''}</figcaption></figure>)}
         </div>
-      ) : (
-        <div className="flo-sec" style={{ marginTop: '.6rem' }}>
-          <EmptyState message={puedeEditar ? 'Sin fotos del equipo. Toma una con la cámara o súbela de la galería: la primera es la portada del expediente, del catálogo y de la ficha PDF. Si la foto está en Documentos, ábrelos y toca «📷 Es foto del equipo».' : 'Sin fotos del equipo.'} icon="📷" />
-        </div>
-      )}
+      ) : <div className="flo-sec"><EmptyState message="Sin fotos. Agrega una con la cámara o desde un archivo: la que se llama «FOTO DEL EQUIPO» es la que se muestra en el expediente y en la ficha PDF." icon="📷" /></div>}
     </>
   );
 }
@@ -979,7 +858,6 @@ function TabFotos({ fotos, puedeEditar, subiendo, onDocs, onSubir, onBorrar, onP
 function TabFicha({ eq, onPdf }: { eq: MaquinariaEquipo; onPdf: () => void }) {
   const filas: [string, string | null | undefined][] = [
     ['Equipo', eq.equipo], ['Tipo', eq.tipo], ['Marca', eq.marca], ['Modelo', eq.modelo], ['Año', eq.anio != null ? String(eq.anio) : null],
-    ['Propietario', eq.propietario], ['Encargado responsable', eq.responsable],
     ['Color', eq.color], ['Serial / PIN', eq.serial], ['Placa', eq.placa], ['Motor (modelo)', eq.motor_modelo], ['Motor (serial)', eq.motor_serial],
     ['Combustible', eq.combustible], ['Consumo esperado', eq.litros_consume != null ? `${fmtNum(eq.litros_consume)} L` : null],
     ['Mantenimiento cada', [eq.mantenimiento_cada_hrs ? `${fmtNum(eq.mantenimiento_cada_hrs)} h` : null, eq.mantenimiento_cada_km ? `${fmtNum(eq.mantenimiento_cada_km)} km` : null].filter(Boolean).join(' · ') || null],
@@ -1069,67 +947,5 @@ function CerrarOrdenModal({ orden, estado, equipo, horometro, km, actor, actorNa
         )}
       </div>
     </Modal>
-  );
-}
-
-/** Ficha de repuestos y consumibles del equipo: por sistema, con el stock del producto vinculado. */
-function TabRepuestos({ ficha, productos, puedeEditar, onNuevo, onCopiar, onEditar, onBorrar, onPdf, onExcel }: {
-  ficha: RepuestoEquipo[]; productos: Map<string, Producto>; puedeEditar: boolean;
-  onNuevo: () => void; onCopiar: () => void; onEditar: (r: RepuestoEquipo) => void; onBorrar: (r: RepuestoEquipo) => void;
-  onPdf: () => void; onExcel: () => void;
-}) {
-  const grupos = agruparPorSistema(ficha);
-  const resumen = { hay: 0, no_hay: 0, sin_producto: 0 };
-  for (const r of ficha) resumen[estadoStock(r, r.producto_id ? productos.get(r.producto_id) : null).estado] += 1;
-  return (
-    <>
-      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-        {puedeEditar && <button className="btn btn-primary" onClick={onNuevo}>🔩 Agregar repuesto</button>}
-        {puedeEditar && <button className="btn" onClick={onCopiar}>📋 Copiar de otro equipo</button>}
-        <button className="btn btn-ghost" disabled={!ficha.length} onClick={onPdf}>↓ PDF</button>
-        <button className="btn btn-ghost" disabled={!ficha.length} onClick={onExcel}>↓ Excel</button>
-      </div>
-      <Link className="flo-ver-todo" to="/app/maquinaria/repuestos">¿Para qué equipo sirve un repuesto? · Qué comprar para el próximo servicio →</Link>
-      <div className="flo-stats">
-        <div className="flo-stat"><small>En la ficha</small><strong>{ficha.length}</strong></div>
-        <div className="flo-stat"><small>🟢 Hay en inventario</small><strong>{resumen.hay}</strong></div>
-        <div className="flo-stat"><small>🔴 No hay suficiente</small><strong>{resumen.no_hay}</strong></div>
-        <div className="flo-stat"><small>⚪ No está en inventario</small><strong>{resumen.sin_producto}</strong></div>
-      </div>
-      {ficha.length ? grupos.map((g) => (
-        <div className="flo-sec" key={g.sistema.id}>
-          <div className="flo-sec-head"><h3>{g.sistema.icon} {g.sistema.label}</h3><span className="muted" style={{ fontSize: '.76rem' }}>{g.items.length}</span></div>
-          <div className="flo-hist">
-            {g.items.map((r) => {
-              const p = r.producto_id ? productos.get(r.producto_id) : null;
-              const st = estadoStock(r, p);
-              return (
-                <div key={r.id}>
-                  <span title={ESTADOS_STOCK[st.estado].label} aria-label={ESTADOS_STOCK[st.estado].label}>{ESTADOS_STOCK[st.estado].icon}</span>
-                  <div style={{ minWidth: 0 }}>
-                    <strong>{r.tipo} <span className="mono" style={{ fontWeight: 600 }}>· {fmtNum(r.cantidad)} {r.unidad}</span></strong>
-                    <small>{detalleRepuesto(r) || 'sin número de parte'} · {textoCada(r, fmtNum)}</small>
-                    <small>{p ? `${p.nombre} (${p.sku}) · ${st.stock != null && st.stock > 0 ? `${fmtNum(st.stock)} ${p.unidad} en stock` : 'sin stock'}` : 'No está en el inventario: se pide por número de parte'}{r.nota ? ` · ${r.nota}` : ''}</small>
-                  </div>
-                  {puedeEditar ? (
-                    <span style={{ display: 'flex', gap: '.25rem' }}>
-                      <button className="btn btn-sm btn-ghost" aria-label={`Editar ${r.tipo}`} onClick={() => onEditar(r)}>✎</button>
-                      <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} aria-label={`Quitar ${r.tipo}`} onClick={() => onBorrar(r)}>🗑</button>
-                    </span>
-                  ) : <span />}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )) : (
-        <div className="flo-sec">
-          <EmptyState icon="🔩" message={puedeEditar
-            ? 'Sin ficha de repuestos. Agrega lo que lleva este equipo (aceite, filtros, cauchos, batería…) con su número de parte y sus equivalencias, o cópiala de un equipo igual.'
-            : 'Este equipo todavía no tiene ficha de repuestos.'} />
-        </div>
-      )}
-      <p className="muted" style={{ fontSize: '.76rem', margin: 0 }}>Sistemas: {agruparPorSistema(ficha).length ? grupos.map((g) => g.sistema.label).join(', ') : sistemaDe('motor').label + '…'}. El stock es el del producto vinculado al cargar la pestaña.</p>
-    </>
   );
 }
