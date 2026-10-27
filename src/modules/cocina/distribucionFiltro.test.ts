@@ -4,13 +4,13 @@ import type { ResumenDistribucion } from './distribucionEoq';
 
 const viver = (over: Partial<ResumenDistribucion>): ResumenDistribucion => ({
   producto_id: 'p', sku: 'VIV-000', nombre: 'VÍVER', unidad: 'UNIDAD',
-  stock: 0, consumoTotal: 0, diasConConsumo: 0, promedioDia: 0, comensales: 0,
+  stock: 0, libro: 0, diferencia: null, consumoTotal: 0, diasConConsumo: 0, promedioDia: 0, comensales: 0,
   ratioPromedio: 0, mermas: 0, demandaAnual: 0, eoq: 0, puntoReorden: 0,
   cicloDias: 0, frecuenciaAnual: 0, estado: 'NORMAL', filas: [], ...over,
 });
 
 const harina = viver({ producto_id: '1', sku: 'VIV-087', nombre: 'HARINA DE MAIZ 1KG', estado: 'REORDENAR', consumoTotal: 37 });
-const pollo = viver({ producto_id: '2', sku: 'POT-001', nombre: 'POLLO FRESCO', estado: 'NORMAL', consumoTotal: 100, mermas: 450.3 });
+const pollo = viver({ producto_id: '2', sku: 'POT-001', nombre: 'POLLO FRESCO', estado: 'NORMAL', consumoTotal: 100, mermas: 450.3, stock: 10, libro: 12, diferencia: -2 });
 const arroz = viver({ producto_id: '3', sku: 'VIV-057', nombre: 'ARROZ MARY', estado: 'ALERTA', consumoTotal: 18 });
 const sal = viver({ producto_id: '4', sku: 'VIV-999', nombre: 'SAL', estado: 'NORMAL' });
 const todos = [sal, pollo, arroz, harina];
@@ -34,6 +34,12 @@ describe('coincideSeleccion', () => {
   it('«Mermas» deja solo los que tuvieron pérdidas', () => {
     expect(coincideSeleccion(pollo, 'mermas')).toBe(true);
     expect(coincideSeleccion(harina, 'mermas')).toBe(false);
+  });
+
+  it('«Libro ≠ inventario» deja solo los que descuadran; sin inventario leído nadie descuadra', () => {
+    expect(coincideSeleccion(pollo, 'descuadre')).toBe(true);
+    expect(coincideSeleccion(harina, 'descuadre')).toBe(false);
+    expect(coincideSeleccion(viver({ stock: 5, libro: 5, diferencia: 0 }), 'descuadre')).toBe(false);
   });
 
   it('«Víveres» no filtra nada', () => {
@@ -84,6 +90,7 @@ describe('etiquetaSeleccion', () => {
     expect(etiquetaSeleccion('todos')).toBe('Todos los víveres');
     expect(etiquetaSeleccion('reponer')).toBe('Por reponer');
     expect(etiquetaSeleccion('alerta')).toBe('En alerta');
+    expect(etiquetaSeleccion('descuadre')).toContain('libro');
     expect(etiquetaSeleccion('consumido')).toContain('consumo');
     expect(etiquetaSeleccion('mermas')).toContain('mermas');
   });

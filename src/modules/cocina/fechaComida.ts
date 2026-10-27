@@ -13,32 +13,38 @@
    Acá solo se detecta el caso para poder AVISAR antes de guardar. No bloquea:
    cargar una comida atrasada es legítimo, lo que hace falta es saber lo que
    implica.
+
+   Desde el 27/10/2026 el mercado abierto NO tiene fecha de fin: termina cuando
+   alguien lo cierra y toma todo lo que pasa hasta ese instante. Por eso ya no
+   hay «después del cierre previsto»: lo único posterior al ciclo es una fecha
+   que todavía no llegó.
    ============================================================ */
+import { hoyISO } from '@/shared/lib/format';
 
 /** Qué tiene de raro la fecha elegida, si es que tiene algo. */
 export type FueraDelCiclo = 'antes' | 'despues' | null;
 
-/** El mercado abierto, con su ventana. Solo se miran las dos fechas. */
+/** El mercado abierto, con su arranque. Solo se mira la fecha de inicio. */
 export interface VentanaMercado {
   numero: number;
   fecha_inicio: string;  // YYYY-MM-DD
-  fecha_fin: string;     // YYYY-MM-DD
 }
 
 /**
  * ¿La fecha de la comida cae fuera del ciclo del mercado abierto?
  *
  * 'antes'   → es de un mercado anterior: el riesgo del doble descuento.
- * 'despues' → es posterior al cierre previsto del ciclo.
- * null      → está dentro, o no hay con qué comparar.
+ * 'despues' → es una fecha que todavía no llegó: ningún ciclo la tiene aún.
+ * null      → está dentro (del inicio hasta hoy), o no hay con qué comparar.
+ *
+ * `hoy` se recibe para poder probarlo; por defecto es la fecha de Venezuela.
  */
-export function fueraDelCiclo(fecha: string, mercado: VentanaMercado | null | undefined): FueraDelCiclo {
+export function fueraDelCiclo(fecha: string, mercado: VentanaMercado | null | undefined, hoy: string = hoyISO()): FueraDelCiclo {
   const f = String(fecha ?? '').slice(0, 10);
   if (!f || !mercado) return null;
   const desde = String(mercado.fecha_inicio ?? '').slice(0, 10);
-  const hasta = String(mercado.fecha_fin ?? '').slice(0, 10);
   if (desde && f < desde) return 'antes';
-  if (hasta && f > hasta) return 'despues';
+  if (hoy && f > hoy) return 'despues';
   return null;
 }
 
@@ -52,8 +58,9 @@ export function avisoFueraDelCiclo(caso: FueraDelCiclo, mercado: VentanaMercado 
       + 'porque por fecha pertenece al mercado anterior. Si esos víveres ya se contaron en un conteo real, '
       + 'se van a descontar dos veces.';
   }
-  return `Esa fecha es posterior al cierre previsto del mercado #${n} (${dia(mercado.fecha_fin)}). `
-    + 'El libro de este mercado no la va a contar.';
+  return `Esa fecha todavía no llegó. El mercado #${n} sigue abierto y toma lo que pasa hasta que se cierre: `
+    + 'la comida va a descontar el inventario HOY, pero el libro la va a contar recién cuando llegue ese día, '
+    + 'en el mercado que esté abierto entonces.';
 }
 
 function dia(iso: string): string {

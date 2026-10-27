@@ -1,21 +1,22 @@
 /* ============================================================
    MGG · Cocina · Filtro del Control de distribución
 
-   Las tarjetas de arriba (Víveres · Por reponer · En alerta · Consumido ·
-   Mermas) no son solo un número: al tocarlas la tabla se queda con esos
-   víveres. Acá vive la regla de qué entra en cada una, separada de la
-   pantalla para poder probarla.
+   Las tarjetas de arriba (Víveres · Por reponer · En alerta · Descuadrados ·
+   Consumido · Mermas) no son solo un número: al tocarlas la tabla se queda
+   con esos víveres. Acá vive la regla de qué entra en cada una, separada de
+   la pantalla para poder probarla.
    ============================================================ */
-import type { EstadoStock, ResumenDistribucion } from './distribucionEoq';
+import { tieneDescuadre, type EstadoStock, type ResumenDistribucion } from './distribucionEoq';
 
 /** Cuál de las tarjetas está tocada. 'todos' = sin filtro. */
-export type SeleccionKpi = 'todos' | 'reponer' | 'alerta' | 'consumido' | 'mermas';
+export type SeleccionKpi = 'todos' | 'reponer' | 'alerta' | 'descuadre' | 'consumido' | 'mermas';
 
 /** ¿Este víver entra en la tarjeta elegida? */
 export function coincideSeleccion(i: ResumenDistribucion, sel: SeleccionKpi): boolean {
   switch (sel) {
     case 'reponer': return i.estado === 'REORDENAR';
     case 'alerta': return i.estado === 'ALERTA';
+    case 'descuadre': return tieneDescuadre(i);
     case 'consumido': return i.consumoTotal > 0;
     case 'mermas': return i.mermas > 0;
     case 'todos':
@@ -57,6 +58,7 @@ export function etiquetaSeleccion(sel: SeleccionKpi): string {
   switch (sel) {
     case 'reponer': return 'Por reponer';
     case 'alerta': return 'En alerta';
+    case 'descuadre': return 'Inventario distinto del libro';
     case 'consumido': return 'Con consumo en el ciclo';
     case 'mermas': return 'Con mermas';
     case 'todos':

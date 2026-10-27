@@ -18,7 +18,7 @@ import {
   devolucionesDe, devueltoPorProducto, excesosDeConsumo, mensajeExcesos, netoDeComida,
   type Devolucion, type MovimientoEfectivo, type ViverParaConsumo,
 } from './stockConsumo';
-import { num } from '@/shared/lib/format';
+import { hoyISO, num } from '@/shared/lib/format';
 import { bustCache } from '@/shared/lib/queryCache';
 
 const TABLE = 'cocina_comidas';
@@ -43,7 +43,7 @@ export interface CocinaConInfo {
    * El ciclo abierto, si hay uno. Es lo primero que se quiere saber de una
    * cocina y hasta ahora había que entrar para averiguarlo.
    */
-  mercado: { numero: number; dia: number; dias: number } | null;
+  mercado: { numero: number; dia: number } | null;
 }
 
 /** Lista las cocinas activas con su almacén vinculado y un resumen de stock. */
@@ -54,19 +54,19 @@ export async function listCocinas(): Promise<CocinaConInfo[]> {
     listViveresConStock(),
     // Una sola consulta para todas las cocinas, en vez de una por tarjeta.
     supabase.from('mercados_cocina')
-      .select('cocina_id, numero, fecha_inicio, fecha_fin')
+      .select('cocina_id, numero, fecha_inicio')
       .eq('estado', 'abierto'),
   ]);
   if (error) throw error;
   const almById = new Map(almacenes.map((a) => [a.id, a] as const));
-  const hoy = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00`);
-  const mercadoPorCocina = new Map<string, { numero: number; dia: number; dias: number }>();
-  for (const raw of (abiertos.data ?? []) as Array<{ cocina_id: string; numero: number; fecha_inicio: string; fecha_fin: string }>) {
+  // Hoy en Venezuela (no UTC), igual que el panel del mercado.
+  const hoy = new Date(`${hoyISO()}T00:00:00`);
+  // Sin plazo (cierre manual desde el 27/10/2026): solo «día N desde el inicio».
+  const mercadoPorCocina = new Map<string, { numero: number; dia: number }>();
+  for (const raw of (abiertos.data ?? []) as Array<{ cocina_id: string; numero: number; fecha_inicio: string }>) {
     const ini = new Date(`${raw.fecha_inicio}T00:00:00`);
-    const fin = new Date(`${raw.fecha_fin}T00:00:00`);
-    const dias = Math.round((fin.getTime() - ini.getTime()) / 86400000) + 1;
     const dia = Math.max(1, Math.floor((hoy.getTime() - ini.getTime()) / 86400000) + 1);
-    mercadoPorCocina.set(raw.cocina_id, { numero: raw.numero, dia, dias });
+    mercadoPorCocina.set(raw.cocina_id, { numero: raw.numero, dia });
   }
   return (data ?? []).map((row) => {
     const c = row as Cocina;

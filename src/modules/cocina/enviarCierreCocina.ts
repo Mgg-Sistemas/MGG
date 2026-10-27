@@ -5,7 +5,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { CierreSnapshot, MercadoCocina } from './mercados.repository';
-import { cierrePdfBase64, nombreArchivoCierre } from './mercadoCierrePdf';
+import { cierrePdfBase64, nombreArchivoCierre, rangoCierre } from './mercadoCierrePdf';
 
 const FUNCTION_SLUG = 'enviar-reporte';
 
@@ -20,7 +20,8 @@ export async function enviarCierrePorCorreo(
 
   const base64 = await cierrePdfBase64(cocinaNombre, mercado, snap);
   const asunto = `Cierre de Mercado · ${cocinaNombre} · Mercado #${mercado.numero}`;
-  const mensaje = `Adjuntamos el cierre del mercado #${mercado.numero} de la cocina ${cocinaNombre} (${mercado.fecha_inicio} → ${mercado.fecha_fin}): consumos por ítem y lo que queda para el próximo mercado.`;
+  // El rango es el real del ciclo: del inicio a la fecha del cierre (no hay fin planificado).
+  const mensaje = `Adjuntamos el cierre del mercado #${mercado.numero} de la cocina ${cocinaNombre} (${rangoCierre(mercado, snap)}): consumos por ítem y lo que queda para el próximo mercado.`;
 
   const { data, error } = await supabase.functions.invoke<{
     ok: true; destinatarios: string[]; id?: string | null;

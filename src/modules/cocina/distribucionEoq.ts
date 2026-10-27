@@ -17,8 +17,14 @@
    S (costo de emitir una orden), H (costo de almacenar una unidad al año) y
    L (días de entrega) se configuran por cocina.
 
-   Todo sale del resumen del mercado que ya calcula `mercados.repository`: no
-   se consulta nada nuevo ni se guarda otro libro.
+   El registro diario sale del resumen del mercado que ya calcula
+   `mercados.repository`. El «stock actual» de cada víver, en cambio, es el
+   INVENTARIO REAL del almacén de la cocina (`existencias`), no lo que el
+   libro dice que queda (`queda`): el 27/10/2026 la Distribución de La
+   Esperanza decía «12 pollos» mientras el inventario tenía 10, porque leía
+   el libro. Ahora el libro va al lado, como «según el libro», con la
+   diferencia a la vista; el semáforo y el punto de reorden se miden contra
+   lo que de verdad hay en el almacén.
    ============================================================ */
 import type { KardexRow, DisponibleItem } from './mercados.repository';
 
@@ -55,7 +61,12 @@ export interface FilaDistribucion {
 /** Cierre del víver: KPIs + modelo EOQ, para la tabla de todo el mercado. */
 export interface ResumenDistribucion {
   producto_id: string; sku: string; nombre: string; unidad: string;
-  stock: number;             // lo que queda hoy
+  /** Stock ACTUAL: el inventario real del almacén de la cocina. Si no se pudo leer, el libro. */
+  stock: number;
+  /** Lo que el libro del mercado dice que queda (`queda`). */
+  libro: number;
+  /** stock − libro. `null` cuando no hubo inventario con que comparar (entonces `stock` = `libro`). */
+  diferencia: number | null;
   consumoTotal: number;
   diasConConsumo: number;
   promedioDia: number;
@@ -124,14 +135,44 @@ export function etiquetaEstado(e: EstadoStock): string {
 interface DiaViver { entradas: number; mermas: number; porTurno: Map<string, { salidas: number; comensales: number }>; }
 
 /**
+ * Stock real por víver reconstruido del contraste que el resumen ya trae
+ * (`diferencias` = los víveres donde inventario ≠ libro, con su `inventario`).
+ * Los que no figuran ahí cuadran con el libro: su stock real es `queda`.
+ *
+ * Sirve para un mercado CERRADO, cuyo contraste quedó congelado en el cierre, y
+ * como primer valor del abierto mientras llega la lectura en vivo del inventario.
+ * Devuelve `null` si el resumen no tuvo con qué contrastar (`totales.inventario`
+ * nulo): ahí no se puede afirmar que el libro cuadre.
+ */
+export function stockDesdeContraste(
+  disponible: DisponibleItem[],
+  diferencias: Array<{ producto_id: string; inventario: number }>,
+  hayInventario: boolean,
+): Map<string, number> | null {
+  if (!hayInventario) return null;
+  const inv = new Map(diferencias.map((d) => [d.producto_id, r2(d.inventario)] as const));
+  const out = new Map<string, number>();
+  for (const v of disponible) out.set(v.producto_id, inv.get(v.producto_id) ?? r2(v.queda));
+  return out;
+}
+
+/**
  * Arma el registro diario de CADA víver del mercado y su modelo EOQ.
- * `dias` es la cantidad de días del ciclo ya transcurridos: con ella se saca el
- * promedio diario (el Excel divide entre los días registrados, no entre 21).
+ *
+ * El promedio diario divide entre los días que tuvieron consumo (el Excel divide
+ * entre los días registrados): no depende de la duración planificada del ciclo,
+ * que desde el 27/10/2026 ya no existe (el mercado se cierra a mano).
+ *
+ * `stockReal` es el inventario del almacén de la cocina, por `producto_id`. Un
+ * víver del libro que no figure ahí tiene 0 en el almacén (igual que el contraste
+ * del panel). Sin mapa (`null`), el stock es lo que dice el libro y `diferencia`
+ * queda en `null`.
  */
 export function distribucionPorViver(
   disponible: DisponibleItem[],
   kardex: KardexRow[],
   p: ParametrosEoq,
+  stockReal: Map<string, number> | null = null,
 ): ResumenDistribucion[] {
   // 1) Movimientos por víver y por día.
   const porViver = new Map<string, Map<string, DiaViver>>();
@@ -219,12 +260,18 @@ export function distribucionPorViver(
     const demandaAnual = Math.round(promedioDia * 365);
     const eoq = loteOptimo(demandaAnual, p);
     const rop = puntoReorden(demandaAnual, p);
-    const stock = r2(v.queda);
+    const libro = r2(v.queda);
+    // El stock es el del almacén; el libro solo cuando no hay inventario que leer.
+    const stock = stockReal ? r2(stockReal.get(v.producto_id) ?? 0) : libro;
+    const diferencia = stockReal ? r2(stock - libro) : null;
     for (const f of filas) f.estado = estadoStock(f.fisico, rop);
 
     return {
       producto_id: v.producto_id, sku: v.sku, nombre: v.nombre, unidad: v.unidad,
       stock,
+      libro,
+      // Menos de un centésimo es redondeo, no un faltante (mismo umbral que el panel).
+      diferencia: diferencia !== null && Math.abs(diferencia) < 0.01 ? 0 : diferencia,
       consumoTotal: r2(consumoTotal),
       diasConConsumo,
       promedioDia,
@@ -242,12 +289,18 @@ export function distribucionPorViver(
   });
 }
 
-/** Totales de la vista: cuántos víveres hay que reponer y cuántos están en alerta. */
+/** ¿El inventario y el libro de este víver no coinciden? */
+export function tieneDescuadre(i: Pick<ResumenDistribucion, 'diferencia'>): boolean {
+  return i.diferencia !== null && i.diferencia !== 0;
+}
+
+/** Totales de la vista: cuántos víveres hay que reponer, cuántos están en alerta y cuántos descuadran. */
 export function totalesDistribucion(items: ResumenDistribucion[]) {
   return {
     viveres: items.length,
     reordenar: items.filter((i) => i.estado === 'REORDENAR').length,
     alerta: items.filter((i) => i.estado === 'ALERTA').length,
+    descuadrados: items.filter(tieneDescuadre).length,
     consumoTotal: r2(items.reduce((a, i) => a + i.consumoTotal, 0)),
     mermas: r2(items.reduce((a, i) => a + i.mermas, 0)),
   };

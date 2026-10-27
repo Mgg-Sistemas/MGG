@@ -6,19 +6,26 @@
    al tocarla se abre el registro diario (inv. inicial → entradas → salidas →
    teórico → físico → merma), que es la hoja de Excel de ese víver.
 
-   No hay libro nuevo: todo se calcula del mismo resumen del mercado.
+   No hay libro nuevo: el registro diario se calcula del mismo resumen del
+   mercado. El «stock actual» de cada víver, en cambio, es el INVENTARIO REAL
+   del almacén de la cocina (`existencias`, con el alcance por sede de siempre),
+   leído en vivo; lo que el libro dice que queda va al lado, «según el libro»,
+   con la diferencia marcada. Antes el stock era el libro, y en La Esperanza
+   decía 12 pollos con 10 en el almacén (27/10/2026).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { num } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { guardarParametrosEoq, parametrosEoqDeCocina } from './cocina.repository';
 import {
-  distribucionPorViver, etiquetaEstado, totalesDistribucion,
+  distribucionPorViver, etiquetaEstado, stockDesdeContraste, tieneDescuadre, totalesDistribucion,
   PARAMETROS_EOQ_DEFECTO,
   type EstadoStock, type ParametrosEoq, type ResumenDistribucion,
 } from './distribucionEoq';
 import { etiquetaSeleccion, filtrarDistribucion, type SeleccionKpi } from './distribucionFiltro';
+import { stockRealDeCocina } from './reparto.repository';
 import type { ResumenMercado } from './mercados.repository';
 
 const colorEstado: Record<EstadoStock, string> = {
@@ -26,10 +33,13 @@ const colorEstado: Record<EstadoStock, string> = {
   ALERTA: 'var(--warning, #f59e0b)',
   REORDENAR: 'var(--danger, #ef4444)',
 };
+const colorDescuadre = 'var(--warning, #f59e0b)';
 
 function fmtDia(iso: string): string { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; }
 /** Un cero en una tabla larga es ruido: se muestra un punto tenue. */
 function cifra(n: number): string { return n === 0 ? '·' : num(n); }
+/** «−2» / «+3»: la diferencia inventario − libro, con su signo a la vista. */
+function conSigno(n: number): string { return `${n > 0 ? '+' : n < 0 ? '−' : ''}${num(Math.abs(n))}`; }
 
 export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }: {
   resumen: ResumenMercado;
@@ -44,15 +54,38 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
   const [soloReponer, setSoloReponer] = useState(false);
   // Tarjeta tocada: la tabla se queda con esos víveres. Tocarla de nuevo la suelta.
   const [seleccion, setSeleccion] = useState<SeleccionKpi>('todos');
+  /** El inventario en vivo del almacén de la cocina (solo para el mercado abierto). */
+  const [enVivo, setEnVivo] = useState<{ almacen: string | null; stock: Map<string, number> } | null>(null);
+  const abierto = resumen.mercado.estado === 'abierto';
 
   const cargarParams = useCallback(() => {
     parametrosEoqDeCocina(cocinaId).then(setParams).catch(() => setParams(PARAMETROS_EOQ_DEFECTO));
   }, [cocinaId]);
   useEffect(() => { cargarParams(); }, [cargarParams]);
 
+  // El stock real se lee del inventario, no del libro. Mientras llega (o si falla),
+  // vale el contraste que el resumen ya trae: sale de la misma lectura.
+  const cargarStock = useCallback(() => {
+    if (!abierto) { setEnVivo(null); return; }
+    stockRealDeCocina(cocinaId).then(setEnVivo).catch(() => { /* queda el contraste del resumen */ });
+  }, [cocinaId, abierto]);
+  useEffect(() => { cargarStock(); }, [cargarStock]);
+  // Una comida, una recepción o un ajuste mueven `existencias`: el stock se relee solo.
+  useRealtime(['existencias', 'cocinas'], cargarStock, { enabled: abierto });
+
+  const stockReal = useMemo(
+    () => enVivo?.stock ?? stockDesdeContraste(resumen.disponible, resumen.diferencias, resumen.totales.inventario !== null),
+    [enVivo, resumen.disponible, resumen.diferencias, resumen.totales.inventario],
+  );
+  // De dónde sale el stock, para decirlo. Un mercado cerrado compara contra el
+  // inventario congelado en su cierre, no contra el de hoy.
+  const fuenteStock = enVivo?.almacen
+    ? `de ${enVivo.almacen}`
+    : stockReal ? (abierto ? 'del almacén de la cocina' : 'del almacén al cierre del mercado') : null;
+
   const items = useMemo(
-    () => distribucionPorViver(resumen.disponible, resumen.kardex, params),
-    [resumen.disponible, resumen.kardex, params],
+    () => distribucionPorViver(resumen.disponible, resumen.kardex, params, stockReal),
+    [resumen.disponible, resumen.kardex, params, stockReal],
   );
   const totales = useMemo(() => totalesDistribucion(items), [items]);
 
@@ -68,7 +101,9 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
         cocina: cocinaNombre,
         mercado: resumen.mercado.numero,
         desde: resumen.mercado.fecha_inicio,
-        hasta: resumen.mercado.fecha_fin,
+        // Abierto: sin fecha de fin, se cierra a mano. Cerrado: el día del cierre.
+        hasta: abierto ? null : (resumen.mercado.fecha_fin ?? null),
+        fuente: fuenteStock,
         params,
       });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
@@ -97,6 +132,7 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
           ['todos', 'Víveres', String(totales.viveres), 'var(--text)', 'Ver todos los víveres del mercado'],
           ['reponer', 'Por reponer', String(totales.reordenar), colorEstado.REORDENAR, 'Ver solo los que están en el punto de reorden'],
           ['alerta', 'En alerta', String(totales.alerta), colorEstado.ALERTA, 'Ver solo los que están por caer'],
+          ['descuadre', 'Libro ≠ inventario', String(totales.descuadrados), totales.descuadrados > 0 ? colorDescuadre : 'var(--text)', 'Ver solo los víveres donde el inventario del almacén no coincide con lo que dice el libro del mercado'],
           ['consumido', 'Consumido', num(totales.consumoTotal), 'var(--text)', 'Ver solo los que se consumieron en el ciclo'],
           ['mermas', 'Mermas', num(totales.mermas), totales.mermas > 0 ? colorEstado.ALERTA : 'var(--text)', 'Ver solo los que tuvieron mermas'],
         ] as Array<[SeleccionKpi, string, string, string, string]>).map(([clave, label, valor, color, ayuda]) => {
@@ -133,6 +169,13 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
         </label>
       </div>
 
+      {/* De dónde sale cada número. «Stock 10» y «libro 12» en la misma fila no son un error: son dos fuentes. */}
+      <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.3rem' }}>
+        {fuenteStock
+          ? <><strong>Stock</strong> = inventario real {fuenteStock}. <strong>Libro</strong> = lo que el mercado dice que queda; si no coinciden, se marca la diferencia (inventario − libro).</>
+          : <><strong>Stock</strong> = lo que el mercado dice que queda. No se pudo leer el inventario del almacén.</>}
+      </div>
+
       {/* Qué se está viendo. Sin esto, una tabla recortada parece una tabla vacía. */}
       <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.4rem', display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
         <span>Mostrando <strong className="mono">{num(lista.length)}</strong> de <strong className="mono">{num(items.length)}</strong> víveres</span>
@@ -149,7 +192,8 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
           <thead>
             <tr>
               <th>Víver</th>
-              <th style={{ textAlign: 'right' }}>Stock</th>
+              <th style={{ textAlign: 'right' }} title="Inventario real del almacén de la cocina">Stock</th>
+              <th style={{ textAlign: 'right' }} title="Lo que el libro del mercado dice que queda">Libro</th>
               <th style={{ textAlign: 'right' }}>Consumo</th>
               <th style={{ textAlign: 'right' }}>Prom./día</th>
               <th style={{ textAlign: 'right' }}>Ratio x comensal</th>
@@ -162,7 +206,7 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
           </thead>
           <tbody>
             {!lista.length && (
-              <tr><td colSpan={10} className="muted" style={{ textAlign: 'center' }}>
+              <tr><td colSpan={11} className="muted" style={{ textAlign: 'center' }}>
                 {items.length ? 'Ningún víver coincide con el filtro.' : 'El mercado todavía no tiene víveres.'}
               </td></tr>
             )}
@@ -174,6 +218,11 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
                   <div className="muted mono" style={{ fontSize: '.7rem' }}>{i.sku} · {i.unidad}</div>
                 </td>
                 <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(i.stock)}</td>
+                <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap', color: tieneDescuadre(i) ? colorDescuadre : undefined }}
+                  title={tieneDescuadre(i) ? `El almacén tiene ${num(i.stock)} y el libro dice ${num(i.libro)}: diferencia ${conSigno(i.diferencia ?? 0)}` : undefined}>
+                  {i.diferencia === null ? '—' : num(i.libro)}
+                  {tieneDescuadre(i) && <div style={{ fontSize: '.7rem', fontWeight: 700 }}>{conSigno(i.diferencia ?? 0)}</div>}
+                </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{cifra(i.consumoTotal)}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{cifra(i.promedioDia)}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{i.ratioPromedio ? i.ratioPromedio.toFixed(3) : '·'}</td>
@@ -192,7 +241,8 @@ export function DistribucionPanel({ resumen, cocinaId, cocinaNombre, canWrite }:
       <div className="hint muted" style={{ fontSize: '.74rem', marginTop: '.4rem' }}>
         Tocá una <strong>tarjeta de arriba</strong> para dejar en la tabla solo esos víveres (de nuevo para soltarla), y un
         <strong> víver</strong> para ver su <strong>registro diario</strong>. El <strong>lote EOQ</strong> es cuánto conviene comprar de una vez
-        y el <strong>reorden</strong> es el stock con el que hay que pedirlo, para que no falte mientras llega.
+        y el <strong>reorden</strong> es el stock con el que hay que pedirlo, para que no falte mientras llega. El <strong>estado</strong> se
+        mide con el stock del almacén, no con el libro.
       </div>
 
       {detalle && <DetalleDiarioModal item={detalle} onClose={() => setDetalle(null)} />}
@@ -221,6 +271,7 @@ function DetalleDiarioModal({ item, onClose }: { item: ResumenDistribucion; onCl
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.7rem' }}>
         {[
           ['📦 Stock actual', `${num(item.stock)} ${item.unidad}`],
+          ['📒 Según el libro', item.diferencia === null ? '—' : `${num(item.libro)} ${item.unidad}`],
           ['🍽 Consumo total', `${num(item.consumoTotal)} (${num(item.promedioDia)}/día)`],
           ['👥 Comensales', num(item.comensales)],
           ['📉 Ratio x comensal', item.ratioPromedio ? item.ratioPromedio.toFixed(3) : '—'],
@@ -241,6 +292,13 @@ function DetalleDiarioModal({ item, onClose }: { item: ResumenDistribucion; onCl
           </span>
         )}
       </div>
+      {tieneDescuadre(item) && (
+        <div style={{ marginBottom: '.5rem', fontSize: '.8rem', color: colorDescuadre }}>
+          ⚠ El almacén tiene <strong className="mono">{num(item.stock)}</strong> y el libro del mercado dice{' '}
+          <strong className="mono">{num(item.libro)}</strong>: diferencia <strong className="mono">{conSigno(item.diferencia ?? 0)}</strong> {item.unidad}
+          {(item.diferencia ?? 0) < 0 ? ' (falta en el almacén)' : ' (sobra en el almacén)'}. El estado y el punto de reorden se miden con lo que hay en el almacén.
+        </div>
+      )}
 
       <div className="table-wrap" style={{ maxHeight: 400, overflow: 'auto' }}>
         <table className="table" style={{ fontSize: '.8rem' }}>

@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Cocina · Panel del Mercado (ciclo de 21 días)
+   MGG · Cocina · Panel del Mercado (ciclo de cierre manual)
 
    Se muestra POR CAPAS, de lo macro a lo micro:
      1. La ecuación del ciclo (saldo + entradas = disponible − consumo = queda),
@@ -24,7 +24,7 @@ import { LeyendaMercado } from './LeyendaMercado';
 import type { CocinaComida, TipoComida } from '@/shared/lib/types';
 import { labelTipoComida, TIPOS_COMIDA } from './cocina.repository';
 import {
-  cerrarMercado, type ResumenMercado, type DisponibleItem, type KardexEntrada, type KardexConsumo,
+  cerrarMercado, fechaCierreDe, type ResumenMercado, type DisponibleItem, type KardexEntrada, type KardexConsumo,
   type KardexMerma, type KardexRow, type KardexTraslado, type MercadoCocina,
 } from './mercados.repository';
 import { RepartirMercadoModal } from './RepartirMercadoModal';
@@ -71,7 +71,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   onEditComida: (c: CocinaComida) => void;
   onDelComida: (c: CocinaComida) => void;
 }) {
-  const { mercado, dia, dias, puedeCerrar, disponible, kardex, totales, diferencias } = resumen;
+  const { mercado, dia, disponible, kardex, totales, diferencias } = resumen;
   const [drill, setDrill] = useState<DisponibleItem | null>(null);
   const [cerrar, setCerrar] = useState(false);
   const [repartir, setRepartir] = useState(false);
@@ -167,7 +167,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   /** Lo que necesita el modal de una tarjeta para explicar su número. */
   const datosCifra: DatosCifra = {
     totales, costo, mermasValor: resumen.kpis.mermasValor,
-    disponible, kardex, dia: Math.min(dia, dias),
+    disponible, kardex, dia,
     inventarioAl: resumen.inventarioAl ? fmtDia(resumen.inventarioAl) : null,
     num, money, etiquetaComida,
   };
@@ -198,11 +198,13 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
           ) : (
             <strong style={{ fontSize: '.95rem' }}>Mercado #{mercado.numero}</strong>
           )}
+          {/* Abierto: «inicio → en curso · día N». No hay plazo: el mercado termina cuando
+              se cierra, y la fecha del cierre es la que se muestra como fin del cerrado. */}
           <span className="muted" style={{ fontSize: '.78rem' }}>
-            {fmtDia(mercado.fecha_inicio)}{mercado.inicio_at ? ` ${horaDe(mercado.inicio_at)}` : ''} → {fmtDia(mercado.fecha_fin)}
+            {fmtDia(mercado.fecha_inicio)}{mercado.inicio_at ? ` ${horaDe(mercado.inicio_at)}` : ''} → {' '}
             {mercado.estado === 'cerrado'
-              ? ' · cerrado'
-              : ` · día ${Math.min(dia, dias)} de ${dias}`}
+              ? `${fmtDia(fechaCierreDe(mercado) ?? mercado.fecha_inicio)} · cerrado`
+              : `en curso · día ${dia}`}
           </span>
         </div>
 
@@ -377,17 +379,18 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
         })}
       </div>
 
-      {/* Un solo cierre, el día que sea: los movimientos pasan al histórico y lo que
-          queda es el saldo inicial del mercado siguiente, que arranca hoy. Hasta el
+      {/* Un solo cierre, el día que la administradora decida (desde el 27/10/2026 no
+          hay plazo de 21 días): los movimientos pasan al histórico y lo que queda es
+          el saldo inicial del mercado siguiente, que arranca en ese instante. Hasta el
           30/09/2026 antes del día 22 decía «anticipadamente» y parecía otro trámite.
           Un mercado ya cerrado se está CONSULTANDO desde el selector: ofrecerle
           «cerrar» sería una trampa. */}
       {canWrite && mercado.estado === 'abierto' && (
         <div style={{ marginBottom: '.8rem' }}>
           <button
-            className={`btn ${puedeCerrar ? 'btn-primary' : 'btn-ghost'}`}
+            className="btn btn-primary"
             onClick={() => setCerrar(true)}
-            title="Cierra el mercado: los movimientos pasan al histórico y lo que queda arranca el mercado siguiente"
+            title="Cierra el mercado con todo lo registrado hasta este instante: los movimientos pasan al histórico y lo que queda arranca el mercado siguiente"
           >
             🔒 Cerrar mercado
           </button>
@@ -1074,9 +1077,11 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
   const [motivo, setMotivo] = useState('');
 
   // Snapshot "previo" para la vista previa del PDF (mismos datos que persiste el cierre).
+  // La ventana es la del libro: desde el instante en que arrancó hasta AHORA, que es
+  // donde se va a cortar al cerrar.
   const snapshotPreview = useMemo(() => ({
     generado_en: new Date().toISOString(),
-    desde: `${mercado.fecha_inicio}T00:00:00`, hasta: `${mercado.fecha_fin}T23:59:59`,
+    desde: mercado.inicio_at ?? `${mercado.fecha_inicio}T00:00:00`, hasta: new Date().toISOString(),
     totales: { platos: kpis.platos, valor: kpis.consumoValor, entradasValor: kpis.entradasValor },
     consumos: disponible.filter((d) => d.consumos > 0).map((d) => ({ producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad: d.consumos, valor: Math.round(d.consumos * d.precio * 100) / 100 })),
     entradas: disponible.filter((d) => d.entradas > 0).map((d) => ({ producto_id: d.producto_id, sku: d.sku, nombre: d.nombre, unidad: d.unidad, cantidad: d.entradas, valor: Math.round(d.entradas * d.precio * 100) / 100 })),
@@ -1137,7 +1142,7 @@ function CierreModal({ resumen, cocinaNombre, almacen, actor, userEmail, onClose
     }>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
       <p className="hint muted" style={{ marginTop: 0 }}>
-        Se cierra el mercado <strong>#{mercado.numero}</strong> ({fmtDia(mercado.fecha_inicio)} → {fmtDia(mercado.fecha_fin)}), se <strong>genera el PDF</strong> del cierre y <strong>lo que queda pasa como saldo inicial del próximo mercado</strong>. No mueve el inventario real. El correo es opcional.
+        Se cierra el mercado <strong>#{mercado.numero}</strong> (del {fmtDia(mercado.fecha_inicio)} a hoy, con <strong>todo lo registrado hasta este instante</strong>), se <strong>genera el PDF</strong> del cierre y <strong>lo que queda pasa como saldo inicial del próximo mercado</strong>, que arranca ahora mismo. No mueve el inventario real. El correo es opcional.
       </p>
       <div className="card" style={{ margin: '0 0 .8rem', background: 'var(--bg-2)' }}>
         <div style={{ fontSize: '.88rem' }}>Platos: <strong className="mono">{num(kpis.platos)}</strong> · Consumo: <strong className="mono" style={{ color: 'var(--danger)' }}>{money(kpis.consumoValor)}</strong> · Remanente: <strong className="mono" style={{ color: 'var(--primary-3, #2ecc71)' }}>{money(kpis.disponibleValor)}</strong></div>

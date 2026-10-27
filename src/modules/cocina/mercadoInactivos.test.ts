@@ -38,3 +38,14 @@ describe('armarDisponible · un producto desactivado sale de la lista de cocina'
     expect(filas.find((f) => f.producto_id === 'b')?.queda).toBe(5);
   });
 });
+
+describe('armarDisponible · lo que no es de categoría de cocina no entra en el libro (27-10-2026)', () => {
+  const sinNada = new Map<string, ItemAgg>();
+  it('un utensilio (categoría COCINA) consumido en una comida no aparece', () => {
+    const cubierto = { ...prod('c', 'activo'), categoria: 'COCINA' } as Producto;
+    const prodById = new Map([['a', prod('a', 'activo')], ['c', cubierto]]);
+    const saldo: SaldoItem[] = [{ producto_id: 'a', sku: 'VIV-a', nombre: 'Víver a', unidad: 'KG', cantidad: 10 }];
+    const filas = armarDisponible(saldo, sinNada, sinNada, new Map([agg('c', 1), agg('a', 2)]), sinNada, prodById, new Map());
+    expect(filas.map((f) => f.producto_id)).toEqual(['a']);
+  });
+});

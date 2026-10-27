@@ -1,11 +1,11 @@
 /* ============================================================
-   MGG · Cocina · PDF de Cierre de Mercado (21 días)
+   MGG · Cocina · PDF de Cierre de Mercado
    Consumos por ítem + LO QUE QUEDA (remanente que arrastra al próximo mercado).
    Se usa para vista previa/descarga y para enviarlo por correo (base64).
    ============================================================ */
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { filaPdf, textoPdf } from '@/shared/lib/textoPdf';
-import type { CierreSnapshot, MercadoCocina } from './mercados.repository';
+import { fechaCierreDe, type CierreSnapshot, type MercadoCocina } from './mercados.repository';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
 function money(n: number | null | undefined): string {
@@ -15,6 +15,22 @@ function num(n: number | null | undefined): string {
   return Number(n || 0).toLocaleString('es-VE', { maximumFractionDigits: 2 });
 }
 function fmtDia(iso: string): string { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; }
+
+/**
+ * El rango del ciclo para el encabezado: «del inicio al cierre». En la vista previa
+ * (todavía abierto) el fin es el instante hasta el que llegó el libro (`snap.hasta`,
+ * o sea ahora), en hora local; el cerrado trae su fecha de cierre.
+ */
+export function rangoCierre(mercado: MercadoCocina, snap: Pick<CierreSnapshot, 'hasta'>): string {
+  const fin = fechaCierreDe(mercado) ?? fechaLocal(snap.hasta);
+  return `del ${fmtDia(mercado.fecha_inicio)} al ${fmtDia(fin)}`;
+}
+
+function fechaLocal(iso: string): string {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return String(iso ?? '').slice(0, 10);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: CierreSnapshot) {
@@ -39,7 +55,7 @@ async function construir(cocinaNombre: string, mercado: MercadoCocina, snap: Cie
   // Sin el emoji 🍳 y sin la flecha «→»: la helvetica de jsPDF no los tiene y abría el renglón letra por letra.
   doc.text(textoPdf(`Cocina: ${cocinaNombre}`), W / 2 + 24, y + 34, { align: 'center' });
   doc.setTextColor(90, 90, 90); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text(textoPdf(`Mercado #${mercado.numero} · del ${fmtDia(mercado.fecha_inicio)} al ${fmtDia(mercado.fecha_fin)}`), W / 2 + 24, y + 48, { align: 'center' });
+  doc.text(textoPdf(`Mercado #${mercado.numero} · ${rangoCierre(mercado, snap)}`), W / 2 + 24, y + 48, { align: 'center' });
   doc.setTextColor(0, 0, 0);
   y += 66;
 

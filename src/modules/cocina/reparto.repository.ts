@@ -89,6 +89,29 @@ export async function prepararReparto(
   return { destinos, viveres: out };
 }
 
+/**
+ * El inventario REAL de los víveres del centro de una cocina, por `producto_id`,
+ * y el almacén del que sale. Es lo que el Control de distribución muestra como
+ * «stock actual» (27/10/2026): antes mostraba lo que el libro del mercado decía
+ * que quedaba, y en La Esperanza decía 12 pollos con 10 en el almacén.
+ *
+ * Mismo alcance que el libro y que las comidas: los almacenes de la SEDE del
+ * almacén vinculado (`listViveresGlobal`), que para los víveres es el principal.
+ * Un víver sin existencia en la sede no figura: para la Distribución es 0.
+ */
+export async function stockRealDeCocina(cocinaId: string): Promise<{ almacen: string | null; stock: Map<string, number> }> {
+  const [{ data, error }, almacenes] = await Promise.all([
+    supabase.from('cocinas').select('almacen_id').eq('id', cocinaId).maybeSingle(),
+    listAlmacenes(),
+  ]);
+  if (error) throw error;
+  const almacenId = (data as { almacen_id?: string | null } | null)?.almacen_id ?? null;
+  const almacen = almacenId ? almacenes.find((a) => a.id === almacenId)?.nombre ?? null : null;
+  if (!almacen) return { almacen: null, stock: new Map() };
+  const viveres = await listViveresGlobal(almacen);
+  return { almacen, stock: new Map(viveres.map((v) => [v.producto.id, r2(v.stock)] as const)) };
+}
+
 export interface LineaReparto {
   producto_id: string;
   nombre: string;

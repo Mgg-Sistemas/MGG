@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   cicloDias, distribucionPorViver, estadoStock, frecuenciaAnual, loteOptimo, puntoReorden,
-  totalesDistribucion, type ParametrosEoq,
+  stockDesdeContraste, tieneDescuadre, totalesDistribucion, type ParametrosEoq,
 } from './distribucionEoq';
 import type { DisponibleItem, KardexRow } from './mercados.repository';
 import type { CocinaComida } from '@/shared/lib/types';
@@ -116,5 +116,73 @@ describe('distribucionPorViver', () => {
     const items = distribucionPorViver([viver({ saldoInicial: 10, queda: 1 })], kardex, p);
     expect(items[0].estado).toBe('REORDENAR');
     expect(totalesDistribucion(items)).toMatchObject({ viveres: 1, reordenar: 1, alerta: 0, consumoTotal: 9 });
+  });
+});
+
+/* El caso del 27/10/2026: La Esperanza, mercado #4, POLLO BENEFICIADO PURO LOMO
+   (POT-002). El libro arrastraba 12 de saldo inicial y el almacén tenía 10. */
+describe('stock actual = inventario real, el libro va aparte', () => {
+  const p: ParametrosEoq = { costoOrden: 3.33, costoAlmacenar: 1.2, leadTimeDias: 2 };
+  const pollo = viver({ producto_id: 'pollo', sku: 'POT-002', nombre: 'POLLO BENEFICIADO PURO LOMO', saldoInicial: 12, queda: 12 });
+
+  it('el stock sale del inventario del almacén y el libro queda como referencia, con la diferencia', () => {
+    const [d] = distribucionPorViver([pollo], [], p, new Map([['pollo', 10]]));
+    expect(d.stock).toBe(10);
+    expect(d.libro).toBe(12);
+    expect(d.diferencia).toBe(-2);
+    expect(tieneDescuadre(d)).toBe(true);
+  });
+
+  it('sin inventario que leer, el stock es el libro y no se afirma ninguna diferencia', () => {
+    const [d] = distribucionPorViver([pollo], [], p);
+    expect(d.stock).toBe(12);
+    expect(d.libro).toBe(12);
+    expect(d.diferencia).toBeNull();
+    expect(tieneDescuadre(d)).toBe(false);
+  });
+
+  it('un víver del libro que no está en el inventario del centro tiene 0 en el almacén', () => {
+    const [d] = distribucionPorViver([pollo], [], p, new Map([['otro', 5]]));
+    expect(d.stock).toBe(0);
+    expect(d.diferencia).toBe(-12);
+  });
+
+  it('menos de un centésimo es redondeo, no descuadre', () => {
+    const [d] = distribucionPorViver([pollo], [], p, new Map([['pollo', 12.004]]));
+    expect(d.diferencia).toBe(0);
+    expect(tieneDescuadre(d)).toBe(false);
+  });
+
+  it('el semáforo y el punto de reorden se miden con el stock real, no con el libro', () => {
+    // Consumo 4/día → D = 1460 → ROP = 8 (2 días de entrega). El libro dice 14 (NORMAL),
+    // el almacén tiene 6 (REORDENAR): manda el almacén.
+    const kardex: KardexRow[] = [comida('2026-10-25T12:00:00Z', 30, 4, 'almuerzo')];
+    const items = distribucionPorViver([viver({ producto_id: 'p1', saldoInicial: 18, queda: 14 })], kardex, p, new Map([['p1', 6]]));
+    expect(items[0].puntoReorden).toBe(8);
+    expect(items[0].stock).toBe(6);
+    expect(items[0].estado).toBe('REORDENAR');
+    expect(totalesDistribucion(items)).toMatchObject({ reordenar: 1, descuadrados: 1 });
+    // El mismo víver sin inventario leído se mide con el libro.
+    expect(distribucionPorViver([viver({ producto_id: 'p1', saldoInicial: 18, queda: 14 })], kardex, p)[0].estado).toBe('NORMAL');
+  });
+
+  it('el registro diario sigue siendo el del libro: el inventario real no reescribe la planilla', () => {
+    const kardex: KardexRow[] = [comida('2026-10-25T12:00:00Z', 30, 4, 'almuerzo')];
+    const [d] = distribucionPorViver([viver({ saldoInicial: 16, queda: 12 })], kardex, p, new Map([['p1', 6]]));
+    expect(d.filas[0]).toMatchObject({ invInicial: 16, salidas: 4, fisico: 12 });
+  });
+});
+
+describe('stockDesdeContraste', () => {
+  const lista = [viver({ producto_id: 'a', queda: 12 }), viver({ producto_id: 'b', queda: 3 })];
+
+  it('toma el inventario de los que descuadran y el libro de los que cuadran', () => {
+    const m = stockDesdeContraste(lista, [{ producto_id: 'a', inventario: 10 }], true);
+    expect(m?.get('a')).toBe(10);
+    expect(m?.get('b')).toBe(3);
+  });
+
+  it('sin inventario con que contrastar no inventa que el libro cuadra', () => {
+    expect(stockDesdeContraste(lista, [], false)).toBeNull();
   });
 });

@@ -1,6 +1,10 @@
 /* ============================================================
-   MGG · Cocina · Mercado (ciclo de 21 días)
-   Un "mercado" es un período de 21 días por cocina. Durante el período:
+   MGG · Cocina · Mercado (ciclo de cierre manual)
+   Un "mercado" es un período por cocina que ARRANCA en una fecha y TERMINA cuando
+   alguien lo cierra. No hay plazo: desde el 27/10/2026 ya no existe el ciclo de 21
+   días. Mientras está abierto, `fecha_fin` es null y el libro toma TODO lo que pasa
+   hasta este instante; al cerrarlo, la fecha del cierre queda como `fecha_fin`.
+   Durante el período:
      disponible por víver = saldo_inicial + entradas ± traslados;
      queda = disponible − consumos − mermas.
    - Entradas: movimientos de inventario (delta > 0) de víveres de cocina en
@@ -10,8 +14,9 @@
      'transferencia'), con su signo. Lo que sale del centro resta y lo que
      entra suma; un traslado entre dos almacenes de la misma sede se anula.
    - Consumos: los ítems de las comidas (cocina_comidas) del período.
-   Al CERRAR (día 22): se guarda un snapshot (consumos + entradas + remanente),
-   el mercado queda 'cerrado' y se abre el siguiente con saldo_inicial = remanente.
+   Al CERRAR (el día que la administradora decida): se guarda un snapshot (consumos
+   + entradas + remanente), el mercado queda 'cerrado' y se abre el siguiente con
+   saldo_inicial = remanente, arrancando en el instante exacto del cierre.
    El cierre NO mueve inventario real: es contable del mercado.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
@@ -20,21 +25,19 @@ import { bustCache } from '@/shared/lib/queryCache';
 import { hoyISO } from '@/shared/lib/format';
 import type { CocinaComida, Producto } from '@/shared/lib/types';
 import { listProductos } from '@/modules/inventario/inventario.repository';
-import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
 import { trasladoDeMovimiento } from '@/modules/inventario/stockPorAlmacen';
 import { listComidas, listViveresGlobal, esCategoriaCocina, ordenTipoComida, diaDeComida } from './cocina.repository';
 import { asegurarCategoriasCocina } from './categoriasCocina';
 import { repartosPendientes, type RepartoPendiente } from './reparto.repository';
 import {
-  cicloQueSePisa, deltaEfectivo, diferenciasPorViver, inicioExactoDe, mermasPorViver, stockAlCorte, totalesDeMercado,
+  cicloQueSePisa, completarStock, deltaEfectivo, diferenciasPorViver, inicioExactoDe, mermasPorViver, totalesDeMercado,
   trasladosSinLlegada, ventanaCicloDe,
   MARGEN_LLEGADA_MS,
   type DiferenciaViver, type PataTraslado, type SalidaFueraDelCiclo, type TotalesMercado,
 } from './mercadoComparar';
 
 const TABLE = 'mercados_cocina';
-/** Duración del ciclo de mercado, en días (ventana inclusiva). */
-export const DURACION_MERCADO_DIAS = 21;
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
 /* ───────── Tipos ───────── */
@@ -129,7 +132,12 @@ export interface CierreSnapshot {
      presencia (aunque vacía) marca que el cierre ya las restaba: los anteriores se
      siguen mostrando sin restarlas, como se cerraron. */
   mermas?: ItemAgg[];
-  /** Si se cerró después del último día: la fecha a la que se tomó el inventario del contraste. */
+  /**
+   * LEGADO (hasta el 27/10/2026): cuando el ciclo tenía 21 días y se cerraba después
+   * del último, la fecha a la que se reconstruía el inventario del contraste. Desde
+   * entonces el contraste es siempre contra el stock del instante del cierre y los
+   * cierres nuevos lo dejan en null. Se conserva para leer los viejos como se cerraron.
+   */
   inventario_al?: string | null;
   /* ── El histórico del ciclo, agregado el 28/09/2026 ──
      Antes el cierre guardaba solo los TOTALES por víver, y el detalle —cada
@@ -148,7 +156,14 @@ export interface CierreSnapshot {
 
 export interface MercadoCocina {
   id: string; cocina_id: string; numero: number;
-  fecha_inicio: string; fecha_fin: string; estado: 'abierto' | 'cerrado';
+  fecha_inicio: string;
+  /**
+   * La fecha en que se CERRÓ (Venezuela). `null` mientras está abierto: no hay plazo,
+   * el mercado termina cuando alguien lo cierra. Los abiertos anteriores al 27/10/2026
+   * todavía pueden traer la fecha planificada vieja; se ignora.
+   */
+  fecha_fin: string | null;
+  estado: 'abierto' | 'cerrado';
   saldo_inicial: SaldoItem[]; cierre: CierreSnapshot | null;
   cerrado_por: string | null; cerrado_por_nombre: string | null; cerrado_en: string | null;
   /**
@@ -205,9 +220,8 @@ function appendHistorial(
 /** Resumen en vivo del mercado abierto: KPIs + disponible por víver + kardex. */
 export interface ResumenMercado {
   mercado: MercadoCocina;
-  dia: number;                 // día actual del ciclo (1..)
-  dias: number;                // total del ciclo (21)
-  puedeCerrar: boolean;        // ya pasó el día 21 (día 22+)
+  /** Días desde el inicio (1 = el día que arrancó). Sin tope: el ciclo dura lo que la administradora decida. */
+  dia: number;
   kpis: { platos: number; consumoValor: number; entradasValor: number; disponibleValor: number; mermasValor: number; };
   disponible: DisponibleItem[];
   kardex: KardexRow[];
@@ -226,48 +240,67 @@ export interface ResumenMercado {
   /** Traslados de víveres de este centro por aprobar o sin ejecutar: todavía no están en el libro. */
   repartosPendientes: RepartoPendiente[];
   /**
-   * Si el ciclo ya pasó su último día, la fecha a la que se tomó el inventario del
-   * contraste (su `fecha_fin`). `null` mientras está en curso: ahí es el de ahora.
+   * LEGADO: la fecha a la que se tomó el inventario del contraste en un cierre viejo
+   * (`cierre.inventario_al`). `null` en todo mercado abierto y en los cierres desde el
+   * 27/10/2026: el contraste es siempre contra el stock de ahora.
    */
   inventarioAl: string | null;
 }
 
 /* ───────── Fechas ───────── */
 
-function addDaysStr(dateStr: string, n: number): string {
-  const d = new Date(`${dateStr}T12:00:00`);
-  d.setDate(d.getDate() + n);
-  return d.toISOString().slice(0, 10);
-}
 /**
  * La fecha de hoy EN VENEZUELA. Antes salía de `toISOString()`, que es UTC: desde las 20:00
  * ya era «mañana», y un mercado abierto a esa hora nacía con la fecha del día siguiente.
  */
 function hoyStr(): string { return hoyISO(); }
 
+/** Fecha local (Venezuela) YYYY-MM-DD de un instante ISO. */
+function fechaLocalDe(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/**
+ * La fecha en que terminó un mercado, para mostrarla: la del cierre (`cerrado_en`
+ * en hora local), o `fecha_fin` si el cierre no dejó instante. `null` si está abierto:
+ * no terminó todavía.
+ *
+ * Los cerrados ANTES del 27/10/2026 traen en `fecha_fin` la fecha planificada del
+ * ciclo de 21 días, no la del cierre; por eso manda `cerrado_en`.
+ */
+export function fechaCierreDe(m: Pick<MercadoCocina, 'estado' | 'fecha_fin' | 'cerrado_en'>): string | null {
+  if (m.estado !== 'cerrado') return null;
+  if (m.cerrado_en) return fechaLocalDe(m.cerrado_en);
+  return m.fecha_fin ?? null;
+}
+
 /** Lo que hace falta de un mercado para saber qué movimientos le tocan. */
-type VentanaMercado = {
-  fecha_inicio: string; fecha_fin: string;
+export type VentanaMercado = {
+  fecha_inicio: string;
   inicio_at?: string | null;
   cerrado_en?: string | null;
   cierre?: CierreSnapshot | null;
 };
 
 /**
- * Ventana ISO de un mercado: [inicio, min(ahora, cierre, fin 23:59 local)].
+ * Ventana ISO de un mercado: [inicio, min(ahora, cierre, descarte)].
  *
  * El inicio es el instante en que arrancó (`inicio_at`): el de la apertura a mano o,
  * si nació de un cierre, el instante exacto de ese cierre. El fin es el instante en
  * que se cerró. Así los ciclos quedan pegados uno al lado del otro, sin hueco entre
  * medio ni solapamiento: cada movimiento cae en uno y solo uno.
+ *
+ * UN MERCADO ABIERTO LLEGA HASTA AHORA. Hasta el 27/10/2026 la ventana cortaba en
+ * `fecha_fin` 23:59 y el libro se «congelaba» al vencer el ciclo de 21 días: el #3 de
+ * Los Pinos y el de Resguardo Matanzas se quedaron en el 19/10 y las comidas del 20
+ * al 27 no entraban en el libro, los KPIs, el kardex ni el cierre. Ya no hay plazo:
+ * el mercado toma todo lo que pasa hasta el instante en que alguien lo cierra.
  */
-function ventana(m: VentanaMercado): { desde: string; hasta: string } {
+export function ventana(m: VentanaMercado): { desde: string; hasta: string } {
   const desde = m.inicio_at ? new Date(m.inicio_at) : new Date(`${m.fecha_inicio}T00:00:00`);
-  let hasta = new Date(`${m.fecha_fin}T23:59:59`);
-  // Un ciclo CERRADO termina en el instante en que se cerró, no al final de su
-  // calendario. Cerrar el día 12 y dejar la ventana abierta hasta el 21 abría un
-  // hueco de nueve días: esos movimientos no entraban en el cierre (ya congelado)
-  // ni en el ciclo nuevo (que arrancaba después del 21). Se perdían.
+  let hasta = new Date();
+  // Un ciclo CERRADO termina en el instante en que se cerró.
   if (m.cerrado_en) {
     const cierre = new Date(m.cerrado_en);
     if (cierre < hasta) hasta = cierre;
@@ -276,17 +309,10 @@ function ventana(m: VentanaMercado): { desde: string; hasta: string } {
     const descarte = new Date(m.cierre.generado_en);
     if (descarte < hasta) hasta = descarte;
   }
-  const ahora = new Date();
-  if (ahora < hasta) hasta = ahora;
   return { desde: desde.toISOString(), hasta: hasta.toISOString() };
 }
 
-/** ¿Ya terminó el último día del ciclo? Entonces su libro se detiene antes que el inventario. */
-function cicloVencido(m: { fecha_fin: string }): boolean {
-  return new Date() > new Date(`${m.fecha_fin}T23:59:59`);
-}
-
-/** Día actual del ciclo (1 = fecha_inicio). */
+/** Días desde el inicio (1 = fecha_inicio). */
 function diaDe(m: { fecha_inicio: string }): number {
   const ini = new Date(`${m.fecha_inicio}T00:00:00`);
   const hoy = new Date(`${hoyStr()}T00:00:00`);
@@ -311,7 +337,7 @@ function normalizar(row: Record<string, unknown>): MercadoCocina {
     cocina_id: String(row.cocina_id),
     numero: Number(row.numero) || 1,
     fecha_inicio: String(row.fecha_inicio),
-    fecha_fin: String(row.fecha_fin),
+    fecha_fin: row.fecha_fin ? String(row.fecha_fin) : null,
     estado: (row.estado === 'cerrado' ? 'cerrado' : 'abierto'),
     saldo_inicial: Array.isArray(row.saldo_inicial) ? (row.saldo_inicial as SaldoItem[]) : [],
     cierre: (row.cierre as CierreSnapshot) ?? null,
@@ -454,6 +480,7 @@ interface ConsumosResult { comidas: CocinaComida[]; agg: Map<string, ItemAgg>; p
 async function consumosDe(
   m: VentanaMercado,
   cocinaId: string,
+  prodById?: Map<string, Producto>,
 ): Promise<ConsumosResult> {
   const { desde, hasta } = ventana(m);
   const comidas = await listComidas({ cocinaId, desde, hasta });
@@ -463,6 +490,10 @@ async function consumosDe(
     platos += Number(c.platos) || 0;
     valor = r2(valor + (Number(c.valor_total) || 0));
     for (const it of c.items ?? []) {
+      // Un ítem que no es de categoría de cocina (utensilios, categoría «COCINA») no es
+      // consumo del mercado: se ignora aunque alguien lo haya cargado en la comida.
+      const cat = prodById?.get(it.producto_id)?.categoria;
+      if (prodById && cat != null && !esCategoriaCocina(cat)) continue;
       const a = agg.get(it.producto_id) ?? { producto_id: it.producto_id, sku: it.sku, nombre: it.nombre, unidad: it.unidad, cantidad: 0, valor: 0 };
       a.cantidad = r2(a.cantidad + (Number(it.cantidad) || 0));
       a.valor = r2(a.valor + (Number(it.subtotal) || (Number(it.cantidad) || 0) * (Number(it.precio) || 0)));
@@ -606,6 +637,10 @@ export function armarDisponible(
     // Dado de baja: se quita de la lista de cocina. Un id que ya no está en el
     // catálogo (producto borrado de verdad) se sigue mostrando con su nombre guardado.
     if (p && p.estado !== 'activo') continue;
+    // Lo que no es de una categoría de cocina no entra en comidas ni en el libro
+    // (regla de la administradora, 27/10/2026: CUBIERTOS DE METAL, categoría «COCINA»,
+    // se había colado en una comida de Los Pinos y descuadraba el mercado).
+    if (p && !esCategoriaCocina(p.categoria)) continue;
     const nombre = s?.nombre ?? e?.nombre ?? t?.nombre ?? c?.nombre ?? m?.nombre ?? p?.nombre ?? id;
     const sku = s?.sku ?? e?.sku ?? t?.sku ?? c?.sku ?? m?.sku ?? p?.sku ?? '';
     const unidad = s?.unidad ?? e?.unidad ?? t?.unidad ?? c?.unidad ?? m?.unidad ?? p?.unidad ?? '';
@@ -657,7 +692,7 @@ async function mermasDe(
   await asegurarCategoriasCocina(); // la lista gestionable (tabla categorias_cocina)
   const { desde, hasta } = ventana(m);
   const scope = await almacenesScope(almacen);
-  // Por páginas: Supabase corta en 1.000 filas sin avisar, y en 21 días un centro las pasa.
+  // Por páginas: Supabase corta en 1.000 filas sin avisar, y en un ciclo un centro las pasa.
   const data = await todasLasFilas<Record<string, unknown>>((d, h) => {
     let q = supabase.from('movimientos')
       .select('id, producto_id, delta, stock_antes, stock_despues, at, tipo, actor_name, detalle, almacen, ref_tipo, precio_unitario, costo_promedio')
@@ -723,7 +758,7 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
   const [ent, tras, con, viveres, mer, pendientes] = await Promise.all([
     entradasDe(mercado, almacen, prodById),
     trasladosDe(mercado, almacen, prodById, { verificarLlegada: true }),
-    consumosDe(mercado, mercado.cocina_id),
+    consumosDe(mercado, mercado.cocina_id, prodById),
     listViveresGlobal(almacen),
     restaMermas(mercado) ? mermasDe(mercado, almacen, prodById) : Promise.resolve(SIN_MERMAS),
     // Un reparto por aprobar todavía no movió stock: no está en el libro y hay que decirlo.
@@ -740,9 +775,8 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
   // un descuadre inventado que crece con los días. Sus cifras verdaderas están en el
   // snapshot del cierre (`remanente_inventario`, `diferencia`, `diferencias`).
   //
-  // Y si el ciclo ya pasó su último día, el stock A ESA FECHA: el de hoy ya descontó
-  // lo que pasó después, que le toca al ciclo siguiente (ver `stockAlCorte`).
-  const stockPorProducto = abierto ? await stockAlCorteDe(mercado, almacen, stockDeViveres(viveres)) : null;
+  // Es el stock de AHORA, porque el libro del abierto también llega hasta ahora.
+  const stockPorProducto = abierto ? await stockDelLibro(disponible, almacen, viveres) : null;
   const disponibleValor = r2(disponible.reduce((a, d) => a + d.queda * d.precio, 0));
 
   const difsVivas = mercado.estado === 'abierto'
@@ -757,8 +791,7 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
     ? mercado.cierre.movimientos
     : armarKardex(ent, tras, mer, con);
   return {
-    mercado, dia: diaDe(mercado), dias: DURACION_MERCADO_DIAS,
-    puedeCerrar: hoyStr() > mercado.fecha_fin,
+    mercado, dia: diaDe(mercado),
     kpis: { platos: con.platos, consumoValor: con.valor, entradasValor: ent.valorTotal, disponibleValor, mermasValor: mer.valorTotal },
     disponible, kardex,
     // Cerrado: los totales salen sin contraste y las diferencias se leen del cierre.
@@ -771,8 +804,17 @@ export async function resumenMercado(mercado: MercadoCocina, almacen: string | n
     salidasFueraDelCiclo: mer.porViver,
     trasladosSinLlegada: tras.rows.filter((t) => t.sinLlegada > 0),
     repartosPendientes: pendientes,
-    inventarioAl: abierto && cicloVencido(mercado) ? mercado.fecha_fin : (mercado.cierre?.inventario_al ?? null),
+    inventarioAl: inventarioAlDe(mercado),
   };
+}
+
+/**
+ * Solo un cierre VIEJO (anterior al 27/10/2026) puede decir «inventario al <fecha>».
+ * Abierto: el contraste es contra el stock de ahora, así que no hay fecha que aclarar.
+ */
+export function inventarioAlDe(m: Pick<MercadoCocina, 'estado' | 'cierre'>): string | null {
+  if (m.estado !== 'cerrado') return null;
+  return m.cierre?.inventario_al ?? null;
 }
 
 /** Stock real por producto, a partir de los víveres del centro. */
@@ -788,41 +830,25 @@ function stockDeViveres(viveres: Awaited<ReturnType<typeof listViveresGlobal>>):
 }
 
 /**
- * El stock a la fecha de fin del ciclo si ya pasó, o el de ahora si no.
+ * El stock de AHORA de todo lo que está en el libro, para el contraste y el remanente.
  *
- * Un ciclo que se cierra después de su último día se comparaba contra el stock de
- * hoy: la diferencia traía las comidas y el reparto de los días siguientes, y
- * «ajustar al inventario» los dejaba restados en el remanente para que el ciclo
- * siguiente los restara otra vez. Ver `stockAlCorte`.
+ * La lista de víveres (`listViveresGlobal`) solo trae las categorías de cocina. Pero el
+ * libro puede tener un producto de otra categoría: el 27/10/2026 CUBIERTOS DE METAL
+ * (COC-001, categoría «COCINA», que no está en `categorias_cocina`) se consumió en una
+ * comida de Los Pinos, apareció en el libro y el contraste decía «en inventario hay 0»
+ * con 15 en `existencias` de Los Pinos. Lo que falte en la lista se lee de `existencias`
+ * con el MISMO alcance de almacenes (ver `completarStock`).
  */
-async function stockAlCorteDe(
-  m: { fecha_fin: string; cocina_id: string },
+async function stockDelLibro(
+  enElLibro: { producto_id: string }[],
   almacen: string | null,
-  stockAhora: Map<string, number>,
+  viveres: Awaited<ReturnType<typeof listViveresGlobal>>,
 ): Promise<Map<string, number>> {
-  if (!cicloVencido(m)) return stockAhora;
-  const corte = new Date(`${m.fecha_fin}T23:59:59`).toISOString();
-  const scope = await almacenesScope(almacen);
-  const [posteriores, comidas] = await Promise.all([
-    // Por páginas: si el ciclo venció hace días, los movimientos del centro pasan de 1.000.
-    todasLasFilas<{ producto_id: string; delta: number; ref_tipo: string | null; stock_antes: number | null; stock_despues: number | null }>((desde, hasta) => {
-      let q = supabase.from('movimientos').select('producto_id, delta, ref_tipo, stock_antes, stock_despues').gt('at', corte);
-      if (scope) q = q.in('almacen', Array.from(scope));
-      return q.order('at').order('id').range(desde, hasta);
-    }),
-    listComidas({ cocinaId: m.cocina_id, desde: corte }),
-  ]);
-  const consumidoDespues = new Map<string, number>();
-  const tCorte = Date.parse(corte);
-  for (const c of comidas) {
-    // El libro cuenta hasta el corte inclusive: una comida justo en el borde ya está en él.
-    if (Date.parse(c.at) <= tCorte) continue;
-    for (const it of c.items ?? []) {
-      consumidoDespues.set(it.producto_id, r2((consumidoDespues.get(it.producto_id) ?? 0) + (Number(it.cantidad) || 0)));
-    }
-  }
-  // Se deshace lo que cada movimiento bajó de verdad, no lo que pidió (ver `deltaEfectivo`).
-  return stockAlCorte(stockAhora, posteriores.map((x) => ({ ...x, delta: deltaEfectivo(x) })), consumidoDespues);
+  const stock = stockDeViveres(viveres);
+  const faltan = enElLibro.map((d) => d.producto_id).filter((id) => !stock.has(id));
+  if (!faltan.length) return stock;
+  const [scope, existencias] = await Promise.all([almacenesScope(almacen), listExistencias()]);
+  return completarStock(stock, faltan, existencias, scope);
 }
 
 /* ───────── Iniciar / cerrar ───────── */
@@ -874,15 +900,15 @@ export async function iniciarMercado(input: {
      preferible a perderlo de los dos. En la práctica son segundos. */
   const ahora = new Date().toISOString();
   const inicio = hoyStr();
-  const fin = addDaysStr(inicio, DURACION_MERCADO_DIAS - 1);
 
-  /* NINGÚN CICLO PUEDE PISAR A OTRO QUE TODAVÍA CORRE. Un descartado deja de ocupar sus días
-     en el momento del descarte, así que un mercado abierto por error se descarta y se abre el
-     correcto en el acto. La guarda va acá y no solo en la pantalla: la pantalla se puede saltear. */
-  const pisado = cicloQueSePisa(inicio, fin, previos.map(ventanaCicloDe), ahora);
+  /* NINGÚN CICLO PUEDE PISAR A OTRO QUE TODAVÍA CORRE. Un cerrado o descartado deja de ocupar
+     sus días en el instante del cierre o del descarte, así que un mercado abierto por error se
+     descarta y se abre el correcto en el acto. El nuevo no tiene fin (cierre manual): ocupa
+     desde hoy en adelante. La guarda va acá y no solo en la pantalla: la pantalla se puede saltear. */
+  const pisado = cicloQueSePisa(inicio, null, previos.map(ventanaCicloDe), ahora);
   if (pisado) {
     throw new Error(
-      `Todavía corre el mercado #${pisado.numero} (${pisado.fecha_inicio} → ${pisado.fecha_fin}): `
+      `Todavía corre el mercado #${pisado.numero} (${pisado.fecha_inicio} → ${pisado.fecha_fin ?? 'en curso'}): `
       + 'abrir otro encima contaría los consumos dos veces.',
     );
   }
@@ -901,9 +927,10 @@ export async function iniciarMercado(input: {
     saldo = saldoDelInventario(await listViveresGlobal(input.almacen));
   }
   // Acá SÍ hay alguien que abrió: una persona apretó «Iniciar mercado».
+  // `fecha_fin` nace en null: la pone el cierre, el día que la administradora lo decida.
   return insertarMercado(
     {
-      cocina_id: input.cocinaId, numero, fecha_inicio: inicio, fecha_fin: fin,
+      cocina_id: input.cocinaId, numero, fecha_inicio: inicio, fecha_fin: null,
       estado: 'abierto', saldo_inicial: saldo,
     },
     appendHistorial({ historial: [] }, 'abierta', input.actor, input.actorName ?? null, { desde: ahora }),
@@ -977,21 +1004,29 @@ export async function cerrarMercado(
   mercado: MercadoCocina, almacen: string | null, actor: string, actorName?: string | null,
   opciones?: CerrarOpciones,
 ): Promise<CerrarResult> {
+  if (mercado.estado !== 'abierto') throw new Error('Este mercado ya está cerrado.');
   const productos = await listProductos();
   const prodById = new Map(productos.map((p) => [p.id, p] as const));
-  const { desde, hasta } = ventana(mercado);
+  // El instante del cierre es la bisagra: ahí termina este ciclo y ahí mismo
+  // arranca el siguiente. Se fija ANTES de leer el libro, y el libro se corta en
+  // él: así lo que se mueva mientras se cierra ya es del mercado siguiente y no
+  // queda ni un segundo sin dueño.
+  const instanteCierre = new Date().toISOString();
+  const corte: VentanaMercado = { ...mercado, cerrado_en: instanteCierre };
+  const { desde, hasta } = ventana(corte);
+  // El inventario FRESCO: el contraste del cierre es contra el stock de este instante.
+  bustCache(['existencias']);
   const [ent, tras, con, viveres, mer] = await Promise.all([
-    entradasDe(mercado, almacen, prodById),
-    trasladosDe(mercado, almacen, prodById),
-    consumosDe(mercado, mercado.cocina_id),
+    entradasDe(corte, almacen, prodById),
+    trasladosDe(corte, almacen, prodById),
+    consumosDe(corte, mercado.cocina_id, prodById),
     listViveresGlobal(almacen),
-    mermasDe(mercado, almacen, prodById),
+    mermasDe(corte, almacen, prodById),
   ]);
   const disponible = armarDisponible(mercado.saldo_inicial, ent.agg, tras.agg, con.agg, mer.agg, prodById, preciosDeViveres(viveres));
-  // Cerrando después del último día, el contraste y el ajuste se hacen contra el
-  // stock de ESE día: el de hoy ya trae restado lo que es del ciclo siguiente.
-  const vencido = cicloVencido(mercado);
-  const stockPorProducto = await stockAlCorteDe(mercado, almacen, stockDeViveres(viveres));
+  // El contraste y el ajuste se hacen contra el stock de AHORA, de todo lo que está
+  // en el libro (también lo que no es categoría de cocina, ver `stockDelLibro`).
+  const stockPorProducto = await stockDelLibro(disponible, almacen, viveres);
   const totales = totalesDeMercado(disponible, stockPorProducto);
   const difs = diferenciasPorViver(disponible, stockPorProducto);
 
@@ -1013,7 +1048,7 @@ export async function cerrarMercado(
     .filter((x) => x.cantidad > 0);
 
   const snapshot: CierreSnapshot = {
-    generado_en: new Date().toISOString(), desde, hasta,
+    generado_en: instanteCierre, desde, hasta,
     totales: { platos: con.platos, valor: con.valor, entradasValor: ent.valorTotal },
     consumos: Array.from(con.agg.values()).sort((a, b) => b.valor - a.valor),
     entradas: Array.from(ent.agg.values()).sort((a, b) => b.valor - a.valor),
@@ -1022,7 +1057,8 @@ export async function cerrarMercado(
       .sort((a, b) => Math.abs(b.cantidad) - Math.abs(a.cantidad)),
     // Siempre presente, aunque vacío: marca que este cierre ya restaba las mermas.
     mermas: Array.from(mer.agg.values()).sort((a, b) => b.valor - a.valor),
-    inventario_al: vencido ? mercado.fecha_fin : null,
+    // El contraste es del instante del cierre: no hay otra fecha que aclarar.
+    inventario_al: null,
     remanente,
     remanente_mercado: totales.queda,
     remanente_inventario: totales.inventario ?? undefined,
@@ -1046,26 +1082,20 @@ export async function cerrarMercado(
     ...(ajustado ? { ajustados: difs.map((d) => d.producto_id) } : {}),
   });
 
-  // El instante del cierre es la bisagra: ahí termina este ciclo y ahí mismo
-  // arranca el siguiente. Un solo valor para los dos, para que no quede ni un
-  // segundo de hueco entre medio.
-  const instanteCierre = new Date().toISOString();
-
+  // La fecha del cierre (Venezuela) queda como fecha fin del ciclo: hasta acá llegó.
   const upd = await actualizarMercado(
     mercado.id,
     {
       estado: 'cerrado', cierre: snapshot, cerrado_por: actor, cerrado_por_nombre: actorName ?? null,
-      cerrado_en: instanteCierre,
+      cerrado_en: instanteCierre, fecha_fin: hoyStr(),
     },
     historialCierre,
     'abierto',
   );
 
-  // El ciclo nuevo empieza HOY, el día en que se cerró, y no al día siguiente
-  // de un `fecha_fin` que quizá todavía no llegó. Cerrando el día 12, arrancar
-  // el siguiente el día 22 dejaba nueve días sin dueño.
+  // El ciclo nuevo empieza HOY, el día en que se cerró, y sin fecha de fin: la va a
+  // poner su propio cierre.
   const inicioSig = hoyStr();
-  const finSig = addDaysStr(inicioSig, DURACION_MERCADO_DIAS - 1);
   // OJO: a este mercado NO lo abrió nadie. Lo genera el cierre del anterior, de
   // forma automática. Anotar como «abierto por» a quien cerró sería inventar un
   // acto que no ocurrió — y quien después abra o trabaje el corte puede ser otra
@@ -1073,7 +1103,7 @@ export async function cerrarMercado(
   // fue el cierre que lo originó, sin atribuirle una apertura a nadie.
   const siguiente = await insertarMercado(
     {
-      cocina_id: mercado.cocina_id, numero: mercado.numero + 1, fecha_inicio: inicioSig, fecha_fin: finSig,
+      cocina_id: mercado.cocina_id, numero: mercado.numero + 1, fecha_inicio: inicioSig, fecha_fin: null,
       estado: 'abierto', saldo_inicial: remanente,
     },
     // `desde` es lo que hace que el ciclo nuevo cuente desde el instante del
@@ -1109,9 +1139,10 @@ export async function reabrirMercado(mercado: MercadoCocina, actor: string, acto
   // puede seguir diciendo «cerró Fulano». Pero antes eso borraba el único rastro
   // que existía de ese cierre. Ahora queda en el historial, junto con quién reabrió
   // y a quién le está pisando el cierre.
+  // `fecha_fin` vuelve a null: reabierto, el mercado no tiene fin hasta que se vuelva a cerrar.
   await actualizarMercado(
     mercado.id,
-    { estado: 'abierto', cierre: null, cerrado_por: null, cerrado_por_nombre: null, cerrado_en: null },
+    { estado: 'abierto', cierre: null, cerrado_por: null, cerrado_por_nombre: null, cerrado_en: null, fecha_fin: null },
     appendHistorial(mercado, 'reabierto', actor, actorName ?? null),
   );
 }

@@ -9,13 +9,18 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, num } from '@/shared/lib/format';
 import {
-  listMercados, resumenMercado, reabrirMercado, eliminarMercado,
+  listMercados, resumenMercado, reabrirMercado, eliminarMercado, fechaCierreDe,
   type MercadoCocina, type ResumenMercado,
 } from './mercados.repository';
 import { MercadoPanel } from './MercadoPanel';
 import { compararConsumos } from './mercadoComparar';
 
 function fmtDia(iso: string): string { const [y, m, d] = iso.split('-'); return `${d}/${m}/${y}`; }
+/** «inicio → fecha de cierre». Un cerrado siempre tiene fin; si no lo trae, se muestra «en curso». */
+function periodoDe(m: MercadoCocina): string {
+  const fin = fechaCierreDe(m);
+  return `${fmtDia(m.fecha_inicio)} → ${fin ? fmtDia(fin) : 'en curso'}`;
+}
 
 /**
  * Dos cortes lado a lado, víver por víver, ordenado por la variación más grande.
@@ -143,7 +148,7 @@ export function MercadosHistoricoModal({ cocinaId, cocinaNombre, almacen, canWri
             <button className="btn btn-primary" onClick={() => setVer(null)}>Cerrar</button>
           </>
         }>
-        <p className="hint muted" style={{ marginTop: 0 }}>Vista de solo lectura del mercado cerrado ({fmtDia(ver.mercado.fecha_inicio)} → {fmtDia(ver.mercado.fecha_fin)}). Para editarlo, reabrilo desde el histórico.</p>
+        <p className="hint muted" style={{ marginTop: 0 }}>Vista de solo lectura del mercado cerrado ({periodoDe(ver.mercado)}). Para editarlo, reabrilo desde el histórico.</p>
         {/* Acá ya se eligió UN mercado desde la lista del histórico: un selector
             dentro del modal sería una segunda forma de hacer lo mismo. */}
         <MercadoPanel resumen={ver.resumen} mercados={[]} onElegirMercado={() => {}}
@@ -198,7 +203,7 @@ export function MercadosHistoricoModal({ cocinaId, cocinaNombre, almacen, canWri
                       </span>
                     )}
                   </td>
-                  <td>{fmtDia(m.fecha_inicio)} → {fmtDia(m.fecha_fin)}</td>
+                  <td>{periodoDe(m)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(m.cierre?.totales.valor ?? 0)}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{num(m.cierre?.totales.platos ?? 0)}</td>
                   {/* Consumo y platos son HECHOS del ciclo y se muestran aunque esté

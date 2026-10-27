@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import {
-  cicloQueSePisa, explicarSobrante, fechaComidaEnCiclo, inicioExactoDe, mermasPorViver, primerDiaLibre, ventanaCicloDe,
+  cicloQueSePisa, completarStock, explicarSobrante, fechaComidaEnCiclo, inicioExactoDe, mermasPorViver, ventanaCicloDe,
   compararConsumos, describirEvento, diferenciasPorViver, productosAjustados,
-  deltaEfectivo, separarMovidos, stockAlCorte, totalesDeMercado, trasladosSinLlegada,
+  deltaEfectivo, separarMovidos, totalesDeMercado, trasladosSinLlegada,
 } from './mercadoComparar';
 import type { CierreSnapshot, DisponibleItem, EventoMercado, ItemAgg } from './mercados.repository';
 import type { PataTraslado, SalidaFueraDelCiclo, VentanaCiclo } from './mercadoComparar';
@@ -299,16 +299,37 @@ describe('cicloQueSePisa — no abrir un mercado encima de otro', () => {
   });
 });
 
-describe('primerDiaLibre', () => {
-  it('es el día siguiente al fin del último ciclo', () => {
-    expect(primerDiaLibre([
-      { numero: 1, fecha_inicio: '2026-08-22', fecha_fin: '2026-09-11' },
-      { numero: 2, fecha_inicio: '2026-07-01', fecha_fin: '2026-07-21' },
-    ])).toBe('2026-09-12');
+describe('cicloQueSePisa — cierre manual: un mercado nuevo no tiene fin', () => {
+  it('un abierto (fecha_fin null) ocupa desde su inicio en adelante: el nuevo choca', () => {
+    const abierto: VentanaCiclo = { numero: 3, fecha_inicio: '2026-09-29', fecha_fin: null, estado: 'abierto' };
+    expect(cicloQueSePisa('2026-10-27', null, [abierto], '2026-10-27T15:00:00.000Z')?.numero).toBe(3);
   });
 
-  it('sin ciclos no hay restricción', () => {
-    expect(primerDiaLibre([])).toBeNull();
+  it('un cerrado deja de ocupar sus días en el instante del cierre, aunque sea el mismo día', () => {
+    // Cerrado el 27-10 a las 14:00; abrir otro a las 14:05 del mismo día no lo pisa.
+    const cerrado: VentanaCiclo = {
+      numero: 3, fecha_inicio: '2026-09-29', fecha_fin: '2026-10-27', estado: 'cerrado',
+      cerrado_en: '2026-10-27T18:00:00.000Z',
+    };
+    expect(cicloQueSePisa('2026-10-27', null, [cerrado], '2026-10-27T18:05:00.000Z')).toBeNull();
+    // Sin instante (comparación por días) sí lo pisa: comparten el 27-10.
+    expect(cicloQueSePisa('2026-10-27', null, [cerrado])?.numero).toBe(3);
+    // Al día siguiente está libre de cualquier manera.
+    expect(cicloQueSePisa('2026-10-28', null, [cerrado])).toBeNull();
+  });
+
+  it('un nuevo sin fin pisa a todo cerrado que termine después de su inicio', () => {
+    const cerrado: VentanaCiclo = { numero: 2, fecha_inicio: '2026-09-14', fecha_fin: '2026-10-04', estado: 'cerrado' };
+    expect(cicloQueSePisa('2026-09-20', null, [cerrado])?.numero).toBe(2);
+    expect(cicloQueSePisa('2026-10-05', null, [cerrado])).toBeNull();
+  });
+
+  it('ventanaCicloDe lleva el instante del cierre', () => {
+    const v = ventanaCicloDe({
+      numero: 3, fecha_inicio: '2026-09-29', fecha_fin: '2026-10-27', estado: 'cerrado',
+      cierre: null, cerrado_en: '2026-10-27T18:00:00.000Z',
+    });
+    expect(v).toMatchObject({ fecha_fin: '2026-10-27', cerrado_en: '2026-10-27T18:00:00.000Z', descartado: false });
   });
 });
 
@@ -421,39 +442,41 @@ describe('deltaEfectivo — lo que un movimiento bajó de verdad', () => {
   });
 });
 
-describe('stockAlCorte — el inventario al último día del ciclo', () => {
-  it('sin nada después del corte es el stock de ahora', () => {
-    expect(stockAlCorte(new Map([['arroz', 90]]), [], new Map()).get('arroz')).toBe(90);
+describe('completarStock — el contraste cubre todo lo que está en el libro', () => {
+  const pinos = new Set(['Los Pinos', 'Los Pinos casiterita']);
+  const existencias = [
+    { producto_id: 'cubiertos', almacen: 'Los Pinos', stock: 15 },
+    { producto_id: 'cubiertos', almacen: 'Matanzas', stock: 40 },
+    { producto_id: 'arroz', almacen: 'Los Pinos', stock: 999 },
+  ];
+
+  it('CUBIERTOS DE METAL (categoría COCINA, fuera de la lista de víveres) toma sus existencias del centro', () => {
+    // 27-10: el libro de Los Pinos tenía cubiertos por una comida y el contraste decía 0 con 15 en existencias.
+    const r = completarStock(new Map([['arroz', 90]]), ['cubiertos'], existencias, pinos);
+    expect(r.get('cubiertos')).toBe(15);
   });
 
-  it('deshace el reparto y las compras posteriores al corte', () => {
-    // Hoy hay 150; después del corte salieron 120 por traslado y entraron 50 de una compra.
-    const r = stockAlCorte(new Map([['arroz', 150]]), [
-      { producto_id: 'arroz', delta: -120, ref_tipo: 'traslado_modulo' },
-      { producto_id: 'arroz', delta: 50, ref_tipo: 'orden' },
-    ], new Map());
-    expect(r.get('arroz')).toBe(220);
+  it('lo que ya está en la lista de víveres no se toca', () => {
+    const r = completarStock(new Map([['arroz', 90]]), ['arroz', 'cubiertos'], existencias, pinos);
+    expect(r.get('arroz')).toBe(90);
   });
 
-  it('una comida posterior al corte se devuelve por su día, no por su movimiento', () => {
-    const r = stockAlCorte(
-      new Map([['arroz', 90]]),
-      [{ producto_id: 'arroz', delta: -10, ref_tipo: 'cocina' }],
-      new Map([['arroz', 10]]),
-    );
-    expect(r.get('arroz')).toBe(100);
+  it('respeta el alcance: no suma lo de otra sede', () => {
+    expect(completarStock(new Map(), ['cubiertos'], existencias, pinos).get('cubiertos')).toBe(15);
+    // Sin alcance (cocina sin almacén vinculado) es global, igual que la lista de víveres.
+    expect(completarStock(new Map(), ['cubiertos'], existencias, null).get('cubiertos')).toBe(55);
   });
 
-  it('deshace lo que el movimiento bajó de verdad, no lo que pidió', () => {
-    // Una salida de 100 topeada: el almacén tenía 30 y quedó en 0. Al corte había 30 más, no 100.
-    const mov = { producto_id: 'arroz', delta: -100, stock_antes: 30, stock_despues: 0, ref_tipo: 'manual' };
-    const r = stockAlCorte(new Map([['arroz', 0]]), [{ ...mov, delta: deltaEfectivo(mov) }], new Map());
-    expect(r.get('arroz')).toBe(30);
+  it('un producto del libro sin existencias en el centro queda en 0 explícito', () => {
+    const r = completarStock(new Map(), ['sal'], existencias, pinos);
+    expect(r.has('sal')).toBe(true);
+    expect(r.get('sal')).toBe(0);
   });
 
-  it('una comida del ciclo cargada tarde NO se devuelve: el libro ya la cuenta', () => {
-    // Comida del último día cargada dos días después: su movimiento cae después del corte.
-    const r = stockAlCorte(new Map([['arroz', 90]]), [{ producto_id: 'arroz', delta: -10, ref_tipo: 'cocina' }], new Map());
+  it('sin faltantes devuelve una copia igual', () => {
+    const base = new Map([['arroz', 90]]);
+    const r = completarStock(base, [], existencias, pinos);
+    expect(r).not.toBe(base);
     expect(r.get('arroz')).toBe(90);
   });
 });
@@ -499,7 +522,7 @@ describe('cicloQueSePisa — un descartado deja de ocupar sus días al descartar
     expect(cicloQueSePisa('2026-09-14', '2026-10-04', [descartado], '2026-09-14T20:40:00.000Z')?.numero).toBe(2);
   });
 
-  it('un cerrado que no se descartó sigue ocupando sus días', () => {
+  it('un cerrado viejo (sin instante de cierre) sigue ocupando sus días', () => {
     const cerrado: VentanaCiclo = { ...descartado, descartado: false, descartado_en: null };
     expect(cicloQueSePisa('2026-09-20', '2026-10-10', [cerrado], '2026-09-20T12:00:00.000Z')?.numero).toBe(2);
   });

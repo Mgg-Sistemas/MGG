@@ -1,7 +1,8 @@
 /* ============================================================
    MGG · Cocina · el mercado como LIBRO, y su contraste con el inventario
 
-   El mercado es un ciclo de 21 días con siete números encadenados:
+   El mercado es un ciclo de cierre manual (arranca en una fecha y termina cuando
+   alguien lo cierra) con siete números encadenados:
      saldo inicial + entradas ± traslados = disponible − consumos − mermas = queda
 
    Las mermas / salidas tienen columna propia desde el 15/09/2026: toda salida
@@ -350,21 +351,25 @@ export function explicarSobrante(d: DisponibleItem): string | null {
 export interface VentanaCiclo {
   numero: number;
   fecha_inicio: string;
-  fecha_fin: string;
+  /** La fecha en que terminó. `null`: sigue abierto, ocupa desde su inicio en adelante. */
+  fecha_fin: string | null;
   estado?: string;
   descartado?: boolean;
   /** Cuándo se descartó (ISO). Desde ese instante deja de ocupar sus días. */
   descartado_en?: string | null;
+  /** Cuándo se cerró (ISO). Desde ese instante deja de ocupar sus días. */
+  cerrado_en?: string | null;
 }
 
 /** La ventana de un mercado tal como la mira la guarda de solapamiento. */
 export function ventanaCicloDe(
-  m: Pick<MercadoCocina, 'numero' | 'fecha_inicio' | 'fecha_fin' | 'estado' | 'cierre'>,
+  m: Pick<MercadoCocina, 'numero' | 'fecha_inicio' | 'fecha_fin' | 'estado' | 'cierre'> & Partial<Pick<MercadoCocina, 'cerrado_en'>>,
 ): VentanaCiclo {
   const descartado = !!m.cierre?.descartado;
   return {
     numero: m.numero, fecha_inicio: m.fecha_inicio, fecha_fin: m.fecha_fin, estado: m.estado,
     descartado, descartado_en: descartado ? (m.cierre?.generado_en ?? null) : null,
+    cerrado_en: m.cerrado_en ?? null,
   };
 }
 
@@ -375,41 +380,34 @@ export function ventanaCicloDe(
  * superponen, los mismos platos aparecen en dos cortes y lo que arrastra uno se cuenta
  * también en el otro.
  *
- * UN DESCARTADO deja de ocupar sus días en el momento del descarte. Antes bloqueaba sus
- * 21 días enteros: el 14/09 el #2 de Los Pinos se abrió con la fecha equivocada, y
- * descartarlo habría impedido abrir el correcto hasta el 05/10. Con `inicioExacto` —el
- * instante en que se abre el ciclo nuevo—, un descartado antes de ese instante ya no
- * estorba. Sin él, se compara por días como siempre.
+ * UN CICLO DEJA DE OCUPAR SUS DÍAS EN EL INSTANTE EN QUE TERMINA (cierre o descarte).
+ * Antes un descartado bloqueaba sus 21 días enteros: el 14/09 el #2 de Los Pinos se
+ * abrió con la fecha equivocada, y descartarlo habría impedido abrir el correcto hasta
+ * el 05/10. Con `inicioExacto` —el instante en que se abre el ciclo nuevo—, uno que
+ * terminó antes de ese instante ya no estorba. Sin él, se compara por días.
+ *
+ * `fin` en null (y `fecha_fin` en null en un previo) es un ciclo sin fin: desde el
+ * 27/10/2026 el cierre es manual y un mercado abierto ocupa hasta el infinito.
  *
  * Devuelve el ciclo que estorba, o `null` si la ventana está libre.
  */
 export function cicloQueSePisa(
   inicio: string,
-  fin: string,
+  fin: string | null,
   previos: VentanaCiclo[],
   inicioExacto?: string | null,
 ): VentanaCiclo | null {
-  if (!inicio || !fin) return null;
+  if (!inicio) return null;
   for (const p of previos) {
-    if (!p.fecha_inicio || !p.fecha_fin) continue;
-    if (p.descartado && p.descartado_en && inicioExacto
-      && Date.parse(inicioExacto) >= Date.parse(p.descartado_en)) continue;
+    if (!p.fecha_inicio) continue;
+    const termino = p.descartado ? (p.descartado_en ?? p.cerrado_en) : p.cerrado_en;
+    if (termino && inicioExacto && Date.parse(inicioExacto) >= Date.parse(termino)) continue;
     // Dos rangos se solapan si cada uno empieza antes de que el otro termine.
-    if (inicio <= p.fecha_fin && p.fecha_inicio <= fin) return p;
+    const empiezaAntesDeQueTermine = !p.fecha_fin || inicio <= p.fecha_fin;
+    const elOtroEmpiezaAntesDeQueTermine = !fin || p.fecha_inicio <= fin;
+    if (empiezaAntesDeQueTermine && elOtroEmpiezaAntesDeQueTermine) return p;
   }
   return null;
-}
-
-/** Primer día libre después de todos los ciclos existentes. `null` si no hay ninguno. */
-export function primerDiaLibre(previos: VentanaCiclo[]): string | null {
-  let ultimo: string | null = null;
-  for (const p of previos) {
-    if (p.fecha_fin && (!ultimo || p.fecha_fin > ultimo)) ultimo = p.fecha_fin;
-  }
-  if (!ultimo) return null;
-  const d = new Date(`${ultimo}T12:00:00`);
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
 }
 
 /* ───────── Traslados: que la salida tenga su llegada ───────── */
@@ -500,39 +498,35 @@ export function trasladosSinLlegada(
   return out;
 }
 
-/* ───────── El inventario a la fecha del corte ───────── */
+/* ───────── El stock del contraste cubre TODO lo que está en el libro ───────── */
 
 /**
- * El stock que había al terminar la ventana del ciclo, contado con el mismo
- * criterio que el libro.
+ * Completa el mapa de stock con los productos del libro que la lista de víveres no
+ * trae, sumando sus `existencias` dentro del mismo alcance de almacenes.
  *
- * POR QUÉ. El contraste compara el libro, que se detiene en la fecha de fin,
- * contra el stock. Mientras el ciclo está en curso eso es el stock de ahora. Pero
- * un mercado que se cierra DESPUÉS de su último día —el #1 terminó el 11/09 y
- * seguía abierto el 14— se comparaba contra el stock de hoy, que ya descontó las
- * comidas y el reparto de los días siguientes. La diferencia salía inflada, y si
- * se elegía «ajustar al inventario» el remanente congelado ya traía esos consumos
- * restados: el ciclo siguiente, que empieza el día después del fin, los volvía a
- * restar. Contados dos veces.
+ * POR QUÉ. La lista de víveres filtra por categoría de cocina, pero una comida puede
+ * consumir algo de otra categoría: el 27/10/2026 CUBIERTOS DE METAL (COC-001,
+ * categoría «COCINA») entró al libro de Los Pinos por una comida y el contraste decía
+ * «en inventario hay 0» con 15 en existencias. Un producto que está en el libro se
+ * contrasta contra lo que de verdad hay, sea de la categoría que sea.
  *
- * Se deshace lo que pasó después del corte:
- *  - los movimientos de inventario posteriores, MENOS los de cocina: el movimiento
- *    de una comida lleva la hora en que se cargó, no el día de la comida, y el
- *    libro ubica las comidas por su día;
- *  - las comidas cuyo día cae después del corte, que se suman de vuelta.
+ * `scope` en null = sin alcance (global), igual que la lista de víveres sin almacén.
+ * Un producto que falta y no tiene existencias en el alcance queda en 0 explícito.
  */
-export function stockAlCorte(
-  stockAhora: Map<string, number>,
-  movimientosPosteriores: { producto_id: string; delta: number; ref_tipo?: string | null }[],
-  consumidoDespues: Map<string, number>,
+export function completarStock(
+  stock: Map<string, number>,
+  faltan: Iterable<string>,
+  existencias: { producto_id: string; almacen: string; stock: number }[],
+  scope: Set<string> | null,
 ): Map<string, number> {
-  const out = new Map(stockAhora);
-  for (const m of movimientosPosteriores) {
-    if (m.ref_tipo === 'cocina') continue;
-    out.set(m.producto_id, r2((out.get(m.producto_id) ?? 0) - (Number(m.delta) || 0)));
-  }
-  for (const [id, cantidad] of consumidoDespues) {
-    out.set(id, r2((out.get(id) ?? 0) + (Number(cantidad) || 0)));
+  const out = new Map(stock);
+  const pendientes = new Set<string>();
+  for (const id of faltan) if (!out.has(id)) { pendientes.add(id); out.set(id, 0); }
+  if (!pendientes.size) return out;
+  for (const e of existencias) {
+    if (!pendientes.has(e.producto_id)) continue;
+    if (scope && !scope.has(e.almacen)) continue;
+    out.set(e.producto_id, r2((out.get(e.producto_id) ?? 0) + (Number(e.stock) || 0)));
   }
   return out;
 }

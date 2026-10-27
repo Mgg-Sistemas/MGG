@@ -33,7 +33,7 @@ import { totalesDeViveres, salidasDeInventario, ETIQUETA_CLASE, type FilaViver }
 // descargarReporteCocinaPdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
 import { crearAlertaMercado, listAlertasMercadoPendientes } from './alertasMercado.repository';
 import {
-  listMercados, resumenMercado, iniciarMercado, DURACION_MERCADO_DIAS,
+  listMercados, resumenMercado, iniciarMercado,
   type MercadoCocina, type ResumenMercado,
 } from './mercados.repository';
 import { cicloQueSePisa, ventanaCicloDe } from './mercadoComparar';
@@ -158,7 +158,8 @@ export function CocinaPage() {
                 {info.mercado ? (
                   <span style={{ color: 'var(--primary, #ff8a00)' }}>
                     🛒 Mercado #{info.mercado.numero}
-                    <span className="muted"> · día {Math.min(info.mercado.dia, info.mercado.dias)} de {info.mercado.dias}</span>
+                    {/* Sin plazo (cierre manual): se dice cuántos días lleva, no «de 21». */}
+                    <span className="muted"> · día {info.mercado.dia} desde el inicio</span>
                   </span>
                 ) : (
                   <span className="dim">Sin mercado abierto</span>
@@ -334,7 +335,7 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
     } finally { setAlertando(false); }
   }
 
-  // Mercado (ciclo de 21 días) de esta cocina.
+  // Mercado (ciclo de cierre manual) de esta cocina.
   const [mercado, setMercado] = useState<MercadoCocina | null>(null);
   const [mercados, setMercados] = useState<MercadoCocina[]>([]);
   const [resumen, setResumen] = useState<ResumenMercado | null>(null);
@@ -343,14 +344,12 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
   const [confirmarInicio, setConfirmarInicio] = useState(false);
   /** Lista física (fotos o PDF) de lo que entra al mercado que se inicia a mano. */
   const [listaInicio, setListaInicio] = useState<File[]>([]);
-  // El mercado arranca en el momento en que se abre: no se elige fecha. Lo único que puede
-  // impedirlo es otro ciclo que todavía corre (un descartado ya no estorba).
+  // El mercado arranca en el momento en que se abre: no se elige fecha, y no tiene fin
+  // hasta que alguien lo cierre. Lo único que puede impedirlo es otro ciclo que todavía
+  // corre (uno cerrado o descartado ya no estorba).
   const apertura = useMemo(() => {
     const hoy = hoyISO();
-    const fin = new Date(`${hoy}T12:00:00`);
-    fin.setDate(fin.getDate() + DURACION_MERCADO_DIAS - 1);
-    const hasta = fin.toISOString().slice(0, 10);
-    return { hoy, hasta, choque: cicloQueSePisa(hoy, hasta, mercados.map(ventanaCicloDe), new Date().toISOString()) };
+    return { hoy, choque: cicloQueSePisa(hoy, null, mercados.map(ventanaCicloDe), new Date().toISOString()) };
   }, [mercados]);
   const choque = apertura.choque;
   // Qué corte se está mirando. `null` = el que está en curso, que es lo que hay que
@@ -433,18 +432,18 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
         {canWrite && <button className="btn btn-primary" onClick={() => setModal('add')}>{resguardo ? '＋ Registrar salida' : '＋ Añadir movimiento'}</button>}
       </div>
 
-      {/* Mercado (ciclo de 21 días): tarjetas + disponible + kardex, o iniciar */}
+      {/* Mercado (cierre manual): tarjetas + disponible + kardex, o iniciar */}
       {mercadoLoading ? (
         <EmptyState message="Cargando mercado…" icon="◔" />
       ) : !mercado ? (
         <div className="card" style={{ borderColor: 'var(--primary)' }}>
-          <div className="card-title">🛒 Iniciar mercado (ciclo de 21 días)</div>
-          <p className="hint muted" style={{ marginTop: 0 }}>Todavía no hay un mercado activo para esta cocina. Al iniciarlo, <strong>lo que hay en el inventario en ese momento</strong> es el saldo inicial, y desde ese momento cuenta todo lo que entra, se traslada o se consume. Al llegar el día 22 vas a poder <strong>cerrarlo</strong> (con PDF y arrastre de lo que queda).</p>
+          <div className="card-title">🛒 Iniciar mercado</div>
+          <p className="hint muted" style={{ marginTop: 0 }}>Todavía no hay un mercado activo para esta cocina. Al iniciarlo, <strong>lo que hay en el inventario en ese momento</strong> es el saldo inicial, y desde ese momento cuenta todo lo que entra, se traslada o se consume. No tiene plazo: lo vas a poder <strong>cerrar</strong> el día que decidas (con PDF y arrastre de lo que queda), y esa fecha queda como fin del ciclo.</p>
           {canWrite && <SelectorListaMercado archivos={listaInicio} onChange={setListaInicio} disabled={iniciando} />}
           {canWrite ? (
             <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <button className="btn btn-primary" onClick={() => setConfirmarInicio(true)} disabled={iniciando || !almacen || !!choque}>{iniciando ? 'Iniciando…' : '🛒 Iniciar mercado ahora'}</button>
-              <span className="muted" style={{ fontSize: '.8rem' }}>Corre del {fmtDiaCorto(apertura.hoy)} al {fmtDiaCorto(apertura.hasta)}.</span>
+              <span className="muted" style={{ fontSize: '.8rem' }}>Arranca el {fmtDiaCorto(apertura.hoy)} y corre hasta que lo cierres.</span>
             </div>
           ) : <p className="hint muted" style={{ margin: 0 }}>No tenés permiso para iniciar el mercado.</p>}
           {/* Lo único que impide abrir es otro ciclo que todavía corre. Se explica ANTES de
@@ -452,14 +451,14 @@ function CocinaDetalle({ info, canWrite, actor, userEmail, onBack }: {
           {canWrite && choque && (
             <div className="card" style={{ borderColor: 'var(--danger)', marginTop: '.6rem' }}>
               Todavía corre el <strong>mercado #{choque.numero}</strong>{' '}
-              ({fmtDiaCorto(choque.fecha_inicio)} → {fmtDiaCorto(choque.fecha_fin)}).
+              ({fmtDiaCorto(choque.fecha_inicio)} → {choque.fecha_fin ? fmtDiaCorto(choque.fecha_fin) : 'en curso'}).
               <div className="hint muted" style={{ marginTop: '.25rem' }}>
                 Dos ciclos sobre los mismos días cuentan los consumos dos veces.
               </div>
             </div>
           )}
           {/* Abrir toma el inventario de ESTE momento. Apretarlo antes de terminar el conteo o de
-              cargar lo que llegó hoy congela un saldo equivocado para 21 días: se pregunta. */}
+              cargar lo que llegó hoy congela un saldo equivocado para todo el ciclo: se pregunta. */}
           {confirmarInicio && (
             <ConfirmDialog title={`Iniciar el mercado de ${info.cocina.nombre}`}
               message="Se toma lo que hay en el inventario en este momento como saldo inicial, y desde este momento cuenta todo lo que entra, se traslada o se consume. Hacelo con el conteo y las entradas del día ya cargados."
