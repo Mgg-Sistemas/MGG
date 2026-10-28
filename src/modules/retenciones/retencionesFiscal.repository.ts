@@ -106,43 +106,7 @@ export async function activarConcepto(id: string, activo: boolean): Promise<void
    La contraparte puede ser un cliente (el que nos retiene) o un proveedor
    (al que le retenemos), por eso no se llama «proveedor».                   */
 
-export interface RetencionPracticada {
-  id: string;
-  tipo: TipoImpuesto;
-  direccion: DireccionRetencion;
-  estado: EstadoRetencion;
-  docKind: 'oc' | 'compra_directa' | 'servicio_directo' | 'venta' | 'manual';
-  docId: string | null;
-  docCodigo: string | null;
-  contraparteId: string | null;
-  contraparteRif: string | null;
-  contraparteNombre: string | null;
-  contraparteSujeto: SujetoRetenido | null;
-  facturaNumero: string | null;
-  facturaControl: string | null;
-  facturaFecha: string | null;
-  periodo: string;
-  quincena: 1 | 2 | null;
-  numeroComprobante: string | null;
-  conceptoId: string | null;
-  conceptoNombre: string | null;
-  moneda: string;
-  tasa: number | null;
-  baseImponible: number;
-  alicuota: number;
-  impuesto: number;
-  porcentaje: number;
-  sustraendo: number;
-  montoRetenido: number;
-  comprobantePath: string | null;
-  comprobanteNombre: string | null;
-  observacion: string | null;
-  anulada: boolean;
-  anuladaMotivo: string | null;
-  declaradaEn: string | null;
-  actorName: string | null;
-  createdAt: string;
-}
+export type { RetencionPracticada } from '@/modules/libroFiscal/retencionesFiscal.repository';
 
 function aRetencion(r: Record<string, unknown>): RetencionPracticada {
   return {

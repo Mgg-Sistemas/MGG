@@ -185,7 +185,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   }, [filas]);
 
   const [dispDigital, setDispDigital] = useState<{ tieneLogo: boolean; tieneFirma: boolean; tieneSello: boolean; tieneAlguno: boolean }>({
-    tieneLogo: true, tieneFirma: false, tieneSello: true, tieneAlguno: true,
+    tieneLogo: true, tieneFirma: false, tieneSello: false, tieneAlguno: true,
   });
   const [imprimirLogo, setImprimirLogo] = useState<boolean>(() => {
     try { return localStorage.getItem('retenciones:imprimirConLogo') !== 'false'; } catch { return true; }

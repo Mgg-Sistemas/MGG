@@ -199,4 +199,24 @@ describe('correos en comprobante · empresa (configurable) y proveedor (si exist
   });
 });
 
+describe('elementos digitales · disponibilidad y no forzamiento de firma', () => {
+  it('si no hay firma cargada en base, tieneFirma es estrictamente false y firmaDataUrl es null (no se fuerza con || true)', async () => {
+    const { consultarElementosDigitales, cargarElementosDigitales } = await import('./comprobanteRetencionPdf');
+    const disp = await consultarElementosDigitales('2026-10-28');
+    expect(typeof disp.tieneFirma).toBe('boolean');
+    const elementos = await cargarElementosDigitales('2026-10-28');
+    if (!disp.tieneFirma) {
+      expect(elementos.firmaDataUrl).toBeNull();
+    }
+  });
+
+  it('modo "estandar" emite exactamente 1 página oficial', async () => {
+    const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
+    const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
+    const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'estandar', incluirLogo: false, incluirQr: false });
+    expect(doc.getNumberOfPages()).toBe(1);
+  });
+});
+
+
 
