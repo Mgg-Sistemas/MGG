@@ -681,5 +681,75 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 
 /* Ventana «Opciones del equipo»: mismo resumen que la tarjeta y botones en tokens */
 .flo-mv-resumen { display: grid; gap: .5rem; padding: .75rem; border-radius: var(--r-md); background: var(--surface-2); border: 1px solid var(--border); min-width: 0; }
-.flo-mv-opcion { min-height: 48px; justify-content: center; gap: .5rem; white-space: normal; text-align: center; }
+.flo-mv-opcion { min-height: 48px; justify-content: center; gap: .5rem; white-space: normal; text-align: center; font-size: .9rem; }
 .flo-mv-opcion.ficha { color: var(--primary-2); border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+
+/* ── Grilla / Tabla de Sistemas e Intervenciones de Servicio (Móvil, igual a Golden Touch) ── */
+.flo-mv-servicios-grid {
+  display: grid !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+  gap: .45rem !important;
+  margin: .35rem 0 .75rem !important;
+}
+
+@media (max-width: 320px) {
+  .flo-mv-servicios-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+}
+
+.flo-mv-servicio-btn {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding: .5rem .25rem !important;
+  gap: .25rem !important;
+  min-height: 72px !important;
+  border-radius: var(--r-md, 8px) !important;
+  border: 1px solid var(--border-strong, #334155) !important;
+  background: var(--surface-1, #0f172a) !important;
+  color: var(--text, #f1f5f9) !important;
+  cursor: pointer;
+  text-align: center;
+  transition: all var(--t-fast, .15s ease);
+  width: 100% !important;
+  box-sizing: border-box !important;
+  user-select: none;
+}
+
+.flo-mv-servicio-btn:hover {
+  border-color: var(--primary, #ff8a00) !important;
+  color: #fff !important;
+  transform: translateY(-1px);
+}
+
+.flo-mv-servicio-btn:active {
+  transform: scale(0.97);
+}
+
+.flo-mv-servicio-btn.activa {
+  background: var(--grad-primary-soft, rgba(255, 138, 0, 0.16)) !important;
+  border: 2px solid var(--primary, #ff8a00) !important;
+  color: #fff !important;
+  box-shadow: 0 0 10px rgba(255, 138, 0, 0.3) !important;
+  font-weight: 700 !important;
+}
+
+.flo-mv-servicio-btn .ico {
+  font-size: 1.35rem;
+  line-height: 1;
+}
+
+.flo-mv-servicio-btn .lbl {
+  font-size: .8rem;
+  font-weight: 600;
+  line-height: 1.18;
+  white-space: normal;
+  text-align: center;
+  display: block;
+  overflow: visible;
+  letter-spacing: -0.01em;
+  word-break: normal;
+}
+
