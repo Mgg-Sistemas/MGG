@@ -9,7 +9,7 @@ import type {
   Orden,
   Proveedor,
 } from '@/shared/lib/types';
-import { listOfertasDeOrdenes, aceptarOferta as aceptarOfertaRepo, actualizarOferta, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta, subirAdjuntosOferta } from './ofertas.repository';
+import { listOfertasDeOrdenes, aceptarOferta as aceptarOfertaRepo, revertirAceptacion, actualizarOferta, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta, subirAdjuntosOferta } from './ofertas.repository';
 import { urlAdjuntoOc, listSubOcs, getOrdenById } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, montoFinalOferta, type ScoredOferta } from './score';
@@ -93,6 +93,22 @@ export function OfertasComparativa({
   }, [orden, ofertas]);
 
   const [syncingImpuestos, setSyncingImpuestos] = useState(false);
+
+  // Oferta «Aceptada» con la orden todavía en «aprobada» (sin sub-OC que la explique):
+  // la OC no llegó a crearse. Se ofrece liberar la oferta para volver a elegirla.
+  const [liberando, setLiberando] = useState(false);
+  async function handleLiberarAceptada(ofertaId: string) {
+    setLiberando(true);
+    try {
+      await revertirAceptacion(ofertaId);
+      toast('La oferta volvió a quedar pendiente: elegila de nuevo para crear la OC', 'success');
+      onAccepted();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo liberar la oferta', 'error');
+    } finally {
+      setLiberando(false);
+    }
+  }
   async function handleSincronizarImpuestos() {
     setSyncingImpuestos(true);
     try {
@@ -296,18 +312,27 @@ export function OfertasComparativa({
         }
       }
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);
-      await aprobarOrdenConOferta(
-        ordenParaOc,
-        s.oferta.proveedor_id,
-        itemsElegidos,
-        montoFinal,
-        s.score.total,
-        actorEmail,
-        motivo || null,
-        motivoAdjuntos.length ? motivoAdjuntos : null,
-        modalidadPago,
-        s.oferta.id,
-      );
+      try {
+        await aprobarOrdenConOferta(
+          ordenParaOc,
+          s.oferta.proveedor_id,
+          itemsElegidos,
+          montoFinal,
+          s.score.total,
+          actorEmail,
+          motivo || null,
+          motivoAdjuntos.length ? motivoAdjuntos : null,
+          modalidadPago,
+          s.oferta.id,
+        );
+      } catch (e) {
+        // Son dos escrituras: si la OC no se pudo crear, la oferta no puede quedar
+        // «Aceptada» con la orden todavía en «aprobada» (pasó el 27/10/2026 con
+        // SP-2026-0216: la comparativa mostraba la elegida y el pie ofrecía repartir
+        // entre proveedores). Se deshace la elección y se avisa el error de verdad.
+        await revertirAceptacion(s.oferta.id).catch(() => undefined);
+        throw new Error(`No se pudo crear la OC, la oferta volvió a quedar pendiente. ${e instanceof Error ? e.message : ''}`.trim());
+      }
       notify(`Oferta elegida · ${modalidadPago === 'usd' ? 'pago en $ (divisa)' : 'pago en Bs (BCV)'} · pendiente por aprobación`, 'success', { link: '#/app/pedidos' });
       onAccepted();
     } catch (e) {
@@ -720,6 +745,17 @@ export function OfertasComparativa({
         </table>
       </div>
 
+      {enEtapaOc && !esHija && canDecidir && ofertas.filter((x) => x.estado === 'aceptada' && !subOcPorProv.has(x.proveedor_id)).map((x) => (
+        <div key={`huerfana-${x.id}`} className="hint" style={{ marginTop: '.6rem', fontSize: '.82rem', color: 'var(--warning, #f5a524)', display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span>
+            ⚠ La oferta de <strong>{proveedorMap.get(x.proveedor_id)?.razon_social ?? 'este proveedor'}</strong> figura aceptada, pero la OC no llegó a crearse: la orden sigue en «aprobada».
+          </span>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={liberando} onClick={() => handleLiberarAceptada(x.id)}
+            title="Vuelve la oferta a pendiente (y las que descartó esa elección) para elegirla de nuevo y crear la OC">
+            ↩ Liberar y volver a elegir
+          </button>
+        </div>
+      ))}
       {enEtapaOc && canDecidir && !minOk && (
         <p className="hint muted" style={{ marginTop: '.6rem', fontSize: '.82rem' }}>
           Cargá al menos {MIN_OFERTAS} cotizaciones (máximo {MAX_OFERTAS}) para poder elegir la oferta ganadora.

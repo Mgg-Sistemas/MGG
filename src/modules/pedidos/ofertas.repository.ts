@@ -367,6 +367,47 @@ export async function aceptarOferta(
   return accepted as OfertaProveedor;
 }
 
+/**
+ * Deshace `aceptarOferta` cuando el paso siguiente (crear la OC) falló.
+ *
+ * Elegir una oferta son dos escrituras: la oferta pasa a `aceptada` y después la
+ * orden pasa a `oc_creada`. Si la segunda falla (el 27/10/2026 SP-2026-0216 cayó por
+ * columnas que faltaban en la base), la oferta quedaba «Aceptada» con la orden en
+ * «aprobada», y el modal ofrecía «Asignar por producto (multi-proveedor)» como si no
+ * se hubiera elegido nada. Esta función vuelve la oferta a `pendiente` y libera a las
+ * hermanas que ESA misma decisión descartó (las descartadas a mano, con motivo, no se tocan).
+ */
+export async function revertirAceptacion(ofertaId: string): Promise<void> {
+  const { data: oferta, error } = await supabase
+    .from(TABLE)
+    .select('orden_id, estado, decidida_en')
+    .eq('id', ofertaId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!oferta || oferta.estado !== 'aceptada') return;
+  const { orden_id: ordenId, decidida_en: decididaEn } = oferta as { orden_id: string; decidida_en: string | null };
+  // Las hermanas descartadas por `aceptarOferta` llevan la misma marca de tiempo
+  // (±1 min por si el reloj se corrió entre las dos escrituras) y no tienen motivo.
+  if (decididaEn) {
+    const t = Date.parse(decididaEn);
+    const { error: hErr } = await supabase
+      .from(TABLE)
+      .update({ estado: 'pendiente', decidida_por_email: null, decidida_en: null })
+      .eq('orden_id', ordenId)
+      .neq('id', ofertaId)
+      .eq('estado', 'descartada')
+      .is('motivo_descarte', null)
+      .gte('decidida_en', new Date(t - 60_000).toISOString())
+      .lte('decidida_en', new Date(t + 60_000).toISOString());
+    if (hErr) throw hErr;
+  }
+  const { error: rErr } = await supabase
+    .from(TABLE)
+    .update({ estado: 'pendiente', decidida_por_email: null, decidida_en: null, score_calculado: null })
+    .eq('id', ofertaId);
+  if (rErr) throw rErr;
+}
+
 export async function descartarOferta(
   id: string,
   decididaPorEmail: string,
