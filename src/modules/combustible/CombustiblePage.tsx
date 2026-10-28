@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, Navigate, useSearchParams } from 'react-router-dom';
-import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -11,20 +10,14 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { AlmacenPicker } from '@/modules/inventario/AlmacenPicker';
 import { RUTA_SURTIDOR } from '@/modules/usuarios/permisos.repository';
-import type { Combustible, SolicitudCombustible, Tanque, VehiculoMaquina, TransferenciaCombustibleInter, PlantaMovimiento, CatalogoCombustible, TanqueMovimiento, TipoMovimientoTanque } from '@/shared/lib/types';
+import type { Combustible, Tanque, VehiculoMaquina, TransferenciaCombustibleInter, PlantaMovimiento, CatalogoCombustible, TanqueMovimiento, TipoMovimientoTanque } from '@/shared/lib/types';
 import {
   listCombustibles,
-  listSolicitudesCombustible,
   crearCombustible,
   renombrarCombustible,
   setEstadoCombustible,
   eliminarCombustible,
   actualizarCombustible,
-  crearSolicitudCombustible,
-  aprobarSolicitudCombustible,
-  finalizarSolicitudCombustible,
-  leerSaldoTanque,
-  cancelarSolicitudCombustible,
   consumoCombustiblePorEquipo,
   movimientosDeEquipo,
   listTanques,
@@ -55,14 +48,11 @@ import {
   listTanqueMovimientos,
   ultimoHorometroEquipo,
   ultimoContadorTanque,
-  actualizarTelemetriaSolicitud,
   TIPO_TANQUE_LABEL,
   type TablaCatalogo,
 } from './combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { enviarReportePdf } from '@/shared/lib/enviarReporte';
-// descargarSolicitudCombustiblePdf se importa dinámicamente (al generar) para no cargar jsPDF al abrir.
-import { enviarCombustibleAMultiples } from './enviarCombustible';
 import {
   listTransferenciasCombustible,
   confirmarTransferenciaCombustibleEntrante,
@@ -70,17 +60,6 @@ import {
 } from './transferenciasCombustibleInter.repository';
 import { litrosCilindroHorizontal, longitudDesdeCapacidad, capacidadCilindro, tablaCubicacion, litrosRectangular, capacidadRectangular, tablaCubicacionRect } from './cubicacion';
 import { errorSurtido, litrosTrasSurtido } from './saldoTanque';
-
-type Vista = 'kanban' | 'lista';
-const COLS: { key: SolicitudCombustible['estado']; label: string }[] = [
-  { key: 'por_aprobar', label: 'Por aprobar' },
-  { key: 'aprobada', label: 'Aprobada' },
-  { key: 'finalizada', label: 'Finalizada' },
-  { key: 'cancelada', label: 'Cancelada' },
-];
-const ESTADO_LABEL: Record<string, string> = {
-  por_aprobar: '⏳ Por aprobar', aprobada: '✅ Aprobada', finalizada: '🏁 Finalizada', cancelada: '✖ Cancelada',
-};
 
 // Sedes del combustible. Por ahora solo LOS PINOS y MGG (Matanzas).
 // `key` = valor guardado en BD (combustibles.sede / tanques.sede).
@@ -100,12 +79,6 @@ const TIPOS_MOVIMIENTO: { value: TipoMovimientoTanque; label: string; signo: '+'
   { value: 'merma', label: 'Merma (pérdida)', signo: '−' },
 ];
 
-/* ───────────── Origen físico (tanques · se reflejan en inventario) ───────────── */
-// Tanques activos del combustible elegido (o sin combustible asignado).
-function tanquesDelCombustible(tanques: Tanque[], combustibleId: string): Tanque[] {
-  return tanques.filter((t) => t.estado === 'activo' && (!t.combustible_id || t.combustible_id === combustibleId));
-}
-// (Selector combinado tanque/almacén eliminado: la salida ahora usa solo tanques.)
 
 /* ───────────── Combo buscador estilizado (input + lista filtrada con el tema) ─────────────
    Reemplaza al <datalist> nativo (que el navegador no deja estilizar): muestra
@@ -175,14 +148,11 @@ export function CombustiblePage() {
   const miNombre = appUser?.nombre?.trim() || user?.email || '';
 
   const [combustibles, setCombustibles] = useState<Combustible[]>([]);
-  const [solicitudes, setSolicitudes] = useState<SolicitudCombustible[]>([]);
   const [tanques, setTanques] = useState<Tanque[]>([]);
   const [vehiculos, setVehiculos] = useState<VehiculoMaquina[]>([]);
   const [transfers, setTransfers] = useState<TransferenciaCombustibleInter[]>([]);
   const [loading, setLoading] = useState(true);
-  const [vista, setVista] = useState<Vista>('kanban');
-  const [modal, setModal] = useState<'none' | 'solicitud' | 'movimiento' | 'movimientos' | 'gestionar' | 'consumo' | 'tanque' | 'catalogo' | 'planta'>('none');
-  const [detalle, setDetalle] = useState<SolicitudCombustible | null>(null);
+  const [modal, setModal] = useState<'none' | 'movimiento' | 'movimientos' | 'gestionar' | 'consumo' | 'tanque' | 'catalogo' | 'planta'>('none');
   const [tanqueEdit, setTanqueEdit] = useState<Tanque | null>(null);
   const [combEdit, setCombEdit] = useState<Combustible | null>(null);
   // Histórico de movimientos: null = todos los tanques; id = filtra por ese tanque.
@@ -199,16 +169,14 @@ export function CombustiblePage() {
   const [sedeDel, setSedeDel] = useState<SedeCombustible | null>(null);
 
   const reload = useCallback(async () => {
-    const [cs, ss, ts, vs, trs, sd] = await Promise.all([
+    const [cs, ts, vs, trs, sd] = await Promise.all([
       listCombustibles(),
-      listSolicitudesCombustible(),
       listTanques(),
       listVehiculos(),
       listTransferenciasCombustible().catch(() => [] as TransferenciaCombustibleInter[]),
       listSedesCombustible().catch(() => [] as SedeCombustible[]),
     ]);
     setCombustibles(cs);
-    setSolicitudes(ss);
     setTanques(ts);
     setVehiculos(vs);
     setTransfers(trs);
@@ -223,10 +191,9 @@ export function CombustiblePage() {
     return () => { cancel = true; };
   }, [reload]);
 
-  // Realtime multiusuario: combustibles, solicitudes, tanques y lecturas de maquinaria se reflejan al instante.
+  // Realtime multiusuario: combustibles, tanques, movimientos y lecturas de maquinaria se reflejan al instante.
   useRealtime([
     'combustibles',
-    'combustible_solicitudes',
     'combustible_tanques',
     'combustible_vehiculos',
     'transferencias_combustible_inter',
@@ -248,7 +215,7 @@ export function CombustiblePage() {
   }, [tanques]);
   const litrosDe = useCallback((c: Combustible) => litrosPorComb.get(c.id) ?? 0, [litrosPorComb]);
 
-  // Vista por sede: solo el combustible/tanques/solicitudes de la sede activa.
+  // Vista por sede: solo el combustible/tanques/movimientos de la sede activa.
   const combSede = useMemo(() => (sedeActiva ? combustibles.filter((c) => sedeDe(c) === sedeActiva) : combustibles), [combustibles, sedeActiva]);
   const tanquesSede = useMemo(() => (sedeActiva ? tanques.filter((t) => sedeDe(t) === sedeActiva) : tanques), [tanques, sedeActiva]);
   const activos = useMemo(() => combSede.filter((c) => c.estado === 'activo'), [combSede]);
@@ -261,18 +228,6 @@ export function CombustiblePage() {
     const valor = list.reduce((a, c) => a + (litrosPorComb.get(c.id) ?? 0) * (Number(c.costo_litro) || 0), 0);
     return { ...s, litros, valor, nTanques: tanques.filter((t) => sedeDe(t) === s.clave).length };
   }), [sedes, combustibles, tanques, litrosPorComb]);
-
-  const solicitudesSede = useMemo(() => {
-    if (!sedeActiva) return solicitudes;
-    const ids = new Set(combSede.map((c) => c.id));
-    return solicitudes.filter((s) => !s.combustible_id || ids.has(s.combustible_id));
-  }, [solicitudes, combSede, sedeActiva]);
-
-  const porEstado = useMemo(() => {
-    const m: Record<string, SolicitudCombustible[]> = { por_aprobar: [], aprobada: [], finalizada: [], cancelada: [] };
-    solicitudesSede.forEach((s) => { (m[s.estado] ??= []).push(s); });
-    return m;
-  }, [solicitudesSede]);
 
   // El rol COMBUSTIBLE (surtidor) trabaja desde el teléfono: no ve el módulo de
   // PC. Va acá abajo y no arriba del componente porque un `return` antes de los
@@ -289,8 +244,8 @@ export function CombustiblePage() {
           <h1>⛽ {sedeActiva ? sedes.find((s) => s.clave === sedeActiva)?.titulo ?? 'Combustible' : 'Combustible'}</h1>
           <p className="hint muted">
             {sedeActiva
-              ? <>← <span style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => { setSedeActiva(null); setModal('none'); }}>Volver a las sedes</span> · Por aprobar → Aprobada → Finalizada (descuenta litros).</>
-              : 'Elegí una sede para ver y gestionar su combustible, tanques y solicitudes.'}
+              ? <>← <span style={{ cursor: 'pointer', textDecoration: 'underline' }} onClick={() => { setSedeActiva(null); setModal('none'); }}>Volver a las sedes</span> · Los movimientos (entrada, uso, traslado, retorno, merma) se registran directo con «+ Nuevo movimiento», sin aprobación: igual que en el teléfono.</>
+              : 'Elegí una sede para ver y gestionar su combustible, tanques y movimientos.'}
           </p>
         </div>
         {sedeActiva && (
@@ -306,8 +261,11 @@ export function CombustiblePage() {
                 <button className="btn btn-ghost" onClick={() => setModal('tanque')}>🛢 Agregar Tanque</button>
                 <button className="btn btn-ghost" onClick={() => setModal('catalogo')}>📒 Catálogo</button>
                 <button className="btn btn-ghost" onClick={() => setModal('planta')}>⚡ Planta Eléctrica</button>
-                <button className="btn btn-ghost" onClick={() => setModal('movimiento')} disabled={!tanquesSede.length} title={!tanquesSede.length ? 'Creá primero un tanque con "🛢 Agregar Tanque"' : undefined}>⬇ Registrar Movimiento</button>
-                <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal('solicitud')} disabled={!activos.length} title={!activos.length ? 'Creá primero un combustible con "⛽ Combustibles"' : undefined}>+ Nueva solicitud de salida</button>
+                {/* Desde el 28-10-2026 los surtidos NO llevan aprobación: quien tiene permiso de
+                    escritura registra el movimiento directo (entrada, uso, traslado, retorno o
+                    merma), igual que el surtidor en el teléfono. El flujo de solicitudes de
+                    salida (Por aprobar → Aprobada → Finalizada) se quitó de esta pantalla. */}
+                <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal('movimiento')} disabled={!tanquesSede.length} title={!tanquesSede.length ? 'Creá primero un tanque con "🛢 Agregar Tanque"' : 'Registrar un movimiento de tanque: entrada, uso de equipo, traslado, retorno o merma'}>+ Nuevo movimiento</button>
               </>
             )}
           </div>
@@ -368,7 +326,7 @@ export function CombustiblePage() {
             >
               <div style={{ fontSize: '2.4rem', fontWeight: 800, lineHeight: 1 }}>＋</div>
               <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>Añadir Nueva Sede</div>
-              <div className="muted" style={{ fontSize: '.82rem' }}>Arranca vacía, con todo lo que ya se tiene (tanques, combustibles, solicitudes…).</div>
+              <div className="muted" style={{ fontSize: '.82rem' }}>Arranca vacía, con todo lo que ya se tiene (tanques, combustibles, movimientos…).</div>
             </button>
           )}
         </div>
@@ -444,68 +402,9 @@ export function CombustiblePage() {
         </div>
       )}
 
-      {/* Solicitudes */}
-      <div className="filterbar" style={{ justifyContent: 'flex-end' }}>
-        <div className="view-toggle" role="tablist" aria-label="Modo de vista">
-          <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>▦ Kanban</button>
-          <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>☰ Lista</button>
-        </div>
-      </div>
-
-      {loading ? (
-        <EmptyState message="Cargando…" icon="◔" />
-      ) : !solicitudesSede.length ? (
-        <EmptyState message="Sin solicitudes de salida de combustible." icon="⛽" />
-      ) : vista === 'kanban' ? (
-        <div className="kanban">
-          {COLS.map((col) => (
-            <div key={col.key} className="kanban-col">
-              <div className="kanban-col-head"><strong>{col.label}</strong><span className="badge">{porEstado[col.key]?.length ?? 0}</span></div>
-              <div className="kanban-col-body">
-                {(porEstado[col.key] ?? []).map((s) => (
-                  <div key={s.id} className="card" style={{ margin: 0, cursor: 'pointer' }} onClick={() => setDetalle(s)}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem' }}>
-                      <strong>{s.codigo}</strong><span className="badge">{num(s.litros)} L</span>
-                    </div>
-                    <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>
-                      ⛽ {s.combustible_nombre} · → {s.destino}
-                    </div>
-                    <div className="muted" style={{ fontSize: '.72rem', marginTop: '.25rem' }}>Solicita: {s.solicitante}</div>
-                  </div>
-                ))}
-                {!(porEstado[col.key] ?? []).length && <div className="muted" style={{ padding: '.5rem' }}>—</div>}
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : (
-        <div className="table-wrap">
-          <table className="table">
-            <thead><tr><th>Código</th><th>Combustible</th><th>Solicita</th><th>Destino</th><th>Litros</th><th>Estado</th><th>Creada</th></tr></thead>
-            <tbody>
-              {solicitudesSede.map((s) => (
-                <tr key={s.id} style={{ cursor: 'pointer' }} onClick={() => setDetalle(s)}>
-                  <td className="mono">{s.codigo}</td>
-                  <td>{s.combustible_nombre}</td>
-                  <td>{s.solicitante}</td>
-                  <td>{s.destino}</td>
-                  <td className="mono">{num(s.litros)} L</td>
-                  <td>{ESTADO_LABEL[s.estado] ?? s.estado}</td>
-                  <td className="muted">{dateTime(s.created_at)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
       </>
       )}
 
-      {modal === 'solicitud' && (
-        <SolicitudModal combustibles={activos} tanques={tanquesSede} vehiculos={vehiculos} actor={actor} defaultSolicitante={miNombre}
-          onClose={() => setModal('none')} onSaved={async () => { setModal('none'); await reload(); }} />
-      )}
       {modal === 'catalogo' && (
         <CatalogoModal vehiculos={vehiculos} actor={actor}
           onClose={() => setModal('none')} onChanged={reload} />
@@ -563,10 +462,6 @@ export function CombustiblePage() {
           }}
           onClose={() => setModal('none')}
         />
-      )}
-      {detalle && (
-        <DetalleModal solicitud={detalle} canWrite={canWrite} actor={actor}
-          onClose={() => setDetalle(null)} onChanged={async () => { await reload(); setDetalle(null); }} />
       )}
       {sedeEdit && (
         <SedeRenombrarModal sede={sedeEdit}
@@ -678,118 +573,12 @@ function SedeNuevaModal({ onClose, onSaved }: {
         <label>Título de la vista <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
         <input className="input" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder={`COMBUSTIBLE ${nombre || '…'}`} />
       </div>
-      <small className="hint muted">La sede arranca vacía. Al entrar tendrás exactamente las mismas opciones que las demás: agregar tanques, combustibles, registrar movimientos y solicitudes de salida.</small>
+      <small className="hint muted">La sede arranca vacía. Al entrar tendrás exactamente las mismas opciones que las demás: agregar tanques, combustibles y registrar movimientos.</small>
     </Modal>
   );
 }
 
 /* ───────────── Modales ───────────── */
-
-function SolicitudModal({ combustibles, tanques, vehiculos, actor, defaultSolicitante, onClose, onSaved }: {
-  combustibles: Combustible[]; tanques: Tanque[]; vehiculos: VehiculoMaquina[]; actor: string; defaultSolicitante: string;
-  onClose: () => void; onSaved: () => void;
-}) {
-  const [combustibleId, setCombustibleId] = useState(combustibles[0]?.id ?? '');
-  const [solicitante, setSolicitante] = useState(defaultSolicitante);
-  const [destino, setDestino] = useState<string>('');
-  const vehiculosAct = useMemo(() => vehiculos.filter((v) => v.estado === 'activo'), [vehiculos]);
-  const [litros, setLitros] = useState('');
-  const [motivo, setMotivo] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const comb = combustibles.find((c) => c.id === combustibleId) ?? null;
-  const litrosNum = Number(litros) || 0;
-  // Litros REALES disponibles = suma de los tanques del combustible (lo mismo que muestra
-  // la tarjeta). El campo `combustibles.litros` puede estar desfasado: los tanques mandan.
-  const litrosRealPorComb = useMemo(() => {
-    const m = new Map<string, number>();
-    tanques.forEach((t) => { if (t.combustible_id) m.set(t.combustible_id, (m.get(t.combustible_id) ?? 0) + (Number(t.litros) || 0)); });
-    return m;
-  }, [tanques]);
-  const litrosReal = useCallback((id: string) => litrosRealPorComb.get(id) ?? 0, [litrosRealPorComb]);
-  const excede = comb ? litrosNum > litrosReal(comb.id) : false;
-  // Origen: SOLO tanques registrados (activos) del combustible elegido.
-  const tanquesDisp = useMemo(() => tanquesDelCombustible(tanques, combustibleId), [tanques, combustibleId]);
-  const [tanqueId, setTanqueId] = useState(tanquesDisp[0]?.id ?? '');
-  useEffect(() => { setTanqueId(tanquesDelCombustible(tanques, combustibleId)[0]?.id ?? ''); }, [combustibleId]);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    if (!combustibleId) { setError('Elegí el combustible.'); return; }
-    if (litrosNum <= 0) { setError('Indicá los litros solicitados.'); return; }
-    if (!solicitante.trim()) { setError('Indicá quién solicita.'); return; }
-    if (!tanqueId) { setError('Elegí el tanque de donde sale (no hay tanques para este combustible).'); return; }
-    if (!destino.trim()) { setError('Indicá a dónde va.'); return; }
-    const tq = tanques.find((t) => t.id === tanqueId) ?? null;
-    setSaving(true);
-    try {
-      const s = await crearSolicitudCombustible({
-        combustibleId, combustibleNombre: comb?.nombre ?? '', solicitante, destino,
-        almacen: comb?.home_almacen || 'General', tanqueId, tanqueNombre: tq?.nombre ?? null,
-        litros: litrosNum, motivo: motivo.trim() || null, actor,
-      });
-      notify(`Solicitud de combustible creada: ${s.codigo} · ${num(litrosNum)} L → ${destino}`, 'success', { link: '#/app/combustible' });
-      onSaved();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo crear la solicitud.');
-    } finally { setSaving(false); }
-  }
-
-  const footer = (
-    <>
-      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cmb-sol" className="btn btn-primary" disabled={saving}>{saving ? 'Creando…' : 'Crear solicitud'}</button>
-    </>
-  );
-  return (
-    <Modal title="Nueva solicitud de salida de combustible" size="lg" onClose={onClose} footer={footer}>
-      <form id="cmb-sol" onSubmit={submit}>
-        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-        <div className="form-grid">
-          <div className="form-row">
-            <label>Combustible</label>
-            <select className="select" value={combustibleId} onChange={(e) => setCombustibleId(e.target.value)}>
-              {!combustibles.length && <option value="">— sin combustibles —</option>}
-              {combustibles.map((c) => <option key={c.id} value={c.id}>{c.nombre} · {num(litrosReal(c.id))} L disp.</option>)}
-            </select>
-            {comb && <small className="hint muted">Disponible: <strong className="mono">{num(litrosReal(comb.id))} L</strong></small>}
-          </div>
-          <div className="form-row">
-            <label>Total de litros solicitados</label>
-            <input className="input mono" type="number" min={0} step="any" value={litros} onChange={(e) => setLitros(e.target.value)} required />
-            {excede && <small style={{ color: 'var(--warning)' }}>Supera el stock; se validará al finalizar.</small>}
-          </div>
-        </div>
-        <div className="form-row">
-          <label>Quién hace la solicitud</label>
-          <input className="input" value={solicitante} onChange={(e) => setSolicitante(e.target.value)} placeholder="Nombre de quien solicita" required />
-        </div>
-        <div className="form-grid">
-          <div className="form-row">
-            <label>De qué tanque sale</label>
-            <select className="select" value={tanqueId} onChange={(e) => setTanqueId(e.target.value)} required>
-              {!tanquesDisp.length && <option value="">— sin tanques para este combustible —</option>}
-              {tanquesDisp.map((t) => <option key={t.id} value={t.id}>🛢 {t.nombre} · {num(t.litros)}/{num(t.capacidad_litros)} L{t.ubicacion ? ` · ${t.ubicacion}` : ''}</option>)}
-            </select>
-            <small className="hint muted">Solo tanques registrados. Al finalizar, los litros salen de ese tanque y se reflejan en el inventario.</small>
-          </div>
-          <div className="form-row">
-            <label>A dónde va ese combustible</label>
-            <ComboBuscador value={destino} onChange={setDestino}
-              opciones={vehiculosAct.map((v) => ({ value: v.nombre, label: v.nombre }))}
-              placeholder="🔎 Buscá el vehículo / máquina…" icono="🚜" />
-            <small className="hint muted">Elegí el vehículo o máquina que recibe el combustible. ¿Falta uno? Agregalo en 📒 Catálogo.</small>
-          </div>
-        </div>
-        <div className="form-row">
-          <label>Motivo / detalle (opcional)</label>
-          <input className="input" value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Referencia, equipo, etc." />
-        </div>
-      </form>
-    </Modal>
-  );
-}
 
 /* ───────────── Registrar Movimiento de tanque (reemplaza "Registrar ingreso") ───────────── */
 function RegistrarMovimientoModal({ tanques, vehiculos, combustibles, actor, actorName, sede, onClose, onSaved }: {
@@ -1957,274 +1746,6 @@ function CatalogoModal({ vehiculos, actor, onClose, onChanged }: {
           onCancel={() => setBorrar(null)}
           onConfirm={() => { const id = borrar.id; setBorrar(null); void eliminar(id); }}
         />
-      )}
-    </Modal>
-  );
-}
-
-function DetalleModal({ solicitud, canWrite, actor, onClose, onChanged }: {
-  solicitud: SolicitudCombustible; canWrite: boolean; actor: string;
-  onClose: () => void; onChanged: () => Promise<void>;
-}) {
-  const s = solicitud;
-  const [busy, setBusy] = useState(false);
-  const [correoOpen, setCorreoOpen] = useState(false);
-  const [emails, setEmails] = useState('');
-  const [enviando, setEnviando] = useState(false);
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [motivoCancel, setMotivoCancel] = useState('');
-  // Modal de surtido: al finalizar, el usuario confirma litros + horómetros e indicadores.
-  const [finalizarOpen, setFinalizarOpen] = useState(false);
-  const [litrosSurtidos, setLitrosSurtidos] = useState(String(s.litros));
-  // Saldo del tanque de origen leído en la base al abrir el surtido: con el tanque en 0 L o
-  // pidiendo más de lo que tiene, el botón «Surtir» se apaga y se explica por qué.
-  const [tanqueVivo, setTanqueVivo] = useState<{ nombre: string; litros: number } | null>(null);
-  useEffect(() => {
-    if (!finalizarOpen || !s.tanque_id) { setTanqueVivo(null); return; }
-    let vivo = true;
-    leerSaldoTanque(s.tanque_id).then((t) => { if (vivo) setTanqueVivo(t); }).catch(() => { if (vivo) setTanqueVivo(null); });
-    return () => { vivo = false; };
-  }, [finalizarOpen, s.tanque_id]);
-  const litrosRealesNum = Number(litrosSurtidos.replace(',', '.')) || 0;
-  const motivoSaldo = tanqueVivo ? errorSurtido(tanqueVivo.litros, litrosRealesNum, tanqueVivo.nombre) : null;
-  // Telemetría (mismas reglas de encadenado que un movimiento de tanque).
-  const [hiVal, setHiVal] = useState(''); const [hfVal, setHfVal] = useState('');
-  const [ciVal, setCiVal] = useState(''); const [cfVal, setCfVal] = useState('');
-  const [hiLock, setHiLock] = useState(false); const [ciLock, setCiLock] = useState(false);
-  const [teleEditOpen, setTeleEditOpen] = useState(false);
-
-  // Precarga HI (último HF del equipo/destino) y contador ini (último del tanque), encadenados.
-  async function precargarTelemetria() {
-    setHiVal(s.horometro_inicial != null ? String(s.horometro_inicial) : '');
-    setHfVal(s.horometro_final != null ? String(s.horometro_final) : '');
-    setCiVal(s.contador_ini != null ? String(s.contador_ini) : '');
-    setCfVal(s.contador_fin != null ? String(s.contador_fin) : '');
-    setHiLock(false); setCiLock(false);
-    if (s.horometro_inicial == null && s.destino) {
-      const hf = await ultimoHorometroEquipo(s.destino).catch(() => null);
-      if (hf != null) { setHiVal(String(hf)); setHiLock(true); }
-    }
-    if (s.contador_ini == null && s.tanque_id) {
-      const c = await ultimoContadorTanque(s.tanque_id).catch(() => null);
-      if (c != null) { setCiVal(String(c)); setCiLock(true); }
-    }
-  }
-  const numOrNull = (v: string) => { const n = Number(String(v).replace(',', '.')); return v.trim() !== '' && Number.isFinite(n) ? n : null; };
-  const teleActual = () => ({
-    horometroInicial: numOrNull(hiVal), horometroFinal: numOrNull(hfVal),
-    contadorIni: numOrNull(ciVal), contadorFin: numOrNull(cfVal),
-  });
-  const hrsTele = numOrNull(hiVal) != null && numOrNull(hfVal) != null ? Math.round((numOrNull(hfVal)! - numOrNull(hiVal)!) * 100) / 100 : null;
-  const difTele = numOrNull(ciVal) != null && numOrNull(cfVal) != null ? Math.round((numOrNull(cfVal)! - numOrNull(ciVal)!) * 100) / 100 : null;
-
-  async function guardarTelemetria() {
-    setBusy(true);
-    try {
-      await actualizarTelemetriaSolicitud(s, teleActual(), actor, null);
-      notify(`Horómetros/indicadores de ${s.codigo} actualizados`, 'success', { link: '#/app/combustible' });
-      setTeleEditOpen(false);
-      await onChanged();
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); setBusy(false); }
-  }
-
-  async function aprobar() {
-    setBusy(true);
-    try { await aprobarSolicitudCombustible(s, actor); notify(`Solicitud ${s.codigo} aprobada`, 'success', { link: '#/app/combustible' }); await onChanged(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo aprobar', 'error'); setBusy(false); }
-  }
-  async function finalizar() {
-    const reales = Number(litrosSurtidos.replace(',', '.'));
-    if (!Number.isFinite(reales) || reales <= 0) { toast('Indicá los litros realmente surtidos.', 'error'); return; }
-    if (motivoSaldo) { toast(motivoSaldo, 'error'); return; }
-    const tele = teleActual();
-    if (tele.horometroInicial != null && tele.horometroFinal != null && tele.horometroFinal < tele.horometroInicial) { toast('El horómetro final no puede ser menor que el inicial.', 'error'); return; }
-    if (tele.contadorIni != null && tele.contadorFin != null && tele.contadorFin < tele.contadorIni) { toast('El contador final no puede ser menor que el inicial.', 'error'); return; }
-    setBusy(true);
-    try {
-      await finalizarSolicitudCombustible(s, actor, null, reales, tele);
-      notify(`Solicitud ${s.codigo} finalizada · -${num(reales)} L`, 'success', { link: '#/app/combustible' });
-      setFinalizarOpen(false);
-      await onChanged();
-    }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo finalizar', 'error'); setBusy(false); }
-  }
-  async function cancelar() {
-    const motivo = motivoCancel.trim();
-    if (!motivo) { toast('Indicá el motivo de la cancelación', 'error'); return; }
-    setBusy(true);
-    try {
-      await cancelarSolicitudCombustible(s, actor, motivo);
-      notify(`Solicitud ${s.codigo} cancelada`, 'info', { link: '#/app/combustible' });
-      setCancelOpen(false);
-      await onChanged();
-    }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cancelar', 'error'); setBusy(false); }
-  }
-  async function pdf() {
-    try { const { descargarSolicitudCombustiblePdf } = await import('./combustiblePdf'); await descargarSolicitudCombustiblePdf(s); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-  }
-  async function enviarCorreo() {
-    const lista = emails.split(/[\s,;]+/).map((x) => x.trim()).filter(Boolean);
-    if (!lista.length) { toast('Indicá al menos un correo', 'error'); return; }
-    setEnviando(true);
-    try {
-      const { enviados, fallidos } = await enviarCombustibleAMultiples(s, lista);
-      toast(`Enviado a: ${enviados.join(', ')}`, 'success');
-      if (fallidos.length) toast(`Falló: ${fallidos.map((f) => f.email).join(', ')}`, 'error');
-      setCorreoOpen(false); setEmails('');
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo enviar', 'error'); }
-    finally { setEnviando(false); }
-  }
-
-  const filas: Array<[string, string]> = [
-    ['Código', s.codigo],
-    ['Combustible', s.combustible_nombre],
-    ['Quién solicita', s.solicitante],
-    ['Tanque de origen', s.tanque_nombre || '—'],
-    ['Almacén (inventario)', s.almacen || '—'],
-    ['A dónde va', s.destino],
-    ['Litros solicitados', `${num(s.litros)} L`],
-    ...(s.estado === 'finalizada' && s.litros_reales != null
-      ? [['Litros surtidos', `${num(Number(s.litros_reales))} L${Number(s.litros_reales) !== Number(s.litros) ? ` (${Number(s.litros_reales) > Number(s.litros) ? '+' : ''}${num(Number(s.litros_reales) - Number(s.litros))} L vs solicitado)` : ''}`]] as Array<[string, string]>
-      : []),
-    ['Estado', ESTADO_LABEL[s.estado] ?? s.estado],
-    ['Motivo', s.motivo || '—'],
-    ['Creada', dateTime(s.created_at)],
-    ['Aprobada', s.aprobada_en ? `${dateTime(s.aprobada_en)} · ${s.aprobada_por ?? ''}`.trim() : '—'],
-    ['Finalizada', s.finalizada_en ? `${dateTime(s.finalizada_en)} · ${s.finalizada_por ?? ''}`.trim() : '—'],
-    ...(s.estado === 'finalizada' && (s.horometro_inicial != null || s.horometro_final != null)
-      ? [['Horómetro (HI → HF)', `${s.horometro_inicial != null ? num(Number(s.horometro_inicial)) : '—'} → ${s.horometro_final != null ? num(Number(s.horometro_final)) : '—'}${s.horometro_inicial != null && s.horometro_final != null ? ` · ${num(Number(s.horometro_final) - Number(s.horometro_inicial))} h` : ''}`]] as Array<[string, string]>
-      : []),
-    ...(s.estado === 'finalizada' && (s.contador_ini != null || s.contador_fin != null)
-      ? [['Indicador surtidor (ini → fin)', `${s.contador_ini != null ? num(Number(s.contador_ini)) : '—'} → ${s.contador_fin != null ? num(Number(s.contador_fin)) : '—'}`]] as Array<[string, string]>
-      : []),
-  ];
-
-  const telemetriaFields = (
-    <div className="card" style={{ padding: '.7rem', marginTop: '.5rem', background: 'var(--bg-1)' }}>
-      <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: '.4rem' }}>
-        Horómetros e indicadores {s.destino ? `· ${s.destino}` : ''}
-      </div>
-      <div className="form-grid">
-        <div className="form-row">
-          <label>Horómetro inicial (HI){hiLock ? ' 🔒' : ''}</label>
-          <input className="input mono" type="number" step="any" value={hiVal} readOnly={hiLock}
-            onChange={(e) => setHiVal(e.target.value)} />
-          {hiLock && <small className="hint muted" style={{ fontSize: '.7rem' }}>Encadenado: último HF del equipo.</small>}
-        </div>
-        <div className="form-row">
-          <label>Horómetro final (HF)</label>
-          <input className="input mono" type="number" step="any" value={hfVal} onChange={(e) => setHfVal(e.target.value)} />
-          {hrsTele != null && <small className="hint muted" style={{ fontSize: '.7rem' }}>HRS = HF − HI = {num(hrsTele)} h</small>}
-        </div>
-      </div>
-      <div className="form-grid">
-        <div className="form-row">
-          <label>Contador inicial (surtidor){ciLock ? ' 🔒' : ''}</label>
-          <input className="input mono" type="number" step="any" value={ciVal} readOnly={ciLock}
-            onChange={(e) => setCiVal(e.target.value)} />
-          {ciLock && <small className="hint muted" style={{ fontSize: '.7rem' }}>Encadenado: último contador del tanque.</small>}
-        </div>
-        <div className="form-row">
-          <label>Contador final (surtidor)</label>
-          <input className="input mono" type="number" step="any" value={cfVal} onChange={(e) => setCfVal(e.target.value)} />
-          {difTele != null && <small className="hint muted" style={{ fontSize: '.7rem' }}>Diferencia = {num(difTele)}</small>}
-        </div>
-      </div>
-      <small className="hint muted" style={{ fontSize: '.7rem' }}>Opcional. Si los cargás, la solicitud queda en la cadena de telemetría (consumo por equipo).</small>
-    </div>
-  );
-
-  return (
-    <Modal title={`Solicitud ${s.codigo}`} size="md" onClose={onClose} footer={
-      <>
-        <button className="btn btn-ghost" onClick={pdf}>↓ PDF</button>
-        <button className="btn btn-ghost" onClick={() => setCorreoOpen(true)}>✉ Correo</button>
-        {canWrite && s.estado === 'por_aprobar' && <button className="btn btn-primary" onClick={aprobar} disabled={busy}>Aprobar</button>}
-        {canWrite && s.estado === 'aprobada' && <button className="btn btn-primary" onClick={() => { setLitrosSurtidos(String(s.litros)); void precargarTelemetria(); setFinalizarOpen(true); }} disabled={busy}>Finalizar (descuenta litros)</button>}
-        {canWrite && s.estado === 'finalizada' && <button className="btn btn-ghost" onClick={() => { void precargarTelemetria(); setTeleEditOpen(true); }} disabled={busy} title="Editar horómetros e indicadores">🛠 Horómetros</button>}
-        {canWrite && s.estado !== 'finalizada' && s.estado !== 'cancelada' && <button className="btn btn-danger" onClick={() => setCancelOpen(true)} disabled={busy}>Cancelar</button>}
-        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
-      </>
-    }>
-      <div className="table-wrap">
-        <table className="table" style={{ fontSize: '.86rem' }}>
-          <tbody>{filas.map(([k, v]) => <tr key={k}><td style={{ fontWeight: 600, width: 170 }}>{k}</td><td>{v}</td></tr>)}</tbody>
-        </table>
-      </div>
-
-      {finalizarOpen && (() => {
-        const reales = Number(litrosSurtidos.replace(',', '.')) || 0;
-        const dif = reales - Number(s.litros);
-        return (
-        <Modal title="Confirmar surtido" size="md" onClose={() => !busy && setFinalizarOpen(false)} footer={
-          <>
-            <button className="btn btn-ghost" onClick={() => setFinalizarOpen(false)} disabled={busy}>Cancelar</button>
-            <button className="btn btn-primary" onClick={finalizar} disabled={busy || !!motivoSaldo} title={motivoSaldo ?? undefined}>{busy ? 'Surtiendo…' : `Surtir ${num(reales)} L`}</button>
-          </>
-        }>
-          <p style={{ marginTop: 0 }}>
-            Se solicitó <strong className="mono">{num(s.litros)} L</strong> de <strong>{s.combustible_nombre}</strong> para <strong>{s.destino}</strong>.
-          </p>
-          <div className="form-row">
-            <label>Litros realmente surtidos</label>
-            <input className="input mono" type="number" min={0} step="any" autoFocus aria-invalid={motivoSaldo ? true : undefined}
-              value={litrosSurtidos} onChange={(e) => setLitrosSurtidos(e.target.value)} />
-            {tanqueVivo && (motivoSaldo
-              ? <small role="alert" style={{ color: 'var(--danger)' }}>⛔ {motivoSaldo}</small>
-              : <small className="hint muted">Disponible en {tanqueVivo.nombre}: <strong className="mono">{num(tanqueVivo.litros)} L</strong>{litrosTrasSurtido(tanqueVivo.litros, reales) != null ? <> · quedarían <strong className="mono">{num(litrosTrasSurtido(tanqueVivo.litros, reales))} L</strong></> : null}</small>)}
-            <small className="hint muted">Indicá cuánto echaste realmente (puede ser más o menos). Se descuentan estos litros del tanque y del inventario.</small>
-          </div>
-          {reales > 0 && dif !== 0 && (
-            <p className="mono" style={{ color: dif > 0 ? 'var(--warning)' : 'var(--primary-3)', fontSize: '.85rem' }}>
-              {dif > 0 ? '▲' : '▼'} {dif > 0 ? '+' : ''}{num(dif)} L respecto a lo solicitado.
-            </p>
-          )}
-          {telemetriaFields}
-        </Modal>
-        );
-      })()}
-
-      {teleEditOpen && (
-        <Modal title="Horómetros e indicadores" size="md" onClose={() => !busy && setTeleEditOpen(false)} footer={
-          <>
-            <button className="btn btn-ghost" onClick={() => setTeleEditOpen(false)} disabled={busy}>Cancelar</button>
-            <button className="btn btn-primary" onClick={guardarTelemetria} disabled={busy}>{busy ? 'Guardando…' : 'Guardar'}</button>
-          </>
-        }>
-          <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>Cargá o corregí los horómetros e indicadores de esta solicitud finalizada (no cambia litros). Se sincroniza con la cadena de combustible.</p>
-          {telemetriaFields}
-        </Modal>
-      )}
-
-      {correoOpen && (
-        <Modal title="Enviar solicitud por correo" size="md" onClose={() => !enviando && setCorreoOpen(false)} footer={
-          <>
-            <button className="btn btn-ghost" onClick={() => setCorreoOpen(false)} disabled={enviando}>Cancelar</button>
-            <button className="btn btn-primary" onClick={enviarCorreo} disabled={enviando}>{enviando ? 'Enviando…' : 'Enviar'}</button>
-          </>
-        }>
-          <div className="form-row">
-            <label>Correo(s) destinatario(s)</label>
-            <input className="input" value={emails} onChange={(e) => setEmails(e.target.value)} placeholder="correo@ejemplo.com, otro@ejemplo.com" autoFocus />
-            <small className="hint muted">Separá varios con coma o espacio. Se adjunta el reporte PDF.</small>
-          </div>
-        </Modal>
-      )}
-
-      {cancelOpen && (
-        <Modal title={`Cancelar solicitud ${s.codigo}`} size="md" onClose={() => !busy && setCancelOpen(false)} footer={
-          <>
-            <button className="btn btn-ghost" onClick={() => setCancelOpen(false)} disabled={busy}>Volver</button>
-            <button className="btn btn-danger" onClick={cancelar} disabled={busy}>Confirmar cancelación</button>
-          </>
-        }>
-          <div className="form-row">
-            <label>Motivo de la cancelación</label>
-            <textarea className="input" rows={3} value={motivoCancel} onChange={(e) => setMotivoCancel(e.target.value)} placeholder="Indicá por qué se cancela la solicitud…" autoFocus />
-          </div>
-        </Modal>
       )}
     </Modal>
   );
