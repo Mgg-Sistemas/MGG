@@ -748,9 +748,34 @@ export async function setPersonalActivo(id: string, activo: boolean): Promise<vo
   }
 }
 
-/** Elimina definitivamente una persona del personal. */
+/**
+ * Elimina definitivamente una persona del personal.
+ *
+ * Antes de borrar se mira si es conductor con historia en Choferes (viajes, viáticos o
+ * pagos): esas tablas protegen al conductor (ON DELETE RESTRICT) y el borrado fallaba con
+ * un «No se pudo eliminar» sin decir por qué. Acá se explica y se sugiere la baja (⏸),
+ * que conserva el histórico. El error de la base, cuando lo hay, se muestra tal cual
+ * (PostgREST no devuelve un `Error`, así que el toast perdía el mensaje).
+ */
 export async function eliminarPersonal(id: string): Promise<void> {
+  const { data: cond } = await supabase.from('choferes_conductores').select('id').eq('personal_id', id);
+  const conductorIds = ((cond ?? []) as { id: string }[]).map((c) => c.id);
+  if (conductorIds.length) {
+    const [viajes, viaticos, pagos] = await Promise.all([
+      supabase.from('choferes_viajes').select('id', { count: 'exact', head: true }).in('chofer_id', conductorIds),
+      supabase.from('choferes_viaticos').select('id', { count: 'exact', head: true }).in('chofer_id', conductorIds),
+      supabase.from('choferes_pagos').select('id', { count: 'exact', head: true }).in('chofer_id', conductorIds),
+    ]);
+    const partes = [
+      viajes.count ? `${viajes.count} viaje(s)` : '',
+      viaticos.count ? `${viaticos.count} viático(s)` : '',
+      pagos.count ? `${pagos.count} pago(s)` : '',
+    ].filter(Boolean);
+    if (partes.length) {
+      throw new Error(`No se puede borrar: es conductor con ${partes.join(', ')} registrados en Choferes. Dale de baja (⏸) para conservar ese histórico.`);
+    }
+  }
   const { data, error } = await supabase.from(TABLE).delete().eq('id', id).select('id');
-  if (error) throw error;
+  if (error) throw new Error(error.message || 'No se pudo eliminar');
   if (!data || data.length === 0) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
 }
