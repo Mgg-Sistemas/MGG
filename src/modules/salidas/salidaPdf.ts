@@ -6,7 +6,7 @@
 import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/types';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
-import { autorizanteDe } from './autorizanteSalida';
+import { autorizanteDe, figuraQuienAprobo } from './autorizanteSalida';
 import { cancelacionDe } from './historicoSalidas';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
@@ -178,7 +178,15 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   // 105 de 179 documentos llevaban la firma de alguien que no intervino.
   // Solo Leydis Rengel o Jesús Lozada figuran como autorizantes. Una aprobación
   // vieja de otra persona figura a nombre de Leydis, con su firma.
-  const autoriza = autorizanteDe(sol.aprobada_por, sol.sin_autorizacion);
+  const autoriza = autorizanteDe(sol.aprobada_por, sol.sin_autorizacion, {
+    aprobadaEn: sol.aprobada_en,
+    nombre: sol.aprobada_por ? personaDe(sol.aprobada_por, personas, sol.aprobada_por) : null,
+  });
+  // Firma cargada en «Usuarios autorizados para:» (28-10-2026) de quien aprobó. Si no
+  // cargó firma, queda la regla de siempre (la de Leydis cuando corresponde).
+  const firmaCargada = figuraQuienAprobo(sol.aprobada_por, sol.aprobada_en)
+    ? await import('@/modules/usuarios/autorizados.repository').then((m) => m.firmaDeCorreo(sol.aprobada_por)).catch(() => null)
+    : null;
   const creo = personaDe(sol.actor, personas, sol.actor_name || sol.solicitante);
 
   // Líneas de la "factura": el detalle multi-producto si existe, si no la cabecera.
@@ -339,7 +347,12 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   const cxAutoriza = MARGIN + colW + 40 + colW / 2;
   // La firma escaneada va SOLO si quien aprobó es su dueña. Para cualquier otro
   // la línea queda vacía: la firma la pone esa persona a mano.
-  if (firmaSalidas && autoriza.firma) {
+  if (firmaCargada) {
+    try {
+      const sw = 150, sh = 52;
+      doc.addImage(firmaCargada.dataUrl, firmaCargada.formato, cxAutoriza - sw / 2, fy - sh + 8, sw, sh);
+    } catch { /* firma opcional */ }
+  } else if (firmaSalidas && autoriza.firma) {
     try {
       const sw = 150, sh = 52;  // mediano (proporción de firma2)
       doc.addImage(firmaSalidas, 'JPEG', cxAutoriza - sw / 2, fy - sh + 8, sw, sh);

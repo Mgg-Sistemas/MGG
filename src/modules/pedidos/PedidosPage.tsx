@@ -20,6 +20,7 @@ import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useAutorizacionAprobar } from '@/modules/usuarios/autorizados.repository';
 import { opcionesRecepcion, destinoRecepcionPorUsuario } from '@/modules/inventario/sectorizacion';
 import { esDespiezable } from '@/modules/inventario/despieceRes';
 import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece } from '@/modules/inventario/DespieceResForm';
@@ -427,10 +428,10 @@ export function PedidosPage() {
   const canManageProcurement = isAdmin || usuario?.role === 'analista';
   // El obrero solo crea solicitudes de pedido y las finaliza: sin acceso a Órdenes de Compra.
   const isObrero = usuario?.role === 'obrero';
-  // Autorizar (confirmar) las Órdenes de Compra: el Gerente General (admin) y LEYDIS RENGEL
-  // (jefa de administración). Cada uno firma con su propia firma en el PDF.
-  const emailActual = (usuario?.email ?? user?.email ?? '').toLowerCase();
-  const puedeAprobarOc = usuario?.role === 'admin' || emailActual === 'jhzgcontabilidad@gmail.com';
+  // Autorizar (confirmar) las Órdenes de Compra: quien esté en «Usuarios autorizados para:
+  // Aprobar órdenes de compra» (Usuarios > Roles y Permisos, 28-10-2026). Cada uno firma
+  // con su firma cargada en el PDF.
+  const { aprobarOc: puedeAprobarOc } = useAutorizacionAprobar(usuario?.id ?? user?.id);
 
   // Si el obrero quedara con scope 'oc' (estado viejo), lo forzamos a 'pedidos'.
   useEffect(() => {
@@ -837,7 +838,7 @@ export function PedidosPage() {
           onEditarOc={() => setModal({ kind: 'edit-oc', orden: currentDetail })}
           onAsignar={() => setModal({ kind: 'asignar', orden: currentDetail })}
           onConfirmOc={async () => {
-            if (!puedeAprobarOc) { toast('Solo el Gerente General o la Jefa de Administración pueden autorizar las órdenes de compra.', 'error'); return; }
+            if (!puedeAprobarOc) { toast('Solo los usuarios autorizados para aprobar órdenes de compra (Usuarios > Roles y Permisos) pueden autorizarlas.', 'error'); return; }
             try {
               await aprobarOcsEnLote([currentDetail], usuario?.email ?? user?.email ?? 'sistema', null);
               notify(`OC confirmada: ${currentDetail.oc_codigo ?? currentDetail.codigo} · falta indicar el método de pago (el almacén destino se elige al recibir)`, 'success', { link: '#/app/pedidos' });

@@ -45,4 +45,21 @@ describe('quién autoriza salidas y traslados', () => {
     expect(autorizanteDe('mineralgroupguayanaca@gmail.com', true))
       .toEqual({ nombre: 'JESUS LOZADA', firma: false, pendiente: false });
   });
+
+  it('desde la lista de autorizados (28-10-2026) figura quien aprobó, con su nombre', () => {
+    expect(autorizanteDe('mariana@gmail.com', false, { aprobadaEn: '2026-10-28T15:00:00-04:00', nombre: 'Mariana Tovar' }))
+      .toEqual({ nombre: 'MARIANA TOVAR', firma: false, pendiente: false });
+    // Sin nombre cargado, el correo.
+    expect(autorizanteDe('mariana@gmail.com', false, { aprobadaEn: '2026-11-02T09:00:00-04:00' }).nombre).toBe('MARIANA@GMAIL.COM');
+  });
+
+  it('una aprobación de otra persona ANTES de la lista sigue a nombre de Leydis', () => {
+    expect(autorizanteDe('almacenmatanzas2026@gmail.com', false, { aprobadaEn: '2026-09-10T10:00:00-04:00', nombre: 'Kelvin Peña' }))
+      .toEqual({ nombre: NOMBRE_FIRMA, firma: true, pendiente: false });
+  });
+
+  it('Leydis y Jesús siguen con su nombre de siempre aunque aprueben después', () => {
+    expect(autorizanteDe('jhzgcontabilidad@gmail.com', false, { aprobadaEn: '2026-10-29T10:00:00-04:00', nombre: 'Leydis' }))
+      .toEqual({ nombre: NOMBRE_FIRMA, firma: true, pendiente: false });
+  });
 });

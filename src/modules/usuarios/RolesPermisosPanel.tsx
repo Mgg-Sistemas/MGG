@@ -29,6 +29,7 @@ import {
 } from './roles.repository';
 import { setRolesCache } from './usuarios.repository';
 import { NuevoRolModal, GestionarRolesModal } from './RolesModales';
+import { UsuariosAutorizadosPanel } from './UsuariosAutorizadosPanel';
 
 function normalize(stored: Partial<AllPermisos>, roles: CustomRole[]): AllPermisos {
   return roles.reduce<AllPermisos>((acc, r) => {
@@ -207,6 +208,9 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
           </div>
         )}
       </div>
+
+      {/* Quién aprueba OC y salidas (28-10-2026): lista propia, con su firma. */}
+      <UsuariosAutorizadosPanel readOnly={readOnly} actorEmail={user?.email ?? 'sistema'} />
 
       {!loading && (
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1rem' }}>

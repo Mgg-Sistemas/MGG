@@ -5,6 +5,7 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useAutorizacionAprobar } from '@/modules/usuarios/autorizados.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { date, money } from '@/shared/lib/format';
 import { listOcPorLote, nextCodigoChecklist, type OcLoteRow } from './ocLote.repository';
@@ -18,8 +19,8 @@ export function OcPorLoteView() {
   // Modifica/anula OC: el administrador o quien tenga FULL CONTROL de Pedidos/Compras.
   const { isAdmin: esAdmin, can } = usePermissions();
   const isAdmin = esAdmin || can('pedidos', 'full');
-  // AUTORIZAR una OC: el Gerente General (admin) o la Jefa de Administración (LEYDIS RENGEL).
-  const soloAdmin = esAdmin || (user?.email ?? '').toLowerCase() === 'jhzgcontabilidad@gmail.com';
+  // AUTORIZAR una OC: quien esté en «Usuarios autorizados para: Aprobar órdenes de compra» (28-10-2026).
+  const { aprobarOc: soloAdmin } = useAutorizacionAprobar(user?.id);
   const [rows, setRows] = useState<OcLoteRow[]>([]);
   const [incluirPagadas, setIncluirPagadas] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -76,7 +77,7 @@ export function OcPorLoteView() {
   // Aprobar en lote: solo las seleccionadas que estén "por confirmar" (oc_creada).
   const porConfirmar = (list: OcLoteRow[]) => seleccionadas(list).filter((r) => r.orden.estado === 'oc_creada');
   async function aprobar() {
-    if (!soloAdmin) { toast('Solo el administrador puede aprobar las órdenes de compra.', 'error'); return; }
+    if (!soloAdmin) { toast('Solo los usuarios autorizados para aprobar órdenes de compra pueden aprobarlas.', 'error'); return; }
     const elegidas = porConfirmar(rows);
     if (!elegidas.length) { toast('No hay órdenes por confirmar seleccionadas', 'error'); return; }
     setAprobando(true);

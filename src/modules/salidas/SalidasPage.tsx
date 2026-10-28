@@ -1,4 +1,5 @@
-import { puedeAutorizarSalidas, autorizanteDe } from './autorizanteSalida';
+import { autorizanteDe } from './autorizanteSalida';
+import { useAutorizacionAprobar } from '@/modules/usuarios/autorizados.repository';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal as ModalUI } from '@/shared/ui/Modal';
@@ -76,14 +77,14 @@ type Modal =
 export function SalidasPage() {
   const { can, appUser, role } = usePermissions();
   const canWrite = can('salidas', 'escritura');
-  // AUTORIZAR salidas y traslados: SOLO Leydis Rengel y Jesús Lozada (regla de la
-  // empresa desde el 14-09-2026). Antes aprobaba cualquiera con control total del
-  // módulo, y el almacenista lo tenía. La base de datos lo exige también
-  // (trigger trg_salidas_solo_autorizados), así que esto es solo la cara visible.
+  // AUTORIZAR salidas y traslados: quien esté en «Usuarios autorizados para: Aprobar
+  // salidas» (Usuarios > Roles y Permisos, desde el 28-10-2026; antes era fijo: Leydis
+  // Rengel y Jesús Lozada, que arrancan en la lista). La base de datos lo exige también
+  // (trigger trg_salidas_solo_autorizados → puede_aprobar('salidas')).
   // Excepción DURA para EJECUTAR: el Analista de Compras y el de Lectura.
   const r = role ?? '';
   const NO_APRUEBA_SALIDAS = r === 'analista' || r === 'analista_de_lectura';
-  const puedeAprobar = puedeAutorizarSalidas(appUser?.email);
+  const { aprobarSalidas: puedeAprobar } = useAutorizacionAprobar(appUser?.id);
   // EJECUTAR (descuenta/mueve stock) es más amplio que APROBAR: además de quienes aprueban,
   // cualquier usuario con permiso de ESCRITURA puede ejecutar una solicitud ya aprobada
   // (pero NO aprobarla — eso queda para full control / admin / jefe / analista).
@@ -1507,7 +1508,7 @@ function SolicitudDetalleModal({
               <span className="muted">reparto de víveres entre cocinas, hecho desde Distribución de Alimentación</span>
             </td></tr>
           )}
-          {sol.aprobada_en && <tr><td className="muted">Aprobada</td><td>{dateTime(sol.aprobada_en)} · {autorizanteDe(sol.aprobada_por, sol.sin_autorizacion).nombre}</td></tr>}
+          {sol.aprobada_en && <tr><td className="muted">Aprobada</td><td>{dateTime(sol.aprobada_en)} · {autorizanteDe(sol.aprobada_por, sol.sin_autorizacion, { aprobadaEn: sol.aprobada_en, nombre: sol.aprobada_por ? nombreDeActor(sol.aprobada_por, undefined, sol) : null }).nombre}</td></tr>}
           {sol.ejecutada_en && <tr><td className="muted">{sol.mov_ref === 'manual_externo' ? 'Cerrada' : 'Ejecutada'}</td><td>{dateTime(sol.ejecutada_en)} · {sol.ejecutada_por ?? ''}</td></tr>}
           {cancelacion && (
             <>

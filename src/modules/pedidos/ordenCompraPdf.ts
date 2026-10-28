@@ -9,6 +9,9 @@ import { resolvedorNombresUsuarios } from '@/shared/lib/useNombreUsuario';
 /** Correo de la Jefa de Administración (LEYDIS RENGEL): si confirmó ella la OC,
  *  el PDF muestra SU firma (firma2.jpeg) en vez de la del Gerente General. */
 const EMAIL_JEFA_ADMIN = 'jhzgcontabilidad@gmail.com';
+/** Correo del Gerente General (JESUS LOZADA), dueño de firma.png. */
+const EMAIL_GERENTE = 'mineralgroupguayanaca@gmail.com';
+import { INICIO_LISTA_AUTORIZADOS } from '@/modules/salidas/autorizanteSalida';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import { descuentoEfectivo } from './ofertas.repository';
@@ -504,9 +507,24 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   const aprobadaPorGG = !!(orden.oc_aprobada_por || orden.oc_aprobada_en)
     || ['oc_aprobada', 'pagada', 'oc_emitida', 'recibida', 'finalizada', 'por_recibir', 'cuenta_abierta'].includes(orden.estado);
   const aproboJefaAdmin = (orden.oc_aprobada_por ?? '').toLowerCase() === EMAIL_JEFA_ADMIN;
-  const firmaMostrar = aproboJefaAdmin ? firmaLeydisDataUrl : firmaDataUrl;
-  const firmaFmt = aproboJefaAdmin ? 'JPEG' : 'PNG';
-  const firmaLabel = aproboJefaAdmin ? 'Firma autorizada · Jefa de Administración' : 'Firma autorizada · Gerente General';
+  // Firma cargada en «Usuarios autorizados para:» (28-10-2026) de quien aprobó: manda
+  // sobre las fijas. Sin firma cargada: Leydis → su firma de siempre; Gerente (o una
+  // OC aprobada antes de la lista) → la del Gerente; otro autorizado → línea vacía
+  // (no se le pone la firma de otra persona).
+  const correoAprobo = (orden.oc_aprobada_por ?? '').toLowerCase();
+  const firmaCargada = aprobadaPorGG && correoAprobo
+    ? await import('@/modules/usuarios/autorizados.repository').then((m) => m.firmaDeCorreo(correoAprobo)).catch(() => null)
+    : null;
+  const aproboOtroAutorizado = !!correoAprobo && !aproboJefaAdmin && correoAprobo !== EMAIL_GERENTE
+    && !!orden.oc_aprobada_en && new Date(orden.oc_aprobada_en).getTime() >= new Date(INICIO_LISTA_AUTORIZADOS).getTime();
+  const firmaMostrar = firmaCargada?.dataUrl
+    ?? (aproboJefaAdmin ? firmaLeydisDataUrl : aproboOtroAutorizado ? null : firmaDataUrl);
+  const firmaFmt = firmaCargada?.formato ?? (aproboJefaAdmin ? 'JPEG' : 'PNG');
+  const firmaLabel = aproboJefaAdmin
+    ? 'Firma autorizada · Jefa de Administración'
+    : (firmaCargada || aproboOtroAutorizado) && correoAprobo
+      ? `Firma autorizada · ${persona(correoAprobo, orden.oc_aprobada_en ?? orden.created_at)}`
+      : 'Firma autorizada · Gerente General';
   if (firmaMostrar && aprobadaPorGG) {
     try {
       const fw = 120, fh = 50;
