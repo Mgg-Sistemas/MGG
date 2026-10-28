@@ -45,14 +45,18 @@ describe('XML del SENIAT (retenciones de ISLR)', () => {
     const r = armarXmlIslr({ ...base, filas: [] });
     expect(r.lineas).toBe(0);
     expect(r.faltan).toEqual([]);
-    expect(r.contenido).toContain('<RelacionRetencionesISLR RIF="J123456780" Periodo="202610" />');
+    expect(r.contenido).toContain('RifAgente="J123456780"');
+    expect(r.contenido).toContain('RIF="J123456780"');
+    expect(r.contenido).toContain('Periodo="202610"');
   });
 
   it('con operaciones: genera la estructura completa con DetalleRetencion', () => {
     const r = armarXmlIslr({ ...base, filas: [ret()] });
     expect(r.lineas).toBe(1);
     expect(r.faltan).toEqual([]);
-    expect(r.contenido).toContain('<RelacionRetencionesISLR RIF="J123456780" Periodo="202610">');
+    expect(r.contenido).toContain('RifAgente="J123456780"');
+    expect(r.contenido).toContain('RIF="J123456780"');
+    expect(r.contenido).toContain('Periodo="202610"');
     expect(r.contenido).toContain('<RifRetenido>J000000001</RifRetenido>');
     expect(r.contenido).toContain('<NumeroFactura>000123</NumeroFactura>');
     expect(r.contenido).toContain('<NumeroControl>00-000456</NumeroControl>');

@@ -76,7 +76,7 @@ export function armarXmlIslr(e: EntradaXmlIslr): ResultadoXmlIslr {
 
   const filas = filasXmlIslr(e.filas, e.periodo);
   if (!filas.length) {
-    const xmlVacio = `<?xml version="1.0" encoding="ISO-8859-1"?>\r\n<RelacionRetencionesISLR RIF="${rifAg}" Periodo="${e.periodo}" />\r\n`;
+    const xmlVacio = `<?xml version="1.0" encoding="ISO-8859-1"?>\r\n<RelacionRetencionesISLR RifAgente="${rifAg}" RIF="${rifAg}" Periodo="${e.periodo}" />\r\n`;
     return { nombre, contenido: xmlVacio, lineas: 0, faltan };
   }
 
@@ -111,7 +111,7 @@ export function armarXmlIslr(e: EntradaXmlIslr): ResultadoXmlIslr {
 
   const xmlCompleto =
     `<?xml version="1.0" encoding="ISO-8859-1"?>\r\n` +
-    `<RelacionRetencionesISLR RIF="${rifAg}" Periodo="${e.periodo}">\r\n` +
+    `<RelacionRetencionesISLR RifAgente="${rifAg}" RIF="${rifAg}" Periodo="${e.periodo}">\r\n` +
     `${detalles.join('\r\n')}\r\n` +
     `</RelacionRetencionesISLR>\r\n`;
 

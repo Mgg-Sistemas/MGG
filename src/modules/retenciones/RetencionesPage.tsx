@@ -249,9 +249,8 @@ export function RetencionesPage() {
     const o = item.orden;
     const ivaReal = Math.max(0, Number(o.iva ?? o.iva_monto ?? 0));
     const igtfReal = Math.max(0, Number(o.igtf ?? o.igtf_monto ?? 0));
-    const baseCalc = o.iva_incluido
-      ? Math.max(0, Number(o.total || 0) - ivaReal)
-      : Math.max(0, Number(o.total || 0) - ivaReal - igtfReal);
+    const exentoReal = Math.max(0, Number((o as unknown as { exento?: number }).exento ?? 0));
+    const baseCalc = Math.max(0, Number(o.total || 0) - ivaReal - igtfReal - exentoReal);
     return {
       ...s, contraparteId: o.proveedor_id, contraparteNombre: item.proveedorNombre,
       moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
@@ -891,9 +890,8 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
                   const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
                   const ivaReal = Math.max(0, Number(o.iva ?? o.iva_monto ?? 0));
                   const igtfReal = Math.max(0, Number(o.igtf ?? o.igtf_monto ?? 0));
-                  const baseCalc = o.iva_incluido
-                    ? Math.max(0, Number(o.total || 0) - ivaReal)
-                    : Math.max(0, Number(o.total || 0) - ivaReal - igtfReal);
+                  const exentoReal = Math.max(0, Number((o as unknown as { exento?: number }).exento ?? 0));
+                  const baseCalc = Math.max(0, Number(o.total || 0) - ivaReal - igtfReal - exentoReal);
                   return (
                     <button key={k} className="btn btn-sm lfv8-btn-reg" onClick={() => onRegistrar({
                       direccion: 'practicada',
@@ -928,6 +926,13 @@ function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, 
                 {o.oc_codigo && (
                   <a className="btn btn-sm btn-ghost" href={`#/app/pedidos?detalle=${encodeURIComponent(o.id)}`}>Ver OC</a>
                 )}
+                <button
+                  className="btn btn-sm btn-primary"
+                  title="Abrir comprobante para cargar archivos o finalizar retención"
+                  onClick={() => onVer({ orden: o, proveedorNombre })}
+                >
+                  {pends.length === 0 ? '✓ Finalizar retención' : 'Ver detalle'}
+                </button>
                 <button className="btn btn-sm btn-ghost" onClick={onVista}>Ver en vista agrupada</button>
               </span>
             </div>
