@@ -79,8 +79,9 @@ begin
 end;
 $function$;
 
--- Ensayo (se revierte): borrar la ficha 034 ya no choca con la guardia.
-begin;
-delete from public.personal where id = '2c4d9cb1-2634-4aa6-81a1-41e3c4bd746b';
-select 'ensayo ok: la ficha se puede borrar' as resultado;
-rollback;
+-- OJO: el ensayo de borrado va en un script APARTE. El ejecutor corre el archivo entero en
+-- una transacción: un begin/rollback acá deshace también el create or replace (pasó el
+-- 28-10 a las 09:46 y la guardia siguió rechazando el borrado).
+select position('v_solo_baja_persona' in pg_get_functiondef(p.oid)) > 0 as guardia_aplicada
+  from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+ where n.nspname = 'public' and p.proname = 'nomina_renglon_guard';
