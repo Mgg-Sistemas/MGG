@@ -1,5 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
-import type { ItemOrden, OfertaProveedor, OfertaDetalle, OfertaAdjunto, Producto } from '@/shared/lib/types';
+import type { ItemOrden, OfertaProveedor, OfertaDetalle, OfertaAdjunto, Orden, Producto } from '@/shared/lib/types';
+import { decidirCambioProveedor, errorMotivoProveedorOferta, eventoProveedorCambiado, type OrdenDeOferta } from './proveedorOfertaAceptada';
+import type { ProveedorRef } from './cambioProveedor';
 import { ofertaCubreTodoLoPendiente, type HijaCobertura } from './subOc';
 import { costoPorUnidadDeUso, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
 import { aplicarFicha, nombreFicha, planFichas, type EleccionNombreInventario, type FichaMin } from './nombreInventario';
@@ -304,10 +306,25 @@ export interface EditarOfertaInput {
   adjuntos?: OfertaAdjunto[] | null;
 }
 
+/** Quién edita y por qué: obligatorio solo si cambia el proveedor de una oferta aceptada. */
+export interface OpcionesEdicionOferta {
+  actor?: string;
+  motivoCambioProveedor?: string | null;
+}
+
+/**
+ * Si cambia el proveedor de una oferta ACEPTADA, el cambio pasa también a la orden que nació
+ * de ella, con su evento en el historial (proveedorOfertaAceptada.ts); con la orden pagada o
+ * recibida se rechaza ANTES de tocar nada. `ordenes_sincronizadas` trae esas órdenes ya
+ * guardadas: quien siga trabajando con la orden debe usar estas y no la que tenía en memoria
+ * (si no, un guardado posterior pisaría el evento nuevo del historial).
+ */
 export async function actualizarOferta(
   id: string,
-  input: EditarOfertaInput
-): Promise<OfertaProveedor> {
+  input: EditarOfertaInput,
+  opciones: OpcionesEdicionOferta = {},
+): Promise<OfertaProveedor & { ordenes_sincronizadas?: Orden[] }> {
+  const cambio = input.proveedor_id !== undefined ? await revisarCambioProveedorOferta(id, input.proveedor_id, opciones) : null;
   const patch: Record<string, unknown> = {};
   if (input.proveedor_id !== undefined) patch.proveedor_id = input.proveedor_id;
   if (input.items !== undefined) patch.items = input.items;
@@ -333,7 +350,48 @@ export async function actualizarOferta(
     .select('*')
     .single();
   if (error) throw error;
-  return data as OfertaProveedor;
+  if (!cambio?.ordenes.length) return data as OfertaProveedor;
+  const ordenes_sincronizadas: Orden[] = [];
+  for (const o of cambio.ordenes) {
+    const { data: od, error: oErr } = await supabase
+      .from('ordenes')
+      .update({ proveedor_id: cambio.nuevoId, historial: [...(o.historial ?? []), cambio.evento] })
+      .eq('id', o.id)
+      .select('*')
+      .single();
+    if (oErr) throw new Error(`La oferta cambió de proveedor, pero la orden ${o.oc_codigo || o.codigo} no se pudo actualizar: ${oErr.message}`);
+    ordenes_sincronizadas.push(od as Orden);
+  }
+  return { ...(data as OfertaProveedor), ordenes_sincronizadas };
+}
+
+/**
+ * Lee la oferta y sus órdenes y decide; lanza el error en español si no se puede. Se puede
+ * llamar antes de guardar (subir adjuntos, etc.) para no dejar nada a medias si se rechaza.
+ */
+export async function revisarCambioProveedorOferta(ofertaId: string, nuevoId: string, opciones: OpcionesEdicionOferta) {
+  const { data: oferta, error } = await supabase
+    .from(TABLE).select('estado, proveedor_id, orden_id').eq('id', ofertaId).single();
+  if (error) throw error;
+  const of = oferta as Pick<OfertaProveedor, 'estado' | 'proveedor_id' | 'orden_id'>;
+  if (of.estado !== 'aceptada' || of.proveedor_id === nuevoId) return null;
+  const { data: filas, error: oErr } = await supabase
+    .from('ordenes')
+    .select('id, codigo, oc_codigo, estado, proveedor_id, parent_orden_id, items, historial')
+    .or(`id.eq.${of.orden_id},parent_orden_id.eq.${of.orden_id}`);
+  if (oErr) throw oErr;
+  const decision = decidirCambioProveedor(of, nuevoId, (filas ?? []) as OrdenDeOferta[]);
+  if (decision.tipo === 'bloqueado') throw new Error(decision.mensaje);
+  if (decision.tipo !== 'sincronizar') return null;
+  const errMotivo = errorMotivoProveedorOferta(opciones.motivoCambioProveedor);
+  if (errMotivo) throw new Error(errMotivo);
+  const { data: provs } = await supabase.from('proveedores').select('id, razon_social, rif').in('id', [of.proveedor_id, nuevoId]);
+  const ref = (pid: string): ProveedorRef => ((provs ?? []) as ProveedorRef[]).find((p) => p.id === pid) ?? { id: pid };
+  const evento = eventoProveedorCambiado({
+    anterior: ref(of.proveedor_id), nuevo: ref(nuevoId),
+    motivo: (opciones.motivoCambioProveedor ?? '').trim(), actor: opciones.actor ?? 'sistema',
+  });
+  return { nuevoId, ordenes: decision.ordenes, evento };
 }
 
 export async function eliminarOferta(id: string): Promise<void> {
