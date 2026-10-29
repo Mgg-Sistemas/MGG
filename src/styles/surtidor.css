@@ -152,6 +152,24 @@
   .surt-grid2 { grid-template-columns: 1fr; }
 }
 
+/* ── Inventario y Almacenes (teléfono, 29-10-2026, traído de GT Depósito Mina):
+   salida con ¿retorna? SÍ / NO, fotos, por retornar y traslado entre almacenes ── */
+.surt-btn.salida { border-color: var(--warning); }
+.surt-btn.retorno { border-color: var(--info, var(--primary)); font-size: 1.1rem; }
+.surt-btn.traslado { border-color: #a855f7; }
+.surt-acciones .surt-btn.ancho { grid-column: 1 / -1; min-height: 84px; }
+.surt-btn:disabled { opacity: .55; cursor: not-allowed; }
+.surt-sino { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.surt-sino .surt-btn { min-height: 96px; }
+.surt-sino .surt-btn.si.sel { border-color: var(--success); background: color-mix(in srgb, var(--success) 14%, var(--surface-3)); }
+.surt-sino .surt-btn.no.sel { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, var(--surface-3)); }
+.surt-foto-quitar { position: relative; cursor: default; }
+.surt-foto-quitar button {
+  position: absolute; top: .25rem; right: .25rem; width: 32px; height: 32px; border-radius: 50%;
+  border: 0; background: rgba(0, 0, 0, .65); color: #fff; font-size: 1rem; cursor: pointer;
+}
+.surt-mov:disabled { opacity: .55; cursor: not-allowed; }
+
 /* ── Reporte con fotos (teléfono) ── */
 .rep-grupo { margin-bottom: 1.1rem; }
 .rep-grupo-titulo { display: flex; justify-content: space-between; align-items: center; gap: .5rem; font-size: .95rem; margin: 0 0 .5rem; padding-bottom: .3rem; border-bottom: 2px solid var(--primary); }

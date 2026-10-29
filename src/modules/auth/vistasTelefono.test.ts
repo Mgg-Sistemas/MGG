@@ -24,9 +24,11 @@ describe('vistasPermitidas · pantalla dada Y lectura en su módulo (13-10)', ()
     expect(vistasPermitidas([], conModulos(), true)).toEqual(VISTAS_TELEFONO);
   });
 
-  it('De Inventario solo está «Solicitudes de Pedido» (29-10), y se da aparte como las demás', () => {
-    expect(VISTAS_TELEFONO.filter((v) => v.modulo === 'inventario').map((v) => v.key)).toEqual(['solicitudes']);
+  it('De Inventario están «Inventario y Almacenes» y «Solicitudes de Pedido» (29-10), y se dan aparte como las demás', () => {
+    expect(VISTAS_TELEFONO.filter((v) => v.modulo === 'inventario').map((v) => v.key)).toEqual(['inventario', 'solicitudes']);
     expect(claves(vistasPermitidas(['solicitudes'], conModulos('inventario'), false))).toEqual(['solicitudes']);
+    expect(claves(vistasPermitidas(['inventario'], conModulos('inventario'), false))).toEqual(['inventario']);
+    expect(VISTAS_TELEFONO.find((v) => v.key === 'inventario')?.ruta).toBe('/app/inventario/telefono');
     expect(vistasPermitidas(['surtidor', 'comidas'], conModulos('inventario'), false)).toEqual([]);
   });
 });

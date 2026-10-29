@@ -384,6 +384,9 @@ export interface TransferirInput {
   actor: string;
   actor_name?: string | null;
   detalle?: string | null;
+  /** Origen del traslado para el kardex (p. ej. 'traslado_telefono'). Falta = manual. */
+  ref_tipo?: string | null;
+  ref_codigo?: string | null;
 }
 
 /**
@@ -415,6 +418,8 @@ export async function transferir(input: TransferirInput): Promise<void> {
     almacen: input.almacenOrigen,
     actor: input.actor,
     actor_name: input.actor_name ?? null,
+    ref_tipo: input.ref_tipo ?? null,
+    ref_codigo: input.ref_codigo ?? null,
     detalle: `Transferencia a ${input.almacenDestino}${extra}`,
   });
 
@@ -441,6 +446,8 @@ export async function transferir(input: TransferirInput): Promise<void> {
       precio_unitario: costoOrigen,
       actor: input.actor,
       actor_name: input.actor_name ?? null,
+      ref_tipo: input.ref_tipo ?? null,
+      ref_codigo: input.ref_codigo ?? null,
       detalle: `Transferencia desde ${input.almacenOrigen}${extra}`,
     });
   } catch (e) {
@@ -454,6 +461,8 @@ export async function transferir(input: TransferirInput): Promise<void> {
         precio_unitario: costoOrigen,
         actor: input.actor,
         actor_name: input.actor_name ?? null,
+        ref_tipo: input.ref_tipo ?? null,
+        ref_codigo: input.ref_codigo ?? null,
         detalle: `Reverso: la entrada a ${input.almacenDestino} no se pudo registrar${extra}`,
       });
     } catch {

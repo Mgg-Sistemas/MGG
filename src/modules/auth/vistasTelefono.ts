@@ -17,7 +17,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'maquinaria' | 'retenciones' | 'solicitudes';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'maquinaria' | 'retenciones' | 'inventario' | 'solicitudes';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -45,6 +45,12 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
   {
     key: 'retenciones', label: 'Carga de Facturas', icono: '🧾', modulo: 'retenciones',
     ruta: '/app/retenciones/telefono', descripcion: 'Carga y envío de facturas externas con soporte para WhatsApp',
+  },
+  {
+    // Traída de GT «Depósito Mina» (29-10-2026), con el almacén a elegir y traslado entre almacenes.
+    key: 'inventario', label: 'Inventario y Almacenes', icono: '📦', modulo: 'inventario',
+    ruta: '/app/inventario/telefono',
+    descripcion: 'Producto nuevo, entradas, salidas con retorno, traslados entre almacenes y stock por WhatsApp',
   },
   {
     // Flujo SP → Almacén → Compras (29-10-2026). Se esconde en el menú mientras el

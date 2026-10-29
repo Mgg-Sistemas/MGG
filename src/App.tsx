@@ -20,6 +20,7 @@ const SolicitudesAlmacenMovilView = lazyReload(() => import('./modules/pedidos/S
 const ProveedoresPage = lazyReload(() => import('./modules/proveedores/ProveedoresPage').then((m) => ({ default: m.ProveedoresPage })));
 const InventarioPage = lazyReload(() => import('./modules/inventario/InventarioPage').then((m) => ({ default: m.InventarioPage })));
 const DepositoPage = lazyReload(() => import('./modules/inventario/InventarioPage').then((m) => ({ default: m.DepositoPage })));
+const InventarioMovilView = lazyReload(() => import('./modules/inventario/InventarioMovilView').then((m) => ({ default: m.InventarioMovilView })));
 const AlmacenCentroPage = lazyReload(() => import('./modules/inventario/InventarioPage').then((m) => ({ default: m.AlmacenCentroPage })));
 const ProduccionPage = lazyReload(() => import('./modules/produccion/ProduccionPage').then((m) => ({ default: m.ProduccionPage })));
 const RefinacionPage = lazyReload(() => import('./modules/produccion/ProduccionPage').then((m) => ({ default: m.RefinacionPage })));
@@ -139,6 +140,8 @@ export function App() {
           <Route path="pedidos/historico" element={<RequireModule module="pedidos"><Suspense fallback={<PageLoader />}><HistoricoPage /></Suspense></RequireModule>} />
           <Route path="proveedores" element={<RequireModule module="proveedores"><Suspense fallback={<PageLoader />}><ProveedoresPage /></Suspense></RequireModule>} />
           <Route path="inventario" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
+          {/* Inventario y Almacenes en el teléfono (29-10-2026, traída de GT Depósito Mina). */}
+          <Route path="inventario/telefono" element={<RequireVistaTelefono vista="inventario"><Suspense fallback={<PageLoader />}><InventarioMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="deposito" element={<RequireModule module="deposito"><Suspense fallback={<PageLoader />}><DepositoPage /></Suspense></RequireModule>} />
           <Route path="almacenes/:sede" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><AlmacenCentroPage /></Suspense></RequireModule>} />
           {/* Solicitudes de Pedido: almacén revisa qué hay antes de Compras (29-10-2026). */}
