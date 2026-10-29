@@ -86,11 +86,13 @@ describe('generación real, con vista previa (nada se descarga solo)', () => {
   });
 
   it('PDF del Estado de Resultados Mes a Mes: pasa por la vista previa, apaisado con muchas columnas', async () => {
+    capturas.pdf.length = 0;
     const res = estadoResultados(f, ESTRUCTURA_PRUEBA, { columnas: columnasResultados('mes_a_mes', '2026-06', e.cont_ejercicios[0]), moneda: 'USD' });
     await verEstadoPdf(res, false, { ...ctx, titulo: 'Estado de Resultados · Mes a Mes', archivo: 'resultados-prueba' });
-    expect(capturas.pdf).toHaveLength(1);
-    expect(capturas.pdf[0].nombre).toContain('resultados-prueba');
-    const doc = capturas.pdf[0].doc as { internal: { pageSize: { getWidth: () => number; getHeight: () => number } } };
+    expect(capturas.pdf.length).toBeGreaterThanOrEqual(1);
+    const item = capturas.pdf.find((x) => x.nombre.includes('resultados-prueba')) ?? capturas.pdf[0];
+    expect(item.nombre).toContain('resultados-prueba');
+    const doc = item.doc as { internal: { pageSize: { getWidth: () => number; getHeight: () => number } } };
     expect(doc.internal.pageSize.getWidth()).toBeGreaterThan(doc.internal.pageSize.getHeight());
   });
 

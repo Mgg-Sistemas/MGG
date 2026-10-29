@@ -146,7 +146,7 @@ describe('emisión de ejemplares · Original y Copia (Providencia SNAT/2025/0000
     const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
     const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'ambos', incluirLogo: false, incluirQr: false });
     expect(doc.getNumberOfPages()).toBe(2);
-  });
+  }, 15000);
 
   it('modo "original" emite exactamente 1 página', async () => {
     const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');

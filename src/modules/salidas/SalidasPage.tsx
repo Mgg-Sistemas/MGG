@@ -1,5 +1,6 @@
 import { autorizanteDe } from './autorizanteSalida';
 import { useAutorizacionAprobar } from '@/modules/usuarios/autorizados.repository';
+import { useSession } from '@/modules/auth/authStore';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal as ModalUI } from '@/shared/ui/Modal';

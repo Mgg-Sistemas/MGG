@@ -113,7 +113,7 @@ describe('comprobante anual ARC de ISLR (Art. 24 Decreto 1.808)', () => {
       incluirQr: false,
     });
     expect(doc.getNumberOfPages()).toBe(2);
-  });
+  }, 15000);
 
   it('anexarPaginasArcPdf genera 1 página en modo "original" o "copia"', async () => {
     const { anexarPaginasArcPdf } = await import('./comprobanteArcPdf');

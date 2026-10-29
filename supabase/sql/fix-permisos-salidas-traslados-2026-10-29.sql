@@ -1,10 +1,59 @@
 -- ============================================================
--- 29/10/2026 · MGG · Corrección de permisos para aprobar salidas y traslados
--- Asegura que usuarios en public.usuarios_autorizados y admins puedan aprobar
--- tanto por public.usuarios como por auth.jwt()->>'email'.
+-- 29/10/2026 · MGG · Corrección integral de permisos para autorizar órdenes y salidas
+-- Permite que los administradores y usuarios autorizados guarden y aprueben
+-- sin bloqueos por RLS, UUID vs Email o diferencias entre 'admin' y 'administrador'.
 -- ============================================================
 
--- 1. Actualizar puede_aprobar para verificar auth.jwt()->>'email'
+-- 1. Actualizar is_admin() para aceptar 'admin' y 'administrador'
+create or replace function public.is_admin() returns boolean language sql stable security definer set search_path to 'public' as $$
+  select exists (
+    select 1 from public.usuarios
+    where id = auth.uid()
+      and lower(role) in ('admin', 'administrador')
+      and estado = 'activo'
+  )
+  or lower(trim(coalesce(auth.jwt() ->> 'email', ''))) in (
+    'admin@gmail.com',
+    'mineralgroupguayanaca@gmail.com',
+    'jhzgcontabilidad@gmail.com'
+  );
+$$;
+
+grant execute on function public.is_admin() to authenticated, anon, service_role, public;
+
+-- 2. Asegurar RLS en usuarios_autorizados para que el administrador pueda guardar
+drop policy if exists "usuarios_autorizados read" on public.usuarios_autorizados;
+create policy "usuarios_autorizados read" on public.usuarios_autorizados
+  for select to authenticated using (true);
+
+drop policy if exists "usuarios_autorizados write" on public.usuarios_autorizados;
+create policy "usuarios_autorizados write" on public.usuarios_autorizados
+  for all to authenticated
+  using (
+    (select public.is_admin())
+    or (select public.puede_modulo('usuarios', 'escritura'))
+    or (select public.puede_modulo('usuarios', 'full'))
+  )
+  with check (
+    (select public.is_admin())
+    or (select public.puede_modulo('usuarios', 'escritura'))
+    or (select public.puede_modulo('usuarios', 'full'))
+  );
+
+grant select, insert, update, delete on public.usuarios_autorizados to authenticated;
+
+-- 3. Sembrar usuarios autorizados iniciales con permisos completos
+insert into public.usuarios_autorizados (email, aprobar_oc, aprobar_salidas, updated_by)
+values
+  ('admin@gmail.com', true, true, 'sistema'),
+  ('jhzgcontabilidad@gmail.com', true, true, 'sistema'),
+  ('mineralgroupguayanaca@gmail.com', true, true, 'sistema')
+on conflict (email) do update set
+  aprobar_oc = true,
+  aprobar_salidas = true,
+  updated_at = now();
+
+-- 4. Actualizar puede_aprobar para verificar auth.jwt()->>'email' y tabla autorizados
 create or replace function public.puede_aprobar(p_que text)
 returns boolean language sql stable security definer set search_path to 'public' as $$
   select public.is_admin()
@@ -31,7 +80,7 @@ $$;
 
 grant execute on function public.puede_aprobar(text) to authenticated, anon, service_role, public;
 
--- 2. Actualizar trigger salidas_solo_autorizados para usar email de JWT si usuarios no tiene fila
+-- 5. Actualizar trigger salidas_solo_autorizados para usar email de JWT si usuarios no tiene fila
 create or replace function public.salidas_solo_autorizados()
 returns trigger language plpgsql security definer set search_path to 'public' as $$
 declare v_email text;
