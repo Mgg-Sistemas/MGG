@@ -27,6 +27,7 @@ export type ModuleKey =
   | 'rrhh'
   | 'asignaciones'
   | 'documentacion'
+  | 'contabilidad'
   | 'usuarios'
   | 'auditoria'
   | 'ajustes';
@@ -68,6 +69,7 @@ export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'rrhh',        label: 'RRHH / Nómina' },
   { key: 'asignaciones',label: 'Asignaciones al Personal' },
   { key: 'documentacion', label: 'Documentación' },
+  { key: 'contabilidad', label: 'Contabilidad' },
   { key: 'usuarios',    label: 'Usuarios' },
   { key: 'auditoria',   label: 'Auditoría de Usuarios' },
   { key: 'ajustes',     label: 'Ajustes' },
