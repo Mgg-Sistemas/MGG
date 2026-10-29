@@ -176,8 +176,10 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
 
   return (
     <div>
-      <div className="filterbar" style={{ justifyContent: 'space-between' }}>
+      <div className="filterbar" style={{ justifyContent: 'flex-end' }}>
+        {/* Oculto a pedido del usuario (servicios directos no se harán por ahora):
         <button className="btn btn-primary" onClick={() => setCrear(true)}>+ Nuevo servicio directo</button>
+        */}
         <div className="view-toggle" role="tablist" aria-label="Modo de vista">
           <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>▦ Kanban</button>
           <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>☰ Lista</button>
@@ -187,7 +189,7 @@ export function ServicioDirectoView({ actor, actorName }: { actor: string; actor
       {loading ? (
         <EmptyState message="Cargando servicios directos..." icon="◔" />
       ) : !servicios.length ? (
-        <EmptyState message="Sin servicios directos. Creá el primero con “+ Nuevo servicio directo”." icon="🛠" />
+        <EmptyState message="Sin servicios directos registrados." icon="🛠" />
       ) : vista === 'kanban' ? (
         <div className="kanban">
           {COLS.map((col) => (

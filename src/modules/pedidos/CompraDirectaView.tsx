@@ -125,8 +125,10 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
 
   return (
     <div>
-      <div className="filterbar" style={{ justifyContent: 'space-between' }}>
+      <div className="filterbar" style={{ justifyContent: 'flex-end' }}>
+        {/* Oculto a pedido del usuario (compras directas no se harán por ahora):
         <button className="btn btn-primary" onClick={() => setCrear(true)}>+ Nueva compra directa</button>
+        */}
         <div className="view-toggle" role="tablist" aria-label="Modo de vista">
           <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>▦ Kanban</button>
           <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>☰ Lista</button>
@@ -136,7 +138,7 @@ export function CompraDirectaView({ actor, actorName }: { actor: string; actorNa
       {loading ? (
         <EmptyState message="Cargando compras directas..." icon="◔" />
       ) : !compras.length ? (
-        <EmptyState message="Sin compras directas. Creá la primera con “+ Nueva compra directa”." icon="🛒" />
+        <EmptyState message="Sin compras directas registradas." icon="🛒" />
       ) : vista === 'kanban' ? (
         <div className="kanban">
           {COLS.map((col) => (

@@ -609,6 +609,7 @@ export function PedidosPage() {
           <Link to="/app/pedidos/historico" className="btn btn-ghost" title="Ver histórico filtrable de órdenes">
             ⌕ Histórico
           </Link>
+          {/* Oculto a pedido del usuario:
           <button
             className="btn btn-ghost"
             onClick={() => setPorPagarOpen(true)}
@@ -616,6 +617,7 @@ export function PedidosPage() {
           >
             💰 Pendientes por pagar
           </button>
+          */}
           <button
             className="btn btn-ghost"
             onClick={() => setReporteOpen(true)}
