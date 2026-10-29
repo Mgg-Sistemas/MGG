@@ -127,7 +127,7 @@ export function GestionarCategoriasModal({
       notify(
         `"${editando}" renombrado a "${nuevoVal}" · ${n} ${modo.entidadLabel}(s) actualizado(s)`,
         'success',
-        { link: '#' },
+        { link: '#/app/inventario' },
       );
       setEditando(null);
       setVersionLocal((v) => v + 1);
@@ -154,7 +154,7 @@ export function GestionarCategoriasModal({
     setAgregando(true);
     try {
       await modo.onAgregar(clean);
-      notify(`${termino[0].toUpperCase()}${termino.slice(1)} "${clean}" agregada`, 'success', { link: '#' });
+      notify(`${termino[0].toUpperCase()}${termino.slice(1)} "${clean}" agregada`, 'success', { link: '#/app/inventario' });
       setNuevo('');
       setVersionLocal((v) => v + 1);
       await modo.onCambioAplicado();
@@ -170,7 +170,7 @@ export function GestionarCategoriasModal({
     setGuardando(true);
     try {
       await modo.onEliminar(aEliminar);
-      notify(`"${aEliminar}" eliminado`, 'success', { link: '#' });
+      notify(`"${aEliminar}" eliminado`, 'success', { link: '#/app/inventario' });
       setAEliminar(null);
       await modo.onCambioAplicado();
     } catch (e) {

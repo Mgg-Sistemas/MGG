@@ -2,14 +2,20 @@ import { supabase } from '@/shared/lib/supabase';
 import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Notificacion, NotifKind } from '@/shared/lib/types';
 
-export async function listLatest(limit = 50): Promise<Notificacion[]> {
+export async function listLatest(
+  limit = 50,
+  filtroPermiso?: (n: Notificacion) => boolean
+): Promise<Notificacion[]> {
+  const fetchLimit = filtroPermiso ? Math.max(limit * 4, 100) : limit;
   const { data, error } = await supabase
     .from('notificaciones')
     .select('*')
     .order('at', { ascending: false })
-    .limit(limit);
+    .limit(fetchLimit);
   if (error) throw error;
-  return (data ?? []) as Notificacion[];
+  const lista = (data ?? []) as Notificacion[];
+  const filtradas = filtroPermiso ? lista.filter(filtroPermiso) : lista;
+  return filtradas.slice(0, limit);
 }
 
 /**
@@ -18,7 +24,7 @@ export async function listLatest(limit = 50): Promise<Notificacion[]> {
  * El DELETE es admin-only por RLS: para no-admin no borra nada (sin error).
  * Devuelve cuántas se borraron.
  */
-export async function pruneOld(keep = 10): Promise<number> {
+export async function pruneOld(keep = 100): Promise<number> {
   const { data: cut, error: selErr } = await supabase
     .from('notificaciones')
     .select('at')
@@ -35,20 +41,36 @@ export async function pruneOld(keep = 10): Promise<number> {
   return count ?? 0;
 }
 
-export async function unreadCount(): Promise<number> {
-  const { count, error } = await supabase
+export async function unreadCount(filtroPermiso?: (n: Notificacion) => boolean): Promise<number> {
+  if (!filtroPermiso) {
+    const { count, error } = await supabase
+      .from('notificaciones')
+      .select('id', { count: 'exact', head: true })
+      .eq('read', false);
+    if (error) throw error;
+    return count ?? 0;
+  }
+  const { data, error } = await supabase
     .from('notificaciones')
-    .select('id', { count: 'exact', head: true })
-    .eq('read', false);
+    .select('*')
+    .eq('read', false)
+    .order('at', { ascending: false })
+    .limit(100);
   if (error) throw error;
-  return count ?? 0;
+  const permitidas = (data ?? []).filter(filtroPermiso);
+  return permitidas.length;
 }
 
-export async function markAllRead(): Promise<void> {
-  const { error } = await supabase
+export async function markAllRead(ids?: string[]): Promise<void> {
+  if (ids && ids.length === 0) return;
+  let q = supabase
     .from('notificaciones')
     .update({ read: true })
     .eq('read', false);
+  if (ids && ids.length > 0) {
+    q = q.in('id', ids);
+  }
+  const { error } = await q;
   if (error) throw error;
 }
 

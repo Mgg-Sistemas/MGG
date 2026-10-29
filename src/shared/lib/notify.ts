@@ -30,6 +30,8 @@ export interface NotifyOptions {
   dedup_key?: string;
   /** Destinatario lógico ('all' por default). */
   destino?: string;
+  /** Módulo específico (ej: 'retenciones', 'inventario') para construir el link por defecto. */
+  modulo?: string;
 }
 
 /**
@@ -44,11 +46,19 @@ export function notify(
 ): void {
   toast(message, kind);
   if (options.persist === false) return;
+
+  const fallbackLink = options.modulo
+    ? `#/app/${options.modulo}`
+    : typeof window !== 'undefined' && window.location?.hash
+    ? window.location.hash
+    : null;
+  const link = options.link && options.link !== '#' ? options.link : fallbackLink;
+
   push({
     kind: TOAST_KIND_TO_NOTIF[kind],
     title: message,
     message: options.detail ?? null,
-    link: options.link ?? null,
+    link: link ?? null,
     dedup_key: options.dedup_key ?? null,
     destino: options.destino ?? 'all',
   })

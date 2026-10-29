@@ -4,6 +4,9 @@ import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { relTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useSession } from '@/modules/auth/authStore';
+import { puedeVerNotificacion } from './notifPermisos';
 import { listLatest, markAllRead, markRead, pruneOld } from './notif.repository';
 import type { Notificacion } from '@/shared/lib/types';
 
@@ -25,6 +28,13 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
   const [loading, setLoading] = useState(false);
   const [marking, setMarking] = useState(false);
   const navigate = useNavigate();
+  const { can, isAdmin, role } = usePermissions();
+  const { user } = useSession();
+
+  const filtro = useCallback(
+    (n: Notificacion) => puedeVerNotificacion(n, can, isAdmin, role, user?.id),
+    [can, isAdmin, role, user?.id]
+  );
 
   // Al hacer click en una notificación: la marca leída, va a su módulo/detalle y cierra.
   function abrir(n: Notificacion) {
@@ -39,21 +49,20 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
     onClose();
   }
 
-  // Mostramos solo las 10 más recientes y, en segundo plano, borramos las viejas
-  // (DELETE es admin-only: si no sos admin simplemente no borra nada).
+  // Mostramos solo las notificaciones recientes permitidas para el usuario
   const cargar = useCallback(() => {
     if (!open) return;
     setLoading(true);
-    listLatest(10)
+    listLatest(20, filtro)
       .then(setItems)
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
-  }, [open]);
+  }, [open, filtro]);
 
   useEffect(() => {
     if (!open) return;
     cargar();
-    pruneOld(10).catch(() => { /* sin permiso (no-admin) o sin red: se ignora */ });
+    pruneOld(100).catch(() => { /* sin permiso (no-admin) o sin red: se ignora */ });
   }, [open, cargar]);
   // Realtime: la lista se actualiza en vivo si entra una notificación nueva.
   useRealtime(['notificaciones'], cargar);
@@ -61,7 +70,8 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
   async function handleMarkAll() {
     setMarking(true);
     try {
-      await markAllRead();
+      const unreadIds = items.filter((n) => !n.read).map((n) => n.id);
+      await markAllRead(isAdmin ? undefined : unreadIds);
       setItems((prev) => prev.map((n) => ({ ...n, read: true })));
       onAllRead();
     } finally {

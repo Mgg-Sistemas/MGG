@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { signOut, useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { NotificacionesPanel } from '@/modules/notificaciones/NotificacionesPanel';
+import { puedeVerNotificacion } from '@/modules/notificaciones/notifPermisos';
+import type { Notificacion } from '@/shared/lib/types';
 import { GlobalSearch } from '@/shared/ui/GlobalSearch';
 import { TasaChip } from '@/modules/tesoreria/TasaChip';
 import { toast } from '@/shared/ui/Toast';
@@ -92,9 +94,14 @@ export function AppShell() {
   // Cierra el drawer al cambiar de ruta (navegar desde el menú en móvil).
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
+  const filtroNotif = useCallback(
+    (n: Notificacion) => puedeVerNotificacion(n, can, isAdmin, role, user?.id),
+    [can, isAdmin, role, user?.id]
+  );
+
   async function refreshUnread() {
     try {
-      setUnread(await unreadCount());
+      setUnread(await unreadCount(filtroNotif));
     } catch {
       setUnread(0);
     }
@@ -116,6 +123,8 @@ export function AppShell() {
     const escanear = () => {
       if (cancelled) return;
       if (!tocaEscanear(leerUltimoEscaneo()) || document.hidden) return;
+      // Solo escanea stock si el usuario tiene acceso a inventario o es admin
+      if (!isAdmin && !can('inventario')) return;
       marcarEscaneo();
       scanStockAndNotify()
         .then(() => { if (!cancelled) void refreshUnread(); })
