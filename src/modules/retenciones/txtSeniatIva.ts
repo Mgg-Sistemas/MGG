@@ -58,7 +58,8 @@ export function mesSiguiente(p: string): string {
 
 /** Lo que entra al TXT: practicadas de IVA del período, no anuladas. */
 export function filasTxtIva(filas: RetencionPracticada[], periodo: string): RetencionPracticada[] {
-  return filas.filter((r) => r.direccion === 'practicada' && r.tipo === 'iva' && !r.anulada && r.periodo === periodo)
+  const p = periodo.replace(/\D/g, '').slice(0, 6);
+  return filas.filter((r) => r.direccion === 'practicada' && r.tipo === 'iva' && !r.anulada && r.montoRetenido > 0 && (r.periodo ?? '').replace(/\D/g, '').slice(0, 6) === p)
     .sort((a, b) => (a.numeroComprobante ?? '').localeCompare(b.numeroComprobante ?? ''));
 }
 
@@ -88,11 +89,13 @@ export function armarTxtIva(e: EntradaTxtIva): ResultadoTxtIva {
     const retenido = r.montoBs ?? enBs(r.montoRetenido, r);
     if (base == null || iva == null || retenido == null) faltan.push(`${quien}: está en ${r.moneda} sin tasa para llevarla a Bs.`);
     if (!/^\d{14}$/.test(r.numeroComprobante ?? '')) faltan.push(`${quien}: el N° de comprobante no tiene 14 dígitos.`);
-    if (!rif(r.contraparteRif)) faltan.push(`${quien}: falta el RIF del proveedor.`);
+    const rifProv = rif(r.contraparteRif);
+    if (!rifProv) faltan.push(`${quien}: falta el RIF del proveedor.`);
+    else if (!/^[JGVEP]\d{9}$/.test(rifProv)) faltan.push(`${quien}: el RIF del proveedor no es válido (letra J/G/V/E/P y 9 dígitos).`);
     if (!r.facturaNumero?.trim()) faltan.push(`${quien}: falta el N° de factura.`);
     if (!r.facturaControl?.trim()) faltan.push(`${quien}: falta el N° de control.`);
     if (!/^\d{4}-\d{2}-\d{2}/.test(r.facturaFecha ?? '')) faltan.push(`${quien}: falta la fecha de la factura.`);
-    if ((r.tipoDocumento === 'nota_credito' || r.tipoDocumento === 'nota_debito') && !r.facturaAfectadaNro?.trim()) {
+    if ((r.tipoDocumento === 'nota_debito' || r.tipoDocumento === 'nota_credito') && !r.facturaAfectadaNro?.trim()) {
       faltan.push(`${quien}: falta el N° de factura afectada.`);
     }
     const b = base ?? 0; const i = iva ?? 0;
@@ -103,7 +106,7 @@ export function armarTxtIva(e: EntradaTxtIva): ResultadoTxtIva {
     const alicuota = b > 0 ? (i / b) * 100 : r.alicuota;
     return [
       rifAg, campo2, (r.facturaFecha ?? '').slice(0, 10), 'C', tipoDoc,
-      rif(r.contraparteRif), ascii(r.facturaNumero), ascii(r.facturaControl),
+      rifProv, ascii(r.facturaNumero), ascii(r.facturaControl),
       monto(totalBs), monto(b), monto(retenido ?? 0), docAfectado,
       r.numeroComprobante ?? '', monto(exentoBs), monto(alicuota), '0',
     ].join('\t');

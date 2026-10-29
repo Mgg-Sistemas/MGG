@@ -147,11 +147,14 @@ export function RequireModule({ module, children }: { module: ModuleKey; childre
 /**
  * Envuelve una pantalla de teléfono: hace falta la pantalla en el rol y lectura en su módulo.
  * Quien tiene el módulo pero no la pantalla va a la versión de PC del módulo.
+ * Excepción: la de Retenciones la abre cualquiera con lectura en Retenciones,
+ * también desde la PC (botón «📱 Vista teléfono» del módulo).
  */
 export function RequireVistaTelefono({ vista, children }: { vista: VistaTelefonoKey; children: ReactNode }) {
   const p = usePermissions();
   if (p.loading) return <div className="p-8 muted">Cargando…</div>;
   if (p.puedeVista(vista)) return <>{children}</>;
+  if (vista === 'retenciones' && p.can('retenciones', 'lectura')) return <>{children}</>;
   const v = VISTAS_TELEFONO.find((x) => x.key === vista);
   if (!p.soloTelefono && v && p.can(v.modulo, 'lectura')) return <Navigate to={`/app/${modulePath(v.modulo)}`} replace />;
   return <Navigate to={destinoInicial(p)} replace />;

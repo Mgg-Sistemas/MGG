@@ -51,6 +51,7 @@ jobs:
       - name: Build (base '/')
         env:
           VITE_BASE_PATH: /
+          VITE_SUPABASE_URL: https://example.supabase.co
         run: npm run build
 
       - name: Resumen

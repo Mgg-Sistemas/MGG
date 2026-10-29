@@ -36,7 +36,20 @@ export default defineConfig(({ command }) => ({
   define: {
     'import.meta.env.VITE_APP_VERSION': JSON.stringify(APP_VERSION),
   },
-  plugins: [react(), versionJsonPlugin],
+  plugins: [
+    react(),
+    versionJsonPlugin,
+    {
+      name: 'mgg-html-transform',
+      transformIndexHtml(html: string) {
+        const supabaseUrl = process.env.VITE_SUPABASE_URL || '';
+        if (!supabaseUrl) {
+          return html.replace(/<link rel="(preconnect|dns-prefetch)" href="%VITE_SUPABASE_URL%"[^>]*>\s*/g, '');
+        }
+        return html.replace(/%VITE_SUPABASE_URL%/g, supabaseUrl);
+      },
+    },
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

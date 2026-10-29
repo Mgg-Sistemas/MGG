@@ -48,7 +48,8 @@ const monto = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toFixed(
 
 /** Filtra las retenciones que aplican para el XML de ISLR del período: practicadas, ISLR, no anuladas. */
 export function filasXmlIslr(filas: RetencionPracticada[], periodo: string): RetencionPracticada[] {
-  return filas.filter((r) => r.direccion === 'practicada' && r.tipo === 'islr' && !r.anulada && r.periodo === periodo)
+  const p = periodo.replace(/\D/g, '').slice(0, 6);
+  return filas.filter((r) => r.direccion === 'practicada' && r.tipo === 'islr' && !r.anulada && r.montoRetenido > 0 && (r.periodo ?? '').replace(/\D/g, '').slice(0, 6) === p)
     .sort((a, b) => (a.numeroComprobante ?? '').localeCompare(b.numeroComprobante ?? ''));
 }
 
@@ -97,6 +98,8 @@ export function armarXmlIslr(e: EntradaXmlIslr): ResultadoXmlIslr {
 
     if (baseBs == null) faltan.push(`${quien}: está en ${r.moneda} sin tasa de cambio para llevarla a Bs.`);
     if (!rifProv) faltan.push(`${quien}: falta el RIF del proveedor.`);
+    else if (!/^[JGVEP]\d{9}$/.test(rifProv)) faltan.push(`${quien}: el RIF del proveedor no es válido (letra J/G/V/E/P y 9 dígitos).`);
+    if (!r.facturaControl?.trim()) faltan.push(`${quien}: falta el N° de control.`);
     if (!r.facturaNumero?.trim()) faltan.push(`${quien}: falta el N° de factura.`);
     if (!/^\d{4}-\d{2}-\d{2}/.test(r.facturaFecha ?? '')) faltan.push(`${quien}: falta la fecha de la factura.`);
 

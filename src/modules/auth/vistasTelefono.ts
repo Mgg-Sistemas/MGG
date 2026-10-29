@@ -72,7 +72,7 @@ export function normalizarVistas(v: unknown): VistaTelefonoKey[] {
 export function vistasPermitidas(
   vistasDelRol: readonly string[], can: (m: ModuleKey) => boolean, isAdmin: boolean,
 ): VistaTelefono[] {
-  return VISTAS_TELEFONO.filter((v) => isAdmin || (vistasDelRol.includes(v.key) && can(v.modulo)));
+  return VISTAS_TELEFONO.filter((v) => isAdmin || (vistasDelRol.includes(v.key) && can(v.modulo)) || (v.key === 'retenciones' && can('retenciones')));
 }
 
 /** Adónde entra un rol «solo teléfono»: directo a su pantalla si tiene una, o al menú si tiene varias. */
