@@ -10,8 +10,8 @@
    ============================================================ */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { toast } from '@/shared/lib/toast';
-import { normalizarRif, rifValido } from '@/shared/lib/rif';
+import { toast } from '@/shared/ui/Toast';
+import { normalizarRif } from '@/shared/lib/rif';
 import {
   listEmpresasFiscales,
   guardarDatosFiscalesEmpresa,
@@ -29,7 +29,6 @@ import {
 import {
   mensajeFacturaWhatsapp,
   compartirFacturaWhatsapp,
-  EMOJI_ESTADO_FACTURA,
   ETIQUETA_ESTADO_FACTURA,
 } from './mensajeFacturaWhatsapp';
 import {
@@ -493,7 +492,6 @@ export function OtrasEmpresasView({ canWrite }: { canWrite: boolean }) {
             <tbody>
               {facturasFiltradas.map((f) => {
                 const empFiscal = empresas.find((e) => e.codigo === f.empresa.toUpperCase());
-                const emoji = EMOJI_ESTADO_FACTURA[f.estado] || '📄';
                 const fotos = f.archivos.filter((a) => a.tipo === 'imagen').length;
                 const pdfs = f.archivos.filter((a) => a.tipo === 'pdf').length;
 

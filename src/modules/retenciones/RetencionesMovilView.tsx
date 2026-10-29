@@ -11,9 +11,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useSession } from '@/modules/auth/useSession';
-import { usePermissions } from '@/modules/usuarios/usePermissions';
-import { toast } from '@/shared/lib/toast';
+import { useSession } from '@/modules/auth/authStore';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { toast } from '@/shared/ui/Toast';
 import { normalizarRif, rifValido } from '@/shared/lib/rif';
 import {
   listEmpresasFiscales,

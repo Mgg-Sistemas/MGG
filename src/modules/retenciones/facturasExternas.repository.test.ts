@@ -1,9 +1,8 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import {
   validarArchivosFactura,
   crearFacturaExterna,
   actualizarEmpresaFacturaExterna,
-  actualizarEstadoFacturaExterna,
   MAX_IMAGENES_FACTURA,
   MAX_PDFS_FACTURA,
 } from './facturasExternas.repository';

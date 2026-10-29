@@ -1,12 +1,10 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import {
   EMPRESAS_FISCALES_DEFECTO,
-  listEmpresasFiscales,
   getDatosFiscalesEmpresa,
   guardarDatosFiscalesEmpresa,
   crearEmpresaFiscal,
 } from './empresasFiscales.repository';
-import { supabase } from '@/shared/lib/supabase';
 
 describe('empresasFiscales.repository', () => {
   beforeEach(() => {

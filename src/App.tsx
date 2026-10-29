@@ -54,7 +54,6 @@ const SurtidorMovilView = lazyReload(() => import('./modules/combustible/Surtido
 const UsuariosPage = lazyReload(() => import('./modules/usuarios/UsuariosPage').then((m) => ({ default: m.UsuariosPage })));
 const AuditoriaPage = lazyReload(() => import('./modules/auditoria/AuditoriaPage').then((m) => ({ default: m.AuditoriaPage })));
 const AjustesPage = lazyReload(() => import('./modules/ajustes/AjustesPage').then((m) => ({ default: m.AjustesPage })));
-const CambiarClavePage = lazyReload(() => import('./modules/usuarios/CambiarClavePage').then((m) => ({ default: m.CambiarClavePage })));
 
 function PageLoader() {
   return <div className="p-8 muted">Cargando…</div>;
