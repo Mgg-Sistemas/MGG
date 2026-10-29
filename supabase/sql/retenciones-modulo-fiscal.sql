@@ -82,6 +82,8 @@ begin
              where table_schema = 'public' and table_name = 'retenciones')
      and not exists (select 1 from information_schema.columns
                      where table_schema = 'public' and table_name = 'retenciones' and column_name = 'doc_kind')
+     and not exists (select 1 from information_schema.columns
+                     where table_schema = 'public' and table_name = 'retenciones' and column_name = 'rol')
   then
     if (select count(*) from public.retenciones) > 0 then
       raise exception 'La tabla `retenciones` vieja tiene filas: revisar a mano antes de apartarla.';
@@ -133,9 +135,33 @@ create table if not exists public.retenciones (
   created_at timestamptz not null default now()
 );
 comment on table public.retenciones is 'Retenciones practicadas, con su base, su porcentaje y su comprobante';
-create index if not exists retenciones_doc_idx on public.retenciones (doc_kind, doc_id);
-create index if not exists retenciones_periodo_idx on public.retenciones (periodo, tipo);
-create index if not exists retenciones_proveedor_idx on public.retenciones (proveedor_id);
+
+/* Creación idempotente de índices según las columnas presentes (antes o después de retenciones-libro-direccion.sql o esquema GT) */
+do $$
+begin
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'retenciones' and column_name = 'doc_kind')
+     and exists (select 1 from information_schema.columns
+                 where table_schema = 'public' and table_name = 'retenciones' and column_name = 'doc_id') then
+    execute 'create index if not exists retenciones_doc_idx on public.retenciones (doc_kind, doc_id)';
+  end if;
+
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'retenciones' and column_name = 'periodo') then
+    execute 'create index if not exists retenciones_periodo_idx on public.retenciones (periodo, tipo)';
+  elsif exists (select 1 from information_schema.columns
+                where table_schema = 'public' and table_name = 'retenciones' and column_name = 'comprobante_periodo') then
+    execute 'create index if not exists retenciones_periodo_idx on public.retenciones (comprobante_periodo, tipo)';
+  end if;
+
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'retenciones' and column_name = 'proveedor_id') then
+    execute 'create index if not exists retenciones_proveedor_idx on public.retenciones (proveedor_id)';
+  elsif exists (select 1 from information_schema.columns
+                where table_schema = 'public' and table_name = 'retenciones' and column_name = 'contraparte_id') then
+    execute 'create index if not exists retenciones_contraparte_idx on public.retenciones (contraparte_id)';
+  end if;
+end $$;
 
 /* ── 4) Correlativo del comprobante de IVA ────────────────────────────── */
 /* El número es AAAAMM + 8 dígitos consecutivos. Se calcula en la base y no en
@@ -152,11 +178,26 @@ begin
   if p_periodo !~ '^[0-9]{6}$' then
     raise exception 'El período debe ser AAAAMM (recibido: %)', p_periodo;
   end if;
-  -- Bloquea la tabla para el período: el consecutivo no puede repetirse.
-  select coalesce(max(substring(numero_comprobante from 7 for 8)::bigint), 0) + 1
-    into n
-    from public.retenciones
-   where tipo = 'iva' and numero_comprobante like p_periodo || '%';
+  -- Bloqueo transaccional por período: dos emisiones concurrentes se serializan.
+  perform pg_advisory_xact_lock(hashtext('ret_iva_' || p_periodo));
+
+  if exists (select 1 from information_schema.columns
+             where table_schema = 'public' and table_name = 'retenciones' and column_name = 'numero_comprobante') then
+    select coalesce(max(substring(numero_comprobante from 7 for 8)::bigint), 0) + 1
+      into n
+      from public.retenciones
+     where tipo in ('iva', 'IVA')
+       and numero_comprobante like p_periodo || '%'
+       and substring(numero_comprobante from 7 for 8) ~ '^[0-9]{8}$';
+  else
+    select coalesce(max(substring(comprobante_nro from 7 for 8)::bigint), 0) + 1
+      into n
+      from public.retenciones
+     where tipo in ('iva', 'IVA')
+       and comprobante_nro like p_periodo || '%'
+       and substring(comprobante_nro from 7 for 8) ~ '^[0-9]{8}$';
+  end if;
+
   return p_periodo || lpad(n::text, 8, '0');
 end $$;
 
@@ -175,7 +216,7 @@ begin
     execute format('create policy %I on public.%I for select to authenticated using (true)', t || ' read auth', t);
     execute format('drop policy if exists %I on public.%I', t || ' write op', t);
     execute format($p$create policy %I on public.%I for all to authenticated
-                     using ((select is_operativo())) with check ((select is_operativo()))$p$, t || ' write op', t);
+                     using (coalesce((select public.is_operativo()), false)) with check (coalesce((select public.is_operativo()), false))$p$, t || ' write op', t);
   end loop;
 end $$;
 

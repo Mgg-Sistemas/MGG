@@ -117,12 +117,27 @@ export function esRolCocina(role: RoleKey | null | undefined): boolean {
   return (role ?? '').trim().toLowerCase() === ROL_COCINA;
 }
 
+/* ───────────── Carga de facturas (vista de teléfono) (29-10-2026) ─────────────
+   El rol `facturas` es para el personal de compras o campo fuera de las oficinas:
+   solo carga o elimina facturas desde el celular con su soporte (fotos/PDF) y envía
+   el resumen por WhatsApp. */
+
+/** El rol que trabaja SOLO desde la vista de teléfono de Retenciones/Facturas. */
+export const ROL_FACTURAS: RoleKey = 'facturas';
+
+/** A dónde entra ese rol, bajo `/app/`. */
+export const RUTA_RETENCIONES_TELEFONO = 'retenciones/telefono';
+
+/** ¿Este rol vive en la vista de teléfono de facturas? */
+export function esRolFacturas(role: RoleKey | null | undefined): boolean {
+  return (role ?? '').trim().toLowerCase() === ROL_FACTURAS;
+}
+
 /* ───────────── Pantallas de teléfono por rol (13-10-2026, traído de Golden Touch) ─────────────
-   Las pantallas (surtidor, comidas) se dan POR ROL en Roles y Permisos y viven en
+   Las pantallas (surtidor, comidas, maquinaria, retenciones) se dan POR ROL en Roles y Permisos y viven en
    `roles_permisos.vistas_telefono`; ya no salen solas del permiso del módulo.
    El registro de pantallas y la regla de acceso están en auth/vistasTelefono.ts.
    La marca «solo teléfono» sigue en el rol (custom_roles.solo_telefono). */
-
 
 export const emptyPermission: ModulePermission = { lectura: false, escritura: false, full: false };
 
@@ -147,15 +162,12 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     all.asignaciones = { lectura: true, escritura: true, full: false };
     all.choferes = { lectura: true, escritura: true, full: false };
   } else if (role === ROL_SURTIDOR) {
-    // Solo combustible, y en la práctica solo la vista de teléfono: el módulo de
-    // escritorio lo rebota a `/app/combustible/surtidor`. Escritura porque su
-    // trabajo ES cargar lo que surte; sin ella la pantalla no sirve de nada.
     all.combustible = { lectura: true, escritura: true, full: false };
   } else if (role === ROL_COCINA) {
-    // Solo Alimentación, y en la práctica solo la vista de teléfono: el módulo de
-    // escritorio lo rebota a `/app/cocina/telefono`. Escritura porque su trabajo
-    // ES cargar las comidas.
     all.cocina = { lectura: true, escritura: true, full: false };
+  } else if (role === ROL_FACTURAS) {
+    all.retenciones = { lectura: true, escritura: true, full: false };
+    all.dashboard = { lectura: true, escritura: false, full: false };
   } else if (role === 'obrero') {
     all.dashboard  = { lectura: true, escritura: false, full: false };
     all.pedidos    = { lectura: true, escritura: true, full: false };

@@ -88,6 +88,17 @@ describe('montos en Bs y totales', () => {
     ]);
   });
 
+  it('notas de crédito restan en totales, retenidoBs y tablaCruzada', () => {
+    const fac = ret({ baseImponible: 1000, montoRetenido: 120, montoBs: 120, tipoDocumento: 'factura' });
+    const nc = ret({ id: 'r-nc', baseImponible: 200, montoRetenido: 24, montoBs: 24, tipoDocumento: 'nota_credito' });
+    expect(retenidoBs(nc)).toBe(-24);
+    const t = totalesReporte([fac, nc]);
+    expect(t.retenidoBs).toBe(96);
+    expect(t.porMoneda).toEqual([{ moneda: 'Bs', registros: 2, base: 800, retenido: 96 }]);
+    const c = tablaCruzada([fac, nc]);
+    expect(c.total).toBe(96);
+  });
+
   it('ordenar por monto retenido en Bs, mayor primero', () => {
     const xs = ordenarReporte([ret({ id: 'a', montoBs: 10 }), ret({ id: 'b', montoBs: 50 })], 'retenido', 'factura');
     expect(xs.map((r) => r.id)).toEqual(['b', 'a']);

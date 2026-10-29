@@ -173,11 +173,13 @@ export async function periodoEstaCerrado(tipoImpuesto: string, fechaIso: string)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
   const disponible = await v3Disponible().catch(() => false);
   if (!disponible) return null;
+  const imp = tipoImpuesto.trim();
+  const variantes = [...new Set([imp, imp.toUpperCase(), imp.toLowerCase(), 'TODOS', 'todos'])];
   try {
     const { data, error } = await supabase
       .from(T_PERIODOS)
       .select('*')
-      .eq('tipo', tipoImpuesto)
+      .in('tipo', variantes)
       .lte('desde', d)
       .gte('hasta', d)
       .not('declarado_en', 'is', null)
@@ -188,4 +190,3 @@ export async function periodoEstaCerrado(tipoImpuesto: string, fechaIso: string)
   } catch { /* continuar si no hay acceso */ }
   return null;
 }
-

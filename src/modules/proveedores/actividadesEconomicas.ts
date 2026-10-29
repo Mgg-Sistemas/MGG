@@ -17,10 +17,10 @@ export interface ActividadEconomica {
 }
 
 /** "0100 - 0299" → "0100-0299"; "5110" → "5110". Null si no es un código CIIU válido
- *  (de 2 a 6 dígitos, o un rango de dos códigos así). */
+ *  (4 dígitos, o un rango de dos códigos de 4 dígitos). */
 export function normalizarCodigoActividad(raw: string): string | null {
   const s = (raw ?? '').replace(/\s+/g, '').replace(/[–—]/g, '-');
-  return /^[0-9]{2,6}(-[0-9]{2,6})?$/.test(s) ? s : null;
+  return /^[0-9]{4}(-[0-9]{4})?$/.test(s) ? s : null;
 }
 
 /** Texto para listas y PDF: «5110 · Comercio al por mayor…». */
@@ -43,7 +43,7 @@ export function ordenarActividades(lista: ActividadEconomica[]): ActividadEconom
 /** Revisa una actividad nueva antes de guardarla. Devuelve el error o null. */
 export function validarActividadNueva(codigoRaw: string, descripcion: string, lista: ActividadEconomica[]): string | null {
   const codigo = normalizarCodigoActividad(codigoRaw);
-  if (!codigo) return 'El código debe tener de 2 a 6 dígitos (por ejemplo 5110), o ser un rango como 0100-0299.';
+  if (!codigo) return 'El código debe tener 4 dígitos (por ejemplo 5110), o ser un rango como 0100-0299.';
   if (descripcion.trim().length < 3) return 'Escribe la descripción de la actividad.';
   const ya = lista.find((a) => a.codigo === codigo);
   if (ya) return `El código ${codigo} ya existe: ${ya.descripcion}.`;

@@ -73,6 +73,20 @@ async function queryOrdenesPendientes() {
   return res;
 }
 
+async function queryOrdenesHechas() {
+  const base = () => supabase.from(TABLE).select('*')
+    .eq('retencion_finalizada', true)
+    .not('estado', 'in', '("cancelada","anulada","desistida_proveedor")')
+    .gte('created_at', '2026-09-25T00:00:00Z')
+    .order('retencion_finalizada_en', { ascending: false });
+
+  const res = await base().or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null,iva.gt.0,retencion_monto.gt.0');
+  if (res.error && /factura_recepcion_path/i.test(res.error.message)) {
+    return base().or('comprobante_tipo.eq.factura,iva.gt.0,retencion_monto.gt.0');
+  }
+  return res;
+}
+
 async function queryConteoPendientes() {
   const base = () => supabase.from(TABLE)
     .select('id, created_at, oc_creada_en, oc_emitida_en, estado')
@@ -106,19 +120,16 @@ export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
 
 /** Retenciones ya finalizadas (comprobantes cargados). Solo a partir de la vigencia del régimen. */
 export async function listRetencionesHechas(): Promise<RetencionItem[]> {
-  const [desdeAgente, { data, error }, pm] = await Promise.all([
+  const [desdeAgente, { data, error }, pm, config] = await Promise.all([
     fechaDesdeAgenteRetencion(),
-    supabase.from(TABLE).select('*')
-      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null,iva.gt.0,retencion_monto.gt.0')
-      .eq('retencion_finalizada', true)
-      .not('estado', 'in', '("cancelada","anulada","desistida_proveedor")')
-      .gte('created_at', '2026-09-25T00:00:00Z')
-      .order('retencion_finalizada_en', { ascending: false }),
+    queryOrdenesHechas(),
     mapProveedores(),
+    getConfigRetencion().catch(() => null),
   ]);
   if (error) throw error;
+  const permitidos = estatusKanbanHabilitados(config?.estatusKanbanRetencion);
   return (data ?? [])
-    .filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente))
+    .filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente, permitidos))
     .map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
 }
 

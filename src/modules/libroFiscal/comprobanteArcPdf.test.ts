@@ -88,6 +88,18 @@ describe('comprobante anual ARC de ISLR (Art. 24 Decreto 1.808)', () => {
     expect(arc.totalBaseBs).toBe(1000);
   });
 
+  it('calcula porcentaje efectivo ponderado cuando en un mismo mes coexisten distintas alícuotas de ISLR', () => {
+    const filas: RetencionPracticada[] = [
+      retencion({ id: 'r1', facturaFecha: '2026-03-10', baseImponible: 1000, porcentaje: 2, montoRetenido: 20, montoBs: 20 }),
+      retencion({ id: 'r2', facturaFecha: '2026-03-20', baseImponible: 1000, porcentaje: 5, montoRetenido: 50, montoBs: 50 }),
+    ];
+
+    const arc = compilarDatosArc(2026, 'J-12345678-0', filas);
+    expect(arc.meses[2].baseImponibleBs).toBe(2000);
+    expect(arc.meses[2].impuestoRetenidoBs).toBe(70);
+    expect(arc.meses[2].porcentaje).toBe(3.5);
+  });
+
   it('anexarPaginasArcPdf genera 2 páginas en modo "ambos" (Original + Copia)', async () => {
     const { anexarPaginasArcPdf } = await import('./comprobanteArcPdf');
     const { CONFIG_RETENCION_DEFECTO } = await import('./retencionesCalculo');

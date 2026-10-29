@@ -78,6 +78,12 @@ const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
 
+function esEsquemaMgg(e: { code?: string; message?: string } | null | undefined): boolean {
+  if (!e) return false;
+  if (e.code === '42703' || e.code === 'PGRST204' || e.code === 'PGRST200' || e.code === 'PGRST205' || e.code === '42P01') return true;
+  return /column .* does not exist|could not find the '.*' column|relationship .* in the schema cache|relation .* does not exist|could not find the table/i.test(e.message ?? '');
+}
+
 /* ───────── Piezas puras ───────── */
 
 /** Las cinco de siempre en su orden; las nuevas (R2), después y por nombre. */
@@ -98,9 +104,14 @@ export function impuestosPorEnte(impuestos: { clave: string; ente_id: string | n
 
 function aVersion(r: Record<string, unknown>): VersionImagen {
   return {
-    id: String(r.id), ruta: String(r.ruta ?? ''), nombreArchivo: texto(r.nombre_archivo),
-    desde: String(r.desde ?? ''), activo: r.activo !== false, motivo: texto(r.motivo),
-    actualizadoEn: texto(r.actualizado_en), actualizadoPor: texto(r.actualizado_por),
+    id: String(r.id),
+    ruta: String(r.ruta ?? r.archivo_path ?? ''),
+    nombreArchivo: texto(r.nombre_archivo ?? r.archivo_nombre),
+    desde: String(r.desde ?? r.vigente_desde ?? ''),
+    activo: r.activo !== false,
+    motivo: texto(r.motivo),
+    actualizadoEn: texto(r.actualizado_en),
+    actualizadoPor: texto(r.actualizado_por),
   };
 }
 
@@ -188,38 +199,28 @@ export const rutaImagenAgente = (clase: ClaseImagenAgente, desde: string, archiv
 
 /** Todos los entes (activos primero), con sus impuestos y las versiones de su logo. */
 export async function listEntes(): Promise<Ente[]> {
-  const [hayPuente, hayLogos] = await Promise.all([
-    tablaDisponible(T_ENTE_IMPUESTOS),
-    tablaDisponible(T_ENTE_LOGOS),
-  ]);
-  const res = (hayPuente && hayLogos)
-    ? await supabase.from(T_ENTES).select('*, retencion_ente_impuestos(*), retencion_ente_logos(*)').order('activo', { ascending: false }).order('nombre')
-    : await supabase.from(T_ENTES).select('*').order('activo', { ascending: false }).order('nombre');
+  let res = await supabase.from(T_ENTES).select('*, retencion_ente_impuestos(*), retencion_ente_logos(*)').order('activo', { ascending: false }).order('nombre');
+  if (res.error && esEsquemaMgg(res.error)) {
+    res = await supabase.from(T_ENTES).select('*').order('activo', { ascending: false }).order('nombre');
+  }
   if (res.error) throw errorRetencion(res.error, 'No se pudieron leer los entes.');
   const entes = (res.data ?? []).map((r) => aEnte(r as Record<string, unknown>));
   if (!(await r2Disponible())) return entes;
-  
-  // En MGG la columna es `ente`; en GT es `ente_id`
-  let imps: { clave: string; ente_id: string | null; activo?: boolean }[] = [];
-  try {
-    const { data: dMgg, error: errMgg } = await supabase.from(T_IMPUESTOS).select('clave, ente, activo');
-    if (!errMgg && dMgg) {
-      imps = dMgg.map((i: { clave: string; ente: string | null; activo?: boolean }) => ({
-        clave: i.clave.toUpperCase(),
-        ente_id: i.ente,
-        activo: i.activo,
-      }));
-    }
-  } catch { /* fallback */ }
 
-  if (!imps.length) {
-    try {
-      const { data: dGt } = await supabase.from(T_IMPUESTOS).select('clave, ente_id, activo');
-      if (dGt) {
-        imps = dGt as { clave: string; ente_id: string | null; activo?: boolean }[];
-      }
-    } catch { /* fallback */ }
+  // En GT la columna es `ente_id`; en MGG es `ente`
+  let { data: dImps, error: errImps } = await supabase.from(T_IMPUESTOS).select('clave, ente_id, activo');
+  if (errImps && esEsquemaMgg(errImps)) {
+    const resMgg = await supabase.from(T_IMPUESTOS).select('clave, ente, activo');
+    dImps = resMgg.data as typeof dImps;
+    errImps = resMgg.error;
   }
+  if (errImps) throw errorRetencion(errImps, 'No se pudieron leer los impuestos de los entes.');
+
+  const imps = ((dImps ?? []) as Record<string, unknown>[]).map((i) => ({
+    clave: String(i.clave ?? '').toUpperCase(),
+    ente_id: texto(i.ente_id ?? i.ente),
+    activo: i.activo as boolean | undefined,
+  }));
 
   const porEnte = impuestosPorEnte(imps);
   return entes.map((e) => ({ ...e, impuestos: porEnte.get(e.id) ?? [] }));
@@ -233,17 +234,25 @@ export async function opcionesImpuestoEnte(): Promise<{ clave: ClaveImpuesto; no
     islr: 'Impuesto Sobre la Renta (ISLR)',
     municipal: 'Impuesto a las Actividades Económicas (ISAE)',
     regional: 'Impuesto / Timbre Fiscal Estadal',
+    estadal: 'Impuesto / Timbre Fiscal Estadal',
     igtf: 'Impuesto a las Grandes Transacciones Financieras (IGTF)',
   };
-  try {
-    const { data, error } = await supabase.from(T_IMPUESTOS).select('clave, activo').eq('activo', true).order('orden').order('clave');
-    if (!error && data) {
-      return (data as { clave: string }[]).map((i) => ({
-        clave: i.clave.toUpperCase() as ClaveImpuesto,
-        nombre: nombresDefecto[i.clave.toLowerCase()] ?? i.clave.toUpperCase(),
-      }));
-    }
-  } catch { /* fallback */ }
+  const { data, error } = await supabase.from(T_IMPUESTOS).select('clave, nombre, activo').eq('activo', true).order('orden').order('clave');
+  if (!error && data) {
+    return (data as { clave: string; nombre?: string | null }[]).map((i) => ({
+      clave: i.clave.toUpperCase() as ClaveImpuesto,
+      nombre: texto(i.nombre) ?? nombresDefecto[i.clave.toLowerCase()] ?? null,
+    }));
+  }
+  if (error && esEsquemaMgg(error)) {
+    const { data: dMgg, error: errMgg } = await supabase.from(T_IMPUESTOS).select('clave, activo').eq('activo', true).order('orden').order('clave');
+    if (errMgg) throw errorRetencion(errMgg, 'No se pudieron leer los impuestos disponibles.');
+    return ((dMgg ?? []) as { clave: string }[]).map((i) => ({
+      clave: i.clave.toUpperCase() as ClaveImpuesto,
+      nombre: nombresDefecto[i.clave.toLowerCase()] ?? i.clave.toUpperCase(),
+    }));
+  }
+  if (error) throw errorRetencion(error, 'No se pudieron leer los impuestos disponibles.');
   return CLAVES_IMPUESTO.map((clave) => ({ clave, nombre: nombresDefecto[clave.toLowerCase()] ?? clave }));
 }
 
@@ -259,7 +268,20 @@ export async function logoEnteVigente(enteId: string, fecha: string): Promise<st
   try {
     const { data, error } = await supabase.rpc('retencion_ente_logo_vigente', { p_ente: enteId, p_fecha: fecha });
     if (!error) return texto(data);
-  } catch { /* RPC fallback */ }
+    if (error.code === '42883' || error.code === 'PGRST202' || error.code === '42P01') {
+      const alt = await supabase.rpc('retencion_logo_vigente', { p_ente: enteId, p_fecha: fecha });
+      if (!alt.error && alt.data) {
+        const d = alt.data as Record<string, unknown> | string;
+        return typeof d === 'string' ? texto(d) : texto(d.archivo_path ?? d.ruta);
+      }
+      return null;
+    }
+    throw errorRetencion(error, 'No se pudo consultar el logo del ente.');
+  } catch (err) {
+    if (err instanceof Error && !/could not find the function|function .* does not exist/i.test(err.message)) {
+      throw err;
+    }
+  }
   return null;
 }
 
@@ -293,25 +315,8 @@ export async function crearEnte(e: EnteNuevo): Promise<string> {
   if (faltaDesde) throw new Error(faltaDesde);
   const rif = leerRifEnte(e.rif);
   if ('error' in rif) throw new Error(rif.error);
-  
-  // Intento en esquema MGG: retencion_entes(ente, nombre, usar_en_comprobante)
-  const clave = nombreSeguro(e.nombre).replace(/-/g, '_');
-  try {
-    const { data: dMgg, error: errMgg } = await supabase.from(T_ENTES).insert({
-      ente: clave,
-      nombre: e.nombre.trim(),
-      usar_en_comprobante: false,
-      activo: true,
-    }).select('ente');
-    if (!errMgg && dMgg?.length) {
-      const id = String((dMgg[0] as { ente: string }).ente);
-      if (e.impuestos.length) {
-        await fijarImpuestosEnte(id, e.impuestos).catch(() => {});
-      }
-      return id;
-    }
-  } catch { /* fallback */ }
 
+  // 1. Intento canónico GT: retencion_entes(id, nombre, tipo, estado, municipio, rif, desde, motivo)
   const { data, error } = await supabase.from(T_ENTES).insert({
     nombre: e.nombre.trim(), tipo: e.tipo,
     estado: e.tipo === 'nacional' ? null : e.estado?.trim() || null,
@@ -320,6 +325,28 @@ export async function crearEnte(e: EnteNuevo): Promise<string> {
     desde: e.desde || undefined,
     motivo: e.motivo?.trim() || null,
   }).select('id');
+
+  // 2. Fallback en esquema MGG solo si la tabla tiene columnas MGG: retencion_entes(ente, nombre, activo)
+  if (error && esEsquemaMgg(error)) {
+    const clave = nombreSeguro(e.nombre).replace(/-/g, '_');
+    const { data: dMgg, error: errMgg } = await supabase.from(T_ENTES).insert({
+      ente: clave,
+      nombre: e.nombre.trim(),
+      activo: true,
+    }).select('ente');
+    if (errMgg) throw errorRetencion(errMgg, 'No se pudo crear el ente.', TEXTOS_ENTE);
+    const idMgg = (dMgg as { ente: string }[] | null)?.[0]?.ente;
+    if (!idMgg) throw new Error('No se creó el ente: sin permiso de escritura en Retenciones.');
+    if (e.impuestos.length) {
+      try {
+        await fijarImpuestosEnte(String(idMgg), e.impuestos);
+      } catch (err) {
+        throw new Error(`El ente quedó creado, pero sin sus impuestos: ${err instanceof Error ? err.message : 'error'}. Asígnalos desde «Editar».`);
+      }
+    }
+    return String(idMgg);
+  }
+
   if (error) throw errorRetencion(error, 'No se pudo crear el ente.', TEXTOS_ENTE);
   const id = (data as { id: string }[] | null)?.[0]?.id;
   if (!id) throw new Error('No se creó el ente: sin permiso de escritura en Retenciones.');
@@ -351,12 +378,17 @@ export async function editarEnte(id: string, cambios: Partial<Pick<EnteNuevo, 'n
     const falta = faltaEnEnte({ nombre: cambios.nombre, tipo: cambios.tipo, estado: cambios.estado, municipio: cambios.municipio });
     if (falta) throw new Error(falta);
   }
-  // Intenta por PK `ente` o por `id`
-  const { data: dMgg, error: errMgg } = await supabase.from(T_ENTES).update(patch).eq('ente', id).select('ente');
-  if (!errMgg && dMgg?.length) return;
 
   const { data, error } = await supabase.from(T_ENTES).update(patch).eq('id', id).select('id');
-  if (error) throw errorRetencion(errMgg || error, 'No se pudo guardar el ente.', TEXTOS_ENTE);
+  if (error && esEsquemaMgg(error)) {
+    const patchMgg: Record<string, unknown> = {};
+    if (patch.nombre !== undefined) patchMgg.nombre = patch.nombre;
+    const { data: dMgg, error: errMgg } = await supabase.from(T_ENTES).update(patchMgg).eq('ente', id).select('ente');
+    if (errMgg) throw errorRetencion(errMgg, 'No se pudo guardar el ente.', TEXTOS_ENTE);
+    if (!dMgg?.length) throw new Error('No se guardó el ente: sin permiso de escritura en Retenciones, o el ente ya no existe.');
+    return;
+  }
+  if (error) throw errorRetencion(error, 'No se pudo guardar el ente.', TEXTOS_ENTE);
   if (!data?.length) throw new Error('No se guardó el ente: sin permiso de escritura en Retenciones, o el ente ya no existe.');
 }
 
@@ -364,13 +396,17 @@ export async function editarEnte(id: string, cambios: Partial<Pick<EnteNuevo, 'n
 export async function activarEnte(id: string, activo: boolean, motivo: string): Promise<void> {
   const m = motivo.trim();
   if (!m) throw new Error(activo ? 'Indica por qué se reactiva el ente.' : 'Indica por qué se desactiva el ente.');
-  const { data: dMgg, error: errMgg } = await supabase.from(T_ENTES)
-    .update({ activo }).eq('ente', id).select('ente');
-  if (!errMgg && dMgg?.length) return;
 
   const { data, error } = await supabase.from(T_ENTES)
     .update({ activo, hasta: activo ? null : hoyIso(), motivo: m }).eq('id', id).select('id');
-  if (error) throw errorRetencion(errMgg || error, 'No se pudo cambiar el estado del ente.');
+  if (error && esEsquemaMgg(error)) {
+    const { data: dMgg, error: errMgg } = await supabase.from(T_ENTES)
+      .update({ activo }).eq('ente', id).select('ente');
+    if (errMgg) throw errorRetencion(errMgg, 'No se pudo cambiar el estado del ente.');
+    if (!dMgg?.length) throw new Error('No se cambió el ente: sin permiso de escritura en Retenciones, o el ente ya no existe.');
+    return;
+  }
+  if (error) throw errorRetencion(error, 'No se pudo cambiar el estado del ente.');
   if (!data?.length) throw new Error('No se cambió el ente: sin permiso de escritura en Retenciones, o el ente ya no existe.');
 }
 
@@ -397,32 +433,42 @@ export async function fijarImpuestosEnte(enteId: string, claves: ClaveImpuesto[]
   if (error) throw errorRetencion(error, 'No se pudieron quitar los impuestos que ya no cobra el ente.');
 }
 
+async function fijarImpuestosEnteR2Mgg(enteId: string, elegidos: string[]): Promise<void> {
+  const elegidosMin = elegidos.map((c) => c.toLowerCase());
+  if (elegidosMin.length) {
+    const { data, error } = await supabase.from(T_IMPUESTOS)
+      .update({ ente: enteId }).in('clave', elegidosMin).select('clave');
+    if (error) throw errorRetencion(error, 'No se pudieron asignar los impuestos al ente.');
+    if ((data?.length ?? 0) < elegidosMin.length) throw new Error('No se asignaron los impuestos al ente: sin permiso de escritura en Retenciones.');
+  }
+  let q = supabase.from(T_IMPUESTOS).update({ ente: null }).eq('ente', enteId);
+  if (elegidosMin.length) q = q.not('clave', 'in', `(${elegidosMin.join(',')})`);
+  const { error } = await q.select('clave');
+  if (error) throw errorRetencion(error, 'No se pudieron quitar los impuestos que ya no cobra el ente.');
+}
+
 /**
- * Con R2: el ente de cada impuesto es retencion_impuestos.ente (o ente_id).
+ * Con R2: el ente de cada impuesto es retencion_impuestos.ente_id (o `ente` en esquema MGG).
  */
 async function fijarImpuestosEnteR2(enteId: string, elegidos: string[], motivo: string): Promise<void> {
   const m = motivo.trim() || 'Impuestos del ente';
-  const elegidosMin = elegidos.map((c) => c.toLowerCase());
-  // MGG usa columna `ente`
-  try {
-    if (elegidosMin.length) {
-      await supabase.from(T_IMPUESTOS).update({ ente: enteId }).in('clave', elegidosMin);
-    }
-    let q = supabase.from(T_IMPUESTOS).update({ ente: null }).eq('ente', enteId);
-    if (elegidosMin.length) q = q.not('clave', 'in', `(${elegidosMin.join(',')})`);
-    await q;
-    return;
-  } catch { /* fallback a GT */ }
-
   if (elegidos.length) {
     const { data, error } = await supabase.from(T_IMPUESTOS)
       .update({ ente_id: enteId, motivo_cambio: m }).in('clave', elegidos).select('clave');
+    if (error && esEsquemaMgg(error)) {
+      await fijarImpuestosEnteR2Mgg(enteId, elegidos);
+      return;
+    }
     if (error) throw errorRetencion(error, 'No se pudieron asignar los impuestos al ente.');
     if ((data?.length ?? 0) < elegidos.length) throw new Error('No se asignaron los impuestos al ente: sin permiso de escritura en Retenciones.');
   }
   let q = supabase.from(T_IMPUESTOS).update({ ente_id: null, motivo_cambio: m }).eq('ente_id', enteId);
   if (elegidos.length) q = q.not('clave', 'in', `(${elegidos.join(',')})`);
   const { error } = await q.select('clave');
+  if (error && esEsquemaMgg(error)) {
+    await fijarImpuestosEnteR2Mgg(enteId, elegidos);
+    return;
+  }
   if (error) throw errorRetencion(error, 'No se pudieron quitar los impuestos que ya no cobra el ente.');
 }
 
@@ -454,15 +500,34 @@ export async function subirLogoEnte(enteId: string, archivo: File, desde: string
   const faltaDesde = faltaEnFechaRango(desde, 'la fecha «vale desde» del logo');
   if (faltaDesde) throw new Error(faltaDesde);
   const ruta = rutaLogoEnte(enteId, desde, archivo.name);
-  return subirVersion(ruta, archivo, () => supabase.from(T_ENTE_LOGOS).insert({
-    ente_id: enteId, ruta, nombre_archivo: archivo.name, desde, motivo: motivo?.trim() || null,
-  }).select('id'), { unico: 'Ese ente ya tiene un logo que empieza en esa fecha: elige otra fecha.' });
+  return subirVersion(ruta, archivo, async () => {
+    const res = await supabase.from(T_ENTE_LOGOS).insert({
+      ente_id: enteId, ruta, nombre_archivo: archivo.name, desde, motivo: motivo?.trim() || null,
+    }).select('id');
+    if (res.error && esEsquemaMgg(res.error)) {
+      return supabase.from('retencion_logos').insert({
+        ente: enteId,
+        archivo_path: ruta,
+        archivo_nombre: archivo.name,
+        vigente_desde: desde,
+        motivo: motivo?.trim() || 'Alta de logo',
+        activo: true,
+      }).select('id');
+    }
+    return res;
+  }, { unico: 'Ese ente ya tiene un logo que empieza en esa fecha: elige otra fecha.' });
 }
 
 /** Desactiva una versión de logo (por ejemplo, cargada por error). El archivo se conserva. */
 export async function desactivarLogoEnte(logoId: string, motivo: string): Promise<void> {
   if (!motivo.trim()) throw new Error('Indica por qué se desactiva el logo.');
   const { data, error } = await supabase.from(T_ENTE_LOGOS).update({ activo: false, motivo: motivo.trim() }).eq('id', logoId).select('id');
+  if (error && esEsquemaMgg(error)) {
+    const alt = await supabase.from('retencion_logos').update({ activo: false, motivo: motivo.trim() }).eq('id', logoId).select('id');
+    if (alt.error) throw errorRetencion(alt.error, 'No se pudo desactivar el logo.');
+    if (!alt.data?.length) throw new Error('No se cambió el logo: sin permiso de escritura en Retenciones.');
+    return;
+  }
   if (error) throw errorRetencion(error, 'No se pudo desactivar el logo.');
   if (!data?.length) throw new Error('No se cambió el logo: sin permiso de escritura en Retenciones.');
 }
@@ -497,6 +562,13 @@ export async function imagenAgenteVigente(clase: ClaseImagenAgente, fecha: strin
   try {
     const { data, error } = await supabase.rpc('retencion_agente_imagen_vigente', { p_clase: clase, p_fecha: fecha });
     if (!error) return texto(data);
-  } catch { /* RPC fallback */ }
+    if (error.code !== '42883' && error.code !== 'PGRST202' && error.code !== '42P01') {
+      throw errorRetencion(error, 'No se pudo consultar la imagen de la empresa.');
+    }
+  } catch (err) {
+    if (err instanceof Error && !/could not find the function|function .* does not exist/i.test(err.message)) {
+      throw err;
+    }
+  }
   return null;
 }

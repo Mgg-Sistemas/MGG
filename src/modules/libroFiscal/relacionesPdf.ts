@@ -15,7 +15,7 @@
    Solo vista previa, por botón.
    ============================================================ */
 import { previewPdf } from '@/shared/lib/reportePreview';
-import type { TipoImpuesto, ConfigRetencion } from './retencionesCalculo';
+import { enBolivares, type TipoImpuesto, type ConfigRetencion } from './retencionesCalculo';
 import type { RetencionPracticada } from './retencionesFiscal.repository';
 import { razonSocialAgente } from './comprobanteRetencionPdf';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, fechaPdf, montoPdf, textoPdf } from './pdfComun';
@@ -43,6 +43,8 @@ function agruparPorProveedor(filas: RetencionPracticada[]): ProveedorAgrupado[] 
 }
 
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
+const aBs = (monto: number, f: RetencionPracticada): number => enBolivares(r2(monto), f.moneda, f.tasa);
+const retBs = (f: RetencionPracticada): number => (f.montoBs != null ? r2(f.montoBs) : aBs(f.montoRetenido, f));
 
 const TITULOS: Record<string, string> = {
   iva: 'Retenciones de I.V.A. a Proveedores',
@@ -112,9 +114,12 @@ function dibujarRelacionIva(
     for (const f of p.filas) {
       const factor = f.tipoDocumento === 'nota_credito' ? -1 : 1;
       const esNc = f.tipoDocumento === 'nota_credito';
-      const mBase = esNc ? `-${montoPdf(f.baseImponible, f.moneda)}` : montoPdf(f.baseImponible, f.moneda);
-      const mImp = esNc ? `-${montoPdf(f.impuesto, f.moneda)}` : montoPdf(f.impuesto, f.moneda);
-      const mRet = esNc ? `-${montoPdf(f.montoRetenido, f.moneda)}` : montoPdf(f.montoRetenido, f.moneda);
+      const baseBs = aBs(f.baseImponible, f);
+      const impBs = aBs(f.impuesto, f);
+      const retenidoBs = retBs(f);
+      const mBase = esNc ? `-${montoPdf(baseBs, 'Bs')}` : montoPdf(baseBs, 'Bs');
+      const mImp = esNc ? `-${montoPdf(impBs, 'Bs')}` : montoPdf(impBs, 'Bs');
+      const mRet = esNc ? `-${montoPdf(retenidoBs, 'Bs')}` : montoPdf(retenidoBs, 'Bs');
 
       cuerpo.push([
         textoPdf(p.rif), textoPdf(p.nombre), textoPdf(p.rif),
@@ -122,9 +127,9 @@ function dibujarRelacionIva(
         textoPdf(f.facturaControl ?? '—'), textoPdf(fechaPdf(f.facturaFecha)),
         textoPdf(mBase), textoPdf(mImp), textoPdf(mRet),
       ]);
-      totalBase += f.baseImponible * factor;
-      totalImpuesto += f.impuesto * factor;
-      totalRetenido += f.montoRetenido * factor;
+      totalBase += baseBs * factor;
+      totalImpuesto += impBs * factor;
+      totalRetenido += retenidoBs * factor;
     }
   }
 
@@ -159,8 +164,10 @@ function dibujarRelacionIslr(
     for (const f of p.filas) {
       const factor = f.tipoDocumento === 'nota_credito' ? -1 : 1;
       const esNc = f.tipoDocumento === 'nota_credito';
-      const mBase = esNc ? `-${montoPdf(f.baseImponible, f.moneda)}` : montoPdf(f.baseImponible, f.moneda);
-      const mRet = esNc ? `-${montoPdf(f.montoRetenido, f.moneda)}` : montoPdf(f.montoRetenido, f.moneda);
+      const baseBs = aBs(f.baseImponible, f);
+      const retenidoBs = retBs(f);
+      const mBase = esNc ? `-${montoPdf(baseBs, 'Bs')}` : montoPdf(baseBs, 'Bs');
+      const mRet = esNc ? `-${montoPdf(retenidoBs, 'Bs')}` : montoPdf(retenidoBs, 'Bs');
 
       cuerpo.push([
         textoPdf(p.rif), textoPdf(p.nombre), textoPdf(fechaPdf(f.facturaFecha)),
@@ -169,8 +176,8 @@ function dibujarRelacionIslr(
         textoPdf(mBase), textoPdf(mRet),
         textoPdf(`${f.porcentaje}%`),
       ]);
-      totalBase += f.baseImponible * factor;
-      totalRetenido += f.montoRetenido * factor;
+      totalBase += baseBs * factor;
+      totalRetenido += retenidoBs * factor;
     }
   }
 
@@ -204,11 +211,14 @@ function dibujarRelacionGeneral(
     for (const f of p.filas) {
       const factor = f.tipoDocumento === 'nota_credito' ? -1 : 1;
       const esNc = f.tipoDocumento === 'nota_credito';
-      const operacion = r2(f.baseImponible + f.impuesto);
-      const mBase = esNc ? `-${montoPdf(f.baseImponible, f.moneda)}` : montoPdf(f.baseImponible, f.moneda);
-      const mImp = esNc ? `-${montoPdf(f.impuesto, f.moneda)}` : montoPdf(f.impuesto, f.moneda);
-      const mOp = esNc ? `-${montoPdf(operacion, f.moneda)}` : montoPdf(operacion, f.moneda);
-      const mRet = esNc ? `-${montoPdf(f.montoRetenido, f.moneda)}` : montoPdf(f.montoRetenido, f.moneda);
+      const baseBs = aBs(f.baseImponible, f);
+      const impBs = aBs(f.impuesto, f);
+      const operacionBs = r2(baseBs + impBs);
+      const retenidoBs = retBs(f);
+      const mBase = esNc ? `-${montoPdf(baseBs, 'Bs')}` : montoPdf(baseBs, 'Bs');
+      const mImp = esNc ? `-${montoPdf(impBs, 'Bs')}` : montoPdf(impBs, 'Bs');
+      const mOp = esNc ? `-${montoPdf(operacionBs, 'Bs')}` : montoPdf(operacionBs, 'Bs');
+      const mRet = esNc ? `-${montoPdf(retenidoBs, 'Bs')}` : montoPdf(retenidoBs, 'Bs');
 
       cuerpo.push([
         textoPdf(p.rif), textoPdf(p.nombre), textoPdf(p.rif),
@@ -217,9 +227,9 @@ function dibujarRelacionGeneral(
         textoPdf(mBase), textoPdf(mImp),
         textoPdf(mOp), textoPdf(mRet),
       ]);
-      totalBase += f.baseImponible * factor;
-      totalImpuesto += f.impuesto * factor;
-      totalRetenido += f.montoRetenido * factor;
+      totalBase += baseBs * factor;
+      totalImpuesto += impBs * factor;
+      totalRetenido += retenidoBs * factor;
     }
   }
 

@@ -66,6 +66,15 @@ describe('XML del SENIAT (retenciones de ISLR)', () => {
     expect(r.contenido).toContain('<PorcentajeRetencion>2.00</PorcentajeRetencion>');
   });
 
+  it('escapa caracteres especiales XML (&, <, >, ", \') en factura y control', () => {
+    const r = armarXmlIslr({
+      ...base,
+      filas: [ret({ facturaNumero: 'A&B<1>', facturaControl: 'C"D\'2' })],
+    });
+    expect(r.contenido).toContain('<NumeroFactura>A&amp;B&lt;1&gt;</NumeroFactura>');
+    expect(r.contenido).toContain('<NumeroControl>C&quot;D&apos;2</NumeroControl>');
+  });
+
   it('valida datos obligatorios faltantes', () => {
     const sinRif = armarXmlIslr({ ...base, rifAgente: '', filas: [ret({ contraparteRif: null })] });
     expect(sinRif.faltan.some((f) => f.includes('RIF de la empresa'))).toBe(true);

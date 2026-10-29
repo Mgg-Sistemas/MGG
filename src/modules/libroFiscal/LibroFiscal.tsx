@@ -933,7 +933,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                       <details style={{ margin: '-.2rem 0 .5rem', fontSize: '.84rem' }}>
                         <summary className="muted" style={{ cursor: 'pointer' }}>Órdenes que cubre la factura {f.num}</summary>
                         <CubrirOtrasOrdenes documentoId={f.documentoId} proveedorId={f.proveedorId}
-                          principal={f.docId && f.docKind !== 'manual' ? { tipo: f.docKind, id: f.docId } : null}
+                          principal={f.docId && f.docKind !== 'manual' && f.docKind !== 'venta' ? { tipo: f.docKind, id: f.docId } : null}
                           puedeEditar={canWrite} />
                       </details>
                     )}
@@ -1517,7 +1517,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     const base = nDec(baseStr);
     if (tipo === 'iva') return calcularRetencionIva({ baseImponible: base, ivaFactura: nDec(ivaStr), motivos, supuesto }, config);
     if (tipo === 'islr') return calcularRetencionIslr({ montoPago: base, concepto, moneda, tasa: nDec(tasaStr) }, config);
-    if (tipo === 'igtf') return calcularIgtf({ montoPago: base, enDivisas: true }, config);
+    if (tipo === 'igtf') return calcularIgtf({ montoPago: base, enDivisas: moneda !== 'Bs' }, config);
     return calcularRetencionLocal({ montoPago: base, concepto }, tipo);
   }, [tipo, baseStr, ivaStr, motivos, supuesto, concepto, config, moneda, tasaStr]);
 

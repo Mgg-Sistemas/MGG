@@ -18,14 +18,7 @@ const T_REGLAS = 'retencion_reglas';
 const T_CONDICIONES = 'retencion_regla_condiciones';
 const T_PASOS = 'retencion_regla_pasos';
 
-export const r7Disponible = async () => {
-  const [reglas, condiciones, pasos] = await Promise.all([
-    tablaDisponible(T_REGLAS),
-    tablaDisponible(T_CONDICIONES),
-    tablaDisponible(T_PASOS),
-  ]);
-  return Boolean(reglas && condiciones && pasos);
-};
+export const r7Disponible = () => tablaDisponible(T_REGLAS);
 
 export interface ReglaGuardada extends Regla {
   id: string;
@@ -60,7 +53,12 @@ export async function listReglas(impuestoClave: string): Promise<ReglaGuardada[]
   if (!(await r7Disponible())) return [];
   const { data, error } = await supabase.from(T_REGLAS).select(`*, ${T_CONDICIONES}(*), ${T_PASOS}(*)`)
     .eq('impuesto_clave', impuestoClave).order('nombre').order('version', { ascending: false });
-  if (error) throw errorRetencion(error, 'No se pudieron leer las reglas.');
+  if (error) {
+    if (error.code === '42P01' || error.code === '42703' || error.code === 'PGRST205' || error.code === 'PGRST200' || /relation .* does not exist|column .* does not exist|could not find the table|relationship .* in the schema cache/i.test(error.message ?? '')) {
+      return [];
+    }
+    throw errorRetencion(error, 'No se pudieron leer las reglas.');
+  }
   return (data ?? []).map((r) => aRegla(r as Record<string, unknown>));
 }
 
@@ -68,8 +66,14 @@ export async function listReglas(impuestoClave: string): Promise<ReglaGuardada[]
 export async function reglasVigentes(impuestoClave: string, fecha: string, incluirPrueba = false): Promise<ReglaGuardada[]> {
   if (!(await r7Disponible())) return [];
   const { data, error } = await supabase.rpc('retencion_reglas_vigentes', { p_impuesto: impuestoClave, p_fecha: fecha, p_incluir_prueba: incluirPrueba });
-  if (error) throw errorRetencion(error, 'No se pudieron leer las reglas vigentes.');
+  if (error) {
+    if (error.code === '42883' || error.code === 'PGRST202' || /could not find the function|function .* does not exist/i.test(error.message ?? '')) {
+      return [];
+    }
+    throw errorRetencion(error, 'No se pudieron leer las reglas vigentes.');
+  }
   return ((data ?? []) as { regla: Record<string, unknown>; condiciones: unknown[]; pasos: unknown[] }[])
+    .filter((x) => x && typeof x === 'object' && 'regla' in x && x.regla)
     .map((x) => aRegla({ ...x.regla, retencion_regla_condiciones: x.condiciones, retencion_regla_pasos: x.pasos }));
 }
 

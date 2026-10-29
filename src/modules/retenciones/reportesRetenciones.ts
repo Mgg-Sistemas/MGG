@@ -19,6 +19,8 @@ import type { RetencionPracticada } from '@/modules/libroFiscal/retencionesFisca
 import { rotuloImpuesto } from '@/modules/libroFiscal/rotulos';
 
 const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
+const signoDe = (r: Pick<RetencionPracticada, 'tipoDocumento'>): 1 | -1 =>
+  r.tipoDocumento === 'nota_credito' ? -1 : 1;
 
 /* ───────── Período del reporte ───────── */
 
@@ -124,11 +126,12 @@ export function fechaDe(r: RetencionPracticada, base: FechaBase): string {
   return (base === 'registro' ? r.createdAt : (r.facturaFecha ?? r.createdAt) ?? '').slice(0, 10);
 }
 
-/** Lo retenido en Bs: lo guardado o, si no está, el monto por la tasa del registro. Null si no hay cómo. */
+/** Lo retenido en Bs: lo guardado o, si no está, el monto por la tasa del registro. Las notas de crédito restan. Null si no hay cómo. */
 export function retenidoBs(r: RetencionPracticada): number | null {
-  if (r.montoBs != null) return r2(r.montoBs);
-  if (String(r.moneda).toUpperCase() === 'BS') return r2(r.montoRetenido);
-  return r.tasa && r.tasa > 0 ? enBolivares(r.montoRetenido, r.moneda, r.tasa) : null;
+  const signo = signoDe(r);
+  if (r.montoBs != null) return r2(r.montoBs * signo);
+  if (String(r.moneda).toUpperCase() === 'BS') return r2(r.montoRetenido * signo);
+  return r.tasa && r.tasa > 0 ? r2(enBolivares(r.montoRetenido, r.moneda, r.tasa) * signo) : null;
 }
 
 export function filtrarReporte(filas: RetencionPracticada[], f: FiltroReporte, rango: Rango): RetencionPracticada[] {
@@ -170,16 +173,17 @@ export function ordenarReporte(filas: RetencionPracticada[], orden: OrdenReporte
 export interface TotalMoneda { moneda: string; registros: number; base: number; retenido: number }
 export interface Totales { retenidoBs: number; sinTasa: number; porMoneda: TotalMoneda[] }
 
-/** Totales del reporte: Bs primero (lo que se declara) y, aparte, uno por moneda de origen. Las anuladas no suman. */
+/** Totales del reporte: Bs primero (lo que se declara) y, aparte, uno por moneda de origen. Las anuladas no suman; las notas de crédito restan. */
 export function totalesReporte(filas: RetencionPracticada[]): Totales {
   const porMoneda = new Map<string, TotalMoneda>();
   let bs = 0; let sinTasa = 0;
   for (const r of filas) {
     if (r.anulada) continue;
+    const signo = signoDe(r);
     const b = retenidoBs(r);
     if (b == null) sinTasa += 1; else bs += b;
     const t = porMoneda.get(r.moneda) ?? { moneda: r.moneda, registros: 0, base: 0, retenido: 0 };
-    t.registros += 1; t.base = r2(t.base + r.baseImponible); t.retenido = r2(t.retenido + r.montoRetenido);
+    t.registros += 1; t.base = r2(t.base + r.baseImponible * signo); t.retenido = r2(t.retenido + r.montoRetenido * signo);
     porMoneda.set(r.moneda, t);
   }
   return { retenidoBs: r2(bs), sinTasa, porMoneda: [...porMoneda.values()].sort((a, b) => a.moneda.localeCompare(b.moneda)) };
@@ -211,9 +215,9 @@ export const COLUMNAS_REPORTE: ColumnaReporte[] = [
   { id: 'factura', label: 'N° factura', valor: (r) => r.facturaNumero },
   { id: 'control', label: 'N° control', valor: (r) => r.facturaControl },
   { id: 'moneda', label: 'Moneda', valor: (r) => r.moneda },
-  { id: 'base', label: 'Base imponible', numerica: true, valor: (r) => r2(r.baseImponible) },
+  { id: 'base', label: 'Base imponible', numerica: true, valor: (r) => r2(r.baseImponible * signoDe(r)) },
   { id: 'pct', label: '% retención', numerica: true, valor: (r) => r.porcentaje },
-  { id: 'retenido', label: 'Monto retenido', numerica: true, valor: (r) => r2(r.montoRetenido) },
+  { id: 'retenido', label: 'Monto retenido', numerica: true, valor: (r) => r2(r.montoRetenido * signoDe(r)) },
   { id: 'retenido_bs', label: 'Retenido (Bs)', numerica: true, valor: (r) => retenidoBs(r) },
   { id: 'estado', label: 'Estado', valor: (r) => estadoDe(r) },
 ];

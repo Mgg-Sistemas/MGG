@@ -155,16 +155,18 @@ export async function actualizarCondicion(id: string, c: Partial<CondicionNueva>
   if (c.impuestoClave !== undefined) updateData.impuesto_clave = c.impuestoClave;
   if (c.condicion !== undefined) updateData.condicion = c.condicion;
 
-  const { error } = await supabase.from(T_CONDICIONES).update(updateData).eq('id', id);
+  const { data, error } = await supabase.from(T_CONDICIONES).update(updateData).eq('id', id).select('id');
   if (error) {
     throw errorRetencion(error, 'No se pudo actualizar el registro del régimen.', {
       unico: 'Ya hay un registro con esa misma fecha de inicio.',
     });
   }
+  if (!data?.length) throw new Error('No se guardó el cambio del régimen: sin permiso de escritura en Retenciones, o ya no existe.');
 }
 
 /** Elimina un registro del régimen. */
 export async function eliminarCondicion(id: string): Promise<void> {
-  const { error } = await supabase.from(T_CONDICIONES).delete().eq('id', id);
+  const { data, error } = await supabase.from(T_CONDICIONES).delete().eq('id', id).select('id');
   if (error) throw errorRetencion(error, 'No se pudo eliminar el registro del régimen.');
+  if (!data?.length) throw new Error('No se eliminó el registro del régimen: sin permiso de escritura en Retenciones, o ya no existe.');
 }

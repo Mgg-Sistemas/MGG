@@ -7,7 +7,10 @@ import { notify } from '@/shared/lib/notify';
 import { money, montoMoneda, num, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
+import { Link, Navigate } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { RUTA_RETENCIONES_TELEFONO } from '@/modules/usuarios/permisos.repository';
+import { OtrasEmpresasView } from './OtrasEmpresasView';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import {
   listRetencionesPendientes, listRetencionesHechas, finalizarRetencion,
@@ -36,7 +39,7 @@ import '@/modules/libroFiscal/libroFiscal.css';
 import '@/modules/libroFiscal/libroFiscalV8.css';
 import { norm } from '@/shared/lib/texto';
 
-type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes' | 'auditoria';
+type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes' | 'auditoria' | 'otras_empresas';
 
 /** Qué documento es un código, en palabras: el personal no tiene por qué saber las siglas. */
 function nombreDocumento(codigo: string | null | undefined): string {
@@ -136,7 +139,8 @@ export function infoImpuestoOrden(o: Orden): {
 
 export function RetencionesPage() {
   const { user } = useSession();
-  const { can, appUser } = usePermissions();
+  const { can, appUser, soloTelefono } = usePermissions();
+  if (soloTelefono) return <Navigate to={`/app/${RUTA_RETENCIONES_TELEFONO}`} replace />;
   const canWrite = can('retenciones', 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
@@ -324,6 +328,7 @@ export function RetencionesPage() {
           Retenciones por factura: aplicables, registradas y no aplicables.
         </p>
         <div className="lfv8-cabeza-acciones">
+          <Link to="/app/retenciones/telefono" className="btn btn-ghost" title="Vista teléfono para carga de facturas externas">📱 Vista teléfono</Link>
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
           <nav className="view-toggle" role="tablist" aria-label="Pantallas del módulo" style={{ margin: 0 }}>
             <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>
@@ -331,6 +336,7 @@ export function RetencionesPage() {
             </button>
             <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
             <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📒 Libro fiscal</button>
+            <button className={vista === 'otras_empresas' ? 'active' : ''} onClick={() => setVista('otras_empresas')}>🏢 Otras Empresas</button>
             {conV3 && <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>}
             <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>Reportes</button>
             <button className={vista === 'auditoria' ? 'active' : ''} onClick={() => setVista('auditoria')}>🛡️ Auditoría</button>
@@ -341,6 +347,9 @@ export function RetencionesPage() {
       {/* El período en curso de cada impuesto se ve en «Períodos» (resumen por impuesto). */}
 
       {/* ── Libro fiscal consolidado (con switch interno entre vista por factura, lista o por impuesto) ── */}
+      {/* ── Otras Empresas (Buzón de facturas y retenciones de otras razones sociales) ── */}
+      {vista === 'otras_empresas' && <OtrasEmpresasView canWrite={canWrite} />}
+
       {(vista === 'agrupada' || vista === 'libro') && (
         <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} />
       )}

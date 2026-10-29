@@ -73,7 +73,7 @@ describe('TXT del SENIAT · IVA', () => {
     expect([...r.contenido].every((c) => c === '\t' || c === '\r' || c === '\n' || (c >= ' ' && c <= '~'))).toBe(true);
   });
 
-  it('soporta nota de crédito con factura afectada y monto exento', () => {
+  it('soporta nota de crédito con factura afectada y monto exento, y exige factura afectada si falta', () => {
     const r = armarTxtIva({
       ...base,
       filas: [
@@ -91,5 +91,11 @@ describe('TXT del SENIAT · IVA', () => {
     expect(campos[8]).toBe('1210.00');
     expect(campos[11]).toBe('000099');
     expect(campos[13]).toBe('50.00');
+
+    const sinAfectada = armarTxtIva({
+      ...base,
+      filas: [ret({ tipoDocumento: 'nota_credito', facturaAfectadaNro: null })],
+    });
+    expect(sinAfectada.faltan.join(' | ')).toMatch(/factura afectada/);
   });
 });

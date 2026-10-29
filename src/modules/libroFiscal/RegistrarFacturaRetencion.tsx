@@ -301,9 +301,9 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     let vivo = true;
     const f = facturaFecha || fechaRetencion;
     if (/^\d{4}-\d{2}-\d{2}$/.test(f)) {
-      const primerTipo = lineas[0]?.tipo ? tipoAGt(lineas[0].tipo) : 'iva';
-      periodoEstaCerrado(primerTipo, f)
-        .then((p) => { if (vivo) setPeriodoCerrado(p); })
+      const tiposUnicos = [...new Set(lineas.map((l) => tipoAGt(l.tipo)))];
+      Promise.all((tiposUnicos.length ? tiposUnicos : ['IVA']).map((t) => periodoEstaCerrado(t, f)))
+        .then((ps) => { if (vivo) setPeriodoCerrado(ps.find(Boolean) ?? null); })
         .catch(() => { if (vivo) setPeriodoCerrado(null); });
     } else {
       setPeriodoCerrado(null);
@@ -326,7 +326,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
     }
     // El mínimo en UT y el sustraendo están en Bs: el cálculo necesita la moneda y la tasa.
     if (l.tipo === 'islr') return calcularRetencionIslr({ montoPago: base, concepto, moneda, tasa }, config);
-    if (l.tipo === 'igtf') return calcularIgtf({ montoPago: base, enDivisas: true }, config);
+    if (l.tipo === 'igtf') return calcularIgtf({ montoPago: base, enDivisas: moneda !== 'Bs' }, config);
     return calcularRetencionLocal({ montoPago: base, concepto }, l.tipo);
   }, [conceptos, config, moneda, tasa, supuestosIva]);
 
@@ -520,7 +520,7 @@ export function RegistrarFacturaRetencion({ semilla: s = {}, actor, actorName, o
           tasa: moneda === 'Bs' ? null : tasa,
           baseBs: enBolivares(esManual ? nDec(l.baseStr) : calc.baseImponible, moneda, tasa) || null,
           montoBs: enBolivares(monto, moneda, tasa) || null,
-          conceptoCodigo: l.tipo === 'islr' ? (l.conceptoId.split(':')[0] || null) : null,
+          conceptoCodigo: l.conceptoId && !l.conceptoId.endsWith(':todos') ? (l.conceptoId.split(':')[0] || null) : null,
           conceptoNombre: conceptos.find((c) => c.id === l.conceptoId)?.nombre ?? null,
           // El ISAE es del municipio de la empresa (antes llegaba null).
           municipio: municipioDeLinea(l.tipo, config),

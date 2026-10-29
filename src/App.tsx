@@ -45,6 +45,7 @@ const ChoferesPage = lazyReload(() => import('./modules/choferes/ChoferesPage').
 const VentasPage = lazyReload(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
 const TesoreriaPage = lazyReload(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
 const RetencionesPage = lazyReload(() => import('./modules/retenciones/RetencionesPage').then((m) => ({ default: m.RetencionesPage })));
+const RetencionesMovilView = lazyReload(() => import('./modules/retenciones/RetencionesMovilView').then((m) => ({ default: m.RetencionesMovilView })));
 const RecepcionesPage = lazyReload(() => import('./modules/recepciones/RecepcionesPage').then((m) => ({ default: m.RecepcionesPage })));
 const RrhhPage = lazyReload(() => import('./modules/rrhh/RrhhPage').then((m) => ({ default: m.RrhhPage })));
 const AsignacionesPage = lazyReload(() => import('./modules/asignaciones/AsignacionesPage').then((m) => ({ default: m.AsignacionesPage })));
@@ -63,21 +64,20 @@ function PageLoader() {
  * Precarga en SEGUNDO PLANO (cuando el navegador está ocioso) los chunks de las
  * páginas más usadas, después del primer render. Así, al hacer clic en un módulo,
  * su código ya está descargado y abre al instante. No bloquea la carga inicial
- * (usa requestIdleCallback) y el navegador deduplica con el import lazy real.
+ * ni compite con el primer pintado.
  */
-function useRoutePrefetch() {
+function usePrefetchPaginasFrecuentes() {
   useEffect(() => {
-    /* De a UNA, encadenadas. Las seis juntas son más de un mega de JavaScript
-       compitiendo por la conexión con el chunk de la página que el usuario sí
-       está esperando: la precarga terminaba retrasando lo que venía a acelerar.
-       Encadenadas dan lo mismo al final y no le pisan la banda a nadie. */
-    const rutas = [
+    const rutas: (() => Promise<unknown>)[] = [
+      () => import('./modules/dashboard/DashboardPage'),
       () => import('./modules/inventario/InventarioPage'),
       () => import('./modules/pedidos/PedidosPage'),
       () => import('./modules/tesoreria/TesoreriaPage'),
       () => import('./modules/salidas/SalidasPage'),
       () => import('./modules/acopio/AcopioPage'),
       () => import('./modules/recepciones/RecepcionesPage'),
+      () => import('./modules/retenciones/RetencionesPage'),
+      () => import('./modules/retenciones/RetencionesMovilView'),
     ];
     let cancelado = false;
     const prefetch = () => {
@@ -101,35 +101,24 @@ function useRoutePrefetch() {
 
 function SinAccesoPage() {
   return (
-    <div className="card" style={{ padding: '2rem', maxWidth: 520, margin: '2rem auto', textAlign: 'center' }}>
-      <h2 style={{ marginTop: 0 }}>Sin acceso</h2>
-      <p className="muted">
-        Tu rol no tiene permisos sobre ningún módulo. Pedile a un administrador que ajuste tus
-        permisos en <strong>Usuarios → Roles y Permisos</strong>.
-      </p>
+    <div className="sin-acceso-wrap p-8 text-center">
+      <h2>Acceso no autorizado</h2>
+      <p className="muted">No tienes permiso para ver esta pantalla. Consulta al administrador.</p>
     </div>
   );
 }
 
 export function App() {
-  useRoutePrefetch();
+  usePrefetchPaginasFrecuentes();
+
   return (
     <ChunkErrorBoundary>
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
-        {/* Pública: lo que abre el QR del carnet (verificación en vivo). */}
-        <Route path="/carnet/:id" element={<Suspense fallback={null}><CarnetPublicoPage /></Suspense>} />
-        <Route
-          path="/cambiar-clave"
-          element={
-            <ProtectedRoute>
-              <Suspense fallback={<PageLoader />}>
-                <CambiarClavePage />
-              </Suspense>
-            </ProtectedRoute>
-          }
-        />
+        {/* Carnet público por QR (sin login): cualquiera puede verificarlo */}
+        <Route path="/carnet/:id" element={<Suspense fallback={<PageLoader />}><CarnetPublicoPage /></Suspense>} />
+        {/* Rutas protegidas: exigen sesión iniciada */}
         <Route
           path="/app"
           element={
@@ -179,6 +168,7 @@ export function App() {
           <Route path="ventas" element={<RequireModule module="ventas"><Suspense fallback={<PageLoader />}><VentasPage /></Suspense></RequireModule>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />
           <Route path="retenciones" element={<RequireModule module="retenciones"><Suspense fallback={<PageLoader />}><RetencionesPage /></Suspense></RequireModule>} />
+          <Route path="retenciones/telefono" element={<RequireVistaTelefono vista="retenciones"><Suspense fallback={<PageLoader />}><RetencionesMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="retenciones/nueva" element={<Navigate to="/app/retenciones" replace />} />
           <Route path="recepciones" element={<RequireModule module="recepciones"><Suspense fallback={<PageLoader />}><RecepcionesPage /></Suspense></RequireModule>} />
           <Route path="rrhh" element={<RequireModule module="rrhh"><Suspense fallback={<PageLoader />}><RrhhPage /></Suspense></RequireModule>} />

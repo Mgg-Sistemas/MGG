@@ -57,12 +57,13 @@ export interface DatosArc {
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
 const enBs = (n: number, r: RetencionPracticada): number => {
+  if (String(r.moneda || '').toUpperCase() === 'BS') return r2(n);
+  if (r.tasa && r.tasa > 0) return r2(n * r.tasa);
   if (r.montoBs != null && r.montoRetenido && r.montoRetenido > 0) {
     const factorBs = r.montoBs / r.montoRetenido;
     return r2(n * factorBs);
   }
-  if (String(r.moneda || '').toUpperCase() === 'BS') return r2(n);
-  return r.tasa && r.tasa > 0 ? r2(n * r.tasa) : 0;
+  return 0;
 };
 
 /**
@@ -113,6 +114,8 @@ export function compilarDatosArc(
     operaciones: 0,
   }));
 
+  const tasasPorMes: Set<number>[] = MESES_ANIO.map(() => new Set<number>());
+
   for (const r of filasProv) {
     const mesIdx = mesIdxDe(r);
     if (mesIdx < 0 || mesIdx > 11) continue;
@@ -125,7 +128,17 @@ export function compilarDatosArc(
     item.baseImponibleBs = r2(item.baseImponibleBs + baseBs);
     item.impuestoRetenidoBs = r2(item.impuestoRetenidoBs + retBs);
     item.operaciones += 1;
-    if (r.porcentaje > 0) item.porcentaje = r.porcentaje;
+    if (r.porcentaje > 0) {
+      tasasPorMes[mesIdx].add(r.porcentaje);
+      item.porcentaje = r.porcentaje;
+    }
+  }
+
+  for (let i = 0; i < 12; i++) {
+    const item = acumuladoMeses[i];
+    if (tasasPorMes[i].size > 1 && Math.abs(item.baseImponibleBs) > 0) {
+      item.porcentaje = r2((Math.abs(item.impuestoRetenidoBs) / Math.abs(item.baseImponibleBs)) * 100);
+    }
   }
 
   const totalBaseBs = r2(acumuladoMeses.reduce((a, m) => a + m.baseImponibleBs, 0));

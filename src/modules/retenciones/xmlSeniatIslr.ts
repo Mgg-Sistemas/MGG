@@ -38,6 +38,12 @@ export interface ResultadoXmlIslr {
 const rif = (v: string | null | undefined) => String(v ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const ascii = (v: unknown) => String(v ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '')
   .replace(/[\t\r\n]+/g, ' ').replace(/[^\x20-\x7E]/g, '').trim();
+const escapeXml = (s: string) => s
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&apos;');
 const monto = (n: number) => (Math.round((Number(n) || 0) * 100) / 100).toFixed(2);
 
 /** Filtra las retenciones que aplican para el XML de ISLR del período: practicadas, ISLR, no anuladas. */
@@ -47,8 +53,9 @@ export function filasXmlIslr(filas: RetencionPracticada[], periodo: string): Ret
 }
 
 const enBs = (n: number, r: RetencionPracticada): number | null => {
-  if (String(r.moneda).toUpperCase() === 'BS') return n;
-  return r.tasa && r.tasa > 0 ? n * r.tasa : null;
+  const signo = r.tipoDocumento === 'nota_credito' ? -1 : 1;
+  if (String(r.moneda).toUpperCase() === 'BS') return n * signo;
+  return r.tasa && r.tasa > 0 ? n * r.tasa * signo : null;
 };
 
 /** Formatea una fecha YYYY-MM-DD a DD/MM/AAAA requerida por el SENIAT. */
@@ -73,10 +80,12 @@ export function armarXmlIslr(e: EntradaXmlIslr): ResultadoXmlIslr {
   if (!/^\d{4}(0[1-9]|1[0-2])$/.test(e.periodo)) faltan.push('El período debe ser AAAAMM.');
 
   const nombre = `${ascii(e.razonSocial).toUpperCase().replace(/[^A-Z0-9]/g, '') || 'EMPRESA'}DECLARACIONINFORMATIVAISLR${e.periodo}.XML`;
+  const rifAgSafe = escapeXml(rifAg);
+  const periodoSafe = escapeXml(e.periodo);
 
   const filas = filasXmlIslr(e.filas, e.periodo);
   if (!filas.length) {
-    const xmlVacio = `<?xml version="1.0" encoding="ISO-8859-1"?>\r\n<RelacionRetencionesISLR RifAgente="${rifAg}" RIF="${rifAg}" Periodo="${e.periodo}" />\r\n`;
+    const xmlVacio = `<?xml version="1.0" encoding="ISO-8859-1"?>\r\n<RelacionRetencionesISLR RifAgente="${rifAgSafe}" RIF="${rifAgSafe}" Periodo="${periodoSafe}" />\r\n`;
     return { nombre, contenido: xmlVacio, lineas: 0, faltan };
   }
 
@@ -91,14 +100,15 @@ export function armarXmlIslr(e: EntradaXmlIslr): ResultadoXmlIslr {
     if (!r.facturaNumero?.trim()) faltan.push(`${quien}: falta el N° de factura.`);
     if (!/^\d{4}-\d{2}-\d{2}/.test(r.facturaFecha ?? '')) faltan.push(`${quien}: falta la fecha de la factura.`);
 
-    const conceptoCod = codigoConceptoSeniat(r.conceptoId);
-    const fechaOp = fechaSeniat(r.facturaFecha);
-    const numFactura = ascii(r.facturaNumero || '0').slice(0, 20);
-    const numControl = ascii(r.facturaControl || '0').slice(0, 20);
+    const conceptoCod = escapeXml(codigoConceptoSeniat(r.conceptoId));
+    const fechaOp = escapeXml(fechaSeniat(r.facturaFecha));
+    const numFactura = escapeXml(ascii(r.facturaNumero || '0').slice(0, 20));
+    const numControl = escapeXml(ascii(r.facturaControl || '0').slice(0, 20));
+    const rifProvSafe = escapeXml(rifProv);
 
     detalles.push(
       `  <DetalleRetencion>\r\n` +
-      `    <RifRetenido>${rifProv}</RifRetenido>\r\n` +
+      `    <RifRetenido>${rifProvSafe}</RifRetenido>\r\n` +
       `    <NumeroFactura>${numFactura}</NumeroFactura>\r\n` +
       `    <NumeroControl>${numControl}</NumeroControl>\r\n` +
       `    <FechaOperacion>${fechaOp}</FechaOperacion>\r\n` +
@@ -111,7 +121,7 @@ export function armarXmlIslr(e: EntradaXmlIslr): ResultadoXmlIslr {
 
   const xmlCompleto =
     `<?xml version="1.0" encoding="ISO-8859-1"?>\r\n` +
-    `<RelacionRetencionesISLR RifAgente="${rifAg}" RIF="${rifAg}" Periodo="${e.periodo}">\r\n` +
+    `<RelacionRetencionesISLR RifAgente="${rifAgSafe}" RIF="${rifAgSafe}" Periodo="${periodoSafe}">\r\n` +
     `${detalles.join('\r\n')}\r\n` +
     `</RelacionRetencionesISLR>\r\n`;
 

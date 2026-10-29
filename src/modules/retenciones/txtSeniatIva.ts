@@ -92,6 +92,9 @@ export function armarTxtIva(e: EntradaTxtIva): ResultadoTxtIva {
     if (!r.facturaNumero?.trim()) faltan.push(`${quien}: falta el N° de factura.`);
     if (!r.facturaControl?.trim()) faltan.push(`${quien}: falta el N° de control.`);
     if (!/^\d{4}-\d{2}-\d{2}/.test(r.facturaFecha ?? '')) faltan.push(`${quien}: falta la fecha de la factura.`);
+    if ((r.tipoDocumento === 'nota_credito' || r.tipoDocumento === 'nota_debito') && !r.facturaAfectadaNro?.trim()) {
+      faltan.push(`${quien}: falta el N° de factura afectada.`);
+    }
     const b = base ?? 0; const i = iva ?? 0;
     const exentoBs = r.exento != null ? (enBs(r.exento, r) ?? 0) : 0;
     const totalBs = r.facturaTotal != null ? (enBs(r.facturaTotal, r) ?? (b + i + exentoBs)) : (b + i + exentoBs);

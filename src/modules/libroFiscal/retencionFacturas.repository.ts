@@ -22,7 +22,7 @@ import {
 } from './retencionesFiscal.repository';
 import { errorRetencion } from './erroresRetencion';
 import { configDeFecha } from './parametros.repository';
-import { tablaDisponible, v2rDisponible } from './disponibilidad';
+import { esTablaInexistente, v2rDisponible } from './disponibilidad';
 import { CONFIG_RETENCION_DEFECTO, formatoComprobante } from './retencionesCalculo';
 
 const T_DOCUMENTOS = 'retencion_documentos';
@@ -31,6 +31,12 @@ const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
 const texto = (v: unknown) => (v == null || v === '' ? null : String(v));
 /** Una UT sin cargar (0) no se manda: la pone el trigger desde la configuración. */
 const utValida = (v: number | null | undefined) => (Number(v) > 0 ? Number(v) : null);
+
+function esFuncionInexistente(e: { code?: string; message?: string } | null | undefined): boolean {
+  if (!e) return false;
+  if (e.code === '42883' || e.code === 'PGRST202' || e.code === '42P01') return true;
+  return /could not find the function|function .* does not exist|relation .* does not exist/i.test(e.message ?? '');
+}
 
 /* ───────── El modelo del front ───────── */
 
@@ -202,8 +208,8 @@ export function aFacturaCabecera(r: Record<string, unknown>): FacturaCabecera {
     tipoDocumento: r.tipo_documento === 'nota_debito' || r.tipo_documento === 'nota_credito' ? r.tipo_documento : 'factura',
     documentoAfectadoId: texto(r.documento_afectado_id),
     facturaAfectadaNro: texto(r.factura_afectada_nro),
-    docKind: r.orden_id ? 'oc' : r.compra_directa_id ? 'compra_directa' : r.servicio_directo_id ? 'servicio_directo' : 'manual',
-    docId: texto(r.orden_id ?? r.compra_directa_id ?? r.servicio_directo_id),
+    docKind: r.orden_id ? 'oc' : r.compra_directa_id ? 'compra_directa' : r.servicio_directo_id ? 'servicio_directo' : r.venta_id || r.doc_kind === 'venta' ? 'venta' : 'manual',
+    docId: texto(r.orden_id ?? r.compra_directa_id ?? r.servicio_directo_id ?? r.venta_id ?? r.doc_id),
     contraparteRif: texto(r.rif),
     contraparteNombre: texto(r.razon_social),
     facturaNro: texto(r.factura_nro),
@@ -243,7 +249,17 @@ export async function numerarSinV2R(factura: Pick<FacturaNueva, 'direccion' | 'p
     if (l.tipo === 'igtf' || l.comprobanteNro?.trim()) { salida.push(l); continue; }
     const periodo = l.comprobantePeriodo || factura.periodo || (factura.facturaFecha ?? '').slice(0, 7).replace('-', '');
     const { data, error } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: tipoAGt(l.tipo), p_periodo: periodo });
-    if (error) throw errorLegibleFactura(error);
+    if (error) {
+      if (esFuncionInexistente(error)) {
+        const alt = await supabase.rpc('siguiente_comprobante_retencion', { p_tipo: l.tipo, p_periodo: periodo });
+        if (alt.error) throw errorLegibleFactura(alt.error);
+        const textoNro = String(alt.data ?? '').trim();
+        if (!textoNro) throw new Error('La base no devolvió el número del comprobante.');
+        salida.push({ ...l, comprobanteNro: textoNro, comprobantePeriodo: periodo });
+        continue;
+      }
+      throw errorLegibleFactura(error);
+    }
     const entero = Number(data);
     if (!(entero > 0)) throw new Error('La base no devolvió el número del comprobante.');
     salida.push({ ...l, comprobanteNro: formatoComprobante(periodo, entero), comprobantePeriodo: periodo });
@@ -262,23 +278,34 @@ export async function registrarFactura(factura: FacturaNueva, lineas: LineaFactu
     (factura.facturaFecha ?? '').slice(0, 10), lineas.map((l) => l.tipo));
   const conNumero = await numerarSinV2R(factura, lineas);
 
-  // 1. Intento por la RPC de GT (si estuviera disponible)
+  // 1. Intento por la RPC de GT (atómico en la base)
+  let falloRpc = false;
+  let dataRpc: unknown = null;
   try {
     const { data, error } = await supabase.rpc('retencion_factura_registrar', {
       p_factura: pFacturaDe(factura),
       p_lineas: conNumero.map((l) => ({ ...pLineaDe(l), valor_ut: utValida(vigente.valorUt) })),
     });
-    if (!error && data) {
-      const res = data as { factura?: Record<string, unknown>; lineas?: Record<string, unknown>[] };
-      if (res.factura) {
-        return {
-          factura: aFacturaCabecera({ ...res.factura, retenciones: res.lineas ?? [] }),
-          lineas: (res.lineas ?? []).map((l) => aRetencion(l)),
-        };
-      }
+    if (error) {
+      if (!esFuncionInexistente(error)) throw errorLegibleFactura(error);
+      falloRpc = true;
+    } else {
+      dataRpc = data;
     }
-  } catch {
-    // Si la función RPC no existe en el schema cache (MGG), continuar con fallback
+  } catch (err) {
+    if (err instanceof Error && !/could not find the function|function .* does not exist/i.test(err.message)) {
+      throw err;
+    }
+    falloRpc = true;
+  }
+
+  if (!falloRpc) {
+    const res = (dataRpc ?? {}) as { factura?: Record<string, unknown>; lineas?: Record<string, unknown>[] };
+    if (!res.factura) throw new Error('La base no devolvió la factura registrada.');
+    return {
+      factura: aFacturaCabecera({ ...res.factura, retenciones: res.lineas ?? [] }),
+      lineas: (res.lineas ?? []).map((l) => aRetencion(l)),
+    };
   }
 
   // 2. Registro nativo en MGG: cada línea a través de registrarRetencion
@@ -288,6 +315,10 @@ export async function registrarFactura(factura: FacturaNueva, lineas: LineaFactu
     const nueva: NuevaRetencion = {
       tipo: l.tipo,
       direccion: factura.direccion,
+      tipoDocumento: factura.tipoDocumento ?? 'factura',
+      facturaAfectadaNro: factura.facturaAfectadaNro ?? null,
+      facturaTotal: factura.facturaTotal ?? null,
+      exento: factura.exento ?? null,
       docKind: factura.docKind,
       docId: factura.docId,
       contraparteId: factura.contraparteId,
@@ -361,7 +392,6 @@ export interface FiltroFacturas {
  * anidado pasa a «inner» y solo quedan los documentos con líneas del período.
  */
 export async function listFacturas(f: FiltroFacturas = {}): Promise<FacturaConLineas[]> {
-  if (!(await tablaDisponible(T_DOCUMENTOS))) return [];
   let q = supabase.from(T_DOCUMENTOS).select(f.periodo ? '*, retenciones!inner(*)' : '*, retenciones(*)')
     .order('factura_fecha', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false });
@@ -371,7 +401,10 @@ export async function listFacturas(f: FiltroFacturas = {}): Promise<FacturaConLi
   if (f.hasta) q = q.lte('factura_fecha', f.hasta);
   if (f.docId) q = q.or(`orden_id.eq.${f.docId},compra_directa_id.eq.${f.docId},servicio_directo_id.eq.${f.docId}`);
   const { data, error } = await q;
-  if (error) throw error;
+  if (error) {
+    if (esTablaInexistente(error)) return [];
+    throw error;
+  }
   return (data ?? []).map((row) => {
     const r = row as Record<string, unknown>;
     const lineas = (r.retenciones as Record<string, unknown>[] | undefined) ?? [];
@@ -381,7 +414,6 @@ export async function listFacturas(f: FiltroFacturas = {}): Promise<FacturaConLi
 
 /** Cambia los datos de una factura (la base los copia a sus líneas). Con líneas declaradas, solo la nota. */
 export async function actualizarFactura(id: string, cambios: Partial<Pick<FacturaNueva, 'contraparteRif' | 'contraparteNombre' | 'facturaNro' | 'facturaControl' | 'facturaFecha' | 'facturaTotal' | 'nota'>>): Promise<void> {
-  if (!(await tablaDisponible(T_DOCUMENTOS))) return;
   const patch: Record<string, unknown> = {};
   if ('contraparteRif' in cambios) patch.rif = cambios.contraparteRif ? normalizarRif(cambios.contraparteRif) : null;
   if ('contraparteNombre' in cambios) patch.razon_social = cambios.contraparteNombre?.trim() || null;
@@ -401,7 +433,6 @@ export async function actualizarFactura(id: string, cambios: Partial<Pick<Factur
  * con RET_DOCUMENTO_NO_LIBRE. Queda en el historial.
  */
 export async function borrarFacturaLibre(id: string): Promise<void> {
-  if (!(await tablaDisponible(T_DOCUMENTOS))) return;
   const { data, error } = await supabase.from(T_DOCUMENTOS).delete().eq('id', id).select('id');
   if (error) throw errorRetencion(error, 'No se pudo borrar la factura.');
   if (!data?.length) throw new Error('No se borró la factura: sin permiso de Retenciones, o ya no existe.');
