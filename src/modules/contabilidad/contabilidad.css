@@ -1,0 +1,227 @@
+/* ============================================================
+   MGG · Contabilidad · Estilos del módulo (maqueta)
+   Todo bajo .cont-* para no tocar shared/ ni otros módulos.
+   Colores con los tokens de theme.css y su respaldo.
+   ============================================================ */
+
+.cont-aviso {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  padding: .45rem .75rem; margin-bottom: 1rem;
+  border: 1px dashed var(--border-strong, #33404f); border-radius: var(--r-sm, 8px);
+  font-size: .82rem; color: var(--text-muted, #9aa7b8);
+}
+.cont-aviso strong { color: var(--primary, #ff8a00); }
+
+/* La barra de menús de Galac, en el estilo de pestañas del sistema. */
+.cont-menus { margin-bottom: .5rem; flex-wrap: wrap; }
+/* Barra de estado de Galac: Compañía · Período · Usuario (F1 p.15). */
+.cont-estado {
+  display: flex; flex-wrap: wrap; gap: .35rem 1.5rem; margin-bottom: 1rem; padding: .35rem .75rem;
+  border-radius: var(--r-sm, 8px); background: var(--bg-2, #10151d); border: 1px solid var(--border, #232c39);
+  font-size: .8rem; color: var(--text-muted, #9aa7b8);
+}
+.cont-estado strong { color: var(--text, #e7ecf3); font-weight: 600; }
+
+.cont-barra {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem;
+}
+.cont-barra .input { max-width: 320px; }
+.cont-barra .cont-sep { flex: 1; }
+
+.cont-plan {
+  display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 1rem; align-items: start;
+}
+
+.cont-arbol { padding: 0; overflow: hidden; }
+.cont-arbol-cab, .cont-fila {
+  display: grid; grid-template-columns: minmax(0, 1fr) 110px 100px 92px; gap: .5rem; align-items: center;
+  padding: .32rem .75rem;
+}
+.cont-arbol-cab {
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .04em;
+  color: var(--text-dim, #6b7787); border-bottom: 1px solid var(--border, #232c39);
+  background: var(--bg-2, #10151d);
+}
+.cont-arbol-cuerpo { max-height: calc(100vh - 330px); min-height: 280px; overflow: auto; }
+.cont-fila {
+  cursor: pointer; border-bottom: 1px solid rgba(255, 255, 255, 0.03); font-size: .86rem;
+}
+.cont-fila:hover { background: rgba(255, 138, 0, 0.05); }
+.cont-fila.sel { background: rgba(255, 138, 0, 0.12); box-shadow: inset 3px 0 0 var(--primary, #ff8a00); }
+.cont-fila.inactiva { opacity: .5; }
+.cont-fila.titulo .cont-nombre { font-weight: 600; }
+.cont-fila.nivel-1 .cont-nombre { color: var(--primary, #ff8a00); letter-spacing: .02em; }
+
+.cont-celda-cuenta { display: flex; align-items: center; gap: .4rem; min-width: 0; }
+.cont-toggle {
+  width: 1.3rem; height: 1.3rem; flex: none; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; background: transparent; color: var(--text-muted, #9aa7b8); cursor: pointer; border-radius: 4px;
+}
+.cont-toggle:hover { background: rgba(255, 255, 255, 0.06); color: var(--text, #e7ecf3); }
+.cont-toggle.vacio { visibility: hidden; }
+.cont-codigo { font-family: var(--font-mono, ui-monospace, monospace); color: var(--text-muted, #9aa7b8); flex: none; }
+.cont-nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.cont-etq {
+  display: inline-block; padding: .08rem .45rem; border-radius: 999px; font-size: .72rem; white-space: nowrap;
+  border: 1px solid var(--border-strong, #33404f); color: var(--text-muted, #9aa7b8);
+}
+.cont-etq.mov { border-color: rgba(41, 192, 129, 0.45); color: var(--success, #29c081); }
+.cont-etq.tit { border-color: rgba(74, 168, 255, 0.4); color: var(--info, #4aa8ff); }
+.cont-etq.deu { color: var(--text, #e7ecf3); }
+.cont-etq.acr { border-color: rgba(245, 177, 51, 0.45); color: var(--warning, #f5b133); }
+
+/* Galac marca la cuenta título con una leyenda roja «Cuenta Título» (F1 p.69). */
+.cont-titulo-leyenda { color: var(--danger, #ef4f5e); font-weight: 600; font-size: .78rem; margin-left: .35rem; }
+
+.cont-ficha { position: sticky; top: calc(var(--topbar-h, 60px) + 1rem); }
+.cont-ficha h3 { margin: 0 0 .15rem; font-size: 1rem; }
+.cont-ficha .cont-codigo { font-size: .95rem; }
+.cont-ficha dl { display: grid; grid-template-columns: 9.5rem 1fr; gap: .35rem .75rem; margin: .9rem 0; font-size: .85rem; }
+.cont-ficha dt { color: var(--text-dim, #6b7787); }
+.cont-ficha dd { margin: 0; }
+.cont-ruta { font-size: .78rem; color: var(--text-dim, #6b7787); line-height: 1.5; }
+.cont-ruta span + span::before { content: ' › '; }
+.cont-ficha-acciones { display: flex; gap: .5rem; flex-wrap: wrap; }
+
+.cont-niveles { display: inline-flex; gap: .25rem; align-items: center; font-size: .8rem; color: var(--text-muted, #9aa7b8); }
+
+.cont-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .75rem 1rem; }
+.cont-form .full { grid-column: 1 / -1; }
+.cont-form label { display: flex; flex-direction: column; gap: .3rem; font-size: .82rem; color: var(--text-muted, #9aa7b8); }
+.cont-form .cont-check { flex-direction: row; align-items: center; gap: .45rem; color: var(--text, #e7ecf3); }
+.cont-errores { margin: .75rem 0 0; padding-left: 1.1rem; color: var(--danger, #ef4f5e); font-size: .84rem; }
+
+/* ───────── Comprobantes ───────── */
+.cont-fila-cbte { cursor: pointer; }
+.cont-fila-cbte:hover td { background: rgba(255, 138, 0, 0.05); }
+.cont-etq.descuadrado { border-color: rgba(239, 79, 94, 0.5); color: var(--danger, #ef4f5e); }
+.cont-nota { margin: .35rem 0 0; font-size: .8rem; color: var(--text-muted, #9aa7b8); }
+.cont-nota-alerta { color: var(--danger, #ef4f5e); }
+
+.cont-cabecera {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .6rem 1rem; align-items: end;
+  padding: .75rem; border: 1px solid var(--border, #232c39); border-radius: var(--r-sm, 8px); background: var(--bg-2, #10151d);
+}
+.cont-cabecera > div, .cont-cabecera > label { display: flex; flex-direction: column; gap: .2rem; font-size: .86rem; }
+.cont-cabecera .dim { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+.cont-cabecera .ancho { grid-column: span 2; }
+/* Galac muestra la moneda en un recuadro verde en la esquina (F1 p.77). */
+.cont-moneda {
+  justify-self: end; align-self: start; padding: .3rem .7rem; border-radius: var(--r-sm, 8px);
+  border: 1px solid rgba(41, 192, 129, 0.5); color: var(--success, #29c081); font-weight: 600; font-size: .8rem;
+  background: transparent; cursor: pointer;
+}
+.cont-moneda option { color: var(--text, #e6edf3); background: var(--bg-2, #10151d); }
+/* La moneda equivalente: debajo de la principal, pequeña y tenue (usuario, 20/10 14:00). */
+.cont-equiv { display: block; font-size: .72rem; font-weight: 400; color: var(--text-dim, #6b7a8c); white-space: nowrap; }
+
+.cont-asientos th, .cont-asientos td { vertical-align: top; }
+.cont-asientos .num { text-align: right; }
+.cont-asientos.editable .input, .cont-asientos.editable .select { padding: .3rem .45rem; font-size: .84rem; }
+.cont-asientos.editable .input.num { width: 120px; text-align: right; }
+.cont-asientos.editable tr.activa td { background: rgba(255, 138, 0, 0.06); }
+.cont-asientos .dim { font-size: .74rem; }
+
+.cont-linea-activa {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem; font-size: .84rem;
+}
+.cont-linea-activa > div { display: flex; flex-direction: column; gap: .15rem; }
+.cont-linea-activa .dim { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+
+.cont-pie {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: .75rem; margin-top: .75rem;
+  padding: .6rem .75rem; border-top: 1px solid var(--border-strong, #33404f); font-size: .86rem;
+}
+.cont-pie > div { display: flex; flex-direction: column; gap: .1rem; }
+.cont-pie .dim { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+.cont-pie .cont-dif strong { color: var(--danger, #ef4f5e); }
+
+.cont-tabla-param { width: 100%; }
+.cont-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+
+@media (max-width: 1100px) {
+  .cont-plan { grid-template-columns: minmax(0, 1fr); }
+  .cont-ficha { position: static; }
+}
+@media (max-width: 768px) {
+  .cont-arbol-cab, .cont-fila { grid-template-columns: minmax(0, 1fr) 92px; }
+  .cont-arbol-cab > :nth-child(3), .cont-arbol-cab > :nth-child(4),
+  .cont-fila > :nth-child(3), .cont-fila > :nth-child(4) { display: none; }
+  .cont-form, .cont-grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .cont-cabecera, .cont-pie, .cont-linea-activa { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cont-ficha dl { grid-template-columns: 8rem 1fr; }
+}
+
+/* Historial del comprobante: solo se agrega (usuario, 20/10 13:04). */
+.cont-historial { margin-top: .75rem; font-size: .8rem; }
+.cont-historial ul { margin: .25rem 0 0; padding-left: 1.1rem; color: var(--text-muted, #9aa7b8); }
+.cont-historial li { margin: .15rem 0; }
+
+.cont-paginas { display: flex; align-items: center; justify-content: center; gap: .4rem; padding: .5rem; font-size: .82rem; color: var(--text-muted, #9aa7b8); }
+
+/* ───────── Libros y balances (tramo 3) ───────── */
+.cont-parametros { margin-bottom: 1rem; }
+.cont-parametros-fila { display: flex; flex-wrap: wrap; gap: .6rem 1rem; align-items: end; }
+.cont-param { display: flex; flex-direction: column; gap: .25rem; font-size: .84rem; min-width: 140px; }
+.cont-param.ancho { min-width: 260px; }
+.cont-param .dim { font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; }
+.cont-parametros-fila .cont-check { display: flex; align-items: center; gap: .4rem; font-size: .84rem; }
+.cont-encabezado { text-align: center; margin-bottom: 1rem; font-size: .86rem; line-height: 1.5; }
+.cont-encabezado-titulo { font-size: 1.05rem; font-weight: 700; color: var(--primary, #ff8a00); }
+.cont-tabla-informe .num { text-align: right; white-space: nowrap; }
+.cont-tabla-informe tr.titulo td { font-weight: 600; }
+.cont-tabla-informe tfoot td { font-weight: 700; border-top: 2px solid var(--border-strong, #33404f); }
+.cont-mayor-cuenta, .cont-diario-comprobante { margin-bottom: 1.25rem; }
+.cont-mayor-titulo { font-size: .86rem; font-weight: 600; margin-bottom: .35rem; }
+.cont-diario-total { display: grid; grid-template-columns: 1fr 160px 160px; gap: .5rem; text-align: right; font-weight: 700; padding: .5rem .75rem; border-top: 3px double var(--border-strong, #33404f); }
+.cont-diario-total span:first-child { text-align: left; }
+.cont-informe { position: relative; }
+.cont-informe-acciones { position: absolute; top: .75rem; right: .75rem; display: flex; gap: .4rem; }
+@media (max-width: 768px) { .cont-informe-acciones { position: static; justify-content: flex-end; margin-bottom: .5rem; } }
+.cont-tabla-informe td.cont-seccion-estado { color: var(--primary, #ff8a00); letter-spacing: .04em; padding-top: .9rem; }
+.cont-tabla-informe tr.cont-total-seccion td { border-top: 1px solid var(--border-strong, #33404f); }
+.cont-tabla-informe td.cont-grupo-estado { color: var(--text-muted, #9aa7b6); font-size: .8rem; text-transform: uppercase; letter-spacing: .04em; padding-left: .8rem; }
+.cont-tabla-informe tr.cont-detalle-estado td { font-size: .82rem; color: var(--text-muted, #9aa7b6); }
+.cont-regla-pestana { margin-bottom: .75rem; }
+.cont-regla { padding: .6rem 0; border-top: 1px solid var(--border, #232c39); }
+.cont-regla:first-of-type { border-top: 0; }
+.cont-regla-cabecera { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.cont-regla-cabecera .cont-sep { flex: 1; }
+.cont-tabla-informe tr.cont-subtotal-estado td { border-top: 3px double var(--border-strong, #33404f); color: var(--primary, #ff8a00); }
+
+/* Título de tarjeta con su acción a la derecha (Parámetros · Modificar). */
+.cont-card-titulo { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+
+/* ───────── Auxiliares y Otros: la ventana de tablas de Galac (photo_19) ───────── */
+.cont-tablas { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 1rem; align-items: start; }
+.cont-tablas-panel { display: flex; flex-direction: column; gap: .15rem; padding: .5rem; }
+.cont-tablas-panel > button {
+  text-align: left; padding: .45rem .65rem; border: 0; border-radius: var(--r-sm, 8px);
+  background: transparent; color: var(--text, #e7ecf3); font-size: .86rem; cursor: pointer;
+}
+.cont-tablas-panel > button:hover { background: rgba(255, 138, 0, 0.06); }
+.cont-tablas-panel > button.sel { background: rgba(255, 138, 0, 0.14); box-shadow: inset 3px 0 0 var(--primary, #ff8a00); font-weight: 600; }
+.cont-tablas-pie { margin-top: .75rem; padding: .5rem .65rem 0; border-top: 1px solid var(--border, #232c39); font-size: .74rem; line-height: 1.5; }
+/* La cinta de Galac: grupos de botones con su nombre debajo. */
+.cont-cinta { display: flex; flex-wrap: wrap; gap: .75rem; margin-bottom: 1rem; padding-bottom: .75rem; border-bottom: 1px solid var(--border, #232c39); }
+.cont-cinta-grupo { display: flex; flex-direction: column; align-items: center; gap: .3rem; padding: 0 .75rem; border-right: 1px solid var(--border, #232c39); }
+.cont-cinta-grupo:last-child { border-right: 0; }
+.cont-cinta-botones { display: flex; flex-wrap: wrap; gap: .35rem; }
+.cont-cinta-titulo { font-size: .7rem; text-transform: uppercase; letter-spacing: .05em; color: var(--text-dim, #6b7787); }
+.cont-tabla-catalogo tbody tr { cursor: pointer; }
+.cont-tabla-catalogo tbody tr:hover td { background: rgba(255, 138, 0, 0.05); }
+.cont-tabla-catalogo tbody tr.sel td { background: rgba(255, 138, 0, 0.12); }
+.cont-tabla-catalogo tbody tr.inactiva td { opacity: .5; }
+.cont-tabla-catalogo .num { text-align: right; white-space: nowrap; }
+@media (max-width: 900px) {
+  .cont-tablas { grid-template-columns: minmax(0, 1fr); }
+  .cont-tablas-panel { flex-direction: row; flex-wrap: wrap; }
+  .cont-tablas-pie { display: none; }
+}
+
+/* Informes de Movimientos de Cuentas: la lista de radio de Galac a la izquierda (photo_55). */
+.cont-movimientos { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 1rem; align-items: start; }
+.cont-radios { display: flex; flex-direction: column; gap: .55rem; }
+.cont-radios .cont-check { display: flex; align-items: center; gap: .45rem; font-size: .85rem; flex-wrap: wrap; }
+@media (max-width: 900px) { .cont-movimientos { grid-template-columns: minmax(0, 1fr); } }
