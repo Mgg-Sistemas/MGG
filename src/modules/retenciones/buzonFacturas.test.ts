@@ -11,9 +11,7 @@ import {
   guardarEmpresaReceptora,
 } from './empresasReceptoras.repository';
 import {
-  crearFacturaBuzon,
-  listFacturasBuzon,
-  actualizarEstatusFacturaBuzon,
+  calcularMontosBuzon,
   type FacturaExternaBuzon,
 } from './facturasBuzon.repository';
 import {
@@ -111,6 +109,7 @@ describe('Buzón móvil de facturas · Reglas de adjuntos y formato WhatsApp', (
       descripcion: 'Filtros y lubricantes para tractor',
       observaciones: 'Entregado en mina',
       estatus: 'recibida',
+      tipoDocumento: 'factura',
       adjuntos: [
         {
           id: 'adj-1',
@@ -158,6 +157,7 @@ describe('Buzón móvil de facturas · Reglas de adjuntos y formato WhatsApp', (
       descripcion: 'Material de oficina',
       observaciones: null,
       estatus: 'retenida',
+      tipoDocumento: 'factura',
       adjuntos: [],
       createdBy: 'admin@mgg.com',
       createdAt: '2026-10-29T10:00:00Z',
@@ -204,30 +204,14 @@ describe('Buzón móvil de facturas · Repositorios y Catálogo de Empresas', ()
     expect(lista.some((e) => e.nombre === 'Minera El Manteco C.A.')).toBe(true);
   });
 
-  it('crea y actualiza facturas en el buzón manteniendo consistencia de moneda', async () => {
-    const fac = await crearFacturaBuzon({
-      empresaId: 'emp-test',
-      empresaNombre: 'Empresa Test',
-      proveedorNombre: 'Ferretería Central',
-      proveedorRif: 'J-31415926-5',
-      facturaNumero: 'FAC-001',
-      facturaFecha: '2026-10-29',
-      moneda: 'USD',
-      montoTotal: 100,
-      tasa: 200,
-      descripcion: 'Prueba de inserción',
-      createdBy: 'test@mgg.com',
-    });
-
-    expect(fac.id).toBeDefined();
-    expect(fac.estatus).toBe('recibida');
-    expect(fac.montoBs).toBe(20000);
-
-    // Actualizar estatus
-    await actualizarEstatusFacturaBuzon(fac.id, 'en_revision');
-    const lista = await listFacturasBuzon({ busqueda: 'FAC-001' });
-    const encontrada = lista.find((x) => x.id === fac.id);
-    expect(encontrada?.estatus).toBe('en_revision');
+  it('calcula montoBs y montoUsd manteniendo consistencia de moneda', () => {
+    // USD con tasa: el equivalente en Bs sale de multiplicar por la tasa.
+    expect(calcularMontosBuzon('USD', 100, 200)).toEqual({ montoBs: 20000, montoUsd: 100 });
+    // Bs con tasa: el equivalente en USD sale de dividir por la tasa.
+    expect(calcularMontosBuzon('Bs', 20000, 200)).toEqual({ montoBs: 20000, montoUsd: 100 });
+    // Sin tasa válida no se inventan equivalencias.
+    expect(calcularMontosBuzon('USD', 100, null)).toEqual({ montoBs: 0, montoUsd: 100 });
+    expect(calcularMontosBuzon('Bs', 20000, null)).toEqual({ montoBs: 20000, montoUsd: null });
   });
 });
 

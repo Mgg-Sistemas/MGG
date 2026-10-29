@@ -23,7 +23,7 @@ import {
 } from './empresasReceptoras.repository';
 import {
   listFacturasBuzon, crearFacturaBuzon, eliminarFacturaBuzon,
-  urlPublicaAdjunto, type FacturaExternaBuzon, type EstatusFacturaBuzon,
+  type FacturaExternaBuzon, type EstatusFacturaBuzon, type TipoDocumentoFactura,
 } from './facturasBuzon.repository';
 import {
   REGLA_BUZON, clasificarArchivos, validarAdjuntosBuzon, prepararAdjuntosBuzon, subirArchivoBuzon,
@@ -33,6 +33,8 @@ import {
   reproducirSonidoFacturaNueva, isSonidoRetencionesHabilitado, toggleSonidoRetenciones,
 } from './soundRetenciones';
 import { mensajeFacturaExterna } from './mensajeFacturaExterna';
+import { AdjuntoThumb } from './AdjuntoThumb';
+import { lanzarAvisoFactura } from './notificacionesDispositivo';
 
 const ESTATUS_CONFIG: Record<EstatusFacturaBuzon, { label: string; icono: string; clase: string }> = {
   recibida: { label: 'Recibida', icono: '📥', clase: 'buzon-estatus-recibida' },
@@ -391,30 +393,9 @@ export function RetencionesMovilView() {
                 <p className="muted" style={{ fontStyle: 'italic', fontSize: '0.85rem' }}>No se subieron soportes adjuntos.</p>
               ) : (
                 <div className="buzon-thumbs-grid">
-                  {(detalle.adjuntos || []).map((adj: AdjuntoFacturaItem) => {
-                    const url = urlPublicaAdjunto(adj.path);
-                    const esImg = adj.tipo === 'imagen';
-                    return (
-                      <a
-                        key={adj.id}
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="buzon-thumb-item"
-                        title={adj.nombreOriginal || adj.nombre}
-                        style={{ textDecoration: 'none' }}
-                      >
-                        {esImg ? (
-                          <img src={url} alt={adj.nombreOriginal || adj.nombre} />
-                        ) : (
-                          <div className="buzon-thumb-pdf">
-                            <span aria-hidden>📄</span>
-                            <small>{adj.nombreOriginal || adj.nombre}</small>
-                          </div>
-                        )}
-                      </a>
-                    );
-                  })}
+                  {(detalle.adjuntos || []).map((adj: AdjuntoFacturaItem) => (
+                    <AdjuntoThumb key={adj.id} adj={adj} />
+                  ))}
                 </div>
               )}
             </div>
@@ -519,6 +500,7 @@ function FormularioCargaFactura({
   onAbrirNuevaEmpresa: () => void;
 }) {
   const [empresaId, setEmpresaId] = useState(empresas[0]?.id ?? '');
+  const [tipoDocumento, setTipoDocumento] = useState<TipoDocumentoFactura>('factura');
   const [proveedorNombre, setProveedorNombre] = useState('');
   const [proveedorRif, setProveedorRif] = useState('');
   const [numeroFactura, setNumeroFactura] = useState('');
@@ -607,16 +589,11 @@ function FormularioCargaFactura({
       return;
     }
     if (!proveedorNombre.trim()) {
-      toast('Ingresa el nombre del proveedor', 'warning');
+      toast('Ingresa la razón social o nombre del proveedor', 'warning');
       return;
     }
-    if (!numeroFactura.trim()) {
-      toast('Ingresa el número de factura', 'warning');
-      return;
-    }
-    const monto = parseFloat(montoTotal);
-    if (isNaN(monto) || monto <= 0) {
-      toast('Ingresa un monto válido mayor a 0', 'warning');
+    if (archivos.length === 0) {
+      toast('Adjunta al menos una imagen o un PDF del documento', 'warning');
       return;
     }
 
@@ -625,6 +602,10 @@ function FormularioCargaFactura({
       toast(val.error || 'Revisa los adjuntos', 'warning');
       return;
     }
+
+    // El monto es complementario: si no se indica, queda en 0.
+    const montoParseado = parseFloat(montoTotal);
+    const monto = isNaN(montoParseado) || montoParseado < 0 ? 0 : montoParseado;
 
     setGuardando(true);
     setProgresoMsg('Guardando datos de factura...');
@@ -637,6 +618,7 @@ function FormularioCargaFactura({
       const fac = await crearFacturaBuzon({
         empresa_receptora_id: empresaId,
         empresa_nombre: empresa?.nombre,
+        tipoDocumento,
         proveedor_nombre: proveedorNombre.trim(),
         proveedor_rif: proveedorRif.trim() || undefined,
         numero_factura: numeroFactura.trim(),
@@ -664,8 +646,10 @@ function FormularioCargaFactura({
         fac.adjuntos = adjuntosSubidos;
       }
 
-      // 3. Notificación sonora distintiva
+      // 3. Notificación: sonido distintivo + aviso nativo del navegador,
+      //    vibración y parpadeo de pestaña (si el permiso está concedido).
       reproducirSonidoFacturaNueva();
+      lanzarAvisoFactura(fac, { conSonido: false });
 
       toast('Factura cargada con éxito', 'success');
       onGuardada(fac);
@@ -738,7 +722,7 @@ function FormularioCargaFactura({
       {/* Proveedor y RIF */}
       <div className="surt-grid2">
         <div className="surt-campo">
-          <label>2. Nombre del Proveedor *</label>
+          <label>Razón Social / Nombre del Proveedor *</label>
           <input
             type="text"
             className="input surt-input"
@@ -760,17 +744,31 @@ function FormularioCargaFactura({
         </div>
       </div>
 
+      {/* Tipo de documento */}
+      <div className="surt-campo">
+        <label>Tipo de Documento *</label>
+        <select
+          className="input surt-input"
+          value={tipoDocumento}
+          onChange={(e) => setTipoDocumento(e.target.value as TipoDocumentoFactura)}
+          required
+        >
+          <option value="factura">Factura</option>
+          <option value="nota_debito">Nota de Débito</option>
+          <option value="nota_credito">Nota de Crédito</option>
+        </select>
+      </div>
+
       {/* Número de Factura y Control */}
       <div className="surt-grid2">
         <div className="surt-campo">
-          <label>3. Número de Factura *</label>
+          <label>Número de Factura (opcional)</label>
           <input
             type="text"
             className="input surt-input"
             placeholder="Ej. 00045812"
             value={numeroFactura}
             onChange={(e) => setNumeroFactura(e.target.value)}
-            required
           />
         </div>
         <div className="surt-campo">
@@ -788,13 +786,12 @@ function FormularioCargaFactura({
       {/* Fecha y Moneda/Monto */}
       <div className="surt-grid2">
         <div className="surt-campo">
-          <label>4. Fecha de Factura *</label>
+          <label>Fecha de Factura (opcional)</label>
           <input
             type="date"
             className="input surt-input"
             value={fechaFactura}
             onChange={(e) => setFechaFactura(e.target.value)}
-            required
           />
         </div>
         <div className="surt-campo">
@@ -823,7 +820,7 @@ function FormularioCargaFactura({
       {/* Monto y Tasa */}
       <div className="surt-grid2">
         <div className="surt-campo">
-          <label>5. Monto Total ({moneda}) *</label>
+          <label>Monto Total ({moneda}) (opcional)</label>
           <input
             type="number"
             step="0.01"
@@ -831,7 +828,6 @@ function FormularioCargaFactura({
             placeholder="0.00"
             value={montoTotal}
             onChange={(e) => setMontoTotal(e.target.value)}
-            required
           />
         </div>
         <div className="surt-campo">

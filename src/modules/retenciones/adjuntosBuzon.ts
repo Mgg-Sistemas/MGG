@@ -154,17 +154,13 @@ export async function subirArchivoBuzon(
   const safeName = archivo.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const path = `${facturaId}/${timestamp}_${safeName}`;
 
-  let uploadedPath = path;
-  try {
-    const { data, error } = await supabase.storage.from(BUCKET_BUZON).upload(path, archivo, {
-      upsert: true,
-      contentType: archivo.type,
-    });
-    if (error) throw error;
-    if (data?.path) uploadedPath = data.path;
-  } catch {
-    /* Fallback en caso de que storage no esté configurado */
-  }
+  // Si no sube, se dice: antes el error se tragaba y el soporte quedaba anotado sin archivo.
+  const { data, error } = await supabase.storage.from(BUCKET_BUZON).upload(path, archivo, {
+    upsert: true,
+    contentType: archivo.type,
+  });
+  if (error) throw new Error(`No se pudo subir «${archivo.name}»: ${error.message}`);
+  const uploadedPath = data?.path ?? path;
 
   return {
     id: `adj-${timestamp}-${Math.random().toString(36).slice(2, 6)}`,
@@ -180,24 +176,14 @@ export async function subirArchivoBuzon(
   };
 }
 
-/** Obtiene la URL pública o firmada de un adjunto */
-export function urlPublicaAdjunto(path: string): string {
-  if (!path) return '';
-  try {
-    const { data } = supabase.storage.from(BUCKET_BUZON).getPublicUrl(path);
-    return data?.publicUrl || '';
-  } catch {
-    return path;
-  }
-}
-
+/**
+ * Enlace firmado y temporal (10 min) a un soporte. Las facturas no van por URL
+ * pública: el bucket es privado y solo las ve quien tiene Retenciones.
+ */
 export async function obtenerUrlAdjunto(path: string): Promise<string> {
-  try {
-    const { data } = await supabase.storage.from(BUCKET_BUZON).createSignedUrl(path, 3600);
-    if (data?.signedUrl) return data.signedUrl;
-  } catch {
-    /* ignore */
-  }
-  return urlPublicaAdjunto(path);
+  if (!path) return '';
+  const { data, error } = await supabase.storage.from(BUCKET_BUZON).createSignedUrl(path, 600);
+  if (error || !data?.signedUrl) return '';
+  return data.signedUrl;
 }
 

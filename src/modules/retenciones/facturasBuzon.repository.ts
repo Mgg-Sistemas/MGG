@@ -9,11 +9,11 @@
    Incluye registro automático de Notificación Interna en el sistema.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import { urlPublicaAdjunto, type AdjuntoFacturaItem } from './adjuntosBuzon';
-
-export { urlPublicaAdjunto };
+import { type AdjuntoFacturaItem } from './adjuntosBuzon';
 
 export type EstatusFacturaBuzon = 'recibida' | 'en_revision' | 'retenida' | 'descartada';
+
+export type TipoDocumentoFactura = 'factura' | 'nota_debito' | 'nota_credito';
 
 export interface FacturaExternaBuzon {
   id: string;
@@ -32,6 +32,7 @@ export interface FacturaExternaBuzon {
   descripcion: string;
   observaciones: string | null;
   estatus: EstatusFacturaBuzon;
+  tipoDocumento: TipoDocumentoFactura;
   adjuntos: AdjuntoFacturaItem[];
   createdBy: string | null;
   createdByName?: string | null;
@@ -78,30 +79,23 @@ export interface NuevaFacturaBuzonInput {
   createdBy?: string | null;
   creado_por?: string | null;
   createdByName?: string | null;
+  tipoDocumento?: TipoDocumentoFactura;
 }
 
 const TABLE_BUZON = 'retencion_facturas_externas';
-const LOCAL_STORAGE_KEY = 'mgg.retenciones.facturas_buzon_cache';
-let _memoriaFacturas: FacturaExternaBuzon[] = [];
 
-function leerCacheLocal(): FacturaExternaBuzon[] {
-  if (typeof window === 'undefined') return _memoriaFacturas;
-  try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as FacturaExternaBuzon[]) : [];
-  } catch {
-    return [];
+/**
+ * Nada se guarda «en local» haciéndose pasar por guardado: si la base no
+ * responde, se dice. Antes, un fallo dejaba la factura solo en el navegador
+ * del teléfono y nadie en la oficina la veía.
+ */
+export function errorBuzon(e: { code?: string; message?: string } | null | undefined): Error {
+  const msg = e?.message ?? '';
+  const faltaTabla = e?.code === '42P01' || e?.code === 'PGRST205' || /does not exist|Could not find the table/i.test(msg);
+  if (faltaTabla) {
+    return new Error('El buzón de facturas todavía no está activo en la base (falta aplicar su SQL). No se guardó nada.');
   }
-}
-
-function guardarCacheLocal(facturas: FacturaExternaBuzon[]): void {
-  _memoriaFacturas = facturas;
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(facturas));
-  } catch {
-    /* ignore */
-  }
+  return new Error(`No se pudo guardar en el buzón: ${msg || 'error desconocido'}`);
 }
 
 function mapearFilaFactura(r: Record<string, unknown>): FacturaExternaBuzon {
@@ -120,6 +114,7 @@ function mapearFilaFactura(r: Record<string, unknown>): FacturaExternaBuzon {
   const descripcion = String(r.descripcion || '');
   const observaciones = r.observaciones ? String(r.observaciones) : null;
   const estatus = (r.estatus as EstatusFacturaBuzon) || 'recibida';
+  const tipoDocumento = (r.tipo_documento as TipoDocumentoFactura) || 'factura';
   const adjuntos = Array.isArray(r.adjuntos) ? (r.adjuntos as AdjuntoFacturaItem[]) : [];
   const createdBy = r.created_by ? String(r.created_by) : (r.createdBy ? String(r.createdBy) : null);
   const createdByName = r.created_by_name ? String(r.created_by_name) : (r.createdByName ? String(r.createdByName) : null);
@@ -143,6 +138,7 @@ function mapearFilaFactura(r: Record<string, unknown>): FacturaExternaBuzon {
     descripcion,
     observaciones,
     estatus,
+    tipoDocumento,
     adjuntos,
     createdBy,
     createdByName,
@@ -168,25 +164,13 @@ export async function listFacturasBuzon(filtro?: {
   estatus?: string;
   busqueda?: string;
 }): Promise<FacturaExternaBuzon[]> {
-  try {
-    let q = supabase.from(TABLE_BUZON).select('*').order('created_at', { ascending: false });
+  let q = supabase.from(TABLE_BUZON).select('*').order('created_at', { ascending: false });
+  if (filtro?.empresaId) q = q.eq('empresa_id', filtro.empresaId);
+  if (filtro?.estatus) q = q.eq('estatus', filtro.estatus);
 
-    if (filtro?.empresaId) q = q.eq('empresa_id', filtro.empresaId);
-    if (filtro?.estatus) q = q.eq('estatus', filtro.estatus);
-
-    const { data, error } = await q;
-    if (!error && data) {
-      const items: FacturaExternaBuzon[] = data.map((r) => mapearFilaFactura(r as Record<string, unknown>));
-      guardarCacheLocal(items);
-      return filtrarMemoria(items, filtro?.busqueda);
-    }
-  } catch {
-    /* fallback cache local */
-  }
-
-  let items = leerCacheLocal();
-  if (filtro?.empresaId) items = items.filter((f) => f.empresaId === filtro.empresaId || f.empresa_receptora_id === filtro.empresaId);
-  if (filtro?.estatus) items = items.filter((f) => f.estatus === filtro.estatus);
+  const { data, error } = await q;
+  if (error) throw errorBuzon(error);
+  const items: FacturaExternaBuzon[] = (data ?? []).map((r) => mapearFilaFactura(r as Record<string, unknown>));
   return filtrarMemoria(items, filtro?.busqueda);
 }
 
@@ -204,8 +188,31 @@ function filtrarMemoria(xs: FacturaExternaBuzon[], q?: string): FacturaExternaBu
   );
 }
 
+/**
+ * Calcula el equivalente en Bs y en USD de forma consistente, según la moneda
+ * y la tasa. Sin tasa válida no se inventan equivalencias.
+ */
+export function calcularMontosBuzon(
+  moneda: 'Bs' | 'USD',
+  montoTotal: number,
+  tasa: number | null,
+): { montoBs: number; montoUsd: number | null } {
+  const montoBs = moneda === 'Bs'
+    ? montoTotal
+    : tasa && tasa > 0
+      ? Math.round(montoTotal * tasa * 100) / 100
+      : 0;
+  const montoUsd = moneda === 'USD'
+    ? montoTotal
+    : tasa && tasa > 0
+      ? Math.round((montoTotal / tasa) * 100) / 100
+      : null;
+  return { montoBs, montoUsd };
+}
+
 export async function crearFacturaBuzon(input: NuevaFacturaBuzonInput): Promise<FacturaExternaBuzon> {
-  const id = `fac-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+  // La columna id es uuid.
+  const id = crypto.randomUUID();
   const now = new Date().toISOString();
 
   const empresaId = input.empresaId || input.empresa_receptora_id || '';
@@ -218,17 +225,7 @@ export async function crearFacturaBuzon(input: NuevaFacturaBuzonInput): Promise<
   const montoTotal = Number(input.montoTotal ?? input.monto_total ?? 0);
   const tasa = input.tasa != null ? Number(input.tasa) : null;
 
-  const montoBs = input.moneda === 'Bs'
-    ? montoTotal
-    : tasa && tasa > 0
-      ? Math.round(montoTotal * tasa * 100) / 100
-      : 0;
-
-  const montoUsd = input.moneda === 'USD'
-    ? montoTotal
-    : tasa && tasa > 0
-      ? Math.round((montoTotal / tasa) * 100) / 100
-      : null;
+  const { montoBs, montoUsd } = calcularMontosBuzon(input.moneda, montoTotal, tasa);
 
   const item: FacturaExternaBuzon = {
     id,
@@ -247,6 +244,7 @@ export async function crearFacturaBuzon(input: NuevaFacturaBuzonInput): Promise<
     descripcion: (input.descripcion || '').trim(),
     observaciones: (input.observaciones || '').trim() || null,
     estatus: 'recibida',
+    tipoDocumento: input.tipoDocumento || 'factura',
     adjuntos: input.adjuntos || [],
     createdBy: input.createdBy || input.creado_por || null,
     createdByName: input.createdByName || null,
@@ -266,7 +264,7 @@ export async function crearFacturaBuzon(input: NuevaFacturaBuzonInput): Promise<
     monto_usd: montoUsd,
   };
 
-  try {
+  {
     const { error } = await supabase.from(TABLE_BUZON).insert({
       id: item.id,
       empresa_id: item.empresaId,
@@ -284,22 +282,15 @@ export async function crearFacturaBuzon(input: NuevaFacturaBuzonInput): Promise<
       descripcion: item.descripcion,
       observaciones: item.observaciones,
       estatus: item.estatus,
+      tipo_documento: item.tipoDocumento,
       adjuntos: item.adjuntos,
       created_by: item.createdBy,
       created_by_name: item.createdByName,
       created_at: item.createdAt,
       updated_at: item.updatedAt,
     });
-    if (error) {
-      console.warn('Inserción en Supabase falló, usando cache local:', error.message);
-    }
-  } catch {
-    /* Fallback en caso de que la tabla aún no exista */
+    if (error) throw errorBuzon(error);
   }
-
-  const actuales = leerCacheLocal();
-  actuales.unshift(item);
-  guardarCacheLocal(actuales);
 
   // Notificación Interna del Sistema (Campana y Panel de Notificaciones)
   try {
@@ -324,33 +315,24 @@ export async function actualizarEstatusFacturaBuzon(
   id: string,
   nuevoEstatus: EstatusFacturaBuzon,
 ): Promise<void> {
-  const now = new Date().toISOString();
-  try {
-    await supabase.from(TABLE_BUZON).update({
-      estatus: nuevoEstatus,
-      updated_at: now,
-    }).eq('id', id);
-  } catch {
-    /* ignore */
-  }
+  const { error } = await supabase.from(TABLE_BUZON).update({
+    estatus: nuevoEstatus,
+    updated_at: new Date().toISOString(),
+  }).eq('id', id);
+  if (error) throw errorBuzon(error);
+}
 
-  const actuales = leerCacheLocal();
-  const idx = actuales.findIndex((f) => f.id === id);
-  if (idx >= 0) {
-    actuales[idx].estatus = nuevoEstatus;
-    actuales[idx].updatedAt = now;
-    guardarCacheLocal(actuales);
-  }
+/** Guarda en la factura los soportes ya subidos (la factura se crea primero y los archivos van en su carpeta). */
+export async function guardarAdjuntosFacturaBuzon(id: string, adjuntos: AdjuntoFacturaItem[]): Promise<void> {
+  const { error } = await supabase.from(TABLE_BUZON).update({
+    adjuntos,
+    updated_at: new Date().toISOString(),
+  }).eq('id', id);
+  if (error) throw errorBuzon(error);
 }
 
 export async function eliminarFacturaBuzon(id: string): Promise<void> {
-  try {
-    await supabase.from(TABLE_BUZON).delete().eq('id', id);
-  } catch {
-    /* ignore */
-  }
-
-  const actuales = leerCacheLocal().filter((f) => f.id !== id);
-  guardarCacheLocal(actuales);
+  const { error } = await supabase.from(TABLE_BUZON).delete().eq('id', id);
+  if (error) throw errorBuzon(error);
 }
 

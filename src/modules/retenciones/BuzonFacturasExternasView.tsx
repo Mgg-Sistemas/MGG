@@ -23,7 +23,7 @@ import {
 } from './empresasReceptoras.repository';
 import {
   listFacturasBuzon, actualizarEstatusFacturaBuzon, eliminarFacturaBuzon,
-  urlPublicaAdjunto, type FacturaBuzon, type EstatusFacturaBuzon,
+  type FacturaBuzon, type EstatusFacturaBuzon,
 } from './facturasBuzon.repository';
 import {
   reproducirSonidoEstatusFactura,
@@ -38,6 +38,7 @@ import {
   lanzarAvisoFactura,
 } from './notificacionesDispositivo';
 import { mensajeFacturaExterna } from './mensajeFacturaExterna';
+import { AdjuntoThumb } from './AdjuntoThumb';
 
 const ESTATUS_OPCIONES: { key: EstatusFacturaBuzon; label: string; icono: string; color: string }[] = [
   { key: 'recibida', label: 'Recibida', icono: '📥', color: '#2563eb' },
@@ -229,9 +230,6 @@ export function BuzonFacturasExternasView() {
               </span>
             )}
           </h2>
-          <p className="muted" style={{ margin: '0.2rem 0 0', fontSize: '0.85rem' }}>
-            Facturas externas capturadas fuera de oficina. Ficha fiscal completa por empresa (MGG, Golden Touch, Minería TS / MTO) sin alterar el libro fiscal oficial.
-          </p>
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
@@ -616,30 +614,9 @@ export function BuzonFacturasExternasView() {
                 <p className="muted" style={{ fontStyle: 'italic', fontSize: '0.85rem' }}>No se adjuntaron fotos ni documentos.</p>
               ) : (
                 <div className="buzon-thumbs-grid">
-                  {detalle.adjuntos.map((adj) => {
-                    const url = urlPublicaAdjunto(adj.path);
-                    const esImg = adj.tipo === 'imagen';
-                    return (
-                      <a
-                        key={adj.id}
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="buzon-thumb-item"
-                        title={`${adj.nombre} (click para abrir)`}
-                        style={{ textDecoration: 'none' }}
-                      >
-                        {esImg ? (
-                          <img src={url} alt={adj.nombre} />
-                        ) : (
-                          <div className="buzon-thumb-pdf">
-                            <span aria-hidden>📄</span>
-                            <small>{adj.nombre}</small>
-                          </div>
-                        )}
-                      </a>
-                    );
-                  })}
+                  {detalle.adjuntos.map((adj) => (
+                    <AdjuntoThumb key={adj.id} adj={adj} />
+                  ))}
                 </div>
               )}
             </div>
@@ -1229,7 +1206,7 @@ function ModalReporteEmpresa({
     let bs = 0;
     let recibidas = 0;
     let retenidas = 0;
-    let proveedoresSet = new Set<string>();
+    const proveedoresSet = new Set<string>();
 
     facturas.forEach((f) => {
       const mUsd = Number(f.moneda === 'USD' ? (f.monto_total ?? 0) : (f.monto_usd ?? 0));
