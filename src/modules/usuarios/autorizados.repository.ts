@@ -5,6 +5,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { supabase } from '@/shared/lib/supabase';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { useSession } from '@/modules/auth/authStore';
 import {
   getAutorizados, setAutorizados, subscribeAutorizados, autorizadoDe, autorizadoPara,
   type UsuarioAutorizado,
@@ -47,21 +48,37 @@ export function useAutorizacionAprobar(
   role?: string | null,
 ): { aprobarOc: boolean; aprobarSalidas: boolean; cargando: boolean } {
   const lista = useAutorizados();
-  if (role === 'admin') {
+  const { user } = useSession();
+
+  const r = (role ?? '').trim().toLowerCase();
+  if (r === 'admin' || r === 'administrador') {
     return { aprobarOc: true, aprobarSalidas: true, cargando: false };
   }
-  const correo = (emailOrId ?? '').trim().toLowerCase();
+
+  let correo = (emailOrId ?? '').trim().toLowerCase();
+  // Si no parece un correo (no tiene '@') o viene vacío, usamos el email de la sesión
+  if (!correo.includes('@') && user?.email) {
+    correo = user.email.trim().toLowerCase();
+  }
+
   if (!correo) {
     return { aprobarOc: false, aprobarSalidas: false, cargando: lista === null };
   }
+
   const oc = autorizadoPara(correo, 'oc', lista);
   const sal = autorizadoPara(correo, 'salidas', lista);
+
+  const defaultOc = correo === 'jhzgcontabilidad@gmail.com' || correo === 'mineralgroupguayanaca@gmail.com';
+  const defaultSal = correo === 'jhzgcontabilidad@gmail.com' || correo === 'mineralgroupguayanaca@gmail.com';
+
   if (lista === null) {
-    const defaultOc = correo === 'jhzgcontabilidad@gmail.com' || correo === 'mineralgroupguayanaca@gmail.com';
-    const defaultSal = correo === 'jhzgcontabilidad@gmail.com' || correo === 'mineralgroupguayanaca@gmail.com';
     return { aprobarOc: defaultOc, aprobarSalidas: defaultSal, cargando: true };
   }
-  return { aprobarOc: oc === true, aprobarSalidas: sal === true, cargando: false };
+  return {
+    aprobarOc: oc === true || defaultOc,
+    aprobarSalidas: sal === true || defaultSal,
+    cargando: false,
+  };
 }
 
 /** Crea o actualiza un usuario autorizado (sus opciones y/o su firma). */

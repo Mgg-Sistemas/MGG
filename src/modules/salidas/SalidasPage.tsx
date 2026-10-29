@@ -84,7 +84,7 @@ export function SalidasPage() {
   // Excepción DURA para EJECUTAR: el Analista de Compras y el de Lectura.
   const r = role ?? '';
   const NO_APRUEBA_SALIDAS = r === 'analista' || r === 'analista_de_lectura';
-  const { aprobarSalidas: puedeAprobar } = useAutorizacionAprobar(appUser?.id);
+  const { aprobarSalidas: puedeAprobar } = useAutorizacionAprobar(appUser?.email, appUser?.role ?? role);
   // EJECUTAR (descuenta/mueve stock) es más amplio que APROBAR: además de quienes aprueban,
   // cualquier usuario con permiso de ESCRITURA puede ejecutar una solicitud ya aprobada
   // (pero NO aprobarla — eso queda para full control / admin / jefe / analista).

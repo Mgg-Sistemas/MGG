@@ -431,7 +431,7 @@ export function PedidosPage() {
   // Autorizar (confirmar) las Órdenes de Compra: quien esté en «Usuarios autorizados para:
   // Aprobar órdenes de compra» (Usuarios > Roles y Permisos, 28-10-2026). Cada uno firma
   // con su firma cargada en el PDF.
-  const { aprobarOc: puedeAprobarOc } = useAutorizacionAprobar(usuario?.id ?? user?.id);
+  const { aprobarOc: puedeAprobarOc } = useAutorizacionAprobar(usuario?.email ?? user?.email, usuario?.role ?? (isAdmin ? 'admin' : undefined));
 
   // Si el obrero quedara con scope 'oc' (estado viejo), lo forzamos a 'pedidos'.
   useEffect(() => {

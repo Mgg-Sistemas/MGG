@@ -16,11 +16,10 @@ import { enviarChecklistAMultiples } from './enviarChecklist';
 /** Checklist "OC por lote": relación de OC por confirmar. Aprobar en lote + PDF/correo. */
 export function OcPorLoteView() {
   const { user } = useSession();
-  // Modifica/anula OC: el administrador o quien tenga FULL CONTROL de Pedidos/Compras.
-  const { isAdmin: esAdmin, can } = usePermissions();
+  const { isAdmin: esAdmin, can, role, appUser } = usePermissions();
   const isAdmin = esAdmin || can('pedidos', 'full');
   // AUTORIZAR una OC: quien esté en «Usuarios autorizados para: Aprobar órdenes de compra» (28-10-2026).
-  const { aprobarOc: soloAdmin } = useAutorizacionAprobar(user?.id);
+  const { aprobarOc: soloAdmin } = useAutorizacionAprobar(appUser?.email ?? user?.email, appUser?.role ?? role ?? (isAdmin ? 'admin' : undefined));
   const [rows, setRows] = useState<OcLoteRow[]>([]);
   const [incluirPagadas, setIncluirPagadas] = useState(false);
   const [loading, setLoading] = useState(true);

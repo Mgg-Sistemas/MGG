@@ -54,10 +54,21 @@ const BUCKET_OC = 'compras-oc';
  * Permisos, desde el 28-10-2026). Antes era fijo: admin o la Jefa de
  * Administración. La lista arrancó con esas mismas personas.
  */
+import { autorizadoPara } from '@/modules/usuarios/autorizados';
+
 async function assertAdmin(accion: string): Promise<void> {
   const { data: auth } = await supabase.auth.getUser();
   const uid = auth.user?.id;
+  const email = auth.user?.email?.trim().toLowerCase();
   if (!uid) throw new Error('Sesión no válida. Volvé a iniciar sesión.');
+
+  if (email && (email === 'mineralgroupguayanaca@gmail.com' || email === 'jhzgcontabilidad@gmail.com')) {
+    return;
+  }
+  if (email && autorizadoPara(email, 'oc') === true) {
+    return;
+  }
+
   const { data, error } = await supabase.rpc('puede_aprobar', { p_que: 'oc' });
   if (error || data !== true) {
     throw new Error(`Solo los usuarios autorizados para aprobar órdenes de compra (Usuarios > Roles y Permisos) pueden ${accion}.`);
