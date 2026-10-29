@@ -55,6 +55,7 @@ const BUCKET_OC = 'compras-oc';
  * Administración. La lista arrancó con esas mismas personas.
  */
 import { autorizadoPara } from '@/modules/usuarios/autorizados';
+import { flujoRevisionAlmacenActivo } from './revisionAlmacen.repository';
 
 async function assertAdmin(accion: string): Promise<void> {
   const { data: auth } = await supabase.auth.getUser();
@@ -279,7 +280,9 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     ci_solicitante: input.ci_solicitante,
     items: input.items,
     total,
-    estado: 'pendiente' as EstadoOrden,
+    // Flujo nuevo (29-10-2026, apagado hasta que se active): la SP de productos pasa
+    // primero por Almacén, que revisa qué tiene; lo que falta llega luego a Compras.
+    estado: (!esServicio && await flujoRevisionAlmacenActivo() ? 'revision_almacen' : 'pendiente') as EstadoOrden,
     notas: input.notas ?? null,
     motivo: input.motivo?.trim() || null,
     finalidad: input.finalidad?.trim() || null,
@@ -438,7 +441,7 @@ export interface EditarOrdenInput {
  * vía (se usa «Editar OC»).
  */
 export async function actualizarOrden(o: Orden, input: EditarOrdenInput, actorEmail: string): Promise<Orden> {
-  if (!['pendiente', 'aprobada'].includes(o.estado))
+  if (!['pendiente', 'aprobada', 'revision_almacen'].includes(o.estado))
     throw new Error('Solo se edita la OP antes de crear su OC (pendiente o aprobada).');
   if (o.oc_codigo) throw new Error('Esta OP ya tiene una OC: editá la OC, no la OP.');
   if (!input.items.length) throw new Error('La orden debe tener al menos un producto.');
@@ -2901,7 +2904,7 @@ export async function cancelarOrden(
   actorEmail: string,
   motivo: string
 ): Promise<Orden> {
-  if (!['pendiente', 'aprobada'].includes(o.estado))
+  if (!['pendiente', 'aprobada', 'revision_almacen'].includes(o.estado))
     throw new Error('Solo se cancelan órdenes pendientes o aprobadas');
   if (!motivo.trim()) throw new Error('Debes indicar un motivo');
   const patch = {

@@ -75,21 +75,18 @@ type Modal =
 // y el histórico, y con una sola definición no pueden decir cosas distintas.
 
 export function SalidasPage() {
-  const { can, appUser, role } = usePermissions();
-  const canWrite = can('salidas', 'escritura');
+  const { user } = useSession();
+  const { can, appUser, role, isAdmin } = usePermissions();
+  const actorEmail = appUser?.email ?? user?.email ?? '';
+  const actorRole = appUser?.role ?? role ?? (isAdmin ? 'admin' : '');
   // AUTORIZAR salidas y traslados: quien esté en «Usuarios autorizados para: Aprobar
-  // salidas» (Usuarios > Roles y Permisos, desde el 28-10-2026; antes era fijo: Leydis
-  // Rengel y Jesús Lozada, que arrancan en la lista). La base de datos lo exige también
-  // (trigger trg_salidas_solo_autorizados → puede_aprobar('salidas')).
-  // Excepción DURA para EJECUTAR: el Analista de Compras y el de Lectura.
-  const r = role ?? '';
-  const NO_APRUEBA_SALIDAS = r === 'analista' || r === 'analista_de_lectura';
-  const { aprobarSalidas: puedeAprobar } = useAutorizacionAprobar(appUser?.email, appUser?.role ?? role);
-  // EJECUTAR (descuenta/mueve stock) es más amplio que APROBAR: además de quienes aprueban,
-  // cualquier usuario con permiso de ESCRITURA puede ejecutar una solicitud ya aprobada
-  // (pero NO aprobarla — eso queda para full control / admin / jefe / analista).
-  const puedeEjecutar = !NO_APRUEBA_SALIDAS && (puedeAprobar || canWrite);
-  const actor = appUser?.email ?? 'sistema';
+  // salidas» (Usuarios > Roles y Permisos) o sea admin.
+  const { aprobarSalidas: puedeAprobar } = useAutorizacionAprobar(actorEmail, actorRole);
+  const canWrite = isAdmin || puedeAprobar || can('salidas', 'escritura');
+  const r = (actorRole ?? '').toLowerCase();
+  const NO_APRUEBA_SALIDAS = (r === 'analista' || r === 'analista_de_lectura') && !puedeAprobar && !isAdmin;
+  const puedeEjecutar = isAdmin || puedeAprobar || (!NO_APRUEBA_SALIDAS && canWrite);
+  const actor = actorEmail || 'sistema';
   const actorName = appUser?.nombre ?? null;
 
   const [scope, setScope] = useState<Scope>('salidas');
@@ -1530,7 +1527,7 @@ function SolicitudDetalleModal({
 
       {!puedeAprobar && sol.estado === 'por_aprobar' && (
         <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
-          Solo <strong>Leydis Rengel</strong> o <strong>Jesús Lozada</strong> pueden <strong>autorizar</strong> esta solicitud.{puedeEjecutar ? ' Una vez aprobada, vos podés ejecutarla.' : ''}
+          Solo un <strong>usuario autorizado</strong> (Usuarios &gt; Roles y Permisos) o un <strong>Administrador</strong> pueden <strong>autorizar</strong> esta solicitud.{puedeEjecutar ? ' Una vez aprobada, vos podés ejecutarla.' : ''}
           {editable ? ' Corregirla sí podés: usá ✎ Editar solicitud.' : ''}
         </div>
       )}
