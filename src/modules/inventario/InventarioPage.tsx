@@ -162,7 +162,7 @@ const MOSTRAR_GESTION_ALMACENES = false;
 
 /** Metadatos de cada espacio (título, icono, ruta, clave de permiso). */
 const ESPACIOS: Record<Espacio, { titulo: string; icono: string; ruta: string; modulo: 'inventario' | 'deposito' }> = {
-  principal: { titulo: 'Inventario', icono: '⬢', ruta: 'inventario', modulo: 'inventario' },
+  principal: { titulo: 'Inventario Matanza', icono: '⬢', ruta: 'inventario', modulo: 'inventario' },
   deposito: { titulo: 'Depósito', icono: '🏬', ruta: 'deposito', modulo: 'deposito' },
 };
 

@@ -351,11 +351,11 @@ export function AppShell() {
           {(can('inventario') || can('deposito')) && (
             can('deposito') ? (
               <NavGroup icon="⬢" label="Inventario" defaultOpen={location.pathname.startsWith('/app/inventario') || location.pathname.startsWith('/app/deposito')}>
-                {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario" />}
+                {can('inventario') && <NavItem to="/app/inventario" icon="⬢" label="Inventario Matanza" />}
                 <NavItem to="/app/deposito" icon="🏬" label="Depósito" />
               </NavGroup>
             ) : (
-              <NavItem to="/app/inventario" icon="⬢" label="Inventario" />
+              <NavItem to="/app/inventario" icon="⬢" label="Inventario Matanza" />
             )
           )}
           {/* Flujo SP → Almacén → Compras (29-10-2026): solo con el interruptor prendido. */}
