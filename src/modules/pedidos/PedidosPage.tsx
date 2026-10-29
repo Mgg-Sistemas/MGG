@@ -2780,6 +2780,11 @@ function OrdenDetailModal({
   const [porEliminar, setPorEliminar] = useState<ItemOrden | null>(null);
   // «Avisar» por WhatsApp (21-10-2026): el mensaje a la vista con «Copiar» y «Enviar por WhatsApp», como en Combustible.
   const [mensajeWs, setMensajeWs] = useState<{ titulo: string; texto: string } | null>(null);
+  // Tasa BCV del día para el «💬 WhatsApp para pagar»: el monto también sale en Bs (29-10-2026).
+  const [tasaHoyBs, setTasaHoyBs] = useState<number | null>(null);
+  useEffect(() => {
+    getTasaHoy().then((t) => setTasaHoyBs(Number(t.usd) > 0 ? Number(t.usd) : null)).catch(() => { /* sin tasa: no sale la línea en Bs */ });
+  }, []);
   function abrirEdicionCant() {
     const d: Record<string, string> = {};
     o.items.forEach((it) => { d[it.sku] = String(it.cantidad ?? 0); });
@@ -2848,7 +2853,7 @@ function OrdenDetailModal({
       : o.aprobada_por ? persona(o.aprobada_por, personaMap, o.aprobada_en) : null,
     autorizo: o.oc_aprobada_por ? persona(o.oc_aprobada_por, personaMap, o.oc_aprobada_en) : null,
   });
-  const textoPago = () => textoOrdenPago(o, nombreProveedorMsg(), personasMsg());
+  const textoPago = () => textoOrdenPago(o, nombreProveedorMsg(), personasMsg(), { tasaBs: tasaHoyBs });
   const textoAprobacion = () => textoOrdenAprobacion(o, nombreProveedorMsg(), personasMsg());
   // Abre la ventana «Avisar» (la de Combustible): se ve el mensaje y se elige copiarlo o mandarlo.
   const botonWhatsapp = (texto: () => string, etiqueta: string, titulo: string, tituloVentana: string) => (

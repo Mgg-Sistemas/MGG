@@ -124,14 +124,40 @@ function lineasPersonas(p: PersonasOrden | undefined): string[] {
   return L;
 }
 
+/** El tipo de requerimiento (29-10-2026): urgente o normal, para que quien paga priorice. */
+export function lineaRequerimiento(orden: Pick<Orden, 'urgente'>): string {
+  return orden.urgente ? '🚨 *Requerimiento:* URGENTE' : '🟢 *Requerimiento:* Normal';
+}
+
+/** La tasa como se lee en Venezuela: 36,50 · 36,5012 (hasta 4 decimales). */
+function tasaTxt(t: number): string {
+  return t.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
+}
+
+/**
+ * Lo que se paga, en bolívares a la tasa del día (29-10-2026): «Bs 2.883,50 (tasa 36,50)».
+ * Solo en órdenes en dólares y con tasa válida; en una cuenta abierta se convierte el SALDO.
+ */
+export function lineaMontoBs(orden: Orden, tasaBs?: number | null): string | null {
+  const mon = (orden.moneda ?? 'USD').toUpperCase() === 'BS' ? 'Bs' : '$';
+  const t = Number(tasaBs) || 0;
+  if (mon !== '$' || t <= 0) return null;
+  const abonado = Number(orden.abonado_total) || 0;
+  const usd = abonado > 0 ? saldoPendiente(orden) : (Number(orden.total) || 0);
+  return `💱 *En Bs:* ${montoTxt(usd * t, 'Bs')} (tasa ${tasaTxt(t)})`;
+}
+
 /** El texto completo. Se exporta aparte para poder probarlo sin tocar el navegador. */
-export function textoOrdenPago(orden: Orden, proveedorNombre: string, personas?: PersonasOrden): string {
+export function textoOrdenPago(
+  orden: Orden, proveedorNombre: string, personas?: PersonasOrden, opts?: { tasaBs?: number | null },
+): string {
   const mon = (orden.moneda ?? 'USD').toUpperCase() === 'BS' ? 'Bs' : '$';
   const detalle = detalleTxt(orden);
   const nota = (orden.notas ?? '').trim();
 
   const L: string[] = [];
   L.push(`🔹 *ORDEN:* ${orden.oc_codigo ?? orden.codigo}`);
+  L.push(lineaRequerimiento(orden));
   L.push(`🏭 *Proveedor:* ${proveedorNombre || '—'}`);
   if (detalle) L.push(`📝 *Detalle:* ${detalle}`);
   if (nota) L.push(`📌 *Nota:* ${nota.replace(/\s*\r?\n\s*/g, ' ')}`);
@@ -145,6 +171,8 @@ export function textoOrdenPago(orden: Orden, proveedorNombre: string, personas?:
     L.push(`✅ *Abonado:* ${montoTxt(abonado, mon)}`);
     L.push(`🔺 *Saldo pendiente:* ${montoTxt(saldoPendiente(orden), mon)}`);
   }
+  const enBs = lineaMontoBs(orden, opts?.tasaBs);
+  if (enBs) L.push(enBs);
   // En cuentas a crédito no se muestra método de pago (se paga por abonos en Tesorería;
   // no lleva método fijo ni se muestra «todavía sin método de pago indicado»).
   if (!esCuentaCredito(orden)) {

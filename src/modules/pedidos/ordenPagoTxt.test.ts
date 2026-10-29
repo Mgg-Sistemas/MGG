@@ -22,6 +22,7 @@ describe('textoOrdenPago · formato corto para WhatsApp', () => {
   it('sale exactamente con la forma pedida', () => {
     expect(txt().split('\n')).toEqual([
       '🔹 *ORDEN:* OC-2026-0130',
+      '🟢 *Requerimiento:* Normal',
       '🏭 *Proveedor:* MAXI SHOES',
       '📝 *Detalle:* Dotación de calzado para motorizado (delivery). Para: Héctor Alagal.',
       '💵 *Total:* $79,00',
@@ -303,5 +304,32 @@ describe('textoOrdenAprobacion · para pedirle la aprobación al Gerente', () =>
 
   it('sin selector ni unión invisible: llega bien a WhatsApp', () => {
     expect(/\uFE0F|\u200D/.test(textoOrdenAprobacion({ ...pend, urgente: true, notas: 'x' } as Orden, 'X', personas))).toBe(false);
+  });
+});
+
+describe('tipo de requerimiento y monto en Bs a la tasa del día (29-10-2026)', () => {
+  it('dice si es urgente o normal, debajo de la orden', () => {
+    expect(txt({ urgente: true }).split('\n')[1]).toBe('🚨 *Requerimiento:* URGENTE');
+    expect(txt().split('\n')[1]).toBe('🟢 *Requerimiento:* Normal');
+  });
+
+  it('con tasa, el total en dólares sale también en Bs con la tasa entre paréntesis', () => {
+    const l = textoOrdenPago(base, 'MAXI SHOES', undefined, { tasaBs: 36.5 }).split('\n');
+    const i = l.indexOf('💵 *Total:* $79,00');
+    expect(l[i + 1]).toBe('💱 *En Bs:* Bs 2.883,50 (tasa 36,50)');
+  });
+
+  it('en una cuenta abierta convierte el saldo, no el total', () => {
+    const t = textoOrdenPago({ ...base, total: 100, abonado_total: 40 } as Orden, 'X', undefined, { tasaBs: 10 });
+    expect(t).toContain('💱 *En Bs:* Bs 600,00 (tasa 10,00)');
+  });
+
+  it('sin tasa, o si la orden ya es en Bs, no agrega la línea', () => {
+    expect(txt()).not.toContain('En Bs');
+    expect(textoOrdenPago({ ...base, moneda: 'Bs' } as Orden, 'X', undefined, { tasaBs: 36.5 })).not.toContain('En Bs');
+  });
+
+  it('sin selector U+FE0F en los emojis nuevos', () => {
+    expect(textoOrdenPago({ ...base, urgente: true } as Orden, 'X', undefined, { tasaBs: 36.5 })).not.toContain('️');
   });
 });

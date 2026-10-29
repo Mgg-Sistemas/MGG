@@ -53,26 +53,26 @@ describe('notifPermisos · Filtrado de notificaciones por permisos de módulo', 
 
   describe('moduloDeNotificacion', () => {
     it('deduce módulo por link directo', () => {
-      expect(moduloDeNotificacion({ link: '#/app/retenciones' })).toBe('retenciones');
-      expect(moduloDeNotificacion({ link: '/app/retenciones/telefono' })).toBe('retenciones');
-      expect(moduloDeNotificacion({ link: '#/app/pedidos?id=123' })).toBe('pedidos');
-      expect(moduloDeNotificacion({ link: '#/app/inventario' })).toBe('inventario');
-      expect(moduloDeNotificacion({ link: '#/app/tesoreria' })).toBe('tesoreria');
-      expect(moduloDeNotificacion({ link: '#/app/salidas' })).toBe('salidas');
-      expect(moduloDeNotificacion({ link: '#/app/usuarios' })).toBe('usuarios');
+      expect(moduloDeNotificacion(<Notificacion>{ link: '#/app/retenciones' })).toBe('retenciones');
+      expect(moduloDeNotificacion(<Notificacion>{ link: '/app/retenciones/telefono' })).toBe('retenciones');
+      expect(moduloDeNotificacion(<Notificacion>{ link: '#/app/pedidos?id=123' })).toBe('pedidos');
+      expect(moduloDeNotificacion(<Notificacion>{ link: '#/app/inventario' })).toBe('inventario');
+      expect(moduloDeNotificacion(<Notificacion>{ link: '#/app/tesoreria' })).toBe('tesoreria');
+      expect(moduloDeNotificacion(<Notificacion>{ link: '#/app/salidas' })).toBe('salidas');
+      expect(moduloDeNotificacion(<Notificacion>{ link: '#/app/usuarios' })).toBe('usuarios');
     });
 
     it('deduce módulo por dedup_key cuando link es nulo o #', () => {
-      expect(moduloDeNotificacion({ link: '#', dedup_key: 'restock:warn:123' })).toBe('inventario');
-      expect(moduloDeNotificacion({ link: null, dedup_key: 'maq-os-piezas-45' })).toBe('maquinaria');
-      expect(moduloDeNotificacion({ link: null, dedup_key: 'retencion-fact-9' })).toBe('retenciones');
-      expect(moduloDeNotificacion({ link: null, dedup_key: 'oc-555' })).toBe('pedidos');
+      expect(moduloDeNotificacion(<Notificacion>{ link: '#', dedup_key: 'restock:warn:123' })).toBe('inventario');
+      expect(moduloDeNotificacion(<Notificacion>{ link: null, dedup_key: 'maq-os-piezas-45' })).toBe('maquinaria');
+      expect(moduloDeNotificacion(<Notificacion>{ link: null, dedup_key: 'retencion-fact-9' })).toBe('retenciones');
+      expect(moduloDeNotificacion(<Notificacion>{ link: null, dedup_key: 'oc-555' })).toBe('pedidos');
     });
 
     it('deduce módulo por palabras clave en título/mensaje', () => {
-      expect(moduloDeNotificacion({ link: null, title: 'Comprobante de retención de ISLR emitido' })).toBe('retenciones');
-      expect(moduloDeNotificacion({ link: null, title: 'Reabastecimiento requerido en almacén' })).toBe('inventario');
-      expect(moduloDeNotificacion({ link: null, title: 'Traslado de material autorizado' })).toBe('salidas');
+      expect(moduloDeNotificacion(<Notificacion>{ link: null, title: 'Comprobante de retención de ISLR emitido' })).toBe('retenciones');
+      expect(moduloDeNotificacion(<Notificacion>{ link: null, title: 'Reabastecimiento requerido en almacén' })).toBe('inventario');
+      expect(moduloDeNotificacion(<Notificacion>{ link: null, title: 'Traslado de material autorizado' })).toBe('salidas');
     });
   });
 
