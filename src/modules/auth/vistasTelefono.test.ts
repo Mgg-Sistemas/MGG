@@ -24,8 +24,9 @@ describe('vistasPermitidas · pantalla dada Y lectura en su módulo (13-10)', ()
     expect(vistasPermitidas([], conModulos(), true)).toEqual(VISTAS_TELEFONO);
   });
 
-  it('Inventario no tiene pantalla de teléfono', () => {
-    expect(VISTAS_TELEFONO.some((v) => v.modulo === 'inventario')).toBe(false);
+  it('De Inventario solo está «Solicitudes de Pedido» (29-10), y se da aparte como las demás', () => {
+    expect(VISTAS_TELEFONO.filter((v) => v.modulo === 'inventario').map((v) => v.key)).toEqual(['solicitudes']);
+    expect(claves(vistasPermitidas(['solicitudes'], conModulos('inventario'), false))).toEqual(['solicitudes']);
     expect(vistasPermitidas(['surtidor', 'comidas'], conModulos('inventario'), false)).toEqual([]);
   });
 });

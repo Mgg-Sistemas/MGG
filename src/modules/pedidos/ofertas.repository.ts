@@ -1,7 +1,10 @@
 import { supabase } from '@/shared/lib/supabase';
-import type { ItemOrden, OfertaProveedor, OfertaDetalle, OfertaAdjunto } from '@/shared/lib/types';
+import type { ItemOrden, OfertaProveedor, OfertaDetalle, OfertaAdjunto, Producto } from '@/shared/lib/types';
 import { ofertaCubreTodoLoPendiente, type HijaCobertura } from './subOc';
 import { costoPorUnidadDeUso, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
+import { aplicarFicha, nombreFicha, planFichas, type EleccionNombreInventario, type FichaMin } from './nombreInventario';
+import { createProducto, siguienteSkuLibre } from '@/modules/inventario/inventario.repository';
+import { asegurarCategoria } from '@/modules/inventario/CategoriaProductoSelect';
 
 const TABLE = 'ofertas_proveedor';
 const BUCKET = 'ofertas-pdf';
@@ -59,6 +62,52 @@ export function limpiarDetalleOferta(d?: OfertaDetalle | null): OfertaDetalle | 
     calidad: txt(d.calidad), logistica: hayLog ? logistica : undefined,
   };
   return Object.values(out).some((v) => v) ? out : null;
+}
+
+/** Ficha ACTIVA con exactamente ese nombre en la BASE (sin importar mayúsculas), o null. */
+async function fichaActivaPorNombre(nombre: string): Promise<Producto | null> {
+  const patron = nombre.replace(/[\\%_]/g, (c) => `\\${c}`);
+  const { data, error } = await supabase.from('productos').select('*').eq('estado', 'activo').ilike('nombre', patron).limit(5);
+  if (error) throw error;
+  return ((data ?? []) as Producto[]).find((p) => nombreFicha(p.nombre) === nombre) ?? null;
+}
+
+/**
+ * «Se guarda en inventario como» (29-10-2026, flujo de revisión de almacén): antes de
+ * guardar la cotización, cada renglón queda ligado a su ficha de inventario.
+ *  · El que elige una ficha existente toma su productoId / nombre / unidad.
+ *  · El que necesita una ficha nueva la crea UNA vez por nombre (con su categoría y el
+ *    SKU correlativo de la categoría); si en la base ya hay una activa con ese nombre,
+ *    se reusa en vez de duplicarla.
+ * Nunca renombra una ficha existente y NUNCA cambia el SKU del renglón (oferta ↔ orden
+ * se casan por SKU). Devuelve los renglones listos para guardar y las fichas creadas.
+ */
+export async function ligarRenglonesAInventario(
+  items: ItemOrden[],
+  elecciones: Array<EleccionNombreInventario | undefined>,
+  catalogo: Producto[],
+  actorEmail: string,
+): Promise<{ items: ItemOrden[]; creadas: Producto[] }> {
+  const plan = planFichas(items.map((item, i) => ({ item, eleccion: elecciones[i] })), catalogo as FichaMin[]);
+  if (plan.error) throw new Error(plan.error);
+  const out = items.slice();
+  plan.destinos.forEach((d, i) => { if (d.tipo === 'ficha') out[i] = aplicarFicha(out[i], d.ficha); });
+  const creadas: Producto[] = [];
+  for (const c of plan.crear) {
+    // Otra persona pudo crearla mientras tanto: si ya está en la base, se usa esa.
+    let ficha = await fichaActivaPorNombre(c.nombre);
+    if (!ficha) {
+      const categoria = await asegurarCategoria(c.categoria, actorEmail);
+      const sku = await siguienteSkuLibre(categoria, [...catalogo, ...creadas]);
+      ficha = await createProducto({
+        sku, nombre: c.nombre, categoria, unidad: c.unidad,
+        stock: 0, stock_min: 0, precio: 0, almacen: '', estado: 'activo',
+      });
+      creadas.push(ficha);
+    }
+    for (const i of c.indices) out[i] = aplicarFicha(out[i], ficha);
+  }
+  return { items: out, creadas };
 }
 
 /** Etiquetas legibles de las condiciones de pago. */

@@ -23,6 +23,7 @@ import { asegurarEmpresas } from '@/modules/rrhh/empresas.repository';
 import { intentarSalir, registrarModulo, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { AvisoSalidaModulo } from '@/shared/ui/AvisoSalidaModulo';
 import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
+import { useFlujoRevisionAlmacen } from '@/modules/pedidos/revisionAlmacen.repository';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -43,6 +44,8 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 export function AppShell() {
   const { user } = useSession();
   const { can, role, appUser, isAdmin, soloTelefono, vistasTelefono } = usePermissions();
+  // Interruptor del flujo SP → Almacén → Compras (config.compras.revision_almacen, arranca apagado).
+  const flujoAlmacen = useFlujoRevisionAlmacen();
   // Quien tiene pantallas de teléfono dadas las ve en su propia sección del menú (13-10).
   const mostrarTelefono = !isAdmin && (soloTelefono || vistasTelefono.length > 0);
   // Si el rol tiene la pantalla de teléfono de un módulo, ese módulo ya abre como teléfono:
@@ -327,7 +330,7 @@ export function AppShell() {
             <div className="sidebar-section">Teléfono</div>
             <nav className="nav">
               {vistasTelefono.length > 1 && <NavItem to="/app/telefono" icon="📱" label="Mis pantallas" />}
-              {vistasTelefono.map((v) => <NavItem key={v.key} to={v.ruta} icon={v.icono} label={v.label} />)}
+              {vistasTelefono.filter((v) => v.key !== 'solicitudes' || flujoAlmacen).map((v) => <NavItem key={v.key} to={v.ruta} icon={v.icono} label={v.label} />)}
             </nav>
           </>
         )}
@@ -346,6 +349,8 @@ export function AppShell() {
               <NavItem to="/app/inventario" icon="⬢" label="Inventario" />
             )
           )}
+          {/* Flujo SP → Almacén → Compras (29-10-2026): solo con el interruptor prendido. */}
+          {can('inventario') && flujoAlmacen && <NavItem to="/app/solicitudes-pedido" icon="📋" label="Solicitudes de Pedido" />}
           {can('inventario') && (
             <NavGroup icon="▣" label="Almacenes" defaultOpen={location.pathname.startsWith('/app/almacenes')}>
               <NavItem to="/app/almacenes/los-pinos" icon="🌲" label="Los Pinos" />

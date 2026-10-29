@@ -6,9 +6,13 @@
    ============================================================ */
 import { Link } from 'react-router-dom';
 import { usePermissions } from './PermissionsContext';
+import { useFlujoRevisionAlmacen } from '@/modules/pedidos/revisionAlmacen.repository';
 
 export function TelefonoInicioPage() {
-  const { loading, appUser, vistasTelefono } = usePermissions();
+  const { loading, appUser, vistasTelefono: todas } = usePermissions();
+  // «Solicitudes de Pedido» solo con el flujo SP → Almacén → Compras prendido (29-10-2026).
+  const flujoAlmacen = useFlujoRevisionAlmacen();
+  const vistasTelefono = todas.filter((v) => v.key !== 'solicitudes' || flujoAlmacen);
   if (loading) return <div className="p-8 muted">Cargando…</div>;
 
   return (

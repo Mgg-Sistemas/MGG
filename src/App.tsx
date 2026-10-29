@@ -15,6 +15,8 @@ const CarnetPublicoPage = lazyReload(() => import('./modules/rrhh/CarnetPublicoP
 const DashboardPage = lazyReload(() => import('./modules/dashboard/DashboardPage').then((m) => ({ default: m.DashboardPage })));
 const PedidosPage = lazyReload(() => import('./modules/pedidos/PedidosPage').then((m) => ({ default: m.PedidosPage })));
 const HistoricoPage = lazyReload(() => import('./modules/pedidos/HistoricoPage').then((m) => ({ default: m.HistoricoPage })));
+const SolicitudesAlmacenPage = lazyReload(() => import('./modules/pedidos/SolicitudesAlmacenPage').then((m) => ({ default: m.SolicitudesAlmacenPage })));
+const SolicitudesAlmacenMovilView = lazyReload(() => import('./modules/pedidos/SolicitudesAlmacenMovilView').then((m) => ({ default: m.SolicitudesAlmacenMovilView })));
 const ProveedoresPage = lazyReload(() => import('./modules/proveedores/ProveedoresPage').then((m) => ({ default: m.ProveedoresPage })));
 const InventarioPage = lazyReload(() => import('./modules/inventario/InventarioPage').then((m) => ({ default: m.InventarioPage })));
 const DepositoPage = lazyReload(() => import('./modules/inventario/InventarioPage').then((m) => ({ default: m.DepositoPage })));
@@ -139,6 +141,9 @@ export function App() {
           <Route path="inventario" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
           <Route path="deposito" element={<RequireModule module="deposito"><Suspense fallback={<PageLoader />}><DepositoPage /></Suspense></RequireModule>} />
           <Route path="almacenes/:sede" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><AlmacenCentroPage /></Suspense></RequireModule>} />
+          {/* Solicitudes de Pedido: almacén revisa qué hay antes de Compras (29-10-2026). */}
+          <Route path="solicitudes-pedido" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><SolicitudesAlmacenPage /></Suspense></RequireModule>} />
+          <Route path="solicitudes-pedido/telefono" element={<RequireVistaTelefono vista="solicitudes"><Suspense fallback={<PageLoader />}><SolicitudesAlmacenMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="produccion" element={<RequireModule module="produccion"><Suspense fallback={<PageLoader />}><ProduccionPage /></Suspense></RequireModule>} />
           <Route path="refinacion" element={<RequireModule module="refinacion"><Suspense fallback={<PageLoader />}><RefinacionPage /></Suspense></RequireModule>} />
           <Route path="salidas" element={<RequireModule module="salidas"><Suspense fallback={<PageLoader />}><SalidasPage /></Suspense></RequireModule>} />

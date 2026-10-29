@@ -191,14 +191,18 @@ export function itemsAgregadosPorOferta<T extends ItemRecortable>(itemsOferta: T
  * unidad de compra como las cotizó el proveedor (si cotizó cantidad > 0); finalidad, área
  * y nombre como los puso el solicitante; el precio en la moneda elegida.
  */
-export function itemHijaDesdeOferta<T extends ItemRecortable & { nombre?: string; finalidad?: string | null; area?: string | null }>(
+export function itemHijaDesdeOferta<T extends ItemRecortable & { nombre?: string; finalidad?: string | null; area?: string | null; productoId?: string }>(
   itemOp: T, itemOferta: Partial<T> | undefined, precio: number,
 ): T {
   const cantOf = Number(itemOferta?.cantidad) || 0;
+  // «Se guarda en inventario como» (29-10-2026): si la cotización ligó el renglón a OTRA
+  // ficha (un nombre general de la SP que ya tiene la suya), el nombre es el de esa ficha;
+  // si no, sigue mandando el que puso el solicitante.
+  const religado = !!itemOferta?.productoId && itemOferta.productoId !== itemOp.productoId;
   return {
     ...itemOp,
     ...(itemOferta ?? {}),
-    nombre: itemOp.nombre ?? itemOferta?.nombre,
+    nombre: religado ? (itemOferta?.nombre ?? itemOp.nombre) : (itemOp.nombre ?? itemOferta?.nombre),
     finalidad: itemOp.finalidad ?? itemOferta?.finalidad ?? null,
     area: itemOp.area ?? itemOferta?.area ?? null,
     cantidad: cantOf > 0 ? cantOf : Number(itemOp.cantidad) || 0,

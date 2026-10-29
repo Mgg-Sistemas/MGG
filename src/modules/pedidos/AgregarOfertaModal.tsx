@@ -10,8 +10,12 @@ import { limpiarMontoEs, montoAStrEs, parseMontoEs } from '@/shared/lib/montoEs'
 import { PREFIJOS_RIF, normalizarRif, partirRif } from '@/shared/lib/rif';
 import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, CostoLogistico, OfertaProveedor, Producto } from '@/shared/lib/types';
 import { AgregarProductoCompra } from './AgregarProductoCompra';
-import { crearOferta, actualizarOferta, subirAdjuntosOferta, adjuntosDeOferta, CONDICIONES_PAGO, descuentoEfectivo, type EditarOfertaInput } from './ofertas.repository';
-import { resincronizarOcDesdeOferta, listSubOcs } from './pedidos.repository';
+import { crearOferta, actualizarOferta, subirAdjuntosOferta, adjuntosDeOferta, CONDICIONES_PAGO, descuentoEfectivo, ligarRenglonesAInventario, type EditarOfertaInput } from './ofertas.repository';
+import { resincronizarOcDesdeOferta, listSubOcs, listProductosActivos } from './pedidos.repository';
+import { useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
+import { planFichas, type DestinoRenglon, type EleccionNombreInventario, type ModoNombreInventario } from './nombreInventario';
+import { getCategorias, getUnidades } from '@/modules/inventario/inventario.repository';
+import { opcionesCategoria } from '@/modules/inventario/opcionesCategoria';
 import { fijarActividadTextoProveedor } from '@/modules/proveedores/actividades.repository';
 import { ivaDesdePorcentaje, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
@@ -51,6 +55,8 @@ interface FormItem extends ItemOrden {
   _usoPedido: number;
   /** El usuario ya eligió la unidad de compra de este renglón: no se pisa con la sugerencia. */
   _ucTocada?: boolean;
+  /** «Se guarda en inventario como» (flujo de revisión de almacén). Falta = dejar como viene. */
+  _inv?: EleccionNombreInventario;
 }
 
 let _ridSeq = 0;
@@ -66,6 +72,73 @@ const numToStr = (n: number) => (n > 0 ? montoAStrEs(round4(n)) : '');
 const sanitizeDecimal = (s: string) => limpiarMontoEs(s);
 // Convierte el texto (con "." o "," y miles) a número ≥ 0, SIN redondear.
 const parseDecimal = (s: string) => Math.max(0, parseMontoEs(s));
+
+/**
+ * Celda «Se guarda en inventario como» de un renglón (flujo de revisión de almacén).
+ * Dejar como viene (por defecto) · Cambiar: elegir un producto del inventario o
+ * escribir otro nombre. Si hace falta ficha nueva, pide categoría y unidad.
+ */
+function CeldaNombreInventario({
+  item, destino, fichaActual, opcionesProductos, opcionesCategorias, unidades, onChange,
+}: {
+  item: ItemOrden & { _inv?: EleccionNombreInventario };
+  destino: DestinoRenglon | undefined;
+  fichaActual: Producto | undefined;
+  opcionesProductos: { value: string; label: string; hint?: string }[];
+  opcionesCategorias: { value: string; label: string; hint?: string; keywords?: string[] }[];
+  unidades: string[];
+  onChange: (patch: Partial<EleccionNombreInventario>) => void;
+}) {
+  const e = item._inv;
+  const modo: ModoNombreInventario = e?.modo ?? 'como_viene';
+  const unidad = e?.unidad ?? item.unidad ?? '';
+  const chico = { fontSize: '.78rem' } as const;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+      <select className="select" style={chico} value={modo}
+        onChange={(ev) => onChange({ modo: ev.target.value as ModoNombreInventario })}>
+        <option value="como_viene">Dejar como viene</option>
+        <option value="existente">Cambiar · elegir del inventario</option>
+        <option value="nuevo">Cambiar · escribir otro nombre</option>
+      </select>
+      {modo === 'existente' && (
+        <SearchSelect value={e?.productoId ?? ''} onChange={(v) => onChange({ productoId: v || null })}
+          options={opcionesProductos} placeholder="Buscar producto del inventario…" emptyText="Ningún producto coincide" />
+      )}
+      {modo === 'nuevo' && (
+        <input className="input" style={chico} placeholder="Nombre con que se guarda *"
+          value={e?.nombre ?? ''} onChange={(ev) => onChange({ nombre: ev.target.value.toUpperCase() })} />
+      )}
+      {destino?.tipo === 'igual' && (
+        <small style={{ ...chico, color: 'var(--success)' }}>
+          ✓ {fichaActual ? <>{fichaActual.nombre} <span className="mono muted">{fichaActual.sku}</span></> : item.nombre}
+        </small>
+      )}
+      {destino?.tipo === 'ficha' && (
+        <small style={{ ...chico, color: 'var(--success)' }}>
+          ✓ Entra a <strong>{destino.ficha.nombre}</strong> <span className="mono muted">{destino.ficha.sku}</span>
+          {destino.ficha.unidad && item.unidad && destino.ficha.unidad !== item.unidad ? <span className="muted"> · en {destino.ficha.unidad}</span> : null}
+        </small>
+      )}
+      {destino?.tipo === 'incompleto' && (
+        <small style={{ ...chico, color: 'var(--warning)' }}>⚠️ {destino.falta[0].toUpperCase() + destino.falta.slice(1)}.</small>
+      )}
+      {destino?.tipo === 'crear' && (
+        <>
+          <small style={chico}>＋ Ficha nueva: <strong>{destino.nombre}</strong></small>
+          <SearchSelect allowCreate value={e?.categoria ?? ''} onChange={(v) => onChange({ categoria: v.toUpperCase() })}
+            options={opcionesCategorias} placeholder="Categoría * (define el código)" emptyText="Ninguna categoría coincide" />
+          <select className="select" style={chico} value={unidad} onChange={(ev) => onChange({ unidad: ev.target.value })}>
+            {!unidad && <option value="">— unidad —</option>}
+            {unidad && !unidades.includes(unidad) && <option value={unidad}>{unidad}</option>}
+            {unidades.map((u) => <option key={u} value={u}>{u}</option>)}
+          </select>
+          {destino.falta && <small style={{ ...chico, color: 'var(--warning)' }}>⚠️ {destino.falta[0].toUpperCase() + destino.falta.slice(1)}.</small>}
+        </>
+      )}
+    </div>
+  );
+}
 
 export function AgregarOfertaModal({
   orden,
@@ -183,6 +256,48 @@ export function AgregarOfertaModal({
   // Adjuntos que YA tenía la oferta (en edición): se pueden quitar uno por uno.
   const [adjuntosExist, setAdjuntosExist] = useState(() => (isEdit && ofertaEdit ? adjuntosDeOferta(ofertaEdit) : []));
   const [submitting, setSubmitting] = useState(false);
+
+  /* «Se guarda en inventario como» (29-10-2026). Solo con el flujo de revisión de
+     almacén prendido y en compras de productos: acá Compras fija con qué ficha entra
+     cada renglón (los de nombre general de la SP todavía no tienen). Apagado, el
+     modal es el de siempre. */
+  const flujoAlmacen = useFlujoRevisionAlmacen();
+  // Un renglón general sin ficha la necesita aunque el flujo se haya apagado después.
+  const hayGenerales = items.some((i) => i.general && !i.productoId);
+  const conNombreInv = (flujoAlmacen || hayGenerales) && !esServicio;
+  const [catalogo, setCatalogo] = useState<Producto[]>([]);
+  const [categoriasInv, setCategoriasInv] = useState<string[]>([]);
+  const [unidadesInv, setUnidadesInv] = useState<string[]>([]);
+  useEffect(() => {
+    if (!conNombreInv) return;
+    let vivo = true;
+    listProductosActivos()
+      .then(async (prods) => {
+        if (!vivo) return;
+        setCatalogo(prods);
+        const [cats, unis] = await Promise.all([getCategorias(prods).catch(() => []), getUnidades(prods).catch(() => [])]);
+        if (!vivo) return;
+        setCategoriasInv(cats.filter((c) => c.trim().toUpperCase() !== 'GENERAL'));
+        setUnidadesInv(unis);
+      })
+      .catch(() => { if (vivo) setCatalogo([]); });
+    return () => { vivo = false; };
+  }, [conNombreInv]);
+  const catalogoPorId = useMemo(() => new Map(catalogo.map((p) => [p.id, p])), [catalogo]);
+  const opcionesProductosInv = useMemo(
+    () => catalogo.map((p) => ({ value: p.id, label: `${p.nombre} · ${p.sku}`, hint: p.unidad || undefined })),
+    [catalogo],
+  );
+  const opcionesCatInv = useMemo(() => opcionesCategoria(categoriasInv, catalogo), [categoriasInv, catalogo]);
+  const planInv = useMemo(
+    () => (conNombreInv ? planFichas(items.map((it) => ({ item: it, eleccion: it._inv })), catalogo) : null),
+    [conNombreInv, items, catalogo],
+  );
+  function updateInv(idx: number, patch: Partial<EleccionNombreInventario>) {
+    setItems((prev) => prev.map((it, k) => (k === idx
+      ? { ...it, _inv: { modo: 'como_viene' as ModoNombreInventario, unidad: it.unidad ?? null, ...(it._inv ?? {}), ...patch } }
+      : it)));
+  }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const nuevos = Array.from(e.target.files ?? []);
@@ -412,10 +527,15 @@ export function AgregarOfertaModal({
       toast(`${sinFactor.nombre}: indicá cuántas ${sinFactor.unidad || 'unidades'} trae cada ${normalizarUnidad(sinFactor.unidad_compra)}.`, 'error');
       return;
     }
+    // Cada renglón tiene que saber con qué ficha entra al inventario (categoría de la ficha nueva, etc.).
+    if (planInv?.error) {
+      toast(`Se guarda en inventario como · ${planInv.error}`, 'error');
+      return;
+    }
     setSubmitting(true);
     // Se quitan los campos locales (_rid/_variante) y se normaliza marca/modelo.
-    const itemsLimpios: ItemOrden[] = items.map(({ _rid, _variante, _agregado, precioStr, precioUsdStr, _usoPedido, _ucTocada, ...rest }) => {
-      void _rid; void _variante; void _agregado; void precioStr; void precioUsdStr; void _usoPedido; void _ucTocada;
+    let itemsLimpios: ItemOrden[] = items.map(({ _rid, _variante, _agregado, precioStr, precioUsdStr, _usoPedido, _ucTocada, _inv, ...rest }) => {
+      void _rid; void _variante; void _agregado; void precioStr; void precioUsdStr; void _usoPedido; void _ucTocada; void _inv;
       // Unidad de compra: solo si es OTRA medida con su factor; si es la misma
       // de uso (o vacía), se compra en la unidad de uso.
       const uc = pideFactor(rest.unidad_compra, rest.unidad) ? normalizarUnidad(rest.unidad_compra) : '';
@@ -431,6 +551,17 @@ export function AgregarOfertaModal({
       };
     });
     try {
+      // «Se guarda en inventario como»: antes de guardar, cada renglón queda ligado a su
+      // ficha (la elegida, una que ya se llama igual, o una nueva). El SKU del renglón no
+      // cambia y ninguna ficha existente se renombra.
+      if (conNombreInv) {
+        const ligado = await ligarRenglonesAInventario(itemsLimpios, items.map((i) => i._inv), catalogo, registradoPorEmail);
+        itemsLimpios = ligado.items;
+        if (ligado.creadas.length) {
+          setCatalogo((prev) => [...prev, ...ligado.creadas]);
+          notify(`${ligado.creadas.length === 1 ? 'Ficha nueva en inventario' : `${ligado.creadas.length} fichas nuevas en inventario`}: ${ligado.creadas.map((p) => `${p.nombre} (${p.sku})`).join(', ')}`, 'success', { link: '#/app/inventario' });
+        }
+      }
       // La actividad económica del proveedor es OPCIONAL (14-10-2026, por pedido de la
       // administración): si se carga, queda en la ficha del proveedor; si la ficha ya la
       // trae, viene precargada. No frena la cotización.
@@ -781,12 +912,18 @@ export function AgregarOfertaModal({
         <p className="hint muted" style={{ fontSize: '.76rem', marginTop: 0, marginBottom: '.4rem' }}>
           💡 Si el proveedor ofrece el mismo producto en <strong>varias marcas/modelos</strong>, usá <strong>＋ marca</strong> para agregar otra variante con su propio precio.
         </p>
+        {conNombreInv && (
+          <p className="hint muted" style={{ fontSize: '.76rem', marginTop: 0, marginBottom: '.4rem' }}>
+            📦 <strong>Se guarda en inventario como</strong>: el nombre con que cada renglón entra al inventario al recibirlo. Por defecto queda <strong>como viene de la SP</strong>; con <strong>Cambiar</strong> elegís un producto que ya existe o escribís otro nombre. Si el nombre no existe en el inventario se crea su ficha (indicá la categoría). Ninguna ficha existente se renombra.
+          </p>
+        )}
         <div className="table-wrap">
           <table className="items-table">
             <thead>
               <tr>
                 <th rowSpan={2}>SKU</th>
                 <th rowSpan={2}>{esServicio ? 'Servicio' : 'Producto'}</th>
+                {conNombreInv && <th rowSpan={2} title="El nombre (la ficha) con que este renglón entra al inventario al recibirlo.">Se guarda en inventario como</th>}
                 {esServicio && <th rowSpan={2}>Categoría</th>}
                 {esServicio && <th rowSpan={2}>Subcategoría</th>}
                 <th rowSpan={2}>Marca / modelo</th>
@@ -815,6 +952,19 @@ export function AgregarOfertaModal({
                   <tr key={it._rid}>
                     <td className="mono">{it._variante ? <span className="muted" title="Variante del mismo producto">↳</span> : it.sku}</td>
                     <td>{it._variante ? <span className="muted">{it.nombre}</span> : it.nombre}</td>
+                    {conNombreInv && (
+                      <td style={{ minWidth: 240 }}>
+                        <CeldaNombreInventario
+                          item={it}
+                          destino={planInv?.destinos[idx]}
+                          fichaActual={it.productoId ? catalogoPorId.get(it.productoId) : undefined}
+                          opcionesProductos={opcionesProductosInv}
+                          opcionesCategorias={opcionesCatInv}
+                          unidades={unidadesInv}
+                          onChange={(patch) => updateInv(idx, patch)}
+                        />
+                      </td>
+                    )}
                     {esServicio && (
                       <td style={{ fontSize: '.82rem' }}>{it._variante ? '' : (it.servicio_categoria?.trim() || <span className="muted">—</span>)}</td>
                     )}
@@ -881,7 +1031,7 @@ export function AgregarOfertaModal({
             </tbody>
             <tfoot>
               <tr>
-                <td colSpan={esServicio ? 7 : 6} className="num" style={{ fontWeight: 700 }}>SUBTOTAL</td>
+                <td colSpan={(esServicio ? 7 : 6) + (conNombreInv ? 1 : 0)} className="num" style={{ fontWeight: 700 }}>SUBTOTAL</td>
                 <td className="num mono" style={{ fontWeight: 700 }}>{money(bcvSubtotal)}</td>
                 <td></td>
                 <td className="num mono" style={{ fontWeight: 700 }}>{usdTotal > 0 ? money(usdTotal) : '—'}</td>

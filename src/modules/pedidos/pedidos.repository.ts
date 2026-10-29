@@ -27,6 +27,7 @@ import { getTasaHoy, tasaBcvEnFecha } from '@/modules/tesoreria/tasas.repository
 import { ubicacionAlRecibir } from '@/modules/inventario/ubicacionProducto';
 import { identidadAlRecibir } from '@/modules/inventario/identidadProducto';
 import { errorMarcasRecepcion, marcaCambio, marcaQueEntra, normMarca, textoMarcaKardex, type MarcaRecepcion } from './marcaRecibida';
+import { errorRenglonesSinFicha } from './nombreInventario';
 import { calcularDespiece, calcularReparto, esDespiezable, type CorteDespiece } from '@/modules/inventario/despieceRes';
 import { recomputeProductoAgg } from '@/modules/inventario/movimientos.repository';
 import type {
@@ -55,6 +56,7 @@ const BUCKET_OC = 'compras-oc';
  * Administración. La lista arrancó con esas mismas personas.
  */
 import { autorizadoPara } from '@/modules/usuarios/autorizados';
+import { flujoRevisionAlmacenActivo } from './revisionAlmacen.repository';
 
 async function assertAdmin(accion: string): Promise<void> {
   const { data: auth } = await supabase.auth.getUser();
@@ -223,7 +225,9 @@ export async function sincronizarNombreProductos(
     const nombre = (c.nombre ?? '').trim();
     if (!nombre) continue;
     let id = c.productoId ?? null;
-    if (!id && c.sku) {
+    // Un renglón de NOMBRE GENERAL (GEN-…) no tiene ficha: nunca se busca por SKU,
+    // no vaya a renombrar un producto ajeno que comparta ese código.
+    if (!id && c.sku && !/^GEN-/i.test(c.sku)) {
       const { data } = await supabase.from('productos').select('id').eq('sku', c.sku).maybeSingle();
       id = (data?.id as string) ?? null;
     }
@@ -279,7 +283,9 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     ci_solicitante: input.ci_solicitante,
     items: input.items,
     total,
-    estado: 'pendiente' as EstadoOrden,
+    // Flujo nuevo (29-10-2026, apagado hasta que se active): la SP de productos pasa
+    // primero por Almacén, que revisa qué tiene; lo que falta llega luego a Compras.
+    estado: (!esServicio && await flujoRevisionAlmacenActivo() ? 'revision_almacen' : 'pendiente') as EstadoOrden,
     notas: input.notas ?? null,
     motivo: input.motivo?.trim() || null,
     finalidad: input.finalidad?.trim() || null,
@@ -438,7 +444,7 @@ export interface EditarOrdenInput {
  * vía (se usa «Editar OC»).
  */
 export async function actualizarOrden(o: Orden, input: EditarOrdenInput, actorEmail: string): Promise<Orden> {
-  if (!['pendiente', 'aprobada'].includes(o.estado))
+  if (!['pendiente', 'aprobada', 'revision_almacen'].includes(o.estado))
     throw new Error('Solo se edita la OP antes de crear su OC (pendiente o aprobada).');
   if (o.oc_codigo) throw new Error('Esta OP ya tiene una OC: editá la OC, no la OP.');
   if (!input.items.length) throw new Error('La orden debe tener al menos un producto.');
@@ -2262,6 +2268,14 @@ export async function recibirOrdenParcial(
   const marcaMap = new Map(recepciones.map((r) => [r.sku, r]));
   const errMarca = errorMarcasRecepcion(o.items, recepciones);
   if (errMarca) throw new Error(errMarca);
+  // Ningún renglón recibido entra sin ficha de inventario (29-10-2026). Abajo el alta de
+  // stock se salta los renglones sin `productoId`: con los nombres GENERALES de la SP
+  // (flujo de revisión de almacén) la mercancía se daba por recibida y nunca entraba.
+  // Solo cuando la recepción mueve inventario (servicios y «sin inventario» no).
+  if (tocaInventario) {
+    const errFicha = errorRenglonesSinFicha(o.items, recMap);
+    if (errFicha) throw new Error(errFicha);
+  }
 
   // Orden en Bs: el inventario está en $, así que el precio de cada ítem se convierte con
   // la tasa BCV (la de la fecha de la orden; si no hay, la de hoy). Sin tasa no se recibe:
@@ -2901,7 +2915,7 @@ export async function cancelarOrden(
   actorEmail: string,
   motivo: string
 ): Promise<Orden> {
-  if (!['pendiente', 'aprobada'].includes(o.estado))
+  if (!['pendiente', 'aprobada', 'revision_almacen'].includes(o.estado))
     throw new Error('Solo se cancelan órdenes pendientes o aprobadas');
   if (!motivo.trim()) throw new Error('Debes indicar un motivo');
   const patch = {

@@ -1,7 +1,7 @@
 import { cantidadEnUso, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
 import { errorMarcasRecepcion, marcaCambio, textoMarcaRecepcion } from './marcaRecibida';
 import type { RecepcionRenglon } from './pedidos.repository';
-import { memo, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -134,6 +134,8 @@ import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
 import { quienCargo, quienSolicita } from './quienSolicita';
 import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
+import { useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
+import { fmtCant, mensajeRevisionAlmacen, mensajeSolicitudPedido } from './revisionAlmacen';
 
 /* ============================================================
    MGG · Pedidos / Órdenes · Página principal
@@ -155,7 +157,32 @@ const KANBAN_COLS_PEDIDOS: { key: EstadoOrden; label: string }[] = [
   { key: 'cancelada', label: 'Cancelada' },
 ];
 
-const KANBAN_COLS_OC: { key: EstadoOrden; label: string }[] = [
+/* Revisión de ALMACÉN (29-10-2026, apagada hasta que la administradora la prenda):
+   la SP nace «En revisión de almacén» y, si almacén lo tiene todo, queda «Atendida
+   por almacén». Las columnas solo aparecen con el flujo prendido o si alguna orden
+   cargada ya está en esos estados; apagado, el tablero es el de siempre. */
+const ESTADOS_ALMACEN: Partial<Record<EstadoOrden, { label: string; className: string; accent: string }>> = {
+  revision_almacen: { label: 'En revisión de almacén', className: 'info', accent: 'var(--info)' },
+  atendida_almacen: { label: 'Atendida por almacén', className: 'success', accent: 'var(--success)' },
+};
+const KANBAN_COLS_PEDIDOS_ALMACEN: { key: EstadoOrden; label: string }[] = [
+  { key: 'revision_almacen', label: 'En revisión de almacén' },
+  { key: 'pendiente', label: 'Pendiente' },
+  { key: 'aprobada', label: 'Aprobada' },
+  { key: 'recibida', label: 'Recibida' },
+  { key: 'finalizada', label: 'Finalizada' },
+  { key: 'atendida_almacen', label: 'Atendida por almacén' },
+  { key: 'cancelada', label: 'Cancelada' },
+];
+
+/** El badge de estado de siempre, más los dos estados de la revisión de almacén. */
+function EstadoBadge({ estado }: { estado: string | null | undefined }) {
+  const extra = estado ? ESTADOS_ALMACEN[estado as EstadoOrden] : undefined;
+  if (extra) return <span className={`badge ${extra.className}`}>{extra.label}</span>;
+  return <StatusBadge estado={estado} />;
+}
+
+const KANBAN_COLS_OC:{ key: EstadoOrden; label: string }[] = [
   { key: 'aprobada', label: 'Pendiente (cargar ofertas)' },              // OP aprobada → cargar cotizaciones
   { key: 'oc_creada', label: 'Ordenes pendiente por aprobar' }, // oferta elegida → espera aprobación
   { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },        // a crédito → abonos hasta saldar
@@ -215,6 +242,7 @@ function eventLabel(ev: string): string {
       pagada: 'Pago registrado (Tesorería)',
       recibida: 'Recepción confirmada',
       finalizada: 'Pedido finalizado',
+      revisada_almacen: 'Revisada por almacén',
     } as Record<string, string>
   )[ev] ?? ev;
 }
@@ -245,6 +273,7 @@ function eventClass(ev: string): string {
       pagada: 'ok',
       recibida: 'ok',
       finalizada: 'ok',
+      revisada_almacen: 'info',
     } as Record<string, string>
   )[ev] ?? '';
 }
@@ -432,6 +461,8 @@ export function PedidosPage() {
   // Aprobar órdenes de compra» (Usuarios > Roles y Permisos, 28-10-2026). Cada uno firma
   // con su firma cargada en el PDF.
   const { aprobarOc: puedeAprobarOc } = useAutorizacionAprobar(usuario?.email ?? user?.email, usuario?.role ?? (isAdmin ? 'admin' : undefined));
+  // Flujo SP → Almacén → Compras (29-10-2026). Apagado: todo como siempre.
+  const flujoAlmacen = useFlujoRevisionAlmacen();
 
   // Si el obrero quedara con scope 'oc' (estado viejo), lo forzamos a 'pedidos'.
   useEffect(() => {
@@ -505,7 +536,12 @@ export function PedidosPage() {
     }
   }
 
-  const kanbanColsTodas = scope === 'oc' ? KANBAN_COLS_OC : scope === 'servicio' ? KANBAN_COLS_SERVICIO : KANBAN_COLS_PEDIDOS;
+  // Revisión de almacén: sus columnas aparecen con el flujo prendido o si alguna SP ya
+  // está en esos estados (para que nunca quede una orden fuera del tablero).
+  const conColumnasAlmacen = flujoAlmacen
+    || ordenesDePestana.some((o) => o.estado === 'revision_almacen' || o.estado === 'atendida_almacen');
+  const kanbanColsTodas = scope === 'oc' ? KANBAN_COLS_OC : scope === 'servicio' ? KANBAN_COLS_SERVICIO
+    : conColumnasAlmacen ? KANBAN_COLS_PEDIDOS_ALMACEN : KANBAN_COLS_PEDIDOS;
   // Con un estado elegido, el tablero muestra solo esa columna (si el estado no es una
   // columna de esta pestaña, se muestran todas y el filtro de órdenes igual aplica).
   const kanbanCols = filterEstado && kanbanColsTodas.some((c) => c.key === filterEstado)
@@ -739,6 +775,7 @@ export function PedidosPage() {
           title="Filtra por estado en Kanban (deja solo esa columna) y en Lista"
         >
           <option value="">Todos los estados</option>
+          {conColumnasAlmacen && <option value="revision_almacen">En revisión de almacén</option>}
           <option value="pendiente">Pendientes</option>
           <option value="aprobada">Aprobadas (OP)</option>
           <option value="oc_creada">OC creada</option>
@@ -747,6 +784,7 @@ export function PedidosPage() {
           <option value="desistida_proveedor">Proveedor desistió</option>
           <option value="recibida">Recibidas</option>
           <option value="finalizada">Finalizadas</option>
+          {conColumnasAlmacen && <option value="atendida_almacen">Atendidas por almacén</option>}
           <option value="cancelada">Canceladas</option>
         </select>
         {/* Realizada por (16-10-2026): el analista que creó la OC; en Kanban y en Lista. */}
@@ -2321,7 +2359,7 @@ function OrdenesTable({ ordenes, proveedorMap, personaMap, canManageProcurement,
                 </td>
                 <td className="mono" style={{ textAlign: 'right' }}>{o.items.length}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money(o.total, o.moneda)}</td>
-                <td><StatusBadge estado={o.estado} /></td>
+                <td><EstadoBadge estado={o.estado} /></td>
                 <td className="muted" style={{ fontSize: '.82rem' }}>{dateTime(o.created_at)}</td>
                 <td className="actions" onClick={(e) => e.stopPropagation()}>
                   <button className="btn btn-sm btn-ghost" onClick={() => onView(o.id)}>Ver</button>
@@ -2373,7 +2411,8 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, maxPorColu
         const visibles = limitada ? items.slice(0, maxPorColumna) : items;
         const ocultas = items.length - visibles.length;
         return (
-          <div className="kanban-col" data-state={col.key} key={col.key}>
+          <div className="kanban-col" data-state={col.key} key={col.key}
+            style={ESTADOS_ALMACEN[col.key] ? ({ '--col-accent': ESTADOS_ALMACEN[col.key]!.accent } as CSSProperties) : undefined}>
             <div className="kanban-col-head">
               <span className="title">{col.label}</span>
               <span className="count">{items.length}</span>
@@ -2461,6 +2500,11 @@ const KanbanCard = memo(function KanbanCard({
         {changes > 0 && (
           <span className="badge warning" style={{ fontSize: '.65rem', padding: '.05rem .35rem' }}>
             ↻ {changes}
+          </span>
+        )}
+        {orden.revisada_almacen_en && (
+          <span className="badge info" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }} title={`Revisada por almacén · ${dateTime(orden.revisada_almacen_en)}`}>
+            📦 Revisada por almacén
           </span>
         )}
       </div>
@@ -2633,7 +2677,11 @@ function OrdenDetailModal({
   const canApprove = canManageProcurement && isPendiente;  // Aprobar Orden de Pedido
   // Editar la OP mientras NO tenga OC creada (pendiente o aprobada): quien gestiona
   // compras o el propio solicitante que la creó. Con OC ya creada se usa «Editar OC».
-  const canEditar = (isPendiente || o.estado === 'aprobada') && !o.oc_codigo
+  // Revisión de almacén (29-10-2026): mientras almacén la revisa, Compras NO la aprueba
+  // (canApprove sigue pidiendo 'pendiente'), pero quien la pidió o Compras sí la editan o cancelan.
+  const enRevisionAlmacen = o.estado === 'revision_almacen';
+  const flujoAlmacen = useFlujoRevisionAlmacen();
+  const canEditar = (isPendiente || o.estado === 'aprobada' || enRevisionAlmacen) && !o.oc_codigo
     && (canManageProcurement || o.solicitante_email === actorEmail);
   // Editar las CANTIDADES (inline) mientras la OC todavía no fue aprobada por el
   // Gerente: en la OP (pendiente/aprobada) y también en la OC recién creada sin
@@ -2653,7 +2701,12 @@ function OrdenDetailModal({
   const contraEntregaPorPagar = isRecibida && esContraEntrega && !(o.metodo_pago && o.metodo_pago.length);
   // Contra entrega: ya pagó (tras recibir) → se puede finalizar.
   const contraEntregaFinalizar = isPagada && esContraEntrega && !!o.recibida_en;
-  const canCancel = ['pendiente', 'aprobada'].includes(o.estado);
+  const canCancel = ['pendiente', 'aprobada', 'revision_almacen'].includes(o.estado);
+  // ¿Almacén ya cerró la revisión? Los renglones traen lo pedido (cantidad_solicitada), lo
+  // que almacén tenía (cantidad_almacen) y en `cantidad` queda lo que falta comprar. Mientras
+  // la revisión sigue en curso solo hay marcas parciales: la tabla se muestra como siempre.
+  const revisadaAlmacen = !esServicioDet && !enRevisionAlmacen
+    && (!!o.revisada_almacen_en || (o.items ?? []).some((it) => it.cantidad_solicitada != null));
 
   const puedeTrazabilidad = ['recibida', 'finalizada', 'pagada'].includes(o.estado);
   const isFinalizada = o.estado === 'finalizada';
@@ -2851,6 +2904,29 @@ function OrdenDetailModal({
       {isPendiente && (
         <button className="btn btn-ghost" onClick={handleDownloadPdf} title="Descargar la Orden de Pedido en PDF">
           ↓ PDF de la OP
+        </button>
+      )}
+      {/* Revisión de almacén (29-10-2026): los mensajes salen SOLO con estos botones. */}
+      {flujoAlmacen && !esServicioDet && (
+        <button type="button" className="btn btn-ghost"
+          title="Ver el mensaje de la Solicitud de Pedido (productos y cantidades) para copiarlo o mandarlo por WhatsApp"
+          onClick={() => setMensajeWs({
+            titulo: `Solicitud de Pedido · ${o.codigo}`,
+            texto: mensajeSolicitudPedido(o, { unidad: o.solicitante, persona: quienSolicita(o) }),
+          })}>
+          💬 WhatsApp de la SP
+        </button>
+      )}
+      {revisadaAlmacen && (
+        <button type="button" className="btn btn-ghost"
+          title="Ver el mensaje de almacén (qué tiene y qué va a solicitar a Compras) para copiarlo o mandarlo por WhatsApp"
+          onClick={() => setMensajeWs({
+            titulo: `Revisión de almacén · ${o.codigo}`,
+            texto: mensajeRevisionAlmacen(o, {
+              revisor: o.revisada_almacen_por ? persona(o.revisada_almacen_por, personaMap, o.revisada_almacen_en) : null,
+            }),
+          })}>
+          💬 Mensaje de almacén
         </button>
       )}
       {puedeTrazabilidad && (
@@ -3060,6 +3136,29 @@ function OrdenDetailModal({
           🚨 ORDEN URGENTE — solicitud marcada como prioritaria.
         </div>
       )}
+      {/* Revisión de almacén (29-10-2026). */}
+      {enRevisionAlmacen && (
+        <div className="card" style={{ borderColor: 'var(--info)', background: 'var(--bg-1)', margin: '0 0 .75rem', padding: '.5rem .8rem', fontWeight: 600 }}>
+          ⏳ En revisión de almacén: Compras la recibe cuando almacén la marque revisada.
+        </div>
+      )}
+      {revisadaAlmacen && (
+        <div className="card" style={{ borderColor: o.estado === 'atendida_almacen' ? 'var(--success)' : 'var(--info)', background: 'var(--bg-1)', margin: '0 0 .75rem', padding: '.5rem .8rem' }}>
+          <div style={{ fontWeight: 600 }}>
+            📦 Revisada por almacén
+            {o.revisada_almacen_por && <> · {persona(o.revisada_almacen_por, personaMap, o.revisada_almacen_en)}</>}
+            {o.revisada_almacen_en && <span className="muted" style={{ fontWeight: 400 }}> · {dateTime(o.revisada_almacen_en)}</span>}
+          </div>
+          <div className="muted" style={{ fontSize: '.8rem' }}>
+            {o.estado === 'atendida_almacen'
+              ? 'Almacén tiene todo lo solicitado: no pasa a Compras.'
+              : 'A Compras llega solo lo que falta (columna «A comprar»).'}
+          </div>
+          {o.nota_almacen?.trim() && (
+            <div style={{ fontSize: '.84rem', marginTop: '.25rem', whiteSpace: 'pre-wrap' }}>📝 {o.nota_almacen}</div>
+          )}
+        </div>
+      )}
       {(() => {
         // Galería: las imágenes nuevas (jsonb `imagenes`) o, si no hay, la legada `imagen_path`.
         const imgs = (o.imagenes?.length ? o.imagenes : (o.imagen_path ? [{ path: o.imagen_path, filename: 'imagen' }] : []));
@@ -3085,7 +3184,7 @@ function OrdenDetailModal({
       <div className="detail-row">
         <div className="k">Estado</div>
         <div className="v">
-          <StatusBadge estado={o.estado} />
+          <EstadoBadge estado={o.estado} />
           {isCuentaAbierta && o.recibida_en && (
             <span className="badge warning" style={{ marginLeft: '.4rem' }}>📦 Recibido · pendiente por pagar</span>
           )}
@@ -3363,7 +3462,7 @@ function OrdenDetailModal({
                     <td>{h.proveedor_id ? (proveedorMap.get(h.proveedor_id)?.razon_social ?? '—') : '—'}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{(h.items ?? []).length}</td>
                     <td className="mono" style={{ textAlign: 'right' }}>{money(h.total)}</td>
-                    <td><StatusBadge estado={h.estado} /></td>
+                    <td><EstadoBadge estado={h.estado} /></td>
                   </tr>
                 ))}
               </tbody>
@@ -3452,7 +3551,12 @@ function OrdenDetailModal({
         const conPrecio = Number(o.total) > 0;
         // En etapa OP (sin precio) quien gestiona compras puede marcar/desmarcar
         // qué ítems se aprueban para comprar.
-        const puedeEditarComprar = !conPrecio && canManageProcurement;
+        // Mientras almacén la revisa (o si almacén la atendió completa) no se tocan los «a comprar».
+        const puedeEditarComprar = !conPrecio && canManageProcurement
+          && o.estado !== 'revision_almacen' && o.estado !== 'atendida_almacen';
+        // Revisada por almacén: dos columnas más (Solicitado · Almacén tiene) y «Cantidad» pasa a «A comprar».
+        const colsAlmacen = revisadaAlmacen ? 2 : 0;
+        const unidadDe = (u?: string | null) => (u ? ` ${u}` : '');
         return (
       <div className="table-wrap">
       <table className="items-table">
@@ -3462,7 +3566,13 @@ function OrdenDetailModal({
             <th>Producto</th>
             <th>Categoría</th>
             <th>Subcategoría</th>
-            <th className="num">Cantidad</th>
+            {revisadaAlmacen && (
+              <>
+                <th className="num">Solicitado</th>
+                <th className="num">Almacén tiene</th>
+              </>
+            )}
+            <th className="num">{revisadaAlmacen ? 'A comprar' : 'Cantidad'}</th>
             {conPrecio ? (
               <>
                 <th className="num">Precio</th>
@@ -3482,6 +3592,12 @@ function OrdenDetailModal({
               <td className="mono">{it.sku}</td>
               <td style={marcado ? { textDecoration: 'line-through' } : undefined}>
                 {it.nombre}
+                {it.general && (
+                  <span className="badge warning" style={{ marginLeft: '.35rem', fontSize: '.62rem', padding: '.05rem .35rem' }}
+                    title="Nombre general: no es un producto del inventario. Compras fija el nombre de inventario al cotizar.">
+                    nombre general
+                  </span>
+                )}
                 {it.equipo_nombre && (
                   <div className="muted" style={{ fontSize: '.74rem', color: 'var(--primary, #3b82f6)', fontWeight: 600 }}>
                     🚜 {it.equipo_nombre}
@@ -3499,6 +3615,16 @@ function OrdenDetailModal({
               </td>
               <td style={{ fontSize: '.84rem' }}>{it.servicio_categoria?.trim() ? it.servicio_categoria : <span className="muted">—</span>}</td>
               <td style={{ fontSize: '.84rem' }}>{it.servicio_tipo?.trim() ? it.servicio_tipo : <span className="muted">—</span>}</td>
+              {revisadaAlmacen && (
+                <>
+                  <td className="num">
+                    {it.cantidad_solicitada != null ? `${fmtCant(Number(it.cantidad_solicitada))}${unidadDe(it.unidad)}` : <span className="muted">—</span>}
+                  </td>
+                  <td className="num" style={(Number(it.cantidad_almacen) || 0) > 0 ? { color: 'var(--success)', fontWeight: 600 } : undefined}>
+                    {it.cantidad_almacen != null ? `${fmtCant(Number(it.cantidad_almacen))}${unidadDe(it.unidad)}` : <span className="muted">—</span>}
+                  </td>
+                </>
+              )}
               <td className="num">
                 {editandoCant ? (
                   <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25rem', justifyContent: 'flex-end' }}>
@@ -3584,36 +3710,36 @@ function OrdenDetailModal({
           <tfoot>
             {detalle && (
               <>
-                <tr><td colSpan={6} className="num">Base{d.ivaIncluido && d.iva > 0 ? ' (precios con IVA)' : ''}</td><td className="num">{money(d.base, o.moneda)}</td><td></td></tr>
+                <tr><td colSpan={6 + colsAlmacen} className="num">Base{d.ivaIncluido && d.iva > 0 ? ' (precios con IVA)' : ''}</td><td className="num">{money(d.base, o.moneda)}</td><td></td></tr>
                 {d.descuento > 0 && (
-                  <tr><td colSpan={6} className="num" style={{ color: 'var(--success)' }}>Descuento obtenido</td><td className="num" style={{ color: 'var(--success)' }}>− {money(d.descuento, o.moneda)}</td><td></td></tr>
+                  <tr><td colSpan={6 + colsAlmacen} className="num" style={{ color: 'var(--success)' }}>Descuento obtenido</td><td className="num" style={{ color: 'var(--success)' }}>− {money(d.descuento, o.moneda)}</td><td></td></tr>
                 )}
                 {d.iva > 0 && !d.ivaIncluido && (
-                  <tr><td colSpan={6} className="num">IVA</td><td className="num">+ {money(d.iva, o.moneda)}</td><td></td></tr>
+                  <tr><td colSpan={6 + colsAlmacen} className="num">IVA</td><td className="num">+ {money(d.iva, o.moneda)}</td><td></td></tr>
                 )}
                 {d.igtf > 0 && (
-                  <tr><td colSpan={6} className="num">IGTF</td><td className="num">+ {money(d.igtf, o.moneda)}</td><td></td></tr>
+                  <tr><td colSpan={6 + colsAlmacen} className="num">IGTF</td><td className="num">+ {money(d.igtf, o.moneda)}</td><td></td></tr>
                 )}
                 {d.ajuste !== 0 && (
-                  <tr><td colSpan={6} className="num">{etiquetaAjuste(o.ajuste_motivo)}</td><td className="num">{d.ajuste > 0 ? '+' : '−'} {money(Math.abs(d.ajuste), o.moneda)}</td><td></td></tr>
+                  <tr><td colSpan={6 + colsAlmacen} className="num">{etiquetaAjuste(o.ajuste_motivo)}</td><td className="num">{d.ajuste > 0 ? '+' : '−'} {money(Math.abs(d.ajuste), o.moneda)}</td><td></td></tr>
                 )}
               </>
             )}
             <tr>
-              <td colSpan={6} className="num">TOTAL</td>
+              <td colSpan={6 + colsAlmacen} className="num">TOTAL</td>
               <td className="num" style={!d.cuadra ? { color: 'var(--warning)' } : undefined}>{money(o.total, o.moneda)}</td>
               <td></td>
             </tr>
             {d.ivaIncluido && d.iva > 0 && (
               /* Como lo imprime la factura de punto de venta: base sin IVA e IVA, ya adentro del total. */
               <>
-                <tr className="muted"><td colSpan={6} className="num" style={{ fontSize: '.8rem' }}>Base sin IVA (informativo)</td><td className="num" style={{ fontSize: '.8rem' }}>{money(Math.round(((Number(o.total) || 0) - d.iva - d.igtf) * 100) / 100, o.moneda)}</td><td></td></tr>
-                <tr className="muted"><td colSpan={6} className="num" style={{ fontSize: '.8rem' }}>{etiquetaIva(true)} · ya sumado</td><td className="num" style={{ fontSize: '.8rem' }}>{money(d.iva, o.moneda)}</td><td></td></tr>
+                <tr className="muted"><td colSpan={6 + colsAlmacen} className="num" style={{ fontSize: '.8rem' }}>Base sin IVA (informativo)</td><td className="num" style={{ fontSize: '.8rem' }}>{money(Math.round(((Number(o.total) || 0) - d.iva - d.igtf) * 100) / 100, o.moneda)}</td><td></td></tr>
+                <tr className="muted"><td colSpan={6 + colsAlmacen} className="num" style={{ fontSize: '.8rem' }}>{etiquetaIva(true)} · ya sumado</td><td className="num" style={{ fontSize: '.8rem' }}>{money(d.iva, o.moneda)}</td><td></td></tr>
               </>
             )}
             {!d.cuadra && (
               <tr>
-                <td colSpan={8} style={{ color: 'var(--warning)', fontSize: '.8rem', whiteSpace: 'normal' }}>
+                <td colSpan={8 + colsAlmacen} style={{ color: 'var(--warning)', fontSize: '.8rem', whiteSpace: 'normal' }}>
                   ⚠ {avisoDeCuadre(o)}
                 </td>
               </tr>
@@ -3912,7 +4038,9 @@ function Timeline({
         const reg = h as unknown as Record<string, unknown>;
         const buscarProv = (id: string) => proveedorMap.get(id) ?? null;
         const cambio = h.evento === 'oc_reabierta' && reg.cambio_proveedor ? lineaReaperturaOc(reg, buscarProv) : lineaCambioProveedor(reg, buscarProv);
-        const extra = cambio || (h.motivo ? ` · ${h.motivo}` : '');
+        // La revisión de almacén deja su resultado en `detalle` («Pasa a Compras con lo que falta»…).
+        const detalleAlmacen = h.evento === 'revisada_almacen' && typeof reg.detalle === 'string' && reg.detalle.trim() ? ` · ${reg.detalle}` : '';
+        const extra = cambio || (h.motivo ? ` · ${h.motivo}` : '') || detalleAlmacen;
         const anulada = reg.confirmada_por ? String(reg.confirmada_por) : null;
         return (
           <div className="tl-item" key={`${h.at}-${i}`}>
@@ -4057,8 +4185,9 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
       }
       // Sincroniza con inventario los nombres que cambiaron respecto al original.
       const orig = new Map(orden.items.map((i) => [i.sku, i.nombre]));
+      // Los renglones con NOMBRE GENERAL (revisión de almacén) no son productos del inventario: no se sincronizan.
       const cambios = items
-        .filter((i) => (i.nombre ?? '').trim() && i.nombre !== orig.get(i.sku))
+        .filter((i) => !i.general && (i.nombre ?? '').trim() && i.nombre !== orig.get(i.sku))
         .map((i) => ({ productoId: i.productoId, sku: i.sku, nombre: i.nombre }));
       if (cambios.length) await sincronizarNombreProductos(cambios).catch(() => { /* no bloquear el guardado */ });
       toast(`OC actualizada${cambios.length ? ` · ${cambios.length} nombre(s) sincronizado(s) con inventario` : ''}`, 'success');
@@ -4886,6 +5015,10 @@ function CrearOrdenModal({
   const [categoriasInv, setCategoriasInv] = useState<string[]>([]);
   const opcionesCat = useMemo(() => opcionesCategoria(categoriasInv, productos), [categoriasInv, productos]);
   const [creandoNuevo, setCreandoNuevo] = useState(false);
+  // Revisión de almacén (29-10-2026): con el flujo prendido, lo que no está en el inventario
+  // se pide con un NOMBRE GENERAL (no se crea ficha); Compras fija el nombre de inventario al cotizar.
+  const flujoAlmacen = useFlujoRevisionAlmacen();
+  const [generalCant, setGeneralCant] = useState('1');
 
   // Lista de medidas (unidades) y de CATEGORÍAS del inventario para el "Producto nuevo".
   // Las categorías se comparten con el inventario (misma taxonomía): al crear una nueva
@@ -4911,6 +5044,32 @@ function CrearOrdenModal({
       : [...prev, { productoId: p.id, sku: p.sku, nombre: p.nombre, cantidad: 1, precio: 0, unidad: p.unidad, comprar: true }]);
     toast(`"${p.nombre}" (${p.sku}) agregado a la solicitud`, 'success');
     setNuevoNombre('');
+    setNuevoOpen(false);
+  }
+
+  /** Flujo de almacén: agrega un renglón con NOMBRE GENERAL, sin crear producto en inventario. */
+  function agregarNombreGeneral() {
+    const nombre = nuevoNombre.toUpperCase().trim();
+    if (!nombre) { toast('Escribí el nombre general de lo que se pide', 'error'); return; }
+    const cantidad = Number(generalCant.replace(',', '.'));
+    if (!Number.isFinite(cantidad) || cantidad <= 0) { toast('Indicá una cantidad mayor que 0', 'error'); return; }
+    if (items.some((i) => (i.nombre ?? '').trim().toUpperCase() === nombre)) {
+      toast(`"${nombre}" ya está en la solicitud: cambiá su cantidad en la lista.`, 'warning');
+      return;
+    }
+    const unidad = nuevoUnidad.trim() || 'UNIDAD';
+    setItems((prev) => [...prev, {
+      sku: `GEN-${Date.now().toString(36).toUpperCase()}-${prev.length}`,
+      nombre,
+      cantidad,
+      precio: 0,
+      unidad,
+      comprar: true,
+      general: true,
+    }]);
+    toast(`"${nombre}" agregado con nombre general · ${fmtCant(cantidad)} ${unidad}`, 'success');
+    setNuevoNombre('');
+    setGeneralCant('1');
     setNuevoOpen(false);
   }
 
@@ -5069,8 +5228,9 @@ function CrearOrdenModal({
         }, email);
         // Sincroniza con inventario los nombres editados.
         const orig = new Map((orden!.items ?? []).map((i) => [i.sku, i.nombre]));
+        // Los de NOMBRE GENERAL no tienen ficha en el inventario: no se sincronizan.
         const cambios = itemsValor
-          .filter((i) => (i.nombre ?? '').trim() && i.nombre !== orig.get(i.sku))
+          .filter((i) => !i.general && (i.nombre ?? '').trim() && i.nombre !== orig.get(i.sku))
           .map((i) => ({ productoId: i.productoId, sku: i.sku, nombre: i.nombre }));
         if (cambios.length) await sincronizarNombreProductos(cambios).catch(() => { /* no bloquear */ });
         if (imagenes.length || imagenesQuitar.length) {
@@ -5102,7 +5262,13 @@ function CrearOrdenModal({
         try { await guardarImagenesOrden(saved.id, imagenes); }
         catch (e) { toast(`Orden creada, pero no se pudieron subir las imágenes: ${e instanceof Error ? e.message : ''}`, 'warning'); }
       }
-      notify(`Nueva orden de pedido ${saved.codigo}${urgente ? ' · URGENTE' : ''} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
+      // Con el flujo de almacén prendido la SP nace «En revisión de almacén» (lo decide la base
+      // al crear): se avisa eso, no que fue a aprobación. Apagado, el aviso de siempre.
+      if (saved.estado === 'revision_almacen') {
+        notify(`${saved.codigo}${urgente ? ' · URGENTE' : ''} enviada a Almacén para revisión`, 'success', { link: '#/app/pedidos' });
+      } else {
+        notify(`Nueva orden de pedido ${saved.codigo}${urgente ? ' · URGENTE' : ''} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
+      }
       onCreated();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Error al crear', 'error');
@@ -5219,8 +5385,17 @@ function CrearOrdenModal({
               <div>
                 <input className="input" style={{ fontSize: '.9rem' }} value={it.nombre}
                   onChange={(e) => updateItem(idx, { nombre: e.target.value.toUpperCase() })}
-                  title="Editar nombre (se sincroniza con el inventario al guardar)" />
-                <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
+                  title={it.general
+                    ? 'Nombre general (Compras fija el nombre de inventario al cotizar)'
+                    : 'Editar nombre (se sincroniza con el inventario al guardar)'} />
+                {it.general ? (
+                  <div className="muted" style={{ fontSize: '.72rem' }}>
+                    <span className="badge warning" style={{ fontSize: '.6rem', padding: '.02rem .3rem' }}>nombre general</span>{' '}
+                    Compras fija el nombre de inventario al cotizar
+                  </div>
+                ) : (
+                  <div className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}</div>
+                )}
               </div>
               {/* Cantidad + unidad de medida del producto (KG, L, und…). */}
               <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
@@ -5285,16 +5460,18 @@ function CrearOrdenModal({
 
         <div style={{ marginTop: '.5rem' }}>
           <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNuevoOpen((v) => !v)}>
-            {nuevoOpen ? '× Cerrar' : '+ Producto nuevo (no existe en inventario)'}
+            {nuevoOpen ? '× Cerrar' : flujoAlmacen ? '+ No está en inventario (pedir con nombre general)' : '+ Producto nuevo (no existe en inventario)'}
           </button>
           {nuevoOpen && (
             <div className="card" style={{ padding: '.65rem', marginTop: '.4rem', display: 'grid', gap: '.5rem' }}>
               <div className="muted" style={{ fontSize: '.78rem' }}>
-                Datos mínimos. Se crea en inventario y lo completás luego (stock, precio…).
+                {flujoAlmacen
+                  ? <>Nombre general (Compras fija el nombre de inventario al cotizar). <strong>No se crea</strong> ningún producto en el inventario.</>
+                  : 'Datos mínimos. Se crea en inventario y lo completás luego (stock, precio…).'}
               </div>
               <input
                 className="input"
-                placeholder="Nombre del producto *"
+                placeholder={flujoAlmacen ? 'Nombre general de lo que se pide *' : 'Nombre del producto *'}
                 value={nuevoNombre}
                 onChange={(e) => setNuevoNombre(e.target.value.toUpperCase())}
               />
@@ -5304,12 +5481,20 @@ function CrearOrdenModal({
                   <div style={{ fontSize: '.86rem', fontWeight: 600, marginBottom: '.15rem' }}>
                     ⚠️ {nuevoSimilares.length === 1 ? 'Ya existe un producto parecido' : `Ya existen ${nuevoSimilares.length} productos parecidos`}
                   </div>
+                  {flujoAlmacen ? (
+                    <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.45rem' }}>
+                      Fijate si es alguno de estos: si es el mismo, usá <strong>«Usar este»</strong> y va
+                      directo a la solicitud con su ficha del inventario (almacén lo revisa por su stock).
+                      Si es otro material, seguí con el nombre general.
+                    </div>
+                  ) : (
                   <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.45rem' }}>
                     Antes de crear uno nuevo, fijate si es alguno de estos. Dos fichas del mismo material
                     parten el kardex y el costo promedio, y después nadie sabe cuál es el bueno. Si es el
                     mismo, usá <strong>«Usar este»</strong> y va directo a la solicitud. Si de verdad es otro
                     material, tocá <strong>«Crear»</strong> otra vez y sigue.
                   </div>
+                  )}
                   <div className="table-wrap">
                     <table className="table" style={{ fontSize: '.8rem' }}>
                       <thead><tr><th>SKU</th><th>Producto</th><th>Almacén</th><th /></tr></thead>
@@ -5354,6 +5539,26 @@ function CrearOrdenModal({
                 </div>
               )}
 
+              {flujoAlmacen ? (
+                <>
+                  <div className="form-grid">
+                    <input className="input mono" type="number" min={0} step="any" value={generalCant}
+                      onChange={(e) => setGeneralCant(e.target.value)} placeholder="Cantidad *" aria-label="Cantidad"
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); agregarNombreGeneral(); } }} />
+                    <select className="select" value={nuevoUnidad} onChange={(e) => setNuevoUnidad(e.target.value)} aria-label="Unidad">
+                      {!medidas.includes(nuevoUnidad) && nuevoUnidad && <option value={nuevoUnidad}>{nuevoUnidad}</option>}
+                      {medidas.map((u) => <option key={u} value={u}>{u}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <button type="button" className="btn btn-sm btn-primary" onClick={agregarNombreGeneral}
+                      disabled={!nuevoNombre.trim()}>
+                      Añadir a la solicitud con nombre general
+                    </button>
+                  </div>
+                </>
+              ) : (
+              <>
               <div className="form-grid">
                 <div>
                   <SearchSelect allowCreate options={opcionesCat} value={nuevoCategoria}
@@ -5380,6 +5585,8 @@ function CrearOrdenModal({
                       : 'Crear y añadir a la solicitud'}
                 </button>
               </div>
+              </>
+              )}
             </div>
           )}
         </div>
@@ -5764,7 +5971,7 @@ function HistoricoPreciosModal({ sku, nombre, onClose }: HistoricoPreciosModalPr
                   <td className="muted" style={{ fontSize: '.82rem' }}>{dateTime(r.fecha)}</td>
                   <td className="mono">{r.codigo_orden}</td>
                   <td>{r.proveedor_nombre}</td>
-                  <td><StatusBadge estado={r.estado_orden} /></td>
+                  <td><EstadoBadge estado={r.estado_orden} /></td>
                   <td className="num">{num(r.cantidad)}</td>
                   <td className="num">{money(r.precio)}</td>
                 </tr>

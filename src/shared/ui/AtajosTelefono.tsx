@@ -9,11 +9,14 @@
    ============================================================ */
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useFlujoRevisionAlmacen } from '@/modules/pedidos/revisionAlmacen.repository';
 
 export function AtajosTelefono({ actual }: { actual: string }) {
   const { vistasTelefono } = usePermissions();
+  // «Solicitudes de Pedido» solo se ofrece con el flujo de revisión de almacén prendido.
+  const flujoAlmacen = useFlujoRevisionAlmacen();
   const rutaActual = actual.startsWith('/') ? actual : `/app/${actual}`;
-  const otras = vistasTelefono.filter((v) => v.ruta !== rutaActual);
+  const otras = vistasTelefono.filter((v) => v.ruta !== rutaActual && (v.key !== 'solicitudes' || flujoAlmacen));
   if (!otras.length) return null;
   return (
     <nav aria-label="Otras pantallas de teléfono" style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center', margin: '0 0 .75rem' }}>

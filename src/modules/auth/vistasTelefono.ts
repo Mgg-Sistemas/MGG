@@ -17,7 +17,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'maquinaria' | 'retenciones';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'maquinaria' | 'retenciones' | 'solicitudes';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -45,6 +45,12 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
   {
     key: 'retenciones', label: 'Carga de Facturas', icono: '🧾', modulo: 'retenciones',
     ruta: '/app/retenciones/telefono', descripcion: 'Carga y envío de facturas externas con soporte para WhatsApp',
+  },
+  {
+    // Flujo SP → Almacén → Compras (29-10-2026). Se esconde en el menú mientras el
+    // interruptor `compras.revision_almacen` esté apagado (ver revisionAlmacen.repository).
+    key: 'solicitudes', label: 'Solicitudes de Pedido', icono: '📋', modulo: 'inventario',
+    ruta: '/app/solicitudes-pedido/telefono', descripcion: 'Almacén revisa qué hay de cada solicitud antes de Compras',
   },
 ];
 

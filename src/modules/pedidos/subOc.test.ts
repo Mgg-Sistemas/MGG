@@ -216,6 +216,14 @@ describe('la sub-OC compra lo que el proveedor cotizó (SP-2026-0184-1, 14-10-20
     expect(h.finalidad).toBe('Cocina');
     expect(h.comprar).toBe(true);
   });
+  it('si la cotización ligó el renglón a otra ficha, la hija toma esa ficha y su nombre (29-10-2026)', () => {
+    const gen = { sku: 'GEN-001', nombre: 'TUBO', cantidad: 3, precio: 0, unidad: 'UNIDAD', comprar: true as boolean | undefined, productoId: undefined as string | undefined };
+    const h = itemHijaDesdeOferta(gen, { sku: 'GEN-001', nombre: 'TUBO PVC 1/2"', productoId: 'p1', cantidad: 3, precio: 2 }, 2);
+    expect(h).toMatchObject({ sku: 'GEN-001', productoId: 'p1', nombre: 'TUBO PVC 1/2"' });
+    // Misma ficha que la SP: el nombre del solicitante se conserva.
+    const lig = { ...gen, productoId: 'p1' };
+    expect(itemHijaDesdeOferta(lig, { sku: 'GEN-001', nombre: 'OTRO', productoId: 'p1', cantidad: 3, precio: 2 }, 2).nombre).toBe('TUBO');
+  });
   it('sin cantidad cotizada (o sin renglón) queda la de la solicitud', () => {
     expect(itemHijaDesdeOferta(op, { sku: 'VIV-139', cantidad: 0, precio: 0.19 }, 0.19).cantidad).toBe(240);
     expect(itemHijaDesdeOferta(op, undefined, 0.19).cantidad).toBe(240);

@@ -4,7 +4,7 @@
  */
 export type Role = string;
 export type EstadoGenerico = 'activo' | 'inactivo';
-export type EstadoOrden = 'pendiente' | 'aprobada' | 'oc_creada' | 'confirmada_metodo' | 'oc_aprobada' | 'pagada' | 'oc_emitida' | 'rechazada' | 'recibida' | 'finalizada' | 'cancelada' | 'anulada' | 'desistida_proveedor' | 'reasignada' | 'por_recibir' | 'cuenta_abierta' | 'asignada';
+export type EstadoOrden = 'pendiente' | 'aprobada' | 'oc_creada' | 'confirmada_metodo' | 'oc_aprobada' | 'pagada' | 'oc_emitida' | 'rechazada' | 'recibida' | 'finalizada' | 'cancelada' | 'anulada' | 'desistida_proveedor' | 'reasignada' | 'por_recibir' | 'cuenta_abierta' | 'asignada' | 'revision_almacen' | 'atendida_almacen';
 
 /** Condiciones de pago de una oferta. */
 export type CondicionPago = 'contra_entrega' | 'anticipado' | 'credito';
@@ -938,6 +938,15 @@ export interface ItemOrden {
   /** Servicios: detalle libre del renglón (piezas a reparar / trabajos a realizar).
    *  Siempre opcional; se muestra al imprimir y es editable después de crear. */
   detalle_items?: DetalleServicioItem[] | null;
+  /** Revisión de ALMACÉN (29-10-2026). `cantidad_solicitada` = lo pedido en la SP,
+   *  `cantidad_almacen` = lo que almacén tiene; al cerrar la revisión `cantidad`
+   *  queda en lo que FALTA, que es lo que Compras cotiza. */
+  cantidad_solicitada?: number | null;
+  cantidad_almacen?: number | null;
+  almacen_revisado?: boolean | null;
+  /** Renglón con NOMBRE GENERAL (sin ficha de inventario todavía): el nombre con el
+   *  que se guarda en inventario se fija al cargar la cotización. */
+  general?: boolean | null;
 }
 
 /** Sub-ítem de detalle de un renglón de servicio (pieza/reparación/trabajo). */
@@ -989,6 +998,10 @@ export interface Orden {
   historial: EventoHistorial[];
   aprobada_por?: string | null;
   aprobada_en?: string | null;
+  /** Revisión de ALMACÉN de la SP (29-10-2026): quién y cuándo la marcó revisada. */
+  revisada_almacen_por?: string | null;
+  revisada_almacen_en?: string | null;
+  nota_almacen?: string | null;
   oc_emitida_por?: string | null;
   oc_emitida_en?: string | null;
   /** OC creada (oferta elegida, proveedor casado · sin confirmar). */
