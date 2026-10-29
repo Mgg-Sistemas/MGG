@@ -221,6 +221,8 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
       );
       return {
         proveedorId, items,
+        modalidad_pago: enDivisa ? 'usd' : 'bs',
+        pago_en_divisa: enDivisa,
         condiciones_pago: of?.condiciones_pago ?? null,
         oferta_detalle: of?.detalle ?? null,
         oferta_precio_efectivo: rec.precio_efectivo,

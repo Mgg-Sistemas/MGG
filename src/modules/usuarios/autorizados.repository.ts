@@ -95,7 +95,171 @@ export async function firmaCargadaDe(email?: string | null): Promise<{ dataUrl: 
     a = (data as UsuarioAutorizado | null) ?? null;
   }
   if (!a?.firma) return null;
-  return { dataUrl: a.firma, w: a.firma_w || 600, h: a.firma_h || 250 };
+  const limpia = await limpiarFirmaDataUrl(a.firma).catch(() => null);
+  const resultado = limpia || { dataUrl: a.firma, w: a.firma_w || 600, h: a.firma_h || 250 };
+  cacheFirmasLimpias.set(e, resultado);
+  if (limpia && limpia.dataUrl !== a.firma) {
+    void supabase.from(TABLE).update({ firma: limpia.dataUrl, firma_w: limpia.w, firma_h: limpia.h }).eq('email', e);
+  }
+  return resultado;
+}
+
+const cacheFirmasLimpias = new Map<string, { dataUrl: string; w: number; h: number }>();
+
+/**
+ * Limpia y transparenta cualquier imagen de firma:
+ * - Reduce al tamaño óptimo manteniendo la proporción
+ * - Detecta adaptativamente el fondo del papel (incluso fotos con sombras o fondo gris)
+ * - Vuelve 100% transparente el fondo y resalta el trazo de la tinta en negro carbón
+ * - Recorta los márgenes vacíos para que la firma calce perfectamente sobre la línea
+ */
+export function procesarFirmaTransparente(
+  img: HTMLImageElement | HTMLCanvasElement,
+  maxW = 700,
+): { dataUrl: string; w: number; h: number } {
+  const origW = 'naturalWidth' in img ? (img.naturalWidth || img.width) : img.width;
+  const origH = 'naturalHeight' in img ? (img.naturalHeight || img.height) : img.height;
+  if (!origW || !origH) throw new Error('Dimensiones de firma no disponibles.');
+
+  const escala = Math.min(1, maxW / origW);
+  const w = Math.max(1, Math.round(origW * escala));
+  const h = Math.max(1, Math.round(origH * escala));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('El navegador no permite procesar canvas 2D.');
+
+  ctx.drawImage(img, 0, 0, w, h);
+  const px = ctx.getImageData(0, 0, w, h);
+  const d = px.data;
+
+  let transparentCount = 0;
+  for (let i = 3; i < d.length; i += 4) {
+    if (d[i] < 200) transparentCount++;
+  }
+  const yaEsTransparente = transparentCount > (w * h) * 0.05;
+
+  let minX = w, maxX = 0, minY = h, maxY = 0;
+  let hayTinta = false;
+
+  if (yaEsTransparente) {
+    for (let y = 0; y < h; y++) {
+      for (let x = 0; x < w; x++) {
+        const idx = (y * w + x) << 2;
+        if (d[idx + 3] > 30) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+          hayTinta = true;
+        }
+      }
+    }
+  } else {
+    const lums = new Float32Array(w * h);
+    for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+      lums[p] = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    }
+
+    const allSorted = Array.from(lums).sort((a, b) => a - b);
+    const globalBg = allSorted[Math.floor(allSorted.length * 0.90)] || 240;
+
+    const GRID = 32;
+    const cols = Math.max(1, Math.ceil(w / GRID));
+    const rows = Math.max(1, Math.ceil(h / GRID));
+    const bgGrid = new Float32Array(cols * rows);
+
+    for (let ry = 0; ry < rows; ry++) {
+      for (let rx = 0; rx < cols; rx++) {
+        const x0 = rx * GRID, y0 = ry * GRID;
+        const x1 = Math.min(w, x0 + GRID), y1 = Math.min(h, y0 + GRID);
+        const bLums: number[] = [];
+        for (let y = y0; y < y1; y++) {
+          for (let x = x0; x < x1; x++) {
+            bLums.push(lums[y * w + x]);
+          }
+        }
+        bLums.sort((a, b) => a - b);
+        const pIdx = Math.min(bLums.length - 1, Math.floor(bLums.length * 0.92));
+        bgGrid[ry * cols + rx] = Math.max(bLums[pIdx] || globalBg, globalBg - 30);
+      }
+    }
+
+    for (let y = 0; y < h; y++) {
+      const gy = Math.min(rows - 1, Math.floor(y / GRID));
+      for (let x = 0; x < w; x++) {
+        const gx = Math.min(cols - 1, Math.floor(x / GRID));
+        const bg = bgGrid[gy * cols + gx];
+        const idx = (y * w + x) << 2;
+        const L = lums[y * w + x];
+        const delta = bg - L;
+
+        if (delta <= 12) {
+          d[idx + 3] = 0;
+        } else if (delta >= 34) {
+          d[idx] = Math.min(d[idx], 30);
+          d[idx + 1] = Math.min(d[idx + 1], 30);
+          d[idx + 2] = Math.min(d[idx + 2], 40);
+          d[idx + 3] = 255;
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+          hayTinta = true;
+        } else {
+          const t = (delta - 12) / (34 - 12);
+          d[idx] = Math.min(d[idx], 35);
+          d[idx + 1] = Math.min(d[idx + 1], 35);
+          d[idx + 2] = Math.min(d[idx + 2], 45);
+          d[idx + 3] = Math.round(t * 255);
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+          hayTinta = true;
+        }
+      }
+    }
+    ctx.putImageData(px, 0, 0);
+  }
+
+  if (hayTinta && maxX >= minX && maxY >= minY) {
+    const pad = 6;
+    const cropX = Math.max(0, minX - pad);
+    const cropY = Math.max(0, minY - pad);
+    const cropW = Math.min(w - cropX, (maxX - minX + 1) + pad * 2);
+    const cropH = Math.min(h - cropY, (maxY - minY + 1) + pad * 2);
+
+    const croppedCanvas = document.createElement('canvas');
+    croppedCanvas.width = cropW;
+    croppedCanvas.height = cropH;
+    const cCtx = croppedCanvas.getContext('2d');
+    if (cCtx) {
+      cCtx.drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      return { dataUrl: croppedCanvas.toDataURL('image/png'), w: cropW, h: cropH };
+    }
+  }
+
+  return { dataUrl: canvas.toDataURL('image/png'), w, h };
+}
+
+/** Limpia cualquier firma en dataUrl para asegurar fondo transparente */
+export async function limpiarFirmaDataUrl(dataUrl: string, maxW = 700): Promise<{ dataUrl: string; w: number; h: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        resolve(procesarFirmaTransparente(img, maxW));
+      } catch (err) {
+        reject(err);
+      }
+    };
+    img.onerror = () => reject(new Error('No se pudo decodificar la firma.'));
+    img.src = dataUrl;
+  });
 }
 
 /** Compatibilidad con helpers existentes que esperan formato */
@@ -107,8 +271,7 @@ export async function firmaDeCorreo(correo: string | null | undefined): Promise<
 
 /**
  * Prepara la imagen de firma que sube el usuario: la reduce (máx. 700 px de ancho),
- * vuelve TRANSPARENTE el fondo blanco/claro y la exporta como PNG. Así se estampa
- * limpia sobre la línea de firma de los PDF, igual que las firmas de siempre.
+ * vuelve TRANSPARENTE el fondo blanco/grisáceo y la exporta como PNG sin bordes vacíos.
  */
 export async function prepararFirma(file: File): Promise<{ dataUrl: string; w: number; h: number }> {
   if (!file.type.startsWith('image/')) throw new Error('La firma debe ser una imagen (PNG o JPG).');
@@ -121,24 +284,7 @@ export async function prepararFirma(file: File): Promise<{ dataUrl: string; w: n
       el.onerror = () => reject(new Error('No se pudo leer la imagen de la firma.'));
       el.src = objectUrl;
     });
-    const MAX_W = 700;
-    const escala = Math.min(1, MAX_W / (img.naturalWidth || MAX_W));
-    const w = Math.max(1, Math.round((img.naturalWidth || 600) * escala));
-    const h = Math.max(1, Math.round((img.naturalHeight || 250) * escala));
-    const canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('El navegador no permite procesar la imagen.');
-    ctx.drawImage(img, 0, 0, w, h);
-    const px = ctx.getImageData(0, 0, w, h);
-    const d = px.data;
-    for (let i = 0; i < d.length; i += 4) {
-      const min = Math.min(d[i], d[i + 1], d[i + 2]);
-      if (min >= 235) d[i + 3] = 0;
-      else if (min >= 200) d[i + 3] = Math.min(d[i + 3], Math.round(((235 - min) / 35) * 255));
-    }
-    ctx.putImageData(px, 0, 0);
-    return { dataUrl: canvas.toDataURL('image/png'), w, h };
+    return procesarFirmaTransparente(img, 700);
   } finally {
     URL.revokeObjectURL(objectUrl);
   }

@@ -139,7 +139,7 @@ export function relTime(iso: string | null | undefined): string {
 const STATUS_MAP: Record<string, { className: string; label: string }> = {
   pendiente:           { className: 'warning', label: 'Pendiente' },
   aprobada:            { className: 'success', label: 'Aprobada' },
-  oc_creada:           { className: 'warning', label: 'Pendiente por aprobación (Gerente General)' },
+  oc_creada:           { className: 'warning', label: 'Ordenes pendiente por aprobar' },
   confirmada_metodo:   { className: 'warning', label: 'Confirmada (indicar método de pago)' },
   oc_aprobada:         { className: 'info', label: 'Confirmada pagar' },
   cuenta_abierta:      { className: 'warning', label: 'Crédito · cuenta abierta' },

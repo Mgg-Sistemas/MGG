@@ -1132,7 +1132,7 @@ export async function sincronizarModalidadesPagoOrdenes(): Promise<{ actualizada
   try {
     const { data: ordenes, error } = await supabase
       .from(TABLE)
-      .select('id, codigo, oc_codigo, total, oferta_precio_efectivo, oferta_precio_bcv, metodo_pago, pago_en_divisa, modalidad_pago, estado')
+      .select('id, codigo, oc_codigo, total, oferta_precio_efectivo, oferta_precio_bcv, metodo_pago, pago_en_divisa, modalidad_pago, estado, items')
       .not('oc_codigo', 'is', null)
       .is('modalidad_pago', null);
     if (error || !ordenes || !ordenes.length) return { actualizadas: 0 };
@@ -1141,20 +1141,28 @@ export async function sincronizarModalidadesPagoOrdenes(): Promise<{ actualizada
       const ef = Number(ord.oferta_precio_efectivo) || 0;
       const bcv = Number(ord.oferta_precio_bcv) || 0;
       const tot = Number(ord.total) || 0;
+      const items = (ord.items ?? []) as ItemOrden[];
+      const tieneUsd = items.some((i) => (Number(i.precio_usd) || 0) > 0);
+      const tieneBcv = items.some((i) => (Number(i.precio) || 0) > 0);
       let mod: 'usd' | 'bs' = 'usd';
-      if (ef > 0 && Math.abs(tot - ef) < 1) {
+      if (Array.isArray(ord.metodo_pago) && ord.metodo_pago.length) {
+        const tieneBs = ord.metodo_pago.some((m: any) => m.moneda === 'Bs' || m.metodo === 'transferencia' || m.metodo === 'pago_movil');
+        const tieneUsdMetodo = ord.metodo_pago.some((m: any) => m.moneda === 'USD' || m.metodo === 'divisas_efectivo' || m.metodo === 'zelle' || m.metodo === 'binance_usdt');
+        if (tieneBs && !tieneUsdMetodo) mod = 'bs';
+        else if (tieneUsdMetodo && !tieneBs) mod = 'usd';
+        else mod = 'usd';
+      } else if (ef > 0 && Math.abs(tot - ef) < 1) {
         mod = 'usd';
       } else if (bcv > 0 && Math.abs(tot - bcv) < 1) {
         mod = 'bs';
-      } else if (Array.isArray(ord.metodo_pago) && ord.metodo_pago.length) {
-        const tieneBs = ord.metodo_pago.some((m: any) => m.moneda === 'Bs' || m.metodo === 'transferencia' || m.metodo === 'pago_movil');
-        const tieneUsd = ord.metodo_pago.some((m: any) => m.moneda === 'USD' || m.metodo === 'divisas_efectivo' || m.metodo === 'zelle' || m.metodo === 'binance_usdt');
-        if (tieneBs && !tieneUsd) mod = 'bs';
-        else mod = 'usd';
+      } else if (tieneBcv && !tieneUsd) {
+        mod = 'bs';
+      } else if (tieneUsd && !tieneBcv) {
+        mod = 'usd';
       } else if (ef > 0 && tot <= ef * 1.25) {
         mod = 'usd';
       } else {
-        mod = 'usd';
+        mod = tieneBcv ? 'bs' : 'usd';
       }
       await supabase.from(TABLE).update({
         modalidad_pago: mod,
@@ -1230,6 +1238,8 @@ export interface AsignacionProveedor {
   /** Observación del analista (por qué eligió) + adjuntos (imágenes/PDF). */
   motivo?: string | null;
   motivoAdjuntos?: { path: string; filename: string }[] | null;
+  modalidad_pago?: 'usd' | 'bs' | null;
+  pago_en_divisa?: boolean | null;
 }
 
 /** OC hijas (sub-OC por proveedor) ya creadas para una OP. */
@@ -1280,6 +1290,10 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
     const ajusteA = Math.round((Number(a.ajuste) || 0) * 100) / 100;
     const total = totalDesdePartes({ subtotal, descuento: descObt, iva: ivaA, igtf: igtfA, iva_incluido: ivaIncluidoA, ajuste: ajusteA });
     const ocCodigo = await nextOcCodigo();
+    const tieneUsd = items.some((i) => (Number(i.precio_usd) || 0) > 0);
+    const tieneBcv = items.some((i) => (Number(i.precio) || 0) > 0);
+    const enDivisa = a.pago_en_divisa ?? (a.modalidad_pago === 'usd' ? true : (tieneUsd && !tieneBcv));
+    const modPago: 'usd' | 'bs' = a.modalidad_pago ?? (enDivisa ? 'usd' : 'bs');
     const row = {
       codigo: `${op.codigo}-${n}`,
       parent_orden_id: op.id,
@@ -1298,6 +1312,9 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
       solicitante_persona: op.solicitante_persona ?? null,
       items,
       total,
+      modalidad_pago: modPago,
+      pago_en_divisa: enDivisa,
+      total_divisa: enDivisa ? total : (a.oferta_precio_efectivo != null ? a.oferta_precio_efectivo : null),
       descuento_obtenido: descObt || null,
       iva: ivaA || null,
       igtf: igtfA || null,
@@ -1315,12 +1332,12 @@ export async function asignarProveedoresAOrden(op: Orden, asignaciones: Asignaci
       condiciones_pago: a.condiciones_pago ?? null,
       oferta_detalle: a.oferta_detalle ?? null,
       oferta_precio_efectivo: a.oferta_precio_efectivo ?? null,
-      oferta_precio_bcv: repEf ? repEf.bcv : null,
+      oferta_precio_bcv: repEf ? repEf.bcv : (totalBase || null),
       oferta_motivo: a.motivo ?? null,
       oferta_motivo_adjuntos: (a.motivoAdjuntos && a.motivoAdjuntos.length) ? a.motivoAdjuntos : null,
       oc_creada_por: actorEmail,
       oc_creada_en: nowIso,
-      historial: [{ at: nowIso, evento: 'oc_creada', actor: actorEmail, oc_codigo: ocCodigo, proveedorId: a.proveedorId, precio: total, parent: op.codigo }],
+      historial: [{ at: nowIso, evento: 'oc_creada', actor: actorEmail, oc_codigo: ocCodigo, proveedorId: a.proveedorId, precio: total, parent: op.codigo, modalidad_pago: modPago, pago_en_divisa: enDivisa }],
     };
     // Marca la oferta del proveedor como aceptada ANTES de crear la hija (sin descartar las
     // demás: pueden cubrir lo que falta). Se resuelve UNA oferta concreta (la última
@@ -1467,11 +1484,15 @@ export async function indicarMetodoPago(
   }
   // Descuento indicado en el pago (opcional): reduce el monto a pagar en Tesorería (no el total OC).
   const descPago = Math.max(0, Math.round((Number(descuentoPago) || 0) * 100) / 100);
+  const tieneBsMetodo = limpios.some((m) => m.moneda === 'Bs' || m.metodo === 'transferencia' || m.metodo === 'pago_movil');
+  const tieneUsdMetodo = limpios.some((m) => m.moneda === 'USD' || m.metodo === 'divisas_efectivo' || m.metodo === 'zelle' || m.metodo === 'binance_usdt');
+  const modDesdeMetodo: 'usd' | 'bs' | undefined = tieneBsMetodo && !tieneUsdMetodo ? 'bs' : tieneUsdMetodo && !tieneBsMetodo ? 'usd' : undefined;
   const patch = {
     estado: 'oc_aprobada' as EstadoOrden,
     metodo_pago: limpios,
     metodo_pago_por: actorEmail,
     metodo_pago_en: new Date().toISOString(),
+    ...(modDesdeMetodo ? { modalidad_pago: modDesdeMetodo, pago_en_divisa: modDesdeMetodo === 'usd', total_divisa: modDesdeMetodo === 'usd' ? (o.total_divisa ?? o.total) : null } : {}),
     comprobante_tipo: comprobanteTipo,
     retencion_modo: retencionModo,
     pago_qr_path: qrPath,
@@ -1479,7 +1500,7 @@ export async function indicarMetodoPago(
     descuento_pago: descPago > 0 ? descPago : null,
     // Número de administración del proveedor (14-10-2026): lo ven Tesorería y Retenciones.
     numero_administracion: soporte?.numeroAdministracion?.trim() || null,
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, qr: !!qrPath, ...(descPago > 0 ? { descuento_pago: descPago } : {}), ...(soporte?.numeroAdministracion?.trim() ? { numero_administracion: soporte.numeroAdministracion.trim() } : {}) }),
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, qr: !!qrPath, ...(descPago > 0 ? { descuento_pago: descPago } : {}), ...(soporte?.numeroAdministracion?.trim() ? { numero_administracion: soporte.numeroAdministracion.trim() } : {}), ...(modDesdeMetodo ? { modalidad_pago: modDesdeMetodo } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -1520,15 +1541,20 @@ export async function corregirMetodoPago(
     }))
     .filter((m) => m.metodo && m.moneda);
   if (!limpios.length) throw new Error('Indicá al menos un método de pago.');
+  const tieneBsMetodo = limpios.some((m) => m.moneda === 'Bs' || m.metodo === 'transferencia' || m.metodo === 'pago_movil');
+  const tieneUsdMetodo = limpios.some((m) => m.moneda === 'USD' || m.metodo === 'divisas_efectivo' || m.metodo === 'zelle' || m.metodo === 'binance_usdt');
+  const modDesdeMetodo: 'usd' | 'bs' | undefined = tieneBsMetodo && !tieneUsdMetodo ? 'bs' : tieneUsdMetodo && !tieneBsMetodo ? 'usd' : undefined;
   const patch = {
     metodo_pago: limpios,
     metodo_pago_por: actorEmail,
     metodo_pago_en: new Date().toISOString(),
+    ...(modDesdeMetodo ? { modalidad_pago: modDesdeMetodo, pago_en_divisa: modDesdeMetodo === 'usd', total_divisa: modDesdeMetodo === 'usd' ? (o.total_divisa ?? o.total) : null } : {}),
     ...(numeroAdministracion !== undefined ? { numero_administracion: numeroAdministracion?.trim() || null } : {}),
     historial: appendHistorial(o, 'metodo_pago_corregido', actorEmail, {
       antes: o.metodo_pago ?? null,
       despues: limpios,
       ...(numeroAdministracion !== undefined ? { numero_administracion: numeroAdministracion?.trim() || null } : {}),
+      ...(modDesdeMetodo ? { modalidad_pago: modDesdeMetodo } : {}),
     }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();

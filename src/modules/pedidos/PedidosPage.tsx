@@ -157,7 +157,7 @@ const KANBAN_COLS_PEDIDOS: { key: EstadoOrden; label: string }[] = [
 
 const KANBAN_COLS_OC: { key: EstadoOrden; label: string }[] = [
   { key: 'aprobada', label: 'Pendiente (cargar ofertas)' },              // OP aprobada → cargar cotizaciones
-  { key: 'oc_creada', label: 'Pendiente por aprobación (Gerente General)' }, // oferta elegida → espera aprobación
+  { key: 'oc_creada', label: 'Ordenes pendiente por aprobar' }, // oferta elegida → espera aprobación
   { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },        // a crédito → abonos hasta saldar
   { key: 'confirmada_metodo', label: 'Confirmada (indicar método de pago)' }, // gerente confirmó → falta método
   { key: 'oc_aprobada', label: 'Confirmada pagar' },                     // método indicado → Tesorería

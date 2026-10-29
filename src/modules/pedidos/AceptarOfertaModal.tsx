@@ -91,7 +91,10 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloque
 
   // Modalidad de pago elegida por el analista ('usd' | 'bs'):
   // Se inicializa en 'usd' si hay precio USD disponible (suele tener descuento), o 'bs' si solo hay BCV.
-  const [modalidadSel, setModalidadSel] = useState<'usd' | 'bs'>('usd');
+  const [modalidadSel, setModalidadSel] = useState<'usd' | 'bs'>(() => {
+    const hayUsd = oferta.items?.some((it) => (Number(it.precio_usd) || 0) > 0);
+    return hayUsd ? 'usd' : 'bs';
+  });
 
   function onFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const nuevos = Array.from(e.target.files ?? []);
