@@ -10,8 +10,9 @@ import { limpiarMontoEs, montoAStrEs, parseMontoEs } from '@/shared/lib/montoEs'
 import { PREFIJOS_RIF, normalizarRif, partirRif } from '@/shared/lib/rif';
 import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, CostoLogistico, OfertaProveedor, Producto } from '@/shared/lib/types';
 import { AgregarProductoCompra } from './AgregarProductoCompra';
-import { crearOferta, actualizarOferta, subirAdjuntosOferta, adjuntosDeOferta, CONDICIONES_PAGO, descuentoEfectivo, ligarRenglonesAInventario, type EditarOfertaInput } from './ofertas.repository';
+import { crearOferta, actualizarOferta, revisarCambioProveedorOferta, subirAdjuntosOferta, adjuntosDeOferta, CONDICIONES_PAGO, descuentoEfectivo, ligarRenglonesAInventario, type EditarOfertaInput } from './ofertas.repository';
 import { resincronizarOcDesdeOferta, listSubOcs, listProductosActivos } from './pedidos.repository';
+import { errorMotivoProveedorOferta } from './proveedorOfertaAceptada';
 import { useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
 import { planFichas, type DestinoRenglon, type EleccionNombreInventario, type ModoNombreInventario } from './nombreInventario';
 import { getCategorias, getUnidades } from '@/modules/inventario/inventario.repository';
@@ -175,6 +176,10 @@ export function AgregarOfertaModal({
   // Modo proveedor: si el checkbox está activo, se crea uno nuevo en línea.
   const [nuevoProveedor, setNuevoProveedor] = useState(false);
   const [proveedorId, setProveedorId] = useState<string>(ofertaEdit?.proveedor_id ?? opcionesProveedor[0]?.id ?? '');
+  // Oferta ACEPTADA a la que se le corrige el proveedor: el cambio pasa también a su orden
+  // (proveedorOfertaAceptada.ts) y el motivo es obligatorio.
+  const [motivoCambioProv, setMotivoCambioProv] = useState('');
+  const cambiaProvAceptada = !!ofertaEdit && ofertaEdit.estado === 'aceptada' && !!proveedorId && proveedorId !== ofertaEdit.proveedor_id;
 
   // Campos del proveedor nuevo (cuando nuevoProveedor=true)
   const [provRazon, setProvRazon] = useState('');
@@ -532,6 +537,12 @@ export function AgregarOfertaModal({
       toast(`Se guarda en inventario como · ${planInv.error}`, 'error');
       return;
     }
+    // Antes de escribir nada: el cambio de proveedor de una oferta aceptada pide su motivo.
+    const errMotivoProv = cambiaProvAceptada ? errorMotivoProveedorOferta(motivoCambioProv) : null;
+    if (errMotivoProv) {
+      toast(errMotivoProv, 'error');
+      return;
+    }
     setSubmitting(true);
     // Se quitan los campos locales (_rid/_variante) y se normaliza marca/modelo.
     let itemsLimpios: ItemOrden[] = items.map(({ _rid, _variante, _agregado, precioStr, precioUsdStr, _usoPedido, _ucTocada, _inv, ...rest }) => {
@@ -567,6 +578,9 @@ export function AgregarOfertaModal({
       // trae, viene precargada. No frena la cotización.
       // ── Modo edición: proveedor fijo, se actualiza la oferta existente ──
       if (isEdit && ofertaEdit) {
+        // Cambio de proveedor de una oferta aceptada: se revisa (orden pagada o recibida) antes
+        // de subir adjuntos o tocar el proveedor, para no dejar nada a medias si se rechaza.
+        if (cambiaProvAceptada) await revisarCambioProveedorOferta(ofertaEdit.id, proveedorId, { motivoCambioProveedor: motivoCambioProv });
         // Adjuntos finales = los existentes que se conservaron (se pueden quitar) + los
         // nuevos que se cargaron. Siempre se persiste, así las remociones quedan guardadas.
         {
@@ -581,7 +595,7 @@ export function AgregarOfertaModal({
           pdf_path: todos[0]?.path ?? null,
           pdf_filename: todos[0]?.filename ?? null,
         };
-        await actualizarOferta(ofertaEdit.id, {
+        const ofertaGuardada = await actualizarOferta(ofertaEdit.id, {
           proveedor_id: proveedorId || ofertaEdit.proveedor_id,
           items: itemsLimpios,
           precio_total: precioTotal,
@@ -597,7 +611,10 @@ export function AgregarOfertaModal({
           notas: notas.trim() || null,
           detalle,
           ...adjuntosPatch,
-        });
+        }, { actor: registradoPorEmail, motivoCambioProveedor: motivoCambioProv });
+        // Si el cambio de proveedor pasó a esta orden, se sigue con la orden ya guardada: la de
+        // memoria tiene el proveedor y el historial viejos y la re-sincronización los pisaría.
+        const ordenVigente = ofertaGuardada.ordenes_sincronizadas?.find((x) => x.id === orden.id) ?? orden;
         const provEfectivo = proveedorId || ofertaEdit.proveedor_id;
         const datosOfertaParaSync = {
           proveedor_id: provEfectivo,
@@ -614,10 +631,10 @@ export function AgregarOfertaModal({
 
         // Si la oferta editada está aceptada o pertenece al proveedor de la orden/sub-orden,
         // re-sincronizamos el total y el IVA de la OC para que reflejen inmediatamente la cotización.
-        if (ofertaEdit.estado === 'aceptada' || orden.proveedor_id === provEfectivo) {
+        if (ofertaEdit.estado === 'aceptada' || ordenVigente.proveedor_id === provEfectivo) {
           try {
-            if (['oc_creada', 'confirmada_metodo', 'oc_aprobada'].includes(orden.estado)) {
-              await resincronizarOcDesdeOferta(orden, datosOfertaParaSync, registradoPorEmail);
+            if (['oc_creada', 'confirmada_metodo', 'oc_aprobada'].includes(ordenVigente.estado)) {
+              await resincronizarOcDesdeOferta(ordenVigente, datosOfertaParaSync, registradoPorEmail);
             }
             // También revisar si hay sub-órdenes de este proveedor que dependan de esta cotización
             const hijas = await listSubOcs(ordenOfertas);
@@ -739,6 +756,17 @@ export function AgregarOfertaModal({
             emptyText="Ningún proveedor coincide"
           />
           <small className="hint muted">Podés corregir el proveedor de la oferta. El resto de datos se edita abajo.</small>
+          {cambiaProvAceptada && (
+            <div style={{ marginTop: '.5rem' }}>
+              <label>Motivo del cambio de proveedor *</label>
+              <textarea className="textarea" rows={2} value={motivoCambioProv} onChange={(e) => setMotivoCambioProv(e.target.value)}
+                placeholder="Por qué se corrige el proveedor de esta oferta" />
+              <small className="hint muted">
+                Esta oferta ya está aceptada: el proveedor también cambia en su orden y queda en el historial, con este motivo.
+                Con la orden pagada o recibida, el cambio no se permite.
+              </small>
+            </div>
+          )}
         </div>
       ) : (
       <div className="form-row">
