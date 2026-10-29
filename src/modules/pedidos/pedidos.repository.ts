@@ -285,7 +285,9 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     total,
     // Flujo nuevo (29-10-2026, apagado hasta que se active): la SP de productos pasa
     // primero por Almacén, que revisa qué tiene; lo que falta llega luego a Compras.
-    estado: (!esServicio && await flujoRevisionAlmacenActivo() ? 'revision_almacen' : 'pendiente') as EstadoOrden,
+    // La solicitud de MERCADO de cocina no pasa por Almacén: entra directo a Compras.
+    estado: (!esServicio && input.finalidad !== FINALIDAD_MERCADO && await flujoRevisionAlmacenActivo()
+      ? 'revision_almacen' : 'pendiente') as EstadoOrden,
     notas: input.notas ?? null,
     motivo: input.motivo?.trim() || null,
     finalidad: input.finalidad?.trim() || null,
