@@ -1,4 +1,18 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+
+vi.mock('@/shared/lib/supabase', () => ({
+  supabase: {
+    from: () => ({
+      select: () => ({
+        eq: () => ({ maybeSingle: async () => ({ data: null, error: null }) }),
+        maybeSingle: async () => ({ data: null, error: null }),
+        then: (resolve: (arg: unknown) => unknown) => resolve({ data: [], error: null }),
+      }),
+      upsert: async () => ({ error: null }),
+    }),
+  },
+}));
+
 import {
   EMPRESAS_FISCALES_DEFECTO,
   getDatosFiscalesEmpresa,
@@ -8,7 +22,7 @@ import {
 
 describe('empresasFiscales.repository', () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    vi.clearAllMocks();
   });
 
   it('contiene las semillas fiscales de MGG, Golden Touch y MineriaTs', () => {
