@@ -155,8 +155,8 @@
 /* ── Inventario y Almacenes (teléfono, 29-10-2026, traído de GT Depósito Mina):
    salida con ¿retorna? SÍ / NO, fotos, por retornar y traslado entre almacenes ── */
 .surt-btn.salida { border-color: var(--warning); }
-.surt-btn.retorno { border-color: var(--info, var(--primary)); font-size: 1.1rem; }
-.surt-btn.traslado { border-color: #a855f7; }
+.surt-btn.retorno { border-color: var(--info, var(--primary)); font-size: 1.05rem; }
+.surt-btn.traslado { border-color: #a855f7; font-size: 1.05rem; }
 .surt-acciones .surt-btn.ancho { grid-column: 1 / -1; min-height: 84px; }
 .surt-btn:disabled { opacity: .55; cursor: not-allowed; }
 .surt-sino { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }

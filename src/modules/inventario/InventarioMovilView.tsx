@@ -231,14 +231,16 @@ export function InventarioMovilView() {
             <span>Salida</span>
             <small>Sale material del almacén</small>
           </button>
-          <button type="button" className="surt-btn retorno ancho" onClick={() => setPaso('retornos')}>
-            <span>🔄 Por retornar ({porRetornar.length})</span>
-            <small>{porRetornar.length ? 'Dar retorno al inventario de lo que salió y vuelve' : 'No hay nada pendiente por retornar'}</small>
-          </button>
-          <button type="button" className="surt-btn traslado ancho" disabled={!destinos.length}
+          <button type="button" className="surt-btn traslado" disabled={!destinos.length}
             onClick={() => { setElegido(null); setPaso('traslado'); }}>
-            <span>🔁 Traslado entre almacenes</span>
-            <small>Pasar material directo de {nombreAlm} a otro almacén</small>
+            <span className="icono" aria-hidden>🔁</span>
+            <span>Traslado</span>
+            <small>Directo a otro almacén</small>
+          </button>
+          <button type="button" className="surt-btn retorno" onClick={() => setPaso('retornos')}>
+            <span className="icono" aria-hidden>🔄</span>
+            <span>Por retornar ({porRetornar.length})</span>
+            <small>{porRetornar.length ? 'Dar retorno a lo que salió' : 'Sin pendientes por retornar'}</small>
           </button>
         </div>
       )}
