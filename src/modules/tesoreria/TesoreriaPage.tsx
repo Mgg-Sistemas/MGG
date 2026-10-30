@@ -6789,24 +6789,26 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
           <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--primary)' }}>
             <div className="card-title" style={{ marginBottom: '.4rem' }}>💳 Motivo de Pago</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
-              <span style={{ fontSize: '.86rem', fontWeight: 600 }}>¿Se pagará esta OC?</span>
-              <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  className={`btn ${sePagara === 'si' ? 'btn-primary' : 'btn-ghost'}`}
-                  style={{ flex: 1, minHeight: 40, fontWeight: 700 }}
-                  onClick={() => { setSePagara('si'); setError(null); }}
-                >
-                  ✓ SÍ, se pagará
-                </button>
-                <button
-                  type="button"
-                  className={`btn ${sePagara === 'no' ? 'btn-danger' : 'btn-ghost'}`}
-                  style={{ flex: 1, minHeight: 40, fontWeight: 700 }}
-                  onClick={() => { setSePagara('no'); setError(null); }}
-                >
-                  ✕ NO se pagará
-                </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '.86rem', fontWeight: 600 }}>¿Se pagará esta OC?</span>
+                <div style={{ display: 'inline-flex', gap: '.4rem' }}>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${sePagara === 'si' ? 'btn-primary' : 'btn-ghost'}`}
+                    style={{ fontWeight: 600, padding: '.3rem .75rem' }}
+                    onClick={() => { setSePagara('si'); setError(null); }}
+                  >
+                    ✓ SÍ, se pagará
+                  </button>
+                  <button
+                    type="button"
+                    className={`btn btn-sm ${sePagara === 'no' ? 'btn-danger' : 'btn-ghost'}`}
+                    style={{ fontWeight: 600, padding: '.3rem .75rem' }}
+                    onClick={() => { setSePagara('no'); setError(null); }}
+                  >
+                    ✕ NO se pagará
+                  </button>
+                </div>
               </div>
 
               {sePagara === 'si' && (
