@@ -10,7 +10,7 @@ import { GlobalSearch } from '@/shared/ui/GlobalSearch';
 import { TasaChip } from '@/modules/tesoreria/TasaChip';
 import { toast } from '@/shared/ui/Toast';
 import type { CapturasManual } from '@/shared/lib/manualUsuarioPdf';
-import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, puedeRespaldar, textoPaso, BACKUP_EMAIL, BACKUP_EMAILS, correosValidos, type AvanceRespaldo } from '@/shared/lib/backup';
+import { descargarRespaldoSql, enviarRespaldoPorCorreo, chequearRespaldoAutomatico, textoPaso, BACKUP_EMAIL, BACKUP_EMAILS, correosValidos, type AvanceRespaldo } from '@/shared/lib/backup';
 import { Modal } from '@/shared/ui/Modal';
 import { AvisoActualizacion } from '@/shared/ui/AvisoActualizacion';
 import { scanStockAndNotify, unreadCount } from '@/modules/notificaciones/notif.repository';

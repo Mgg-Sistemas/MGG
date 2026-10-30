@@ -69,3 +69,28 @@ export function etiquetaRetencionMomento(o: Pick<Orden, 'retencion_momento' | 'r
   const cuando = o.retencion_momento === 'antes' ? 'antes de pagar' : 'después de pagar';
   return `Retención: ${cuando} · ${o.retencion_hecha_en ? 'hecha' : 'pendiente'}`;
 }
+
+/** Retención hecha ANTES de pagar, anotada por Retenciones (ordenes.retencion_previa). */
+export interface RetencionPrevia { bs: number; usd: number; tasa: number | null; monto: number }
+
+export interface EfectoRetencionPago {
+  /** 'baja': se paga el total MENOS lo retenido · 'completo': se paga el total y se retiene después. */
+  efecto: 'baja' | 'completo';
+  retenido: number;
+  aPagar: number;
+}
+
+/**
+ * ¿El monto que paga Tesorería BAJA o va COMPLETO? (30-10-2026)
+ * ANTES con retención anotada → baja; DESPUÉS → completo. Sin flujo nuevo → null.
+ */
+export function efectoRetencionEnPago(
+  o: Pick<Orden, 'retencion_momento' | 'retencion_previa' | 'total'>, totalAPagar?: number,
+): EfectoRetencionPago | null {
+  const total = Number(totalAPagar ?? o.total) || 0;
+  if (o.retencion_momento === 'despues') return { efecto: 'completo', retenido: 0, aPagar: total };
+  if (o.retencion_momento !== 'antes') return null;
+  const retenido = Math.max(0, Number(o.retencion_previa?.monto) || 0);
+  if (retenido <= 0) return null;
+  return { efecto: 'baja', retenido, aPagar: Math.max(0, Math.round((total - retenido) * 100) / 100) };
+}

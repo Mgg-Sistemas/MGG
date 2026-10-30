@@ -1860,11 +1860,11 @@ function MetodoPagoModal({
           <div style={{ display: 'grid', gap: '.35rem' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
               <input type="radio" name="ret-momento" checked={retMomento === 'antes'} onChange={() => setRetMomento('antes')} />
-              <span>Se retiene <strong>ANTES</strong> de pagar <span className="muted">(va primero a Retenciones)</span></span>
+              <span>Se retiene <strong>ANTES</strong> de pagar <span className="muted">(va primero a Retenciones · ⬇ el monto que paga Tesorería BAJA)</span></span>
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
               <input type="radio" name="ret-momento" checked={retMomento === 'despues'} onChange={() => setRetMomento('despues')} />
-              <span>Se retiene <strong>DESPUÉS</strong> de pagar <span className="muted">(va a Tesorería y luego a Retenciones)</span></span>
+              <span>Se retiene <strong>DESPUÉS</strong> de pagar <span className="muted">(⬆ Tesorería paga el monto COMPLETO y luego va a Retenciones)</span></span>
             </label>
           </div>
         </div>
@@ -3452,6 +3452,7 @@ function OrdenDetailModal({
             {o.retencion_hecha_en && (
               <span className="muted" style={{ fontSize: '.74rem' }}>
                 {' '}· {dateTime(o.retencion_hecha_en)}{o.retencion_hecha_por ? ` por ${persona(o.retencion_hecha_por, personaMap, o.retencion_hecha_en)}` : ''}
+                {o.retencion_previa?.monto ? ` · retenido ${money(o.retencion_previa.monto, o.moneda)} (Tesorería paga ${money(Math.max(0, (Number(o.total) || 0) - o.retencion_previa.monto), o.moneda)})` : ''}
                 {o.retencion_nota ? ` · ${o.retencion_nota}` : ''}
               </span>
             )}

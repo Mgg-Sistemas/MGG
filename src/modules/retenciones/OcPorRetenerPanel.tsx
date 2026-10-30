@@ -13,6 +13,8 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { money, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { aPagarConRetencion, convertirRetencion } from '@/modules/tesoreria/reembolsoPago';
 import { listOcPorRetener, marcarRetencionHecha, type ColasOcPorRetener, type OcPorRetener } from './ocPorRetener.repository';
 
 export function OcPorRetenerPanel({ canWrite }: { canWrite: boolean }) {
@@ -116,11 +118,35 @@ function MarcarRetencionModal({ fila, onClose, onDone }: {
   const codigo = o.oc_codigo ?? o.codigo;
   const [nota, setNota] = useState('');
   const [saving, setSaving] = useState(false);
+  // ANTES de pagar: cuánto se retuvo (en Bs o en $, la otra sale con la tasa). Tesorería
+  // paga el total MENOS esto. Vacío = no aplica (con nota).
+  const esAntes = o.retencion_momento === 'antes';
+  const esOrdenBs = (o.moneda ?? 'USD') === 'Bs';
+  const [retEditada, setRetEditada] = useState<'bs' | 'usd'>('bs');
+  const [retBsStr, setRetBsStr] = useState('');
+  const [retUsdStr, setRetUsdStr] = useState('');
+  const [tasaStr, setTasaStr] = useState('');
+  useEffect(() => {
+    if (!esAntes) return;
+    getTasaHoy().then((t) => { if (t.usd) setTasaStr((v) => v || String(t.usd)); }).catch(() => undefined);
+  }, [esAntes]);
+  const tasa = Number(tasaStr) || 0;
+  const ret = convertirRetencion(Number(retEditada === 'bs' ? retBsStr : retUsdStr) || 0, retEditada, tasa);
+  const retenido = esOrdenBs ? ret.bs : ret.usd;
+  const total = Number(o.total) || 0;
 
   async function confirmar() {
+    if (esAntes && retenido > 0 && retenido >= total) {
+      toast('La retención no puede ser igual o mayor que el total de la orden.', 'error');
+      return;
+    }
+    if (esAntes && retenido <= 0 && !nota.trim()) {
+      toast('Indica el monto retenido, o escribe en la nota por qué no aplica.', 'error');
+      return;
+    }
     setSaving(true);
     try {
-      await marcarRetencionHecha(o.id, nota);
+      await marcarRetencionHecha(o.id, nota, esAntes && retenido > 0 ? { bs: ret.bs, usd: ret.usd, tasa } : null);
       toast(o.retencion_momento === 'antes'
         ? `OC ${codigo} · retención hecha: ya está en Tesorería para pagar`
         : `OC ${codigo} · retención hecha`, 'success');
@@ -153,6 +179,36 @@ function MarcarRetencionModal({ fila, onClose, onDone }: {
           ? 'Al confirmar, la OC pasa a Tesorería para pagar.'
           : 'La OC ya está pagada; al confirmar sale de esta lista.'}
       </p>
+      {esAntes && (
+        <div className="card" style={{ margin: '0 0 .75rem', padding: '.65rem .8rem', borderLeft: '3px solid var(--primary)' }}>
+          <div className="card-title" style={{ marginBottom: '.4rem' }}>Monto retenido</div>
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <div className="form-row" style={{ margin: 0 }}>
+              <label style={{ fontSize: '.78rem' }}>En Bs</label>
+              <input className="input mono" type="number" min={0} step="any" placeholder="0,00" style={{ width: 130, textAlign: 'right' }}
+                value={retEditada === 'bs' ? retBsStr : (ret.bs > 0 ? String(ret.bs) : '')}
+                onChange={(e) => { setRetEditada('bs'); setRetBsStr(e.target.value); }} />
+            </div>
+            <div className="form-row" style={{ margin: 0 }}>
+              <label style={{ fontSize: '.78rem' }}>En $</label>
+              <input className="input mono" type="number" min={0} step="any" placeholder="0,00" style={{ width: 110, textAlign: 'right' }}
+                value={retEditada === 'usd' ? retUsdStr : (ret.usd > 0 ? String(ret.usd) : '')}
+                onChange={(e) => { setRetEditada('usd'); setRetUsdStr(e.target.value); }} />
+            </div>
+            <div className="form-row" style={{ margin: 0 }}>
+              <label style={{ fontSize: '.78rem' }}>Tasa</label>
+              <input className="input mono" type="number" min={0} step="any" style={{ width: 100, textAlign: 'right' }}
+                value={tasaStr} onChange={(e) => setTasaStr(e.target.value)} />
+            </div>
+          </div>
+          {retenido > 0 && (
+            <div style={{ marginTop: '.5rem', fontSize: '.86rem' }}>
+              ⬇ <strong>El monto BAJA para Tesorería:</strong> {money(total, o.moneda)} − {money(retenido, o.moneda)} ={' '}
+              <strong className="mono">{money(aPagarConRetencion(total, retenido), o.moneda)}</strong>
+            </div>
+          )}
+        </div>
+      )}
       <div className="form-row" style={{ margin: 0 }}>
         <label>Nota <span className="muted" style={{ fontWeight: 400 }}>(opcional · ej. «no aplica»)</span></label>
         <input className="input" value={nota} maxLength={300} onChange={(e) => setNota(e.target.value)} placeholder="Ej.: comprobante 2026-10-000123" />

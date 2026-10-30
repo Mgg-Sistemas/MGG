@@ -95,6 +95,7 @@ import type { OfertaProveedor } from '@/shared/lib/types';
 import { CalculadoraModal } from './calculadora/CalculadoraModal';
 import { quienCargo, quienSolicitaConRespaldo } from '@/modules/pedidos/quienSolicita';
 import { cargarPersonasConHistorial, personaDe, type PersonasMap } from '@/shared/lib/personas';
+import { efectoRetencionEnPago } from '@/modules/pedidos/retencionMomento';
 import { textoOrdenTesoreria } from '@/modules/pedidos/ordenPagoTxt';
 import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
 import { enviarMensajeOc } from '@/modules/pedidos/ocChat.repository';
@@ -6248,11 +6249,15 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   // Retención (opcional): se escribe en Bs o en $, la otra moneda sale con SU tasa
   // (arranca en la BCV del día y se puede cambiar). Se RESTA del total de la factura
   // en la moneda de la orden.
-  const [conRetencion, setConRetencion] = useState(false);
-  const [retEditada, setRetEditada] = useState<'bs' | 'usd'>('bs');
-  const [retBsStr, setRetBsStr] = useState('');
-  const [retUsdStr, setRetUsdStr] = useState('');
-  const [retTasaStr, setRetTasaStr] = useState('');
+  // Flujo nuevo (30-10-2026): si Retenciones ya retuvo ANTES de pagar, la retención
+  // viene puesta (el monto BAJA); si se retiene DESPUÉS, se paga completo.
+  const efectoRet = efectoRetencionEnPago(o, baseGeneral);
+  const retPrevia = efectoRet?.efecto === 'baja' ? o.retencion_previa ?? null : null;
+  const [conRetencion, setConRetencion] = useState(!!retPrevia);
+  const [retEditada, setRetEditada] = useState<'bs' | 'usd'>(retPrevia && !esOrdenBs ? 'usd' : 'bs');
+  const [retBsStr, setRetBsStr] = useState(retPrevia?.bs ? String(retPrevia.bs) : '');
+  const [retUsdStr, setRetUsdStr] = useState(retPrevia?.usd ? String(retPrevia.usd) : '');
+  const [retTasaStr, setRetTasaStr] = useState(retPrevia?.tasa ? String(retPrevia.tasa) : '');
   const retTasa = retTasaStr !== '' ? (Number(retTasaStr) || 0) : tasa;
   const retConv = convertirRetencion(Number(retEditada === 'bs' ? retBsStr : retUsdStr) || 0, retEditada, retTasa);
   const retencionMonto = conRetencion ? (esOrdenBs ? retConv.bs : retConv.usd) : 0;
@@ -7043,6 +7048,16 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
           </table>
         </div>
 
+        {efectoRet && (
+          <div className="card" style={{ marginBottom: '.6rem', padding: '.55rem .8rem', borderLeft: `3px solid var(${efectoRet.efecto === 'baja' ? '--success' : '--warning'})`, fontSize: '.86rem' }}>
+            {efectoRet.efecto === 'baja' ? (
+              <>⬇ <strong>El monto BAJA:</strong> Retenciones retuvo <strong className="mono">{monto(efectoRet.retenido, monedaOrden)}</strong> antes de pagar · se paga{' '}
+                <strong className="mono">{monto(efectoRet.aPagar, monedaOrden)}</strong> (ya viene puesta abajo).</>
+            ) : (
+              <>⬆ <strong>Se paga el monto COMPLETO</strong> (<span className="mono">{monto(efectoRet.aPagar, monedaOrden)}</span>): esta OC se retiene <strong>después</strong> de pagar, en Retenciones. No restes retención aquí.</>
+            )}
+          </div>
+        )}
         {/* Retención (opcional): se resta del total de la factura. */}
         <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--primary)' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.88rem', fontWeight: 600 }}>

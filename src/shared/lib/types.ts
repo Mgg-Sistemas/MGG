@@ -1060,6 +1060,8 @@ export interface Orden {
   retencion_hecha_en?: string | null;
   retencion_hecha_por?: string | null;
   retencion_nota?: string | null;
+  /** Retención hecha ANTES de pagar (flujo nuevo, 30-10-2026): Tesorería la resta. */
+  retencion_previa?: { bs: number; usd: number; tasa: number | null; monto: number } | null;
   retencion_iva_path?: string | null;
   retencion_iva_nombre?: string | null;
   retencion_islr_path?: string | null;

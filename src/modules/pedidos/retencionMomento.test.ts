@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Orden } from '@/shared/lib/types';
 import {
   colaRetencion, errorPagoRetencionPendiente, esperaRetencionAntesDePagar, etiquetaRetencionMomento,
-  patchRetencionMomento, repartirColasRetencion,
+  efectoRetencionEnPago, patchRetencionMomento, repartirColasRetencion,
 } from './retencionMomento';
 
 const o = (over: Partial<Orden>): Orden => ({
@@ -68,5 +68,20 @@ describe('etiquetaRetencionMomento', () => {
     expect(etiquetaRetencionMomento(o({}))).toBeNull();
     expect(etiquetaRetencionMomento(o({ retencion_momento: 'antes' }))).toBe('Retención: antes de pagar · pendiente');
     expect(etiquetaRetencionMomento(o({ retencion_momento: 'despues', retencion_hecha_en: '2026-10-30' }))).toBe('Retención: después de pagar · hecha');
+  });
+});
+
+describe('efectoRetencionEnPago', () => {
+  it('ANTES con retención anotada: el monto BAJA', () => {
+    expect(efectoRetencionEnPago({ retencion_momento: 'antes', retencion_previa: { bs: 400, usd: 10, tasa: 40, monto: 10 }, total: 116.67 }))
+      .toEqual({ efecto: 'baja', retenido: 10, aPagar: 106.67 });
+  });
+  it('DESPUÉS: se paga COMPLETO', () => {
+    expect(efectoRetencionEnPago({ retencion_momento: 'despues', retencion_previa: null, total: 50 }))
+      .toEqual({ efecto: 'completo', retenido: 0, aPagar: 50 });
+  });
+  it('sin flujo nuevo o ANTES sin monto («no aplica»): nada', () => {
+    expect(efectoRetencionEnPago({ retencion_momento: null, retencion_previa: null, total: 50 })).toBeNull();
+    expect(efectoRetencionEnPago({ retencion_momento: 'antes', retencion_previa: null, total: 50 })).toBeNull();
   });
 });

@@ -40,10 +40,18 @@ export async function listOcPorRetener(): Promise<ColasOcPorRetener> {
   return { antes: antes.map(fila), despues: despues.map(fila) };
 }
 
-/** Retenciones marca la retención como hecha (o que no aplica, con nota). */
-export async function marcarRetencionHecha(ordenId: string, nota?: string | null): Promise<Orden> {
+/**
+ * Retenciones marca la retención como hecha (o que no aplica, con nota). En las de ANTES
+ * de pagar anota cuánto retuvo: Tesorería paga el total MENOS eso (el monto baja).
+ */
+export async function marcarRetencionHecha(
+  ordenId: string, nota?: string | null, monto?: { bs: number; usd: number; tasa: number } | null,
+): Promise<Orden> {
   const { data, error } = await supabase.rpc('compras_marcar_retencion', {
     p_orden_id: ordenId, p_nota: nota?.trim() || null,
+    p_monto_bs: monto && monto.bs > 0 ? monto.bs : null,
+    p_monto_usd: monto && monto.usd > 0 ? monto.usd : null,
+    p_tasa: monto && monto.tasa > 0 ? monto.tasa : null,
   });
   if (error) throw new Error(error.message || 'No se pudo marcar la retención');
   return data as Orden;
