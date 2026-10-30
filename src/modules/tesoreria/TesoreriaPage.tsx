@@ -94,6 +94,10 @@ import { ordenesConOfertasDe } from '@/modules/pedidos/ordenDeOfertas';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { CalculadoraModal } from './calculadora/CalculadoraModal';
 import { quienCargo, quienSolicitaConRespaldo } from '@/modules/pedidos/quienSolicita';
+import { textoOrdenTesoreria } from '@/modules/pedidos/ordenPagoTxt';
+import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
+import { enviarMensajeOc } from '@/modules/pedidos/ocChat.repository';
+import { push as pushNotif } from '@/modules/notificaciones/notif.repository';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 const TIPO_MOV_LABEL: Record<string, string> = {
@@ -6269,6 +6273,13 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   const gSubNombre = gSubcats.find((s) => s.id === gSubId)?.nombre ?? null;
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Motivo de Pago / Decisión de pago (30-10-2026):
+  const [sePagara, setSePagara] = useState<'si' | 'no'>('si');
+  const [motivoNo, setMotivoNo] = useState<'sin_fondos' | 'esperando_jefe' | 'no_procede' | 'otro' | ''>('');
+  const [justificacionNoProcede, setJustificacionNoProcede] = useState('');
+  const [motivoOtroTexto, setMotivoOtroTexto] = useState('');
+  const [notificandoNo, setNotificandoNo] = useState(false);
+  const [waModal, setWaModal] = useState<{ titulo: string; texto: string; onCerrar?: () => void } | null>(null);
   // Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura.
   const [comisionMonto, setComisionMonto] = useState('');
   const [comisionSaldoId, setComisionSaldoId] = useState('');
@@ -6374,6 +6385,134 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
       + `Se registra el pago de ${factura} y los ${monto(reembolsoOrden, monedaOrden)} de más salen en otro movimiento:\n`
       + `«${conceptoReembolsoOc(codigoOc, null, o.clase)}».\n\n¿Confirmás?`,
     );
+  }
+
+  function abrirWaPagada() {
+    const textoWa = textoOrdenTesoreria({
+      orden: o,
+      proveedorNombre: row.proveedorNombre,
+      personas: {
+        solicita: quienSolicitaConRespaldo(o) || o.solicitante,
+        analista: quienCargo(o) || o.creada_por_nombre || o.creada_por,
+      },
+      montoUsd: totalUsd,
+      montoBs: totalBs,
+      tasaBs: tasa,
+      estado: 'PAGADA POR TESORERIA',
+    });
+    setWaModal({
+      titulo: `Avisar por WhatsApp · OC ${codigoOc} PAGADA`,
+      texto: textoWa,
+      onCerrar: () => {
+        setWaModal(null);
+        onPaid();
+      },
+    });
+  }
+
+  async function handleNotificarNoProcede() {
+    const just = justificacionNoProcede.trim();
+    if (!just) {
+      setError('Por favor indica la justificación de por qué no procede esta compra.');
+      return;
+    }
+    setNotificandoNo(true);
+    setError(null);
+    try {
+      const analistaNombre = quienCargo(o) || o.creada_por_nombre || 'el analista encargado';
+      try {
+        await enviarMensajeOc({
+          ordenId: o.id,
+          texto: `🚫 Tesorería indica: NO PROCEDE ESTA COMPRA.\nMotivo: ${just}\nAcción: Se notifica al analista encargado (${analistaNombre}) para que cancele la orden o busque otra cotización.`,
+          autorEmail: actor,
+          autorNombre: actorName,
+        });
+      } catch { /* continuar */ }
+
+      try {
+        await pushNotif({
+          destino: o.creada_por || undefined,
+          kind: 'warning',
+          title: `OC ${codigoOc} · No procede la compra`,
+          message: `Tesorería: ${just}. Cancelá la orden o buscá otra cotización.`,
+          link: '#/app/pedidos',
+          dedup_key: `oc-no-procede-${o.id}`,
+        });
+      } catch { /* continuar */ }
+
+      toast(`Notificación enviada a ${analistaNombre}`, 'success');
+
+      const textoWa = textoOrdenTesoreria({
+        orden: o,
+        proveedorNombre: row.proveedorNombre,
+        personas: {
+          solicita: quienSolicitaConRespaldo(o) || o.solicitante,
+          analista: quienCargo(o) || o.creada_por_nombre || o.creada_por,
+        },
+        montoUsd: totalUsd,
+        montoBs: totalBs,
+        tasaBs: tasa,
+        estado: `NO PROCEDE LA COMPRA · Motivo: ${just}`,
+      });
+
+      setWaModal({
+        titulo: `Avisar por WhatsApp · OC ${codigoOc} NO PROCEDE`,
+        texto: textoWa,
+        onCerrar: () => {
+          setWaModal(null);
+          onClose();
+        },
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo enviar la notificación.');
+    } finally {
+      setNotificandoNo(false);
+    }
+  }
+
+  async function handleEnviarMotivoWa() {
+    if (!motivoNo) {
+      setError('Seleccioná el motivo por el cual no se pagará en estos momentos.');
+      return;
+    }
+    let desc = '';
+    if (motivoNo === 'sin_fondos') desc = 'Sin fondos en estos momentos';
+    else if (motivoNo === 'esperando_jefe') desc = 'Esperando respuestas por el jefe';
+    else if (motivoNo === 'otro') {
+      desc = motivoOtroTexto.trim();
+      if (!desc) { setError('Por favor escribe el motivo.'); return; }
+    }
+
+    const estadoStr = `NO PAGADA · ${desc}`;
+    setError(null);
+
+    try {
+      await enviarMensajeOc({
+        ordenId: o.id,
+        texto: `⏳ Tesorería indica motivo de no pago temporal: ${desc}`,
+        autorEmail: actor,
+        autorNombre: actorName,
+      });
+    } catch { /* continuar */ }
+
+    const textoWa = textoOrdenTesoreria({
+      orden: o,
+      proveedorNombre: row.proveedorNombre,
+      personas: {
+        solicita: quienSolicitaConRespaldo(o) || o.solicitante,
+        analista: quienCargo(o) || o.creada_por_nombre || o.creada_por,
+      },
+      montoUsd: totalUsd,
+      montoBs: totalBs,
+      tasaBs: tasa,
+      estado: estadoStr,
+    });
+
+    setWaModal({
+      titulo: `Avisar por WhatsApp · OC ${codigoOc}`,
+      texto: textoWa,
+      onCerrar: () => setWaModal(null),
+    });
   }
 
   // Prellenado del multipago. Reglas (para que un pago no se parta sin necesidad):
@@ -6514,7 +6653,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
         if (legsReembolso.length && !confirmarReembolso(monto(enMonedaOrden(sumUsdMulti), monedaOrden))) { setSaving(false); return; }
         await pagarOrdenCompraMulti({ orden: o, cajaId, legs: legsPago, reembolsoLegs: legsReembolso, retencionMonto, retencionDetalle, reembolsoOrden, factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName });
         notify(`OC ${codigoOc} pagada · multipago ${monto(enMonedaOrden(round2(sumUsdMulti - excesoUsdMulti)), monedaOrden)}${reembolsoOrden > 0 ? ` · reembolso ${monto(reembolsoOrden, monedaOrden)}` : ''}`, 'success', { link: '#/app/tesoreria' });
-        onPaid();
+        abrirWaPagada();
         return;
       }
       if (excesoSimple > 0 && !confirmarReembolso(monto(montoNum, moneda))) { setSaving(false); return; }
@@ -6525,16 +6664,49 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
         gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName,
       });
       notify(`OC ${codigoOc} pagada · ${monto(montoFactura, moneda)}${excesoSimple > 0 ? ` · reembolso ${monto(excesoSimple, moneda)}` : ''}`, 'success', { link: '#/app/tesoreria' });
-      onPaid();
+      abrirWaPagada();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo pagar.'); setSaving(false); }
   }
 
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={() => import('@/modules/pedidos/ordenCompraPdf').then(({ descargarOrdenCompraPdf }) => descargarOrdenCompraPdf(o.id)).catch(() => toast('No se pudo generar el PDF', 'error'))}>↓ OC PDF</button>
-      <button className="btn btn-ghost" onClick={onClose} disabled={saving}>{row.esperandoMetodo ? 'Cerrar' : 'Cancelar'}</button>
-      {!row.esperandoMetodo && (
-        <button type="submit" form="pagar-oc" className="btn btn-primary" disabled={saving}>{saving ? 'Pagando…' : `PAGAR ORDEN · ${esMultimoneda ? monto(enMonedaOrden(sumUsdMulti), monedaOrden) : monto(Number(montoStr) || 0, moneda)}${excedeTotal ? ' · con reembolso' : ''}`}</button>
+      <button className="btn btn-ghost" onClick={onClose} disabled={saving || notificandoNo}>{row.esperandoMetodo ? 'Cerrar' : 'Cancelar'}</button>
+      {!row.esperandoMetodo && sePagara === 'si' && (
+        <button type="submit" form="pagar-oc" className="btn btn-primary" disabled={saving}>
+          {saving ? 'Pagando…' : `PAGAR ORDEN · ${esMultimoneda ? monto(enMonedaOrden(sumUsdMulti), monedaOrden) : monto(Number(montoStr) || 0, moneda)}${excedeTotal ? ' · con reembolso' : ''}`}
+        </button>
+      )}
+      {!row.esperandoMetodo && sePagara === 'no' && motivoNo === 'no_procede' && (
+        <button
+          type="button"
+          className="btn btn-danger"
+          onClick={handleNotificarNoProcede}
+          disabled={notificandoNo || !justificacionNoProcede.trim()}
+        >
+          {notificandoNo ? 'Notificando…' : '🚫 Notificar que no procede y enviar WhatsApp'}
+        </button>
+      )}
+      {!row.esperandoMetodo && sePagara === 'no' && motivoNo !== 'no_procede' && (
+        <>
+          <button
+            type="button"
+            className="btn btn-primary"
+            onClick={handleEnviarMotivoWa}
+            disabled={!motivoNo || (motivoNo === 'otro' && !motivoOtroTexto.trim())}
+          >
+            📲 Enviar motivo por WhatsApp
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => setSePagara('si')}
+            title="Permite proceder con el pago de la OC"
+            style={{ borderColor: 'var(--primary)' }}
+          >
+            💳 Proceder con el pago
+          </button>
+        </>
       )}
     </>
   );
@@ -6612,7 +6784,136 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
           </div>
         )}
 
-        {!row.esperandoMetodo && (<>
+        {/* Motivo de Pago / Decisión de pago (30-10-2026) */}
+        {!row.esperandoMetodo && (
+          <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--primary)' }}>
+            <div className="card-title" style={{ marginBottom: '.4rem' }}>💳 Motivo de Pago</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.4rem' }}>
+              <span style={{ fontSize: '.86rem', fontWeight: 600 }}>¿Se pagará esta OC?</span>
+              <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className={`btn ${sePagara === 'si' ? 'btn-primary' : 'btn-ghost'}`}
+                  style={{ flex: 1, minHeight: 40, fontWeight: 700 }}
+                  onClick={() => { setSePagara('si'); setError(null); }}
+                >
+                  ✓ SÍ, se pagará
+                </button>
+                <button
+                  type="button"
+                  className={`btn ${sePagara === 'no' ? 'btn-danger' : 'btn-ghost'}`}
+                  style={{ flex: 1, minHeight: 40, fontWeight: 700 }}
+                  onClick={() => { setSePagara('no'); setError(null); }}
+                >
+                  ✕ NO se pagará
+                </button>
+              </div>
+
+              {sePagara === 'si' && (
+                <div style={{ fontSize: '.82rem', color: 'var(--success)', marginTop: '.2rem' }}>
+                  ✓ Se procederá con el pago de la orden de compra.
+                </div>
+              )}
+
+              {sePagara === 'no' && (
+                <div style={{ marginTop: '.4rem', padding: '.6rem', background: 'var(--bg-1)', borderRadius: 6, border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '.84rem', fontWeight: 600, marginBottom: '.4rem' }}>
+                    Motivo por el cual no se pagará:
+                  </div>
+                  <div style={{ display: 'grid', gap: '.4rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.84rem', padding: '.3rem .5rem', borderRadius: 4, background: motivoNo === 'sin_fondos' ? 'rgba(255,255,255,0.08)' : 'transparent' }}>
+                      <input
+                        type="radio"
+                        name="motivo_no_radio"
+                        checked={motivoNo === 'sin_fondos'}
+                        onChange={() => setMotivoNo('sin_fondos')}
+                      />
+                      <span>⏳ Sin fondos en estos momentos</span>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.84rem', padding: '.3rem .5rem', borderRadius: 4, background: motivoNo === 'esperando_jefe' ? 'rgba(255,255,255,0.08)' : 'transparent' }}>
+                      <input
+                        type="radio"
+                        name="motivo_no_radio"
+                        checked={motivoNo === 'esperando_jefe'}
+                        onChange={() => setMotivoNo('esperando_jefe')}
+                      />
+                      <span>👔 Esperando respuestas por el jefe</span>
+                    </label>
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.84rem', padding: '.3rem .5rem', borderRadius: 4, background: motivoNo === 'no_procede' ? 'rgba(255,60,60,0.1)' : 'transparent' }}>
+                      <input
+                        type="radio"
+                        name="motivo_no_radio"
+                        checked={motivoNo === 'no_procede'}
+                        onChange={() => setMotivoNo('no_procede')}
+                      />
+                      <span style={{ color: 'var(--danger)', fontWeight: 600 }}>🚫 No procede esta compra</span>
+                    </label>
+
+                    {motivoNo === 'no_procede' && (
+                      <div className="form-row" style={{ margin: '.3rem 0 .2rem 1.6rem' }}>
+                        <label style={{ fontSize: '.78rem', color: 'var(--danger)', fontWeight: 600 }}>
+                          Justificación de por qué no se hará la compra (obligatoria) *
+                        </label>
+                        <textarea
+                          className="input"
+                          rows={2}
+                          value={justificacionNoProcede}
+                          onChange={(e) => setJustificacionNoProcede(e.target.value)}
+                          placeholder="Explicá detalladamente por qué no se hará la compra…"
+                          autoFocus
+                        />
+                        <small className="hint muted" style={{ fontSize: '.75rem' }}>
+                          Se notificará al analista encargado ({quienCargo(o) || o.creada_por || 'compras'}) para que proceda a cancelar la orden o buscar otra cotización.
+                        </small>
+                      </div>
+                    )}
+
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.84rem', padding: '.3rem .5rem', borderRadius: 4, background: motivoNo === 'otro' ? 'rgba(255,255,255,0.08)' : 'transparent' }}>
+                      <input
+                        type="radio"
+                        name="motivo_no_radio"
+                        checked={motivoNo === 'otro'}
+                        onChange={() => setMotivoNo('otro')}
+                      />
+                      <span>📝 Otro</span>
+                    </label>
+
+                    {motivoNo === 'otro' && (
+                      <div className="form-row" style={{ margin: '.3rem 0 .2rem 1.6rem' }}>
+                        <label style={{ fontSize: '.78rem', fontWeight: 600 }}>
+                          Especificá el motivo (obligatorio) *
+                        </label>
+                        <input
+                          className="input"
+                          value={motivoOtroTexto}
+                          onChange={(e) => setMotivoOtroTexto(e.target.value)}
+                          placeholder="Escribí el motivo libre…"
+                          autoFocus
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!row.esperandoMetodo && sePagara === 'no' && (
+          <div className="card" style={{ marginBottom: '.75rem', borderLeft: motivoNo === 'no_procede' ? '3px solid var(--danger)' : '3px solid var(--info, #38bdf8)' }}>
+            <div style={{ fontSize: '.84rem' }}>
+              {motivoNo === 'no_procede' ? (
+                <>🚫 <strong>No procede la compra:</strong> Al confirmar, se notificará al analista ({quienCargo(o) || o.creada_por || 'compras'}) en el sistema para que cancele la orden o busque otra cotización, y se abrirá WhatsApp con el estado detallado.</>
+              ) : (
+                <>💡 Podés enviar el motivo de no pago temporal por WhatsApp con el botón de abajo. Si luego contás con los fondos o la respuesta del jefe, podés hacer clic en <strong>«💳 Proceder con el pago»</strong> para pagar la orden.</>
+              )}
+            </div>
+          </div>
+        )}
+
+        {!row.esperandoMetodo && sePagara === 'si' && (<>
         {pagoParcial && (
           <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--warning)', background: 'var(--bg-1)' }}>
             <div style={{ fontSize: '.84rem' }}>
@@ -7048,6 +7349,15 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
         autorEmail={actor}
         autorNombre={actorName ?? actor}
       />
+
+      {/* Modal para enviar aviso formateado por WhatsApp (30-10-2026) */}
+      {waModal && (
+        <MensajeWhatsappModal
+          titulo={waModal.titulo}
+          texto={waModal.texto}
+          onClose={waModal.onCerrar ?? (() => setWaModal(null))}
+        />
+      )}
     </Modal>
   );
 }

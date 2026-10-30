@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { textoOrdenPago, montoTxt, bancoTxt, detalleTxt, saldoPendiente, esCuentaCredito, enlaceWhatsapp, textoOrdenAprobacion } from './ordenPagoTxt';
+import { textoOrdenPago, montoTxt, bancoTxt, detalleTxt, saldoPendiente, esCuentaCredito, enlaceWhatsapp, textoOrdenAprobacion, textoOrdenTesoreria } from './ordenPagoTxt';
 import type { Orden } from '@/shared/lib/types';
 
 /** La orden del ejemplo que dio el usuario: calzado para el motorizado. */
@@ -333,3 +333,69 @@ describe('tipo de requerimiento y monto en Bs a la tasa del día (29-10-2026)', 
     expect(textoOrdenPago({ ...base, urgente: true } as Orden, 'X', undefined, { tasaBs: 36.5 })).not.toContain('️');
   });
 });
+
+describe('textoOrdenTesoreria · mensaje de pago y motivos de no pago (30-10-2026)', () => {
+  const personas = { solicita: 'JESUS LOZADA', analista: 'NAZARET SALAZAR' };
+
+  it('formatea mensaje de OC pagada por tesorería con todos los campos pedidos', () => {
+    const msg = textoOrdenTesoreria({
+      orden: { ...base, notas: 'SOLICITUD DE STICKERS' } as Orden,
+      proveedorNombre: 'SUBLI MAX',
+      personas,
+      montoUsd: 55,
+      tasaBs: 50,
+      estado: 'PAGADA POR TESORERIA',
+    });
+
+    expect(msg.split('\n')).toEqual([
+      '🔹 *ORDEN:* OC-2026-0130',
+      '🏭 *Proveedor:* SUBLI MAX',
+      '📌 *Nota del analista:* SOLICITUD DE STICKERS',
+      '🛒 *Analista:* NAZARET SALAZAR',
+      '🙋 *Solicita:* JESUS LOZADA',
+      '💵 *Monto en $:* $55,00',
+      '💱 *Monto en Bs:* Bs 2.750,00 (tasa 50,00)',
+      '📊 *Estado:* PAGADA POR TESORERIA',
+      '🏢 *MINERAL GROUP GUAYANA C.A.*',
+    ]);
+  });
+
+  it('formatea mensaje de motivo de no pago', () => {
+    const msg = textoOrdenTesoreria({
+      orden: { ...base, notas: 'SOLICITUD DE STICKERS' } as Orden,
+      proveedorNombre: 'SUBLI MAX',
+      personas,
+      montoUsd: 55,
+      tasaBs: 50,
+      estado: 'NO PAGADA · Sin fondos en estos momentos',
+    });
+
+    expect(msg).toContain('📊 *Estado:* NO PAGADA · Sin fondos en estos momentos');
+  });
+
+  it('formatea mensaje cuando no procede la compra con su justificación', () => {
+    const msg = textoOrdenTesoreria({
+      orden: { ...base, notas: 'SOLICITUD DE STICKERS' } as Orden,
+      proveedorNombre: 'SUBLI MAX',
+      personas,
+      montoUsd: 55,
+      tasaBs: 50,
+      estado: 'NO PROCEDE LA COMPRA · Motivo: Precio muy elevado',
+    });
+
+    expect(msg).toContain('📊 *Estado:* NO PROCEDE LA COMPRA · Motivo: Precio muy elevado');
+  });
+
+  it('emojis sin selectores U+FE0F ni uniones invisibles', () => {
+    const msg = textoOrdenTesoreria({
+      orden: { ...base, notas: 'Nota' } as Orden,
+      proveedorNombre: 'SUBLI MAX',
+      personas,
+      montoUsd: 55,
+      tasaBs: 50,
+      estado: 'PAGADA POR TESORERIA',
+    });
+    expect(/\uFE0F|\u200D/.test(msg)).toBe(false);
+  });
+});
+

@@ -209,3 +209,48 @@ export function textoOrdenAprobacion(orden: Orden, proveedorNombre: string, pers
   L.push('🏢 *MINERAL GROUP GUAYANA C.A.*');
   return L.join('\n');
 }
+
+export interface DatosMensajeTesoreria {
+  orden: Orden;
+  proveedorNombre?: string | null;
+  personas?: PersonasOrden;
+  montoUsd?: number | null;
+  montoBs?: number | null;
+  tasaBs?: number | null;
+  estado: string;
+}
+
+/**
+ * Mensaje de WhatsApp emitido desde Tesorería al pagar o al indicar motivo de no pago (30-10-2026).
+ * Incluye: código de la OC, proveedor, nota del analista, analista, solicitante, monto en $ y en Bs al cambio,
+ * y estado (PAGADA POR TESORERIA o motivo de no pago).
+ * Emojis sin selector U+FE0F según las reglas de WhatsApp del sistema.
+ */
+export function textoOrdenTesoreria(d: DatosMensajeTesoreria): string {
+  const o = d.orden;
+  const codigo = o.oc_codigo ?? o.codigo;
+  const prov = (d.proveedorNombre ?? '').trim();
+  const nota = (o.notas ?? '').trim();
+  const analista = (d.personas?.analista ?? '').trim();
+  const solicita = (d.personas?.solicita ?? '').trim();
+
+  const t = Number(d.tasaBs) || 0;
+  const totalUsd = d.montoUsd != null ? d.montoUsd : (Number(o.total) || 0);
+  const totalBs = d.montoBs != null && d.montoBs > 0 ? d.montoBs : (t > 0 ? totalUsd * t : 0);
+
+  const L: string[] = [];
+  L.push(`🔹 *ORDEN:* ${codigo}`);
+  if (prov) L.push(`🏭 *Proveedor:* ${prov}`);
+  if (nota) L.push(`📌 *Nota del analista:* ${nota.replace(/\s*\r?\n\s*/g, ' ')}`);
+  if (analista) L.push(`🛒 *Analista:* ${analista}`);
+  if (solicita) L.push(`🙋 *Solicita:* ${solicita}`);
+  L.push(`💵 *Monto en $:* ${montoTxt(totalUsd, '$')}`);
+  if (totalBs > 0) {
+    L.push(`💱 *Monto en Bs:* ${montoTxt(totalBs, 'Bs')}${t > 0 ? ` (tasa ${tasaTxt(t)})` : ''}`);
+  }
+  L.push(`📊 *Estado:* ${d.estado}`);
+  L.push('🏢 *MINERAL GROUP GUAYANA C.A.*');
+
+  return L.join('\n');
+}
+
