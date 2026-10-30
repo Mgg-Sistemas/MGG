@@ -368,9 +368,9 @@ export function MaquinariaMovilView() {
           }
           notify(`🔧 ${res.codigo} creada${avisada ? ' · Compras notificada de las piezas nuevas' : ''} — ${equipoActual.equipo}`, 'warning', {
             link: `#/app/maquinaria/equipo/${equipoActual.id}?tab=servicios`,
-            detail: `Queda por solicitar la solicitud de pedido (${motivo})`,
+            detail: `Queda por solicitar la solicitud de servicio (${motivo})`,
           });
-          toast(`Queda por solicitar la solicitud de pedido (${motivo}). Se puede generar después desde la orden.`, 'warning');
+          toast(`Queda por solicitar la solicitud de servicio (${motivo}). Se puede generar después desde la orden.`, 'warning');
         }
       }
 
@@ -384,7 +384,7 @@ export function MaquinariaMovilView() {
           horometro: horasServicio ? Number(horasServicio) : null,
           kilometraje: kmServicio ? Number(kmServicio) : null,
           trabajo: descripcionServicio.trim(),
-          observacion: `Orden de servicio ${res.codigo}${spCodigo ? ` · Solicitud a Compras ${spCodigo}` : ''}. Piezas solicitadas con nombres generales para cotización y número de parte en Compras.`,
+          observacion: `Orden de servicio ${res.codigo}${spCodigo ? ` · Solicitud de servicio ${spCodigo}` : ''}. Piezas solicitadas con nombres generales para cotización y número de parte en Compras.`,
           mecanico: responsableServicio.trim() || actorName,
         }, actor, actorName);
       } catch (errBit) {
@@ -855,7 +855,7 @@ export function MaquinariaMovilView() {
         <div className="card" style={{ padding: '1.1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.85rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-              <span>🛒</span> Solicitud de Servicio / Pedido a Compras
+              <span>🛒</span> Solicitud de Servicio a Compras
             </h3>
             <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.84rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
           </div>

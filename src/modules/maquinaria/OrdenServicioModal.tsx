@@ -58,7 +58,7 @@ function Decision({ l }: { l: Linea }) {
  * Asistente de la orden de servicio (3 pasos). Al crear:
  *  1. la base guarda la orden y decide el origen de cada repuesto con el stock real;
  *  2. si el usuario tiene permiso de Salidas, se pide la salida de inventario (por aprobar);
- *  3. lo que falta entra a Pedidos como solicitud de pedido (la crea la base con el permiso
+ *  3. lo que falta entra a Pedidos como solicitud de servicio (la crea la base con el permiso
  *     de Maquinaria); las piezas que no están en el inventario se dan de alta con stock 0
  *     en la categoría elegida (12/10/2026).
  * Lo que no se pueda pedir queda «por solicitar» en la orden.
@@ -71,7 +71,7 @@ export function OrdenServicioModal({
   equipo, horometro, kilometraje, aviso, puedeSalidas, actor, orden, onClose, onCreated,
 }: {
   equipo: MaquinariaEquipo; horometro: number | null; kilometraje: number | null; aviso: AvisoServicio | null;
-  /** Ya no decide nada: la solicitud de pedido la crea la base con el permiso de Maquinaria. */
+  /** Ya no decide nada: la solicitud de servicio la crea la base con el permiso de Maquinaria. */
   puedeSalidas: boolean; puedePedidos?: boolean; actor: { email: string; nombre: string | null };
   /** La orden a editar (si no viene, se crea una nueva). */
   orden?: OrdenServicio | null;
@@ -237,13 +237,13 @@ export function OrdenServicioModal({
           catch (e) { pendientes.push(`la salida de inventario (${e instanceof Error ? e.message : 'error'})`); }
         } else pendientes.push('la salida de inventario (no tienes permiso de Salidas)');
       }
-      // Lo que falta entra a Pedidos como solicitud de pedido. Las piezas que no están en el
+      // Lo que falta entra a Pedidos como solicitud de servicio (SV). Las piezas que no están en el
       // inventario se dan de alta ahí mismo (stock 0, con la categoría elegida).
       if (faltaCompra(orden)) {
         const nuevas = lineas.filter((l) => !l.productoId).map((l) => ({ nombre: l.nombre, categoria: (l.categoria ?? '').trim(), unidad: l.unidad }));
-        try { partes.push(`solicitud de pedido ${await solicitarCompraDeOrden(orden, nuevas)}`); }
+        try { partes.push(`solicitud de servicio ${await solicitarCompraDeOrden(orden, nuevas)}`); }
         catch (e) {
-          pendientes.push(`la solicitud de pedido (${e instanceof Error ? e.message : (e as { message?: string })?.message || 'error'})`);
+          pendientes.push(`la solicitud de servicio (${e instanceof Error ? e.message : (e as { message?: string })?.message || 'error'})`);
           // Si no se pudo, al menos Compras se entera de las piezas nuevas.
           if (r.repuestos.some((x) => !x.producto_id)) {
             try { await notificarComprasPiezasNuevas(orden); partes.push('Compras notificada de las piezas nuevas'); } catch { /* queda por solicitar */ }
@@ -482,9 +482,9 @@ export function OrdenServicioModal({
                 {efecto.salen > 0 && <p>{puedeSalidas ? 'Va a Salidas «por aprobar»: descuenta stock cuando se ejecute.' : '⚠️ No tienes permiso de Salidas: quedará por solicitar.'}</p>}
               </div></div>
               <div className="flo-flow-node"><span className="ico">🛒</span><div>
-                <strong>{efecto.compran ? 'Solicitud de pedido' : 'Sin compras'}</strong>
+                <strong>{efecto.compran ? 'Solicitud de servicio' : 'Sin compras'}</strong>
                 {efecto.compran ? <ul className="flo-mini">{decididas.filter((l) => l.a_comprar > 0).map((l, i) => <li key={i}>{fmtNum(l.a_comprar)} {l.unidad} · {l.nombre}{l.producto_id ? null : <em> · pieza nueva</em>}</li>)}</ul> : <p>Todo está en inventario.</p>}
-                {efecto.compran > 0 && <p>Entra a Pedidos como solicitud de pedido (SP): Compras la cotiza y pasa a OC cuando el Gerente General la aprueba.</p>}
+                {efecto.compran > 0 && <p>Entra a Pedidos → 🔧 Servicios como solicitud de servicio (SV): Compras la cotiza, indica con qué producto del inventario entra cada pieza y pasa a orden de servicio cuando se aprueba.</p>}
                 {efecto.nuevos > 0 && <p>🆕 {efecto.nuevos === 1 ? 'La pieza nueva se da' : `Las ${efecto.nuevos} piezas nuevas se dan`} de alta en el inventario (stock 0) en la categoría elegida.</p>}
               </div></div>
             </div>

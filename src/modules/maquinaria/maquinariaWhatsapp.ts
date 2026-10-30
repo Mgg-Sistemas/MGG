@@ -194,7 +194,7 @@ export function textoCompraRepuestosWhatsapp(d: DatosCompraRepuestosWhatsapp): s
     sinSelector(`🛒 *MINERAL GROUP GUAYANA C.A.*`),
     sinSelector(`📦 *SOLICITUD DE COMPRA DE REPUESTOS*`),
     d.ordenServicio ? `*Orden de Servicio:* ${d.ordenServicio}` : '',
-    d.solicitudPedido ? `*Solicitud de Pedido:* ${d.solicitudPedido}` : '',
+    d.solicitudPedido ? `*Solicitud de Servicio:* ${d.solicitudPedido}` : '',
     `*Fecha:* ${fechaStr}`,
     '',
     sinSelector(`🚜 *EQUIPO DESTINO:* ${d.equipo}`),

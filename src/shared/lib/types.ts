@@ -955,6 +955,9 @@ export interface DetalleServicioItem {
   cantidad?: number | null;
   /** Precio OPCIONAL de esta pieza/trabajo. Si se cargan, su suma alimenta el precio de la línea. */
   precio?: number | null;
+  /** Pieza pedida desde Control de Maquinaria (30-10-2026): unidad y, si ya existe, su producto. */
+  unidad?: string | null;
+  producto_id?: string | null;
 }
 
 export interface EventoHistorial {

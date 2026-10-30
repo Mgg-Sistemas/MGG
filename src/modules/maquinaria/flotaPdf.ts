@@ -284,7 +284,7 @@ export async function ordenServicioPdf(
 
   doc.setFontSize(8.5); doc.setFont('helvetica', 'bold'); doc.setTextColor(146, 64, 14);
   if (vinculos.salida) { doc.text(`Solicitud de salida de inventario: ${vinculos.salida.codigo} · ${vinculos.salida.estado.replace(/_/g, ' ')}`, M, y); y += 5; }
-  if (vinculos.compra) { doc.text(`Solicitud de pedido (compra): ${vinculos.compra.codigo} · ${vinculos.compra.estado.replace(/_/g, ' ')}`, M, y); y += 5; }
+  if (vinculos.compra) { doc.text(`Solicitud de servicio (compra): ${vinculos.compra.codigo} · ${vinculos.compra.estado.replace(/_/g, ' ')}`, M, y); y += 5; }
 
   // 4. Registro fotográfico (las fotos de la orden, hasta 4, de dos en dos y sin deformar).
   const fotosOs = await fotosOrdenConUrl(o.id).catch(() => [] as { nombre: string; url: string }[]);

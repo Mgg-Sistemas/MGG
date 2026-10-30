@@ -13,7 +13,7 @@
    dan de alta en el inventario: las nombra y crea Compras (13-10).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { ItemOrden, ItemSolicitudSalida } from '@/shared/lib/types';
+import type { DetalleServicioItem, ItemOrden, ItemSolicitudSalida } from '@/shared/lib/types';
 import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
 import { crearOrden, ensureUnidadSolicitante } from '@/modules/pedidos/pedidos.repository';
 import { notify } from '@/shared/lib/notify';
@@ -225,11 +225,18 @@ function finalidadDeOrden(o: OrdenServicio, equipo: { equipo: string; placa?: st
   return `${que} para ${equipo.equipo}${id}`.toUpperCase();
 }
 
+/** Vehículos y camiones van a «MANTENIMIENTO DE VEHÍCULOS»; el resto, a «MANTENIMIENTO DE MAQUINARIA». */
+export function categoriaServicioDeEquipo(tipoEquipo: string | null | undefined): string {
+  const t = (tipoEquipo ?? '').normalize('NFD').replace(/\p{M}/gu, '').toUpperCase();
+  return /VEHICULO|CAMION|AUTOBUS|AUTOMOVIL|MOTO/.test(t) ? 'MANTENIMIENTO DE VEHÍCULOS' : 'MANTENIMIENTO DE MAQUINARIA';
+}
+
 /**
- * Pide la compra de lo que falta: crea la SOLICITUD DE PEDIDO en Pedidos («pendiente», flujo
- * normal de MGG), casada al equipo, con la unidad MANTENIMIENTO DE MAQUINARIA y clasificación
- * Mantenimiento. Las piezas que no están en el inventario van con su nombre general (no se
- * crean productos). Devuelve el código de la SP.
+ * Pide a Compras lo que falta. Desde el 30-10-2026 (orden de la administradora) entra como
+ * SOLICITUD DE SERVICIO (Pedidos → 🔧 Servicios, código SV-…), NO como solicitud de pedido:
+ * un renglón de servicio casado al equipo y, en su detalle, las piezas con su nombre general.
+ * Al cargar la cotización el analista indica con qué producto del inventario entra cada pieza
+ * (o uno nuevo con su nombre, o que no entra). Devuelve el código de la solicitud (SV-…).
  *
  * Firmas aceptadas: `(o, nuevas)` (llamadores traídos de GT), `(o, actor)` y `(o, nuevas, actor)`.
  * Sin actor se usa el de la sesión.
@@ -240,10 +247,10 @@ export async function solicitarCompraDeOrden(o: Pick<OrdenServicio, 'id'>, nueva
   if (eo) throw eo;
   if (!fila) throw new Error('La orden no existe (puede que la hayan borrado).');
   const orden = fila as OrdenServicio;
-  if (orden.orden_compra_id) throw new Error(`La orden ${orden.codigo} ya tiene su solicitud de pedido.`);
+  if (orden.orden_compra_id) throw new Error(`La orden ${orden.codigo} ya tiene su solicitud de servicio.`);
   if (orden.estado !== 'abierta' && orden.estado !== 'repuestos') throw new Error('Solo se pide la compra de una orden abierta o esperando repuestos.');
-  const { data: eq } = await supabase.from('maquinaria_equipos').select('id, equipo, placa, serial').eq('id', orden.equipo_id).maybeSingle();
-  const equipo = (eq ?? { id: orden.equipo_id, equipo: 'equipo', placa: null, serial: null }) as { id: string; equipo: string; placa: string | null; serial: string | null };
+  const { data: eq } = await supabase.from('maquinaria_equipos').select('id, equipo, tipo, placa, serial').eq('id', orden.equipo_id).maybeSingle();
+  const equipo = (eq ?? { id: orden.equipo_id, equipo: 'equipo', tipo: null, placa: null, serial: null }) as { id: string; equipo: string; tipo: string | null; placa: string | null; serial: string | null };
   const finalidad = finalidadDeOrden(orden, equipo);
 
   // 1. Los repuestos por comprar pasan a Compras con su nombre general.
@@ -254,50 +261,52 @@ export async function solicitarCompraDeOrden(o: Pick<OrdenServicio, 'id'>, nueva
     pieza_nueva: r.producto_id ? (r.pieza_nueva ?? null) : (r.pieza_nueva ?? r.nombre),
   }));
 
-  // 2. La solicitud de pedido (SP) en Pedidos, casada al equipo.
-  const items: ItemOrden[] = [];
+  // 2. Las piezas (nombre general) van en el DETALLE del renglón de servicio.
+  const piezas: DetalleServicioItem[] = [];
   for (const r of repuestos) {
     if (!(r.a_comprar > 0)) continue;
-    let sku = '';
     let unidad = r.unidad || 'und';
     if (r.producto_id) {
-      const { data: p } = await supabase.from('productos').select('sku, unidad').eq('id', r.producto_id).maybeSingle();
-      if (p) {
-        sku = (p as { sku?: string }).sku ?? '';
-        unidad = (p as { unidad?: string }).unidad ?? unidad;
-      }
+      const { data: p } = await supabase.from('productos').select('unidad').eq('id', r.producto_id).maybeSingle();
+      if (p) unidad = (p as { unidad?: string }).unidad ?? unidad;
     }
-    items.push({
-      productoId: r.producto_id ?? undefined,
-      sku,
-      nombre: r.nombre.trim().toUpperCase(),
-      cantidad: r.a_comprar,
-      precio: 0,
-      unidad,
-      comprar: true,
-      finalidad,
-      equipo_id: equipo.id,
-      equipo_nombre: equipo.equipo,
-    });
+    piezas.push({ descripcion: r.nombre.trim().toUpperCase(), cantidad: r.a_comprar, unidad, producto_id: r.producto_id ?? null });
   }
+  if (!piezas.length) throw new Error('Esta orden no tiene repuestos por comprar.');
 
-  if (!items.length) throw new Error('Esta orden no tiene repuestos por comprar.');
+  // 3. La SOLICITUD DE SERVICIO en Pedidos (🔧 Servicios), casada al equipo.
+  const categoria = categoriaServicioDeEquipo(equipo.tipo);
+  const tipoServicio = (servicioPorId(orden.tipo)?.label ?? orden.tipo ?? 'SERVICIO').toUpperCase();
+  const items: ItemOrden[] = [{
+    sku: 'SRV-1',
+    nombre: `${categoria} · ${equipo.equipo} · ${tipoServicio}`,
+    cantidad: 1,
+    precio: 0,
+    unidad: 'und',
+    comprar: true,
+    finalidad,
+    equipo_id: equipo.id,
+    equipo_nombre: equipo.equipo,
+    servicio_categoria: categoria,
+    servicio_tipo: tipoServicio,
+    detalle_items: piezas,
+  }];
   await ensureUnidadSolicitante(UNIDAD_MAQUINARIA, actor.email);
   const notas = `Orden de servicio ${orden.codigo} · ${equipo.equipo}.`;
   const sp = await crearOrden({
     proveedor_id: null, items, notas, motivo: null, finalidad, clasificacion: ['Mantenimiento'],
     solicitante_email: actor.email, solicitante: UNIDAD_MAQUINARIA, solicitante_persona: actor.nombre ?? null,
-    ci_solicitante: null, urgente: orden.urgencia === 'urgente',
+    ci_solicitante: null, urgente: orden.urgencia === 'urgente', clase: 'servicio',
   });
 
-  // 3. La orden queda con su SP vinculada.
+  // 4. La orden queda con su solicitud de servicio vinculada.
   const { error: eu } = await supabase.from('maquinaria_ordenes_servicio').update({ repuestos }).eq('id', orden.id);
   if (eu) throw eu;
   await vincular(orden.id, null, sp.id);
   await supabase.from('notificaciones').update({ read: true }).eq('dedup_key', `maq-os-piezas-${orden.id}`).eq('read', false).then(() => undefined, () => undefined);
-  notify(`🛒 Solicitud de pedido ${sp.codigo} · ${orden.codigo} (${equipo.equipo})`, 'info', {
+  notify(`🔧 Solicitud de servicio ${sp.codigo} · ${orden.codigo} (${equipo.equipo})`, 'info', {
     link: '#/app/pedidos', destino: 'admin', dedup_key: `maq-os-sp-${orden.id}`,
-    detail: `Repuestos de la orden de servicio ${orden.codigo}. El analista de compras colocará el nombre comercial exacto en Pedidos.`,
+    detail: `Entra a Pedidos → 🔧 Servicios. Las piezas van con su nombre general: el analista de compras indica en la cotización con qué producto del inventario entra cada una.`,
   });
   return sp.codigo;
 }
@@ -338,8 +347,12 @@ export async function comprasDeEquipo(equipoId: string, ordenes: OrdenServicio[]
   for (const r of [...(porItem.data ?? []), ...(porId.data ?? [])] as Array<Record<string, unknown>>) {
     const id = r.id as string;
     if (vistos.has(id)) continue;
-    const items = Array.isArray(r.items) ? (r.items as Array<{ nombre?: string; cantidad?: number; unidad?: string; equipo_id?: string | null }>) : [];
-    const propias = items.filter((i) => !i.equipo_id || i.equipo_id === equipoId);
+    const items = Array.isArray(r.items) ? (r.items as Array<{ nombre?: string; cantidad?: number; unidad?: string; equipo_id?: string | null; detalle_items?: DetalleServicioItem[] | null }>) : [];
+    // Solicitud de servicio (30-10-2026): las piezas van en el detalle del renglón.
+    const propias = items.filter((i) => !i.equipo_id || i.equipo_id === equipoId)
+      .flatMap((i) => (i.detalle_items?.length
+        ? i.detalle_items.map((d) => ({ nombre: d.descripcion, cantidad: d.cantidad ?? 1, unidad: d.unidad ?? undefined }))
+        : [i]));
     vistos.set(id, {
       id, codigo: r.codigo as string, oc_codigo: (r.oc_codigo as string) ?? null, tipo: (r.clase as string) ?? null,
       estado: r.estado as string, created_at: r.created_at as string,

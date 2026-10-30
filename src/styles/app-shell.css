@@ -30,7 +30,11 @@
   border-right: 1px solid var(--border);
   display: flex; flex-direction: column;
   position: sticky; top: 0; height: 100vh;
+  /* En el teléfono 100vh cuenta la barra del navegador: el pie (con «Salir»)
+     quedaba debajo de lo visible. dvh = lo que de verdad se ve. */
+  height: 100dvh;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .sidebar-brand {
   padding: 1rem 1.25rem;
@@ -75,6 +79,11 @@
   margin-top: auto;
   padding: 1rem;
   border-top: 1px solid var(--border);
+  /* El pie (usuario + ⎋ Salir) siempre a la vista al fondo del menú, aunque la
+     lista sea larga; con margen para la barra de gestos del teléfono. */
+  position: sticky; bottom: 0;
+  background: var(--bg-1);
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
 }
 .user-chip {
   display: flex; align-items: center; gap: .65rem;
@@ -92,7 +101,8 @@
   font-size: .85rem;
 }
 .user-chip .info { line-height: 1.1; flex: 1; min-width: 0; }
-.user-chip .info .name { font-size: .85rem; font-weight: 600; color: var(--text); }
+.user-chip .info .name { font-size: .85rem; font-weight: 600; color: var(--text); overflow-wrap: anywhere; }
+.user-chip .btn { flex-shrink: 0; }
 .user-chip .info .role { font-size: .7rem; color: var(--text-muted); }
 
 /* Topbar */
@@ -848,7 +858,7 @@ tr.row-selectable:active { transform: scale(0.998); }
   /* Sidebar como panel deslizable sobre el contenido. */
   .sidebar {
     position: fixed; top: 0; left: 0; z-index: 60;
-    width: 270px; max-width: 84vw; height: 100vh;
+    width: 270px; max-width: 84vw; height: 100vh; height: 100dvh;
     transform: translateX(-100%);
     transition: transform .22s ease;
     box-shadow: var(--shadow-lg);

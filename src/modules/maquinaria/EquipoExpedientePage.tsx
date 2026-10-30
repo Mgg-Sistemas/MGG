@@ -252,7 +252,7 @@ export function EquipoExpedientePage() {
       const codigo = que === 'salida'
         ? await solicitarSalidaDeOrden(o, eq.equipo, { email: actor, nombre: actorName })
         : await solicitarCompraDeOrden(o);
-      toast(`${o.codigo}: ${que === 'salida' ? 'salida' : 'solicitud de pedido'} ${codigo} creada.`, 'success');
+      toast(`${o.codigo}: ${que === 'salida' ? 'salida' : 'solicitud de servicio'} ${codigo} creada.`, 'success');
       await cargar();
     } catch (e) { toast(errMsg(e, 'No se pudo crear la solicitud'), 'error'); }
     finally { setTrabajando(null); }
@@ -678,7 +678,7 @@ function TabServicios({ ordenes, salidas, compras, perm, trabajando, puedeCrear,
               <div className="aviso warning sm"><span className="aviso-icono">⚠️</span><div>
                 Por solicitar: {[faltaSalida(o) ? 'la salida de inventario' : null, faltaCompra(o) ? 'la compra' : null].filter(Boolean).join(' y ')}.
                 {faltaSalida(o) && !perm.salidas && ' La salida la pide quien tenga permiso de Salidas.'}
-                {faltaCompra(o) && ' La compra entra a Pedidos con «🛒 Pedir compra».'}
+                {faltaCompra(o) && ' Lo que falta entra a Pedidos → 🔧 Servicios con «🛒 Pedir compra».'}
               </div></div>
             )}
             <FotosOrden ordenId={o.id} canWrite={perm.maquinaria} mostrarVacio={false} />
