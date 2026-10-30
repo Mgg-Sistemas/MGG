@@ -35,11 +35,13 @@ import { diaVE, getTasasUsdDeFechas, hoyVE } from '@/modules/tesoreria/tasas.rep
 import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
 import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
 import { ReportesView } from './ReportesView';
+import { OcPorRetenerPanel } from './OcPorRetenerPanel';
+import { useFlujoRevisionAlmacen } from '@/modules/pedidos/revisionAlmacen.repository';
 import '@/modules/libroFiscal/libroFiscal.css';
 import '@/modules/libroFiscal/libroFiscalV8.css';
 import { norm } from '@/shared/lib/texto';
 
-type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes' | 'auditoria' | 'buzon' | 'otras_empresas';
+type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes' | 'auditoria' | 'buzon' | 'otras_empresas' | 'oc_por_retener';
 
 /** Qué documento es un código, en palabras: el personal no tiene por qué saber las siglas. */
 function nombreDocumento(codigo: string | null | undefined): string {
@@ -152,6 +154,8 @@ function RetencionesPantalla() {
   const actorName = appUser?.nombre ?? null;
 
   const [vista, setVista] = useState<Vista>('agrupada');
+  // Flujo nuevo de compras (30-10-2026): «OC por retener» (antes / después de pagar).
+  const flujoNuevoCompras = useFlujoRevisionAlmacen();
   const [parametros, setParametros] = useState(false);
   const [pendientes, setPendientes] = useState<RetencionItem[]>([]);
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
@@ -341,6 +345,7 @@ function RetencionesPantalla() {
               Por realizar{porRealizar.length ? ` (${porRealizar.length})` : ''}
             </button>
             <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
+            {flujoNuevoCompras && <button className={vista === 'oc_por_retener' ? 'active' : ''} onClick={() => setVista('oc_por_retener')}>🧾 OC por retener (flujo nuevo)</button>}
             <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📒 Libro fiscal</button>
             <button className={vista === 'buzon' || vista === 'otras_empresas' ? 'active' : ''} onClick={() => setVista('buzon')}>📬 Buzón Móvil</button>
             {conV3 && <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>}
@@ -369,6 +374,8 @@ function RetencionesPantalla() {
 
       {/* ── Auditoría Fiscal (concisa y explícita) ── */}
       {vista === 'auditoria' && <AuditoriaRetenciones />}
+
+      {vista === 'oc_por_retener' && flujoNuevoCompras && <OcPorRetenerPanel canWrite={canWrite} />}
 
       {/* ── Por realizar (v8): grid, pills, acciones inline ── */}
       {/* P03: lo que falta de Compras (recepciones sin factura) y sus archivos de factura por registrar. */}

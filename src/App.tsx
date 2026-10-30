@@ -45,6 +45,8 @@ const LavadosPage = lazyReload(() => import('./modules/maquinaria/LavadosPage').
 const RepuestosComprasPage = lazyReload(() => import('./modules/maquinaria/RepuestosComprasPage').then((m) => ({ default: m.RepuestosComprasPage })));
 const RepuestosPorEquipoPage = lazyReload(() => import('./modules/maquinaria/RepuestosPorEquipoPage').then((m) => ({ default: m.RepuestosPorEquipoPage })));
 const MaquinariaMovilView = lazyReload(() => import('./modules/maquinaria/MaquinariaMovilView').then((m) => ({ default: m.MaquinariaMovilView })));
+const DeliveryPage = lazyReload(() => import('./modules/delivery/DeliveryPage').then((m) => ({ default: m.DeliveryPage })));
+const DeliveryMovilView = lazyReload(() => import('./modules/delivery/DeliveryMovilView').then((m) => ({ default: m.DeliveryMovilView })));
 const ChoferesPage = lazyReload(() => import('./modules/choferes/ChoferesPage').then((m) => ({ default: m.ChoferesPage })));
 const VentasPage = lazyReload(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
 const TesoreriaPage = lazyReload(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
@@ -151,6 +153,9 @@ export function App() {
           <Route path="dashboard" element={<RequireModule module="dashboard"><Suspense fallback={<PageLoader />}><DashboardPage /></Suspense></RequireModule>} />
           <Route path="pedidos" element={<RequireModule module="pedidos"><Suspense fallback={<PageLoader />}><PedidosPage /></Suspense></RequireModule>} />
           <Route path="pedidos/historico" element={<RequireModule module="pedidos"><Suspense fallback={<PageLoader />}><HistoricoPage /></Suspense></RequireModule>} />
+          {/* Delivery (30-10-2026): OC pagada → motorizado → almacén. Desconectado hasta que la administradora lo active. */}
+          <Route path="delivery" element={<RequireModule module="delivery"><Suspense fallback={<PageLoader />}><DeliveryPage /></Suspense></RequireModule>} />
+          <Route path="delivery/telefono" element={<RequireVistaTelefono vista="delivery"><Suspense fallback={<PageLoader />}><DeliveryMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="proveedores" element={<RequireModule module="proveedores"><Suspense fallback={<PageLoader />}><ProveedoresPage /></Suspense></RequireModule>} />
           <Route path="inventario" element={<RequireModule module="inventario"><Suspense fallback={<PageLoader />}><InventarioPage /></Suspense></RequireModule>} />
           {/* Inventario y Almacenes en el teléfono (29-10-2026, traída de GT Depósito Mina). */}

@@ -135,7 +135,8 @@ import { OcPorLoteView } from './OcPorLoteView';
 import { quienCargo, quienSolicita } from './quienSolicita';
 import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
 import { useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
-import { fmtCant, mensajeRevisionAlmacen, mensajeSolicitudPedido } from './revisionAlmacen';
+import { etiquetaRetencionMomento, type RetencionMomento } from './retencionMomento';
+import { desgloseAlmacen, fmtCant, mensajeRevisionAlmacen, mensajeSolicitudPedido, resumenRevision, textoEstadoSedes } from './revisionAlmacen';
 
 /* ============================================================
    MGG · Pedidos / Órdenes · Página principal
@@ -1181,8 +1182,14 @@ export function PedidosPage() {
               const email = usuario?.email ?? user?.email ?? 'sistema';
               const codigo = modal.orden.oc_codigo ?? modal.orden.codigo;
               await indicarMetodoPago(modal.orden, metodos, email, soporte, qr, descuentoPago);
-              const extra = soporte.comprobanteTipo === 'factura' ? ' · enviada también a Retenciones' : '';
-              notify(`OC ${codigo} enviada para pagar · disponible en Tesorería${extra}`, 'success', { link: '#/app/tesoreria' });
+              if (soporte.retencionMomento === 'antes') {
+                // Flujo nuevo: primero Retenciones; Tesorería la ve cuando la retención esté hecha.
+                notify(`OC ${codigo} · se retiene ANTES de pagar: va primero a Retenciones y después a Tesorería`, 'success', { link: '#/app/retenciones' });
+              } else {
+                const extra = soporte.retencionMomento === 'despues' ? ' · después de pagada pasa a Retenciones'
+                  : soporte.comprobanteTipo === 'factura' ? ' · enviada también a Retenciones' : '';
+                notify(`OC ${codigo} enviada para pagar · disponible en Tesorería${extra}`, 'success', { link: '#/app/tesoreria' });
+              }
               setModal({ kind: 'none' });
               await refresh();
             } catch (e) {
@@ -1560,7 +1567,7 @@ function MetodoPagoModal({
    *  Confirmada pagar y solo se arregla CÓMO se le paga (método y datos del beneficiario). */
   modo?: 'enviar' | 'corregir';
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; numeroAdministracion: string | null }, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; numeroAdministracion: string | null; retencionMomento?: RetencionMomento | null }, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
   /** «Cambiar de proveedor»: reabre las cotizaciones de la OC (con su motivo) para escoger otra. Solo al enviar. */
   onReabrir?: (motivo: string) => Promise<void> | void;
 }) {
@@ -1601,6 +1608,13 @@ function MetodoPagoModal({
   // Soporte: Nota de entrega → directo a Tesorería. Factura → además pasa por Retenciones.
   const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>('nota_entrega');
   const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>('se_paga_despues');
+  // Flujo nuevo de compras (30-10-2026): ¿se retiene ANTES o DESPUÉS de pagar? Obligatorio
+  // solo con el flujo prendido y al enviar a pagar. 'antes' → Retenciones; 'despues' → Tesorería.
+  const flujoNuevo = useFlujoRevisionAlmacen();
+  const pideMomentoRet = flujoNuevo && !corrigiendo;
+  const [retMomento, setRetMomento] = useState<RetencionMomento | null>(
+    orden.retencion_momento === 'antes' || orden.retencion_momento === 'despues' ? orden.retencion_momento : null,
+  );
   // Descuento en el pago (opcional): reduce el monto a pagar en Tesorería (no el total OC).
   // Se puede indicar en % (sobre el total) o como monto manual.
   const [incluyeDesc, setIncluyeDesc] = useState(false);
@@ -1662,6 +1676,7 @@ function MetodoPagoModal({
       setError('En multipago, indicá el monto por cada método/moneda.'); return;
     }
     if (esContraEntrega && !corrigiendo && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
+    if (pideMomentoRet && !retMomento) { setError('Indicá si la retención se hace ANTES o DESPUÉS de pagar.'); return; }
     if (incluyeDesc) {
       if (descNum <= 0) { setError('Indicá el monto del descuento o desmarcá «El pago incluye descuento».'); return; }
       if (descNum > baseTotal) { setError('El descuento no puede superar el total de la OC.'); return; }
@@ -1679,7 +1694,10 @@ function MetodoPagoModal({
       // si falla, se avisa y no se manda a pagar sin el dato.
       const numero = numeroAdmin.trim() || null;
       if (numero && numero !== numeroAdminGuardado) await fijarNumeroAdministracionProveedor(proveedorId, numero);
-      await onSent(validos, { comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, numeroAdministracion: numero }, qr, incluyeDesc && descNum > 0 ? descNum : null);
+      await onSent(validos, {
+        comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, numeroAdministracion: numero,
+        ...(pideMomentoRet && retMomento ? { retencionMomento: retMomento } : {}),
+      }, qr, incluyeDesc && descNum > 0 ? descNum : null);
     }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
   }
@@ -1833,6 +1851,24 @@ function MetodoPagoModal({
           </div>
         )}
       </div>
+
+      {/* Flujo nuevo (30-10-2026): ¿se retiene ANTES o DESPUÉS de pagar? Decide si la OC va
+          primero a Retenciones ('antes') o a Tesorería ('despues'). Con el flujo apagado no aparece. */}
+      {pideMomentoRet && (
+        <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: retMomento ? 'var(--border)' : 'var(--warning)' }}>
+          <div className="card-title" style={{ marginBottom: '.45rem' }}>🧾 Retención <span className="muted" style={{ fontWeight: 400 }}>(obligatorio)</span></div>
+          <div style={{ display: 'grid', gap: '.35rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
+              <input type="radio" name="ret-momento" checked={retMomento === 'antes'} onChange={() => setRetMomento('antes')} />
+              <span>Se retiene <strong>ANTES</strong> de pagar <span className="muted">(va primero a Retenciones)</span></span>
+            </label>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
+              <input type="radio" name="ret-momento" checked={retMomento === 'despues'} onChange={() => setRetMomento('despues')} />
+              <span>Se retiene <strong>DESPUÉS</strong> de pagar <span className="muted">(va a Tesorería y luego a Retenciones)</span></span>
+            </label>
+          </div>
+        </div>
+      )}
 
       {/* Imagen / QR de pago (opcional): ej. el QR de Binance para pagar por cripto.
           Se muestra en Tesorería al pagar, para escanear y pagar directo. */}
@@ -2931,6 +2967,7 @@ function OrdenDetailModal({
             titulo: `Revisión de almacén · ${o.codigo}`,
             texto: mensajeRevisionAlmacen(o, {
               revisor: o.revisada_almacen_por ? persona(o.revisada_almacen_por, personaMap, o.revisada_almacen_en) : null,
+              nombre: (correo) => persona(correo, personaMap),
             }),
           })}>
           💬 Mensaje de almacén
@@ -3146,7 +3183,7 @@ function OrdenDetailModal({
       {/* Revisión de almacén (29-10-2026). */}
       {enRevisionAlmacen && (
         <div className="card" style={{ borderColor: 'var(--info)', background: 'var(--bg-1)', margin: '0 0 .75rem', padding: '.5rem .8rem', fontWeight: 600 }}>
-          ⏳ En revisión de almacén: Compras la recibe cuando almacén la marque revisada.
+          ⏳ En revisión de almacén ({textoEstadoSedes(o)}): Compras la recibe cuando todos los almacenes confirmen.
         </div>
       )}
       {revisadaAlmacen && (
@@ -3160,6 +3197,12 @@ function OrdenDetailModal({
             {o.estado === 'atendida_almacen'
               ? 'Almacén tiene todo lo solicitado: no pasa a Compras.'
               : 'A Compras llega solo lo que falta (columna «A comprar»).'}
+            {(() => {
+              const entregan = (resumenRevision(o.items ?? []).porSede ?? []).filter((e) => e.sede);
+              return entregan.length
+                ? <> Entrega: {entregan.map((e) => `${e.etiqueta} ${e.renglones.length} renglón(es)`).join(' · ')}.</>
+                : null;
+            })()}
           </div>
           {o.nota_almacen?.trim() && (
             <div style={{ fontSize: '.84rem', marginTop: '.25rem', whiteSpace: 'pre-wrap' }}>📝 {o.nota_almacen}</div>
@@ -3400,6 +3443,21 @@ function OrdenDetailModal({
           </div>
         </div>
       )}
+      {/* Flujo nuevo (30-10-2026): momento de la retención y si Retenciones ya la hizo. */}
+      {etiquetaRetencionMomento(o) && (
+        <div className="detail-row">
+          <div className="k">Retención</div>
+          <div className="v">
+            <span className={`badge ${o.retencion_hecha_en ? 'success' : 'warning'}`}>🧾 {etiquetaRetencionMomento(o)}</span>
+            {o.retencion_hecha_en && (
+              <span className="muted" style={{ fontSize: '.74rem' }}>
+                {' '}· {dateTime(o.retencion_hecha_en)}{o.retencion_hecha_por ? ` por ${persona(o.retencion_hecha_por, personaMap, o.retencion_hecha_en)}` : ''}
+                {o.retencion_nota ? ` · ${o.retencion_nota}` : ''}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
       {(Number(o.descuento_pago) || 0) > 0 && (
         <div className="detail-row">
           <div className="k">Descuento en el pago</div>
@@ -3629,6 +3687,9 @@ function OrdenDetailModal({
                   </td>
                   <td className="num" style={(Number(it.cantidad_almacen) || 0) > 0 ? { color: 'var(--success)', fontWeight: 600 } : undefined}>
                     {it.cantidad_almacen != null ? `${fmtCant(Number(it.cantidad_almacen))}${unidadDe(it.unidad)}` : <span className="muted">—</span>}
+                    {desgloseAlmacen(it) && (
+                      <div className="muted" style={{ fontSize: '.72rem', fontWeight: 400 }}>{desgloseAlmacen(it)}</div>
+                    )}
                   </td>
                 </>
               )}

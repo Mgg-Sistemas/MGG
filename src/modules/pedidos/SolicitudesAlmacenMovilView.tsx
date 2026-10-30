@@ -3,10 +3,12 @@
 
    Para el almacenista con el teléfono en la mano, entre los estantes: tarjetas
    grandes (por revisar / urgentes / revisadas), un buscador y la lista. Al
-   tocar una SP se abre la misma revisión que en la PC, con botones grandes.
-   Cada toque se guarda solo y se ve en vivo en la PC (`ordenes` en realtime).
+   tocar una SP se abre la misma revisión que en la PC, con botones grandes:
+   el almacenista responde por SU sede (Los Pinos o Matanza · 30-10) y en la
+   lista se ve qué sede ya confirmó. Cada toque se guarda solo y se ve en vivo
+   en la PC (`ordenes` en realtime).
    ============================================================ */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Orden } from '@/shared/lib/types';
 import { useSession } from '@/modules/auth/authStore';
@@ -20,7 +22,7 @@ import { dateTime, relTime } from '@/shared/lib/format';
 import { MensajeWhatsappModal } from './MensajeWhatsappModal';
 import { RevisionSolicitudAlmacen, resultadoRevision } from './RevisionSolicitudAlmacen';
 import { quienSolicita } from './quienSolicita';
-import { mensajeRevisionAlmacen, resumenRevision, seRevisa } from './revisionAlmacen';
+import { mensajeRevisionAlmacen, mensajeRevisionSede, resumenRevision, seRevisa, textoEstadoSedes } from './revisionAlmacen';
 import { listSolicitudesEnRevision, listSolicitudesRevisadas, useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
 
 const RUTA = '/app/solicitudes-pedido/telefono';
@@ -45,7 +47,11 @@ export function SolicitudesAlmacenMovilView() {
   const [filtro, setFiltro] = useState<Filtro>('pendientes');
   const [q, setQ] = useState('');
   const [selId, setSelId] = useState<string | null>(null);
-  const [mensaje, setMensaje] = useState<{ titulo: string; texto: string } | null>(null);
+  /** Mensajes por mostrar, uno tras otro (la respuesta de la sede y, si cerró, la revisión completa). */
+  const [mensajes, setMensajes] = useState<Array<{ titulo: string; texto: string }>>([]);
+  const mensaje = mensajes[0] ?? null;
+  /** La SP que se acaba de cerrar acá: si sale de la lista no se avisa como «la revisó otro». */
+  const cerradaAca = useRef<string | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -68,7 +74,7 @@ export function SolicitudesAlmacenMovilView() {
   useEffect(() => {
     if (!selId || cargando || sel) return;
     const cerrada = revisadas.find((o) => o.id === selId);
-    toast(cerrada ? `${cerrada.codigo} ya la revisó ${nombreDe(null, cerrada.revisada_almacen_por) || 'otro usuario'}` : 'La solicitud ya no está en revisión', 'info');
+    if (cerradaAca.current !== selId) toast(cerrada ? `${cerrada.codigo} ya la revisó ${nombreDe(null, cerrada.revisada_almacen_por) || 'otro usuario'}` : 'La solicitud ya no está en revisión', 'info');
     setSelId(null);
   }, [selId, sel, cargando, revisadas, nombreDe]);
 
@@ -79,17 +85,25 @@ export function SolicitudesAlmacenMovilView() {
     return t ? base.filter((o) => textoBusqueda(o).includes(t)) : base;
   }, [filtro, revisadas, urgentes, pendientes, q]);
 
-  function alRevisar(actualizada: Orden, revisor: string) {
+  const nombreCorreo = useCallback((correo: string) => nombreDe(null, correo), [nombreDe]);
+
+  function alConfirmar(actualizada: Orden, sede: string, revisor: string) {
+    const cola = [{ titulo: `🏬 Almacén respondió ${actualizada.codigo}`, texto: mensajeRevisionSede(actualizada, sede, { revisor }) }];
+    if (actualizada.estado !== 'revision_almacen') {
+      // Respondieron todos: la SP salió de almacén.
+      cerradaAca.current = actualizada.id;
+      cola.push({ titulo: `✅ Almacén revisó ${actualizada.codigo}`, texto: mensajeRevisionAlmacen(actualizada, { nombre: nombreCorreo }) });
+    }
     setSelId(null);
-    setMensaje({ titulo: `✅ Almacén revisó ${actualizada.codigo}`, texto: mensajeRevisionAlmacen(actualizada, { revisor }) });
+    setMensajes(cola);
     void reload();
   }
 
   function abrirRevisada(o: Orden) {
-    setMensaje({
+    setMensajes([{
       titulo: `✅ Revisión de ${o.codigo}`,
-      texto: mensajeRevisionAlmacen(o, { revisor: nombreDe(null, o.revisada_almacen_por) }),
-    });
+      texto: mensajeRevisionAlmacen(o, { revisor: nombreDe(null, o.revisada_almacen_por), nombre: nombreCorreo }),
+    }]);
   }
 
   return (
@@ -116,7 +130,7 @@ export function SolicitudesAlmacenMovilView() {
       )}
 
       {sel ? (
-        <RevisionSolicitudAlmacen key={sel.id} orden={sel} variante="telefono" onRevisada={alRevisar} />
+        <RevisionSolicitudAlmacen key={sel.id} orden={sel} variante="telefono" onConfirmada={alConfirmar} />
       ) : (
         <>
           <div className="surt-acciones">
@@ -183,7 +197,6 @@ export function SolicitudesAlmacenMovilView() {
                 );
               }
               const n = (o.items ?? []).filter(seRevisa).length;
-              const revisados = (o.items ?? []).filter((it) => seRevisa(it) && it.almacen_revisado).length;
               return (
                 <button key={o.id} type="button" className="surt-mov" onClick={() => setSelId(o.id)}
                   style={o.urgente ? { borderColor: 'var(--danger)' } : undefined}>
@@ -191,8 +204,9 @@ export function SolicitudesAlmacenMovilView() {
                   <span style={{ minWidth: 0 }}>
                     <span className="titulo" style={{ display: 'block' }}>{o.codigo} · {solicita}</span>
                     <span className="sub" style={{ display: 'block' }}>
-                      {n} producto(s) · {relTime(o.created_at)}{revisados > 0 ? ` · ${revisados} revisado(s)` : ''}
+                      {n} producto(s) · {relTime(o.created_at)}
                     </span>
+                    <span className="sub" style={{ display: 'block' }}>🏬 {textoEstadoSedes(o)}</span>
                   </span>
                   <span className="litros">{n}</span>
                 </button>
@@ -202,7 +216,7 @@ export function SolicitudesAlmacenMovilView() {
         </>
       )}
 
-      {mensaje && <MensajeWhatsappModal titulo={mensaje.titulo} texto={mensaje.texto} onClose={() => setMensaje(null)} />}
+      {mensaje && <MensajeWhatsappModal key={mensaje.titulo} titulo={mensaje.titulo} texto={mensaje.texto} onClose={() => setMensajes((m) => m.slice(1))} />}
     </div>
   );
 }

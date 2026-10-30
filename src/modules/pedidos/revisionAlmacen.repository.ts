@@ -6,9 +6,11 @@
    siempre y nada de esto se ve. La administradora decide cuándo se prende
    (desde el lunes 02-11-2026); se cambia en la base y toma al recargar.
 
-   La revisión la cierra la base (`almacen_revisar_solicitud`, security
-   definer): solo toca SP en `revision_almacen` y solo quien escribe en
-   Inventario. Ver supabase/sql/compras-revision-almacen-2026-10-29.sql.
+   La revisión la lleva la base (`almacen_revisar_solicitud`, security
+   definer): solo toca SP en `revision_almacen`, solo quien escribe en
+   Inventario o en Salidas, y cada almacenista responde por SU sede (30-10:
+   Los Pinos y Matanza confirman por separado; cuando confirman todos, la base
+   reparte y cierra). Ver supabase/sql/compras-revision-almacen-sedes-2026-10-30.sql.
    ============================================================ */
 import { useEffect, useState } from 'react';
 import { supabase } from '@/shared/lib/supabase';
@@ -69,26 +71,27 @@ function marcasParaRpc(marcas: Record<string, MarcaAlmacen>) {
   return Object.entries(marcas).map(([sku, m]) => ({ sku, disponible: Number(m.disponible) || 0, revisado: !!m.revisado }));
 }
 
-/** Guarda lo marcado hasta ahora (uno a uno) sin cerrar la revisión. */
-export async function guardarMarcasAlmacen(ordenId: string, marcas: Record<string, MarcaAlmacen>): Promise<Orden> {
+/** Guarda lo que marcó una sede hasta ahora (uno a uno) sin confirmar. No toca lo de la otra sede. */
+export async function guardarMarcasSede(ordenId: string, sede: string, marcas: Record<string, MarcaAlmacen>): Promise<Orden> {
   const { data, error } = await supabase.rpc('almacen_revisar_solicitud', {
-    p_orden_id: ordenId, p_items: marcasParaRpc(marcas), p_finalizar: false, p_nota: null,
+    p_orden_id: ordenId, p_sede: sede, p_items: marcasParaRpc(marcas), p_confirmar: false, p_nota: null,
   });
   if (error) throw new Error(error.message || 'No se pudo guardar la revisión');
   return data as Orden;
 }
 
 /**
- * Cierra la revisión: la SP pasa a Compras con lo que falta (`pendiente`) o queda
- * «Atendida por almacén» si se tiene todo.
+ * La sede confirma su revisión. Si era la última que faltaba, la base cierra la SP:
+ * pasa a Compras con lo que ningún almacén tiene (`pendiente`) o queda «Atendida
+ * por almacén» si entre los dos lo tienen todo.
  */
-export async function marcarSolicitudRevisada(
-  ordenId: string, marcas: Record<string, MarcaAlmacen>, nota?: string | null,
+export async function confirmarRevisionSede(
+  ordenId: string, sede: string, marcas: Record<string, MarcaAlmacen>, nota?: string | null,
 ): Promise<Orden> {
   const { data, error } = await supabase.rpc('almacen_revisar_solicitud', {
-    p_orden_id: ordenId, p_items: marcasParaRpc(marcas), p_finalizar: true, p_nota: nota ?? null,
+    p_orden_id: ordenId, p_sede: sede, p_items: marcasParaRpc(marcas), p_confirmar: true, p_nota: nota ?? null,
   });
-  if (error) throw new Error(error.message || 'No se pudo marcar la solicitud como revisada');
+  if (error) throw new Error(error.message || 'No se pudo confirmar la revisión');
   return data as Orden;
 }
 
@@ -100,6 +103,8 @@ export interface StockRenglon {
   stock: number;
   /** Stock por almacén, solo los que tienen algo. */
   porAlmacen: Array<{ almacen: string; stock: number }>;
+  /** Stock por sede (`almacenes.sede`), solo las que tienen algo. */
+  porSede: Record<string, number>;
 }
 
 const norm = (s: string) => s.trim().toUpperCase().replace(/\s+/g, ' ');
@@ -115,16 +120,27 @@ export async function stockDeRenglones(items: ItemOrden[]): Promise<Map<string, 
   const sinFicha = items.filter((i) => !i.productoId).map((i) => i.nombre).filter(Boolean);
 
   const prods = new Map<string, { id: string; nombre: string; stock: number }>();
-  if (ids.length) {
-    const { data } = await supabase.from('productos').select('id, nombre, stock').in('id', ids);
-    for (const p of (data ?? []) as Array<{ id: string; nombre: string; stock: number }>) prods.set(p.id, p);
-  }
   const porNombre = new Map<string, { id: string; nombre: string; stock: number }>();
-  if (sinFicha.length) {
-    const { data } = await supabase.from('productos').select('id, nombre, stock')
-      .eq('estado', 'activo').in('nombre', [...new Set(sinFicha.map((n) => n.trim()))]);
-    for (const p of (data ?? []) as Array<{ id: string; nombre: string; stock: number }>) porNombre.set(norm(p.nombre), p);
-  }
+  const sedeDe = new Map<string, string>();
+  await Promise.all([
+    ids.length
+      ? supabase.from('productos').select('id, nombre, stock').in('id', ids).then(({ data }) => {
+        for (const p of (data ?? []) as Array<{ id: string; nombre: string; stock: number }>) prods.set(p.id, p);
+      })
+      : null,
+    sinFicha.length
+      ? supabase.from('productos').select('id, nombre, stock')
+        .eq('estado', 'activo').in('nombre', [...new Set(sinFicha.map((n) => n.trim()))]).then(({ data }) => {
+          for (const p of (data ?? []) as Array<{ id: string; nombre: string; stock: number }>) porNombre.set(norm(p.nombre), p);
+        })
+      : null,
+    // De qué sede es cada almacén, para decirle a cada almacenista cuánto hay en SU sede.
+    supabase.from('almacenes').select('nombre, sede').then(({ data }) => {
+      for (const a of (data ?? []) as Array<{ nombre: string; sede: string | null }>) {
+        if (a.sede?.trim()) sedeDe.set(a.nombre, a.sede.trim());
+      }
+    }),
+  ]);
 
   const resueltos = new Map<string, { id: string; nombre: string; stock: number }>();
   for (const it of items) {
@@ -143,9 +159,14 @@ export async function stockDeRenglones(items: ItemOrden[]): Promise<Map<string, 
   }
   for (const it of items) {
     const p = resueltos.get(it.sku);
-    out.set(it.sku, p
-      ? { productoId: p.id, nombre: p.nombre, stock: Number(p.stock) || 0, porAlmacen: (exist.get(p.id) ?? []).sort((a, b) => b.stock - a.stock) }
-      : { productoId: null, nombre: null, stock: 0, porAlmacen: [] });
+    if (!p) { out.set(it.sku, { productoId: null, nombre: null, stock: 0, porAlmacen: [], porSede: {} }); continue; }
+    const porAlmacen = (exist.get(p.id) ?? []).sort((a, b) => b.stock - a.stock);
+    const porSede: Record<string, number> = {};
+    for (const a of porAlmacen) {
+      const s = sedeDe.get(a.almacen);
+      if (s) porSede[s] = Math.round(((porSede[s] ?? 0) + a.stock) * 10000) / 10000;
+    }
+    out.set(it.sku, { productoId: p.id, nombre: p.nombre, stock: Number(p.stock) || 0, porAlmacen, porSede });
   }
   return out;
 }

@@ -1,11 +1,12 @@
 /* ============================================================
    MGG · Almacén · Solicitudes de Pedido (PC) (29-10-2026)
 
-   Flujo nuevo: la SP pasa primero por ALMACÉN, que revisa qué tiene de cada
-   renglón; lo que falta llega a Compras. Esta pantalla lista las SP que
-   esperan a almacén (la más vieja primero) y, al elegir una, la revisión.
-   La pestaña «Revisadas» muestra cómo quedaron y vuelve a abrir el mensaje
-   de WhatsApp de la revisión.
+   Flujo nuevo: la SP pasa primero por ALMACÉN. Cada almacén (Los Pinos y
+   Matanza · 30-10) confirma qué tiene de cada renglón; lo que ninguno tiene
+   llega a Compras. Esta pantalla lista las SP que esperan a almacén (la más
+   vieja primero, con qué sede ya confirmó) y, al elegir una, la revisión.
+   La pestaña «Revisadas» muestra cómo quedaron (qué entrega cada almacén) y
+   vuelve a abrir el mensaje de WhatsApp de la revisión.
 
    Arranca APAGADO (`config.compras.revision_almacen`): mientras tanto se
    avisa con calma y la lista queda vacía porque ninguna SP nace en revisión.
@@ -22,7 +23,7 @@ import { dateTime, relTime } from '@/shared/lib/format';
 import { MensajeWhatsappModal } from './MensajeWhatsappModal';
 import { RevisionSolicitudAlmacen, ResumenListas, resultadoRevision } from './RevisionSolicitudAlmacen';
 import { quienSolicita } from './quienSolicita';
-import { mensajeRevisionAlmacen, resumenRevision, seRevisa } from './revisionAlmacen';
+import { estadoSedes, mensajeRevisionAlmacen, mensajeRevisionSede, resumenRevision, seRevisa } from './revisionAlmacen';
 import { listSolicitudesEnRevision, listSolicitudesRevisadas, useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
 
 type Pestana = 'pendientes' | 'revisadas';
@@ -37,7 +38,9 @@ export function SolicitudesAlmacenPage() {
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selId, setSelId] = useState<string | null>(null);
-  const [mensaje, setMensaje] = useState<{ titulo: string; texto: string } | null>(null);
+  /** Mensajes por mostrar, uno tras otro (la respuesta de la sede y, si cerró, la revisión completa). */
+  const [mensajes, setMensajes] = useState<Array<{ titulo: string; texto: string }>>([]);
+  const mensaje = mensajes[0] ?? null;
   /** La SP que se acaba de cerrar acá: si sale de la lista no se avisa como «la revisó otro». */
   const cerradaAca = useRef<string | null>(null);
 
@@ -69,21 +72,25 @@ export function SolicitudesAlmacenPage() {
     setSelId(null);
   }, [selId, sel, cargando, revisadas, nombreDe]);
 
-  function alRevisar(actualizada: Orden, revisor: string) {
-    cerradaAca.current = actualizada.id;
-    setSelId(null);
-    setMensaje({
-      titulo: `✅ Almacén revisó ${actualizada.codigo}`,
-      texto: mensajeRevisionAlmacen(actualizada, { revisor }),
-    });
+  const nombreCorreo = useCallback((correo: string) => nombreDe(null, correo), [nombreDe]);
+
+  function alConfirmar(actualizada: Orden, sede: string, revisor: string) {
+    const cola = [{ titulo: `🏬 Almacén respondió ${actualizada.codigo}`, texto: mensajeRevisionSede(actualizada, sede, { revisor }) }];
+    if (actualizada.estado !== 'revision_almacen') {
+      // Respondieron todos: la SP salió de almacén.
+      cerradaAca.current = actualizada.id;
+      setSelId(null);
+      cola.push({ titulo: `✅ Almacén revisó ${actualizada.codigo}`, texto: mensajeRevisionAlmacen(actualizada, { nombre: nombreCorreo }) });
+    }
+    setMensajes(cola);
     void reload();
   }
 
   function verMensajeRevision(o: Orden) {
-    setMensaje({
+    setMensajes([{
       titulo: `✅ Revisión de ${o.codigo}`,
-      texto: mensajeRevisionAlmacen(o, { revisor: nombreDe(null, o.revisada_almacen_por) }),
-    });
+      texto: mensajeRevisionAlmacen(o, { revisor: nombreDe(null, o.revisada_almacen_por), nombre: nombreCorreo }),
+    }]);
   }
 
   return (
@@ -92,7 +99,7 @@ export function SolicitudesAlmacenPage() {
         <div>
           <h1>📋 Solicitudes de Pedido</h1>
           <p className="hint muted">
-            Almacén revisa qué tiene de cada solicitud antes de que llegue a Compras. Lo que falta pasa a Compras para cotizar.
+            Los almacenes de Los Pinos y Matanza confirman qué tienen de cada solicitud antes de que llegue a Compras. Lo que ninguno tiene pasa a Compras para cotizar.
           </p>
         </div>
         <div className="actions">
@@ -134,7 +141,6 @@ export function SolicitudesAlmacenPage() {
             <div style={{ flex: '1 1 280px', maxWidth: 400, display: 'flex', flexDirection: 'column', gap: '.5rem' }}>
               {pendientes.map((o) => {
                 const n = (o.items ?? []).filter(seRevisa).length;
-                const revisados = (o.items ?? []).filter((it) => seRevisa(it) && it.almacen_revisado).length;
                 const activa = o.id === selId;
                 return (
                   <button
@@ -153,7 +159,6 @@ export function SolicitudesAlmacenPage() {
                       <strong className="mono">{o.codigo}</strong>
                       <span style={{ display: 'flex', gap: '.3rem' }}>
                         {o.urgente && <span className="badge danger">🚨 Urgente</span>}
-                        {revisados > 0 && <span className="badge info">{revisados}/{n}</span>}
                       </span>
                     </div>
                     <div style={{ fontSize: '.86rem', marginTop: '.2rem' }}>
@@ -162,13 +167,20 @@ export function SolicitudesAlmacenPage() {
                     <div className="muted" style={{ fontSize: '.78rem', marginTop: '.15rem' }}>
                       {n} producto(s) · {relTime(o.created_at)}
                     </div>
+                    <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', marginTop: '.3rem' }}>
+                      {estadoSedes(o).map((e) => (
+                        <span key={e.sede} className={`badge ${e.confirmada ? 'success' : e.revisados > 0 ? 'info' : 'warning'}`} style={{ fontSize: '.7rem' }}>
+                          {e.etiqueta} {e.confirmada ? '✓' : e.revisados > 0 ? `${e.revisados}/${e.total}` : 'pendiente'}
+                        </span>
+                      ))}
+                    </div>
                   </button>
                 );
               })}
             </div>
             <div style={{ flex: '3 1 440px', minWidth: 0 }}>
               {sel ? (
-                <RevisionSolicitudAlmacen key={sel.id} orden={sel} onRevisada={alRevisar} />
+                <RevisionSolicitudAlmacen key={sel.id} orden={sel} onConfirmada={alConfirmar} />
               ) : (
                 <EmptyState icon="👈" message="Elige una solicitud de la lista para revisarla." />
               )}
@@ -195,9 +207,14 @@ export function SolicitudesAlmacenPage() {
                     {[o.solicitante, quienSolicita(o)].filter(Boolean).join(' — ') || '—'}
                   </div>
                   <div className="muted" style={{ fontSize: '.78rem', margin: '.15rem 0 .5rem' }}>
-                    Revisó {nombreDe(null, o.revisada_almacen_por) || '—'} · {dateTime(o.revisada_almacen_en)}
+                    {(() => {
+                      const conf = estadoSedes(o).filter((e) => e.confirmada);
+                      return conf.length
+                        ? <>Confirmaron {conf.map((e) => `${e.etiqueta} (${nombreDe(null, e.confirmacion?.confirmada_por) || '—'})`).join(' · ')}</>
+                        : <>Revisó {nombreDe(null, o.revisada_almacen_por) || '—'}</>;
+                    })()} · {dateTime(o.revisada_almacen_en)}
                   </div>
-                  <ResumenListas tiene={r.tiene} falta={r.falta} />
+                  <ResumenListas {...r} />
                   {o.nota_almacen?.trim() && <div className="muted" style={{ fontSize: '.82rem', marginTop: '.4rem' }}>📝 {o.nota_almacen.trim()}</div>}
                   <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.6rem' }} onClick={() => verMensajeRevision(o)}>
                     💬 Mensaje de la revisión
@@ -209,7 +226,7 @@ export function SolicitudesAlmacenPage() {
         )
       )}
 
-      {mensaje && <MensajeWhatsappModal titulo={mensaje.titulo} texto={mensaje.texto} onClose={() => setMensaje(null)} />}
+      {mensaje && <MensajeWhatsappModal key={mensaje.titulo} titulo={mensaje.titulo} texto={mensaje.texto} onClose={() => setMensajes((m) => m.slice(1))} />}
     </div>
   );
 }

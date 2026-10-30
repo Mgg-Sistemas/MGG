@@ -1053,6 +1053,13 @@ export interface Orden {
   /** Retenciones fiscales (módulo Retenciones): comprobantes por tipo + estado. */
   comprobante_tipo?: 'nota_entrega' | 'factura' | null;
   retencion_modo?: 'se_paga_despues' | 'completo_reembolso' | null;
+  /** Flujo nuevo de compras (30-10-2026): ¿se retiene ANTES de pagar (va primero a
+   *  Retenciones) o DESPUÉS (va a Tesorería y luego a Retenciones)? null = flujo viejo. */
+  retencion_momento?: 'antes' | 'despues' | null;
+  /** Cuándo/quién marcó en Retenciones la retención como hecha (RPC compras_marcar_retencion). */
+  retencion_hecha_en?: string | null;
+  retencion_hecha_por?: string | null;
+  retencion_nota?: string | null;
   retencion_iva_path?: string | null;
   retencion_iva_nombre?: string | null;
   retencion_islr_path?: string | null;

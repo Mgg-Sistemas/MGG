@@ -17,7 +17,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'maquinaria' | 'retenciones' | 'inventario' | 'solicitudes';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'maquinaria' | 'retenciones' | 'inventario' | 'solicitudes' | 'delivery';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -57,6 +57,12 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
     // interruptor `compras.revision_almacen` esté apagado (ver revisionAlmacen.repository).
     key: 'solicitudes', label: 'Solicitudes de Pedido', icono: '📋', modulo: 'inventario',
     ruta: '/app/solicitudes-pedido/telefono', descripcion: 'Almacén revisa qué hay de cada solicitud antes de Compras',
+  },
+  {
+    // Delivery (30-10-2026): el motorizado toma la OC pagada, va en ruta y la entrega en el almacén.
+    key: 'delivery', label: 'Delivery', icono: '🛵', modulo: 'delivery',
+    ruta: '/app/delivery/telefono',
+    descripcion: 'Tomar pedidos pagados, ir en ruta, entregar en almacén y compartir ubicación',
   },
 ];
 

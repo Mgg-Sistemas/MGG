@@ -31,6 +31,15 @@ describe('vistasPermitidas · pantalla dada Y lectura en su módulo (13-10)', ()
     expect(VISTAS_TELEFONO.find((v) => v.key === 'inventario')?.ruta).toBe('/app/inventario/telefono');
     expect(vistasPermitidas(['surtidor', 'comidas'], conModulos('inventario'), false)).toEqual([]);
   });
+
+  it('Delivery (30-10): pantalla del motorizado, se da por rol y pide lectura en el módulo delivery', () => {
+    const d = VISTAS_TELEFONO.find((v) => v.key === 'delivery');
+    expect(d).toMatchObject({ modulo: 'delivery', ruta: '/app/delivery/telefono', icono: '🛵', label: 'Delivery' });
+    expect(claves(vistasPermitidas(['delivery'], conModulos('delivery'), false))).toEqual(['delivery']);
+    expect(vistasPermitidas(['delivery'], conModulos('pedidos'), false)).toEqual([]);
+    expect(vistasPermitidas([], conModulos('delivery'), false)).toEqual([]);
+    expect(normalizarVistas(['delivery', 'delivery'])).toEqual(['delivery']);
+  });
 });
 
 describe('inicioTelefono · adónde entra un rol solo teléfono', () => {
