@@ -46,3 +46,4 @@ supabase/.branches/
 *respaldo*.sql
 *backup*.sql
 *.dump
+!supabase/sql/*.sql

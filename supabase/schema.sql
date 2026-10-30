@@ -2300,8 +2300,8 @@ declare
   piece text;
   out text := '';
 begin
-  if not exists (select 1 from public.usuarios where id = auth.uid() and role in ('admin','analista')) then
-    raise exception 'Solo un administrador o analista puede generar el respaldo de datos.';
+  if current_user <> 'postgres' and not exists (select 1 from public.usuarios u where u.id = auth.uid() and u.estado = 'activo' and (u.role = 'admin' or public.puede_modulo('respaldo', 'lectura'))) then
+    raise exception 'Solo un administrador o usuario autorizado puede generar el respaldo de datos.';
   end if;
   out := '-- MGG-Inventario · Respaldo de DATOS · ' || now()::text || chr(10)
        || '-- Restaurar sobre el esquema base (supabase/schema.sql).' || chr(10) || chr(10);

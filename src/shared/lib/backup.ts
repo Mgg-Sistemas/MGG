@@ -39,8 +39,8 @@ function encabezadoRespaldo(actorEmail: string, automatico: boolean): string {
 }
 
 /** Roles autorizados a respaldar (el filtro fino se ajustará luego). */
-export function puedeRespaldar(role?: string | null): boolean {
-  return role === 'admin' || role === 'analista';
+export function puedeRespaldar(role?: string | null, autorizado?: boolean): boolean {
+  return role === 'admin' || autorizado === true;
 }
 
 /** Genera el SQL del respaldo llamando a la función de la base. */
@@ -197,8 +197,9 @@ export async function ultimoRespaldo(): Promise<string | null> {
  * (o nunca se hizo), ENVÍA el respaldo POR CORREO (al correo de respaldos) y
  * registra la fecha. Devuelve true si se ejecutó. Se llama una vez al entrar.
  */
-export async function chequearRespaldoAutomatico(role: string | null, actorEmail: string): Promise<boolean> {
-  if (!puedeRespaldar(role)) return false;
+export async function chequearRespaldoAutomatico(roleOrAutorizado: string | boolean | null, actorEmail: string): Promise<boolean> {
+  const ok = typeof roleOrAutorizado === 'boolean' ? roleOrAutorizado : (roleOrAutorizado === 'admin');
+  if (!ok) return false;
   const last = await ultimoRespaldo();
   if (last && Date.now() - new Date(last).getTime() < MS_30D) return false;
   await enviarRespaldoPorCorreo(actorEmail, true);

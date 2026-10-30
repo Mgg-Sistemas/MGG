@@ -31,7 +31,8 @@ export type ModuleKey =
   | 'contabilidad'
   | 'usuarios'
   | 'auditoria'
-  | 'ajustes';
+  | 'ajustes'
+  | 'respaldo';
 
 export interface ModulePermission {
   lectura: boolean;
@@ -76,6 +77,7 @@ export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'usuarios',    label: 'Usuarios' },
   { key: 'auditoria',   label: 'Auditoría de Usuarios' },
   { key: 'ajustes',     label: 'Ajustes' },
+  { key: 'respaldo',    label: 'Respaldo de Base de Datos' },
 ];
 
 /** Ruta bajo `/app/` de un módulo (usa `path` si está; si no, la propia key). */

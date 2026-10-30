@@ -127,6 +127,17 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
     });
   }
 
+  function togglePermRespaldo(role: RoleKey, checked: boolean) {
+    setPermisos((prev) => {
+      const nextPerm: ModulePermission = checked
+        ? { lectura: true, escritura: true, full: true }
+        : { lectura: false, escritura: false, full: false };
+      const nextRole = normalizeRolePermisos({ ...prev[role], respaldo: nextPerm });
+      void persistirRol(role, nextRole);
+      return { ...prev, [role]: nextRole };
+    });
+  }
+
   async function persistirRol(role: RoleKey, rolePermisos: RolePermisos) {
     setAutoEstado('guardando');
     try {
@@ -291,7 +302,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                     </tr>
                   </thead>
                   <tbody>
-                    {MODULES.map((m) => {
+                    {MODULES.filter((m) => m.key !== 'respaldo').map((m) => {
                       const p = permisos[rc.key]?.[m.key] ?? { ...empty };
                       return (
                         <tr key={m.key}>
@@ -350,6 +361,31 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                     </div>
                   );
                 })()}
+
+                {/* Respaldo de Base de Datos (casilla única, conectada a permisos.respaldo) */}
+                {rc.key !== 'admin' ? (
+                  <div style={{ marginTop: '.9rem', paddingTop: '.75rem', borderTop: '1px solid var(--border)' }}>
+                    <label htmlFor={`respaldo-${rc.key}`} style={{ display: 'flex', gap: '.5rem', alignItems: 'flex-start', fontSize: '.82rem', cursor: readOnly ? 'default' : 'pointer' }}>
+                      <input
+                        id={`respaldo-${rc.key}`}
+                        type="checkbox"
+                        disabled={readOnly}
+                        checked={permisos[rc.key]?.respaldo?.lectura === true}
+                        onChange={(e) => togglePermRespaldo(rc.key, e.target.checked)}
+                      />
+                      <span>
+                        <strong>💾 Respaldo de Base de Datos</strong>
+                        <small className="muted" style={{ display: 'block' }}>
+                          Permite generar, descargar (.sql) y enviar por correo el respaldo de la base de datos.
+                        </small>
+                      </span>
+                    </label>
+                  </div>
+                ) : (
+                  <div style={{ marginTop: '.9rem', paddingTop: '.75rem', borderTop: '1px solid var(--border)', fontSize: '.82rem', color: 'var(--muted)' }}>
+                    <span>💾 <strong>Respaldo de Base de Datos:</strong> Incluido siempre para Administrador.</span>
+                  </div>
+                )}
               </div>
             );
           })}

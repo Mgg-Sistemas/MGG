@@ -65,7 +65,7 @@ export function AppShell() {
   const [notifOpen, setNotifOpen] = useState(false);
   const [descargandoManual, setDescargandoManual] = useState(false);
   const [descargandoBackup, setDescargandoBackup] = useState(false);
-  const mostrarRespaldo = puedeRespaldar(role);
+  const mostrarRespaldo = can('respaldo');
   const [unread, setUnread] = useState(0);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === 'undefined') return false;
@@ -311,11 +311,11 @@ export function AppShell() {
   const backupAutoCorrido = useRef(false);
   useEffect(() => {
     if (backupAutoCorrido.current) return;
-    if (!puedeRespaldar(role)) return;
+    if (!mostrarRespaldo) return;
     backupAutoCorrido.current = true;
-    chequearRespaldoAutomatico(role, user?.email ?? 'sistema')
+    chequearRespaldoAutomatico(mostrarRespaldo, user?.email ?? 'sistema')
       .then((corrio) => { if (corrio) toast(`Respaldo automático (cada 30 días) enviado por correo a ${BACKUP_EMAIL}`, 'info'); })
-      .catch(() => { /* silencioso: el respaldo manual sigue disponible */ });
+      .catch((err) => { console.error('[Respaldo Automático]', err); });
   }, [role, user?.email]);
 
   return (
