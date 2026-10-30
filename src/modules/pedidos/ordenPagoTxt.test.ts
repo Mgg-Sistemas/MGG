@@ -351,7 +351,7 @@ describe('textoOrdenTesoreria · mensaje de pago y motivos de no pago (30-10-202
       '🔹 *ORDEN:* OC-2026-0130',
       '🏭 *Proveedor:* SUBLI MAX',
       '📌 *Nota del analista:* SOLICITUD DE STICKERS',
-      '🛒 *Analista:* NAZARET SALAZAR',
+      '🛒 *Analista encargado:* NAZARET SALAZAR',
       '🙋 *Solicita:* JESUS LOZADA',
       '💵 *Monto en $:* $55,00',
       '💱 *Monto en Bs:* Bs 2.750,00 (tasa 50,00)',

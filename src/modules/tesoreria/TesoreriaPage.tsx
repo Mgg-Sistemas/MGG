@@ -94,6 +94,7 @@ import { ordenesConOfertasDe } from '@/modules/pedidos/ordenDeOfertas';
 import type { OfertaProveedor } from '@/shared/lib/types';
 import { CalculadoraModal } from './calculadora/CalculadoraModal';
 import { quienCargo, quienSolicitaConRespaldo } from '@/modules/pedidos/quienSolicita';
+import { cargarPersonasConHistorial, personaDe, type PersonasMap } from '@/shared/lib/personas';
 import { textoOrdenTesoreria } from '@/modules/pedidos/ordenPagoTxt';
 import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
 import { enviarMensajeOc } from '@/modules/pedidos/ocChat.repository';
@@ -6201,6 +6202,15 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   row: OrdenPorPagar; cajas: Caja[]; actor: string; actorName: string | null; userId: string; onClose: () => void; onPaid: () => void;
 }) {
   const o = row.orden;
+  // Analista encargado = quien montó la OC (si no, quien aprobó la SP), con nombre y apellido.
+  const [personas, setPersonas] = useState<PersonasMap | null>(null);
+  useEffect(() => { cargarPersonasConHistorial().then(setPersonas).catch(() => setPersonas(null)); }, []);
+  const analistaEncargado = (): string => {
+    const mapa: PersonasMap = personas ?? new Map();
+    if (o.oc_creada_por) return personaDe(o.oc_creada_por, mapa, null, o.oc_creada_en);
+    if (o.aprobada_por) return personaDe(o.aprobada_por, mapa, null, o.aprobada_en);
+    return quienCargo(o) || o.solicitante_email || '—';
+  };
   // Contra entrega: se paga SOLO lo recibido (montoAPagar = recibido_total).
   const baseGeneral = Number(row.montoAPagar ?? o.total) || 0;
   const pagoParcial = row.esContraEntrega && o.recibido_total != null && Number(o.recibido_total) < Number(o.total);
@@ -6393,7 +6403,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
       proveedorNombre: row.proveedorNombre,
       personas: {
         solicita: quienSolicitaConRespaldo(o) || o.solicitante,
-        analista: quienCargo(o) || o.oc_creada_por || o.solicitante_email || '—',
+        analista: analistaEncargado(),
       },
       montoUsd: totalUsd,
       montoBs: totalBs,
@@ -6419,7 +6429,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
     setNotificandoNo(true);
     setError(null);
     try {
-      const analistaNombre = quienCargo(o) || o.oc_creada_por || o.solicitante_email || 'el analista encargado';
+      const analistaNombre = analistaEncargado();
       try {
         await enviarMensajeOc({
           ordenId: o.id,
@@ -6447,7 +6457,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
         proveedorNombre: row.proveedorNombre,
         personas: {
           solicita: quienSolicitaConRespaldo(o) || o.solicitante,
-          analista: quienCargo(o) || o.oc_creada_por || o.solicitante_email || '—',
+          analista: analistaEncargado(),
         },
         montoUsd: totalUsd,
         montoBs: totalBs,
@@ -6500,7 +6510,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
       proveedorNombre: row.proveedorNombre,
       personas: {
         solicita: quienSolicitaConRespaldo(o) || o.solicitante,
-        analista: quienCargo(o) || o.oc_creada_por || o.solicitante_email || '—',
+        analista: analistaEncargado(),
       },
       montoUsd: totalUsd,
       montoBs: totalBs,
@@ -6867,7 +6877,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
                           autoFocus
                         />
                         <small className="hint muted" style={{ fontSize: '.75rem' }}>
-                          Se notificará al analista encargado ({quienCargo(o) || o.oc_creada_por || o.solicitante_email || 'compras'}) para que proceda a cancelar la orden o buscar otra cotización.
+                          Se notificará al analista encargado ({analistaEncargado()}) para que proceda a cancelar la orden o buscar otra cotización.
                         </small>
                       </div>
                     )}
@@ -6907,7 +6917,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
           <div className="card" style={{ marginBottom: '.75rem', borderLeft: motivoNo === 'no_procede' ? '3px solid var(--danger)' : '3px solid var(--info, #38bdf8)' }}>
             <div style={{ fontSize: '.84rem' }}>
               {motivoNo === 'no_procede' ? (
-                <>🚫 <strong>No procede la compra:</strong> Al confirmar, se notificará al analista ({quienCargo(o) || o.oc_creada_por || o.solicitante_email || 'compras'}) en el sistema para que cancele la orden o busque otra cotización, y se abrirá WhatsApp con el estado detallado.</>
+                <>🚫 <strong>No procede la compra:</strong> Al confirmar, se notificará al analista ({analistaEncargado()}) en el sistema para que cancele la orden o busque otra cotización, y se abrirá WhatsApp con el estado detallado.</>
               ) : (
                 <>💡 Podés enviar el motivo de no pago temporal por WhatsApp con el botón de abajo. Si luego contás con los fondos o la respuesta del jefe, podés hacer clic en <strong>«💳 Proceder con el pago»</strong> para pagar la orden.</>
               )}

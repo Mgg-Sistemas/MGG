@@ -242,7 +242,7 @@ export function textoOrdenTesoreria(d: DatosMensajeTesoreria): string {
   L.push(`🔹 *ORDEN:* ${codigo}`);
   if (prov) L.push(`🏭 *Proveedor:* ${prov}`);
   if (nota) L.push(`📌 *Nota del analista:* ${nota.replace(/\s*\r?\n\s*/g, ' ')}`);
-  if (analista) L.push(`🛒 *Analista:* ${analista}`);
+  if (analista) L.push(`🛒 *Analista encargado:* ${analista}`);
   if (solicita) L.push(`🙋 *Solicita:* ${solicita}`);
   L.push(`💵 *Monto en $:* ${montoTxt(totalUsd, '$')}`);
   if (totalBs > 0) {
