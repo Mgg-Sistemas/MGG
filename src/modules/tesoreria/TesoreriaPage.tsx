@@ -6393,7 +6393,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
       proveedorNombre: row.proveedorNombre,
       personas: {
         solicita: quienSolicitaConRespaldo(o) || o.solicitante,
-        analista: quienCargo(o) || o.creada_por_nombre || o.creada_por,
+        analista: quienCargo(o) || o.oc_creada_por || o.solicitante_email || '—',
       },
       montoUsd: totalUsd,
       montoBs: totalBs,
@@ -6419,7 +6419,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
     setNotificandoNo(true);
     setError(null);
     try {
-      const analistaNombre = quienCargo(o) || o.creada_por_nombre || 'el analista encargado';
+      const analistaNombre = quienCargo(o) || o.oc_creada_por || o.solicitante_email || 'el analista encargado';
       try {
         await enviarMensajeOc({
           ordenId: o.id,
@@ -6431,7 +6431,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
 
       try {
         await pushNotif({
-          destino: o.creada_por || undefined,
+          destino: o.solicitante_email || undefined,
           kind: 'warning',
           title: `OC ${codigoOc} · No procede la compra`,
           message: `Tesorería: ${just}. Cancelá la orden o buscá otra cotización.`,
@@ -6447,7 +6447,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
         proveedorNombre: row.proveedorNombre,
         personas: {
           solicita: quienSolicitaConRespaldo(o) || o.solicitante,
-          analista: quienCargo(o) || o.creada_por_nombre || o.creada_por,
+          analista: quienCargo(o) || o.oc_creada_por || o.solicitante_email || '—',
         },
         montoUsd: totalUsd,
         montoBs: totalBs,
@@ -6500,7 +6500,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
       proveedorNombre: row.proveedorNombre,
       personas: {
         solicita: quienSolicitaConRespaldo(o) || o.solicitante,
-        analista: quienCargo(o) || o.creada_por_nombre || o.creada_por,
+        analista: quienCargo(o) || o.oc_creada_por || o.solicitante_email || '—',
       },
       montoUsd: totalUsd,
       montoBs: totalBs,
@@ -6865,7 +6865,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
                           autoFocus
                         />
                         <small className="hint muted" style={{ fontSize: '.75rem' }}>
-                          Se notificará al analista encargado ({quienCargo(o) || o.creada_por || 'compras'}) para que proceda a cancelar la orden o buscar otra cotización.
+                          Se notificará al analista encargado ({quienCargo(o) || o.oc_creada_por || o.solicitante_email || 'compras'}) para que proceda a cancelar la orden o buscar otra cotización.
                         </small>
                       </div>
                     )}
@@ -6905,7 +6905,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
           <div className="card" style={{ marginBottom: '.75rem', borderLeft: motivoNo === 'no_procede' ? '3px solid var(--danger)' : '3px solid var(--info, #38bdf8)' }}>
             <div style={{ fontSize: '.84rem' }}>
               {motivoNo === 'no_procede' ? (
-                <>🚫 <strong>No procede la compra:</strong> Al confirmar, se notificará al analista ({quienCargo(o) || o.creada_por || 'compras'}) en el sistema para que cancele la orden o busque otra cotización, y se abrirá WhatsApp con el estado detallado.</>
+                <>🚫 <strong>No procede la compra:</strong> Al confirmar, se notificará al analista ({quienCargo(o) || o.oc_creada_por || o.solicitante_email || 'compras'}) en el sistema para que cancele la orden o busque otra cotización, y se abrirá WhatsApp con el estado detallado.</>
               ) : (
                 <>💡 Podés enviar el motivo de no pago temporal por WhatsApp con el botón de abajo. Si luego contás con los fondos o la respuesta del jefe, podés hacer clic en <strong>«💳 Proceder con el pago»</strong> para pagar la orden.</>
               )}
