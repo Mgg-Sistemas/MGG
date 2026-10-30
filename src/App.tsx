@@ -12,6 +12,7 @@ import { lazyReload, ChunkErrorBoundary } from './shared/lib/lazyReload';
 // Lazy: las páginas internas se descargan en chunks separados al navegarlas.
 // lazyReload(): si un chunk fue borrado por un despliegue nuevo, recarga sola.
 const CarnetPublicoPage = lazyReload(() => import('./modules/rrhh/CarnetPublicoPage').then((m) => ({ default: m.CarnetPublicoPage })));
+const CambiarClavePage = lazyReload(() => import('./modules/usuarios/CambiarClavePage').then((m) => ({ default: m.CambiarClavePage })));
 const DashboardPage = lazyReload(() => import('./modules/dashboard/DashboardPage').then((m) => ({ default: m.DashboardPage })));
 const PedidosPage = lazyReload(() => import('./modules/pedidos/PedidosPage').then((m) => ({ default: m.PedidosPage })));
 const HistoricoPage = lazyReload(() => import('./modules/pedidos/HistoricoPage').then((m) => ({ default: m.HistoricoPage })));
@@ -119,6 +120,18 @@ export function App() {
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/login" element={<LoginPage />} />
+        {/* Cambio de clave (obligatorio tras un reseteo, o voluntario desde Ajustes). Se había
+            perdido el 29-10 y el que tenía la clave reseteada quedaba en un bucle de redirección. */}
+        <Route
+          path="/cambiar-clave"
+          element={
+            <ProtectedRoute>
+              <Suspense fallback={<PageLoader />}>
+                <CambiarClavePage />
+              </Suspense>
+            </ProtectedRoute>
+          }
+        />
         {/* Carnet público por QR (sin login): cualquiera puede verificarlo */}
         <Route path="/carnet/:id" element={<Suspense fallback={<PageLoader />}><CarnetPublicoPage /></Suspense>} />
         {/* Rutas protegidas: exigen sesión iniciada */}
