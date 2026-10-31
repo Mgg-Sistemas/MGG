@@ -7,6 +7,8 @@
    vieja primero, con qué sede ya confirmó) y, al elegir una, la revisión.
    La pestaña «Revisadas» muestra cómo quedaron (qué entrega cada almacén) y
    vuelve a abrir el mensaje de WhatsApp de la revisión.
+   «Traslados» (30-10): lo que una sede entrega para la SP de la otra se
+   traslada desde acá o desde el teléfono (ver TrasladoSolicitudAlmacen).
 
    Arranca APAGADO (`config.compras.revision_almacen`): mientras tanto se
    avisa con calma y la lista queda vacía porque ninguna SP nace en revisión.
@@ -17,21 +19,27 @@ import type { Orden } from '@/shared/lib/types';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useNombreUsuario } from '@/shared/lib/useNombreUsuario';
+import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { dateTime, relTime } from '@/shared/lib/format';
 import { MensajeWhatsappModal } from './MensajeWhatsappModal';
 import { RevisionSolicitudAlmacen, ResumenListas, resultadoRevision } from './RevisionSolicitudAlmacen';
 import { quienSolicita } from './quienSolicita';
-import { estadoSedes, mensajeRevisionAlmacen, mensajeRevisionSede, resumenRevision, seRevisa } from './revisionAlmacen';
+import { TrasladoSolicitudAlmacen } from './TrasladoSolicitudAlmacen';
+import {
+  estadoSedes, etiquetaSede, fmtCant, mensajeRevisionAlmacen, mensajeRevisionSede, resumenRevision, sedesQuePuedeResponder, seRevisa,
+  trasladosDeSolicitud, trasladosPendientes,
+} from './revisionAlmacen';
 import { listSolicitudesEnRevision, listSolicitudesRevisadas, useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
 
-type Pestana = 'pendientes' | 'revisadas';
+type Pestana = 'pendientes' | 'revisadas' | 'traslados';
 
 export function SolicitudesAlmacenPage() {
   const activo = useFlujoRevisionAlmacen();
   const { soloTelefono, puedeVista } = usePermissions();
   const nombreDe = useNombreUsuario();
+  const { sedes: misSedes } = useSectorizacion();
   const [pestana, setPestana] = useState<Pestana>('pendientes');
   const [pendientes, setPendientes] = useState<Orden[]>([]);
   const [revisadas, setRevisadas] = useState<Orden[]>([]);
@@ -61,6 +69,15 @@ export function SolicitudesAlmacenPage() {
   useRealtime(['ordenes'], () => { void reload(); });
 
   const sel = useMemo(() => pendientes.find((o) => o.id === selId) ?? null, [pendientes, selId]);
+
+  // Traslados por SP que le tocan a mis sedes (sin sede asignada: todas).
+  const sedesMias = useMemo(() => sedesQuePuedeResponder(misSedes), [misSedes]);
+  const traslados = useMemo(() => revisadas.flatMap((o) => trasladosPendientes(o, sedesMias).map((t) => ({ orden: o, t }))), [revisadas, sedesMias]);
+  const [trasSel, setTrasSel] = useState<{ ordenId: string; sede: string } | null>(null);
+  const trasladoAbierto = useMemo(
+    () => (trasSel ? traslados.find((x) => x.orden.id === trasSel.ordenId && x.t.sede === trasSel.sede) ?? null : null),
+    [traslados, trasSel],
+  );
 
   // Si la SP abierta la cerró otro usuario (o el teléfono), se avisa y se suelta.
   useEffect(() => {
@@ -126,6 +143,9 @@ export function SolicitudesAlmacenPage() {
         <button type="button" className={pestana === 'pendientes' ? 'active' : ''} onClick={() => setPestana('pendientes')}>
           🕒 Por revisar ({pendientes.length})
         </button>
+        <button type="button" className={pestana === 'traslados' ? 'active' : ''} onClick={() => setPestana('traslados')}>
+          🔁 Traslados por hacer ({traslados.length})
+        </button>
         <button type="button" className={pestana === 'revisadas' ? 'active' : ''} onClick={() => setPestana('revisadas')}>
           ✅ Revisadas ({revisadas.length})
         </button>
@@ -189,6 +209,52 @@ export function SolicitudesAlmacenPage() {
         )
       )}
 
+      {!cargando && pestana === 'traslados' && (
+        trasladoAbierto ? (
+          <div style={{ maxWidth: 720 }}>
+            <TrasladoSolicitudAlmacen
+              key={`${trasladoAbierto.orden.id}-${trasladoAbierto.t.sede}`}
+              orden={trasladoAbierto.orden}
+              traslado={trasladoAbierto.t}
+              onCancel={() => setTrasSel(null)}
+              onHecho={(actualizada, texto) => {
+                setTrasSel(null);
+                setMensajes([{ titulo: `🔁 Traslado ${actualizada.codigo}`, texto }]);
+                void reload();
+              }}
+            />
+          </div>
+        ) : !traslados.length ? (
+          <EmptyState icon="🔁" message={sedesMias.length === 1
+            ? `${etiquetaSede(sedesMias[0])} no tiene traslados pendientes por solicitudes.`
+            : 'No hay traslados pendientes por solicitudes.'} />
+        ) : (
+          <div style={{ display: 'grid', gap: '.6rem', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))' }}>
+            {traslados.map(({ orden: o, t }) => (
+              <div key={`${o.id}-${t.sede}`} className="card" style={{ padding: '.75rem .9rem', ...(o.urgente ? { borderColor: 'var(--danger)' } : {}) }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <strong className="mono">{o.codigo}</strong>
+                  <span className="badge info">{t.etiqueta} → {t.etiquetaDestino}</span>
+                </div>
+                <div style={{ fontSize: '.86rem', marginTop: '.2rem' }}>
+                  {[o.solicitante, quienSolicita(o)].filter(Boolean).join(' — ') || '—'}
+                </div>
+                <ul style={{ margin: '.4rem 0', paddingLeft: '1.1rem', fontSize: '.84rem' }}>
+                  {t.renglones.map((r) => <li key={r.sku}>{r.nombre} — {fmtCant(r.cantidad)} {r.unidad}</li>)}
+                </ul>
+                <div className="muted" style={{ fontSize: '.78rem' }}>
+                  {t.completo ? '📦 Stock completo' : '📦 Una parte del pedido'} · revisada {dateTime(o.revisada_almacen_en)}
+                </div>
+                <button type="button" className="btn btn-sm btn-primary" style={{ marginTop: '.6rem' }}
+                  onClick={() => setTrasSel({ ordenId: o.id, sede: t.sede })}>
+                  🔁 Trasladar a {t.etiquetaDestino}
+                </button>
+              </div>
+            ))}
+          </div>
+        )
+      )}
+
       {!cargando && pestana === 'revisadas' && (
         !revisadas.length ? (
           <EmptyState icon="✅" message="Almacén no ha revisado solicitudes en los últimos 30 días." />
@@ -197,6 +263,7 @@ export function SolicitudesAlmacenPage() {
             {revisadas.map((o) => {
               const res = resultadoRevision(o);
               const r = resumenRevision(o.items ?? []);
+              const trs = trasladosDeSolicitud(o);
               return (
                 <div key={o.id} className="card" style={{ padding: '.75rem .9rem' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -214,7 +281,16 @@ export function SolicitudesAlmacenPage() {
                         : <>Revisó {nombreDe(null, o.revisada_almacen_por) || '—'}</>;
                     })()} · {dateTime(o.revisada_almacen_en)}
                   </div>
+                  {o.sede_destino?.trim() && <div style={{ fontSize: '.82rem', marginBottom: '.35rem' }}>📍 Se necesita en <strong>{etiquetaSede(o.sede_destino)}</strong></div>}
                   <ResumenListas {...r} />
+                  {trs.map((t) => (
+                    <div key={t.sede} style={{ fontSize: '.82rem', marginTop: '.35rem' }}>
+                      🔁 {t.etiqueta} → {t.etiquetaDestino}:{' '}
+                      {t.hecho
+                        ? <span className="badge success">trasladado · {nombreDe(null, t.hecho.por) || '—'} · {dateTime(t.hecho.en)}</span>
+                        : <span className="badge warning">traslado pendiente</span>}
+                    </div>
+                  ))}
                   {o.nota_almacen?.trim() && <div className="muted" style={{ fontSize: '.82rem', marginTop: '.4rem' }}>📝 {o.nota_almacen.trim()}</div>}
                   <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.6rem' }} onClick={() => verMensajeRevision(o)}>
                     💬 Mensaje de la revisión

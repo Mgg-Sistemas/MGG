@@ -960,6 +960,27 @@ export interface DetalleServicioItem {
   producto_id?: string | null;
 }
 
+/** Un renglón trasladado por una SP: de qué ficha y almacén salió y a cuál llegó. */
+export interface RenglonTrasladoSolicitud {
+  sku: string;
+  nombre: string;
+  producto_id: string;
+  producto_nombre?: string | null;
+  cantidad: number;
+  unidad?: string | null;
+  almacen_origen: string;
+  almacen_destino: string;
+}
+
+/** El traslado que hizo UNA sede para cubrir la SP de la otra (30-10-2026). */
+export interface TrasladoSolicitud {
+  por?: string | null;
+  en?: string | null;
+  destino?: string | null;
+  nota?: string | null;
+  renglones?: RenglonTrasladoSolicitud[] | null;
+}
+
 export interface EventoHistorial {
   at: string;
   evento: string;
@@ -1005,6 +1026,11 @@ export interface Orden {
   revisada_almacen_por?: string | null;
   revisada_almacen_en?: string | null;
   nota_almacen?: string | null;
+  /** Sede donde se NECESITA lo pedido en la SP (30-10-2026): LOS PINOS o CENTRO DE FUNDICION - MATANZAS.
+   *  Almacén entrega primero de esa sede; lo que da la otra va por TRASLADO (`traslados_almacen`). */
+  sede_destino?: string | null;
+  /** Traslados hechos por la SP: { "<sede origen>": { por, en, destino, nota, renglones[] } }. */
+  traslados_almacen?: Record<string, TrasladoSolicitud> | null;
   oc_emitida_por?: string | null;
   oc_emitida_en?: string | null;
   /** OC creada (oferta elegida, proveedor casado · sin confirmar). */

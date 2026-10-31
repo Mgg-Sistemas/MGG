@@ -20,6 +20,7 @@ import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { useAutorizacionAprobar } from '@/modules/usuarios/autorizados.repository';
 import { opcionesRecepcion, destinoRecepcionPorUsuario } from '@/modules/inventario/sectorizacion';
 import { esDespiezable } from '@/modules/inventario/despieceRes';
@@ -136,7 +137,10 @@ import { quienCargo, quienSolicita } from './quienSolicita';
 import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
 import { useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
 import { etiquetaRetencionMomento, type RetencionMomento } from './retencionMomento';
-import { desgloseAlmacen, fmtCant, mensajeRevisionAlmacen, mensajeSolicitudPedido, resumenRevision, textoEstadoSedes } from './revisionAlmacen';
+import {
+  desgloseAlmacen, etiquetaSede, fmtCant, mensajeRevisionAlmacen, mensajeSolicitudPedido, resumenRevision, SEDES_REVISION_ALMACEN,
+  textoEstadoSedes, trasladosDeSolicitud,
+} from './revisionAlmacen';
 
 /* ============================================================
    MGG · Pedidos / Órdenes · Página principal
@@ -3184,6 +3188,7 @@ function OrdenDetailModal({
       {enRevisionAlmacen && (
         <div className="card" style={{ borderColor: 'var(--info)', background: 'var(--bg-1)', margin: '0 0 .75rem', padding: '.5rem .8rem', fontWeight: 600 }}>
           ⏳ En revisión de almacén ({textoEstadoSedes(o)}): Compras la recibe cuando todos los almacenes confirmen.
+          {o.sede_destino?.trim() && <div className="muted" style={{ fontSize: '.8rem', fontWeight: 400 }}>📍 Se necesita en {etiquetaSede(o.sede_destino)}</div>}
         </div>
       )}
       {revisadaAlmacen && (
@@ -3198,12 +3203,24 @@ function OrdenDetailModal({
               ? 'Almacén tiene todo lo solicitado: no pasa a Compras.'
               : 'A Compras llega solo lo que falta (columna «A comprar»).'}
             {(() => {
-              const entregan = (resumenRevision(o.items ?? []).porSede ?? []).filter((e) => e.sede);
+              const entregan = (resumenRevision(o.items ?? [], o.sede_destino).porSede ?? []).filter((e) => e.sede);
               return entregan.length
                 ? <> Entrega: {entregan.map((e) => `${e.etiqueta} ${e.renglones.length} renglón(es)`).join(' · ')}.</>
                 : null;
             })()}
           </div>
+          {o.sede_destino?.trim() && (
+            <div style={{ fontSize: '.84rem', marginTop: '.25rem' }}>📍 Se necesita en <strong>{etiquetaSede(o.sede_destino)}</strong></div>
+          )}
+          {/* Lo que entrega la otra sede viaja por traslado (30-10-2026). */}
+          {trasladosDeSolicitud(o).map((t) => (
+            <div key={t.sede} style={{ fontSize: '.84rem', marginTop: '.2rem' }}>
+              🔁 {t.etiqueta} → {t.etiquetaDestino}{t.completo ? ' (stock completo)' : ''}:{' '}
+              {t.hecho
+                ? <span className="badge success">trasladado{t.hecho.por ? ` · ${persona(t.hecho.por, personaMap, t.hecho.en ?? undefined)}` : ''}{t.hecho.en ? ` · ${dateTime(t.hecho.en)}` : ''}</span>
+                : <span className="badge warning">traslado pendiente</span>}
+            </div>
+          ))}
           {o.nota_almacen?.trim() && (
             <div style={{ fontSize: '.84rem', marginTop: '.25rem', whiteSpace: 'pre-wrap' }}>📝 {o.nota_almacen}</div>
           )}
@@ -5088,6 +5105,21 @@ function CrearOrdenModal({
   // se pide con un NOMBRE GENERAL (no se crea ficha); Compras fija el nombre de inventario al cotizar.
   const flujoAlmacen = useFlujoRevisionAlmacen();
   const [generalCant, setGeneralCant] = useState('1');
+  // 30-10-2026 (regla de la administradora): con el flujo prendido, la SP va SIEMPRE con
+  // nombres generales salvo que la haga un analista de Compras (o admin): el almacenista
+  // pide «TORNILLO 1/2» y el analista pone el nombre de inventario al cargar la cotización.
+  const { can: puedeModulo } = usePermissions();
+  const esAnalistaCompras = usuario?.role === 'admin' || usuario?.role === 'analista' || puedeModulo('pedidos', 'full');
+  const soloNombreGeneral = flujoAlmacen && !esAnalistaCompras;
+  // Dónde se NECESITA lo pedido (Los Pinos / Matanza): esa sede entrega primero y lo que
+  // tenga la otra llega por traslado. Se propone la sede del usuario si tiene una sola.
+  const { sedes: misSedes } = useSectorizacion();
+  const [sedeDestino, setSedeDestino] = useState<string>(orden?.sede_destino ?? '');
+  useEffect(() => {
+    if (sedeDestino) return;
+    const mias = SEDES_REVISION_ALMACEN.filter((x) => misSedes?.includes(x.sede));
+    if (mias.length === 1) setSedeDestino(mias[0].sede);
+  }, [misSedes, sedeDestino]);
 
   // Lista de medidas (unidades) y de CATEGORÍAS del inventario para el "Producto nuevo".
   // Las categorías se comparten con el inventario (misma taxonomía): al crear una nueva
@@ -5101,8 +5133,8 @@ function CrearOrdenModal({
      El mismo detector que usa el alta de Inventario: acá hacía más falta todavía,
      porque quien carga una solicitud no está mirando el catálogo. */
   const nuevoSimilares = useMemo<Duplicado<Producto>[]>(
-    () => (nuevoOpen ? productosSimilares(nuevoNombre, allProductos) : []),
-    [nuevoOpen, nuevoNombre, allProductos],
+    () => (nuevoOpen && !soloNombreGeneral ? productosSimilares(nuevoNombre, allProductos) : []),
+    [nuevoOpen, soloNombreGeneral, nuevoNombre, allProductos],
   );
 
   /** Mete en la solicitud un producto que YA existe, en vez de crear uno nuevo. */
@@ -5275,6 +5307,14 @@ function CrearOrdenModal({
       notaRef.current?.focus();
       return;
     }
+    if (flujoAlmacen && !sedeDestino) {
+      toast('Indica dónde se necesita lo pedido: Los Pinos o Matanza.', 'error');
+      return;
+    }
+    if (soloNombreGeneral && items.some((i) => i.productoId && !(orden?.items ?? []).some((o) => o.sku === i.sku))) {
+      toast('La solicitud va con nombres generales: el analista de Compras pone el nombre de inventario al cotizar.', 'error');
+      return;
+    }
     setSubmitting(true);
     try {
       const email = usuario?.email ?? authEmail;
@@ -5294,6 +5334,7 @@ function CrearOrdenModal({
           solicitante: solicitanteNombre.trim() || null,
           ci_solicitante: ciValor || null,
           urgente,
+          ...(flujoAlmacen ? { sede_destino: sedeDestino || null } : {}),
         }, email);
         // Sincroniza con inventario los nombres editados.
         const orig = new Map((orden!.items ?? []).map((i) => [i.sku, i.nombre]));
@@ -5326,6 +5367,7 @@ function CrearOrdenModal({
         // se pregunta, porque el sistema ya lo sabe.
         solicitante_persona: nombreCompletoUsuario || null,
         urgente,
+        ...(flujoAlmacen ? { sede_destino: sedeDestino || null } : {}),
       });
       if (imagenes.length) {
         try { await guardarImagenesOrden(saved.id, imagenes); }
@@ -5415,13 +5457,37 @@ function CrearOrdenModal({
         </small>
       </div>
 
+      {flujoAlmacen && (
+        <div className="form-row">
+          <label>¿Dónde se necesita? *</label>
+          <div className="view-toggle" role="radiogroup" aria-label="Sede donde se necesita" style={{ flexWrap: 'wrap' }}>
+            {SEDES_REVISION_ALMACEN.map((x) => (
+              <button key={x.sede} type="button" role="radio" aria-checked={sedeDestino === x.sede}
+                className={sedeDestino === x.sede ? 'active' : ''} onClick={() => setSedeDestino(x.sede)}>
+                📍 {x.etiqueta}
+              </button>
+            ))}
+          </div>
+          <small className="hint muted" style={{ fontSize: '.72rem' }}>
+            Los dos almacenes revisan si lo tienen. Entrega primero el de esta sede; si lo tiene el otro, lo envía por traslado.
+          </small>
+        </div>
+      )}
+
       <div className="form-row">
         <label>Productos solicitados</label>
         <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.3rem' }}>
           Marcá los artículos a comprar e indicá la finalidad de cada uno. Los desmarcados quedan en la solicitud pero no se cotizan.
         </div>
-        {/* Buscador SIEMPRE arriba: se pueden agregar todos los productos que haga falta (sin tope). */}
-        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginBottom: '.5rem' }}>
+        {/* Buscador SIEMPRE arriba: se pueden agregar todos los productos que haga falta (sin tope).
+            Con el flujo de almacén, quien no es analista de Compras pide solo con nombre general. */}
+        {soloNombreGeneral && (
+          <div className="aviso info sm" style={{ marginBottom: '.5rem' }}>
+            <span className="aviso-icono">ℹ</span>
+            <div>Escribe lo que necesitas con un <strong>nombre general</strong> (ej. «TORNILLO 1/2»). No se guarda en el inventario: el analista de Compras le pone el nombre correcto al cargar la cotización.</div>
+          </div>
+        )}
+        <div style={{ display: soloNombreGeneral ? 'none' : 'flex', gap: '.5rem', alignItems: 'center', marginBottom: '.5rem' }}>
           <SearchSelect
             style={{ flex: 1 }}
             value={prodSelectId}
@@ -5528,10 +5594,10 @@ function CrearOrdenModal({
         </div>
 
         <div style={{ marginTop: '.5rem' }}>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNuevoOpen((v) => !v)}>
+          {!soloNombreGeneral && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setNuevoOpen((v) => !v)}>
             {nuevoOpen ? '× Cerrar' : flujoAlmacen ? '+ No está en inventario (pedir con nombre general)' : '+ Producto nuevo (no existe en inventario)'}
-          </button>
-          {nuevoOpen && (
+          </button>}
+          {(nuevoOpen || soloNombreGeneral) && (
             <div className="card" style={{ padding: '.65rem', marginTop: '.4rem', display: 'grid', gap: '.5rem' }}>
               <div className="muted" style={{ fontSize: '.78rem' }}>
                 {flujoAlmacen

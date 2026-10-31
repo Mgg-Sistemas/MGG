@@ -211,6 +211,8 @@ export interface CrearOrdenInput {
   clase?: 'producto' | 'servicio';
   /** Moneda de la orden (la usan los Servicios: 'USD' o 'Bs'). Por defecto 'USD'. */
   moneda?: string;
+  /** Flujo de almacén (30-10-2026): sede donde se NECESITA lo pedido (LOS PINOS / MATANZAS). */
+  sede_destino?: string | null;
 }
 
 /**
@@ -297,6 +299,7 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     moneda: input.moneda === 'Bs' ? 'Bs' : 'USD',
     urgente,
     historial,
+    ...(input.sede_destino?.trim() ? { sede_destino: input.sede_destino.trim() } : {}),
   };
   const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
   if (error) throw error;
@@ -437,6 +440,8 @@ export interface EditarOrdenInput {
   urgente?: boolean;
   /** Moneda de la orden (Servicios: 'USD' o 'Bs'). Si se omite, no se cambia. */
   moneda?: string;
+  /** Sede donde se necesita (flujo de almacén). Si se omite, no se cambia. */
+  sede_destino?: string | null;
 }
 
 /**
@@ -474,6 +479,7 @@ export async function actualizarOrden(o: Orden, input: EditarOrdenInput, actorEm
   };
   if (input.urgente !== undefined) patch.urgente = !!input.urgente;
   if (input.moneda !== undefined) patch.moneda = input.moneda === 'Bs' ? 'Bs' : 'USD';
+  if (input.sede_destino !== undefined) patch.sede_destino = input.sede_destino?.trim() || null;
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
   return data as Orden;

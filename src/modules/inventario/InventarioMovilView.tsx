@@ -28,6 +28,7 @@ import { hoyVenezuela, rangoRapido } from '@/shared/lib/rangosFecha';
 import type { Almacen } from '@/shared/lib/types';
 import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { verComprobanteMaterialPdf, type ComprobanteMaterial } from '@/modules/salidas/salidaPdf';
 import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import { createProducto, findBySku, getUnidades, siguienteSkuLibre } from './inventario.repository';
@@ -91,7 +92,7 @@ export function InventarioMovilView() {
   const [paso, setPaso] = useState<Paso>('inicio');
   const [elegido, setElegido] = useState<ProductoEnAlmacen | null>(null);
   const [busca, setBusca] = useState('');
-  const [listo, setListo] = useState<{ titulo: string; texto: string } | null>(null);
+  const [listo, setListo] = useState<{ titulo: string; texto: string; pdf?: ComprobanteMaterial } | null>(null);
   const [salidaHecha, setSalidaHecha] = useState<SalidaTelefono | null>(null);
 
   const cargarAlmacenes = useCallback(async () => {
@@ -156,8 +157,8 @@ export function InventarioMovilView() {
     setPaso('inicio'); setElegido(null); setBusca('');
   }
   function volver() { setPaso('inicio'); setElegido(null); setListo(null); setSalidaHecha(null); }
-  function hecho(titulo: string, texto: string) {
-    setListo({ titulo, texto }); setPaso('listo'); setElegido(null);
+  function hecho(titulo: string, texto: string, pdf?: ComprobanteMaterial) {
+    setListo({ titulo, texto, pdf }); setPaso('listo'); setElegido(null);
     void reload().catch(() => {});
   }
   const eligiendo = (paso === 'entrada' || paso === 'salida' || paso === 'traslado') && !elegido;
@@ -253,7 +254,7 @@ export function InventarioMovilView() {
         </button>
       )}
 
-      {paso === 'listo' && listo && <Listo titulo={listo.titulo} texto={listo.texto} onVolver={volver} />}
+      {paso === 'listo' && listo && <Listo titulo={listo.titulo} texto={listo.texto} pdf={listo.pdf} onVolver={volver} />}
 
       {paso === 'listoSalida' && salidaHecha && (
         <ListoSalida salida={salidaHecha} quien={quien} onCambio={setSalidaHecha} onVolver={volver} />
@@ -330,14 +331,29 @@ export function InventarioMovilView() {
 }
 
 /** Lo guardado: el aviso para WhatsApp y la vuelta al inicio. */
-function Listo({ titulo, texto, onVolver, children }: {
-  titulo: string; texto: string; onVolver: () => void; children?: ReactNode;
+function Listo({ titulo, texto, pdf, onVolver, children }: {
+  titulo: string; texto: string; pdf?: ComprobanteMaterial; onVolver: () => void; children?: ReactNode;
 }) {
+  const [abriendo, setAbriendo] = useState(false);
+  // El comprobante en PDF (30-10-2026): mismo formato que Salidas y Traslados, en vista
+  // previa y solo con el botón (nada se descarga solo).
+  async function verPdf() {
+    if (!pdf) return;
+    setAbriendo(true);
+    try { await verComprobanteMaterialPdf(pdf); }
+    catch (e) { toast(errMsg(e, 'No se pudo armar el PDF'), 'error'); }
+    finally { setAbriendo(false); }
+  }
   return (
     <div className="surt-form">
       <div className="surt-form-titulo"><span className="icono" aria-hidden>✅</span><strong>{titulo}</strong></div>
       {children}
       <CompartirWhatsapp texto={texto} />
+      {pdf && (
+        <button type="button" className="btn btn-ghost surt-guardar" disabled={abriendo} onClick={() => void verPdf()}>
+          {abriendo ? 'Armando el PDF…' : '📄 Ver PDF del comprobante'}
+        </button>
+      )}
       <button type="button" className="btn btn-primary surt-guardar" onClick={onVolver}>← Volver al inicio</button>
     </div>
   );
@@ -365,7 +381,13 @@ function ListoSalida({ salida, quien, onCambio, onVolver }: {
   }
 
   return (
-    <Listo titulo={`Salida ${salida.codigo} registrada`} texto={mensajeSalida(salida, quien)} onVolver={onVolver}>
+    <Listo titulo={`Salida ${salida.codigo} registrada`} texto={mensajeSalida(salida, quien)} onVolver={onVolver}
+      pdf={{
+        tipo: 'salida', codigo: salida.codigo, producto: { nombre: salida.producto_nombre, unidad: salida.unidad },
+        almacen: nombreAlmacenVisible(salida.almacen), cantidad: salida.cantidad, detalle: salida.motivo,
+        autorizadoPor: salida.autorizado_por, retorna: salida.retorna, fotos: salida.fotos.length,
+        actor: salida.actor ?? quien, actorName: salida.actor_name ?? quien, at: salida.created_at,
+      }}>
       <FotosSalida fotos={salida.fotos} />
       <div className="surt-campo">
         <label htmlFor="inv-tel-salida-fotos-mas">Fotos ({salida.fotos.length}/{MAX_FOTOS_SALIDA})</label>
@@ -557,7 +579,7 @@ function FormNuevo({ almacen, productos, actor, actorName, quien, onCancel, onHe
 
 function FormEntrada({ almacen, producto, actor, actorName, quien, onCancel, onHecho }: {
   almacen: string; producto: ProductoEnAlmacen; actor: string; actorName: string | null; quien: string;
-  onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
+  onCancel: () => void; onHecho: (titulo: string, texto: string, pdf?: ComprobanteMaterial) => void;
 }) {
   const [cantidad, setCantidad] = useState('');
   const [costo, setCosto] = useState('');
@@ -584,7 +606,11 @@ function FormEntrada({ almacen, producto, actor, actorName, quien, onCancel, onH
       onHecho(`Entrada: +${num(cant)} ${producto.unidad} de ${producto.nombre}`, mensajeEntrada({
         almacen, nombre: producto.nombre, sku: producto.sku, unidad: producto.unidad, cantidad: cant,
         stockDespues: Number(mov.stock_despues) || hay + cant, costo: precio, nota, quien, cuando: mov.at,
-      }));
+      }), {
+        tipo: 'entrada', producto: { sku: producto.sku, nombre: producto.nombre, unidad: producto.unidad },
+        almacen: nombreAlmacenVisible(almacen), cantidad: cant, precioUnitario: precio, detalle: mov.detalle,
+        actor, actorName, at: mov.at,
+      });
     } catch (err) {
       toast(errMsg(err, 'No se pudo guardar'), 'error');
     } finally {
@@ -741,7 +767,7 @@ function FormSalida({ almacen, producto, actor, actorName, onCancel, onHecho }: 
 
 function FormTraslado({ origen, destinos, producto, actor, actorName, quien, onCancel, onHecho }: {
   origen: string; destinos: Almacen[]; producto: ProductoEnAlmacen; actor: string; actorName: string | null; quien: string;
-  onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
+  onCancel: () => void; onHecho: (titulo: string, texto: string, pdf?: ComprobanteMaterial) => void;
 }) {
   const [destino, setDestino] = useState('');
   const [cantidad, setCantidad] = useState('');
@@ -771,7 +797,11 @@ function FormTraslado({ origen, destinos, producto, actor, actorName, quien, onC
       onHecho(`Traslado a ${aNombre} registrado`, mensajeTraslado({
         origen, destino, nombre: producto.nombre, sku: producto.sku, unidad: producto.unidad, cantidad: cant,
         motivo, quedaOrigen: Math.max(0, hay - cant), quien,
-      }));
+      }), {
+        tipo: 'traslado', producto: { sku: producto.sku, nombre: producto.nombre, unidad: producto.unidad },
+        almacen: deNombre, destino: aNombre, cantidad: cant, precioUnitario: Number(producto.precio) || null,
+        detalle: motivo, actor, actorName, at: new Date().toISOString(),
+      });
     } catch (err) {
       toast(errMsg(err, 'No se pudo trasladar'), 'error');
       setConfirmando(false);

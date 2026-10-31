@@ -14,8 +14,10 @@
    ============================================================ */
 import { useEffect, useState } from 'react';
 import { supabase } from '@/shared/lib/supabase';
-import type { ItemOrden, Orden } from '@/shared/lib/types';
-import type { MarcaAlmacen } from './revisionAlmacen';
+import type { ItemOrden, Orden, RenglonTrasladoSolicitud } from '@/shared/lib/types';
+import { transferir } from '@/modules/inventario/movimientos.repository';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { motivoTrasladoSp, type MarcaAlmacen, type TrasladoDeSolicitud } from './revisionAlmacen';
 
 export const CLAVE_FLUJO_ALMACEN = 'compras.revision_almacen';
 
@@ -169,4 +171,81 @@ export async function stockDeRenglones(items: ItemOrden[]): Promise<Map<string, 
     out.set(it.sku, { productoId: p.id, nombre: p.nombre, stock: Number(p.stock) || 0, porAlmacen, porSede });
   }
   return out;
+}
+
+/* ── Traslado entre almacenes por la SP (30-10-2026) ── */
+
+export interface StockEnSede {
+  productoId: string;
+  nombre: string;
+  sku: string;
+  unidad: string;
+  almacen: string;
+  stock: number;
+}
+
+/** Lo que hay en los almacenes de una sede (para elegir qué ficha sale en un traslado). */
+export async function productosConStockEnSede(sede: string): Promise<StockEnSede[]> {
+  const { data: alms, error: e1 } = await supabase.from('almacenes').select('nombre').eq('sede', sede);
+  if (e1) throw e1;
+  const nombres = ((alms ?? []) as Array<{ nombre: string }>).map((a) => a.nombre);
+  if (!nombres.length) return [];
+  const exist = await todasLasFilas<{ producto_id: string; almacen: string; stock: number }>((d, h) =>
+    supabase.from('existencias').select('producto_id, almacen, stock').in('almacen', nombres).gt('stock', 0)
+      .order('producto_id').range(d, h));
+  const ids = [...new Set(exist.map((e) => e.producto_id))];
+  const prods = new Map<string, { nombre: string; sku: string; unidad: string | null }>();
+  for (let i = 0; i < ids.length; i += 300) {
+    const { data, error } = await supabase.from('productos').select('id, nombre, sku, unidad')
+      .in('id', ids.slice(i, i + 300)).eq('estado', 'activo');
+    if (error) throw error;
+    for (const p of (data ?? []) as Array<{ id: string; nombre: string; sku: string; unidad: string | null }>) prods.set(p.id, p);
+  }
+  return exist.flatMap((e) => {
+    const p = prods.get(e.producto_id);
+    return p ? [{ productoId: e.producto_id, nombre: p.nombre, sku: p.sku, unidad: p.unidad ?? '', almacen: e.almacen, stock: Number(e.stock) || 0 }] : [];
+  }).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+}
+
+/**
+ * Hace el traslado de una sede para la SP: por cada renglón sale del almacén de
+ * origen y entra al de la sede destino (kardex `traslado_sp` con el código de la
+ * SP), y al final la base lo anota en la SP. Si un renglón falla, los que ya se
+ * movieron quedan movidos y se dice cuáles: así se puede completar a mano.
+ */
+export async function registrarTrasladoSolicitud(d: {
+  orden: Pick<Orden, 'id' | 'codigo'>;
+  traslado: TrasladoDeSolicitud;
+  renglones: RenglonTrasladoSolicitud[];
+  nota?: string | null;
+  actor: string;
+  actorName: string | null;
+  /** Renglones (sku) que ya se movieron en un intento anterior: no se vuelven a mover. */
+  yaMovidos?: ReadonlySet<string>;
+  /** Avisa cada renglón movido, para no repetirlo si hay que reintentar. */
+  onMovido?: (sku: string) => void;
+}): Promise<Orden> {
+  const motivo = motivoTrasladoSp(d.orden.codigo, d.traslado);
+  const hechos: string[] = [];
+  for (const r of d.renglones) {
+    if (d.yaMovidos?.has(r.sku)) continue;
+    try {
+      await transferir({
+        producto_id: r.producto_id, almacenOrigen: r.almacen_origen, almacenDestino: r.almacen_destino,
+        cantidad: r.cantidad, actor: d.actor, actor_name: d.actorName,
+        ref_tipo: 'traslado_sp', ref_codigo: d.orden.codigo,
+        detalle: d.nota?.trim() ? `${motivo} · ${d.nota.trim()}` : motivo,
+      });
+      hechos.push(r.nombre);
+      d.onMovido?.(r.sku);
+    } catch (e) {
+      const ya = hechos.length ? ` Ya se trasladaron: ${hechos.join(', ')}.` : '';
+      throw new Error(`No se pudo trasladar «${r.nombre}»: ${e instanceof Error ? e.message : 'error'}.${ya}`);
+    }
+  }
+  const { data, error } = await supabase.rpc('almacen_registrar_traslado_sp', {
+    p_orden_id: d.orden.id, p_sede: d.traslado.sede, p_renglones: d.renglones, p_nota: d.nota ?? null,
+  });
+  if (error) throw new Error(`El inventario ya se trasladó, pero no se pudo anotar en ${d.orden.codigo}: ${error.message}`);
+  return data as Orden;
 }

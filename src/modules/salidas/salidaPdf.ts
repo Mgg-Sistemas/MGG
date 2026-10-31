@@ -96,6 +96,63 @@ export async function obtenerSalidaMaterialPdfBase64(
   return { base64, filename: `${esTraslado ? 'traslado' : 'salida'}-${(prod?.sku ?? 'material')}-${mov.id.slice(0, 8)}.pdf` };
 }
 
+export type TipoComprobanteMaterial = 'salida' | 'traslado' | 'entrada';
+
+/** Lo que lleva el comprobante de material que sale de las vistas de teléfono (30-10-2026). */
+export interface ComprobanteMaterial {
+  tipo: TipoComprobanteMaterial;
+  codigo?: string | null;
+  producto: { sku?: string | null; nombre: string; unidad?: string | null };
+  almacen: string;
+  /** Traslado: almacén destino · salida: a quién / para qué. */
+  destino?: string | null;
+  cantidad: number;
+  precioUnitario?: number | null;
+  detalle?: string | null;
+  autorizadoPor?: string | null;
+  retorna?: boolean | null;
+  fotos?: number | null;
+  actor: string;
+  actorName?: string | null;
+  at?: string | null;
+}
+
+/**
+ * Comprobante de salida / traslado / entrada en vista previa, con el MISMO formato
+ * del módulo de Salidas y Traslados (encabezado con logo y ficha en tabla). Lo usa
+ * la vista de teléfono de Inventario y almacenes: se abre solo con el botón.
+ */
+export async function verComprobanteMaterialPdf(c: ComprobanteMaterial): Promise<void> {
+  const titulo = c.tipo === 'traslado' ? 'Comprobante de Traslado' : c.tipo === 'entrada' ? 'Comprobante de Entrada' : 'Comprobante de Salida';
+  const { doc, autoTable, fmt, y, personas } = await nuevoDoc(titulo);
+  const precio = Number(c.precioUnitario) || 0;
+  const unidad = c.producto.unidad ?? '';
+  const ficha: Array<[string, string]> = [
+    ...(c.codigo ? [['N°', c.codigo] as [string, string]] : []),
+    ['Producto', c.producto.sku ? `${c.producto.sku} — ${c.producto.nombre}` : c.producto.nombre],
+    [c.tipo === 'entrada' ? 'Almacén' : 'Almacén origen', c.almacen || '—'],
+    ...(c.tipo === 'traslado' ? [['Almacén destino', c.destino || '—'] as [string, string]] : []),
+    ...(c.tipo === 'salida' && c.destino ? [['Unidad Solicitante', c.destino] as [string, string]] : []),
+    ['Cantidad', `${fmt.num(c.cantidad)} ${unidad}`.trim()],
+    ['Precio unitario', precio ? fmt.money(precio) : '—'],
+    ['Precio total', precio ? fmt.money(precio * c.cantidad) : '—'],
+    ...(c.autorizadoPor ? [['Autorizado por', c.autorizadoPor] as [string, string]] : []),
+    ...(c.tipo === 'salida' && c.retorna != null ? [['Retorna', c.retorna ? 'Sí' : 'No'] as [string, string]] : []),
+    ...(c.fotos ? [['Fotos', String(c.fotos)] as [string, string]] : []),
+    ['Motivo / detalle', c.detalle || '—'],
+    ['Registrado por', personaDe(c.actor, personas, c.actorName ?? null)],
+    ['Fecha de registro', fmt.dateTime(c.at ?? new Date().toISOString())],
+  ];
+  autoTable(doc, {
+    startY: y, body: ficha, theme: 'plain',
+    styles: { fontSize: 10, cellPadding: 3 },
+    columnStyles: { 0: { fontStyle: 'bold', cellWidth: 150 } },
+    margin: MARGENES_TABLA_PDF,
+  });
+  const ref = (c.codigo || c.producto.sku || 'material').replace(/[^\w-]+/g, '_');
+  previewPdfDoc(doc, `${c.tipo}-${ref}-${(c.at ?? new Date().toISOString()).slice(0, 10)}.pdf`);
+}
+
 /** Comprobante de salida de dinero (anticipo). */
 export async function descargarSalidaDineroPdf(mov: MovimientoCaja): Promise<void> {
   const { doc, autoTable, fmt, y, personas } = await nuevoDoc('Comprobante de Salida de Dinero');

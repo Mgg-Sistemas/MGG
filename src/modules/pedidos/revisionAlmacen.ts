@@ -14,7 +14,7 @@
    completa). Los emojis son todos de color por sí mismos, sin el selector
    U+FE0F (ver mensajeMovimiento.ts).
    ============================================================ */
-import type { ItemOrden, Orden } from '@/shared/lib/types';
+import type { ItemOrden, Orden, RenglonTrasladoSolicitud, TrasladoSolicitud } from '@/shared/lib/types';
 
 /* ── Las sedes que revisan ── */
 
@@ -40,6 +40,16 @@ const ETIQUETAS_EXTRA: Record<string, string> = { 'CENTRO DE ACOPIO - LA ESPERAN
 export function etiquetaSede(sede: string | null | undefined): string {
   const s = String(sede ?? '').trim();
   return SEDES_REVISION_ALMACEN.find((x) => x.sede === s)?.etiqueta ?? ETIQUETAS_EXTRA[s] ?? (s || 'Almacén');
+}
+
+/**
+ * El orden en que se reparte la entrega (30-10): PRIMERO la sede donde se necesita
+ * (no hace falta traslado), después las otras. Sin destino, el orden fijo.
+ */
+export function ordenReparto(sedeDestino?: string | null): string[] {
+  const todas = SEDES_REVISION_ALMACEN.map((s) => s.sede);
+  const d = String(sedeDestino ?? '').trim();
+  return todas.includes(d) ? [d, ...todas.filter((s) => s !== d)] : todas;
 }
 
 /** Por qué sedes puede responder el usuario: sin restricción (null) = todas; si no, las suyas que revisan. */
@@ -199,10 +209,11 @@ export interface RepartoRenglon {
 /**
  * Cuánto da cada sede de este renglón. Con la SP cerrada usa lo que fijó la base
  * (`almacen_origenes`); mientras se revisa, el mismo reparto que hará la base:
- * Los Pinos primero, después Matanza, hasta lo pedido. Una SP revisada antes del
- * 30-10 (sin sedes) cae en un solo «Almacén».
+ * primero la sede donde se necesita (`sedeDestino`), después la otra (sin destino:
+ * Los Pinos primero), hasta lo pedido. Una SP revisada antes del 30-10 (sin sedes)
+ * cae en un solo «Almacén».
  */
-export function repartoRenglon(it: ItemOrden): RepartoRenglon {
+export function repartoRenglon(it: ItemOrden, sedeDestino?: string | null): RepartoRenglon {
   const pedido = cantidadSolicitada(it);
   const orig = (it as ItemRevision).almacen_origenes;
   const origenes: RepartoRenglon['origenes'] = [];
@@ -214,11 +225,12 @@ export function repartoRenglon(it: ItemOrden): RepartoRenglon {
     }
   } else if (esObjeto((it as ItemRevision).almacen_sedes)) {
     let resto = pedido;
-    for (const { sede, etiqueta } of SEDES_REVISION_ALMACEN) {
+    for (const sede of ordenReparto(sedeDestino)) {
       const m = marcaDeSede(it, sede);
       const c = r4(Math.min(Math.max(m?.revisado ? m.disponible : 0, 0), resto));
-      if (c > 0) { origenes.push({ sede, etiqueta, cantidad: c }); resto = r4(resto - c); }
+      if (c > 0) { origenes.push({ sede, etiqueta: etiquetaSede(sede), cantidad: c }); resto = r4(resto - c); }
     }
+    origenes.sort((a, b) => SEDES_REVISION_ALMACEN.findIndex((s) => s.sede === a.sede) - SEDES_REVISION_ALMACEN.findIndex((s) => s.sede === b.sede));
   } else if (num(it.cantidad_almacen) > 0) {
     origenes.push({ sede: '', etiqueta: 'Almacén', cantidad: disponibleAcotado(it, num(it.cantidad_almacen)) });
   }
@@ -240,13 +252,13 @@ function base(it: ItemOrden) {
  * Compras), con lo que entrega cada sede. Sirve para la SP cerrada y, con
  * `conMarcasDeSede`, para ver cómo quedaría antes de confirmar.
  */
-export function resumenRevision(items: ItemOrden[]): ResumenRevision {
+export function resumenRevision(items: ItemOrden[], sedeDestino?: string | null): ResumenRevision {
   const tiene: RenglonResumen[] = [];
   const falta: RenglonResumen[] = [];
   const porSede = new Map<string, EntregaSede>();
   for (const it of items) {
     if (!seRevisa(it) && it.cantidad_almacen == null) continue;
-    const rep = repartoRenglon(it);
+    const rep = repartoRenglon(it, sedeDestino);
     if (rep.almacen > 0) tiene.push({ ...base(it), cantidad: rep.almacen });
     if (rep.falta > 0) falta.push({ ...base(it), cantidad: rep.falta });
     for (const o of rep.origenes) {
@@ -335,7 +347,7 @@ function linea(r: { nombre: string; cantidad: number; unidad?: string }): string
 
 /** El mensaje de WhatsApp de la Solicitud de Pedido, tal como se pidió. */
 export function mensajeSolicitudPedido(
-  o: Pick<Orden, 'codigo' | 'items' | 'created_at' | 'finalidad' | 'motivo' | 'urgente' | 'notas'>,
+  o: Pick<Orden, 'codigo' | 'items' | 'created_at' | 'finalidad' | 'motivo' | 'urgente' | 'notas'> & Partial<Pick<Orden, 'sede_destino'>>,
   quien?: { unidad?: string | null; persona?: string | null },
 ): string {
   const items = (o.items ?? []).filter(seRevisa);
@@ -343,6 +355,7 @@ export function mensajeSolicitudPedido(
   partes.push(`📋 *SOLICITUD DE PEDIDO ${o.codigo}*`);
   if (o.urgente) partes.push('🚨 *URGENTE*');
   partes.push(`📅 ${fechaHoraVE(o.created_at)}`);
+  if (o.sede_destino?.trim()) partes.push(`📍 Se necesita en: ${etiquetaSede(o.sede_destino)}`);
   const unidad = (quien?.unidad ?? '').trim();
   const persona = (quien?.persona ?? '').trim();
   if (unidad || persona) partes.push(`👤 Solicita: ${[unidad, persona].filter(Boolean).join(' — ')}`);
@@ -399,10 +412,11 @@ export function mensajeRevisionAlmacen(
   o: Pick<Orden, 'id' | 'codigo' | 'items' | 'revisada_almacen_en' | 'nota_almacen'> & Partial<OrdenRevision>,
   opts?: { revisor?: string | null; nota?: string | null; nombre?: (correo: string) => string },
 ): string {
-  const { tiene, falta, porSede = [] } = resumenRevision(o.items ?? []);
+  const { tiene, falta, porSede = [] } = resumenRevision(o.items ?? [], o.sede_destino);
   const partes: string[] = [];
   partes.push(`✅ *ALMACÉN HA REVISADO LA ORDEN ${o.codigo}*`);
   partes.push(`📅 ${fechaHoraVE(o.revisada_almacen_en)}`);
+  if (o.sede_destino?.trim()) partes.push(`📍 Se necesita en: ${etiquetaSede(o.sede_destino)}`);
   const confirmaron = estadoSedes(o).filter((e) => e.confirmada);
   if (confirmaron.length) {
     const quien = (c: ConfirmacionSede | null) => {
@@ -425,6 +439,11 @@ export function mensajeRevisionAlmacen(
       for (const r of e.renglones) partes.push(linea(r));
     });
   }
+  const trasl = trasladosDeSolicitud(o);
+  if (trasl.length) {
+    partes.push('');
+    for (const t of trasl) partes.push(`🔁 ${t.etiqueta} traslada a ${t.etiquetaDestino}${t.hecho ? ' · ✅ hecho' : ' · pendiente'}`);
+  }
   partes.push('');
   if (falta.length) {
     partes.push('🛒 *VA A SOLICITAR A COMPRAS:*');
@@ -433,6 +452,115 @@ export function mensajeRevisionAlmacen(
     partes.push('🛒 *VA A SOLICITAR A COMPRAS:* nada, almacén tiene todo.');
   }
   const nota = (opts?.nota ?? o.nota_almacen ?? '').trim();
+  if (nota) { partes.push(''); partes.push(`📝 ${nota}`); }
+  return partes.join('\n');
+}
+
+/* ── Traslados entre almacenes por la SP (30-10-2026) ──
+   Lo que entrega una sede que NO es donde se necesita viaja por traslado: el
+   almacenista de esa sede lo hace desde su teléfono (sale de su almacén y entra
+   al de la sede destino) y queda anotado en la SP (`traslados_almacen`). */
+
+export interface RenglonPorTrasladar {
+  sku: string;
+  nombre: string;
+  unidad: string;
+  cantidad: number;
+  /** Ficha del renglón si la tiene (los de nombre general no: se elige al trasladar). */
+  productoId: string | null;
+}
+
+export interface TrasladoDeSolicitud {
+  sede: string;
+  etiqueta: string;
+  destino: string;
+  etiquetaDestino: string;
+  renglones: RenglonPorTrasladar[];
+  /** Lo que ya anotó esa sede (null = traslado pendiente). */
+  hecho: TrasladoSolicitud | null;
+  /** «Stock completo»: no va nada a Compras y esta sede da todo el pedido. */
+  completo: boolean;
+}
+
+/**
+ * Los traslados que pide una SP ya revisada: uno por cada sede que entrega algo y
+ * no es la sede donde se necesita. Sin destino (SP vieja) o sin revisar: ninguno.
+ */
+export function trasladosDeSolicitud(
+  o: Pick<Orden, 'items'> & Partial<Pick<Orden, 'estado' | 'sede_destino' | 'traslados_almacen' | 'revisada_almacen_en'>>,
+): TrasladoDeSolicitud[] {
+  const destino = String(o.sede_destino ?? '').trim();
+  if (!destino || !o.revisada_almacen_en) return [];
+  const porSede = new Map<string, RenglonPorTrasladar[]>();
+  const otrasDan = new Set<string>();
+  for (const it of o.items ?? []) {
+    const orig = (it as ItemRevision).almacen_origenes;
+    if (!esObjeto(orig)) continue;
+    for (const [sede, v] of Object.entries(orig)) {
+      const c = num(v);
+      if (c <= 0) continue;
+      otrasDan.add(sede);
+      if (sede === destino) continue;
+      const l = porSede.get(sede) ?? [];
+      l.push({ ...base(it), cantidad: c, productoId: it.productoId ?? null });
+      porSede.set(sede, l);
+    }
+  }
+  const hechos = esObjeto(o.traslados_almacen) ? o.traslados_almacen : {};
+  const orden = SEDES_REVISION_ALMACEN.map((s) => s.sede);
+  return [...porSede.entries()]
+    .sort(([a], [b]) => orden.indexOf(a) - orden.indexOf(b))
+    .map(([sede, renglones]) => ({
+      sede,
+      etiqueta: etiquetaSede(sede),
+      destino,
+      etiquetaDestino: etiquetaSede(destino),
+      renglones,
+      hecho: esObjeto(hechos[sede]) ? hechos[sede] : null,
+      completo: o.estado === 'atendida_almacen' && otrasDan.size === 1,
+    }));
+}
+
+/** Traslados que todavía no hizo alguna de `sedes` (null = todas). */
+export function trasladosPendientes(
+  o: Parameters<typeof trasladosDeSolicitud>[0],
+  sedes?: readonly string[] | null,
+): TrasladoDeSolicitud[] {
+  return trasladosDeSolicitud(o).filter((t) => !t.hecho && (!sedes?.length || sedes.includes(t.sede)));
+}
+
+/** Lo que se escribe en el movimiento de inventario y en la nota del traslado. */
+export function motivoTrasladoSp(codigo: string, t: Pick<TrasladoDeSolicitud, 'etiqueta' | 'completo'>): string {
+  return `${codigo} · el pedido lo tiene ${t.etiqueta}${t.completo ? ', stock completo' : ''}`;
+}
+
+/**
+ * El mensaje de WhatsApp del traslado: «🔁 TRASLADO SP-… · LOS PINOS → MATANZA»,
+ * que el pedido lo tiene esa sede (stock completo si da todo) y qué se envió.
+ */
+export function mensajeTrasladoSolicitud(
+  o: Pick<Orden, 'codigo'>,
+  t: Pick<TrasladoDeSolicitud, 'etiqueta' | 'etiquetaDestino' | 'completo'>,
+  renglones: Array<Pick<RenglonTrasladoSolicitud, 'nombre' | 'cantidad' | 'unidad' | 'producto_nombre'>>,
+  opts?: { quien?: string | null; en?: string | null; nota?: string | null },
+): string {
+  const partes: string[] = [];
+  partes.push(`🔁 *TRASLADO ${o.codigo} · ${t.etiqueta.toUpperCase()} → ${t.etiquetaDestino.toUpperCase()}*`);
+  partes.push(`📅 ${fechaHoraVE(opts?.en)}`);
+  const quien = (opts?.quien ?? '').trim();
+  if (quien) partes.push(`👤 Trasladó: ${quien}`);
+  partes.push('');
+  partes.push(t.completo
+    ? `📦 El pedido lo tiene *${t.etiqueta}*: *stock completo*.`
+    : `📦 ${t.etiqueta} envía lo que tiene del pedido.`);
+  partes.push('');
+  partes.push(`*ENVIADO A ${t.etiquetaDestino.toUpperCase()}:*`);
+  for (const r of renglones) {
+    const ficha = (r.producto_nombre ?? '').trim();
+    const nombre = ficha && ficha.toUpperCase() !== r.nombre.trim().toUpperCase() ? `${r.nombre} (${ficha})` : r.nombre;
+    partes.push(linea({ nombre, cantidad: r.cantidad, unidad: r.unidad ?? '' }));
+  }
+  const nota = (opts?.nota ?? '').trim();
   if (nota) { partes.push(''); partes.push(`📝 ${nota}`); }
   return partes.join('\n');
 }

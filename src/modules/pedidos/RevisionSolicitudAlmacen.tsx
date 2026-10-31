@@ -145,6 +145,9 @@ export function RevisionSolicitudAlmacen({ orden, variante = 'pc', onConfirmada 
                 👤 {[orden.solicitante, solicitaPersona].filter(Boolean).join(' — ')}
               </div>
             )}
+            {orden.sede_destino?.trim() && (
+              <div style={{ fontSize: '.9rem', marginTop: '.2rem' }}>📍 Se necesita en <strong>{etiquetaSede(orden.sede_destino)}</strong>: esa sede entrega primero; lo que dé la otra va por traslado.</div>
+            )}
             {finalidad && <div style={{ fontSize: '.9rem', marginTop: '.2rem' }}>🎯 {finalidad}</div>}
             {orden.notas?.trim() && <div className="muted" style={{ fontSize: '.84rem', marginTop: '.2rem' }}>📝 {orden.notas.trim()}</div>}
             <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', marginTop: '.4rem' }}>
@@ -336,8 +339,8 @@ function RevisionSede({
   const esUltima = pendientesOtras.length === 0;
   // Si esta sede es la última que falta, así queda la SP al confirmar (reparto entre almacenes).
   const final = useMemo<ResumenRevision | null>(
-    () => (esUltima ? resumenRevision(conMarcasDeSede(items, sede, marcas)) : null),
-    [esUltima, items, sede, marcas],
+    () => (esUltima ? resumenRevision(conMarcasDeSede(items, sede, marcas), orden.sede_destino) : null),
+    [esUltima, items, sede, marcas, orden.sede_destino],
   );
   const nRevisados = aRevisar.filter((it) => marcas[it.sku]?.revisado).length;
   const listo = todoRevisado(items, marcas);

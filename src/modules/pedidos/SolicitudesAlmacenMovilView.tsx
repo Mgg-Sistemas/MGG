@@ -7,6 +7,9 @@
    el almacenista responde por SU sede (Los Pinos o Matanza · 30-10) y en la
    lista se ve qué sede ya confirmó. Cada toque se guarda solo y se ve en vivo
    en la PC (`ordenes` en realtime).
+
+   «🔁 Traslados» (30-10): si lo pedido lo tiene la otra sede, su almacenista
+   lo traslada desde acá a la sede donde se necesita (ver TrasladoSolicitudAlmacen).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -15,6 +18,7 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useNombreUsuario } from '@/shared/lib/useNombreUsuario';
+import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
@@ -22,12 +26,20 @@ import { dateTime, relTime } from '@/shared/lib/format';
 import { MensajeWhatsappModal } from './MensajeWhatsappModal';
 import { RevisionSolicitudAlmacen, resultadoRevision } from './RevisionSolicitudAlmacen';
 import { quienSolicita } from './quienSolicita';
-import { mensajeRevisionAlmacen, mensajeRevisionSede, resumenRevision, seRevisa, textoEstadoSedes } from './revisionAlmacen';
+import { TrasladoSolicitudAlmacen } from './TrasladoSolicitudAlmacen';
+import {
+  etiquetaSede, fmtCant, mensajeRevisionAlmacen, mensajeRevisionSede, resumenRevision, sedesQuePuedeResponder, seRevisa,
+  textoEstadoSedes, trasladosPendientes,
+} from './revisionAlmacen';
 import { listSolicitudesEnRevision, listSolicitudesRevisadas, useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
 
 const RUTA = '/app/solicitudes-pedido/telefono';
 
-type Filtro = 'pendientes' | 'urgentes' | 'revisadas';
+type Filtro = 'pendientes' | 'urgentes' | 'revisadas' | 'traslados';
+
+/** Las revisadas se listan de la última semana; los traslados pendientes, del último mes. */
+const DIAS_REVISADAS = 7;
+const DIAS_TRASLADOS = 30;
 
 function textoBusqueda(o: Orden): string {
   return [o.codigo, o.solicitante, quienSolicita(o), o.finalidad, o.motivo, ...(o.items ?? []).map((i) => i.nombre)]
@@ -39,6 +51,7 @@ export function SolicitudesAlmacenMovilView() {
   const { user } = useSession();
   const { appUser, soloTelefono, role } = usePermissions();
   const nombreDe = useNombreUsuario();
+  const { sedes: misSedes } = useSectorizacion();
   const actorName = appUser?.nombre?.trim() || user?.email || '';
 
   const [pendientes, setPendientes] = useState<Orden[]>([]);
@@ -55,7 +68,7 @@ export function SolicitudesAlmacenMovilView() {
 
   const reload = useCallback(async () => {
     try {
-      const [p, r] = await Promise.all([listSolicitudesEnRevision(), listSolicitudesRevisadas(7)]);
+      const [p, r] = await Promise.all([listSolicitudesEnRevision(), listSolicitudesRevisadas(DIAS_TRASLADOS)]);
       setPendientes(p);
       setRevisadas(r);
     } catch (e) {
@@ -70,6 +83,19 @@ export function SolicitudesAlmacenMovilView() {
 
   const sel = useMemo(() => pendientes.find((o) => o.id === selId) ?? null, [pendientes, selId]);
 
+  // Traslados que le tocan a MIS sedes (sin sede asignada: todas).
+  const sedesMias = useMemo(() => sedesQuePuedeResponder(misSedes), [misSedes]);
+  const traslados = useMemo(() => revisadas.flatMap((o) => trasladosPendientes(o, sedesMias).map((t) => ({ orden: o, t }))), [revisadas, sedesMias]);
+  const [trasSel, setTrasSel] = useState<{ ordenId: string; sede: string } | null>(null);
+  const trasladoAbierto = useMemo(
+    () => (trasSel ? traslados.find((x) => x.orden.id === trasSel.ordenId && x.t.sede === trasSel.sede) ?? null : null),
+    [traslados, trasSel],
+  );
+  const recientes = useMemo(() => {
+    const desde = Date.now() - DIAS_REVISADAS * 86_400_000;
+    return revisadas.filter((o) => new Date(o.revisada_almacen_en ?? 0).getTime() >= desde);
+  }, [revisadas]);
+
   // La SP abierta la cerró otro (la PC, otro teléfono): se avisa y se vuelve a la lista.
   useEffect(() => {
     if (!selId || cargando || sel) return;
@@ -80,10 +106,10 @@ export function SolicitudesAlmacenMovilView() {
 
   const urgentes = useMemo(() => pendientes.filter((o) => o.urgente), [pendientes]);
   const lista = useMemo(() => {
-    const base = filtro === 'revisadas' ? revisadas : filtro === 'urgentes' ? urgentes : pendientes;
+    const base = filtro === 'revisadas' ? recientes : filtro === 'urgentes' ? urgentes : pendientes;
     const t = q.trim().toUpperCase();
     return t ? base.filter((o) => textoBusqueda(o).includes(t)) : base;
-  }, [filtro, revisadas, urgentes, pendientes, q]);
+  }, [filtro, recientes, urgentes, pendientes, q]);
 
   const nombreCorreo = useCallback((correo: string) => nombreDe(null, correo), [nombreDe]);
 
@@ -116,7 +142,7 @@ export function SolicitudesAlmacenMovilView() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {sel && <button type="button" className="btn btn-ghost" onClick={() => setSelId(null)}>← Lista</button>}
+          {(sel || trasladoAbierto) && <button type="button" className="btn btn-ghost" onClick={() => { setSelId(null); setTrasSel(null); }}>← Lista</button>}
           {!soloTelefono && <Link to="/app/solicitudes-pedido" className="btn btn-ghost">🖥 Módulo completo</Link>}
         </div>
       </header>
@@ -129,7 +155,20 @@ export function SolicitudesAlmacenMovilView() {
         </div>
       )}
 
-      {sel ? (
+      {trasladoAbierto ? (
+        <TrasladoSolicitudAlmacen
+          key={`${trasladoAbierto.orden.id}-${trasladoAbierto.t.sede}`}
+          orden={trasladoAbierto.orden}
+          traslado={trasladoAbierto.t}
+          variante="telefono"
+          onCancel={() => setTrasSel(null)}
+          onHecho={(actualizada, texto) => {
+            setTrasSel(null);
+            setMensajes([{ titulo: `🔁 Traslado ${actualizada.codigo}`, texto }]);
+            void reload();
+          }}
+        />
+      ) : sel ? (
         <RevisionSolicitudAlmacen key={sel.id} orden={sel} variante="telefono" onConfirmada={alConfirmar} />
       ) : (
         <>
@@ -146,11 +185,17 @@ export function SolicitudesAlmacenMovilView() {
               <span>{urgentes.length}</span>
               <small>Urgentes</small>
             </button>
+            <button type="button" className="surt-btn traslado" aria-pressed={filtro === 'traslados'} onClick={() => setFiltro('traslados')}
+              style={{ gridColumn: '1 / -1', minHeight: 84, ...(filtro === 'traslados' ? { background: 'color-mix(in srgb, var(--info) 14%, transparent)' } : { opacity: .8 }), ...(traslados.length ? { borderColor: 'var(--info)' } : {}) }}>
+              <span className="icono" aria-hidden style={{ fontSize: '1.6rem' }}>🔁</span>
+              <span style={{ fontSize: '1.05rem' }}>Traslados por hacer ({traslados.length})</span>
+              <small>Lo pedido lo tiene tu sede y se necesita en la otra</small>
+            </button>
             <button type="button" className="surt-btn entrada" aria-pressed={filtro === 'revisadas'} onClick={() => setFiltro('revisadas')}
               style={{ gridColumn: '1 / -1', minHeight: 84, ...(filtro === 'revisadas' ? { background: 'color-mix(in srgb, var(--success) 14%, transparent)' } : { opacity: .8 }) }}>
               <span className="icono" aria-hidden style={{ fontSize: '1.6rem' }}>✅</span>
-              <span style={{ fontSize: '1.05rem' }}>Revisadas ({revisadas.length})</span>
-              <small>Últimos 7 días · toca una para el mensaje de WhatsApp</small>
+              <span style={{ fontSize: '1.05rem' }}>Revisadas ({recientes.length})</span>
+              <small>Últimos {DIAS_REVISADAS} días · toca una para el mensaje de WhatsApp</small>
             </button>
           </div>
 
@@ -165,7 +210,34 @@ export function SolicitudesAlmacenMovilView() {
 
           {cargando && <p className="muted">Cargando…</p>}
 
-          {!cargando && !lista.length && (
+          {filtro === 'traslados' && !cargando && (
+            traslados.length ? (
+              <div className="surt-lista">
+                {traslados.filter(({ orden: o }) => !q.trim() || textoBusqueda(o).includes(q.trim().toUpperCase())).map(({ orden: o, t }) => (
+                  <button key={`${o.id}-${t.sede}`} type="button" className="surt-mov" onClick={() => setTrasSel({ ordenId: o.id, sede: t.sede })}
+                    style={o.urgente ? { borderColor: 'var(--danger)' } : undefined}>
+                    <span className="icono" aria-hidden>🔁</span>
+                    <span style={{ minWidth: 0 }}>
+                      <span className="titulo" style={{ display: 'block' }}>{o.codigo} · {t.etiqueta} → {t.etiquetaDestino}</span>
+                      <span className="sub" style={{ display: 'block' }}>
+                        {t.renglones.map((r) => `${r.nombre} ${fmtCant(r.cantidad)}`).join(' · ')}
+                      </span>
+                      <span className="sub" style={{ display: 'block' }}>
+                        {t.completo ? '📦 Stock completo' : '📦 Una parte del pedido'} · revisada {relTime(o.revisada_almacen_en ?? o.created_at)}
+                      </span>
+                    </span>
+                    <span className="litros">{t.renglones.length}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <EmptyState icon="🔁" message={sedesMias.length === 1
+                ? `${etiquetaSede(sedesMias[0])} no tiene traslados pendientes por solicitudes.`
+                : 'No hay traslados pendientes por solicitudes.'} />
+            )
+          )}
+
+          {filtro !== 'traslados' && !cargando && !lista.length && (
             <EmptyState
               icon={filtro === 'revisadas' ? '✅' : '📋'}
               message={q.trim() ? 'Nada coincide con la búsqueda.'
@@ -176,7 +248,7 @@ export function SolicitudesAlmacenMovilView() {
           )}
 
           <div className="surt-lista">
-            {!cargando && lista.map((o) => {
+            {filtro !== 'traslados' && !cargando && lista.map((o) => {
               const solicita = [o.solicitante, quienSolicita(o)].filter(Boolean).join(' — ') || '—';
               if (filtro === 'revisadas') {
                 const res = resultadoRevision(o);
