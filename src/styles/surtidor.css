@@ -17,8 +17,8 @@
 .surt-sede .nombre { font-weight: 800; font-size: 1.15rem; letter-spacing: .02em; }
 .surt-sede .saldo { font-family: var(--font-mono); font-size: 1.5rem; font-weight: 800; color: var(--primary-2); }
 .surt-sede .saldo small { font-size: .8rem; font-weight: 600; }
-.surt-sede .sub { color: var(--muted); font-size: .85rem; }
-.surt-sede-titulo { font-size: 1rem; font-weight: 600; color: var(--muted); }
+.surt-sede .sub { color: var(--text-muted); font-size: .85rem; }
+.surt-sede-titulo { font-size: 1rem; font-weight: 600; color: var(--text-muted); }
 .surt-tanques { display: flex; gap: .5rem; overflow-x: auto; padding-bottom: .4rem; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
 .surt-tanque {
   flex: 0 0 auto; min-width: 150px; min-height: 64px; padding: .65rem .9rem;
@@ -76,31 +76,31 @@
 .surt-btn-resguardo {
   display: flex; flex-direction: row; align-items: center; justify-content: flex-start;
   gap: 1.1rem; padding: 1.1rem 1.25rem; min-height: 84px; text-align: left;
-  border-radius: var(--r-lg, 14px);
+  border-radius: var(--r-lg);
   border: 2px solid var(--primary);
-  background: var(--grad-primary-soft, linear-gradient(135deg, rgba(255, 138, 0, 0.18) 0%, rgba(255, 138, 0, 0.05) 100%));
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.3);
+  background: var(--grad-primary-soft);
+  box-shadow: var(--shadow-sm);
   color: var(--text); font: inherit; cursor: pointer; width: 100%;
   transition: transform .15s ease, border-color .15s ease, box-shadow .15s ease;
 }
 .surt-btn-resguardo:hover {
-  border-color: var(--primary-light, #ffa439);
-  box-shadow: 0 6px 24px rgba(255, 138, 0, 0.25);
+  border-color: var(--primary-2);
+  box-shadow: var(--glow-primary);
   transform: translateY(-1px);
 }
 .surt-btn-resguardo:active { transform: scale(0.985); }
 .surt-btn-resguardo .icono-badge {
   display: flex; align-items: center; justify-content: center;
-  width: 52px; height: 52px; border-radius: 12px;
-  background: rgba(255, 138, 0, 0.22);
-  border: 1px solid rgba(255, 138, 0, 0.35);
+  width: 52px; height: 52px; border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--primary) 22%, transparent);
+  border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
   font-size: 1.85rem; line-height: 1; flex-shrink: 0;
 }
 .surt-btn-resguardo .texto {
   display: flex; flex-direction: column; gap: .25rem; min-width: 0; flex: 1;
 }
 .surt-btn-resguardo .titulo {
-  font-size: 1.25rem; font-weight: 700; color: #fff; line-height: 1.25;
+  font-size: 1.25rem; font-weight: 700; color: var(--text); line-height: 1.25;
 }
 .surt-btn-resguardo .subtitulo {
   font-size: .88rem; font-weight: 500; color: var(--text-muted); line-height: 1.35; white-space: normal;
@@ -155,8 +155,10 @@
 /* ── Inventario y Almacenes (teléfono, 29-10-2026, traído de GT Depósito Mina):
    salida con ¿retorna? SÍ / NO, fotos, por retornar y traslado entre almacenes ── */
 .surt-btn.salida { border-color: var(--warning); }
-.surt-btn.retorno { border-color: var(--info, var(--primary)); font-size: 1.05rem; }
-.surt-btn.traslado { border-color: #a855f7; font-size: 1.05rem; }
+/* Traslado en el plateado del logo (--silver): el sistema no tiene morado y el
+   azul (--info) ya es de «Por retornar», que va al lado en la misma pantalla. */
+.surt-btn.retorno { border-color: var(--info); font-size: 1.05rem; }
+.surt-btn.traslado { border-color: var(--silver); font-size: 1.05rem; }
 .surt-acciones .surt-btn.ancho { grid-column: 1 / -1; min-height: 84px; }
 .surt-btn:disabled { opacity: .55; cursor: not-allowed; }
 .surt-sino { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }

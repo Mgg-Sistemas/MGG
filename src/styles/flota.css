@@ -706,21 +706,23 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
   padding: .5rem .25rem !important;
   gap: .25rem !important;
   min-height: 72px !important;
-  border-radius: var(--r-md, 8px) !important;
-  border: 1px solid var(--border-strong, #334155) !important;
-  background: var(--surface-1, #0f172a) !important;
-  color: var(--text, #f1f5f9) !important;
+  border-radius: var(--r-md) !important;
+  border: 1px solid var(--border-strong) !important;
+  /* Mismo fondo que las tarjetas seleccionables del sistema (.mode-card, .chip):
+     GT usaba --surface-1, que en MGG no existe y caía en un azul pizarra. */
+  background: var(--bg-1) !important;
+  color: var(--text) !important;
   cursor: pointer;
   text-align: center;
-  transition: all var(--t-fast, .15s ease);
+  transition: all .15s ease;
   width: 100% !important;
   box-sizing: border-box !important;
   user-select: none;
 }
 
 .flo-mv-servicio-btn:hover {
-  border-color: var(--primary, #ff8a00) !important;
-  color: #fff !important;
+  border-color: var(--primary) !important;
+  color: var(--text) !important;
   transform: translateY(-1px);
 }
 
@@ -729,10 +731,10 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 }
 
 .flo-mv-servicio-btn.activa {
-  background: var(--grad-primary-soft, rgba(255, 138, 0, 0.16)) !important;
-  border: 2px solid var(--primary, #ff8a00) !important;
-  color: #fff !important;
-  box-shadow: 0 0 10px rgba(255, 138, 0, 0.3) !important;
+  background: var(--grad-primary-soft) !important;
+  border: 2px solid var(--primary) !important;
+  color: var(--text) !important;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 10%, transparent) !important;
   font-weight: 700 !important;
 }
 

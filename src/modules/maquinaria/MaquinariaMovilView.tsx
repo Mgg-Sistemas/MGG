@@ -541,14 +541,14 @@ export function MaquinariaMovilView() {
       {/* ── Modal flotante de WhatsApp: aparece al instante centrado en pantalla ── */}
       {mensajeWhatsapp && (
         <Modal title="📲 Compartir por WhatsApp" size="md" onClose={() => setMensajeWhatsapp(null)}>
-          <div style={{ marginBottom: '.75rem', fontSize: '.84rem', color: 'var(--text-secondary, #94a3b8)' }}>
+          <div style={{ marginBottom: '.75rem', fontSize: '.84rem', color: 'var(--text-muted)' }}>
             Reporte generado listo para enviar por WhatsApp o copiar:
           </div>
           <CompartirWhatsapp texto={mensajeWhatsapp} />
           <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'flex-end' }}>
             <button
               type="button"
-              className="btn btn-secondary"
+              className="btn btn-ghost"
               onClick={() => setMensajeWhatsapp(null)}
             >
               Cerrar
@@ -561,12 +561,12 @@ export function MaquinariaMovilView() {
       {mensajeWhatsapp && (
         <div className="card" style={{
           marginBottom: '.65rem',
-          borderColor: 'var(--success, #22c55e)',
-          background: 'rgba(34, 197, 94, 0.08)',
+          borderColor: 'var(--success)',
+          background: 'color-mix(in srgb, var(--success) 8%, var(--surface))',
           padding: '.65rem',
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
-            <strong style={{ color: 'var(--success, #22c55e)', fontSize: '.82rem' }}>✅ Movimiento registrado con éxito</strong>
+            <strong style={{ color: 'var(--success)', fontSize: '.82rem' }}>✅ Movimiento registrado con éxito</strong>
             <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.74rem', padding: '.15rem .45rem' }} onClick={() => setMensajeWhatsapp(null)}>✕ Cerrar</button>
           </div>
           <CompartirWhatsapp texto={mensajeWhatsapp} />
@@ -574,7 +574,7 @@ export function MaquinariaMovilView() {
       )}
 
       {/* ── Menú de Acciones Rápidas (Compacto con colores institucionales) ── */}
-      <div className="surt-rotulo" style={{ fontSize: '.82rem', fontWeight: 700, margin: '.2rem 0 .4rem', color: 'var(--text-secondary, #94a3b8)', letterSpacing: '.04em' }}>
+      <div className="surt-rotulo" style={{ fontSize: '.82rem', fontWeight: 700, margin: '.2rem 0 .4rem', color: 'var(--text-muted)', letterSpacing: '.04em' }}>
         ¿QUÉ DESEAS REPORTAR HOY?
       </div>
 
@@ -643,15 +643,15 @@ export function MaquinariaMovilView() {
 
       {/* ── Vista: Lista de Solicitudes y Órdenes de Servicio (Compacta) ── */}
       {modo === 'solicitudes' && (
-        <div className="card" style={{ padding: '.75rem', marginBottom: '.75rem', background: 'var(--surface-2, #182230)', border: '1px solid var(--border)' }}>
+        <div className="card" style={{ padding: '.75rem', marginBottom: '.75rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.6rem' }}>
-            <h3 style={{ margin: 0, fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '.4rem', color: '#ffffff' }}>
+            <h3 style={{ margin: 0, fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '.4rem', color: 'var(--text)' }}>
               <span>📋</span> Solicitudes y Órdenes ({ordenes.length})
             </h3>
             <button
               type="button"
               className="btn btn-sm btn-ghost"
-              style={{ border: '1px solid var(--border)', color: 'var(--text-secondary, #94a3b8)', padding: '.25rem .6rem', fontSize: '.82rem' }}
+              style={{ border: '1px solid var(--border)', color: 'var(--text-muted)', padding: '.25rem .6rem', fontSize: '.82rem' }}
               onClick={() => setModo('menu')}
             >
               ✕ Volver
@@ -659,7 +659,7 @@ export function MaquinariaMovilView() {
           </div>
 
           {ordenes.length === 0 ? (
-            <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--muted, #94a3b8)' }}>
+            <div style={{ padding: '1.5rem 1rem', textAlign: 'center', color: 'var(--text-muted)' }}>
               <div style={{ fontSize: '1.8rem', marginBottom: '.35rem' }}>📭</div>
               <div style={{ fontSize: '.88rem' }}>No hay solicitudes registradas todavía.</div>
               <button
@@ -684,69 +684,42 @@ export function MaquinariaMovilView() {
                     key={o.id}
                     style={{
                       padding: '.75rem',
-                      background: 'var(--surface-1, #0d141f)',
-                      borderRadius: '8px',
+                      background: 'var(--bg-1)',
+                      borderRadius: 'var(--r-md)',
                       border: isCancelada
-                        ? '1px solid rgba(239, 68, 68, 0.35)'
+                        ? '1px solid color-mix(in srgb, var(--danger) 35%, transparent)'
                         : isRepuestos
-                        ? '1px solid rgba(245, 158, 11, 0.35)'
-                        : '1px solid rgba(255, 255, 255, 0.08)',
+                        ? '1px solid color-mix(in srgb, var(--warning) 35%, transparent)'
+                        : '1px solid var(--border)',
                     }}
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '.35rem' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
-                        <span style={{ fontWeight: 800, fontSize: '.95rem', color: '#ff8a00' }}>
+                        <span style={{ fontWeight: 800, fontSize: '.95rem', color: 'var(--primary)' }}>
                           {o.codigo}
                         </span>
                         <span
-                          className="badge"
-                          style={{
-                            fontSize: '.74rem',
-                            fontWeight: 700,
-                            textTransform: 'uppercase',
-                            background: isCancelada
-                              ? 'rgba(239, 68, 68, 0.2)'
-                              : isRepuestos
-                              ? 'rgba(245, 158, 11, 0.2)'
-                              : isRealizada
-                              ? 'rgba(34, 197, 94, 0.2)'
-                              : 'rgba(56, 189, 248, 0.2)',
-                            color: isCancelada
-                              ? '#f87171'
-                              : isRepuestos
-                              ? '#fbbf24'
-                              : isRealizada
-                              ? '#4ade80'
-                              : '#38bdf8',
-                            border: `1px solid ${
-                              isCancelada
-                                ? 'rgba(239, 68, 68, 0.4)'
-                                : isRepuestos
-                                ? 'rgba(245, 158, 11, 0.4)'
-                                : isRealizada
-                                ? 'rgba(34, 197, 94, 0.4)'
-                                : 'rgba(56, 189, 248, 0.4)'
-                            }`,
-                          }}
+                          className={`badge ${isCancelada ? 'danger' : isRepuestos ? 'warning' : isRealizada ? 'success' : 'info'}`}
+                          style={{ fontSize: '.74rem', fontWeight: 700, textTransform: 'uppercase' }}
                         >
                           {isCancelada ? '❌ CANCELADA (COMPRAS)' : o.estado}
                         </span>
                         {o.urgencia === 'urgente' && (
-                          <span className="badge" style={{ fontSize: '.72rem', background: 'rgba(239, 68, 68, 0.25)', color: '#f87171', border: '1px solid rgba(239, 68, 68, 0.5)' }}>
+                          <span className="badge danger" style={{ fontSize: '.72rem' }}>
                             🚨 URGENTE
                           </span>
                         )}
                       </div>
-                      <div className="muted" style={{ fontSize: '.78rem', color: '#94a3b8' }}>
+                      <div className="muted" style={{ fontSize: '.78rem' }}>
                         {dateTime(o.created_at)}
                       </div>
                     </div>
 
                     <div style={{ display: 'flex', gap: '.65rem', alignItems: 'center', margin: '.45rem 0' }}>
                       {foto ? (
-                        <img src={foto} alt={eq?.equipo ?? 'Equipo'} style={{ width: 48, height: 48, borderRadius: 6, objectFit: 'cover' }} />
+                        <img src={foto} alt={eq?.equipo ?? 'Equipo'} style={{ width: 48, height: 48, borderRadius: 'var(--r-sm)', objectFit: 'cover' }} />
                       ) : (
-                        <div style={{ width: 48, height: 48, borderRadius: 6, background: 'var(--surface-2, #1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
+                        <div style={{ width: 48, height: 48, borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
                           {eq ? (claseEquipo(eq) === 'lancha' ? '🚤' : claseEquipo(eq) === 'moto' ? '🏍️' : claseEquipo(eq) === 'vehiculo' ? '🚚' : '🚜') : '🚜'}
                         </div>
                       )}
@@ -754,12 +727,12 @@ export function MaquinariaMovilView() {
                         <div style={{ fontWeight: 700, fontSize: '.95rem' }}>{eq?.equipo ?? 'Equipo'}</div>
                         <div className="muted" style={{ fontSize: '.82rem' }}>
                           {[eq?.marca, eq?.modelo].filter(Boolean).join(' · ')}
-                          {eq?.placa && <span style={{ marginLeft: '.4rem', padding: '1px 5px', background: 'rgba(255,255,255,0.08)', borderRadius: 3, fontWeight: 600 }}>🚗 {eq.placa}</span>}
+                          {eq?.placa && <span style={{ marginLeft: '.4rem', padding: '1px 5px', background: 'var(--surface-3)', borderRadius: 'var(--r-sm)', fontWeight: 600 }}>🚗 {eq.placa}</span>}
                         </div>
                       </div>
                     </div>
 
-                    <div style={{ fontSize: '.88rem', marginBottom: '.4rem', color: 'var(--text-primary, #e2e8f0)', lineHeight: 1.35 }}>
+                    <div style={{ fontSize: '.88rem', marginBottom: '.4rem', color: 'var(--text)', lineHeight: 1.35 }}>
                       <strong>Trabajo / Falla:</strong> {o.descripcion || 'Sin descripción'}
                     </div>
 
@@ -772,8 +745,8 @@ export function MaquinariaMovilView() {
                     )}
 
                     {o.repuestos && o.repuestos.length > 0 && (
-                      <div style={{ fontSize: '.82rem', padding: '.45rem .6rem', background: 'rgba(255,255,255,0.04)', borderRadius: '6px', marginBottom: '.55rem' }}>
-                        <strong style={{ display: 'block', marginBottom: '.2rem', color: 'var(--warning, #f59e0b)' }}>
+                      <div style={{ fontSize: '.82rem', padding: '.45rem .6rem', background: 'var(--surface-2)', borderRadius: 'var(--r-sm)', marginBottom: '.55rem' }}>
+                        <strong style={{ display: 'block', marginBottom: '.2rem', color: 'var(--warning)' }}>
                           🛒 Piezas enviadas a Compras ({o.repuestos.length}):
                         </strong>
                         {o.repuestos.map((r, ri) => (
@@ -787,15 +760,11 @@ export function MaquinariaMovilView() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '.5rem', gap: '.5rem' }}>
                       <button
                         type="button"
-                        className="btn btn-sm"
+                        className="btn btn-sm btn-success"
                         style={{
                           fontSize: '.84rem',
                           minHeight: '38px',
                           fontWeight: 700,
-                          color: '#4ade80',
-                          background: 'rgba(34, 197, 94, 0.18)',
-                          border: '1px solid rgba(34, 197, 94, 0.5)',
-                          borderRadius: '6px',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '.35rem',
@@ -825,15 +794,11 @@ export function MaquinariaMovilView() {
 
                       <button
                         type="button"
-                        className="btn btn-sm"
+                        className="btn btn-sm btn-danger"
                         style={{
                           fontSize: '.82rem',
                           minHeight: '38px',
                           fontWeight: 600,
-                          color: '#f87171',
-                          background: 'rgba(239, 68, 68, 0.14)',
-                          border: '1px solid rgba(239, 68, 68, 0.4)',
-                          borderRadius: '6px',
                           padding: '.35rem .6rem',
                         }}
                         title="Eliminar orden"
@@ -852,7 +817,7 @@ export function MaquinariaMovilView() {
 
       {/* ── Formulario: Solicitar Servicio (Solicitud a Compras) ── */}
       {modo === 'servicio' && (
-        <div className="card" style={{ padding: '1.1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
+        <div className="card" style={{ padding: '1.1rem', marginBottom: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.85rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
               <span>🛒</span> Solicitud de Servicio a Compras
@@ -872,11 +837,11 @@ export function MaquinariaMovilView() {
             </div>
 
             {equipoActual && (
-              <div style={{ padding: '.55rem .75rem', background: 'var(--surface-1, #0f172a)', borderRadius: '8px', fontSize: '.86rem', display: 'flex', gap: '.65rem', alignItems: 'center' }}>
+              <div style={{ padding: '.55rem .75rem', background: 'var(--bg-1)', borderRadius: 'var(--r-md)', fontSize: '.86rem', display: 'flex', gap: '.65rem', alignItems: 'center' }}>
                 {fotos.has(equipoActual.id) ? (
-                  <img src={fotos.get(equipoActual.id)} alt={equipoActual.equipo} style={{ width: 48, height: 48, borderRadius: 6, objectFit: 'cover' }} />
+                  <img src={fotos.get(equipoActual.id)} alt={equipoActual.equipo} style={{ width: 48, height: 48, borderRadius: 'var(--r-sm)', objectFit: 'cover' }} />
                 ) : (
-                  <div style={{ width: 48, height: 48, borderRadius: 6, background: 'var(--surface-2, #1e293b)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
+                  <div style={{ width: 48, height: 48, borderRadius: 'var(--r-sm)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.4rem' }}>
                     {claseEquipo(equipoActual) === 'lancha' ? '🚤' : claseEquipo(equipoActual) === 'moto' ? '🏍️' : claseEquipo(equipoActual) === 'vehiculo' ? '🚚' : '🚜'}
                   </div>
                 )}
@@ -1030,8 +995,8 @@ export function MaquinariaMovilView() {
             )}
 
             {/* Agregar pieza libre con nombre general (Compras formalizará con N° de parte) */}
-            <div style={{ padding: '.85rem', background: 'var(--surface-1, #0f172a)', borderRadius: '8px', border: '1px dashed var(--border-color, rgba(255,255,255,0.22))' }}>
-              <label style={{ fontSize: '.92rem', fontWeight: 700, display: 'block', marginBottom: '.5rem', color: 'var(--text, #f1f5f9)' }}>
+            <div style={{ padding: '.85rem', background: 'var(--bg-1)', borderRadius: 'var(--r-md)', border: '1px dashed var(--border-strong)' }}>
+              <label style={{ fontSize: '.92rem', fontWeight: 700, display: 'block', marginBottom: '.5rem', color: 'var(--text)' }}>
                 🛒 Pedir pieza o repuesto a Compras (nombre general):
               </label>
 
@@ -1056,7 +1021,7 @@ export function MaquinariaMovilView() {
               {/* Fila 2: Cantidad, unidad y botón Agregar espacioso y táctil */}
               <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flex: '0 0 auto' }}>
-                  <span style={{ fontSize: '.85rem', color: 'var(--text-muted, #94a3b8)', fontWeight: 600 }}>Cant:</span>
+                  <span style={{ fontSize: '.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>Cant:</span>
                   <input
                     type="number"
                     className="input mono"
@@ -1106,8 +1071,8 @@ export function MaquinariaMovilView() {
 
             {/* Piezas agregadas */}
             {piezasSeleccionadas.length > 0 && (
-              <div style={{ padding: '.65rem', background: 'var(--surface-1, #0f172a)', borderRadius: '8px' }}>
-                <small style={{ fontWeight: 700, fontSize: '.88rem', display: 'block', marginBottom: '.35rem', color: 'var(--warning, #f59e0b)' }}>
+              <div style={{ padding: '.65rem', background: 'var(--bg-1)', borderRadius: 'var(--r-md)' }}>
+                <small style={{ fontWeight: 700, fontSize: '.88rem', display: 'block', marginBottom: '.35rem', color: 'var(--warning)' }}>
                   Piezas que se enviarán a Compras ({piezasSeleccionadas.length}):
                 </small>
                 {piezasSeleccionadas.map((p, i) => (
@@ -1116,7 +1081,7 @@ export function MaquinariaMovilView() {
                     <button
                       type="button"
                       className="btn btn-sm btn-ghost"
-                      style={{ padding: '0 .4rem', color: 'var(--danger, #ef4444)' }}
+                      style={{ padding: '0 .4rem', color: 'var(--danger)' }}
                       onClick={() => setPiezasSeleccionadas((prev) => prev.filter((_, idx) => idx !== i))}
                     >
                       ✕
@@ -1141,7 +1106,7 @@ export function MaquinariaMovilView() {
 
       {/* ── Formulario: Registrar Lavado ── */}
       {modo === 'lavado' && (
-        <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
+        <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.15rem' }}>🚿 Registrar Lavado de Equipo</h3>
             <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.85rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
@@ -1212,7 +1177,7 @@ export function MaquinariaMovilView() {
 
       {/* ── Formulario: Reportar Avería / Estado ── */}
       {modo === 'averia' && (
-        <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
+        <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.15rem' }}>⚠️ Reportar Avería / Parada</h3>
             <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.85rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
@@ -1302,7 +1267,7 @@ export function MaquinariaMovilView() {
 
       {/* ── Consulta de Filtros / Repuestos ── */}
       {modo === 'filtros' && (
-        <div className="card" style={{ padding: '1rem', marginBottom: '1rem', background: 'var(--surface-2, #1e293b)' }}>
+        <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.15rem' }}>🔍 Filtros y Marcas de la Máquina</h3>
             <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.85rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
@@ -1319,7 +1284,7 @@ export function MaquinariaMovilView() {
 
           {equipoActual ? (
             <div>
-              <div style={{ padding: '.65rem .75rem', background: 'var(--surface-1, #0f172a)', borderRadius: '8px', fontSize: '.88rem', marginBottom: '.75rem' }}>
+              <div style={{ padding: '.65rem .75rem', background: 'var(--bg-1)', borderRadius: 'var(--r-md)', fontSize: '.88rem', marginBottom: '.75rem' }}>
                 <div style={{ fontSize: '.92rem' }}><strong>{equipoActual.equipo}</strong> · {[equipoActual.marca, equipoActual.modelo].filter(Boolean).join(' ')}</div>
                 {extraerEncargado(equipoActual) && <div className="muted" style={{ fontSize: '.82rem', marginTop: '.2rem' }}>👤 Encargado: {extraerEncargado(equipoActual)}</div>}
                 {(equipoActual.motor_modelo || equipoActual.motor_serial) && (
@@ -1334,14 +1299,14 @@ export function MaquinariaMovilView() {
                   {repuestosEquipo.map((r) => {
                     const sis = sistemaDe(r.sistema);
                     return (
-                      <div key={r.id} style={{ padding: '.6rem .75rem', background: 'var(--surface-1, #0f172a)', borderRadius: '8px', fontSize: '.86rem' }}>
+                      <div key={r.id} style={{ padding: '.6rem .75rem', background: 'var(--bg-1)', borderRadius: 'var(--r-md)', fontSize: '.86rem' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                           <strong style={{ fontSize: '.9rem' }}>{sis.icon} {r.tipo}</strong>
                           <span className="muted" style={{ fontWeight: 600 }}>{fmtNum(r.cantidad)} {r.unidad}</span>
                         </div>
-                        {r.numero_parte && <div className="mono" style={{ color: 'var(--brand, #ff8a00)', marginTop: '.15rem', fontSize: '.84rem' }}>OEM: {r.numero_parte}</div>}
+                        {r.numero_parte && <div className="mono" style={{ color: 'var(--primary)', marginTop: '.15rem', fontSize: '.84rem' }}>OEM: {r.numero_parte}</div>}
                         {r.equivalencias && r.equivalencias.length > 0 && (
-                          <div style={{ color: '#38bdf8', marginTop: '.15rem', fontSize: '.82rem' }}>Marcas: {r.equivalencias.join(' · ')}</div>
+                          <div style={{ color: 'var(--info)', marginTop: '.15rem', fontSize: '.82rem' }}>Marcas: {r.equivalencias.join(' · ')}</div>
                         )}
                         {r.especificacion && <div className="muted" style={{ fontSize: '.8rem', marginTop: '.15rem' }}>Esp: {r.especificacion}</div>}
                       </div>
@@ -1743,8 +1708,8 @@ export function MaquinariaMovilView() {
               return (
                 <div key={o.id} className="flo-linea" style={{
                   padding: '.55rem .75rem',
-                  background: 'var(--surface-2, #182230)',
-                  borderRadius: 'var(--r-md, 8px)',
+                  background: 'var(--surface-2)',
+                  borderRadius: 'var(--r-md)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
@@ -1787,7 +1752,7 @@ export function MaquinariaMovilView() {
                     <button
                       type="button"
                       className="btn btn-sm btn-ghost"
-                      style={{ fontSize: '.72rem', padding: '.2rem .35rem', color: 'var(--danger, #ef4444)' }}
+                      style={{ fontSize: '.72rem', padding: '.2rem .35rem', color: 'var(--danger)' }}
                       title="Eliminar este movimiento"
                       onClick={() => setBorrandoMov({ tipo: 'orden', id: o.id, codigo: o.codigo })}
                     >
@@ -1803,8 +1768,8 @@ export function MaquinariaMovilView() {
               return (
                 <div key={l.id} className="flo-linea" style={{
                   padding: '.55rem .75rem',
-                  background: 'var(--surface-2, #182230)',
-                  borderRadius: 'var(--r-md, 8px)',
+                  background: 'var(--surface-2)',
+                  borderRadius: 'var(--r-md)',
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
@@ -1840,7 +1805,7 @@ export function MaquinariaMovilView() {
                     <button
                       type="button"
                       className="btn btn-sm btn-ghost"
-                      style={{ fontSize: '.72rem', padding: '.2rem .35rem', color: 'var(--danger, #ef4444)' }}
+                      style={{ fontSize: '.72rem', padding: '.2rem .35rem', color: 'var(--danger)' }}
                       title="Eliminar este lavado"
                       onClick={() => setBorrandoMov({ tipo: 'lavado', id: l.id, codigo: `Lavado ${l.tipo}` })}
                     >

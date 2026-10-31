@@ -247,7 +247,7 @@ export function InventarioMovilView() {
       )}
 
       {!loading && paso === 'inicio' && almacen && (
-        <button type="button" className="surt-btn" style={{ width: '100%', minHeight: 84, marginTop: '.75rem', borderColor: '#25d366' }}
+        <button type="button" className="surt-btn" style={{ width: '100%', minHeight: 84, marginTop: '.75rem', borderColor: 'var(--success)' }}
           onClick={() => setPaso('reporte')}>
           <span>📲 Reporte de stock (WhatsApp)</span>
           <small>Lo que hay en {nombreAlm}, filtrado por fechas</small>

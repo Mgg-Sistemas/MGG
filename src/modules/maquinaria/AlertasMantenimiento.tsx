@@ -61,17 +61,22 @@ function textoContador(unidad: 'h' | 'km', lectura: number | null, frecuencia: n
 
 const nivelAviso = (a: AvisoServicio): 'proximo' | 'vencido' => (a.nivel === 'vencido' ? 'vencido' : 'proximo');
 
-const ROJO_SUAVE = 'rgba(239,68,68,.18)';
-const AMBAR = 'var(--warning, #f59e0b)';
-const AMBAR_SUAVE = 'rgba(245,158,11,.18)';
+/* Tonos del tema (theme.css): rojo = --danger, ámbar = --warning; los suaves se
+   mezclan con transparente para teñir el fondo, como en el resto del sistema. */
+const ROJO_SUAVE = 'color-mix(in srgb, var(--danger) 18%, transparent)';
+const AMBAR = 'var(--warning)';
+const AMBAR_SUAVE = 'color-mix(in srgb, var(--warning) 18%, transparent)';
+const VERDE_SUAVE = 'color-mix(in srgb, var(--success) 18%, transparent)';
+/** Letra sobre el ámbar sólido: la oscura del tema, como en los botones principales. */
+const TINTA_SOBRE_AMBAR = 'var(--bg-0)';
 
 /** Variante roja del pulso `alert-presione` (theme.css solo trae la verde y la ámbar). */
 const ESTILO_PULSO_ROJO = `
 .alert-mant-danger { position: relative; animation: alertPulseMant 1.6s ease-in-out infinite; }
 .alert-mant-danger::after { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none;
-  box-shadow: 0 0 0 0 rgba(239,68,68,.55); animation: alertRingMant 1.6s ease-out infinite; }
-@keyframes alertPulseMant { 0%, 100% { border-color: var(--danger); } 50% { border-color: #f87171; } }
-@keyframes alertRingMant { 0% { box-shadow: 0 0 0 0 rgba(239,68,68,.55); } 100% { box-shadow: 0 0 0 12px rgba(239,68,68,0); } }
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 55%, transparent); animation: alertRingMant 1.6s ease-out infinite; }
+@keyframes alertPulseMant { 0%, 100% { border-color: var(--danger); } 50% { border-color: color-mix(in srgb, var(--danger) 70%, var(--text)); } }
+@keyframes alertRingMant { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--danger) 55%, transparent); } 100% { box-shadow: 0 0 0 12px transparent; } }
 @media (prefers-reduced-motion: reduce) { .alert-mant-danger, .alert-mant-danger::after { animation: none; } }
 `;
 
@@ -130,7 +135,7 @@ export function AlertasMantenimientoBanner({ items, actor, actorName, canWrite, 
           </div>
         </div>
         {total > 0 && (
-          <span className="badge" style={{ background: color, color: hayVencidos ? '#fff' : '#1f1300', fontWeight: 700, flexShrink: 0 }}>
+          <span className="badge" style={{ background: color, color: hayVencidos ? '#fff' : TINTA_SOBRE_AMBAR, fontWeight: 700, flexShrink: 0 }}>
             {total}
           </span>
         )}
@@ -189,7 +194,7 @@ function ListaAlertasModal({ items, actor, actorName, canWrite, onClose, onChang
                     <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
                       <strong>{it.equipo.equipo}</strong>
                       {it.equipo.placa && <span className="badge mono">{it.equipo.placa}</span>}
-                      <span className="badge" style={{ background: color, color: vencido ? '#fff' : '#1f1300', fontWeight: 700 }}>
+                      <span className="badge" style={{ background: color, color: vencido ? '#fff' : TINTA_SOBRE_AMBAR, fontWeight: 700 }}>
                         {vencido ? 'VENCIDO' : 'PRÓXIMO'}
                       </span>
                     </div>
@@ -313,7 +318,7 @@ export function RespuestaAlertaModal({ item, actor, actorName, onClose, onSaved 
         style={{
           margin: 0, cursor: 'pointer', textAlign: 'left', fontWeight: 700, fontSize: '.95rem',
           borderColor: activa ? tono : 'var(--border)', borderWidth: activa ? 2 : 1,
-          background: activa ? `linear-gradient(135deg, ${valor === 'hara' ? 'rgba(34,197,94,.18)' : ROJO_SUAVE}, var(--surface))` : 'var(--surface)',
+          background: activa ? `linear-gradient(135deg, ${valor === 'hara' ? VERDE_SUAVE : ROJO_SUAVE}, var(--surface))` : 'var(--surface)',
           color: activa ? tono : undefined,
         }}>
         {etiqueta}
@@ -339,7 +344,7 @@ export function RespuestaAlertaModal({ item, actor, actorName, onClose, onSaved 
         <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
           <strong>{item.equipo.equipo}</strong>
           {item.equipo.placa && <span className="badge mono">{item.equipo.placa}</span>}
-          <span className="badge" style={{ background: color, color: vencido ? '#fff' : '#1f1300', fontWeight: 700 }}>
+          <span className="badge" style={{ background: color, color: vencido ? '#fff' : TINTA_SOBRE_AMBAR, fontWeight: 700 }}>
             {vencido ? 'MANTENIMIENTO VENCIDO' : 'MANTENIMIENTO PRÓXIMO'}
           </span>
         </div>

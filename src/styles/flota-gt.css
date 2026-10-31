@@ -81,8 +81,10 @@
 }
 .surt-compartir-btns { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
 .surt-compartir-btns > * { width: 100%; justify-content: center; text-align: center; }
-.btn.btn-wsp { border: 1px solid #1da851; background: #25d366; color: #0b2e18; font-weight: 800; text-decoration: none; }
-.btn.btn-wsp:hover { background: #1fbb5a; }
+/* Botón de WhatsApp con el verde del sistema (--success), no el de la marca:
+   relleno sólido y letra oscura, como el botón principal. */
+.btn.btn-wsp { border: 1px solid var(--success); background: var(--success); color: var(--bg-0); font-weight: 800; text-decoration: none; }
+.btn.btn-wsp:hover { border-color: var(--success); background: color-mix(in srgb, var(--success) 85%, var(--text)); color: var(--bg-0); }
 @media (max-width: 420px) { .surt-compartir-btns { grid-template-columns: 1fr; } }
 
 /* ───────── theme.css (GT) · botón deshabilitado claramente inactivo ─────────
@@ -96,8 +98,8 @@
    En MGG .aviso vive en choferes.css y solo colorea el borde izquierdo; GT además
    tiñe el fondo. Acotado al módulo (ver cabecera). */
 .flo .aviso, .flo-movil-wrap .aviso { padding: .7rem .9rem; border-left-color: var(--text-muted); color: var(--text); font-size: .85rem; line-height: 1.45; }
-.flo .aviso.info,    .flo-movil-wrap .aviso.info    { border-left-color: #4aa8ff; background: rgba(74,168,255,.08); }
-.flo .aviso.success, .flo-movil-wrap .aviso.success { border-left-color: #29c081; background: rgba(41,192,129,.08); }
-.flo .aviso.warning, .flo-movil-wrap .aviso.warning { border-left-color: #f5b133; background: rgba(245,177,51,.09); }
-.flo .aviso.danger,  .flo-movil-wrap .aviso.danger  { border-left-color: #ef4f5e; background: rgba(239,79,94,.09); }
+.flo .aviso.info,    .flo-movil-wrap .aviso.info    { border-left-color: var(--info);    background: color-mix(in srgb, var(--info) 8%, transparent); }
+.flo .aviso.success, .flo-movil-wrap .aviso.success { border-left-color: var(--success); background: color-mix(in srgb, var(--success) 8%, transparent); }
+.flo .aviso.warning, .flo-movil-wrap .aviso.warning { border-left-color: var(--warning); background: color-mix(in srgb, var(--warning) 9%, transparent); }
+.flo .aviso.danger,  .flo-movil-wrap .aviso.danger  { border-left-color: var(--danger);  background: color-mix(in srgb, var(--danger) 9%, transparent); }
 .flo .aviso.sm,      .flo-movil-wrap .aviso.sm      { padding: .5rem .7rem; font-size: .8rem; }

@@ -125,7 +125,7 @@ export function RetencionesMovilView() {
           {!soloTelefono && (
             <Link
               to="/app/retenciones"
-              className="btn sm"
+              className="btn btn-sm btn-ghost"
               style={{ textDecoration: 'none', fontSize: '0.78rem' }}
             >
               💻 Vista PC
@@ -208,7 +208,7 @@ export function RetencionesMovilView() {
               style={{
                 textAlign: 'center',
                 padding: '2.5rem 1rem',
-                background: 'var(--surface-1)',
+                background: 'var(--bg-1)',
                 borderRadius: 'var(--r-lg)',
                 border: '1px dashed var(--border)',
               }}
@@ -223,7 +223,7 @@ export function RetencionesMovilView() {
               {canWrite && (
                 <button
                   type="button"
-                  className="btn primario"
+                  className="btn btn-primary"
                   style={{ minHeight: '48px', padding: '0 1.25rem' }}
                   onClick={() => setPaso('cargar')}
                 >
@@ -292,15 +292,14 @@ export function RetencionesMovilView() {
                     <div className="buzon-card-acciones">
                       <button
                         type="button"
-                        className="btn sm"
-                        style={{ background: '#25D366', color: '#fff', border: 'none', fontWeight: 700 }}
+                        className="btn btn-sm btn-wsp"
                         onClick={() => setFacturaWhatsApp(fac)}
                       >
                         💬 WhatsApp
                       </button>
                       <button
                         type="button"
-                        className="btn sm"
+                        className="btn btn-sm"
                         onClick={() => setDetalle(fac)}
                       >
                         👁 Detalle
@@ -308,7 +307,7 @@ export function RetencionesMovilView() {
                       {canWrite && (
                         <button
                           type="button"
-                          className="btn sm danger"
+                          className="btn btn-sm btn-danger"
                           onClick={() => setFacturaABorrar(fac)}
                           title="Eliminar factura y soportes"
                         >
@@ -370,7 +369,7 @@ export function RetencionesMovilView() {
             {detalle.descripcion && (
               <div>
                 <small className="muted" style={{ display: 'block', fontWeight: 700 }}>DESCRIPCIÓN / CONCEPTO</small>
-                <p style={{ margin: '0.2rem 0', background: 'var(--surface-1)', padding: '0.5rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
+                <p style={{ margin: '0.2rem 0', background: 'var(--bg-1)', padding: '0.5rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
                   {detalle.descripcion}
                 </p>
               </div>
@@ -379,7 +378,7 @@ export function RetencionesMovilView() {
             {detalle.observaciones && (
               <div>
                 <small className="muted" style={{ display: 'block', fontWeight: 700 }}>NOTAS / OTRO</small>
-                <p style={{ margin: '0.2rem 0', background: 'var(--surface-1)', padding: '0.5rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
+                <p style={{ margin: '0.2rem 0', background: 'var(--bg-1)', padding: '0.5rem', borderRadius: 'var(--r-sm)', border: '1px solid var(--border)' }}>
                   {detalle.observaciones}
                 </p>
               </div>
@@ -435,7 +434,7 @@ export function RetencionesMovilView() {
             <div style={{ marginTop: '1.25rem', textAlign: 'right' }}>
               <button
                 type="button"
-                className="btn primario"
+                className="btn btn-primary"
                 style={{ width: '100%', minHeight: '48px' }}
                 onClick={() => setFacturaWhatsApp(null)}
               >
@@ -697,7 +696,7 @@ function FormularioCargaFactura({
                 onClick={() => setEmpresaId(emp.id)}
               >
                 <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem', width: '100%' }}>
-                  <span style={{ color: emp.colorBadge || '#2563eb', fontSize: '0.9rem' }}>●</span>
+                  <span style={{ color: emp.colorBadge || 'var(--info)', fontSize: '0.9rem' }}>●</span>
                   <div className="emp-nom" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {emp.nombreCorto || emp.nombre}
                   </div>
@@ -961,7 +960,7 @@ function FormularioCargaFactura({
         </button>
         <button
           type="submit"
-          className="btn primario surt-guardar"
+          className="btn btn-primary surt-guardar"
           disabled={guardando}
         >
           {guardando ? progresoMsg || 'Guardando...' : '💾 Guardar y Enviar'}
@@ -1051,7 +1050,7 @@ function ModalNuevaEmpresa({
           <button type="button" className="btn" style={{ minHeight: '52px' }} onClick={onClose} disabled={guardando}>
             Cancelar
           </button>
-          <button type="submit" className="btn primario" style={{ minHeight: '52px', fontWeight: 800 }} disabled={guardando}>
+          <button type="submit" className="btn btn-primary" style={{ minHeight: '52px', fontWeight: 800 }} disabled={guardando}>
             {guardando ? 'Guardando...' : 'Aceptar'}
           </button>
         </div>

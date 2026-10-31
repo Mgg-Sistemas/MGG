@@ -2,6 +2,10 @@
    Golden Touch · Retenciones · Buzón Móvil y Multi-Empresa
    Estilos para la vista de teléfono (soportes, adjuntos, WhatsApp)
    y la bandeja multi-empresa de escritorio.
+   30-10-2026: solo tokens del tema de MGG (theme.css). Lo traído de GT
+   usaba colores de tema claro (#2563eb, #065f46…) y --surface-1/--r-full,
+   que en MGG no existen; las pastillas copian a .badge y los
+   seleccionados a .chip-active, igual que en el resto del sistema.
    ============================================================ */
 
 .buzon-movil {
@@ -33,7 +37,7 @@
   align-items: center;
   gap: 0.4rem;
   padding: 0.35rem 0.75rem;
-  border-radius: var(--r-full, 9999px);
+  border-radius: 999px;
   border: 1px solid var(--border);
   background: var(--surface-2);
   color: var(--text);
@@ -44,8 +48,8 @@
 
 .buzon-audio-toggle.activo {
   border-color: var(--primary);
-  background: var(--grad-primary-soft, rgba(245, 158, 11, 0.1));
-  color: var(--primary-2, #b45309);
+  background: var(--grad-primary-soft);
+  color: var(--primary-3);
   font-weight: 600;
 }
 
@@ -54,7 +58,7 @@
   gap: 0.5rem;
   background: var(--surface-2);
   padding: 0.35rem;
-  border-radius: var(--r-lg, 0.75rem);
+  border-radius: var(--r-lg);
   margin-bottom: 1rem;
   border: 1px solid var(--border);
 }
@@ -64,8 +68,8 @@
   min-height: 48px;
   font-weight: 700;
   font-size: 0.95rem;
-  border-radius: var(--r-md, 0.5rem);
-  border: none;
+  border-radius: var(--r-md);
+  border: 1px solid transparent;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -77,9 +81,10 @@
 }
 
 .buzon-tab-btn.activo {
-  background: var(--surface-1);
+  background: var(--grad-primary-soft);
+  border-color: var(--primary);
   color: var(--text);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 
 /* Selector horizontal de empresas */
@@ -95,10 +100,10 @@
 .buzon-empresa-chip {
   flex: 0 0 auto;
   padding: 0.45rem 0.9rem;
-  border-radius: var(--r-full, 9999px);
+  border-radius: 999px;
   border: 1px solid var(--border);
-  background: var(--surface-2);
-  color: var(--text);
+  background: var(--bg-1);
+  color: var(--text-muted);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -108,8 +113,9 @@
 
 .buzon-empresa-chip.sel {
   border-color: var(--primary);
-  background: var(--primary);
-  color: #fff;
+  background: var(--grad-primary-soft);
+  color: var(--text);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 15%, transparent) inset;
 }
 
 /* Tarjeta de factura en la lista móvil */
@@ -120,9 +126,9 @@
   padding: 0.9rem;
   margin-bottom: 0.75rem;
   border: 1px solid var(--border);
-  border-radius: var(--r-lg, 0.75rem);
-  background: var(--surface-1);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  border-radius: var(--r-lg);
+  background: var(--grad-surface);
+  box-shadow: var(--shadow-sm);
   transition: border-color 0.15s ease;
 }
 
@@ -144,10 +150,10 @@
   font-size: 0.76rem;
   font-weight: 700;
   padding: 0.2rem 0.55rem;
-  border-radius: var(--r-full, 9999px);
+  border-radius: 999px;
   background: var(--surface-3);
   color: var(--text);
-  border: 1px solid var(--border);
+  border: 1px solid var(--border-strong);
 }
 
 .buzon-estatus-pill {
@@ -157,31 +163,32 @@
   font-size: 0.75rem;
   font-weight: 700;
   padding: 0.2rem 0.6rem;
-  border-radius: var(--r-full, 9999px);
+  border-radius: 999px;
 }
 
+/* Mismos tonos que .badge.info / .warning / .success y la neutra de theme.css */
 .buzon-estatus-recibida {
-  background: rgba(59, 130, 246, 0.15);
-  color: #2563eb;
-  border: 1px solid rgba(59, 130, 246, 0.3);
+  background: color-mix(in srgb, var(--info) 15%, transparent);
+  color: color-mix(in srgb, var(--info) 70%, var(--text));
+  border: 1px solid color-mix(in srgb, var(--info) 40%, transparent);
 }
 
 .buzon-estatus-en_revision {
-  background: rgba(245, 158, 11, 0.15);
-  color: #d97706;
-  border: 1px solid rgba(245, 158, 11, 0.3);
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  color: color-mix(in srgb, var(--warning) 70%, var(--text));
+  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
 }
 
 .buzon-estatus-retenida {
-  background: rgba(16, 185, 129, 0.15);
-  color: #059669;
-  border: 1px solid rgba(16, 185, 129, 0.3);
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  color: color-mix(in srgb, var(--success) 70%, var(--text));
+  border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
 }
 
 .buzon-estatus-descartada {
-  background: rgba(156, 163, 175, 0.15);
-  color: #4b5563;
-  border: 1px solid rgba(156, 163, 175, 0.3);
+  background: var(--surface-3);
+  color: var(--text-muted);
+  border: 1px solid var(--border-strong);
 }
 
 .buzon-card-prov {
@@ -203,7 +210,7 @@
   align-items: baseline;
   background: var(--surface-2);
   padding: 0.5rem 0.75rem;
-  border-radius: var(--r-md, 0.5rem);
+  border-radius: var(--r-md);
   margin-top: 0.2rem;
 }
 
@@ -239,8 +246,8 @@
 
 /* Cuadrícula de adjuntos en formulario de carga */
 .buzon-adjuntos-cont {
-  border: 1px dashed var(--border-strong, #ccc);
-  border-radius: var(--r-lg, 0.75rem);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
   padding: 0.9rem;
   background: var(--surface-2);
 }
@@ -260,8 +267,8 @@
   gap: 0.25rem;
   min-height: 72px;
   border: 2px dashed var(--border);
-  border-radius: var(--r-md, 0.5rem);
-  background: var(--surface-1);
+  border-radius: var(--r-md);
+  background: var(--bg-1);
   color: var(--text);
   font-size: 0.88rem;
   font-weight: 600;
@@ -289,7 +296,7 @@
 
 .buzon-thumb-item {
   position: relative;
-  border-radius: var(--r-md, 0.5rem);
+  border-radius: var(--r-md);
   overflow: hidden;
   border: 1px solid var(--border);
   background: var(--surface-3);
@@ -332,7 +339,7 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: rgba(220, 38, 38, 0.9);
+  background: var(--danger);
   color: #fff;
   border: none;
   font-size: 0.75rem;
@@ -341,7 +348,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  box-shadow: var(--shadow-sm);
 }
 
 /* Modal resumen whatsapp */
@@ -354,10 +361,10 @@
   align-items: center;
   gap: 0.6rem;
   padding: 0.75rem;
-  border-radius: var(--r-md, 0.5rem);
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  color: #065f46;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
+  color: color-mix(in srgb, var(--success) 70%, var(--text));
   font-weight: 700;
   margin-bottom: 1rem;
 }
@@ -372,13 +379,13 @@
   margin-bottom: 1rem;
   padding: 0.75rem 1rem;
   background: var(--surface-2);
-  border-radius: var(--r-lg, 0.75rem);
+  border-radius: var(--r-lg);
   border: 1px solid var(--border);
 }
 
 .buzon-badge-alerta {
   background: var(--primary);
-  color: #fff;
+  color: var(--bg-0);
   padding: 0.15rem 0.5rem;
   border-radius: 9999px;
   font-size: 0.75rem;
@@ -401,7 +408,7 @@
   justify-content: center;
   min-height: 56px;
   padding: 0.5rem 0.75rem;
-  border-radius: var(--r-md, 0.5rem);
+  border-radius: var(--r-md);
   border: 2px solid var(--border);
   background: var(--surface-2);
   color: var(--text);
@@ -416,7 +423,7 @@
 
 .buzon-tactil-btn.sel {
   border-color: var(--primary);
-  background: var(--grad-primary-soft, rgba(245, 158, 11, 0.12));
+  background: var(--grad-primary-soft);
 }
 
 .buzon-tactil-btn .emp-nom {
@@ -439,10 +446,10 @@
   justify-content: center;
   min-height: 56px;
   padding: 0.5rem 0.75rem;
-  border-radius: var(--r-md, 0.5rem);
-  border: 2px dashed var(--border-strong, #94a3b8);
-  background: var(--surface-1);
-  color: var(--primary-2, #b45309);
+  border-radius: var(--r-md);
+  border: 2px dashed var(--border-strong);
+  background: var(--bg-1);
+  color: var(--primary-2);
   font-weight: 700;
   font-size: 0.88rem;
   cursor: pointer;
@@ -459,7 +466,7 @@
 .buzon-ficha-fiscal-seccion {
   background: var(--surface-2);
   padding: 0.85rem;
-  border-radius: var(--r-md, 0.5rem);
+  border-radius: var(--r-md);
   border: 1px solid var(--border);
   margin-bottom: 0.75rem;
 }
@@ -478,9 +485,9 @@
   align-items: center;
   gap: 0.25rem;
   padding: 0.15rem 0.45rem;
-  border-radius: 9999px;
-  background: rgba(16, 185, 129, 0.15);
-  color: #059669;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  color: color-mix(in srgb, var(--success) 70%, var(--text));
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -490,9 +497,9 @@
   align-items: center;
   gap: 0.25rem;
   padding: 0.15rem 0.45rem;
-  border-radius: 9999px;
-  background: rgba(245, 158, 11, 0.15);
-  color: #d97706;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  color: color-mix(in srgb, var(--warning) 70%, var(--text));
   font-size: 0.75rem;
   font-weight: 700;
 }

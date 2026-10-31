@@ -14,7 +14,7 @@
   border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-2);
   padding: .85rem .9rem; margin-bottom: .75rem; display: flex; flex-direction: column; gap: .6rem;
 }
-.dlv-card.mio { border-color: var(--primary); box-shadow: 0 0 0 1px rgba(255, 138, 0, .18) inset; }
+.dlv-card.mio { border-color: var(--primary); box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 18%, transparent) inset; }
 .dlv-card.urgente { border-left: 4px solid var(--danger); }
 .dlv-card-cab { display: flex; justify-content: space-between; align-items: flex-start; gap: .5rem; }
 .dlv-oc { font-family: var(--font-mono); font-weight: 800; font-size: 1.1rem; }
