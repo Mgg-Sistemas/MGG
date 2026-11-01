@@ -92,7 +92,7 @@ export function EquipoExpedientePage() {
     maquinaria: can('maquinaria', 'escritura'),
     combustible: can('combustible', 'escritura'),
     salidas: can('salidas', 'escritura'),
-    pedidos: can('pedidos', 'escritura'),
+    pedidos: can('pedidos', 'escritura') || can('solicitud_pedido', 'escritura'),
     admin: fullMaq,
   };
   const tab = (TABS.some((t) => t.id === sp.get('tab')) ? sp.get('tab') : 'resumen') as Tab;

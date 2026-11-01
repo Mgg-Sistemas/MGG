@@ -21,31 +21,87 @@ import { motivoTrasladoSp, type MarcaAlmacen, type TrasladoDeSolicitud } from '.
 
 export const CLAVE_FLUJO_ALMACEN = 'compras.revision_almacen';
 
-let cache: { valor: boolean; at: number } | null = null;
-const VIGENCIA_MS = 60_000;
+/** El interruptor y DESDE CUÁNDO rige (31-10-2026: `{"activo": true, "desde": "<ISO>"}`). */
+export interface FlujoCompras {
+  activo: boolean;
+  /** Momento en que se prendió. Las órdenes creadas antes siguen el flujo de siempre. */
+  desde: string | null;
+}
 
-/** ¿Está prendido el flujo nuevo (SP → Almacén → Compras)? Sin lectura = apagado. */
-export async function flujoRevisionAlmacenActivo(): Promise<boolean> {
+let cache: { valor: FlujoCompras; at: number } | null = null;
+const VIGENCIA_MS = 60_000;
+const APAGADO: FlujoCompras = { activo: false, desde: null };
+
+/** Lee el interruptor (con caché de 60 s). Sin lectura = apagado. */
+export async function leerFlujoCompras(): Promise<FlujoCompras> {
   if (cache && Date.now() - cache.at < VIGENCIA_MS) return cache.valor;
   try {
     const { data } = await supabase.from('config').select('value').eq('key', CLAVE_FLUJO_ALMACEN).maybeSingle();
-    const v = (data?.value ?? null) as { activo?: unknown } | null;
-    cache = { valor: v?.activo === true, at: Date.now() };
+    const v = (data?.value ?? null) as { activo?: unknown; desde?: unknown } | null;
+    cache = { valor: { activo: v?.activo === true, desde: typeof v?.desde === 'string' ? v.desde : null }, at: Date.now() };
   } catch {
-    cache = { valor: false, at: Date.now() };
+    cache = { valor: APAGADO, at: Date.now() };
   }
   return cache.valor;
 }
 
-/** El interruptor para las pantallas. Arranca en false hasta leer la base. */
-export function useFlujoRevisionAlmacen(): boolean {
-  const [activo, setActivo] = useState(cache?.valor ?? false);
+/** ¿Está prendido el flujo nuevo (SP → Almacén → Compras)? Sin lectura = apagado. */
+export async function flujoRevisionAlmacenActivo(): Promise<boolean> {
+  return (await leerFlujoCompras()).activo;
+}
+
+/**
+ * ¿La orden nació con el flujo nuevo? Regla de la administradora (31-10-2026): lo que ya
+ * estaba en curso al prenderlo termina como siempre; el flujo nuevo es para las órdenes
+ * NUEVAS. Sin `desde` (se prendió antes de guardar la fecha) cuenta como nueva.
+ * Una sub-OC (`parent_orden_id`) nace cuando se reparte la madre: manda la fecha de la
+ * MADRE (`creadaMadre`); mientras no se sepa, cuenta como vieja (no pide nada de más).
+ */
+export function esOrdenDelFlujoNuevo(
+  o: { created_at?: string | null; parent_orden_id?: string | null } | null | undefined,
+  f: FlujoCompras,
+  creadaMadre?: string | null,
+): boolean {
+  if (!f.activo) return false;
+  if (!o) return true;                       // la que se está creando
+  const fecha = o.parent_orden_id ? creadaMadre : o.created_at;
+  if (o.parent_orden_id && !fecha) return false;
+  if (!f.desde || !fecha) return true;
+  const desde = Date.parse(f.desde);
+  const creada = Date.parse(fecha);
+  if (Number.isNaN(desde) || Number.isNaN(creada)) return true;
+  return creada >= desde;
+}
+
+/** El interruptor con su fecha, para las pantallas. Arranca apagado hasta leer la base. */
+export function useFlujoCompras(): FlujoCompras {
+  const [flujo, setFlujo] = useState<FlujoCompras>(cache?.valor ?? APAGADO);
   useEffect(() => {
     let vivo = true;
-    void flujoRevisionAlmacenActivo().then((v) => { if (vivo) setActivo(v); });
+    void leerFlujoCompras().then((v) => { if (vivo) setFlujo(v); });
     return () => { vivo = false; };
   }, []);
-  return activo;
+  return flujo;
+}
+
+/** El interruptor para las pantallas. Arranca en false hasta leer la base. */
+export function useFlujoRevisionAlmacen(): boolean {
+  return useFlujoCompras().activo;
+}
+
+/** ¿Esta orden sigue el flujo nuevo? (prendido y creada —ella o su madre— después de prenderlo). */
+export function useOrdenEnFlujoNuevo(o: { created_at?: string | null; parent_orden_id?: string | null } | null | undefined): boolean {
+  const flujo = useFlujoCompras();
+  const madreId = o?.parent_orden_id ?? null;
+  const [creadaMadre, setCreadaMadre] = useState<{ id: string; at: string | null } | null>(null);
+  useEffect(() => {
+    if (!madreId || !flujo.activo) return;
+    let vivo = true;
+    void supabase.from('ordenes').select('created_at').eq('id', madreId).maybeSingle()
+      .then(({ data }) => { if (vivo) setCreadaMadre({ id: madreId, at: (data?.created_at as string | undefined) ?? null }); });
+    return () => { vivo = false; };
+  }, [madreId, flujo.activo]);
+  return esOrdenDelFlujoNuevo(o, flujo, creadaMadre?.id === madreId ? creadaMadre.at : null);
 }
 
 /** SP de productos que esperan a almacén, la más vieja primero (se atiende en orden). */

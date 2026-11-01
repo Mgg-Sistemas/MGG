@@ -34,8 +34,10 @@ const orden = (its: ItemOrden[], rs: OrdenRevision['revision_sedes'] = null, ext
 describe('revisión de almacén por sede', () => {
   it('revisan Los Pinos y Matanza, en ese orden', () => {
     expect(SEDES_REVISION_ALMACEN.map((s) => s.etiqueta)).toEqual(['Los Pinos', 'Matanza']);
-    expect(sedesQuePuedeResponder(null)).toEqual([LP, MT]);
-    expect(sedesQuePuedeResponder([])).toEqual([LP, MT]);
+    // Sin sede asignada no responde (31-10-2026); el admin responde por todas.
+    expect(sedesQuePuedeResponder(null)).toEqual([]);
+    expect(sedesQuePuedeResponder([])).toEqual([]);
+    expect(sedesQuePuedeResponder(null, true)).toEqual([LP, MT]);
     // ISNER tiene Los Pinos y La Esperanza: responde solo por Los Pinos.
     expect(sedesQuePuedeResponder([LP, 'CENTRO DE ACOPIO - LA ESPERANZA'])).toEqual([LP]);
     expect(sedesQuePuedeResponder(['CENTRO DE ACOPIO - LA ESPERANZA'])).toEqual([]);

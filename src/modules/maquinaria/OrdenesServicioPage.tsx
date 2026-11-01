@@ -222,7 +222,7 @@ export function OrdenesServicioPage() {
       {nueva && <AccionConEquipo accion="orden" equipos={equipos} onClose={() => setNueva(false)} onDone={() => void cargar()} />}
       {editar && porId.get(editar.equipo_id) && (
         <OrdenServicioModal equipo={porId.get(editar.equipo_id) as MaquinariaEquipo} horometro={editar.horometro} kilometraje={editar.kilometraje} aviso={null}
-          orden={editar} puedeSalidas={can('salidas', 'escritura')} puedePedidos={can('pedidos', 'escritura')}
+          orden={editar} puedeSalidas={can('salidas', 'escritura')} puedePedidos={can('pedidos', 'escritura') || can('solicitud_pedido', 'escritura')}
           actor={{ email: user?.email ?? 'sistema', nombre: appUser?.nombre ?? null }}
           onClose={() => setEditar(null)} onCreated={() => void cargar()} />
       )}

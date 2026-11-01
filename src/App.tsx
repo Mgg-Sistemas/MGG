@@ -151,7 +151,7 @@ export function App() {
         >
           <Route index element={<HomeRedirect />} />
           <Route path="dashboard" element={<RequireModule module="dashboard"><Suspense fallback={<PageLoader />}><DashboardPage /></Suspense></RequireModule>} />
-          <Route path="pedidos" element={<RequireModule module="pedidos"><Suspense fallback={<PageLoader />}><PedidosPage /></Suspense></RequireModule>} />
+          <Route path="pedidos" element={<RequireModule module="pedidos" tambien="solicitud_pedido"><Suspense fallback={<PageLoader />}><PedidosPage /></Suspense></RequireModule>} />
           <Route path="pedidos/historico" element={<RequireModule module="pedidos"><Suspense fallback={<PageLoader />}><HistoricoPage /></Suspense></RequireModule>} />
           {/* Delivery (30-10-2026): OC pagada → motorizado → almacén. Desconectado hasta que la administradora lo active. */}
           <Route path="delivery" element={<RequireModule module="delivery"><Suspense fallback={<PageLoader />}><DeliveryPage /></Suspense></RequireModule>} />

@@ -72,7 +72,7 @@ export function AccionConEquipo({ accion, equipos, equipoInicial, onClose, onDon
       );
       return (
         <OrdenServicioModal equipo={eq} horometro={horometro} kilometraje={km} aviso={aviso}
-          puedeSalidas={can('salidas', 'escritura')} puedePedidos={can('pedidos', 'escritura')} actor={actor}
+          puedeSalidas={can('salidas', 'escritura')} puedePedidos={can('pedidos', 'escritura') || can('solicitud_pedido', 'escritura')} actor={actor}
           onClose={onClose} onCreated={onDone} />
       );
     }

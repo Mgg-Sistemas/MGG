@@ -3,6 +3,7 @@ import { supabase } from '@/shared/lib/supabase';
 export type RoleKey = string;
 export type ModuleKey =
   | 'dashboard'
+  | 'solicitud_pedido'
   | 'pedidos'
   | 'proveedores'
   | 'delivery'
@@ -47,7 +48,11 @@ export type AllPermisos = Record<RoleKey, RolePermisos>;
  *  `path` (opcional) = ruta bajo `/app/` cuando NO coincide con la key (submódulos anidados). */
 export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'dashboard',   label: 'Dashboard' },
-  { key: 'pedidos',     label: 'Pedidos / Compras' },
+  // 31-10-2026 (regla de la administradora): dos permisos. «Solicitud de Pedido» lo tienen
+  // TODOS por defecto y solo deja crear y seguir SP; «Compras» (la key vieja 'pedidos')
+  // es el resto del módulo: OC, servicios, compras directas, reportes. Las dos abren /app/pedidos.
+  { key: 'solicitud_pedido', label: 'Solicitud de Pedido', path: 'pedidos' },
+  { key: 'pedidos',     label: 'Compras' },
   { key: 'proveedores', label: 'Proveedores' },
   // Delivery (30-10-2026): la OC pagada la toma un motorizado y la entrega en el almacén.
   { key: 'delivery',    label: 'Delivery' },
@@ -177,7 +182,6 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     all.dashboard = { lectura: true, escritura: false, full: false };
   } else if (role === 'obrero') {
     all.dashboard  = { lectura: true, escritura: false, full: false };
-    all.pedidos    = { lectura: true, escritura: true, full: false };
     all.inventario = { lectura: true, escritura: true, full: false };
     all.deposito   = { lectura: true, escritura: true, full: false };
     all.produccion = { lectura: true, escritura: true, full: false };
@@ -186,6 +190,8 @@ export function defaultsFor(role: RoleKey): RolePermisos {
   } else {
     all.dashboard = { lectura: true, escritura: false, full: false };
   }
+  // Solicitud de Pedido: por defecto en TODOS los roles (31-10-2026).
+  all.solicitud_pedido = { lectura: true, escritura: true, full: false };
   return all;
 }
 

@@ -26,6 +26,8 @@ import { intentarSalir, registrarModulo, vaciarMinimizadas } from '@/shared/lib/
 import { AvisoSalidaModulo } from '@/shared/ui/AvisoSalidaModulo';
 import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
 import { useFlujoRevisionAlmacen } from '@/modules/pedidos/revisionAlmacen.repository';
+import { sedesQuePuedeResponder } from '@/modules/pedidos/revisionAlmacen';
+import { sedesDeUsuario } from '@/modules/inventario/sectorizacion';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
 
@@ -48,6 +50,8 @@ export function AppShell() {
   const { can, role, appUser, isAdmin, soloTelefono, vistasTelefono } = usePermissions();
   // Interruptor del flujo SP → Almacén → Compras (config.compras.revision_almacen, arranca apagado).
   const flujoAlmacen = useFlujoRevisionAlmacen();
+  // 31-10-2026: «Solicitudes de Pedido» (revisión de almacén) solo para el almacenista con sede, o el admin.
+  const revisaSolicitudes = sedesQuePuedeResponder(sedesDeUsuario(appUser), isAdmin).length > 0;
   // Quien tiene pantallas de teléfono dadas las ve en su propia sección del menú (13-10).
   const mostrarTelefono = !isAdmin && (soloTelefono || vistasTelefono.length > 0);
   // Si el rol tiene la pantalla de teléfono de un módulo, ese módulo ya abre como teléfono:
@@ -55,7 +59,7 @@ export function AppShell() {
   const tienePantalla = (key: 'surtidor' | 'comidas') => !isAdmin && vistasTelefono.some((v) => v.key === key);
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('choferes') || can('acopio') || can('ventas') || can('tesoreria') || can('delivery'));
+  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('solicitud_pedido') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('choferes') || can('acopio') || can('ventas') || can('tesoreria') || can('delivery'));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -346,7 +350,9 @@ export function AppShell() {
         {showOperacion && <div className="sidebar-section">Operación</div>}
         {!soloTelefono && <nav className="nav">
           {can('dashboard') && <NavItem to="/app/dashboard" icon="▦" label="Dashboard" />}
-          {can('pedidos') && <NavItem to="/app/pedidos" icon="✉" label="Pedidos / Compras" />}
+          {/* 31-10-2026: quien solo tiene «Solicitud de Pedido» ve el mismo módulo, solo con las SP. */}
+          {can('pedidos') ? <NavItem to="/app/pedidos" icon="✉" label="Pedidos / Compras" />
+            : can('solicitud_pedido') && <NavItem to="/app/pedidos" icon="✉" label="Solicitud de Pedido" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
           {can('delivery') && <NavItem to="/app/delivery" icon="🛵" label="Delivery" />}
           {(can('inventario') || can('deposito')) && (
@@ -360,7 +366,7 @@ export function AppShell() {
             )
           )}
           {/* Flujo SP → Almacén → Compras (29-10-2026): solo con el interruptor prendido. */}
-          {can('inventario') && flujoAlmacen && <NavItem to="/app/solicitudes-pedido" icon="📋" label="Solicitudes de Pedido" />}
+          {can('inventario') && flujoAlmacen && revisaSolicitudes && <NavItem to="/app/solicitudes-pedido" icon="📋" label="Solicitudes de Pedido" />}
           {can('inventario') && (
             <NavGroup icon="▣" label="Almacenes" defaultOpen={location.pathname.startsWith('/app/almacenes')}>
               <NavItem to="/app/almacenes/los-pinos" icon="🌲" label="Los Pinos" />

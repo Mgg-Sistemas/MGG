@@ -104,12 +104,12 @@ export function usePuedeRevisarAlmacen(): boolean {
 export function RevisionSolicitudAlmacen({ orden, variante = 'pc', onConfirmada }: Props) {
   const telefono = variante === 'telefono';
   const { user } = useSession();
-  const { appUser } = usePermissions();
+  const { appUser, isAdmin } = usePermissions();
   const canWrite = usePuedeRevisarAlmacen();
   const revisor = appUser?.nombre?.trim() || user?.email || 'Almacén';
   const nombreDe = useNombreUsuario();
   const { sedes: misSedes } = useSectorizacion();
-  const opciones = useMemo(() => sedesQuePuedeResponder(misSedes), [misSedes]);
+  const opciones = useMemo(() => sedesQuePuedeResponder(misSedes, isAdmin), [misSedes, isAdmin]);
   const estados = estadoSedes(orden);
 
   // La sede por la que se responde: la elegida, o la primera que falta (la última usada si falta).
@@ -201,8 +201,10 @@ export function RevisionSolicitudAlmacen({ orden, variante = 'pc', onConfirmada 
           <div className="aviso info sm" style={{ marginBottom: '.75rem' }}>
             <span className="aviso-icono">ℹ</span>
             <div>
-              Tu usuario está asignado a {(misSedes ?? []).map(etiquetaSede).join(', ') || '—'}; las solicitudes las
-              confirman {SEDES_REVISION_ALMACEN.map((s) => s.etiqueta).join(' y ')}. Acá solo se ve cómo van.
+              {misSedes?.length
+                ? `Tu usuario está asignado a ${misSedes.map(etiquetaSede).join(', ')}; `
+                : 'Tu usuario no tiene sede asignada; '}
+              las solicitudes las confirman los almacenistas de {SEDES_REVISION_ALMACEN.map((s) => s.etiqueta).join(' y ')}. Acá solo se ve cómo van.
             </div>
           </div>
           <RespuestasSoloLectura orden={orden} />

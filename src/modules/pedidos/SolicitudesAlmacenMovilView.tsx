@@ -49,7 +49,7 @@ function textoBusqueda(o: Orden): string {
 export function SolicitudesAlmacenMovilView() {
   const activo = useFlujoRevisionAlmacen();
   const { user } = useSession();
-  const { appUser, soloTelefono, role } = usePermissions();
+  const { appUser, soloTelefono, role, isAdmin } = usePermissions();
   const nombreDe = useNombreUsuario();
   const { sedes: misSedes } = useSectorizacion();
   const actorName = appUser?.nombre?.trim() || user?.email || '';
@@ -83,8 +83,8 @@ export function SolicitudesAlmacenMovilView() {
 
   const sel = useMemo(() => pendientes.find((o) => o.id === selId) ?? null, [pendientes, selId]);
 
-  // Traslados que le tocan a MIS sedes (sin sede asignada: todas).
-  const sedesMias = useMemo(() => sedesQuePuedeResponder(misSedes), [misSedes]);
+  // Traslados que le tocan a MIS sedes (sin sede asignada: ninguna; el admin, todas).
+  const sedesMias = useMemo(() => sedesQuePuedeResponder(misSedes, isAdmin), [misSedes, isAdmin]);
   const traslados = useMemo(() => revisadas.flatMap((o) => trasladosPendientes(o, sedesMias).map((t) => ({ orden: o, t }))), [revisadas, sedesMias]);
   const [trasSel, setTrasSel] = useState<{ ordenId: string; sede: string } | null>(null);
   const trasladoAbierto = useMemo(

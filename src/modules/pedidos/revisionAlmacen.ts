@@ -53,9 +53,11 @@ export function ordenReparto(sedeDestino?: string | null): string[] {
 }
 
 /** Por qué sedes puede responder el usuario: sin restricción (null) = todas; si no, las suyas que revisan. */
-export function sedesQuePuedeResponder(sedesUsuario: readonly string[] | null | undefined): string[] {
+export function sedesQuePuedeResponder(sedesUsuario: readonly string[] | null | undefined, esAdmin = false): string[] {
   const todas = SEDES_REVISION_ALMACEN.map((s) => s.sede);
-  if (!sedesUsuario || !sedesUsuario.length) return todas;
+  // 31-10-2026 (regla de la administradora): responden SOLO los almacenistas con la sede
+  // asignada. Sin sede no responde (quien solo consulta stock no es almacenista); el admin, todas.
+  if (!sedesUsuario || !sedesUsuario.length) return esAdmin ? todas : [];
   return todas.filter((s) => sedesUsuario.includes(s));
 }
 

@@ -130,17 +130,20 @@ export function usePermissions(): PermissionsValue {
  *  Quien tiene una pantalla de teléfono dada (el Surtidor, por ejemplo) entra por ella (13-10). */
 function destinoInicial(p: Pick<PermissionsValue, 'allowedModules' | 'soloTelefono' | 'vistasTelefono' | 'isAdmin'>): string {
   if (entraPorTelefono({ isAdmin: p.isAdmin, soloTelefono: p.soloTelefono, vistas: p.vistasTelefono })) return inicioTelefono(p.vistasTelefono);
-  const first = p.allowedModules[0];
+  // «Solicitud de Pedido» lo tienen todos (31-10-2026): se entra por el módulo propio y solo
+  // se cae en las SP si no hay otro.
+  const first = p.allowedModules.find((k) => k !== 'solicitud_pedido') ?? p.allowedModules[0];
   return first ? `/app/${modulePath(first)}` : '/app/sin-acceso';
 }
 
 /** Envuelve una página: si el rol no tiene lectura sobre `module`, redirige al primer módulo permitido. */
-export function RequireModule({ module, children }: { module: ModuleKey; children: ReactNode }) {
+/** `tambien`: otro módulo que también abre la pantalla (Pedidos: Compras o Solicitud de Pedido, 31-10-2026). */
+export function RequireModule({ module, tambien, children }: { module: ModuleKey; tambien?: ModuleKey; children: ReactNode }) {
   const p = usePermissions();
   if (p.loading) return <div className="p-8 muted">Cargando…</div>;
   // Solo teléfono: de las pantallas de PC solo queda Ajustes (para cambiar la clave).
   if (p.soloTelefono && module !== 'ajustes') return <Navigate to={inicioTelefono(p.vistasTelefono)} replace />;
-  if (p.can(module, 'lectura')) return <>{children}</>;
+  if (p.can(module, 'lectura') || (tambien && p.can(tambien, 'lectura'))) return <>{children}</>;
   return <Navigate to={destinoInicial(p)} replace />;
 }
 

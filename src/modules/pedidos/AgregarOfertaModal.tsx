@@ -13,7 +13,7 @@ import { AgregarProductoCompra } from './AgregarProductoCompra';
 import { crearOferta, actualizarOferta, revisarCambioProveedorOferta, subirAdjuntosOferta, adjuntosDeOferta, CONDICIONES_PAGO, descuentoEfectivo, ligarRenglonesAInventario, type EditarOfertaInput } from './ofertas.repository';
 import { resincronizarOcDesdeOferta, listSubOcs, listProductosActivos } from './pedidos.repository';
 import { errorMotivoProveedorOferta } from './proveedorOfertaAceptada';
-import { useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
+import { useOrdenEnFlujoNuevo } from './revisionAlmacen.repository';
 import { planFichas, type DestinoRenglon, type EleccionNombreInventario, type ModoNombreInventario } from './nombreInventario';
 import { getCategorias, getUnidades } from '@/modules/inventario/inventario.repository';
 import { opcionesCategoria } from '@/modules/inventario/opcionesCategoria';
@@ -266,7 +266,8 @@ export function AgregarOfertaModal({
      almacén prendido y en compras de productos: acá Compras fija con qué ficha entra
      cada renglón (los de nombre general de la SP todavía no tienen). Apagado, el
      modal es el de siempre. */
-  const flujoAlmacen = useFlujoRevisionAlmacen();
+  // 31-10-2026: solo en las órdenes nuevas (las que ya estaban en curso, como siempre).
+  const flujoAlmacen = useOrdenEnFlujoNuevo(orden);
   // Un renglón general sin ficha la necesita aunque el flujo se haya apagado después.
   const hayGenerales = items.some((i) => i.general && !i.productoId);
   const conNombreInv = (flujoAlmacen || hayGenerales) && !esServicio;

@@ -135,7 +135,7 @@ import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
 import { quienCargo, quienSolicita } from './quienSolicita';
 import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
-import { useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
+import { esOrdenDelFlujoNuevo, useFlujoCompras, useFlujoRevisionAlmacen, useOrdenEnFlujoNuevo } from './revisionAlmacen.repository';
 import { etiquetaRetencionMomento, type RetencionMomento } from './retencionMomento';
 import {
   desgloseAlmacen, etiquetaSede, fmtCant, mensajeRevisionAlmacen, mensajeSolicitudPedido, resumenRevision, SEDES_REVISION_ALMACEN,
@@ -179,6 +179,9 @@ const KANBAN_COLS_PEDIDOS_ALMACEN: { key: EstadoOrden; label: string }[] = [
   { key: 'atendida_almacen', label: 'Atendida por almacén' },
   { key: 'cancelada', label: 'Cancelada' },
 ];
+
+/** Las fases de la Solicitud de Pedido (las columnas de su tablero): lo único que ve quien no tiene Compras. */
+const ESTADOS_FASES_SP = new Set<EstadoOrden>(KANBAN_COLS_PEDIDOS_ALMACEN.map((c) => c.key));
 
 /** El badge de estado de siempre, más los dos estados de la revisión de almacén. */
 function EstadoBadge({ estado }: { estado: string | null | undefined }) {
@@ -420,23 +423,35 @@ export function PedidosPage() {
     sincronizarOrdenesFinalizadas().catch(() => {});
   }, []);
 
+  // El obrero solo crea solicitudes de pedido y las finaliza: sin acceso a Órdenes de Compra.
+  const isObrero = usuario?.role === 'obrero';
+  // 31-10-2026 (regla de la administradora): quien NO tiene «Compras» (la key 'pedidos') y sí
+  // «Solicitud de Pedido» ve SOLO la pestaña de SP y sus fases; Compras ve todo lo demás.
+  const soloSolicitud = isObrero || !can('pedidos', 'lectura');
+  const puedeCrearSolicitud = can('pedidos', 'escritura') || can('solicitud_pedido', 'escritura');
+
   // Abrir el detalle de una orden desde el buscador global (?detalle=ID).
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
     const id = searchParams.get('detalle');
     if (!id || !ordenes.length) return;
     const limpiar = () => { const next = new URLSearchParams(searchParams); next.delete('detalle'); setSearchParams(next, { replace: true }); };
-    if (ordenes.some((o) => o.id === id)) { setModal({ kind: 'detail', ordenId: id }); limpiar(); return; }
+    // Sin «Compras» (31-10-2026) solo se abren SP en sus fases, también desde el buscador.
+    const vedada = (o: Orden) => soloSolicitud && (o.clase === 'servicio' || !ESTADOS_FASES_SP.has(o.estado));
+    const cargada = ordenes.find((o) => o.id === id);
+    if (cargada && vedada(cargada)) { toast('Esa orden ya está en Compras: no la puedes abrir.', 'warning'); limpiar(); return; }
+    if (cargada) { setModal({ kind: 'detail', ordenId: id }); limpiar(); return; }
     // No está en la lista cargada (orden vieja o recién creada en otra sesión): se pide por su id (14-10-2026).
     let vivo = true;
     void getOrdenById(id).then((o) => {
       if (!vivo) return;
-      if (o) { setOrdenes((prev) => (prev.some((x) => x.id === o.id) ? prev : [...prev, o])); setModal({ kind: 'detail', ordenId: o.id }); }
+      if (o && vedada(o)) toast('Esa orden ya está en Compras: no la puedes abrir.', 'warning');
+      else if (o) { setOrdenes((prev) => (prev.some((x) => x.id === o.id) ? prev : [...prev, o])); setModal({ kind: 'detail', ordenId: o.id }); }
       else toast('Esa orden no existe o fue eliminada.', 'warning');
       limpiar();
     }).catch(() => { if (vivo) { toast('No se pudo abrir la orden.', 'error'); limpiar(); } });
     return () => { vivo = false; };
-  }, [ordenes, searchParams, setSearchParams]);
+  }, [ordenes, searchParams, setSearchParams, soloSolicitud]);
 
   // Callback estable para abrir el detalle: evita re-renderizar todas las tarjetas
   // del kanban en cada render (KanbanCard está memoizado).
@@ -460,8 +475,6 @@ export function PedidosPage() {
   // Analista y admin manejan compras (cargar ofertas, emitir OC, recibir mercancía).
   // El "aprobar" final (aceptar la oferta ganadora) sigue siendo solo del jefe/admin.
   const canManageProcurement = isAdmin || usuario?.role === 'analista';
-  // El obrero solo crea solicitudes de pedido y las finaliza: sin acceso a Órdenes de Compra.
-  const isObrero = usuario?.role === 'obrero';
   // Autorizar (confirmar) las Órdenes de Compra: quien esté en «Usuarios autorizados para:
   // Aprobar órdenes de compra» (Usuarios > Roles y Permisos, 28-10-2026). Cada uno firma
   // con su firma cargada en el PDF.
@@ -471,8 +484,8 @@ export function PedidosPage() {
 
   // Si el obrero quedara con scope 'oc' (estado viejo), lo forzamos a 'pedidos'.
   useEffect(() => {
-    if (isObrero && scope !== 'pedidos') setScope('pedidos');
-  }, [isObrero, scope]);
+    if (soloSolicitud && scope !== 'pedidos') setScope('pedidos');
+  }, [soloSolicitud, scope]);
 
   // El admin arranca directo en Órdenes de Compra (una sola vez, al cargar su perfil).
   const scopeDefaulted = useRef(false);
@@ -488,19 +501,21 @@ export function PedidosPage() {
     const s = searchParams.get('scope');
     if (!s) return;
     const validos: Scope[] = ['pedidos', 'oc', 'oc_lote', 'compra_directa'];
-    if (validos.includes(s as Scope)) {
+    // Sin «Compras» no se cambia de pestaña (se queda en las SP).
+    if (validos.includes(s as Scope) && !soloSolicitud) {
       scopeDefaulted.current = true;
       switchScope(s as Scope);
     }
     const next = new URLSearchParams(searchParams);
     next.delete('scope');
     setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
+  }, [searchParams, setSearchParams, soloSolicitud]);
 
   // Órdenes de la pestaña actual (Servicios muestra solo clase='servicio'; el resto, solo productos).
   const ordenesDePestana = useMemo(
-    () => ordenes.filter((o) => (o.clase === 'servicio') === (scope === 'servicio')),
-    [ordenes, scope],
+    () => ordenes.filter((o) => (o.clase === 'servicio') === (scope === 'servicio')
+      && (!soloSolicitud || ESTADOS_FASES_SP.has(o.estado))),
+    [ordenes, scope, soloSolicitud],
   );
   // Desplegable «Realizada por»: los usuarios que crearon alguna orden de esta pestaña, con su nombre.
   const nombreDeCorreo = useCallback(
@@ -554,7 +569,7 @@ export function PedidosPage() {
     : kanbanColsTodas;
 
   const currentDetail =
-    modal.kind === 'detail' ? ordenes.find((o) => o.id === modal.ordenId) ?? null : null;
+    modal.kind === 'detail' ? (soloSolicitud ? ordenesDePestana : ordenes).find((o) => o.id === modal.ordenId) ?? null : null;
 
   // Pestañas minimizadas (20-10-2026): el detalle de una orden se minimiza a la barra de abajo
   // para abrir otra; viven SOLO en este módulo (al salir, AppShell avisa y se pierden).
@@ -597,9 +612,11 @@ export function PedidosPage() {
     <div>
       <div className="page-head">
         <div>
-          <h1>{scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'servicio_directo' ? 'Servicio Directo' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicio' ? 'Servicios' : 'Órdenes'}</h1>
+          <h1>{soloSolicitud ? 'Solicitudes de Pedido' : scope === 'oc' ? 'Órdenes de Compra' : scope === 'compra_directa' ? 'Compra Directa' : scope === 'servicio_directo' ? 'Servicio Directo' : scope === 'oc_lote' ? 'OC por lote' : scope === 'servicio' ? 'Servicios' : 'Órdenes'}</h1>
           <p className="hint muted">
-            {scope === 'oc'
+            {soloSolicitud
+              ? 'Crea tus solicitudes de pedido y sigue en qué fase van. Compras se encarga del resto.'
+              : scope === 'oc'
               ? 'Seguimiento del ciclo de compras: emisión de OC, recepción y finalización del pedido.'
               : scope === 'oc_lote'
                 ? 'Checklist de órdenes de compra pendientes por confirmar. Aprobá en lote, imprimí o enviá por correo.'
@@ -611,9 +628,11 @@ export function PedidosPage() {
           </p>
         </div>
         <div className="actions">
+          {!soloSolicitud && (
           <Link to="/app/pedidos/historico" className="btn btn-ghost" title="Ver histórico filtrable de órdenes">
             ⌕ Histórico
           </Link>
+          )}
           {/* Oculto a pedido del usuario:
           <button
             className="btn btn-ghost"
@@ -623,6 +642,7 @@ export function PedidosPage() {
             💰 Pendientes por pagar
           </button>
           */}
+          {!soloSolicitud && (<>
           <button
             className="btn btn-ghost"
             onClick={() => setReporteOpen(true)}
@@ -637,7 +657,14 @@ export function PedidosPage() {
           >
             📆 Cierre diario
           </button>
-          {scope !== 'compra_directa' && scope !== 'oc_lote' && scope !== 'servicio_directo' && (
+          </>)}
+          {soloSolicitud ? (
+            puedeCrearSolicitud && (
+              <button className="btn btn-primary" onClick={() => setModal({ kind: 'create' })}>
+                + Nueva solicitud
+              </button>
+            )
+          ) : scope !== 'compra_directa' && scope !== 'oc_lote' && scope !== 'servicio_directo' && (
             <>
               <button
                 className="btn btn-ghost"
@@ -678,7 +705,7 @@ export function PedidosPage() {
       </div>
 
       {/* Alerta de Cocina: hay que restablecer el mercado. El analista monta el pedido MERCADO. */}
-      {alertasMercado.length > 0 && scope === 'pedidos' && (
+      {alertasMercado.length > 0 && scope === 'pedidos' && !soloSolicitud && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.7rem', cursor: 'pointer' }}
           onClick={() => setModal({ kind: 'mercado' })} title="Montar la Solicitud de Mercado para reponer los víveres">
           <div>
@@ -694,8 +721,8 @@ export function PedidosPage() {
         </div>
       )}
 
-      {/* El obrero no ve la pestaña de Órdenes de Compra: solo trabaja pedidos. */}
-      {!isObrero && (
+      {/* Quien solo tiene «Solicitud de Pedido» (y el obrero) no ve las otras pestañas: solo trabaja SP. */}
+      {!soloSolicitud && (
         <div
           className="view-toggle"
           role="tablist"
@@ -785,10 +812,12 @@ export function PedidosPage() {
           {conColumnasAlmacen && <option value="revision_almacen">En revisión de almacén</option>}
           <option value="pendiente">Pendientes</option>
           <option value="aprobada">Aprobadas (OP)</option>
+          {!soloSolicitud && (<>
           <option value="oc_creada">OC creada</option>
           <option value="oc_aprobada">OC confirmada</option>
           <option value="pagada">Pagadas</option>
           <option value="desistida_proveedor">Proveedor desistió</option>
+          </>)}
           <option value="recibida">Recibidas</option>
           <option value="finalizada">Finalizadas</option>
           {conColumnasAlmacen && <option value="atendida_almacen">Atendidas por almacén</option>}
@@ -1614,7 +1643,8 @@ function MetodoPagoModal({
   const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>('se_paga_despues');
   // Flujo nuevo de compras (30-10-2026): ¿se retiene ANTES o DESPUÉS de pagar? Obligatorio
   // solo con el flujo prendido y al enviar a pagar. 'antes' → Retenciones; 'despues' → Tesorería.
-  const flujoNuevo = useFlujoRevisionAlmacen();
+  // 31-10-2026: solo las órdenes NUEVAS; las que ya estaban en curso se pagan como siempre.
+  const flujoNuevo = useOrdenEnFlujoNuevo(orden);
   const pideMomentoRet = flujoNuevo && !corrigiendo;
   const [retMomento, setRetMomento] = useState<RetencionMomento | null>(
     orden.retencion_momento === 'antes' || orden.retencion_momento === 'despues' ? orden.retencion_momento : null,
@@ -5103,7 +5133,9 @@ function CrearOrdenModal({
   const [creandoNuevo, setCreandoNuevo] = useState(false);
   // Revisión de almacén (29-10-2026): con el flujo prendido, lo que no está en el inventario
   // se pide con un NOMBRE GENERAL (no se crea ficha); Compras fija el nombre de inventario al cotizar.
-  const flujoAlmacen = useFlujoRevisionAlmacen();
+  // 31-10-2026: al EDITAR una SP que ya estaba en curso cuando se prendió, sigue como siempre.
+  const flujoCompras = useFlujoCompras();
+  const flujoAlmacen = esOrdenDelFlujoNuevo(orden ?? null, flujoCompras);
   const [generalCant, setGeneralCant] = useState('1');
   // 30-10-2026 (regla de la administradora): con el flujo prendido, la SP va SIEMPRE con
   // nombres generales salvo que la haga un analista de Compras (o admin): el almacenista

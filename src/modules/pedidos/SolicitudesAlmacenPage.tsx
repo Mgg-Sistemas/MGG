@@ -37,7 +37,7 @@ type Pestana = 'pendientes' | 'revisadas' | 'traslados';
 
 export function SolicitudesAlmacenPage() {
   const activo = useFlujoRevisionAlmacen();
-  const { soloTelefono, puedeVista } = usePermissions();
+  const { soloTelefono, puedeVista, isAdmin } = usePermissions();
   const nombreDe = useNombreUsuario();
   const { sedes: misSedes } = useSectorizacion();
   const [pestana, setPestana] = useState<Pestana>('pendientes');
@@ -70,8 +70,8 @@ export function SolicitudesAlmacenPage() {
 
   const sel = useMemo(() => pendientes.find((o) => o.id === selId) ?? null, [pendientes, selId]);
 
-  // Traslados por SP que le tocan a mis sedes (sin sede asignada: todas).
-  const sedesMias = useMemo(() => sedesQuePuedeResponder(misSedes), [misSedes]);
+  // Traslados por SP que le tocan a mis sedes (sin sede asignada: ninguna; el admin, todas).
+  const sedesMias = useMemo(() => sedesQuePuedeResponder(misSedes, isAdmin), [misSedes, isAdmin]);
   const traslados = useMemo(() => revisadas.flatMap((o) => trasladosPendientes(o, sedesMias).map((t) => ({ orden: o, t }))), [revisadas, sedesMias]);
   const [trasSel, setTrasSel] = useState<{ ordenId: string; sede: string } | null>(null);
   const trasladoAbierto = useMemo(

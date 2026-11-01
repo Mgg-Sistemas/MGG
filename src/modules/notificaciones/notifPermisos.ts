@@ -24,6 +24,8 @@ export function moduloDeNotificacion(
 
     // Coincidencia exacta o prefijo de ruta configurada en MODULES
     for (const m of MODULES) {
+      // «Solicitud de Pedido» comparte la ruta de Pedidos (31-10-2026): sus avisos son de Compras.
+      if (m.key === 'solicitud_pedido') continue;
       if (m.path) {
         const p = m.path.toLowerCase();
         if (limpia === p || limpia.startsWith(p + '/')) {
