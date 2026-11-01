@@ -6,6 +6,7 @@
    se sigue todo desde la PC:
      Tablero      → por tomar / aceptados / en camino / entregados hoy, con
                     fotos, comprobante de pago, WhatsApp y cancelar si se trabó
+                    (31-10: «📄 Ver PDF» y «💬 WhatsApp» del pedido y de la lista)
      Mapa         → dónde está cada motorizado (Calles / Satelital)
      Histórico    → lo tomado en un rango de fechas, filtrable por delivery
      Por delivery → cuántos pedidos lleva cada uno y su tiempo promedio
@@ -30,11 +31,12 @@ import {
   type ComprobantePagoDelivery,
 } from './delivery.repository';
 import {
-  RANGOS_DELIVERY, armarFilasHistorial, conteoPorEstado, duracionTxt, filtrarPorRepartidor, mensajeDelPedido, rangoDelivery,
+  RANGOS_DELIVERY, armarFilasHistorial, conteoPorEstado, duracionTxt, filtrarPorRepartidor, rangoDelivery,
   rangoDeliveryActivo, repartidoresDe, resumenHistorial, sePuedeCancelar, totalesResumen, type FilaHistorialDelivery,
 } from './deliveryPanel';
 import { DeliveryMapa } from './DeliveryMapa';
-import { pdfHistorialDelivery, pdfPorDelivery } from './deliveryPdf';
+import { pdfComprobanteDelivery, pdfHistorialDelivery, pdfListaDelivery, pdfPorDelivery } from './deliveryPdf';
+import { mensajeHistorialDelivery, mensajeListaDelivery, mensajePorDelivery, mensajeReporteDelivery } from './deliveryReporte';
 
 type Vista = 'tablero' | 'mapa' | 'historico' | 'por_delivery';
 
@@ -46,6 +48,14 @@ const TABS: { key: Vista; label: string; icon: string }[] = [
 ];
 
 const msgError = (e: unknown, def: string) => (e instanceof Error ? e.message : def);
+
+/** Abre un PDF en la vista previa (solo con el botón) y marca cuál se está generando. */
+function abrirPdf(clave: string, generar: () => Promise<void>, setGenerando: (v: string | null) => void) {
+  setGenerando(clave);
+  generar()
+    .catch((e) => toast(msgError(e, 'No se pudo generar el PDF.'), 'error'))
+    .finally(() => setGenerando(null));
+}
 
 export function DeliveryPage() {
   const { can, isAdmin, vistasTelefono } = usePermissions();
@@ -170,12 +180,14 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
   const [whatsapp, setWhatsapp] = useState<{ titulo: string; texto: string } | null>(null);
   const [cancelar, setCancelar] = useState<PedidoDelivery | null>(null);
   const [comprobante, setComprobante] = useState<PedidoDelivery | null>(null);
+  const [generando, setGenerando] = useState<string | null>(null);
 
   // Primero lo urgente y lo más viejo por tomar; después lo en curso; al final lo cerrado.
   const orden: Record<string, number> = { por_tomar: 0, aceptado: 1, en_ruta: 2, entregado: 3, cancelado: 4 };
   const lista = [...pedidos].sort((a, b) => (orden[a.estado] - orden[b.estado])
     || (Number(b.urgente) - Number(a.urgente))
     || String(a.pagada_en ?? a.aceptado_en ?? '').localeCompare(String(b.pagada_en ?? b.aceptado_en ?? '')));
+  const filtro = verCerrados ? 'Todos (incluye entregados y cancelados)' : 'Por tomar y en curso';
 
   return (
     <>
@@ -213,6 +225,15 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
             <input type="checkbox" checked={verCerrados} onChange={(e) => setVerCerrados(e.target.checked)} />
             Ver también entregados y cancelados
           </label>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={!!generando || !lista.length}
+            title="Reporte de la lista que se ve, en vista previa"
+            onClick={() => abrirPdf('lista', () => pdfListaDelivery({ pedidos: lista, filtro }), setGenerando)}>
+            {generando === 'lista' ? 'Generando…' : '📄 Ver PDF'}
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={!lista.length}
+            onClick={() => setWhatsapp({ titulo: 'Pedidos de Delivery', texto: mensajeListaDelivery({ pedidos: lista, filtro }) })}>
+            💬 WhatsApp
+          </button>
         </div>
         {cargando ? <p className="muted">Cargando…</p> : !lista.length ? (
           <p className="muted" style={{ margin: '.4rem 0' }}>No hay pedidos {verCerrados ? '' : 'por tomar ni en curso '}por ahora.</p>
@@ -228,10 +249,10 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
                 {lista.map((p) => {
                   const est = ESTADO_DELIVERY[p.estado];
                   const nFotos = p.fotos_recibo.length + p.fotos_entrega.length;
-                  const msg = mensajeDelPedido(p);
+                  const clave = `${p.orden_id}-${p.pedido_id ?? 'libre'}`;
                   const fin = p.estado === 'cancelado' ? p.cancelado_en : p.entregado_en;
                   return (
-                    <tr key={`${p.orden_id}-${p.pedido_id ?? 'libre'}`}>
+                    <tr key={clave}>
                       <td>
                         <strong>{ocDe(p)}</strong>
                         {p.urgente && <> <span className="badge danger">URGENTE</span></>}
@@ -258,7 +279,14 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
                         <div style={{ display: 'flex', gap: '.3rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setComprobante(p)} title="Comprobante que adjuntó Tesorería al pagar">🧾 Comprobante de pago</button>
                           <button type="button" className="btn btn-ghost btn-sm" disabled={!nFotos} onClick={() => setFotos(p)} title={nFotos ? 'Ver fotos' : 'Sin fotos todavía'}>📷 {nFotos}</button>
-                          {msg && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWhatsapp(msg)}>💬 WhatsApp</button>}
+                          <button type="button" className="btn btn-ghost btn-sm" disabled={!!generando} title="Comprobante del pedido en vista previa"
+                            onClick={() => abrirPdf(clave, () => pdfComprobanteDelivery(p), setGenerando)}>
+                            {generando === clave ? 'Generando…' : '📄 Ver PDF'}
+                          </button>
+                          <button type="button" className="btn btn-ghost btn-sm" title="Reporte del pedido con su estado y tiempos"
+                            onClick={() => setWhatsapp({ titulo: `Reporte · ${ocDe(p)}`, texto: mensajeReporteDelivery(p) })}>
+                            💬 WhatsApp
+                          </button>
                           {supervisor && sePuedeCancelar(p) && (
                             <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setCancelar(p)}>⛔ Cancelar</button>
                           )}
@@ -455,13 +483,11 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
   const [repartidor, setRepartidor] = useState('');
   const repartidores = useMemo(() => repartidoresDe(filas), [filas]);
   const visibles = useMemo(() => filtrarPorRepartidor(filas, repartidor), [filas, repartidor]);
-  const [generando, setGenerando] = useState(false);
+  const [generando, setGenerando] = useState<string | null>(null);
+  const [whatsapp, setWhatsapp] = useState<string | null>(null);
 
   function pdf() {
-    setGenerando(true);
-    pdfHistorialDelivery({ desde, hasta, repartidor: repartidor || null, filas: visibles })
-      .catch((e) => toast(msgError(e, 'No se pudo generar el PDF.'), 'error'))
-      .finally(() => setGenerando(false));
+    abrirPdf('historico', () => pdfHistorialDelivery({ desde, hasta, repartidor: repartidor || null, filas: visibles }), setGenerando);
   }
 
   return (
@@ -472,10 +498,16 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
           <option value="">Todos los delivery</option>
           {repartidores.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
-        <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} disabled={generando || !visibles.length} onClick={pdf}>
-          📄 PDF (vista previa)
+        <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} disabled={!!generando || !visibles.length} onClick={pdf}
+          title="Histórico del rango (y del delivery elegido) en vista previa">
+          {generando ? 'Generando…' : '📄 Ver PDF'}
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={!visibles.length}
+          onClick={() => setWhatsapp(mensajeHistorialDelivery({ desde, hasta, repartidor: repartidor || null, filas: visibles }))}>
+          💬 WhatsApp
         </button>
       </div>
+      {whatsapp && <MensajeWhatsappModal titulo="Histórico de Delivery" texto={whatsapp} onClose={() => setWhatsapp(null)} />}
       {!visibles.length ? <p className="muted" style={{ margin: '.4rem 0' }}>No hay pedidos tomados en ese rango.</p> : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
@@ -516,23 +548,27 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
 function PorDeliveryTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[]; desde: string; hasta: string }) {
   const resumen = useMemo(() => resumenHistorial(filas), [filas]);
   const t = totalesResumen(resumen);
-  const [generando, setGenerando] = useState(false);
+  const [generando, setGenerando] = useState<string | null>(null);
+  const [whatsapp, setWhatsapp] = useState<string | null>(null);
 
   function pdf() {
-    setGenerando(true);
-    pdfPorDelivery({ desde, hasta, resumen })
-      .catch((e) => toast(msgError(e, 'No se pudo generar el PDF.'), 'error'))
-      .finally(() => setGenerando(false));
+    abrirPdf('por_delivery', () => pdfPorDelivery({ desde, hasta, resumen }), setGenerando);
   }
 
   return (
     <div className="card">
       <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
         <span>🛵 Pedidos por delivery</span>
-        <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} disabled={generando || !resumen.length} onClick={pdf}>
-          📄 PDF (vista previa)
+        <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} disabled={!!generando || !resumen.length} onClick={pdf}
+          title="Resumen por delivery del rango en vista previa">
+          {generando ? 'Generando…' : '📄 Ver PDF'}
+        </button>
+        <button type="button" className="btn btn-ghost btn-sm" disabled={!resumen.length}
+          onClick={() => setWhatsapp(mensajePorDelivery({ desde, hasta, resumen }))}>
+          💬 WhatsApp
         </button>
       </div>
+      {whatsapp && <MensajeWhatsappModal titulo="Pedidos por delivery" texto={whatsapp} onClose={() => setWhatsapp(null)} />}
       {!resumen.length ? <p className="muted" style={{ margin: '.4rem 0' }}>Ningún delivery tomó pedidos en ese rango.</p> : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.88rem' }}>

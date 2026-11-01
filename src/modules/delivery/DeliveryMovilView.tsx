@@ -11,6 +11,8 @@
    la OC y al proveedor, y compartir su ubicación mientras va en curso.
    Antes de aceptar puede ver el comprobante de pago que adjuntó Tesorería.
    Mientras la administradora no conecte Delivery a Compras, no llegan OC.
+   31-10: cada pedido y la lista del chip elegido tienen «📄 Ver PDF» (vista
+   previa) y «💬 WhatsApp» con el reporte; solo salen al tocar el botón.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -25,6 +27,7 @@ import type { Almacen } from '@/shared/lib/types';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
 import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import {
@@ -39,6 +42,8 @@ import {
   armarFeed, debeEnviarUbicacion, enChip, errorUbicacion, mapaHref, mensajeDeEstado, telHref, trabajoEnCurso,
   type ChipDelivery, type EnvioGps, type PedidoFeed,
 } from './deliveryMovil';
+import { pdfComprobanteDelivery, pdfListaDelivery } from './deliveryPdf';
+import { mensajeListaDelivery, mensajeReporteDelivery, pedidosDelFeed } from './deliveryReporte';
 import './deliveryMovil.css';
 
 export const RUTA_DELIVERY_TELEFONO = '/app/delivery/telefono';
@@ -81,6 +86,9 @@ export function DeliveryMovilView() {
   const [listo, setListo] = useState<{ titulo: string; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [comprobanteDe, setComprobanteDe] = useState<PedidoDelivery | null>(null);
+  // Reportes (31-10): PDF en vista previa y WhatsApp, solo al tocar el botón.
+  const [reporte, setReporte] = useState<{ titulo: string; texto: string } | null>(null);
+  const [generando, setGenerando] = useState<string | null>(null);
 
   // Solo la última carga pinta (el realtime puede disparar varias seguidas).
   const turno = useRef(0);
@@ -162,6 +170,15 @@ export function DeliveryMovilView() {
     if (m) { setAccion(null); setListo(m); }
   }
 
+  function verPdf(clave: string, generar: () => Promise<void>) {
+    setGenerando(clave);
+    generar()
+      .catch((e) => toast(errMsg(e, 'No se pudo generar el PDF'), 'error'))
+      .finally(() => setGenerando(null));
+  }
+  const filtroChip = CHIPS.find((c) => c.key === chip)?.label ?? 'Todos';
+  const pedidosVisibles = pedidosDelFeed(visibles);
+
   const enPantallaPrincipal = !accion && !listo;
 
   return (
@@ -219,6 +236,22 @@ export function DeliveryMovilView() {
             ))}
           </div>
 
+          {!loading && visibles.length > 0 && (
+            <div className="dlv-reporte dlv-reporte-lista" aria-label="Reporte de la lista">
+              <button type="button" className="btn btn-ghost" disabled={!!generando}
+                onClick={() => verPdf('lista', () => pdfListaDelivery({ pedidos: pedidosVisibles, filtro: filtroChip, ver: nombreAlmacenVisible }))}>
+                {generando === 'lista' ? 'Generando…' : `📄 Ver PDF (${visibles.length})`}
+              </button>
+              <button type="button" className="btn btn-ghost"
+                onClick={() => setReporte({
+                  titulo: 'Pedidos de Delivery',
+                  texto: mensajeListaDelivery({ pedidos: pedidosVisibles, filtro: filtroChip, ver: nombreAlmacenVisible }),
+                })}>
+                💬 WhatsApp
+              </button>
+            </div>
+          )}
+
           {loading && <p className="muted">Cargando…</p>}
           {!loading && !visibles.length && (
             <p className="muted" style={{ textAlign: 'center', padding: '1.5rem .5rem' }}>
@@ -238,22 +271,30 @@ export function DeliveryMovilView() {
               onVerMensaje={() => verMensaje(f.p)}
               onComprobante={() => setComprobanteDe(f.p)}
               onFotos={() => void reload().catch(() => {})}
+              generandoPdf={generando === f.p.orden_id} pdfBloqueado={!!generando}
+              onPdf={() => verPdf(f.p.orden_id, () => pdfComprobanteDelivery(f.p, nombreAlmacenVisible))}
+              onReporte={() => setReporte({ titulo: `Reporte · ${ocDe(f.p)}`, texto: mensajeReporteDelivery(f.p, nombreAlmacenVisible) })}
             />
           ))}
         </>
       )}
 
       {comprobanteDe && <ComprobantePago p={comprobanteDe} onClose={() => setComprobanteDe(null)} />}
+      {reporte && <MensajeWhatsappModal titulo={reporte.titulo} texto={reporte.texto} onClose={() => setReporte(null)} />}
     </div>
   );
 }
 
 /* ── Una orden en el listado ── */
 
-function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onEnRuta, onCancelar, onEntregar, onVerMensaje, onComprobante, onFotos }: {
+function TarjetaPedido({
+  f, canWrite, ocupado, bloqueado, onTomar, onEnRuta, onCancelar, onEntregar, onVerMensaje, onComprobante, onFotos,
+  generandoPdf, pdfBloqueado, onPdf, onReporte,
+}: {
   f: PedidoFeed; canWrite: boolean; ocupado: boolean; bloqueado: boolean;
   onTomar: () => void; onEnRuta: () => void; onCancelar: () => void; onEntregar: () => void;
   onVerMensaje: () => void; onComprobante: () => void; onFotos: () => void;
+  generandoPdf: boolean; pdfBloqueado: boolean; onPdf: () => void; onReporte: () => void;
 }) {
   const { p, disponible } = f;
   const estado = disponible ? ESTADO_DELIVERY.por_tomar : ESTADO_DELIVERY[p.estado];
@@ -350,6 +391,12 @@ function TarjetaPedido({ f, canWrite, ocupado, bloqueado, onTomar, onEnRuta, onC
         {puedeVerMensaje && (
           <button type="button" className="btn btn-ghost" onClick={onVerMensaje}>💬 Ver mensaje de WhatsApp</button>
         )}
+        <div className="dlv-reporte">
+          <button type="button" className="btn btn-ghost" disabled={pdfBloqueado} onClick={onPdf}>
+            {generandoPdf ? 'Generando…' : '📄 Ver PDF'}
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={onReporte} title="Reporte del pedido por WhatsApp">💬 WhatsApp</button>
+        </div>
       </div>
     </article>
   );

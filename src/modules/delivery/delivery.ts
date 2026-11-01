@@ -124,7 +124,7 @@ export function minutosEntre(a: string | null | undefined, b: string | null | un
 }
 
 /** Los renglones que se compran, en una línea cada uno. */
-function lineasItems(p: PedidoDelivery): string[] {
+export function lineasItems(p: PedidoDelivery): string[] {
   return (p.items ?? []).filter((i) => i.comprar !== false)
     .map((i) => `• ${i.nombre} — ${(Number(i.cantidad) || 0).toLocaleString('es-VE', { maximumFractionDigits: 3 })}${i.unidad ? ` ${i.unidad}` : ''}`);
 }

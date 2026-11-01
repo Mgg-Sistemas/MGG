@@ -37,6 +37,12 @@
 
 .dlv-acciones { display: grid; grid-template-columns: 1fr; gap: .5rem; }
 .dlv-acciones .btn { min-height: 56px; font-size: 1.05rem; font-weight: 700; justify-content: center; }
+
+/* Reportes (31-10): «📄 Ver PDF» y «💬 WhatsApp» lado a lado, en la tarjeta y sobre la lista. */
+.dlv-reporte { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
+.dlv-reporte .btn { min-width: 0; }
+.dlv-reporte-lista { margin-bottom: .75rem; }
+.dlv-reporte-lista .btn { min-height: 48px; font-size: .95rem; font-weight: 700; justify-content: center; }
 .dlv-tomado { font-size: .9rem; color: var(--text-muted); padding: .5rem .6rem; border-radius: var(--r-md); background: var(--surface-3); }
 .dlv-nota-cancel { font-size: .82rem; color: var(--warning); }
 
