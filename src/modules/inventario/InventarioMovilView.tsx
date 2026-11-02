@@ -12,7 +12,8 @@
    · «Por retornar»: lo que salió y vuelve; retorno total o parcial.
    · «Traslado entre almacenes»: pasa material directo a otro almacén.
    · «Reporte de stock»: lo que hay al cierre de un período.
-   Cada botón termina en su aviso para WhatsApp. El almacenista con sede SOLO ve
+   Cada botón termina en su aviso para WhatsApp; el de la salida lleva sus
+   fotos adjuntas (02-11-2026, ver shared/ui/CompartirWhatsapp). El almacenista con sede SOLO ve
    (y mueve en) los almacenes de su sede (sectorización, 02-11-2026); los demás
    almacenes solo aparecen como destino de un traslado. Sin sede, ve todos. El
    stock que se muestra y se valida es el DEL ALMACÉN (`stock_almacen`), no el global.
@@ -28,7 +29,8 @@ import { useQuien } from '@/shared/lib/directorioUsuarios';
 import { hoyVenezuela, rangoRapido } from '@/shared/lib/rangosFecha';
 import type { Almacen } from '@/shared/lib/types';
 import { toast } from '@/shared/ui/Toast';
-import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { CompartirWhatsapp, type FotosParaWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { adjuntaArchivos } from '@/shared/lib/fotosWhatsapp';
 import { verComprobanteMaterialPdf, type ComprobanteMaterial } from '@/modules/salidas/salidaPdf';
 import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
@@ -44,8 +46,8 @@ import {
   pendienteRetorno, stockPorPeriodo, type FotoSalida, type MovimientoStock, type SalidaTelefono,
 } from './inventarioTelefono';
 import {
-  listPorRetornar, movimientosAlmacenDesde, productosDeAlmacen, registrarSalidaTelefono, retornarSalidaTelefono,
-  subirFotosSalida, trasladarTelefono, urlFotoSalida, type ProductoEnAlmacen,
+  archivosFotosSalida, enlacesFotosSalida, listPorRetornar, movimientosAlmacenDesde, productosDeAlmacen, registrarSalidaTelefono,
+  retornarSalidaTelefono, subirFotosSalida, trasladarTelefono, urlFotoSalida, type ProductoEnAlmacen,
 } from './inventarioTelefono.repository';
 
 export const RUTA_INVENTARIO_TELEFONO = '/app/inventario/telefono';
@@ -340,8 +342,8 @@ export function InventarioMovilView() {
 }
 
 /** Lo guardado: el aviso para WhatsApp y la vuelta al inicio. */
-function Listo({ titulo, texto, pdf, onVolver, children }: {
-  titulo: string; texto: string; pdf?: ComprobanteMaterial; onVolver: () => void; children?: ReactNode;
+function Listo({ titulo, texto, pdf, fotos, onVolver, children }: {
+  titulo: string; texto: string; pdf?: ComprobanteMaterial; fotos?: FotosParaWhatsapp; onVolver: () => void; children?: ReactNode;
 }) {
   const [abriendo, setAbriendo] = useState(false);
   // El comprobante en PDF (30-10-2026): mismo formato que Salidas y Traslados, en vista
@@ -357,7 +359,7 @@ function Listo({ titulo, texto, pdf, onVolver, children }: {
     <div className="surt-form">
       <div className="surt-form-titulo"><span className="icono" aria-hidden>✅</span><strong>{titulo}</strong></div>
       {children}
-      <CompartirWhatsapp texto={texto} />
+      <CompartirWhatsapp texto={texto} fotos={fotos} />
       {pdf && (
         <button type="button" className="btn btn-ghost surt-guardar" disabled={abriendo} onClick={() => void verPdf()}>
           {abriendo ? 'Armando el PDF…' : '📄 Ver PDF del comprobante'}
@@ -374,6 +376,7 @@ function ListoSalida({ salida, quien, onCambio, onVolver }: {
 }) {
   const [subiendo, setSubiendo] = useState(false);
   const faltan = MAX_FOTOS_SALIDA - salida.fotos.length;
+  const fotosWhatsapp = useFotosParaWhatsapp(salida.fotos);
 
   async function agregar(lista: FileList | null) {
     const archivos = Array.from(lista ?? []);
@@ -390,14 +393,14 @@ function ListoSalida({ salida, quien, onCambio, onVolver }: {
   }
 
   return (
-    <Listo titulo={`Salida ${salida.codigo} registrada`} texto={mensajeSalida(salida, quien)} onVolver={onVolver}
+    <Listo titulo={`Salida ${salida.codigo} registrada`} texto={mensajeSalida(salida, quien)} fotos={fotosWhatsapp} onVolver={onVolver}
       pdf={{
         tipo: 'salida', codigo: salida.codigo, producto: { nombre: salida.producto_nombre, unidad: salida.unidad },
         almacen: nombreAlmacenVisible(salida.almacen), cantidad: salida.cantidad, detalle: salida.motivo,
         autorizadoPor: salida.autorizado_por, retorna: salida.retorna, fotos: salida.fotos.length,
         actor: salida.actor ?? quien, actorName: salida.actor_name ?? quien, at: salida.created_at,
       }}>
-      <FotosSalida fotos={salida.fotos} />
+      {/* Las fotos se ven debajo del aviso de WhatsApp, que es con lo que se mandan (02-11-2026). */}
       <div className="surt-campo">
         <label htmlFor="inv-tel-salida-fotos-mas">Fotos ({salida.fotos.length}/{MAX_FOTOS_SALIDA})</label>
         {faltan > 0 ? (
@@ -408,6 +411,33 @@ function ListoSalida({ salida, quien, onCambio, onVolver }: {
       </div>
     </Listo>
   );
+}
+
+/**
+ * Las fotos de la salida listas para ir CON el aviso de WhatsApp (02-11-2026):
+ * como archivos para la hoja de compartir y, si este navegador no los adjunta,
+ * como enlaces firmados de 7 días que van dentro del texto. Las recién subidas
+ * no se vuelven a bajar (las guarda el repositorio al subirlas).
+ */
+function useFotosParaWhatsapp(fotos: FotoSalida[]): FotosParaWhatsapp | undefined {
+  const clave = fotos.map((f) => f.path).join('|');
+  const [listas, setListas] = useState<{ clave: string; fotos: FotosParaWhatsapp } | null>(null);
+  useEffect(() => {
+    if (!clave) return;
+    let vivo = true;
+    void (async () => {
+      const archivos = await archivosFotosSalida(fotos).catch(() => [] as File[]);
+      const enlaces = adjuntaArchivos(navigator, archivos) ? [] : await enlacesFotosSalida(fotos).catch(() => [] as string[]);
+      if (vivo) setListas({ clave, fotos: { archivos, enlaces } });
+    })();
+    return () => { vivo = false; };
+  }, [clave, fotos]);
+  return useMemo(() => {
+    if (!clave) return undefined;
+    if (listas?.clave === clave) return listas.fotos;
+    // Mientras se preparan (o al sumar una foto) se siguen viendo las que ya estaban.
+    return { archivos: listas?.fotos.archivos ?? [], cargando: true };
+  }, [clave, listas]);
 }
 
 function ReporteStock({ almacen, productos, quien, onVolver }: {

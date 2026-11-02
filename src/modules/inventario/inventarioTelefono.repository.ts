@@ -9,6 +9,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
+import { SEGUNDOS_ENLACE_FOTO, nombreFotoCompartir, tipoDeFoto } from '@/shared/lib/fotosWhatsapp';
 import type { Producto } from '@/shared/lib/types';
 import { registrarMovimiento, transferir } from './movimientos.repository';
 import {
@@ -146,6 +147,7 @@ export async function subirFotosSalida(s: SalidaTelefono, archivos: File[]): Pro
     const path = `${s.id}/foto-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${seguro(f.name)}`;
     const { error } = await supabase.storage.from(BUCKET).upload(path, f, { upsert: false, contentType: f.type || 'image/jpeg' });
     if (error) throw new Error(`No se pudo subir «${original.name}»: ${error.message}`);
+    recordarFoto(path, f);
     return { path, filename: original.name };
   }));
   const fotos = [...s.fotos, ...nuevas].slice(0, MAX_FOTOS_SALIDA);
@@ -159,6 +161,48 @@ export async function urlFotoSalida(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 10);
   if (error) throw new Error('No se pudo abrir la foto.');
   return data.signedUrl;
+}
+
+/* Las fotos con el aviso de WhatsApp (02-11-2026). Las recién subidas se
+   guardan aquí (ya achicadas) para no volver a bajarlas del depósito al
+   compartir: la salida se acaba de registrar y el aviso sale enseguida. Se
+   guardan pocas; una salida vieja o de otra sesión se baja del depósito. */
+const FOTOS_EN_MEMORIA = 12;
+const fotosEnMemoria = new Map<string, File>();
+function recordarFoto(path: string, f: File) {
+  fotosEnMemoria.set(path, f);
+  while (fotosEnMemoria.size > FOTOS_EN_MEMORIA) {
+    const vieja = fotosEnMemoria.keys().next().value;
+    if (vieja === undefined) break;
+    fotosEnMemoria.delete(vieja);
+  }
+}
+
+/**
+ * Las fotos de UNA salida como archivos, listas para la hoja de compartir.
+ * La que no se pudo bajar se salta: mejor mandar tres fotos que ninguna.
+ */
+export async function archivosFotosSalida(fotos: FotoSalida[]): Promise<File[]> {
+  const res = await Promise.allSettled(fotos.slice(0, MAX_FOTOS_SALIDA).map(async (f, i) => {
+    let blob: Blob | undefined = fotosEnMemoria.get(f.path);
+    if (!blob) {
+      const { data, error } = await supabase.storage.from(BUCKET).download(f.path);
+      if (error || !data) throw new Error(`No se pudo bajar «${f.filename}».`);
+      blob = data;
+    }
+    const tipo = tipoDeFoto(blob.type, f.path);
+    return new File([blob], nombreFotoCompartir(f.filename || f.path.split('/').pop(), tipo, i), { type: tipo });
+  }));
+  return res.flatMap((r) => (r.status === 'fulfilled' ? [r.value] : []));
+}
+
+/** Enlaces firmados (7 días) de las fotos de una salida, para el mensaje cuando no van adjuntas. */
+export async function enlacesFotosSalida(fotos: FotoSalida[]): Promise<string[]> {
+  if (!fotos.length) return [];
+  const { data, error } = await supabase.storage.from(BUCKET)
+    .createSignedUrls(fotos.slice(0, MAX_FOTOS_SALIDA).map((f) => f.path), SEGUNDOS_ENLACE_FOTO);
+  if (error || !data) return [];
+  return data.map((d) => d.signedUrl ?? '').filter(Boolean);
 }
 
 /** Traslado directo entre almacenes (salida en origen + entrada en destino, con reverso si falla). */
