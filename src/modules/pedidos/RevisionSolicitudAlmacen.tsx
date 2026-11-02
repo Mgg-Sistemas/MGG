@@ -19,6 +19,12 @@
    (`onConfirmada`), porque al cerrarse la SP sale de la lista.
 
    La misma pantalla sirve en la PC y en el teléfono (`variante`).
+
+   02-11-2026: los renglones se marcan como en Golden Touch: «− / +» (o escribir
+   la cantidad) de lo que SALE de la sede, barra de cobertura, «A Compras: N»,
+   «sin vincular» con el producto parecido del inventario, y tres botones de
+   lote (Según existencias · Todo disponible · Todo a Compras). «✗ No hay»
+   deja el renglón revisado en 0.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { ItemOrden, Orden } from '@/shared/lib/types';
@@ -28,7 +34,7 @@ import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { toast } from '@/shared/ui/Toast';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { dateTime, relTime, statusBadge } from '@/shared/lib/format';
-import { parseMontoEs } from '@/shared/lib/montoEs';
+import { DecimalInput } from '@/shared/ui/DecimalInput';
 import { useNombreUsuario } from '@/shared/lib/useNombreUsuario';
 import { MensajeWhatsappModal } from './MensajeWhatsappModal';
 import { quienSolicita } from './quienSolicita';
@@ -38,12 +44,14 @@ import {
   conMarcasDeSede,
   disponibleAcotado,
   estadoSedes,
+  estadoStock,
   etiquetaSede,
   fmtCant,
   marcaDeSede,
   marcarLote,
   marcasIniciales,
   mensajeSolicitudPedido,
+  pasoStepper,
   resumenRevision,
   resumenSede,
   sedesPendientes,
@@ -74,25 +82,13 @@ interface Props {
 type Lote = 'todo' | 'nada' | 'stock';
 
 const LOTE_TEXTO: Record<Lote, string> = {
-  todo: '✓ Hay todo',
-  stock: 'Según stock de la sede',
-  nada: '✗ No hay nada',
+  stock: '✔ Según existencias',
+  todo: '✔ Todo disponible',
+  nada: '🛒 Todo a Compras',
 };
 
 function mensajeError(e: unknown, respaldo: string): string {
   return e instanceof Error && e.message ? e.message : respaldo;
-}
-
-function sinClave<T>(obj: Record<string, T>, clave: string): Record<string, T> {
-  if (!(clave in obj)) return obj;
-  const out = { ...obj };
-  delete out[clave];
-  return out;
-}
-
-/** El número para el campo: coma decimal y sin separador de miles (0,5 · 1250). */
-function paraCampo(n: number): string {
-  return String(Math.round((Number(n) || 0) * 10000) / 10000).replace('.', ',');
 }
 
 /** ¿Puede responder la revisión? Inventario (escritura) o Salidas (escritura): el almacenista escribe por Salidas. */
@@ -329,8 +325,6 @@ function RevisionSede({
     return st?.productoId ? st.porSede[sede] ?? 0 : null;
   }, [stock, sede]);
 
-  // ── Campo «Disponible» mientras se escribe (texto, para aceptar «0,5») ──
-  const [editando, setEditando] = useState<Record<string, string>>({});
   const [nota, setNota] = useState(confirmacion?.nota ?? '');
   const [lotePendiente, setLotePendiente] = useState<Lote | null>(null);
   const [confirmar, setConfirmar] = useState(false);
@@ -348,34 +342,18 @@ function RevisionSede({
   const listo = todoRevisado(items, marcas);
   const bloqueado = !canWrite || cerrando || confirmada;
 
-  function marcarHay(it: ItemOrden) {
+  /** Lo que sale de la sede en ese renglón («− / +» o escrito): acotado a lo pedido y queda revisado. */
+  function fijar(it: ItemOrden, n: number) {
     const pedido = cantidadSolicitada(it);
-    const prev = marcasRef.current[it.sku];
-    const st = stockSede(it.sku);
-    // Si ya tenía una cantidad, se respeta; si el inventario de la sede dice que hay menos
-    // de lo pedido (pero algo hay), se propone eso; si no, todo lo pedido.
-    const disp = prev?.revisado && prev.disponible > 0
-      ? prev.disponible
-      : st != null && st > 0 && st < pedido ? st : pedido;
-    aplicar({ [it.sku]: { disponible: disponibleAcotado(it, disp), revisado: true } });
-  }
-
-  function marcarNoHay(it: ItemOrden) {
-    aplicar({ [it.sku]: { disponible: 0, revisado: true } });
-    setEditando((prev) => sinClave(prev, it.sku));
-  }
-
-  function confirmarDisponible(it: ItemOrden) {
-    const texto = editando[it.sku];
-    setEditando((prev) => sinClave(prev, it.sku));
-    if (texto == null || !texto.trim()) return;
-    const pedido = cantidadSolicitada(it);
-    const n = parseMontoEs(texto);
     if (n > pedido) toast(`No puede ser más de lo pedido (${fmtCant(pedido)}${it.unidad ? ' ' + it.unidad : ''}).`, 'warning');
     const disp = disponibleAcotado(it, n);
     const prev = marcasRef.current[it.sku];
     if (prev?.revisado && prev.disponible === disp) return;
     aplicar({ [it.sku]: { disponible: disp, revisado: true } });
+  }
+
+  function marcarNoHay(it: ItemOrden) {
+    aplicar({ [it.sku]: { disponible: 0, revisado: true } });
   }
 
   function pedirLote(modo: Lote) {
@@ -391,7 +369,6 @@ function RevisionSede({
     const mapa = new Map<string, number>();
     for (const it of items) mapa.set(it.sku, stockSede(it.sku) ?? 0);
     aplicar(marcarLote(items, modo, mapa));
-    setEditando({});
   }
 
   async function confirmarSede() {
@@ -439,13 +416,13 @@ function RevisionSede({
       {!confirmada && (
         <>
           <div className="surt-rotulo">Marcar todo de una vez · {etq}</div>
-          <div style={{ display: 'grid', gridTemplateColumns: telefono ? '1fr' : 'repeat(auto-fit, minmax(170px, 1fr))', gap: '.45rem', marginBottom: '.75rem' }}>
-            <button type="button" className={`btn btn-ghost ${btnTam}`} style={{ borderColor: 'var(--success)' }} disabled={bloqueado} onClick={() => pedirLote('todo')}>
-              {LOTE_TEXTO.todo}
-            </button>
+          <div className="spa-lote-movil">
             <button type="button" className={`btn btn-ghost ${btnTam}`} style={{ borderColor: 'var(--info)' }} disabled={bloqueado || !stock} onClick={() => pedirLote('stock')}
               title={`Marca en cada renglón lo que dice el inventario de ${etq} (hasta lo pedido)`}>
-              📦 {LOTE_TEXTO.stock}
+              {LOTE_TEXTO.stock}
+            </button>
+            <button type="button" className={`btn btn-ghost ${btnTam}`} style={{ borderColor: 'var(--success)' }} disabled={bloqueado} onClick={() => pedirLote('todo')}>
+              {LOTE_TEXTO.todo}
             </button>
             <button type="button" className={`btn btn-ghost ${btnTam}`} style={{ borderColor: 'var(--danger)' }} disabled={bloqueado} onClick={() => pedirLote('nada')}>
               {LOTE_TEXTO.nada}
@@ -474,13 +451,10 @@ function RevisionSede({
             marca={marcas[it.sku]}
             stock={stock ? stock.get(it.sku) ?? null : undefined}
             otras={otras.map((o) => ({ etiqueta: o.etiqueta, marca: marcaDeSede(it, o.sede), confirmada: !!confirmacionDe(orden, o.sede) }))}
-            texto={editando[it.sku]}
             telefono={telefono}
             bloqueado={bloqueado}
-            onHay={() => marcarHay(it)}
+            onFijar={(n) => fijar(it, n)}
             onNoHay={() => marcarNoHay(it)}
-            onTexto={(t) => setEditando((prev) => ({ ...prev, [it.sku]: t }))}
-            onConfirmar={() => confirmarDisponible(it)}
           />
         ))}
       </div>
@@ -549,9 +523,9 @@ function RevisionSede({
   );
 }
 
-/* ── Un renglón de la SP ── */
+/* ── Un renglón de la SP (como en GT: «− / +» de lo que sale de la sede) ── */
 function Renglon({
-  it, sede, marca, stock, otras, texto, telefono, bloqueado, onHay, onNoHay, onTexto, onConfirmar,
+  it, sede, marca, stock, otras, telefono, bloqueado, onFijar, onNoHay,
 }: {
   it: ItemOrden;
   sede: string;
@@ -560,13 +534,12 @@ function Renglon({
   stock: StockRenglon | null | undefined;
   /** Lo que respondieron las otras sedes (solo para ver). */
   otras: Array<{ etiqueta: string; marca: MarcaAlmacen | undefined; confirmada: boolean }>;
-  texto: string | undefined;
   telefono: boolean;
   bloqueado: boolean;
-  onHay: () => void;
+  /** Lo que sale de la sede (se acota a lo pedido y deja el renglón revisado). */
+  onFijar: (n: number) => void;
+  /** Revisado en 0: la sede no lo tiene. */
   onNoHay: () => void;
-  onTexto: (t: string) => void;
-  onConfirmar: () => void;
 }) {
   const unidad = (it.unidad ?? '').trim();
   const pedido = cantidadSolicitada(it);
@@ -574,9 +547,9 @@ function Renglon({
 
   if (!seRevisa(it)) {
     return (
-      <div style={{ ...cajaRenglon, opacity: .55 }}>
-        <div style={{ fontWeight: 700 }}>{it.nombre}</div>
-        <div className="muted" style={{ fontSize: '.8rem' }}>No se pide: venía desmarcado en la SP.</div>
+      <div className="spa-renglon" style={{ opacity: .55 }}>
+        <div className="nombre">{it.nombre}</div>
+        <div className="sub">No se pide: venía desmarcado en la SP.</div>
       </div>
     );
   }
@@ -586,76 +559,65 @@ function Renglon({
   const hay = revisado && disp > 0;
   const noHay = revisado && disp === 0;
   const falta = Math.round((pedido - disp) * 10000) / 10000;
+  const paso = pasoStepper(pedido);
 
-  const enSede = stock?.productoId ? stock.porSede[sede] ?? 0 : 0;
+  // Stock de la sede: null = el renglón no tiene ficha en el inventario («sin vincular»).
+  const enSede = stock?.productoId ? stock.porSede[sede] ?? 0 : null;
+  const est = estadoStock(pedido, enSede);
   const otrasSedes = stock?.productoId
     ? Object.entries(stock.porSede).filter(([s]) => s !== sede).map(([s, n]) => `${etiquetaSede(s)} ${fmtCant(n)}`)
     : [];
-  const colorStock = !stock || !stock.productoId ? 'var(--text-muted)'
-    : enSede >= pedido ? 'var(--success)' : enSede > 0 ? 'var(--warning)' : 'var(--danger)';
   const borde = hay ? (falta > 0 ? 'var(--warning)' : 'var(--success)') : noHay ? 'var(--danger)' : 'var(--border)';
+  const pct = pedido > 0 ? Math.min(100, Math.max(0, (disp / pedido) * 100)) : 0;
+  const und = unidad || 'und';
 
   return (
-    <div style={{ ...cajaRenglon, borderLeft: `4px solid ${borde}`, padding: telefono ? '.75rem' : '.65rem .8rem' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.6rem', alignItems: 'flex-start', flexWrap: 'wrap' }}>
-        <div style={{ minWidth: 0, flex: '1 1 200px' }}>
-          <div style={{ fontWeight: 700, fontSize: telefono ? '1.05rem' : '.98rem', wordBreak: 'break-word' }}>{it.nombre}</div>
-          <div style={{ fontSize: '.88rem', marginTop: '.1rem' }}>
-            Pedido: <strong className="mono">{fmtCant(pedido)}</strong>{unidad ? ` ${unidad}` : ''}
-            {it.finalidad?.trim() ? <span className="muted"> · {it.finalidad.trim()}</span> : null}
-          </div>
-          <div style={{ fontSize: '.82rem', marginTop: '.15rem', color: colorStock }}>
-            {stock === undefined ? <span className="muted">Buscando en el inventario…</span>
-              : !stock || !stock.productoId ? 'Sin ficha en el inventario: revísalo a mano.'
-                : <>
-                  📦 En {etq}: <strong className="mono">{fmtCant(enSede)}</strong>{unidad ? ` ${unidad}` : ''}
-                  {otrasSedes.length > 0 && <span className="muted"> · {otrasSedes.join(' · ')}</span>}
-                </>}
-          </div>
-          {otras.map((o) => (
-            <div key={o.etiqueta} className="muted" style={{ fontSize: '.8rem', marginTop: '.1rem' }}>
-              🏬 {o.etiqueta}:{' '}
-              {!o.marca?.revisado ? 'sin responder'
-                : o.marca.disponible > 0 ? <span style={{ color: 'var(--success)' }}>✓ hay {fmtCant(disponibleAcotado(it, o.marca.disponible))}{unidad ? ` ${unidad}` : ''}</span>
-                  : <span style={{ color: 'var(--danger)' }}>✗ no hay</span>}
-              {o.confirmada ? ' (confirmó)' : ''}
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.35rem', flex: telefono ? '1 1 100%' : '0 0 auto', minWidth: telefono ? 0 : 200 }}>
-          <button type="button" aria-pressed={hay} disabled={bloqueado} onClick={onHay}
-            className={`btn ${hay ? 'btn-success' : 'btn-ghost'} ${telefono ? 'btn-grande' : 'btn-sm'}`}>
-            ✓ Hay
-          </button>
-          <button type="button" aria-pressed={noHay} disabled={bloqueado} onClick={onNoHay}
-            className={`btn ${noHay ? 'btn-danger' : 'btn-ghost'} ${telefono ? 'btn-grande' : 'btn-sm'}`}>
-            ✗ No hay
-          </button>
-        </div>
+    <div className="spa-renglon" style={{ borderLeft: `4px solid ${borde}`, padding: telefono ? '.8rem .9rem' : '.65rem .8rem' }}>
+      <div className="nombre" style={{ fontSize: telefono ? '1.05rem' : '.98rem', wordBreak: 'break-word' }}>{it.nombre}</div>
+      <div className="sub">
+        <span>Piden <b className="mono" style={{ color: 'var(--text)' }}>{fmtCant(pedido)} {und}</b></span>
+        {it.finalidad?.trim() ? <span>· {it.finalidad.trim()}</span> : null}
       </div>
-
-      {hay && (
-        <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.5rem' }}>
-          <label style={{ fontSize: '.82rem', fontWeight: 700 }} htmlFor={`disp-${sede}-${it.sku}`}>Disponible en {etq}</label>
-          <input
-            id={`disp-${sede}-${it.sku}`}
-            className="input mono"
-            inputMode="decimal"
-            style={{ width: telefono ? 130 : 110, textAlign: 'center', fontSize: telefono ? '1.2rem' : undefined, minHeight: telefono ? 48 : undefined }}
-            value={texto ?? paraCampo(disp)}
-            disabled={bloqueado}
-            onChange={(e) => onTexto(e.target.value)}
-            onBlur={onConfirmar}
-            onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
-            onFocus={(e) => e.target.select()}
-          />
-          <span style={{ fontSize: '.85rem' }}>{unidad || ''} de {fmtCant(pedido)}</span>
-          {falta > 0
-            ? <span className="badge warning">Faltan {fmtCant(falta)} en {etq}</span>
-            : <span className="badge success">Completo</span>}
-        </div>
+      <div className="sub">
+        <span>📍 {etq}</span>
+        {stock === undefined ? <span>buscando en el inventario…</span>
+          : est === 'sin_vincular' ? <span className="badge danger" title="El renglón no tiene un producto del inventario: revísalo a mano">sin vincular</span>
+            : <span className={`badge ${est === 'alcanza' ? 'success' : est === 'parcial' ? 'warning' : 'danger'} mono`}>{fmtCant(enSede ?? 0)} {und}</span>}
+        {otrasSedes.length > 0 && <span>· {otrasSedes.join(' · ')}</span>}
+      </div>
+      {stock?.parecido && (
+        <div className="sub">Parecido: {stock.parecido.nombre} · hay {fmtCant(stock.parecido.stock)} {stock.parecido.unidad}</div>
       )}
-      {noHay && <div style={{ marginTop: '.4rem' }}><span className="badge danger">✗ {etq} no tiene ({fmtCant(pedido)}{unidad ? ` ${unidad}` : ''})</span></div>}
+      {otras.map((o) => (
+        <div key={o.etiqueta} className="sub">
+          🏬 {o.etiqueta}:{' '}
+          {!o.marca?.revisado ? 'sin responder'
+            : o.marca.disponible > 0 ? <span style={{ color: 'var(--success)' }}>✓ hay {fmtCant(disponibleAcotado(it, o.marca.disponible))} {und}</span>
+              : <span style={{ color: 'var(--danger)' }}>✗ no hay</span>}
+          {o.confirmada ? ' (confirmó)' : ''}
+        </div>
+      ))}
+      <div className="spa-barra" role="img" aria-label={`${etq} entrega el ${Math.round(pct)} % de lo pedido`}><i style={{ width: `${pct}%` }} /></div>
+      <div className="sub" style={{ marginTop: '.35rem' }}>
+        <span>📦 Sale de {etq}</span>
+        {!revisado && <span className="badge warning">sin revisar</span>}
+      </div>
+      <div className={`spa-stepper${telefono ? '' : ' pc'}`}>
+        <button type="button" className="btn btn-ghost" disabled={bloqueado || disp <= 0}
+          aria-label={`Menos de ${etq}`} onClick={() => onFijar(Math.max(0, disp - paso))}>−</button>
+        <DecimalInput className="input" value={disp} disabled={bloqueado}
+          aria-label={`Sale de ${etq}: ${it.nombre}`} onChange={(x) => { if (x != null) onFijar(x); }} />
+        <button type="button" className="btn btn-ghost" disabled={bloqueado || disp >= pedido}
+          aria-label={`Más de ${etq}`} onClick={() => onFijar(Math.min(pedido, disp + paso))}>＋</button>
+        <button type="button" className={`btn ${noHay ? 'btn-danger' : 'btn-ghost'}`} aria-pressed={noHay} disabled={bloqueado} onClick={onNoHay}>
+          ✗ No hay
+        </button>
+      </div>
+      <div className="compras">
+        {!revisado ? <span className="muted">Sin revisar: toca ＋, escribe la cantidad o marca ✗ No hay.</span>
+          : falta > 0 ? <>🛒 A Compras: <b>{fmtCant(falta)} {und}</b>{hay && <span className="muted"> · {etq} entrega {fmtCant(disp)}</span>}</>
+            : <span style={{ color: 'var(--success)' }}>✓ {etq} lo cubre completo</span>}
+      </div>
     </div>
   );
 }

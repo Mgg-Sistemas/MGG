@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ItemOrden, Orden } from '@/shared/lib/types';
 import {
-  conMarcasDeSede, desgloseAlmacen, marcarLote, marcasIniciales, mensajeRevisionAlmacen, mensajeRevisionSede,
+  conMarcasDeSede, desgloseAlmacen, estadoStock, marcarLote, marcasIniciales, mensajeRevisionAlmacen, mensajeRevisionSede, pasoStepper,
   mensajeSolicitudPedido, repartoRenglon, resumenRevision, resumenSede, SEDES_REVISION_ALMACEN, sedesQuePuedeResponder,
   textoEstadoSedes, todoRevisado, type ItemRevision, type OrdenRevision,
 } from './revisionAlmacen';
@@ -193,5 +193,21 @@ describe('revisión de almacén por sede', () => {
     expect(txt).toContain('PRODUCTOS SOLICITADOS (2)');
     expect(txt).toContain('• TORNILLO 1/2 — 50 und');
     expect(txt).not.toContain('️');
+  });
+});
+
+describe('stepper como en GT (02-11-2026)', () => {
+  it('el paso es 1, o todo lo pedido si piden menos de 1', () => {
+    expect(pasoStepper(5)).toBe(1);
+    expect(pasoStepper(1)).toBe(1);
+    expect(pasoStepper(0.5)).toBe(0.5);
+    expect(pasoStepper(0)).toBe(0);
+  });
+  it('estado del stock de la sede frente a lo pedido', () => {
+    expect(estadoStock(3, null)).toBe('sin_vincular');
+    expect(estadoStock(3, 0)).toBe('sin_stock');
+    expect(estadoStock(3, 2)).toBe('parcial');
+    expect(estadoStock(3, 3)).toBe('alcanza');
+    expect(estadoStock(3, 10)).toBe('alcanza');
   });
 });

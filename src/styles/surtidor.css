@@ -203,3 +203,25 @@
   background: var(--surface-3); color: var(--text);
   font-family: inherit; font-size: .9rem; line-height: 1.45;
 }
+
+/* ── Revisión de Solicitudes de Pedido · renglones como en GT (02-11-2026) ──
+   El mismo renglón sirve en la PC y en el teléfono; `.spa-stepper.pc` lo achica. */
+.spa-renglon { padding: .8rem .9rem; border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-2); }
+.spa-renglon .nombre { font-weight: 700; font-size: 1.05rem; line-height: 1.3; }
+.spa-renglon .sub { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; margin-top: .3rem; font-size: .85rem; color: var(--text-muted); }
+.spa-barra { display: flex; height: 6px; border-radius: 999px; overflow: hidden; background: color-mix(in srgb, var(--primary) 55%, var(--surface-3)); margin-top: .45rem; min-width: 80px; }
+.spa-barra > i { display: block; height: 100%; background: var(--success); transition: width .2s ease; }
+@media (prefers-reduced-motion: reduce) { .spa-barra > i { transition: none; } }
+.spa-stepper { display: grid; grid-template-columns: 60px 1fr 60px minmax(96px, auto); gap: .45rem; margin-top: .45rem; }
+.spa-stepper .btn { min-height: 60px; font-size: 1.6rem; font-weight: 800; padding: 0 .6rem; justify-content: center; }
+.spa-stepper .btn:last-child { font-size: 1rem; font-weight: 700; }
+.spa-stepper .input { min-height: 60px; font-size: 1.6rem; text-align: center; font-family: var(--font-mono); font-weight: 800; width: 100%; }
+.spa-stepper.pc { grid-template-columns: 44px 120px 44px auto; justify-content: start; }
+.spa-stepper.pc .btn { min-height: 40px; font-size: 1.15rem; }
+.spa-stepper.pc .btn:last-child { font-size: .85rem; }
+.spa-stepper.pc .input { min-height: 40px; font-size: 1.1rem; }
+.spa-renglon .compras { margin-top: .45rem; font-size: .9rem; }
+.spa-renglon .compras b { font-family: var(--font-mono); color: var(--primary-2); }
+.spa-lote-movil { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .4rem; margin: .5rem 0 .9rem; }
+.spa-lote-movil .btn { min-height: 56px; font-size: .85rem; line-height: 1.2; white-space: normal; justify-content: center; text-align: center; }
+@media (max-width: 400px) { .spa-lote-movil { grid-template-columns: 1fr; } }

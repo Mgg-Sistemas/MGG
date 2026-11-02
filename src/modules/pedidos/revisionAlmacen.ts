@@ -135,6 +135,21 @@ export function disponibleAcotado(it: ItemOrden, disponible: number): number {
   return Math.min(Math.max(num(disponible), 0), cantidadSolicitada(it));
 }
 
+/** Cuánto suma o resta cada toque del «− / +» (como en GT): de a 1, o todo si piden menos de 1. */
+export function pasoStepper(pedido: number): number {
+  const p = num(pedido);
+  return p >= 1 ? 1 : Math.max(p, 0);
+}
+
+export type EstadoStock = 'sin_vincular' | 'sin_stock' | 'parcial' | 'alcanza';
+
+/** Cómo está el inventario de la sede frente a lo pedido. `null` = el renglón no tiene ficha. */
+export function estadoStock(pedido: number, stock: number | null): EstadoStock {
+  if (stock == null) return 'sin_vincular';
+  if (stock <= 0) return 'sin_stock';
+  return stock >= num(pedido) ? 'alcanza' : 'parcial';
+}
+
 /** La marca guardada de una sede en el renglón (o nada si esa sede no lo tocó). */
 export function marcaDeSede(it: ItemOrden, sede: string): MarcaSede | undefined {
   const ms = (it as ItemRevision).almacen_sedes;

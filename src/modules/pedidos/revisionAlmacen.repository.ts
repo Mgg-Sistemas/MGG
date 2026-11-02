@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/shared/lib/supabase';
 import type { ItemOrden, Orden, RenglonTrasladoSolicitud } from '@/shared/lib/types';
+import { buscarProductosParecidos } from '@/modules/inventario/inventario.repository';
 import { transferir } from '@/modules/inventario/movimientos.repository';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { motivoTrasladoSp, type MarcaAlmacen, type TrasladoDeSolicitud } from './revisionAlmacen';
@@ -163,6 +164,8 @@ export interface StockRenglon {
   porAlmacen: Array<{ almacen: string; stock: number }>;
   /** Stock por sede (`almacenes.sede`), solo las que tienen algo. */
   porSede: Record<string, number>;
+  /** Sin ficha: el producto del inventario que más se le parece (como en GT), si hay uno claro. */
+  parecido?: { id: string; nombre: string; unidad: string; stock: number } | null;
 }
 
 const norm = (s: string) => s.trim().toUpperCase().replace(/\s+/g, ' ');
@@ -215,9 +218,16 @@ export async function stockDeRenglones(items: ItemOrden[]): Promise<Map<string, 
       exist.set(e.producto_id, l);
     }
   }
+  // Renglones escritos a mano sin ficha: se busca una sola vez el parecido del inventario (ayuda, no control).
+  const parecidos = new Map<string, StockRenglon['parecido']>();
+  await Promise.all([...new Set(items.filter((i) => !resueltos.has(i.sku)).map((i) => (i.nombre ?? '').trim()).filter((n) => n.length >= 3))]
+    .map(async (n) => {
+      const mejor = (await buscarProductosParecidos(n, null, 1).catch(() => []))[0];
+      parecidos.set(norm(n), mejor && mejor.parecido >= 0.5 ? { id: mejor.id, nombre: mejor.nombre, unidad: mejor.unidad, stock: mejor.stock } : null);
+    }));
   for (const it of items) {
     const p = resueltos.get(it.sku);
-    if (!p) { out.set(it.sku, { productoId: null, nombre: null, stock: 0, porAlmacen: [], porSede: {} }); continue; }
+    if (!p) { out.set(it.sku, { productoId: null, nombre: null, stock: 0, porAlmacen: [], porSede: {}, parecido: parecidos.get(norm(it.nombre ?? '')) ?? null }); continue; }
     const porAlmacen = (exist.get(p.id) ?? []).sort((a, b) => b.stock - a.stock);
     const porSede: Record<string, number> = {};
     for (const a of porAlmacen) {
