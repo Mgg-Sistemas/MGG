@@ -32,6 +32,7 @@ import {
   textoEstadoSedes, trasladosPendientes,
 } from './revisionAlmacen';
 import { listSolicitudesEnRevision, listSolicitudesRevisadas, useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
+import { verSolicitudPedidoPdf } from './solicitudPedidoPdf';
 
 const RUTA = '/app/solicitudes-pedido/telefono';
 
@@ -130,6 +131,19 @@ export function SolicitudesAlmacenMovilView() {
       titulo: `✅ Revisión de ${o.codigo}`,
       texto: mensajeRevisionAlmacen(o, { revisor: nombreDe(null, o.revisada_almacen_por), nombre: nombreCorreo }),
     }]);
+  }
+
+  /** La SP en la vista previa de PDF (solo con el botón: nada se descarga solo). */
+  const [pdfId, setPdfId] = useState<string | null>(null);
+  async function verPdf(o: Orden) {
+    setPdfId(o.id);
+    try {
+      await verSolicitudPedidoPdf(o, { nombre: nombreCorreo });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo armar el PDF', 'error');
+    } finally {
+      setPdfId(null);
+    }
   }
 
   return (
@@ -253,19 +267,27 @@ export function SolicitudesAlmacenMovilView() {
               if (filtro === 'revisadas') {
                 const res = resultadoRevision(o);
                 const r = resumenRevision(o.items ?? []);
+                // 02-11-2026: al lado de cada revisada, «📄» abre la SP en la vista previa de PDF.
                 return (
-                  <button key={o.id} type="button" className="surt-mov" onClick={() => abrirRevisada(o)}>
-                    <span className="icono" aria-hidden>{o.estado === 'atendida_almacen' ? '📦' : '🛒'}</span>
-                    <span style={{ minWidth: 0 }}>
-                      <span className="titulo" style={{ display: 'block' }}>{o.codigo} · {solicita}</span>
-                      <span className="sub" style={{ display: 'block' }}>
-                        <span className={`badge ${res.clase}`} style={{ fontSize: '.7rem' }}>{res.texto}</span> {dateTime(o.revisada_almacen_en)}
+                  <div key={o.id} style={{ display: 'flex', gap: '.4rem', alignItems: 'stretch' }}>
+                    <button type="button" className="surt-mov" style={{ flex: 1, minWidth: 0 }} onClick={() => abrirRevisada(o)}>
+                      <span className="icono" aria-hidden>{o.estado === 'atendida_almacen' ? '📦' : '🛒'}</span>
+                      <span style={{ minWidth: 0 }}>
+                        <span className="titulo" style={{ display: 'block' }}>{o.codigo} · {solicita}</span>
+                        <span className="sub" style={{ display: 'block' }}>
+                          <span className={`badge ${res.clase}`} style={{ fontSize: '.7rem' }}>{res.texto}</span> {dateTime(o.revisada_almacen_en)}
+                        </span>
                       </span>
-                    </span>
-                    <span className="litros" style={{ fontSize: '.85rem', textAlign: 'right' }}>
-                      📦 {r.tiene.length}<br />🛒 {r.falta.length}
-                    </span>
-                  </button>
+                      <span className="litros" style={{ fontSize: '.85rem', textAlign: 'right' }}>
+                        📦 {r.tiene.length}<br />🛒 {r.falta.length}
+                      </span>
+                    </button>
+                    <button type="button" className="btn btn-ghost" style={{ minWidth: 64, flexDirection: 'column', fontSize: '.75rem', gap: '.1rem' }}
+                      disabled={pdfId === o.id} onClick={() => void verPdf(o)} aria-label={`Ver PDF de ${o.codigo}`}>
+                      <span aria-hidden style={{ fontSize: '1.3rem' }}>📄</span>
+                      {pdfId === o.id ? '…' : 'PDF'}
+                    </button>
+                  </div>
                 );
               }
               const n = (o.items ?? []).filter(seRevisa).length;

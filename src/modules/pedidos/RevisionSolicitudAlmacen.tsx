@@ -25,6 +25,13 @@
    «sin vincular» con el producto parecido del inventario, y tres botones de
    lote (Según existencias · Todo disponible · Todo a Compras). «✗ No hay»
    deja el renglón revisado en 0.
+
+   02-11-2026 (la administradora: «acomódame esto visualmente mejor»): en la PC
+   cada renglón es una franja (datos a la izquierda, «− / +» a la derecha), el
+   resumen en vivo y el lote quedan pegados arriba, la cabecera va en grilla y
+   «📄 Ver PDF» abre la SP en la vista previa (solicitudPedidoPdf.ts). En el
+   teléfono los renglones, el lote y el resumen quedan como estaban (la
+   cabecera en grilla y el PDF sí van en los dos).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { ItemOrden, Orden } from '@/shared/lib/types';
@@ -63,6 +70,7 @@ import {
   type ResumenRevision,
 } from './revisionAlmacen';
 import { confirmarRevisionSede, guardarMarcasSede, stockDeRenglones, type StockRenglon } from './revisionAlmacen.repository';
+import { verSolicitudPedidoPdf } from './solicitudPedidoPdf';
 
 /** Lo que se espera antes de mandar a la base lo marcado (se juntan varios toques en una sola escritura). */
 const ESPERA_GUARDAR_MS = 700;
@@ -118,47 +126,80 @@ export function RevisionSolicitudAlmacen({ orden, variante = 'pc', onConfirmada 
   function elegir(s: string) { ultimaSede = s; setSedeElegida(s); }
 
   const [verMensajeSP, setVerMensajeSP] = useState(false);
+  const [armandoPdf, setArmandoPdf] = useState(false);
   const solicitaPersona = quienSolicita(orden);
   const finalidad = (orden.finalidad ?? orden.motivo ?? '').trim();
   const btnTam = telefono ? 'btn-grande' : 'btn-sm';
 
+  async function verPdf() {
+    setArmandoPdf(true);
+    try {
+      await verSolicitudPedidoPdf(orden, { nombre: (correo) => nombreDe(null, correo) });
+    } catch (e) {
+      toast(mensajeError(e, 'No se pudo armar el PDF'), 'error');
+    } finally {
+      setArmandoPdf(false);
+    }
+  }
+
   return (
     <div className="rev-almacen">
-      {/* ── Cabecera de la SP ── */}
-      <div className="card" style={{ padding: telefono ? '.8rem' : '1rem 1.1rem', marginBottom: '.75rem' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-start' }}>
-          <div style={{ minWidth: 0 }}>
-            <div style={{ display: 'flex', gap: '.45rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <strong className="mono" style={{ fontSize: telefono ? '1.25rem' : '1.15rem' }}>📋 {orden.codigo}</strong>
-              {orden.urgente && <span className="badge danger">🚨 URGENTE</span>}
-              <span className="badge warning">En revisión de almacén</span>
-            </div>
-            <div className="muted" style={{ fontSize: '.84rem', marginTop: '.25rem' }}>
-              📅 {dateTime(orden.created_at)} · {relTime(orden.created_at)}
-            </div>
-            {(orden.solicitante || solicitaPersona) && (
-              <div style={{ fontSize: '.9rem', marginTop: '.2rem' }}>
-                👤 {[orden.solicitante, solicitaPersona].filter(Boolean).join(' — ')}
-              </div>
-            )}
-            {orden.sede_destino?.trim() && (
-              <div style={{ fontSize: '.9rem', marginTop: '.2rem' }}>📍 Se necesita en <strong>{etiquetaSede(orden.sede_destino)}</strong>: esa sede entrega primero; lo que dé la otra va por traslado.</div>
-            )}
-            {finalidad && <div style={{ fontSize: '.9rem', marginTop: '.2rem' }}>🎯 {finalidad}</div>}
-            {orden.notas?.trim() && <div className="muted" style={{ fontSize: '.84rem', marginTop: '.2rem' }}>📝 {orden.notas.trim()}</div>}
-            <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', marginTop: '.4rem' }}>
-              {estados.map((e) => (
-                <span key={e.sede} className={`badge ${e.confirmada ? 'success' : e.revisados > 0 ? 'info' : 'warning'}`}
-                  title={e.confirmada ? `Confirmó ${nombreDe(null, e.confirmacion?.confirmada_por) || ''} · ${dateTime(e.confirmacion?.confirmada_en)}` : undefined}>
-                  🏬 {e.etiqueta} {e.confirmada ? '✓' : e.revisados > 0 ? `${e.revisados}/${e.total}` : 'pendiente'}
-                </span>
-              ))}
-            </div>
+      {/* ── Cabecera de la SP (02-11-2026: código y estado en una línea, datos en
+          una grilla de dos columnas y los botones juntos arriba a la derecha) ── */}
+      <div className="card" style={{ padding: telefono ? '.8rem' : '.9rem 1.1rem', marginBottom: '.75rem' }}>
+        <div className="spa-cab-fila">
+          <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap', minWidth: 0 }}>
+            <strong className="mono" style={{ fontSize: telefono ? '1.25rem' : '1.15rem', marginRight: '.2rem' }}>📋 {orden.codigo}</strong>
+            {orden.urgente && <span className="badge danger">🚨 URGENTE</span>}
+            <span className="badge warning">En revisión de almacén</span>
+            {estados.map((e) => (
+              <span key={e.sede} className={`badge ${e.confirmada ? 'success' : e.revisados > 0 ? 'info' : 'warning'}`}
+                title={e.confirmada ? `Confirmó ${nombreDe(null, e.confirmacion?.confirmada_por) || ''} · ${dateTime(e.confirmacion?.confirmada_en)}` : undefined}>
+                🏬 {e.etiqueta} {e.confirmada ? '✓' : e.revisados > 0 ? `${e.revisados}/${e.total}` : 'pendiente'}
+              </span>
+            ))}
           </div>
-          <button type="button" className={`btn btn-ghost ${btnTam}`} onClick={() => setVerMensajeSP(true)}>
-            💬 WhatsApp de la SP
-          </button>
+          <div className="spa-cab-botones">
+            <button type="button" className={`btn btn-ghost ${btnTam}`} onClick={() => setVerMensajeSP(true)}>
+              💬 WhatsApp de la SP
+            </button>
+            <button type="button" className={`btn btn-ghost ${btnTam}`} disabled={armandoPdf} onClick={() => void verPdf()}
+              title="Abre la solicitud en la vista previa de PDF (no se descarga sola)">
+              {armandoPdf ? 'Armando…' : '📄 Ver PDF'}
+            </button>
+          </div>
         </div>
+        <dl className="spa-meta">
+          <div>
+            <dt>Fecha</dt>
+            <dd>{dateTime(orden.created_at)} <span className="muted">· {relTime(orden.created_at)}</span></dd>
+          </div>
+          <div>
+            <dt>Solicitante</dt>
+            <dd>{[orden.solicitante, solicitaPersona].filter(Boolean).join(' — ') || '—'}</dd>
+          </div>
+          {orden.sede_destino?.trim() && (
+            <div>
+              <dt>Se necesita en</dt>
+              <dd>
+                <strong>{etiquetaSede(orden.sede_destino)}</strong>
+                <span className="muted" style={{ fontSize: '.8rem' }}> · esa sede entrega primero; lo que dé la otra va por traslado.</span>
+              </dd>
+            </div>
+          )}
+          {finalidad && (
+            <div>
+              <dt>Finalidad</dt>
+              <dd>{finalidad}</dd>
+            </div>
+          )}
+          {orden.notas?.trim() && (
+            <div className="ancho">
+              <dt>Notas</dt>
+              <dd className="muted">{orden.notas.trim()}</dd>
+            </div>
+          )}
+        </dl>
       </div>
 
       {!canWrite && (
@@ -170,7 +211,7 @@ export function RevisionSolicitudAlmacen({ orden, variante = 'pc', onConfirmada 
 
       {/* ── Por qué sede responde (solo si puede por más de una) ── */}
       {opciones.length > 1 && (
-        <>
+        <div className={telefono ? undefined : 'spa-responde'}>
           <div className="surt-rotulo">Respondo por</div>
           <div className="view-toggle" role="tablist" aria-label="Sede que responde" style={{ marginBottom: '.75rem', flexWrap: 'wrap' }}>
             {opciones.map((s) => (
@@ -179,7 +220,7 @@ export function RevisionSolicitudAlmacen({ orden, variante = 'pc', onConfirmada 
               </button>
             ))}
           </div>
-        </>
+        </div>
       )}
 
       {sede ? (
@@ -398,6 +439,32 @@ function RevisionSede({
 
   const btnTam = telefono ? 'btn-grande' : 'btn-sm';
 
+  const lote = !confirmada && (
+    <div className={`spa-lote-movil${telefono ? '' : ' pc'}`}>
+      <button type="button" className={`btn btn-ghost ${btnTam}`} style={{ borderColor: 'var(--info)' }} disabled={bloqueado || !stock} onClick={() => pedirLote('stock')}
+        title={`Marca en cada renglón lo que dice el inventario de ${etq} (hasta lo pedido)`}>
+        {LOTE_TEXTO.stock}
+      </button>
+      <button type="button" className={`btn btn-ghost ${btnTam}`} style={{ borderColor: 'var(--success)' }} disabled={bloqueado} onClick={() => pedirLote('todo')}>
+        {LOTE_TEXTO.todo}
+      </button>
+      <button type="button" className={`btn btn-ghost ${btnTam}`} style={{ borderColor: 'var(--danger)' }} disabled={bloqueado} onClick={() => pedirLote('nada')}>
+        {LOTE_TEXTO.nada}
+      </button>
+    </div>
+  );
+
+  const resumenVivo = (
+    <>
+      <span>🏬 <strong>{etq}</strong>: revisados <strong>{nRevisados}</strong> de <strong>{aRevisar.length}</strong></span>
+      <span className="badge success">📦 Tiene {resumen.tiene.length}</span>
+      <span className="badge danger">❌ No tiene {resumen.falta.length}</span>
+      <span className="muted" style={{ fontSize: '.78rem', marginLeft: 'auto' }}>
+        {guardando ? 'Guardando…' : errorGuardar ? '⚠ Sin guardar' : nRevisados && !confirmada ? '✓ Guardado' : ''}
+      </span>
+    </>
+  );
+
   return (
     <>
       {confirmada && (
@@ -412,37 +479,31 @@ function RevisionSede({
         </div>
       )}
 
-      {/* ── Por lote ── */}
-      {!confirmada && (
+      {/* ── Por lote y resumen en vivo ──
+          Teléfono: como estaba (lote arriba y el resumen debajo). PC (02-11-2026):
+          una SP trae 20+ renglones; resumen y lote quedan pegados arriba mientras
+          se baja por la lista. */}
+      {telefono ? (
         <>
-          <div className="surt-rotulo">Marcar todo de una vez · {etq}</div>
-          <div className="spa-lote-movil">
-            <button type="button" className={`btn btn-ghost ${btnTam}`} style={{ borderColor: 'var(--info)' }} disabled={bloqueado || !stock} onClick={() => pedirLote('stock')}
-              title={`Marca en cada renglón lo que dice el inventario de ${etq} (hasta lo pedido)`}>
-              {LOTE_TEXTO.stock}
-            </button>
-            <button type="button" className={`btn btn-ghost ${btnTam}`} style={{ borderColor: 'var(--success)' }} disabled={bloqueado} onClick={() => pedirLote('todo')}>
-              {LOTE_TEXTO.todo}
-            </button>
-            <button type="button" className={`btn btn-ghost ${btnTam}`} style={{ borderColor: 'var(--danger)' }} disabled={bloqueado} onClick={() => pedirLote('nada')}>
-              {LOTE_TEXTO.nada}
-            </button>
+          {lote && <><div className="surt-rotulo">Marcar todo de una vez · {etq}</div>{lote}</>}
+          <div className="card" style={{ padding: '.6rem .8rem', marginBottom: '.75rem', display: 'flex', gap: '.5rem .9rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            {resumenVivo}
           </div>
         </>
+      ) : (
+        <div className="card spa-fija">
+          <div className="spa-fija-resumen">{resumenVivo}</div>
+          {lote && (
+            <div className="spa-fija-lote">
+              <span className="surt-rotulo">Marcar todo · {etq}</span>
+              {lote}
+            </div>
+          )}
+        </div>
       )}
 
-      {/* ── Resumen en vivo ── */}
-      <div className="card" style={{ padding: '.6rem .8rem', marginBottom: '.75rem', display: 'flex', gap: '.5rem .9rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        <span>🏬 <strong>{etq}</strong>: revisados <strong>{nRevisados}</strong> de <strong>{aRevisar.length}</strong></span>
-        <span className="badge success">📦 Tiene {resumen.tiene.length}</span>
-        <span className="badge danger">❌ No tiene {resumen.falta.length}</span>
-        <span className="muted" style={{ fontSize: '.78rem', marginLeft: 'auto' }}>
-          {guardando ? 'Guardando…' : errorGuardar ? '⚠ Sin guardar' : nRevisados && !confirmada ? '✓ Guardado' : ''}
-        </span>
-      </div>
-
       {/* ── Renglones ── */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '.55rem', marginBottom: '.85rem' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: telefono ? '.55rem' : '.45rem', marginBottom: '.85rem' }}>
         {items.map((it, idx) => (
           <Renglon
             key={`${it.sku}-${idx}`}
@@ -571,8 +632,9 @@ function Renglon({
   const pct = pedido > 0 ? Math.min(100, Math.max(0, (disp / pedido) * 100)) : 0;
   const und = unidad || 'und';
 
-  return (
-    <div className="spa-renglon" style={{ borderLeft: `4px solid ${borde}`, padding: telefono ? '.8rem .9rem' : '.65rem .8rem' }}>
+  // Lo que se sabe del renglón (nombre, lo pedido, stock, lo que dijo la otra sede).
+  const info = (
+    <div className="info">
       <div className="nombre" style={{ fontSize: telefono ? '1.05rem' : '.98rem', wordBreak: 'break-word' }}>{it.nombre}</div>
       <div className="sub">
         <span>Piden <b className="mono" style={{ color: 'var(--text)' }}>{fmtCant(pedido)} {und}</b></span>
@@ -597,8 +659,16 @@ function Renglon({
           {o.confirmada ? ' (confirmó)' : ''}
         </div>
       ))}
-      <div className="spa-barra" role="img" aria-label={`${etq} entrega el ${Math.round(pct)} % de lo pedido`}><i style={{ width: `${pct}%` }} /></div>
-      <div className="sub" style={{ marginTop: '.35rem' }}>
+    </div>
+  );
+  const barra = (
+    <div className="spa-barra" role="img" aria-label={`${etq} entrega el ${Math.round(pct)} % de lo pedido`}><i style={{ width: `${pct}%` }} /></div>
+  );
+
+  // Lo que se marca: cuánto sale de la sede y lo que va a Compras.
+  const accion = (
+    <>
+      <div className="sub" style={telefono ? { marginTop: '.35rem' } : undefined}>
         <span>📦 Sale de {etq}</span>
         {!revisado && <span className="badge warning">sin revisar</span>}
       </div>
@@ -618,6 +688,28 @@ function Renglon({
           : falta > 0 ? <>🛒 A Compras: <b>{fmtCant(falta)} {und}</b>{hay && <span className="muted"> · {etq} entrega {fmtCant(disp)}</span>}</>
             : <span style={{ color: 'var(--success)' }}>✓ {etq} lo cubre completo</span>}
       </div>
+    </>
+  );
+
+  // Teléfono: todo apilado, como estaba.
+  if (telefono) {
+    return (
+      <div className="spa-renglon" style={{ borderLeft: `4px solid ${borde}`, padding: '.8rem .9rem' }}>
+        {info}
+        {barra}
+        {accion}
+      </div>
+    );
+  }
+
+  // PC (02-11-2026): una sola franja — datos a la izquierda, el «− / +» y lo que
+  // va a Compras a la derecha, la barra de cobertura abajo de punta a punta.
+  // Bajo ~900 px vuelve a apilarse (ver `.spa-renglon.pc` en surtidor.css).
+  return (
+    <div className="spa-renglon pc" style={{ borderLeft: `4px solid ${borde}` }}>
+      {info}
+      <div className="accion">{accion}</div>
+      {barra}
     </div>
   );
 }

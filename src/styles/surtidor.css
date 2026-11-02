@@ -225,3 +225,70 @@
 .spa-lote-movil { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .4rem; margin: .5rem 0 .9rem; }
 .spa-lote-movil .btn { min-height: 56px; font-size: .85rem; line-height: 1.2; white-space: normal; justify-content: center; text-align: center; }
 @media (max-width: 400px) { .spa-lote-movil { grid-template-columns: 1fr; } }
+
+/* ── Solicitudes de Pedido · PC más ordenada (02-11-2026) ──
+   Cabecera en grilla, resumen + lote pegados arriba (una SP trae 20+ renglones),
+   cada renglón en una sola franja (datos | «− / +») y la lista «Por revisar»
+   con su propio scroll. Bajo ~900 px el renglón vuelve a apilarse. */
+.spa-cab-fila { display: flex; justify-content: space-between; gap: .6rem; flex-wrap: wrap; align-items: flex-start; }
+.spa-cab-botones { display: flex; gap: .4rem; flex-wrap: wrap; }
+.spa-meta { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .45rem 1.2rem; margin: .7rem 0 0; }
+.spa-meta > div { min-width: 0; }
+.spa-meta dt { font-size: .68rem; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); font-weight: 700; }
+.spa-meta dd { margin: .1rem 0 0; font-size: .9rem; word-break: break-word; }
+.spa-meta .ancho { grid-column: 1 / -1; }
+@media (max-width: 600px) { .spa-meta { grid-template-columns: 1fr; } }
+
+.spa-responde { display: flex; align-items: center; gap: .4rem .7rem; flex-wrap: wrap; }
+.spa-responde .surt-rotulo { margin: 0 0 .75rem; }
+
+.spa-fija {
+  position: sticky; top: 0; z-index: 5;
+  background: var(--surface);
+  padding: .6rem .8rem; margin-bottom: .75rem;
+  display: flex; flex-direction: column; gap: .5rem;
+  box-shadow: 0 8px 14px -10px rgba(0, 0, 0, .55);
+}
+.spa-fija-resumen { display: flex; gap: .5rem .9rem; flex-wrap: wrap; align-items: center; }
+.spa-fija-lote { display: flex; gap: .4rem .6rem; flex-wrap: wrap; align-items: center; padding-top: .5rem; border-top: 1px solid var(--border); }
+.spa-fija-lote .surt-rotulo { margin: 0; }
+.spa-lote-movil.pc { display: flex; flex-wrap: wrap; gap: .4rem; margin: 0; }
+.spa-lote-movil.pc .btn { min-height: 0; font-size: .82rem; }
+
+.spa-renglon.pc { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 1.2rem; align-items: center; padding: .6rem .8rem; }
+.spa-renglon.pc .accion { display: flex; flex-direction: column; align-items: flex-end; text-align: right; }
+.spa-renglon.pc .accion .sub { justify-content: flex-end; margin-top: 0; }
+.spa-renglon.pc .accion .compras { margin-top: .35rem; font-size: .85rem; }
+.spa-renglon.pc > .spa-barra { grid-column: 1 / -1; margin-top: .5rem; }
+@media (max-width: 900px) {
+  .spa-renglon.pc { display: block; }
+  .spa-renglon.pc .accion { align-items: stretch; text-align: left; margin-top: .35rem; }
+  .spa-renglon.pc .accion .sub { justify-content: flex-start; }
+}
+
+/* Lista «Por revisar» (PC): columna con su propio scroll para no estirar la página. */
+.spa-pendientes { display: flex; gap: 1rem; flex-wrap: wrap; align-items: flex-start; }
+.spa-lista-pc {
+  flex: 1 1 280px; max-width: 380px;
+  display: flex; flex-direction: column; gap: .5rem;
+  position: sticky; top: 0;
+  max-height: calc(100vh - var(--topbar-h, 64px) - 2rem);
+}
+.spa-lista-scroll { display: flex; flex-direction: column; gap: .5rem; min-height: 0; overflow-y: auto; padding-right: .2rem; }
+.spa-lista-pc .spa-sp { text-align: left; cursor: pointer; padding: .6rem .75rem; font: inherit; color: inherit; flex-shrink: 0; }
+.spa-lista-pc .spa-sp[aria-pressed="true"] { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); }
+.spa-lista-pc .spa-sp.urgente { border-left: 4px solid var(--danger); }
+@media (max-width: 760px) { .spa-lista-pc { position: static; max-height: none; max-width: none; } }
+
+/* Buscador sobre las listas de la PC. */
+.spa-buscar { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; margin-bottom: .6rem; }
+.spa-buscar .input { flex: 1 1 260px; max-width: 460px; }
+
+/* Revisadas (PC): lista buscable; el detalle se abre debajo de la fila. */
+.spa-revisadas td { vertical-align: top; }
+.spa-revisadas tbody tr.fila { cursor: pointer; }
+.spa-revisadas tbody tr.abierta td { background: color-mix(in srgb, var(--primary) 6%, transparent); border-bottom-color: transparent; }
+.spa-revisadas tbody tr.detalle td { background: var(--surface-2); padding-top: .2rem; }
+.spa-revisadas .sub { font-size: .78rem; color: var(--text-muted); margin-top: .15rem; }
+.spa-rev-detalle { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: .6rem 1.4rem; padding: .3rem 0 .4rem; }
+@media (max-width: 900px) { .spa-rev-detalle { grid-template-columns: 1fr; } }
