@@ -20,6 +20,9 @@ import {
   listServiciosPorPagar, pagarServicioDirecto, dejarServicioACredito, urlAdjuntoServicio, type ServicioDirecto,
 } from './serviciosDirectos.repository';
 
+/** Casilla «Tiene retención» al pagar: oculta por orden de la administradora (02-11-2026). */
+const RETENCION_EN_PAGO = false;
+
 function montoCaja(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   return moneda === 'USD' ? `$ ${v}` : `${moneda} ${v}`;
@@ -463,6 +466,9 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
           </div>
         )}
         {!aCredito && (<>
+        {/* 02-11-2026: la retención la lleva el módulo Retenciones; Tesorería ya no la marca al pagar
+            (si Retenciones retuvo ANTES, el monto igual baja solo). */}
+        {RETENCION_EN_PAGO && (<>
         {/* Retención (opcional): se resta del total, igual que al pagar una OC. */}
         <div className="card" style={{ marginBottom: '.6rem', borderLeft: '3px solid var(--primary)' }}>
           <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.88rem', fontWeight: 600 }}>
@@ -508,6 +514,7 @@ export function PagarDirectoModal({ fila, cajas, actor, actorName, onClose, onPa
             <div className="muted" style={{ fontSize: '.78rem', marginTop: '.25rem' }}>Marcalo si la factura tiene retención: el monto se resta del total a pagar.</div>
           )}
         </div>
+        </>)}
 
         <div className="form-grid">
           <div className="form-row">
