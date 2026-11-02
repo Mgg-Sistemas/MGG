@@ -1729,7 +1729,7 @@ function MetodoPagoModal({
       const numero = numeroAdmin.trim() || null;
       if (numero && numero !== numeroAdminGuardado) await fijarNumeroAdministracionProveedor(proveedorId, numero);
       await onSent(validos, {
-        comprobanteTipo, retencionModo: comprobanteTipo === 'factura' ? retencionModo : null, numeroAdministracion: numero,
+        comprobanteTipo, retencionModo: comprobanteTipo === 'factura' && !pideMomentoRet ? retencionModo : null, numeroAdministracion: numero,
         ...(pideMomentoRet && retMomento ? { retencionMomento: retMomento } : {}),
       }, qr, incluyeDesc && descNum > 0 ? descNum : null);
     }
@@ -1869,7 +1869,9 @@ function MetodoPagoModal({
             <span style={{ fontSize: '.86rem' }}><strong>Factura</strong></span>
           </label>
         </div>
-        {comprobanteTipo === 'factura' && (
+        {/* La pregunta vieja de retención solo en las órdenes del flujo viejo: en las nuevas
+            la responde «🧾 Retención ANTES / DESPUÉS de pagar» (02-11-2026: salían las dos). */}
+        {comprobanteTipo === 'factura' && !pideMomentoRet && (
           <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
             <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Retención</div>
             <div style={{ display: 'grid', gap: '.35rem' }}>

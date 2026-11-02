@@ -135,7 +135,7 @@ export function mensajeDeEstado(
   const quien = p.repartidor_nombre?.trim() || nombre;
   switch (p.estado) {
     case 'aceptado': return { titulo: 'Pedido aceptado', texto: mensajeAceptado(p, quien, p.aceptado_en) };
-    case 'en_ruta': return { titulo: 'En ruta', texto: mensajeEnRuta(p, quien, p.en_ruta_en) };
+    case 'en_ruta': return { titulo: 'En camino', texto: mensajeEnRuta(p, quien, p.en_ruta_en) };
     case 'entregado': return {
       titulo: 'Entregado en almacén',
       texto: mensajeEntregado(p, quien, verAlmacen(p.almacen_entrega ?? p.almacen_destino ?? '—'), p.nota_entrega, p.entregado_en),

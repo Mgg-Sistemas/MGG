@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  claveDe, esRetiro, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado, minutosEntre, ocDe, resumenPorDelivery, type PedidoDelivery,
+  claveDe, esRetiro, mensajeAceptado, mensajeNoDisponible, mensajeCancelado, mensajeEnRuta, mensajeEntregado, minutosEntre, ocDe, resumenPorDelivery, type PedidoDelivery,
 } from './delivery';
 
 const base: PedidoDelivery = {
@@ -22,7 +22,7 @@ const sinSelector = (t: string) => expect(t).not.toContain('️');
 describe('Delivery · mensajes de WhatsApp', () => {
   it('aceptado: orden, urgencia, proveedor, destino y solo lo que se compra', () => {
     const t = mensajeAceptado(base, 'CARLOS MENDOZA');
-    expect(t).toContain('🛵 *PEDIDO ACEPTADO POR DELIVERY*');
+    expect(t).toContain('🚚 *PEDIDO ACEPTADO · DELIVERY EN CAMINO*');
     expect(t).toContain('🔹 *Orden:* OC-2026-0219');
     expect(t).toContain('🚨 *Requerimiento:* URGENTE');
     expect(t).toContain('🏬 *Entregar en:* Los Pinos');
@@ -60,6 +60,16 @@ describe('Delivery · resumen por delivery', () => {
     expect(r[0]).toEqual({ repartidor: 'CARLOS MENDOZA', entregados: 2, cancelados: 1, enCurso: 0, minutosPromedio: 60 });
     expect(r[1]).toMatchObject({ repartidor: 'ANA', enCurso: 1 });
     expect(minutosEntre(null, '2026-10-30T13:00:00Z')).toBeNull();
+  });
+});
+
+describe('no disponible (02-11-2026)', () => {
+  it('lleva el motivo y avisa que sigue libre', () => {
+    const t = mensajeNoDisponible(base, 'CARLOS', 'Proveedor cerrado o no atiende', 'abre mañana');
+    expect(t).toContain('⛔ *PEDIDO NO DISPONIBLE*');
+    expect(t).toContain('❌ *Motivo:* Proveedor cerrado o no atiende');
+    expect(t).toContain('📝 *Detalle:* abre mañana');
+    expect(t).toContain('sigue disponible para otro delivery');
   });
 });
 

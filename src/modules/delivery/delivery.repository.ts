@@ -77,6 +77,14 @@ export async function marcarEntregado(pedidoId: string, almacen: string, nota?: 
   if (error) throw err(error, 'No se pudo marcar la entrega.');
 }
 
+/** El pedido por tomar no está disponible para este delivery (con motivo): queda registrado y sigue libre (02-11-2026). */
+export async function marcarNoDisponible(ordenId: string, tipo: TipoDelivery, motivo: string, detalle?: string | null): Promise<void> {
+  const { error } = await supabase.rpc('delivery_no_disponible', {
+    p_orden_id: ordenId, p_tipo: tipo, p_motivo: motivo, p_detalle: detalle ?? null,
+  });
+  if (error) throw err(error, 'No se pudo marcar como no disponible.');
+}
+
 export async function cancelarPedido(pedidoId: string, motivo: string, detalle?: string | null): Promise<void> {
   const { error } = await supabase.rpc('delivery_avanzar', {
     p_pedido_id: pedidoId, p_estado: 'cancelado', p_motivo: motivo, p_detalle: detalle ?? null,

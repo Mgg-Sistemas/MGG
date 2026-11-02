@@ -270,7 +270,7 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
                       <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
                         {p.pagada_en && <div>{esRetiro(p) ? '🏬 Almacén revisó' : '💰 Pagada'} {fechaHoraVE(p.pagada_en)}</div>}
                         {p.aceptado_en && <div>🛵 Tomada {fechaHoraVE(p.aceptado_en)}</div>}
-                        {p.en_ruta_en && <div>🚚 En ruta {fechaHoraVE(p.en_ruta_en)}</div>}
+                        {p.en_ruta_en && <div>🚚 En camino {fechaHoraVE(p.en_ruta_en)}</div>}
                         {fin && <div>{p.estado === 'cancelado' ? '⛔' : '✅'} {fechaHoraVE(fin)}</div>}
                         {p.estado === 'entregado' && <div className="muted">⏳ {duracionTxt(minutosEntre(p.aceptado_en, p.entregado_en))}</div>}
                       </td>

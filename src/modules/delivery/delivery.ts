@@ -80,7 +80,7 @@ export interface UbicacionDelivery {
 export const ESTADO_DELIVERY: Record<EstadoDelivery, { label: string; emoji: string; badge: string }> = {
   por_tomar: { label: 'Por tomar', emoji: '💰', badge: 'warning' },
   aceptado: { label: 'Aceptado', emoji: '🛵', badge: 'info' },
-  en_ruta: { label: 'En ruta', emoji: '🚚', badge: 'info' },
+  en_ruta: { label: 'En camino', emoji: '🚚', badge: 'info' },
   entregado: { label: 'Entregado en almacén', emoji: '✅', badge: 'success' },
   cancelado: { label: 'Cancelado', emoji: '⛔', badge: 'danger' },
 };
@@ -153,10 +153,10 @@ function pie(): string[] {
   return ['', '🏢 *MINERAL GROUP GUAYANA C.A.* · Delivery'];
 }
 
-/** Aceptó el pedido. */
+/** Aceptó el pedido: desde el 02-11-2026 aceptar lo deja directo «en camino». */
 export function mensajeAceptado(p: PedidoDelivery, repartidor: string, cuando?: string | null): string {
   const l = [
-    '🛵 *PEDIDO ACEPTADO POR DELIVERY*',
+    '🚚 *PEDIDO ACEPTADO · DELIVERY EN CAMINO*',
     `🔹 *Orden:* ${ocDe(p)}`,
     p.urgente ? '🚨 *Requerimiento:* URGENTE' : '🟢 *Requerimiento:* Normal',
     `👤 *Delivery:* ${repartidor}`,
@@ -185,10 +185,25 @@ export function mensajeCancelado(p: PedidoDelivery, repartidor: string, motivo: 
   return l.join('\n');
 }
 
-/** Va en ruta. */
+/** El pedido por tomar no está disponible para este delivery (02-11-2026): queda libre para otro. */
+export function mensajeNoDisponible(p: PedidoDelivery, repartidor: string, motivo: string, detalle?: string | null, cuando?: string | null): string {
+  const l = [
+    '⛔ *PEDIDO NO DISPONIBLE*',
+    `🔹 *Orden:* ${ocDe(p)}`,
+    `👤 *Delivery:* ${repartidor}`,
+    lineaOrigen(p),
+    '',
+    `❌ *Motivo:* ${motivo}`,
+  ];
+  if (detalle?.trim()) l.push(`📝 *Detalle:* ${detalle.trim()}`);
+  l.push('', '🔄 El pedido sigue disponible para otro delivery.', `🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
+  return l.join('\n');
+}
+
+/** Va en camino. */
 export function mensajeEnRuta(p: PedidoDelivery, repartidor: string, cuando?: string | null): string {
   const l = [
-    '🚚 *DELIVERY EN RUTA*',
+    '🚚 *DELIVERY EN CAMINO*',
     `🔹 *Orden:* ${ocDe(p)}`,
     `👤 *Delivery:* ${repartidor}`,
     lineaOrigen(p),

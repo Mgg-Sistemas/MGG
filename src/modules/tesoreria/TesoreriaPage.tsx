@@ -7014,7 +7014,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
             <div className="card-title" style={{ marginBottom: '.4rem' }}>Soporte / Retención</div>
             <div style={{ fontSize: '.85rem' }}>
               Soporte: <strong>{o.comprobante_tipo === 'factura' ? 'Factura' : 'Nota de entrega'}</strong>
-              {o.comprobante_tipo === 'factura' && <> · Retención: <strong>{labelRetencionModo(o.retencion_modo)}</strong>{o.retencion_pagada ? <span className="badge" style={{ marginLeft: '.4rem', color: 'var(--success)' }}>✓ pagada</span> : null}</>}
+              {o.comprobante_tipo === 'factura' && !o.retencion_momento && <> · Retención: <strong>{labelRetencionModo(o.retencion_modo)}</strong>{o.retencion_pagada ? <span className="badge" style={{ marginLeft: '.4rem', color: 'var(--success)' }}>✓ pagada</span> : null}</>}
             </div>
             {comprobantesDeOrden(o).length > 0 ? (
               <div style={{ display: 'grid', gap: '.3rem', marginTop: '.4rem' }}>

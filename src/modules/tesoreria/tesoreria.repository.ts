@@ -323,15 +323,27 @@ async function recomputarCadena(cajaId: string, cuenta: string | null, moneda: s
   const { data, error } = await q;
   if (error) throw error;
   let running = round2(saldoActual);
+  const cambios: Array<{ id: string; saldo_antes: number; saldo_despues: number }> = [];
   for (const r of (data ?? []) as MovChainRow[]) {
     const after = round2(running);
     const before = round2(running - efectoMov(r));
     if (round2(Number(r.saldo_despues)) !== after || round2(Number(r.saldo_antes)) !== before) {
-      await supabase.from(LIBRO).update({ saldo_antes: before, saldo_despues: after }).eq('id', r.id);
+      cambios.push({ id: r.id, saldo_antes: before, saldo_despues: after });
     }
     running = before;
   }
+  // 02-11-2026: en una caja con miles de movimientos, una consulta por fila en serie dejaba
+  // «Eliminando…» varios minutos. Se mandan en lotes de LOTE_CADENA a la vez; si alguna falla, se avisa.
+  for (let i = 0; i < cambios.length; i += LOTE_CADENA) {
+    const res = await Promise.all(cambios.slice(i, i + LOTE_CADENA).map((c) =>
+      supabase.from(LIBRO).update({ saldo_antes: c.saldo_antes, saldo_despues: c.saldo_despues }).eq('id', c.id)));
+    const fallo = res.find((r) => r.error);
+    if (fallo?.error) throw fallo.error;
+  }
 }
+
+/** Cuántas filas de la cadena se actualizan a la vez al recalcular saldos. */
+const LOTE_CADENA = 25;
 
 /** ¿El movimiento está vinculado a otro módulo (OC, nómina, traslado)? Solo informativo. */
 export function movEstaVinculado(m: MovimientoCaja): boolean {

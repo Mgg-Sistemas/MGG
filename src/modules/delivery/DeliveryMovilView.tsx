@@ -32,10 +32,10 @@ import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import {
   ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, MOTIVOS_CANCELACION, fechaHoraVE, mensajeAceptado, mensajeCancelado,
-  claveDe, esRetiro, mensajeEnRuta, mensajeEntregado, montoTxt, ocDe, type FotoDelivery, type PedidoDelivery,
+  claveDe, esRetiro, mensajeEnRuta, mensajeEntregado, mensajeNoDisponible, montoTxt, ocDe, type FotoDelivery, type PedidoDelivery,
 } from './delivery';
 import {
-  cancelarPedido, compartirUbicacion, comprobantePagoDelivery, listPedidosDelivery, marcarEnRuta, marcarEntregado,
+  cancelarPedido, compartirUbicacion, marcarNoDisponible, comprobantePagoDelivery, listPedidosDelivery, marcarEnRuta, marcarEntregado,
   subirFotosDelivery, tomarPedido, urlFotoDelivery, useDeliveryConectado, type ComprobantePagoDelivery,
 } from './delivery.repository';
 import {
@@ -61,7 +61,7 @@ const cant = (n: number) => (Number(n) || 0).toLocaleString('es-VE', { maximumFr
 const CHIPS: Array<{ key: ChipDelivery; label: string }> = [
   { key: 'todos', label: 'Todos' },
   { key: 'por_tomar', label: '💰 Por tomar' },
-  { key: 'en_ruta', label: '🚚 En ruta' },
+  { key: 'en_ruta', label: '🚚 En camino' },
   { key: 'entregados', label: '✅ Entregados' },
 ];
 
@@ -131,7 +131,11 @@ export function DeliveryMovilView() {
 
   // Si el pedido de la acción dejó de estar en curso (otra pestaña, la PC), se vuelve a la lista.
   useEffect(() => {
-    if (accion && !loading && (!pedidoAccion || !pedidoAccion.es_mio || !['aceptado', 'en_ruta'].includes(pedidoAccion.estado))) setAccion(null);
+    if (!accion || loading) return;
+    // «No disponible» se marca sobre un pedido libre; lo demás, sobre uno mío en curso.
+    const libre = !!pedidoAccion && accion.tipo === 'cancelar' && (pedidoAccion.estado === 'por_tomar' || pedidoAccion.estado === 'cancelado');
+    const mioEnCurso = !!pedidoAccion && pedidoAccion.es_mio && ['aceptado', 'en_ruta'].includes(pedidoAccion.estado);
+    if (!libre && !mioEnCurso) setAccion(null);
   }, [accion, pedidoAccion, loading]);
 
   function hecho(titulo: string, texto: string) {
@@ -145,8 +149,8 @@ export function DeliveryMovilView() {
     setOcupado(claveDe(p));
     try {
       await tomarPedido(p.orden_id, p.tipo ?? 'oc');
-      toast(`Tomaste la orden ${ocDe(p)}.`, 'success');
-      hecho('Pedido aceptado', mensajeAceptado(p, quien));
+      toast(`Aceptaste ${ocDe(p)}: va en camino.`, 'success');
+      hecho('Pedido aceptado · en camino', mensajeAceptado(p, quien));
     } catch (e) {
       toast(errMsg(e, 'No se pudo tomar el pedido'), 'error');
       void reload().catch(() => {});
@@ -159,7 +163,7 @@ export function DeliveryMovilView() {
     try {
       await marcarEnRuta(p.pedido_id);
       toast('Marcado en ruta.', 'success');
-      hecho('En ruta', mensajeEnRuta(p, quien));
+      hecho('En camino', mensajeEnRuta(p, quien));
     } catch (e) {
       toast(errMsg(e, 'No se pudo marcar en ruta'), 'error');
     } finally { setOcupado(null); }
@@ -267,6 +271,7 @@ export function DeliveryMovilView() {
               onTomar={() => void tomar(f.p)}
               onEnRuta={() => void enRuta(f.p)}
               onCancelar={() => { setListo(null); setAccion({ tipo: 'cancelar', ordenId: claveDe(f.p) }); }}
+              onNoDisponible={() => { setListo(null); setAccion({ tipo: 'cancelar', ordenId: claveDe(f.p) }); }}
               onEntregar={() => { setListo(null); setAccion({ tipo: 'entregar', ordenId: claveDe(f.p) }); }}
               onVerMensaje={() => verMensaje(f.p)}
               onComprobante={() => setComprobanteDe(f.p)}
@@ -288,11 +293,11 @@ export function DeliveryMovilView() {
 /* ── Una orden en el listado ── */
 
 function TarjetaPedido({
-  f, canWrite, ocupado, bloqueado, onTomar, onEnRuta, onCancelar, onEntregar, onVerMensaje, onComprobante, onFotos,
+  f, canWrite, ocupado, bloqueado, onTomar, onEnRuta, onCancelar, onNoDisponible, onEntregar, onVerMensaje, onComprobante, onFotos,
   generandoPdf, pdfBloqueado, onPdf, onReporte,
 }: {
   f: PedidoFeed; canWrite: boolean; ocupado: boolean; bloqueado: boolean;
-  onTomar: () => void; onEnRuta: () => void; onCancelar: () => void; onEntregar: () => void;
+  onTomar: () => void; onEnRuta: () => void; onCancelar: () => void; onNoDisponible: () => void; onEntregar: () => void;
   onVerMensaje: () => void; onComprobante: () => void; onFotos: () => void;
   generandoPdf: boolean; pdfBloqueado: boolean; onPdf: () => void; onReporte: () => void;
 }) {
@@ -362,8 +367,9 @@ function TarjetaPedido({
       )}
       {enCurso && !p.es_mio && <div className="dlv-tomado">🛵 Tomado por <strong>{p.repartidor_nombre ?? 'otro delivery'}</strong>{p.aceptado_en ? ` · ${fechaHoraVE(p.aceptado_en)}` : ''}</div>}
 
-      {(p.fotos_recibo.length > 0 || (mioEnCurso && p.estado === 'aceptado')) && (
-        <FotosPedido p={p} tipo="recibo" puedeSubir={canWrite && mioEnCurso && p.estado === 'aceptado'} onCambio={onFotos} />
+      {/* Aceptar deja el pedido «en camino» (02-11-2026): las fotos al recibir se suben en camino. */}
+      {(p.fotos_recibo.length > 0 || mioEnCurso) && (
+        <FotosPedido p={p} tipo="recibo" puedeSubir={canWrite && mioEnCurso} onCambio={onFotos} />
       )}
       {(p.fotos_entrega.length > 0 || (mioEnCurso && p.estado === 'en_ruta')) && (
         <FotosPedido p={p} tipo="entrega" puedeSubir={canWrite && mioEnCurso && p.estado === 'en_ruta'} onCambio={onFotos} />
@@ -373,7 +379,12 @@ function TarjetaPedido({
         {!esRetiro(p) && <button type="button" className="btn btn-ghost" onClick={onComprobante}>🧾 Ver comprobante de pago</button>}
         {canWrite && disponible && (
           <button type="button" className="btn btn-primary" disabled={bloqueado} onClick={onTomar}>
-            {ocupado ? 'Tomando…' : '✓ Aceptar pedido'}
+            {ocupado ? 'Aceptando…' : '✓ Aceptar pedido'}
+          </button>
+        )}
+        {canWrite && disponible && (
+          <button type="button" className="btn btn-ghost" disabled={bloqueado} onClick={onNoDisponible} style={{ color: 'var(--danger)' }}>
+            ✕ No disponible
           </button>
         )}
         {canWrite && mioEnCurso && p.estado === 'aceptado' && (
@@ -392,12 +403,13 @@ function TarjetaPedido({
         {puedeVerMensaje && (
           <button type="button" className="btn btn-ghost" onClick={onVerMensaje}>💬 Ver mensaje de WhatsApp</button>
         )}
-        <div className="dlv-reporte">
+        {/* Por tomar: solo comprobante, aceptar o no disponible (02-11-2026). */}
+        {!disponible && <div className="dlv-reporte">
           <button type="button" className="btn btn-ghost" disabled={pdfBloqueado} onClick={onPdf}>
             {generandoPdf ? 'Generando…' : '📄 Ver PDF'}
           </button>
           <button type="button" className="btn btn-ghost" onClick={onReporte} title="Reporte del pedido por WhatsApp">💬 WhatsApp</button>
-        </div>
+        </div>}
       </div>
     </article>
   );
@@ -478,15 +490,23 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
   const [detalle, setDetalle] = useState('');
   const [guardando, setGuardando] = useState(false);
   const esOtro = motivo === MOTIVOS_CANCELACION[MOTIVOS_CANCELACION.length - 1];
+  // Pedido libre (por tomar): «No disponible» (02-11-2026). Uno mío en curso: «No puedo buscarlo».
+  const libre = p.estado === 'por_tomar' || p.estado === 'cancelado' || !p.es_mio;
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
-    if (!p.pedido_id) return;
+    if (!libre && !p.pedido_id) return;
     if (!motivo) { toast('Elige el motivo.', 'error'); return; }
     if (esOtro && !detalle.trim()) { toast('Escribe cuál es el motivo.', 'error'); return; }
     setGuardando(true);
     try {
-      await cancelarPedido(p.pedido_id, motivo, detalle.trim() || null);
+      if (libre) {
+        await marcarNoDisponible(p.orden_id, p.tipo ?? 'oc', motivo, detalle.trim() || null);
+        toast(`Marcaste ${ocDe(p)} como no disponible. Sigue libre para otro delivery.`, 'success');
+        onHecho('Pedido no disponible', mensajeNoDisponible(p, quien, motivo, detalle));
+        return;
+      }
+      await cancelarPedido(p.pedido_id!, motivo, detalle.trim() || null);
       toast(`Cancelaste la orden ${ocDe(p)}. Queda libre para otro delivery.`, 'success');
       onHecho('Pedido cancelado', mensajeCancelado(p, quien, motivo, detalle));
     } catch (err) {
@@ -498,10 +518,10 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
     <form className="surt-form" onSubmit={(e) => void guardar(e)}>
       <div className="surt-form-titulo">
         <span className="icono" aria-hidden>⛔</span>
-        <div><strong>No puedo buscarlo</strong><div className="muted" style={{ fontSize: '.85rem' }}>{ocDe(p)} · {p.proveedor_nombre ?? '—'}</div></div>
+        <div><strong>{libre ? 'No disponible' : 'No puedo buscarlo'}</strong><div className="muted" style={{ fontSize: '.85rem' }}>{ocDe(p)} · {p.proveedor_nombre ?? '—'}</div></div>
       </div>
       <p className="muted" style={{ margin: 0, fontSize: '.88rem' }}>
-        La orden vuelve a quedar libre para que la tome otro delivery. Elige el motivo:
+        {libre ? 'El pedido sigue libre para otro delivery y sale el mensaje de WhatsApp con el motivo.' : 'La orden vuelve a quedar libre para que la tome otro delivery.'} Elige el motivo:
       </p>
       <div className="dlv-motivos" role="radiogroup" aria-label="Motivo">
         {MOTIVOS_CANCELACION.map((m) => (
@@ -519,7 +539,7 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
       <div className="surt-grid2">
         <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Volver</button>
         <button type="submit" className="btn btn-peligro btn-grande" disabled={guardando || !motivo}>
-          {guardando ? 'Guardando…' : 'Confirmar cancelación'}
+          {guardando ? 'Guardando…' : libre ? 'Confirmar: no disponible' : 'Confirmar cancelación'}
         </button>
       </div>
     </form>
