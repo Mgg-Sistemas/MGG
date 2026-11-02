@@ -36,11 +36,11 @@ export function OcPorRetenerPanel({ canWrite }: { canWrite: boolean }) {
     <div style={{ display: 'grid', gap: '1rem' }}>
       <p className="muted" style={{ margin: 0, fontSize: '.86rem' }}>
         Compras indica al mandar a pagar si la OC se retiene <strong>antes</strong> o <strong>después</strong> de pagar.
-        Las de <strong>antes</strong> no aparecen en Tesorería hasta que acá se marque la retención hecha.
+        Tesorería paga igual, se haya marcado o no la retención: si una de <strong>antes</strong> se retiene primero, paga el total menos lo retenido.
       </p>
       <Cola
         titulo="Retener ANTES de pagar"
-        ayuda="Al marcarla hecha, la OC pasa a Tesorería para pagar."
+        ayuda="Si se marca antes de que Tesorería pague, el monto a pagar baja en lo retenido."
         filas={colas.antes}
         vacio="No hay OC esperando retención antes de pagar."
         canWrite={canWrite}
@@ -120,7 +120,8 @@ function MarcarRetencionModal({ fila, onClose, onDone }: {
   const [saving, setSaving] = useState(false);
   // ANTES de pagar: cuánto se retuvo (en Bs o en $, la otra sale con la tasa). Tesorería
   // paga el total MENOS esto. Vacío = no aplica (con nota).
-  const esAntes = o.retencion_momento === 'antes';
+  // Si Tesorería ya la pagó, el monto retenido ya no baja nada: solo queda registrada.
+  const esAntes = o.retencion_momento === 'antes' && o.estado !== 'pagada';
   const esOrdenBs = (o.moneda ?? 'USD') === 'Bs';
   const [retEditada, setRetEditada] = useState<'bs' | 'usd'>('bs');
   const [retBsStr, setRetBsStr] = useState('');
@@ -147,9 +148,7 @@ function MarcarRetencionModal({ fila, onClose, onDone }: {
     setSaving(true);
     try {
       await marcarRetencionHecha(o.id, nota, esAntes && retenido > 0 ? { bs: ret.bs, usd: ret.usd, tasa } : null);
-      toast(o.retencion_momento === 'antes'
-        ? `OC ${codigo} · retención hecha: ya está en Tesorería para pagar`
-        : `OC ${codigo} · retención hecha`, 'success');
+      toast(`OC ${codigo} · retención hecha`, 'success');
       await onDone();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo marcar la retención', 'error');
@@ -175,8 +174,8 @@ function MarcarRetencionModal({ fila, onClose, onDone }: {
         <strong>{fila.proveedorNombre}</strong> · {money(o.total, o.moneda)}
       </p>
       <p className="muted" style={{ fontSize: '.86rem' }}>
-        {o.retencion_momento === 'antes'
-          ? 'Al confirmar, la OC pasa a Tesorería para pagar.'
+        {esAntes
+          ? 'Al confirmar, Tesorería paga el total menos lo retenido.'
           : 'La OC ya está pagada; al confirmar sale de esta lista.'}
       </p>
       {esAntes && (

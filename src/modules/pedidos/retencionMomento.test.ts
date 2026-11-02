@@ -1,27 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Orden } from '@/shared/lib/types';
 import {
-  colaRetencion, errorPagoRetencionPendiente, esperaRetencionAntesDePagar, etiquetaRetencionMomento,
-  efectoRetencionEnPago, patchRetencionMomento, repartirColasRetencion,
+  colaRetencion, etiquetaRetencionMomento, efectoRetencionEnPago, patchRetencionMomento, repartirColasRetencion,
 } from './retencionMomento';
 
 const o = (over: Partial<Orden>): Orden => ({
   id: 'x', codigo: 'SP-1', oc_codigo: 'OC-2026-0300', estado: 'oc_aprobada', ...over,
 } as Orden);
-
-describe('esperaRetencionAntesDePagar / errorPagoRetencionPendiente', () => {
-  it('frena solo la que se retiene ANTES y todavía no está hecha', () => {
-    expect(esperaRetencionAntesDePagar(o({ retencion_momento: 'antes' }))).toBe(true);
-    expect(esperaRetencionAntesDePagar(o({ retencion_momento: 'antes', retencion_hecha_en: '2026-10-30T10:00:00Z' }))).toBe(false);
-    expect(esperaRetencionAntesDePagar(o({ retencion_momento: 'despues' }))).toBe(false);
-    expect(esperaRetencionAntesDePagar(o({}))).toBe(false);
-  });
-  it('da un mensaje claro con el código de la OC', () => {
-    expect(errorPagoRetencionPendiente(o({ retencion_momento: 'antes' }))).toMatch(/OC-2026-0300 se retiene ANTES de pagar/);
-    expect(errorPagoRetencionPendiente(o({ retencion_momento: 'despues' }))).toBeNull();
-    expect(errorPagoRetencionPendiente(o({ oc_codigo: null, retencion_momento: 'antes' }))).toMatch(/SP-1/);
-  });
-});
 
 describe('patchRetencionMomento', () => {
   it('sin momento (flujo apagado) no toca nada', () => {
@@ -45,7 +30,9 @@ describe('colaRetencion / repartirColasRetencion', () => {
   it('antes: confirmada o confirmada pagar; después: solo pagada', () => {
     expect(colaRetencion(o({ retencion_momento: 'antes', estado: 'oc_aprobada' }))).toBe('antes');
     expect(colaRetencion(o({ retencion_momento: 'antes', estado: 'confirmada_metodo' }))).toBe('antes');
-    expect(colaRetencion(o({ retencion_momento: 'antes', estado: 'pagada' }))).toBeNull();
+    // 01-11-2026: la retención no frena el pago; una 'antes' ya pagada sigue en su cola hasta que la marquen.
+    expect(colaRetencion(o({ retencion_momento: 'antes', estado: 'pagada' }))).toBe('antes');
+    expect(colaRetencion(o({ retencion_momento: 'antes', estado: 'pagada', retencion_hecha_en: '2026-10-30' }))).toBeNull();
     expect(colaRetencion(o({ retencion_momento: 'despues', estado: 'oc_aprobada' }))).toBeNull();
     expect(colaRetencion(o({ retencion_momento: 'despues', estado: 'pagada' }))).toBe('despues');
     expect(colaRetencion(o({ retencion_momento: 'despues', estado: 'pagada', retencion_hecha_en: '2026-10-30' }))).toBeNull();

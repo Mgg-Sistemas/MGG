@@ -3,11 +3,14 @@
 
    Regla de la administradora, SOLO con el flujo nuevo de compras prendido
    (`config.compras.revision_almacen`, ver revisionAlmacen.repository.ts):
-   al indicar el método de pago, Compras marca el momento de la retención.
-     · 'antes'   → la OC va primero a RETENCIONES; cuando la marcan hecha,
-                   pasa a Tesorería para pagar.
-     · 'despues' → la OC va a TESORERÍA; ya pagada, Retenciones retiene.
-   null = flujo viejo (todo como siempre).
+   al indicar el método de pago, Compras puede marcar el momento de la retención.
+     · 'antes'   → la OC aparece en RETENCIONES («antes»); si la retienen antes
+                   de que Tesorería pague, el monto a pagar BAJA.
+     · 'despues' → ya pagada, aparece en Retenciones para retenerla.
+   null = sin marca (flujo viejo, o Compras no la indicó).
+   01-11-2026: la retención es OPCIONAL y NO frena el pago: Tesorería paga igual,
+   la haya hecho Retenciones o no. Una 'antes' ya pagada sigue en su cola hasta
+   que la marquen (para que no se pierda).
 
    Acá vive lo que no toca la base (base: compras-retencion-momento-2026-10-30.sql).
    ============================================================ */
@@ -16,18 +19,6 @@ import type { Orden } from '@/shared/lib/types';
 export type RetencionMomento = 'antes' | 'despues';
 
 type OrdenRet = Pick<Orden, 'estado' | 'retencion_momento' | 'retencion_hecha_en'>;
-
-/** La OC se retiene antes de pagar y Retenciones todavía no la marcó: Tesorería no la paga. */
-export function esperaRetencionAntesDePagar(o: Pick<Orden, 'retencion_momento' | 'retencion_hecha_en'>): boolean {
-  return o.retencion_momento === 'antes' && !o.retencion_hecha_en;
-}
-
-/** Mensaje para frenar el pago (null = se puede pagar). */
-export function errorPagoRetencionPendiente(o: Pick<Orden, 'retencion_momento' | 'retencion_hecha_en' | 'oc_codigo' | 'codigo'>): string | null {
-  if (!esperaRetencionAntesDePagar(o)) return null;
-  return `La OC ${o.oc_codigo ?? o.codigo} se retiene ANTES de pagar: todavía está en Retenciones. `
-    + 'Se paga cuando Retenciones marque la retención como hecha.';
-}
 
 /** Lo que se guarda junto con el método de pago. Si el momento cambia, la retención marcada se borra. */
 export function patchRetencionMomento(
@@ -42,7 +33,8 @@ export function patchRetencionMomento(
 /** En qué lista de «OC por retener» cae la orden (null = en ninguna). */
 export function colaRetencion(o: OrdenRet): RetencionMomento | null {
   if (o.retencion_hecha_en) return null;
-  if (o.retencion_momento === 'antes' && (o.estado === 'confirmada_metodo' || o.estado === 'oc_aprobada')) return 'antes';
+  // 'antes' sigue en su cola aunque Tesorería ya haya pagado (la retención no frena el pago).
+  if (o.retencion_momento === 'antes' && (o.estado === 'confirmada_metodo' || o.estado === 'oc_aprobada' || o.estado === 'pagada')) return 'antes';
   if (o.retencion_momento === 'despues' && o.estado === 'pagada') return 'despues';
   return null;
 }

@@ -57,7 +57,7 @@ const BUCKET_OC = 'compras-oc';
  */
 import { autorizadoPara } from '@/modules/usuarios/autorizados';
 import { flujoRevisionAlmacenActivo } from './revisionAlmacen.repository';
-import { errorPagoRetencionPendiente, esperaRetencionAntesDePagar, patchRetencionMomento, type RetencionMomento } from './retencionMomento';
+import { patchRetencionMomento, type RetencionMomento } from './retencionMomento';
 
 async function assertAdmin(accion: string): Promise<void> {
   const { data: auth } = await supabase.auth.getUser();
@@ -1876,19 +1876,16 @@ function mapPorPagar(orden: Orden, pm: Map<string, string>): OrdenPorPagar {
  *     ve el monto a pagar; el analista de compras debe indicar el método para poder pagar).
  *   · `oc_aprobada`: con método indicado → lista para pagar (anticipado, o contra entrega
  *     tras recibir). Las de crédito NO aparecen: se saldan por abonos.
- *  Flujo nuevo (30-10-2026): las que se retienen ANTES de pagar no aparecen hasta que
- *  Retenciones marque la retención hecha. Con el flujo apagado, todo como siempre. */
+ *  01-11-2026: la retención (antes/después) NO frena el pago: se listan todas, la haya
+ *  hecho Retenciones o no. */
 export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
-  const [{ data: os, error }, { data: provs }, flujoNuevo] = await Promise.all([
+  const [{ data: os, error }, { data: provs }] = await Promise.all([
     supabase.from(TABLE).select('*').in('estado', ['confirmada_metodo', 'oc_aprobada']).order('oc_aprobada_en', { ascending: true }),
     supabase.from('proveedores').select('id, razon_social'),
-    flujoRevisionAlmacenActivo(),
   ]);
   if (error) throw error;
   const pm = new Map((provs ?? []).map((p) => [p.id as string, p.razon_social as string]));
-  return (os ?? [])
-    .filter((r) => !flujoNuevo || !esperaRetencionAntesDePagar(r as Orden))
-    .map((r) => mapPorPagar(r as Orden, pm));
+  return (os ?? []).map((r) => mapPorPagar(r as Orden, pm));
 }
 
 /** Lista las OC a crédito con cuenta abierta (para la vista de crédito + abonos). */
@@ -1920,18 +1917,6 @@ export async function getProveedorConDatosPago(proveedorId: string): Promise<Pro
 /** Guarda/actualiza los datos de pago de un proveedor para un método (reexport práctico). */
 export async function guardarDatosPagoProveedor(proveedorId: string, metodo: string, datos: DatosPago, actor?: string): Promise<void> {
   await guardarDatosPago(proveedorId, metodo, datos, actor);
-}
-
-/** Flujo nuevo (30-10-2026): una OC que se retiene ANTES de pagar no se paga hasta que
- *  Retenciones marque la retención hecha. Lee la orden fresca (la de la pantalla puede
- *  estar vieja). Con el flujo apagado no frena nada. */
-async function frenarPagoSiFaltaRetencion(o: Orden): Promise<void> {
-  if (!(await flujoRevisionAlmacenActivo())) return;
-  const { data } = await supabase.from(TABLE)
-    .select('retencion_momento, retencion_hecha_en, oc_codigo, codigo').eq('id', o.id).maybeSingle();
-  const fresca = (data as Pick<Orden, 'retencion_momento' | 'retencion_hecha_en' | 'oc_codigo' | 'codigo'> | null) ?? o;
-  const err = errorPagoRetencionPendiente(fresca);
-  if (err) throw new Error(err);
 }
 
 export interface PagarOcInput {
@@ -2026,7 +2011,6 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   // sin método (confirmada_metodo) — en ese caso Tesorería paga directo (mismo proveedor).
   if (o.estado !== 'oc_aprobada' && o.estado !== 'confirmada_metodo')
     throw new Error('Solo se pagan órdenes de compra confirmadas por el Gerente.');
-  await frenarPagoSiFaltaRetencion(o);
   if (!input.cajaId) throw new Error('Elegí la caja con la que se paga.');
   const monto = Math.round((Number(input.monto) || 0) * 100) / 100;
   if (monto <= 0) throw new Error('Indicá el monto a pagar.');
@@ -2123,7 +2107,6 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
   // Confirmada por el Gerente: con método (oc_aprobada) o sin método aún (confirmada_metodo).
   if (o.estado !== 'oc_aprobada' && o.estado !== 'confirmada_metodo')
     throw new Error('Solo se pagan órdenes de compra confirmadas por el Gerente.');
-  await frenarPagoSiFaltaRetencion(o);
   if (!input.cajaId) throw new Error('Elegí la caja con la que se paga.');
   const legs =(input.legs ?? []).filter((l) => l.moneda && (Number(l.monto) || 0) > 0);
   if (!legs.length) throw new Error('Indicá al menos un monto a pagar.');

@@ -113,6 +113,17 @@ describe('revisión de almacén por sede', () => {
     expect(r.falta.map((x) => [x.nombre, x.cantidad])).toEqual([['TORNILLO 1/2', 38]]);
   });
 
+  it('la sede que cierra la revisión sigue listando lo que tiene aunque la base lo deje en comprar=false', () => {
+    // 01-11-2026: Matanza tenía los guantes; al cerrar, la base pone comprar=false y cantidad=0
+    // en ese renglón. El WhatsApp de Matanza decía «TIENE: Nada de lo solicitado».
+    const o = orden(enRevision([0, 0], [0, 3]), { [LP]: { confirmada_por: 'a@x', confirmada_en: '2026-10-30T15:00:00Z' }, [MT]: { confirmada_por: 'b@x', confirmada_en: '2026-10-30T16:00:00Z' } });
+    o.items[1] = { ...o.items[1], comprar: false, cantidad: 0, cantidad_solicitada: 3 } as ItemRevision;
+    const r = resumenSede(o.items, MT);
+    expect(r.tiene.map((x) => [x.nombre, x.cantidad])).toEqual([['TORNILLO 1/2', 3]]);
+    expect(mensajeRevisionSede(o, MT)).toContain('• TORNILLO 1/2 — 3 und');
+    expect(marcasIniciales(o.items, MT)['GEN-AB-0']).toEqual({ disponible: 3, revisado: true });
+  });
+
   it('el mensaje de la sede dice qué tiene, qué no y quién falta', () => {
     const o = orden(enRevision([3, 0]), { [LP]: { confirmada_por: 'a@x', confirmada_en: '2026-10-30T15:00:00Z', nota: 'Cemento abierto' } });
     const txt = mensajeRevisionSede(o, LP, { revisor: 'ISNER' });

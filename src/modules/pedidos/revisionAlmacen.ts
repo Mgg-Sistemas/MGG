@@ -154,8 +154,10 @@ export function confirmacionDe(o: Pick<Orden, 'id'> & Partial<OrdenRevision>, se
 export function marcasIniciales(items: ItemOrden[], sede: string): Record<string, MarcaAlmacen> {
   const out: Record<string, MarcaAlmacen> = {};
   for (const it of items) {
-    if (!seRevisa(it)) continue;
     const m = marcaDeSede(it, sede);
+    // Al cerrar la revisión la base deja `comprar=false` en lo que almacén atiende completo:
+    // sigue contando para esta sede si ella lo marcó (01-11-2026).
+    if (!seRevisa(it) && !m) continue;
     out[it.sku] = { disponible: m?.disponible ?? 0, revisado: m?.revisado === true };
   }
   return out;
@@ -282,8 +284,10 @@ export function resumenSede(items: ItemOrden[], sede: string, marcas?: Record<st
   const tiene: RenglonResumen[] = [];
   const falta: RenglonResumen[] = [];
   for (const it of items) {
-    if (!seRevisa(it)) continue;
     const m = marcas ? marcas[it.sku] : marcaDeSede(it, sede);
+    // Lo que almacén atendió completo queda con `comprar=false` al cerrar: igual se lista
+    // en el mensaje de la sede que lo tiene (01-11-2026: el WhatsApp decía «nada»).
+    if (!seRevisa(it) && !m) continue;
     const disp = m?.revisado ? disponibleAcotado(it, m.disponible) : 0;
     if (disp > 0) tiene.push({ ...base(it), cantidad: disp });
     const resto = r4(cantidadSolicitada(it) - disp);

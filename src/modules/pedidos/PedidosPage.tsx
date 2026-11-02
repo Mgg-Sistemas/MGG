@@ -1641,9 +1641,10 @@ function MetodoPagoModal({
   // Soporte: Nota de entrega → directo a Tesorería. Factura → además pasa por Retenciones.
   const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>('nota_entrega');
   const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>('se_paga_despues');
-  // Flujo nuevo de compras (30-10-2026): ¿se retiene ANTES o DESPUÉS de pagar? Obligatorio
-  // solo con el flujo prendido y al enviar a pagar. 'antes' → Retenciones; 'despues' → Tesorería.
+  // Flujo nuevo de compras (30-10-2026): ¿se retiene ANTES o DESPUÉS de pagar? Solo con el
+  // flujo prendido y al enviar a pagar. 'antes' → cola «antes» de Retenciones; 'despues' → ya pagada.
   // 31-10-2026: solo las órdenes NUEVAS; las que ya estaban en curso se pagan como siempre.
+  // 01-11-2026: OPCIONAL y no frena el pago (Tesorería paga igual, retenida o no).
   const flujoNuevo = useOrdenEnFlujoNuevo(orden);
   const pideMomentoRet = flujoNuevo && !corrigiendo;
   const [retMomento, setRetMomento] = useState<RetencionMomento | null>(
@@ -1710,7 +1711,6 @@ function MetodoPagoModal({
       setError('En multipago, indicá el monto por cada método/moneda.'); return;
     }
     if (esContraEntrega && !corrigiendo && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
-    if (pideMomentoRet && !retMomento) { setError('Indicá si la retención se hace ANTES o DESPUÉS de pagar.'); return; }
     if (incluyeDesc) {
       if (descNum <= 0) { setError('Indicá el monto del descuento o desmarcá «El pago incluye descuento».'); return; }
       if (descNum > baseTotal) { setError('El descuento no puede superar el total de la OC.'); return; }
@@ -1886,15 +1886,15 @@ function MetodoPagoModal({
         )}
       </div>
 
-      {/* Flujo nuevo (30-10-2026): ¿se retiene ANTES o DESPUÉS de pagar? Decide si la OC va
-          primero a Retenciones ('antes') o a Tesorería ('despues'). Con el flujo apagado no aparece. */}
+      {/* Flujo nuevo (30-10-2026): ¿se retiene ANTES o DESPUÉS de pagar? Opcional (01-11-2026):
+          solo dice en qué cola de Retenciones aparece; el pago no se frena. Con el flujo apagado no aparece. */}
       {pideMomentoRet && (
-        <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderColor: retMomento ? 'var(--border)' : 'var(--warning)' }}>
-          <div className="card-title" style={{ marginBottom: '.45rem' }}>🧾 Retención <span className="muted" style={{ fontWeight: 400 }}>(obligatorio)</span></div>
+        <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>
+          <div className="card-title" style={{ marginBottom: '.45rem' }}>🧾 Retención <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></div>
           <div style={{ display: 'grid', gap: '.35rem' }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
               <input type="radio" name="ret-momento" checked={retMomento === 'antes'} onChange={() => setRetMomento('antes')} />
-              <span>Se retiene <strong>ANTES</strong> de pagar <span className="muted">(va primero a Retenciones · ⬇ el monto que paga Tesorería BAJA)</span></span>
+              <span>Se retiene <strong>ANTES</strong> de pagar <span className="muted">(aparece en Retenciones · si la retienen antes del pago, ⬇ el monto que paga Tesorería BAJA)</span></span>
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
               <input type="radio" name="ret-momento" checked={retMomento === 'despues'} onChange={() => setRetMomento('despues')} />
