@@ -1,7 +1,7 @@
 /* ============================================================
    MGG · Delivery · Vista de teléfono del motorizado (30-10-2026)
 
-   La OC que Tesorería pagó (y Retenciones retuvo, si tocaba) aparece «Por
+   La OC que Tesorería pagó (la retención no es requisito) aparece «Por
    tomar». El motorizado la ACEPTA (solo uno: si otro se adelantó, la base
    lo rechaza con su nombre), sube fotos al recibirla del proveedor, la
    marca EN RUTA y la ENTREGA en el almacén con fotos. Si no puede buscarla

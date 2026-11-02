@@ -1,7 +1,7 @@
 /* ============================================================
    MGG · Delivery · Panel central (30-10-2026)
 
-   La OC que Tesorería pagó (y Retenciones retuvo, si tocaba) la toma UN
+   La OC que Tesorería pagó (la retención no es requisito, 01-11-2026) la toma UN
    motorizado desde su teléfono, va en ruta y la entrega en el almacén. Acá
    se sigue todo desde la PC:
      Tablero      → por tomar / aceptados / en camino / entregados hoy, con
@@ -133,7 +133,7 @@ export function DeliveryPage() {
           <span className="aviso-icono">ℹ</span>
           <div>
             <strong>Delivery todavía no está conectado a Compras.</strong> Cuando la administradora lo active, acá llegarán las órdenes
-            pagadas por Tesorería (y retenidas, si corresponde). Mientras tanto las listas quedan vacías.
+            pagadas por Tesorería. Mientras tanto las listas quedan vacías.
           </div>
         </div>
       )}

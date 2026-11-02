@@ -12,9 +12,10 @@
    · «Por retornar»: lo que salió y vuelve; retorno total o parcial.
    · «Traslado entre almacenes»: pasa material directo a otro almacén.
    · «Reporte de stock»: lo que hay al cierre de un período.
-   Cada botón termina en su aviso para WhatsApp. Se mueve solo en los almacenes
-   de las sedes del usuario (sectorización); ver, ve todos. El stock que se
-   muestra y se valida es el DEL ALMACÉN (`stock_almacen`), no el global.
+   Cada botón termina en su aviso para WhatsApp. El almacenista con sede SOLO ve
+   (y mueve en) los almacenes de su sede (sectorización, 02-11-2026); los demás
+   almacenes solo aparecen como destino de un traslado. Sin sede, ve todos. El
+   stock que se muestra y se valida es el DEL ALMACÉN (`stock_almacen`), no el global.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
@@ -105,14 +106,23 @@ export function InventarioMovilView() {
   }, [cargarAlmacenes]);
   useRealtime(['almacenes'], () => { void cargarAlmacenes().catch(() => {}); });
 
-  // Almacén por defecto: el recordado si sigue activo; si no, el primero donde puede mover.
+  // Los almacenes que se eligen arriba: el almacenista con sede ve solo los suyos
+  // (02-11-2026, regla de la administradora); hasta saber de qué sede es cada uno, ninguno.
+  const visibles = useMemo<Almacen[] | null>(() => {
+    if (!almacenes) return null;
+    if (!sector.sectorizado) return almacenes;
+    if (!sector.listo) return null;
+    return almacenes.filter((a) => sector.puedeMover(a.nombre));
+  }, [almacenes, sector]);
+
+  // Almacén por defecto: el recordado si sigue visible; si no, el primero de los suyos.
   useEffect(() => {
-    if (!almacenes || !sector.listo) return;
-    if (sel && almacenes.some((a) => a.nombre === sel)) return;
-    const primero = almacenes.find((a) => sector.puedeMover(a.nombre)) ?? almacenes[0];
+    if (!visibles) return;
+    if (sel && visibles.some((a) => a.nombre === sel)) return;
+    const primero = visibles[0];
     setSel(primero?.nombre ?? '');
     if (!primero) setLoading(false);
-  }, [almacenes, sector, sel]);
+  }, [visibles, sel]);
 
   // Solo la última carga pinta: si se cambia de almacén a mitad, la anterior se descarta.
   const turno = useRef(0);
@@ -180,20 +190,19 @@ export function InventarioMovilView() {
       <AtajosTelefono actual={RUTA_INVENTARIO_TELEFONO} />
 
       {almacenes !== null && !almacenes.length && <p className="muted">No hay almacenes activos. Se crean desde Inventario en la PC.</p>}
+      {!!almacenes?.length && visibles !== null && !visibles.length && (
+        <p className="muted">Tu sede no tiene almacenes activos. Se crean desde Inventario en la PC.</p>
+      )}
 
-      {!!almacenes?.length && (
+      {!!visibles?.length && (
         <div className="surt-campo">
           <label htmlFor="inv-tel-almacen">Almacén</label>
           <select id="inv-tel-almacen" className="input surt-input" value={almacen}
             disabled={paso !== 'inicio'} onChange={(e) => elegirAlmacen(e.target.value)}>
             {!almacen && <option value="">Elegir…</option>}
-            {porSede(almacenes).map(([sede, as]) => (
+            {porSede(visibles).map(([sede, as]) => (
               <optgroup key={sede} label={sede}>
-                {as.map((a) => (
-                  <option key={a.id} value={a.nombre}>
-                    {nombreAlmacenVisible(a.nombre)}{sector.sectorizado && !sector.puedeMover(a.nombre) ? ' · solo ver' : ''}
-                  </option>
-                ))}
+                {as.map((a) => <option key={a.id} value={a.nombre}>{nombreAlmacenVisible(a.nombre)}</option>)}
               </optgroup>
             ))}
           </select>

@@ -48,7 +48,7 @@ export function useDeliveryConectado(): boolean | null {
 }
 
 /**
- * Los pedidos: los disponibles (OC pagadas y retenidas sin tomar), los en curso y,
+ * Los pedidos: los disponibles (OC pagadas sin tomar; la retención no es requisito), los en curso y,
  * con `incluirCerrados`, los entregados y cancelados (histórico).
  */
 export async function listPedidosDelivery(incluirCerrados = false): Promise<PedidoDelivery[]> {
