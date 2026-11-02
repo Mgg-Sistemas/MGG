@@ -8,7 +8,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 import type { Orden } from '@/shared/lib/types';
 import { elegirComprobanteTesoreria } from '@/modules/pedidos/comprobanteTesoreria';
-import { MAX_FOTOS_DELIVERY, type FotoDelivery, type PedidoDelivery, type UbicacionDelivery } from './delivery';
+import { MAX_FOTOS_DELIVERY, type FotoDelivery, type PedidoDelivery, type TipoDelivery, type UbicacionDelivery } from './delivery';
 
 const BUCKET = 'delivery-fotos';
 
@@ -22,6 +22,7 @@ function normalizar(r: Record<string, unknown>): PedidoDelivery {
   const p = r as unknown as PedidoDelivery;
   return {
     ...p,
+    tipo: p.tipo === 'retiro_almacen' ? 'retiro_almacen' : 'oc',
     total: Number(p.total) || 0,
     items: Array.isArray(r.items) ? (r.items as PedidoDelivery['items']) : [],
     fotos_recibo: Array.isArray(r.fotos_recibo) ? (r.fotos_recibo as FotoDelivery[]) : [],
@@ -48,7 +49,8 @@ export function useDeliveryConectado(): boolean | null {
 }
 
 /**
- * Los pedidos: los disponibles (OC pagadas sin tomar; la retención no es requisito), los en curso y,
+ * Los pedidos: los disponibles (OC pagadas sin tomar; la retención no es requisito; y, desde el 02-11,
+ * los retiros en Los Pinos de las SP que almacén atiende), los en curso y,
  * con `incluirCerrados`, los entregados y cancelados (histórico).
  */
 export async function listPedidosDelivery(incluirCerrados = false): Promise<PedidoDelivery[]> {
@@ -57,9 +59,9 @@ export async function listPedidosDelivery(incluirCerrados = false): Promise<Pedi
   return ((data ?? []) as Record<string, unknown>[]).map(normalizar);
 }
 
-/** Tomar el pedido. Si otro delivery lo tomó primero, la base lo rechaza con su nombre. */
-export async function tomarPedido(ordenId: string): Promise<void> {
-  const { error } = await supabase.rpc('delivery_tomar', { p_orden_id: ordenId });
+/** Tomar el pedido (la OC, o el retiro en Los Pinos de una SP). Si otro delivery lo tomó primero, la base lo rechaza con su nombre. */
+export async function tomarPedido(ordenId: string, tipo: TipoDelivery = 'oc'): Promise<void> {
+  const { error } = await supabase.rpc('delivery_tomar', { p_orden_id: ordenId, p_tipo: tipo });
   if (error) throw err(error, 'No se pudo tomar el pedido.');
 }
 
@@ -128,13 +130,13 @@ export async function listUbicaciones(): Promise<UbicacionDelivery[]> {
 
 /** Histórico directo de la tabla (incluye cada cancelación aunque la OC se haya retomado). */
 export async function listHistorialDelivery(desde: string, hasta: string): Promise<Array<{
-  id: string; orden_id: string; estado: string; repartidor_nombre: string | null; repartidor_email: string | null;
+  id: string; orden_id: string; tipo?: string | null; estado: string; repartidor_nombre: string | null; repartidor_email: string | null;
   aceptado_en: string; en_ruta_en: string | null; entregado_en: string | null; cancelado_en: string | null;
   motivo_cancel: string | null; almacen_entrega: string | null;
   orden: { oc_codigo: string | null; codigo: string; total: number; moneda: string | null; proveedor_id: string | null } | null;
 }>> {
   const { data, error } = await supabase.from('delivery_pedidos')
-    .select('id, orden_id, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, orden:ordenes(oc_codigo, codigo, total, moneda, proveedor_id)')
+    .select('id, orden_id, tipo, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, orden:ordenes(oc_codigo, codigo, total, moneda, proveedor_id)')
     .gte('aceptado_en', `${desde}T00:00:00-04:00`).lte('aceptado_en', `${hasta}T23:59:59-04:00`)
     .order('aceptado_en', { ascending: false });
   if (error) throw err(error, 'No se pudo leer el histórico.');

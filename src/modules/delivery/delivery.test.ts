@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado, minutosEntre, resumenPorDelivery, type PedidoDelivery,
+  claveDe, esRetiro, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado, minutosEntre, ocDe, resumenPorDelivery, type PedidoDelivery,
 } from './delivery';
 
 const base: PedidoDelivery = {
@@ -60,5 +60,22 @@ describe('Delivery · resumen por delivery', () => {
     expect(r[0]).toEqual({ repartidor: 'CARLOS MENDOZA', entregados: 2, cancelados: 1, enCurso: 0, minutosPromedio: 60 });
     expect(r[1]).toMatchObject({ repartidor: 'ANA', enCurso: 1 });
     expect(minutosEntre(null, '2026-10-30T13:00:00Z')).toBeNull();
+  });
+});
+
+describe('retiro en Los Pinos (02-11-2026)', () => {
+  const retiro: PedidoDelivery = { ...base, tipo: 'retiro_almacen', oc_codigo: null, proveedor_nombre: 'ALMACÉN LOS PINOS' };
+  it('la misma orden tiene su OC y su retiro por separado', () => {
+    expect(claveDe(base)).toBe('oc:o1');
+    expect(claveDe(retiro)).toBe('retiro_almacen:o1');
+    expect(esRetiro(base)).toBe(false);
+    expect(esRetiro(retiro)).toBe(true);
+  });
+  it('el retiro se nombra por la SP y dice dónde buscarlo', () => {
+    expect(ocDe(retiro)).toBe('SP-2026-0300 · Retiro Los Pinos');
+    const m = mensajeAceptado(retiro, 'CARLOS');
+    expect(m).toContain('🏬 *Buscar en:* ALMACÉN LOS PINOS');
+    expect(m).not.toContain('Proveedor');
+    expect(mensajeAceptado(base, 'CARLOS')).toContain('🏭 *Proveedor:*');
   });
 });

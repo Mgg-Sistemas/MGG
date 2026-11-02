@@ -7,7 +7,7 @@
    cada paso cuando se quiere volver a verlo.
    ============================================================ */
 import {
-  mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado, type PedidoDelivery,
+  claveDe, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado, type PedidoDelivery,
 } from './delivery';
 
 /* ── Ubicación ── */
@@ -99,14 +99,14 @@ export function armarFeed(activos: PedidoDelivery[], conCerrados: PedidoDelivery
   const libres: PedidoFeed[] = [];
   const ajenos: PedidoFeed[] = [];
   for (const p of activos) {
-    vistos.add(p.orden_id);
+    vistos.add(claveDe(p));
     if (p.estado === 'por_tomar' || p.estado === 'cancelado') libres.push({ p, disponible: true });
     else if (p.es_mio) mios.push({ p, disponible: false });
     else ajenos.push({ p, disponible: false });
   }
   mios.sort((a, b) => (a.p.estado === 'en_ruta' ? 0 : 1) - (b.p.estado === 'en_ruta' ? 0 : 1));
   const entregados = conCerrados
-    .filter((p) => !vistos.has(p.orden_id) && p.estado === 'entregado')
+    .filter((p) => !vistos.has(claveDe(p)) && p.estado === 'entregado')
     .sort((a, b) => t(b.entregado_en) - t(a.entregado_en))
     .slice(0, MAX_ENTREGADOS_TELEFONO)
     .map((p) => ({ p, disponible: false }));

@@ -32,7 +32,7 @@ import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import {
   ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, MOTIVOS_CANCELACION, fechaHoraVE, mensajeAceptado, mensajeCancelado,
-  mensajeEnRuta, mensajeEntregado, montoTxt, ocDe, type FotoDelivery, type PedidoDelivery,
+  claveDe, esRetiro, mensajeEnRuta, mensajeEntregado, montoTxt, ocDe, type FotoDelivery, type PedidoDelivery,
 } from './delivery';
 import {
   cancelarPedido, compartirUbicacion, comprobantePagoDelivery, listPedidosDelivery, marcarEnRuta, marcarEntregado,
@@ -127,7 +127,7 @@ export function DeliveryMovilView() {
   const visibles = useMemo(() => feed.filter((f) => enChip(f, chip)), [feed, chip]);
   const cuenta = useMemo(() => Object.fromEntries(CHIPS.map((c) => [c.key, feed.filter((f) => enChip(f, c.key)).length])) as Record<ChipDelivery, number>, [feed]);
   const enCurso = trabajoEnCurso(feed);
-  const pedidoAccion = accion ? feed.find((f) => f.p.orden_id === accion.ordenId)?.p ?? null : null;
+  const pedidoAccion = accion ? feed.find((f) => claveDe(f.p) === accion.ordenId)?.p ?? null : null;
 
   // Si el pedido de la acción dejó de estar en curso (otra pestaña, la PC), se vuelve a la lista.
   useEffect(() => {
@@ -142,9 +142,9 @@ export function DeliveryMovilView() {
   function volver() { setAccion(null); setListo(null); }
 
   async function tomar(p: PedidoDelivery) {
-    setOcupado(p.orden_id);
+    setOcupado(claveDe(p));
     try {
-      await tomarPedido(p.orden_id);
+      await tomarPedido(p.orden_id, p.tipo ?? 'oc');
       toast(`Tomaste la orden ${ocDe(p)}.`, 'success');
       hecho('Pedido aceptado', mensajeAceptado(p, quien));
     } catch (e) {
@@ -155,7 +155,7 @@ export function DeliveryMovilView() {
 
   async function enRuta(p: PedidoDelivery) {
     if (!p.pedido_id) return;
-    setOcupado(p.orden_id);
+    setOcupado(claveDe(p));
     try {
       await marcarEnRuta(p.pedido_id);
       toast('Marcado en ruta.', 'success');
@@ -263,16 +263,16 @@ export function DeliveryMovilView() {
           )}
 
           {visibles.map((f) => (
-            <TarjetaPedido key={f.p.orden_id} f={f} canWrite={canWrite} ocupado={ocupado === f.p.orden_id} bloqueado={!!ocupado}
+            <TarjetaPedido key={claveDe(f.p)} f={f} canWrite={canWrite} ocupado={ocupado === claveDe(f.p)} bloqueado={!!ocupado}
               onTomar={() => void tomar(f.p)}
               onEnRuta={() => void enRuta(f.p)}
-              onCancelar={() => { setListo(null); setAccion({ tipo: 'cancelar', ordenId: f.p.orden_id }); }}
-              onEntregar={() => { setListo(null); setAccion({ tipo: 'entregar', ordenId: f.p.orden_id }); }}
+              onCancelar={() => { setListo(null); setAccion({ tipo: 'cancelar', ordenId: claveDe(f.p) }); }}
+              onEntregar={() => { setListo(null); setAccion({ tipo: 'entregar', ordenId: claveDe(f.p) }); }}
               onVerMensaje={() => verMensaje(f.p)}
               onComprobante={() => setComprobanteDe(f.p)}
               onFotos={() => void reload().catch(() => {})}
-              generandoPdf={generando === f.p.orden_id} pdfBloqueado={!!generando}
-              onPdf={() => verPdf(f.p.orden_id, () => pdfComprobanteDelivery(f.p, nombreAlmacenVisible))}
+              generandoPdf={generando === claveDe(f.p)} pdfBloqueado={!!generando}
+              onPdf={() => verPdf(claveDe(f.p), () => pdfComprobanteDelivery(f.p, nombreAlmacenVisible))}
               onReporte={() => setReporte({ titulo: `Reporte · ${ocDe(f.p)}`, texto: mensajeReporteDelivery(f.p, nombreAlmacenVisible) })}
             />
           ))}
@@ -312,7 +312,7 @@ function TarjetaPedido({
       <div className="dlv-card-cab">
         <div style={{ minWidth: 0 }}>
           <div className="dlv-oc">{ocDe(p)}</div>
-          {p.pagada_en && <div className="dlv-sub">Pagada {fechaHoraVE(p.pagada_en)}</div>}
+          {p.pagada_en && <div className="dlv-sub">{esRetiro(p) ? 'Almacén revisó' : 'Pagada'} {fechaHoraVE(p.pagada_en)}</div>}
         </div>
         <div className="dlv-badges">
           {p.urgente && <span className="badge danger">🚨 Urgente</span>}
@@ -321,21 +321,22 @@ function TarjetaPedido({
       </div>
 
       <div className="dlv-prov">
-        <div className="nombre">🏭 {p.proveedor_nombre ?? 'Proveedor sin nombre'}</div>
+        <div className="nombre">{esRetiro(p) ? '🏬' : '🏭'} {p.proveedor_nombre ?? 'Proveedor sin nombre'}</div>
+        {esRetiro(p) && <div className="dlv-sub">Retiro en almacén: lo que Los Pinos entrega de la solicitud. Llévalo a donde se necesita.</div>}
         {p.proveedor_contacto && <div className="dlv-sub">Contacto: {p.proveedor_contacto}</div>}
         {p.proveedor_direccion && (mapa
           ? <a className="dir" href={mapa} target="_blank" rel="noopener noreferrer">📍 {p.proveedor_direccion}</a>
           : <div className="dlv-sub">📍 {p.proveedor_direccion}</div>)}
-        {!p.proveedor_direccion && <div className="dlv-sub">Sin dirección cargada: pregúntale al analista.</div>}
+        {!p.proveedor_direccion && !esRetiro(p) && <div className="dlv-sub">Sin dirección cargada: pregúntale al analista.</div>}
       </div>
 
       {mioEnCurso && (
         <div className="dlv-llamar">
           {telProv
-            ? <a className="btn btn-ghost btn-grande" href={telProv}>📞 Llamar proveedor<small>{p.proveedor_telefono}</small></a>
-            : <span className="btn btn-ghost btn-grande" aria-disabled>📞 Proveedor<small>sin teléfono</small></span>}
+            ? <a className="btn btn-ghost btn-grande" href={telProv}>📞 {esRetiro(p) ? 'Llamar almacén' : 'Llamar proveedor'}<small>{p.proveedor_telefono}</small></a>
+            : <span className="btn btn-ghost btn-grande" aria-disabled>📞 {esRetiro(p) ? 'Almacén' : 'Proveedor'}<small>sin teléfono</small></span>}
           {telAnalista
-            ? <a className="btn btn-ghost btn-grande" href={telAnalista}>📞 Llamar analista<small>{p.analista_nombre ?? p.analista_email ?? ''}</small></a>
+            ? <a className="btn btn-ghost btn-grande" href={telAnalista}>📞 {esRetiro(p) ? 'Llamar solicitante' : 'Llamar analista'}<small>{p.analista_nombre ?? p.analista_email ?? ''}</small></a>
             : <span className="btn btn-ghost btn-grande" aria-disabled>📞 {p.analista_nombre ?? 'Analista'}<small>sin teléfono</small></span>}
         </div>
       )}
@@ -347,7 +348,7 @@ function TarjetaPedido({
           ))}
         </ul>
       )}
-      <div className="dlv-total"><span>Total</span><span>{montoTxt(p.total, p.moneda)}</span></div>
+      {!esRetiro(p) && <div className="dlv-total"><span>Total</span><span>{montoTxt(p.total, p.moneda)}</span></div>}
       {(p.almacen_entrega || p.almacen_destino) && (
         <div className="dlv-sub">🏬 {p.estado === 'entregado' ? 'Entregado en' : 'Entregar en'}: <strong>{nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</strong></div>
       )}
@@ -369,7 +370,7 @@ function TarjetaPedido({
       )}
 
       <div className="dlv-acciones">
-        <button type="button" className="btn btn-ghost" onClick={onComprobante}>🧾 Ver comprobante de pago</button>
+        {!esRetiro(p) && <button type="button" className="btn btn-ghost" onClick={onComprobante}>🧾 Ver comprobante de pago</button>}
         {canWrite && disponible && (
           <button type="button" className="btn btn-primary" disabled={bloqueado} onClick={onTomar}>
             {ocupado ? 'Tomando…' : '✓ Aceptar pedido'}
@@ -411,7 +412,7 @@ function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
   const [subiendo, setSubiendo] = useState(false);
   const faltan = MAX_FOTOS_DELIVERY - fotos.length;
   const titulo = tipo === 'recibo' ? '📷 Fotos al recibir' : '📷 Fotos de la entrega';
-  const id = `dlv-fotos-${tipo}-${p.orden_id}`;
+  const id = `dlv-fotos-${tipo}-${claveDe(p)}`;
 
   async function agregar(lista: FileList | null) {
     const archivos = Array.from(lista ?? []);

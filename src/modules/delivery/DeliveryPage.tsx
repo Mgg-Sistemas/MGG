@@ -23,7 +23,7 @@ import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import {
-  ESTADO_DELIVERY, MOTIVOS_CANCELACION, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe,
+  ESTADO_DELIVERY, MOTIVOS_CANCELACION, claveDe, esRetiro, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe,
   type FotoDelivery, type PedidoDelivery,
 } from './delivery';
 import {
@@ -249,7 +249,7 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
                 {lista.map((p) => {
                   const est = ESTADO_DELIVERY[p.estado];
                   const nFotos = p.fotos_recibo.length + p.fotos_entrega.length;
-                  const clave = `${p.orden_id}-${p.pedido_id ?? 'libre'}`;
+                  const clave = `${claveDe(p)}-${p.pedido_id ?? 'libre'}`;
                   const fin = p.estado === 'cancelado' ? p.cancelado_en : p.entregado_en;
                   return (
                     <tr key={clave}>
@@ -268,16 +268,16 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
                         {p.estado === 'cancelado' && p.motivo_cancel && <div className="muted" style={{ fontSize: '.75rem' }}>{p.motivo_cancel}</div>}
                       </td>
                       <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
-                        {p.pagada_en && <div>💰 Pagada {fechaHoraVE(p.pagada_en)}</div>}
+                        {p.pagada_en && <div>{esRetiro(p) ? '🏬 Almacén revisó' : '💰 Pagada'} {fechaHoraVE(p.pagada_en)}</div>}
                         {p.aceptado_en && <div>🛵 Tomada {fechaHoraVE(p.aceptado_en)}</div>}
                         {p.en_ruta_en && <div>🚚 En ruta {fechaHoraVE(p.en_ruta_en)}</div>}
                         {fin && <div>{p.estado === 'cancelado' ? '⛔' : '✅'} {fechaHoraVE(fin)}</div>}
                         {p.estado === 'entregado' && <div className="muted">⏳ {duracionTxt(minutosEntre(p.aceptado_en, p.entregado_en))}</div>}
                       </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>{montoTxt(p.total, p.moneda)}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{esRetiro(p) ? <span className="badge info">Retiro</span> : montoTxt(p.total, p.moneda)}</td>
                       <td>
                         <div style={{ display: 'flex', gap: '.3rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setComprobante(p)} title="Comprobante que adjuntó Tesorería al pagar">🧾 Comprobante de pago</button>
+                          {!esRetiro(p) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setComprobante(p)} title="Comprobante que adjuntó Tesorería al pagar">🧾 Comprobante de pago</button>}
                           <button type="button" className="btn btn-ghost btn-sm" disabled={!nFotos} onClick={() => setFotos(p)} title={nFotos ? 'Ver fotos' : 'Sin fotos todavía'}>📷 {nFotos}</button>
                           <button type="button" className="btn btn-ghost btn-sm" disabled={!!generando} title="Comprobante del pedido en vista previa"
                             onClick={() => abrirPdf(clave, () => pdfComprobanteDelivery(p), setGenerando)}>

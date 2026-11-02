@@ -19,8 +19,13 @@ export interface FotoDelivery { path: string; filename: string }
 export interface EventoDelivery { at: string; evento: string; actor?: string | null; motivo?: string | null }
 
 /** Una fila de `delivery_pedidos_listado`: la OC con su toma (si la hay). */
+/** 'oc' = buscar la OC pagada donde el proveedor · 'retiro_almacen' = buscar en Los Pinos lo que almacén entrega de una SP (02-11-2026). */
+export type TipoDelivery = 'oc' | 'retiro_almacen';
+
 export interface PedidoDelivery {
   orden_id: string;
+  /** Sin tipo (filas viejas / pruebas) = 'oc'. */
+  tipo?: TipoDelivery;
   oc_codigo: string | null;
   codigo: string;
   total: number;
@@ -99,8 +104,23 @@ export const UBICACION_VIEJA_MS = 10 * 60 * 1000;
 
 export const MAX_FOTOS_DELIVERY = 6;
 
-export function ocDe(p: Pick<PedidoDelivery, 'oc_codigo' | 'codigo'>): string {
+export function esRetiro(p: Pick<PedidoDelivery, 'tipo'>): boolean {
+  return p.tipo === 'retiro_almacen';
+}
+
+/** Identidad del pedido en pantalla: la misma orden puede tener su retiro y su OC, cada uno aparte. */
+export function claveDe(p: Pick<PedidoDelivery, 'orden_id' | 'tipo'>): string {
+  return `${p.tipo ?? 'oc'}:${p.orden_id}`;
+}
+
+export function ocDe(p: Pick<PedidoDelivery, 'oc_codigo' | 'codigo'> & Partial<Pick<PedidoDelivery, 'tipo'>>): string {
+  if (p.tipo === 'retiro_almacen') return `${p.codigo} · Retiro Los Pinos`;
   return p.oc_codigo || p.codigo;
+}
+
+/** «🏭 Proveedor: …» o, en un retiro, «🏬 Buscar en: Almacén Los Pinos». */
+function lineaOrigen(p: PedidoDelivery): string {
+  return esRetiro(p) ? `🏬 *Buscar en:* ${p.proveedor_nombre ?? 'ALMACÉN LOS PINOS'}` : `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`;
 }
 
 export function montoTxt(n: number, moneda: string): string {
@@ -140,7 +160,7 @@ export function mensajeAceptado(p: PedidoDelivery, repartidor: string, cuando?: 
     `🔹 *Orden:* ${ocDe(p)}`,
     p.urgente ? '🚨 *Requerimiento:* URGENTE' : '🟢 *Requerimiento:* Normal',
     `👤 *Delivery:* ${repartidor}`,
-    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
+    lineaOrigen(p),
   ];
   if (p.proveedor_direccion) l.push(`📍 *Dirección:* ${p.proveedor_direccion}`);
   if (p.almacen_destino) l.push(`🏬 *Entregar en:* ${p.almacen_destino}`);
@@ -156,7 +176,7 @@ export function mensajeCancelado(p: PedidoDelivery, repartidor: string, motivo: 
     '⛔ *PEDIDO CANCELADO POR DELIVERY*',
     `🔹 *Orden:* ${ocDe(p)}`,
     `👤 *Delivery:* ${repartidor}`,
-    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
+    lineaOrigen(p),
     '',
     `❌ *Motivo:* ${motivo}`,
   ];
@@ -171,7 +191,7 @@ export function mensajeEnRuta(p: PedidoDelivery, repartidor: string, cuando?: st
     '🚚 *DELIVERY EN RUTA*',
     `🔹 *Orden:* ${ocDe(p)}`,
     `👤 *Delivery:* ${repartidor}`,
-    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
+    lineaOrigen(p),
   ];
   if (p.fotos_recibo?.length) l.push(`📷 *Fotos al recibir:* ${p.fotos_recibo.length}`);
   if (p.almacen_destino) l.push(`🏬 *Va hacia:* ${p.almacen_destino}`);
@@ -185,7 +205,7 @@ export function mensajeEntregado(p: PedidoDelivery, repartidor: string, almacen:
     '✅ *PEDIDO ENTREGADO EN ALMACÉN*',
     `🔹 *Orden:* ${ocDe(p)}`,
     `👤 *Delivery:* ${repartidor}`,
-    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
+    lineaOrigen(p),
     `🏬 *Almacén:* ${almacen}`,
   ];
   const items = lineasItems(p);
