@@ -188,7 +188,47 @@ export function textoOrdenPago(
  * cuántos productos, qué condición y cuánto—. No lleva método de pago (todavía no se indica) ni
  * «Autorizó» (todavía no hay quien). Mismas reglas de emojis que el de pagar: sin selector U+FE0F.
  */
-export function textoOrdenAprobacion(orden: Orden, proveedorNombre: string, personas?: PersonasOrden): string {
+/** Una cotización de la orden, para el mensaje «para aprobar» (02-11-2026). */
+export interface CotizacionMensaje {
+  proveedor: string;
+  /** Monto final a pagar de la cotización, en la moneda de la orden. */
+  monto: number;
+  elegida: boolean;
+  /** Nombre y apellido de quien la escogió (solo la elegida). */
+  elegidaPor?: string | null;
+}
+
+/**
+ * «Cotización 1: PROVEEDOR · $ · Bs», una por cotización, y qué analista escogió cuál
+ * (02-11-2026, pedido de la administradora). El monto sale en $ y en Bs con la tasa BCV
+ * del día; sin tasa, solo en la moneda de la orden.
+ */
+export function lineasCotizaciones(cotizaciones: CotizacionMensaje[], monedaOrden: string | null | undefined, tasaBs?: number | null): string[] {
+  if (!cotizaciones.length) return [];
+  const enBs = (monedaOrden ?? 'USD').toUpperCase() === 'BS';
+  const tasa = Number(tasaBs) > 0 ? Number(tasaBs) : null;
+  const montos = (n: number) => {
+    const usd = enBs ? (tasa ? n / tasa : null) : n;
+    const bs = enBs ? n : (tasa ? n * tasa : null);
+    return [usd != null ? montoTxt(usd, '$') : null, bs != null ? montoTxt(bs, 'Bs') : null].filter(Boolean).join(' · ');
+  };
+  const L: string[] = ['', `📊 *COTIZACIONES (${cotizaciones.length}):*`];
+  cotizaciones.forEach((c, i) => {
+    L.push(`• *Cotización ${i + 1}:* ${c.proveedor || '—'} · ${montos(c.monto)}${c.elegida ? ' ✅' : ''}`);
+  });
+  const i = cotizaciones.findIndex((c) => c.elegida);
+  if (i >= 0) {
+    const quien = (cotizaciones[i].elegidaPor ?? '').trim();
+    L.push(`✅ *${quien ? `El analista ${quien} escogió` : 'Se escogió'} la Cotización ${i + 1}* (${cotizaciones[i].proveedor || '—'})`);
+  }
+  L.push('');
+  return L;
+}
+
+export function textoOrdenAprobacion(
+  orden: Orden, proveedorNombre: string, personas?: PersonasOrden,
+  extra?: { cotizaciones?: CotizacionMensaje[]; tasaBs?: number | null },
+): string {
   const mon = (orden.moneda ?? 'USD').toUpperCase() === 'BS' ? 'Bs' : '$';
   const detalle = detalleTxt(orden);
   const nota = (orden.notas ?? '').trim();
@@ -205,6 +245,7 @@ export function textoOrdenAprobacion(orden: Orden, proveedorNombre: string, pers
   // Solo CUÁNTOS productos son (pedido del 20-10-2026): el detalle de cada uno se ve en la OC.
   if (productos.length) L.push(`📦 *Productos:* ${productos.length}`);
   if (orden.condiciones_pago) L.push(`📋 *Condición:* ${labelCondicionPago(orden.condiciones_pago)}`);
+  L.push(...lineasCotizaciones(extra?.cotizaciones ?? [], orden.moneda, extra?.tasaBs));
   L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}`);
   L.push('🏢 *MINERAL GROUP GUAYANA C.A.*');
   return L.join('\n');

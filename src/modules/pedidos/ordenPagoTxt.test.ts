@@ -254,6 +254,33 @@ describe('quién solicita, quién autorizó y el analista de compras', () => {
   });
 });
 
+describe('textoOrdenAprobacion · cotizaciones y quién escogió (02-11-2026)', () => {
+  const pend = { ...base, estado: 'oc_creada', metodo_pago: null, condiciones_pago: 'contado', urgente: false } as unknown as Orden;
+  const cotizaciones = [
+    { proveedor: 'FERREMAX', monto: 100, elegida: false },
+    { proveedor: 'ACEROMASTER', monto: 82.36, elegida: true, elegidaPor: 'NAZARET SALAZAR' },
+    { proveedor: 'GOMOR', monto: 120, elegida: false },
+  ];
+  it('una por cotización con $ y Bs, y quién escogió cuál', () => {
+    const l = textoOrdenAprobacion(pend, 'ACEROMASTER', undefined, { cotizaciones, tasaBs: 100 }).split('\n');
+    expect(l).toContain('📊 *COTIZACIONES (3):*');
+    expect(l).toContain('• *Cotización 1:* FERREMAX · $100,00 · Bs 10.000,00');
+    expect(l).toContain('• *Cotización 2:* ACEROMASTER · $82,36 · Bs 8.236,00 ✅');
+    expect(l).toContain('• *Cotización 3:* GOMOR · $120,00 · Bs 12.000,00');
+    expect(l).toContain('✅ *El analista NAZARET SALAZAR escogió la Cotización 2* (ACEROMASTER)');
+  });
+  it('orden en Bs: el $ sale con la tasa; sin tasa, solo la moneda de la orden', () => {
+    const enBs = { ...pend, moneda: 'Bs' } as Orden;
+    expect(textoOrdenAprobacion(enBs, 'X', undefined, { cotizaciones: [{ proveedor: 'A', monto: 1000, elegida: true }], tasaBs: 100 }))
+      .toContain('• *Cotización 1:* A · $10,00 · Bs 1.000,00 ✅');
+    expect(textoOrdenAprobacion(pend, 'X', undefined, { cotizaciones: [{ proveedor: 'A', monto: 5, elegida: false }] }))
+      .toContain('• *Cotización 1:* A · $5,00');
+  });
+  it('sin cotizaciones el mensaje queda como antes', () => {
+    expect(textoOrdenAprobacion(pend, 'X')).not.toContain('COTIZACIONES');
+  });
+});
+
 describe('textoOrdenAprobacion · para pedirle la aprobación al Gerente', () => {
   const pend = { ...base, estado: 'oc_creada', metodo_pago: null, condiciones_pago: 'contado', urgente: false } as unknown as Orden;
   const personas = { solicita: 'JAIME CAMPO', analista: 'NAZARET SALAZAR', autorizo: 'NO DEBE SALIR' };

@@ -6,7 +6,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { errorMotivoCambio, lineaCambioProveedor, lineaReaperturaOc } from './cambioProveedor';
-import { textoOrdenAprobacion, textoOrdenPago } from './ordenPagoTxt';
+import { textoOrdenAprobacion, textoOrdenPago, type CotizacionMensaje } from './ordenPagoTxt';
+import { montoFinalOferta } from './score';
 import { MensajeWhatsappModal } from './MensajeWhatsappModal';
 import { FichaEquipoCompras } from './FichaEquipoCompras';
 import { MAX_MINIMIZADAS, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
@@ -116,7 +117,7 @@ import { OfertasComparativa } from './OfertasComparativa';
 import { AsignarProveedoresModal } from './AsignarProveedoresModal';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { AgregarProductoCompra } from './AgregarProductoCompra';
-import { ordenesConOfertasDe } from './ordenDeOfertas';
+import { ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
 import { avisoDeCuadre, desglosarOc } from './cuadreOc';
 import { etiquetaAjuste, etiquetaIva, ivaDesdePorcentaje, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
 import { fijarNumeroAdministracionProveedor } from '@/modules/proveedores/numeroAdministracion.repository';
@@ -2926,10 +2927,26 @@ function OrdenDetailModal({
     autorizo: o.oc_aprobada_por ? persona(o.oc_aprobada_por, personaMap, o.oc_aprobada_en) : null,
   });
   const textoPago = () => textoOrdenPago(o, nombreProveedorMsg(), personasMsg(), { tasaBs: tasaHoyBs });
-  const textoAprobacion = () => textoOrdenAprobacion(o, nombreProveedorMsg(), personasMsg());
+  // «Para aprobar» (02-11-2026): todas las cotizaciones con su monto en $ y Bs, y qué analista
+  // escogió cuál. Se leen al tocar el botón; si fallan, sale el mensaje sin ellas.
+  const textoAprobacion = async () => {
+    let cotizaciones: CotizacionMensaje[] = [];
+    try {
+      const ofs = unificarPorProveedor(await listOfertasDeOrdenes(ordenesConOfertasDe(o)), ordenesConOfertasDe(o)[0]);
+      cotizaciones = ofs
+        .map((of) => ({
+          proveedor: proveedorMap.get(of.proveedor_id)?.razon_social ?? '—',
+          monto: montoFinalOferta(of).final,
+          elegida: of.estado === 'aceptada',
+          elegidaPor: of.estado === 'aceptada' && of.decidida_por_email ? persona(of.decidida_por_email, personaMap, of.decidida_en) : null,
+        }))
+        .sort((a, b) => a.monto - b.monto);
+    } catch { /* sin cotizaciones: el mensaje sale como antes */ }
+    return textoOrdenAprobacion(o, nombreProveedorMsg(), personasMsg(), { cotizaciones, tasaBs: tasaHoyBs });
+  };
   // Abre la ventana «Avisar» (la de Combustible): se ve el mensaje y se elige copiarlo o mandarlo.
-  const botonWhatsapp = (texto: () => string, etiqueta: string, titulo: string, tituloVentana: string) => (
-    <button type="button" className="btn btn-ghost" title={titulo} onClick={() => setMensajeWs({ titulo: tituloVentana, texto: texto() })}>
+  const botonWhatsapp = (texto: () => string | Promise<string>, etiqueta: string, titulo: string, tituloVentana: string) => (
+    <button type="button" className="btn btn-ghost" title={titulo} onClick={() => { void Promise.resolve(texto()).then((t) => setMensajeWs({ titulo: tituloVentana, texto: t })); }}>
       {etiqueta}
     </button>
   );
