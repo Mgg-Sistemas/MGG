@@ -311,6 +311,8 @@ function TarjetaPedido({
   const mapa = mapaHref(p.proveedor_direccion);
   // Lo mío, en cualquier paso (si está libre otra vez y es mío, es porque yo lo cancelé).
   const puedeVerMensaje = p.es_mio;
+  // 02-11-2026: la tarjeta muestra cuántos productos son; la lista se abre con «Ver orden».
+  const [verOrden, setVerOrden] = useState(false);
 
   return (
     <article className={`dlv-card${mioEnCurso ? ' mio' : ''}${p.urgente ? ' urgente' : ''}`}>
@@ -347,6 +349,14 @@ function TarjetaPedido({
       )}
 
       {!!items.length && (
+        <div className="dlv-orden">
+          <span>📦 <strong>{items.length}</strong> {items.length === 1 ? 'producto' : 'productos'}</span>
+          <button type="button" className="btn btn-ghost btn-sm" aria-expanded={verOrden} onClick={() => setVerOrden((v) => !v)}>
+            {verOrden ? '▲ Ocultar orden' : '📋 Ver orden'}
+          </button>
+        </div>
+      )}
+      {verOrden && !!items.length && (
         <ul className="dlv-items">
           {items.map((i, k) => (
             <li key={`${i.nombre}-${k}`}><span>{i.nombre}</span><span>{cant(i.cantidad)}{i.unidad ? ` ${i.unidad}` : ''}</span></li>
