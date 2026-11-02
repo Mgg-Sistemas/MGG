@@ -215,7 +215,11 @@ export function mensajeEnRuta(p: PedidoDelivery, repartidor: string, cuando?: st
 }
 
 /** Entregó en el almacén. */
-export function mensajeEntregado(p: PedidoDelivery, repartidor: string, almacen: string, nota?: string | null, cuando?: string | null): string {
+export function mensajeEntregado(
+  p: PedidoDelivery, repartidor: string, almacen: string, nota?: string | null, cuando?: string | null,
+  /** Cómo quedó en inventario al entregar (02-11-2026): «Recibida en LOS PINOS» o por qué no. */
+  inventario?: string | null,
+): string {
   const l = [
     '✅ *PEDIDO ENTREGADO EN ALMACÉN*',
     `🔹 *Orden:* ${ocDe(p)}`,
@@ -226,6 +230,7 @@ export function mensajeEntregado(p: PedidoDelivery, repartidor: string, almacen:
   const items = lineasItems(p);
   if (items.length) l.push('', `📦 *Productos (${items.length}):*`, ...items);
   if (p.fotos_entrega?.length) l.push(`📷 *Fotos de la entrega:* ${p.fotos_entrega.length}`);
+  if (inventario?.trim()) l.push(`📥 *Inventario:* ${inventario.trim()}`);
   if (nota?.trim()) l.push(`📝 *Nota:* ${nota.trim()}`);
   const t = minutosEntre(p.aceptado_en, cuando ?? new Date().toISOString());
   if (t != null) l.push(`⏳ *Tiempo desde que lo tomó:* ${t} min`);

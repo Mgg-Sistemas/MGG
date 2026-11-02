@@ -19,11 +19,9 @@ import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { RUTA_TELEFONO } from '@/modules/auth/vistasTelefono';
-import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
-import { SIN_SEDE, nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
+import { DESTINOS_RECEPCION, nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useQuien } from '@/shared/lib/directorioUsuarios';
-import type { Almacen } from '@/shared/lib/types';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
@@ -35,7 +33,7 @@ import {
   claveDe, esRetiro, mensajeEnRuta, mensajeEntregado, mensajeNoDisponible, montoTxt, ocDe, type FotoDelivery, type PedidoDelivery,
 } from './delivery';
 import {
-  cancelarPedido, compartirUbicacion, marcarNoDisponible, comprobantePagoDelivery, listPedidosDelivery, marcarEnRuta, marcarEntregado,
+  cancelarPedido, compartirUbicacion, marcarNoDisponible, recibirOcEntregada, comprobantePagoDelivery, listPedidosDelivery, marcarEnRuta, marcarEntregado,
   subirFotosDelivery, tomarPedido, urlFotoDelivery, useDeliveryConectado, type ComprobantePagoDelivery,
 } from './delivery.repository';
 import {
@@ -79,7 +77,6 @@ export function DeliveryMovilView() {
 
   const [activos, setActivos] = useState<PedidoDelivery[]>([]);
   const [cerrados, setCerrados] = useState<PedidoDelivery[]>([]);
-  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [loading, setLoading] = useState(true);
   const [chip, setChip] = useState<ChipDelivery>('todos');
   const [accion, setAccion] = useState<Accion | null>(null);
@@ -111,17 +108,6 @@ export function DeliveryMovilView() {
   }, [reload]);
   useRealtime(['delivery_pedidos', 'ordenes'], () => { void reload().catch(() => {}); });
 
-  useEffect(() => {
-    let vivo = true;
-    listAlmacenes('principal')
-      .then((as) => {
-        if (!vivo) return;
-        setAlmacenes(as.filter((a) => a.estado === 'activo')
-          .sort((a, b) => (a.sede ?? SIN_SEDE).localeCompare(b.sede ?? SIN_SEDE, 'es') || a.nombre.localeCompare(b.nombre, 'es')));
-      })
-      .catch(() => { /* sin lista: se entrega en el almacén de la OC */ });
-    return () => { vivo = false; };
-  }, []);
 
   const feed = useMemo(() => armarFeed(activos, cerrados), [activos, cerrados]);
   const visibles = useMemo(() => feed.filter((f) => enChip(f, chip)), [feed, chip]);
@@ -226,7 +212,7 @@ export function DeliveryMovilView() {
         <FormCancelar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
       )}
       {accion?.tipo === 'entregar' && pedidoAccion && (
-        <FormEntregar p={pedidoAccion} almacenes={almacenes} quien={quien} onCancel={volver} onHecho={hecho} />
+        <FormEntregar p={pedidoAccion} quien={quien} actor={actor} actorName={actorName} onCancel={volver} onHecho={hecho} />
       )}
 
       {enPantallaPrincipal && (
@@ -558,28 +544,41 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
 
 /* ── Entregado en almacén ── */
 
-function FormEntregar({ p, almacenes, quien, onCancel, onHecho }: {
-  p: PedidoDelivery; almacenes: Almacen[]; quien: string; onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
+/** Dónde entrega el delivery (02-11-2026): solo LOS PINOS o MATANZA, como la recepción de Compras. */
+const DESTINOS_ENTREGA = DESTINOS_RECEPCION.filter((d) => d.label === 'LOS PINOS' || d.label === 'MATANZA');
+
+function FormEntregar({ p, quien, actor, actorName, onCancel, onHecho }: {
+  p: PedidoDelivery; quien: string; actor: string; actorName: string | null;
+  onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
 }) {
-  const [almacen, setAlmacen] = useState(p.almacen_destino ?? '');
+  // Propuesto: el almacén de la OC (o la sede de la SP) si es uno de los dos.
+  const propuesto = DESTINOS_ENTREGA.find((d) => d.almacen === p.almacen_destino || d.sede === p.almacen_destino)?.almacen ?? '';
+  const [almacen, setAlmacen] = useState(propuesto);
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
-
-  // La OC trae su almacén; si no está entre los activos, igual se ofrece.
-  const opciones = useMemo(() => {
-    const ns = almacenes.map((a) => a.nombre);
-    return p.almacen_destino && !ns.includes(p.almacen_destino) ? [p.almacen_destino, ...ns] : ns;
-  }, [almacenes, p.almacen_destino]);
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
     if (!p.pedido_id) return;
-    if (!almacen) { toast('Elige el almacén donde lo entregaste.', 'error'); return; }
+    if (!almacen) { toast('Indica si lo entregaste en LOS PINOS o en MATANZA.', 'error'); return; }
     setGuardando(true);
+    const donde = nombreAlmacenVisible(almacen);
+    // La OC queda recibida en inventario en ese almacén. Si no se puede (p. ej. un renglón
+    // sin ficha), la entrega se registra igual y se avisa: Compras la recibe a mano.
+    let inventario: string | null = null;
+    if (!esRetiro(p)) {
+      try {
+        const r = await recibirOcEntregada(p.orden_id, almacen, nota.trim() || null, actor, actorName);
+        inventario = r === 'recibida' ? `recibida en ${donde}` : 'ya la había recibido Compras';
+      } catch (err) {
+        inventario = `NO se pudo recibir: ${errMsg(err, 'error al recibir')}. Compras debe recibirla.`;
+        toast(`La entrega se registra, pero la OC no entró al inventario: ${errMsg(err, 'error al recibir')}`, 'warning');
+      }
+    }
     try {
       await marcarEntregado(p.pedido_id, almacen, nota.trim() || null);
-      toast(`Orden ${ocDe(p)} entregada.`, 'success');
-      onHecho('Entregado en almacén', mensajeEntregado(p, quien, nombreAlmacenVisible(almacen), nota));
+      toast(inventario?.startsWith('recibida') ? `${ocDe(p)} entregada y recibida en ${donde}.` : `${ocDe(p)} entregada en ${donde}.`, 'success');
+      onHecho('Entregado en almacén', mensajeEntregado(p, quien, donde, nota, null, inventario));
     } catch (err) {
       toast(errMsg(err, 'No se pudo marcar la entrega'), 'error');
     } finally { setGuardando(false); }
@@ -592,12 +591,19 @@ function FormEntregar({ p, almacenes, quien, onCancel, onHecho }: {
         <div><strong>Entregado en almacén</strong><div className="muted" style={{ fontSize: '.85rem' }}>{ocDe(p)} · {p.proveedor_nombre ?? '—'}</div></div>
       </div>
       <div className="surt-campo">
-        <label htmlFor="dlv-ent-almacen">Almacén</label>
-        <select id="dlv-ent-almacen" className="select input surt-input" value={almacen} onChange={(e) => setAlmacen(e.target.value)}>
-          {!almacen && <option value="">Elegir…</option>}
-          {opciones.map((n) => <option key={n} value={n}>{nombreAlmacenVisible(n)}</option>)}
-        </select>
-        {p.almacen_destino && <small className="muted">La OC indica entregar en {nombreAlmacenVisible(p.almacen_destino)}.</small>}
+        <span className="surt-rotulo" id="dlv-ent-almacen">¿Dónde lo entregaste?</span>
+        <div className="surt-grid2" role="radiogroup" aria-labelledby="dlv-ent-almacen">
+          {DESTINOS_ENTREGA.map((d) => (
+            <button key={d.almacen} type="button" role="radio" aria-checked={almacen === d.almacen}
+              className={`btn btn-grande ${almacen === d.almacen ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAlmacen(d.almacen)}>
+              🏬 {d.label}
+            </button>
+          ))}
+        </div>
+        <small className="muted">
+          {esRetiro(p) ? 'Material de almacén: no se vuelve a recibir.' : 'Al confirmar, la orden queda recibida en el inventario de ese almacén.'}
+          {p.almacen_destino ? ` La orden indica ${nombreAlmacenVisible(p.almacen_destino)}.` : ''}
+        </small>
       </div>
       <div className="surt-campo">
         <label htmlFor="dlv-ent-nota">Nota (opcional)</label>

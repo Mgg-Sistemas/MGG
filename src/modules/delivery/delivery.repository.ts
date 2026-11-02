@@ -8,6 +8,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 import type { Orden } from '@/shared/lib/types';
 import { elegirComprobanteTesoreria } from '@/modules/pedidos/comprobanteTesoreria';
+import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
 import { MAX_FOTOS_DELIVERY, type FotoDelivery, type PedidoDelivery, type TipoDelivery, type UbicacionDelivery } from './delivery';
 
 const BUCKET = 'delivery-fotos';
@@ -68,6 +69,27 @@ export async function tomarPedido(ordenId: string, tipo: TipoDelivery = 'oc'): P
 export async function marcarEnRuta(pedidoId: string): Promise<void> {
   const { error } = await supabase.rpc('delivery_avanzar', { p_pedido_id: pedidoId, p_estado: 'en_ruta' });
   if (error) throw err(error, 'No se pudo marcar en ruta.');
+}
+
+/**
+ * El delivery entregó la OC en el almacén (02-11-2026, regla de la administradora): la
+ * orden queda RECIBIDA en inventario en ese almacén, con todo lo comprado, igual que
+ * cuando Compras la recibe (mismo motor: costo, PMP, kardex, existencias). Lee la orden
+ * fresca; si Compras ya la recibió, no hace nada. Devuelve 'recibida' | 'ya_recibida'.
+ */
+export async function recibirOcEntregada(
+  ordenId: string, almacen: string, nota: string | null, actorEmail: string, actorName: string | null,
+): Promise<'recibida' | 'ya_recibida'> {
+  const { data, error } = await supabase.from('ordenes').select('*').eq('id', ordenId).single();
+  if (error) throw err(error, 'No se pudo leer la orden.');
+  const o = data as Orden;
+  if (o.recibida_en) return 'ya_recibida';
+  const recepciones = (o.items ?? [])
+    .map((it) => ({ sku: it.sku, cantidad_recibida: Math.max(0, Number(it.cantidad) || 0) }))
+    .filter((r) => r.cantidad_recibida > 0);
+  const notaRec = ['Recibida por Delivery al entregar en almacén.', nota?.trim()].filter(Boolean).join(' ');
+  await recibirOrdenParcial(o, recepciones, notaRec, actorEmail, actorName, almacen);
+  return 'recibida';
 }
 
 export async function marcarEntregado(pedidoId: string, almacen: string, nota?: string | null): Promise<void> {
