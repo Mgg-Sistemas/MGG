@@ -52,7 +52,7 @@ describe('Tablero', () => {
   });
   it('arma el mensaje del último paso; sin tomar no hay mensaje', () => {
     expect(mensajeDelPedido(pedido())?.texto).toContain('PEDIDO ACEPTADO');
-    expect(mensajeDelPedido(pedido({ estado: 'en_ruta', en_ruta_en: '2026-10-30T12:10:00Z' }))?.texto).toContain('EN RUTA');
+    expect(mensajeDelPedido(pedido({ estado: 'en_ruta', en_ruta_en: '2026-10-30T12:10:00Z' }))?.texto).toContain('EN CAMINO');
     const e = mensajeDelPedido(pedido({ estado: 'entregado', almacen_entrega: 'MATANZA', entregado_en: '2026-10-30T12:45:00Z' }));
     expect(e?.texto).toContain('MATANZA');
     expect(e?.texto).toContain('45 min');
