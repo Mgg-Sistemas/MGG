@@ -381,8 +381,7 @@ describe('textoOrdenTesoreria · mensaje de pago y motivos de no pago (30-10-202
       '🛒 *Analista encargado:* NAZARET SALAZAR',
       '🙋 *Solicita:* JESUS LOZADA',
       '💵 *Monto en $:* $55,00',
-      '💱 *Monto en Bs:* Bs 2.750,00 (tasa 50,00)',
-      '📊 *Estado:* PAGADA POR TESORERIA',
+      '📊 *Estado:* *PAGADA POR TESORERIA*',
       '🏢 *MINERAL GROUP GUAYANA C.A.*',
     ]);
   });
@@ -397,7 +396,7 @@ describe('textoOrdenTesoreria · mensaje de pago y motivos de no pago (30-10-202
       estado: 'NO PAGADA · Sin fondos en estos momentos',
     });
 
-    expect(msg).toContain('📊 *Estado:* NO PAGADA · Sin fondos en estos momentos');
+    expect(msg).toContain('📊 *Estado:* *NO PAGADA · Sin fondos en estos momentos*');
   });
 
   it('formatea mensaje cuando no procede la compra con su justificación', () => {
@@ -410,7 +409,7 @@ describe('textoOrdenTesoreria · mensaje de pago y motivos de no pago (30-10-202
       estado: 'NO PROCEDE LA COMPRA · Motivo: Precio muy elevado',
     });
 
-    expect(msg).toContain('📊 *Estado:* NO PROCEDE LA COMPRA · Motivo: Precio muy elevado');
+    expect(msg).toContain('📊 *Estado:* *NO PROCEDE LA COMPRA · Motivo: Precio muy elevado*');
   });
 
   it('emojis sin selectores U+FE0F ni uniones invisibles', () => {

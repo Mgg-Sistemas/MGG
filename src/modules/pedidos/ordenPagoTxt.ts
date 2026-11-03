@@ -275,9 +275,7 @@ export function textoOrdenTesoreria(d: DatosMensajeTesoreria): string {
   const analista = (d.personas?.analista ?? '').trim();
   const solicita = (d.personas?.solicita ?? '').trim();
 
-  const t = Number(d.tasaBs) || 0;
   const totalUsd = d.montoUsd != null ? d.montoUsd : (Number(o.total) || 0);
-  const totalBs = d.montoBs != null && d.montoBs > 0 ? d.montoBs : (t > 0 ? totalUsd * t : 0);
 
   const L: string[] = [];
   L.push(`🔹 *ORDEN:* ${codigo}`);
@@ -285,11 +283,10 @@ export function textoOrdenTesoreria(d: DatosMensajeTesoreria): string {
   if (nota) L.push(`📌 *Nota del analista:* ${nota.replace(/\s*\r?\n\s*/g, ' ')}`);
   if (analista) L.push(`🛒 *Analista encargado:* ${analista}`);
   if (solicita) L.push(`🙋 *Solicita:* ${solicita}`);
+  // 03-11-2026 (pedido de la administradora): solo el monto en $, ya no el de Bs, y el
+  // estado en negrita.
   L.push(`💵 *Monto en $:* ${montoTxt(totalUsd, '$')}`);
-  if (totalBs > 0) {
-    L.push(`💱 *Monto en Bs:* ${montoTxt(totalBs, 'Bs')}${t > 0 ? ` (tasa ${tasaTxt(t)})` : ''}`);
-  }
-  L.push(`📊 *Estado:* ${d.estado}`);
+  L.push(`📊 *Estado:* *${d.estado.trim()}*`);
   L.push('🏢 *MINERAL GROUP GUAYANA C.A.*');
 
   return L.join('\n');
