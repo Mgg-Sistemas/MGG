@@ -101,6 +101,28 @@ import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
 import { enviarMensajeOc } from '@/modules/pedidos/ocChat.repository';
 import { push as pushNotif } from '@/modules/notificaciones/notif.repository';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
+import { ExportarTesoreriaModal } from './ExportarTesoreriaModal';
+import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
+
+/**
+ * Botón que abre el «Descargar Reporte de Tesorería» (traído de GT, 03-11-2026) en un
+ * ámbito dado. Autocontenido (botón + estado + modal). Reemplaza los viejos «↓ Resumen PDF».
+ */
+function BotonReporteTesoreria({ ambito, rango, label = '📄 Reporte', className = 'btn btn-sm btn-ghost' }: {
+  ambito: AmbitoTesoreria;
+  rango?: { desde: string; hasta: string };
+  label?: string;
+  className?: string;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  return (
+    <>
+      <button type="button" className={className} onClick={() => setAbierto(true)}
+        title="Reporte de Tesorería: ámbito, fechas, agrupación, filtros, columnas; fichas o tabla; CSV, Excel, WhatsApp y PDF">{label}</button>
+      {abierto && <ExportarTesoreriaModal ambitoInicial={ambito} rangoInicial={rango} onClose={() => setAbierto(false)} />}
+    </>
+  );
+}
 
 const TIPO_MOV_LABEL: Record<string, string> = {
   ingreso: '⬇ Ingreso', salida: '⬆ Egreso', traslado_salida: '↔ Traslado (sale)',
@@ -474,6 +496,7 @@ export function TesoreriaPage() {
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={async () => {
                 try { const { descargarReportePdf } = await import('./reportePdf'); await descargarReportePdf(libroView, reporteMeta()); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
               }}>↓ PDF</button>
+              <BotonReporteTesoreria ambito="movimientos" rango={fDesde && fHasta ? { desde: fDesde, hasta: fHasta } : undefined} />
               <button className="btn btn-sm btn-ghost" disabled={!libroView.length} onClick={() => setCorreoMovOpen(true)}>✉ Enviar por correo</button>
               {(fBuscar.trim() || fCategoria || fCuenta) && (
                 <span className="muted" style={{ fontSize: '.8rem' }}>
@@ -4505,10 +4528,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
       </p>
 
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
-        <button className="btn btn-sm btn-ghost" disabled={!rows.length}
-          onClick={() => import('./ordenesPorPagarPdf').then(({ descargarResumenPorPagarPdf }) => descargarResumenPorPagarPdf(rows, directos)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
-          ↓ Resumen PDF
-        </button>
+        <BotonReporteTesoreria ambito="por_pagar" />
       </div>
 
       {seleccionadas.length >= 2 && (
@@ -4996,10 +5016,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
 
       {vista === 'oc' && (<>
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
-        <button className="btn btn-sm btn-ghost" disabled={!ordenes.length}
-          onClick={() => import('./cuentasCreditoPdf').then(({ descargarResumenCreditosPdf }) => descargarResumenCreditosPdf(ordenes)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'))}>
-          ↓ Resumen PDF
-        </button>
+        <BotonReporteTesoreria ambito="creditos_cartera" />
       </div>
       {loading && <p className="hint muted">Cargando…</p>}
       {!loading && !ordenes.length && <p className="hint muted" style={{ textAlign: 'center' }}>No hay compras a crédito con cuenta abierta. 🎉</p>}
