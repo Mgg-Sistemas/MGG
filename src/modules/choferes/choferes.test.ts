@@ -6,6 +6,7 @@ import {
   nombreDeConductor, datosConductor,
   tasasDeConductor, codificarObservacionesConTasas, observacionesSinTagsTasas, clasificarCategoriaPorTasa, categoriaDeViaje,
   calcularSiguientePeriodoCierre, esCargoDeChofer, clasificarDocPersonal,
+  tarifaSugeridaCategoria, errorCategoriaViaje, nombreCategoriaViaje, type CategoriaViajeExtra,
 } from './choferes';
 
 const HOY = '2026-10-12';
@@ -285,3 +286,31 @@ describe('clasificación de documentos de RRHH para el expediente de Choferes (c
   });
 });
 
+describe('clasificaciones de viaje agregadas (03-11-2026)', () => {
+  const chofer = { tarifa_corto_usd: 25, tarifa_largo_usd: 100, tarifa_interno_usd: 1 };
+  const extras: CategoriaViajeExtra[] = [
+    { id: 'a', nombre: 'VIAJE A CANTERA', icono: '⛰', tarifa_usd: 40, activo: true },
+    { id: 'b', nombre: 'VIAJE NOCTURNO', icono: '🌙', tarifa_usd: 70, activo: false },
+  ];
+  it('la tarifa exacta de una agregada activa la clasifica', () => {
+    expect(clasificarCategoriaPorTasa(40, chofer, extras)).toBe('VIAJE A CANTERA');
+    expect(clasificarCategoriaPorTasa(70, chofer, extras)).toBe('VIAJE LARGO');
+    expect(clasificarCategoriaPorTasa(25, chofer, extras)).toBe('VIAJE CORTO');
+  });
+  it('la tarifa sugerida de una agregada es la suya', () => {
+    expect(tarifaSugeridaCategoria('viaje a cantera', chofer, extras)).toBe(40);
+    expect(tarifaSugeridaCategoria('VIAJE LARGO', chofer, extras)).toBe(100);
+  });
+  it('la categoría guardada manda aunque no sea de base', () => {
+    expect(categoriaDeViaje({ categoria_viaje: 'viaje a cantera', tarifa_usd: 25 }, chofer)).toBe('VIAJE A CANTERA');
+    expect(categoriaDeViaje({ nota: 'x [CAT: VIAJE NOCTURNO]', tarifa_usd: 25 }, chofer)).toBe('VIAJE NOCTURNO');
+  });
+  it('valida nombre, duplicados, las de base y la tarifa', () => {
+    expect(nombreCategoriaViaje('  viaje   a cantera ')).toBe('VIAJE A CANTERA');
+    expect(errorCategoriaViaje('', 10, extras)).toMatch(/nombre/);
+    expect(errorCategoriaViaje('viaje corto', 10, extras)).toMatch(/ya existe/);
+    expect(errorCategoriaViaje('Viaje a cantera', 10, extras)).toMatch(/Ya hay/);
+    expect(errorCategoriaViaje('Viaje a cantera', 45, extras, 'a')).toBeNull();
+    expect(errorCategoriaViaje('Viaje a mina', 0, extras)).toMatch(/tarifa/);
+  });
+});

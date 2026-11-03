@@ -329,7 +329,49 @@ export const CATEGORIAS_VIAJE = [
   { key: 'VIAJE INTERNO', label: 'Viaje interno', tarifaSugerida: 1 },
 ] as const;
 
-export type CategoriaViaje = (typeof CATEGORIAS_VIAJE)[number]['key'];
+/**
+ * Nombre de la clasificación del viaje. Las tres de base (Corto / Largo / Interno) salen
+ * de las tasas de cada conductor; desde el 03-11-2026 se pueden agregar otras con su
+ * propia tarifa (tabla choferes_categorias_viaje), así que es texto: el nombre en MAYÚSCULAS.
+ */
+export type CategoriaViaje = string;
+
+/** Clasificación agregada por el usuario, con su tarifa en $ (03-11-2026). */
+export interface CategoriaViajeExtra {
+  id: string;
+  nombre: string;
+  icono: string;
+  tarifa_usd: number;
+  activo: boolean;
+}
+
+/** Nombre normalizado con el que se guarda una clasificación. */
+export function nombreCategoriaViaje(nombre: string | null | undefined): string {
+  return (nombre ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+const CATEGORIAS_BASE = new Set<string>(CATEGORIAS_VIAJE.map((c) => c.key));
+
+/** ¿Es una de las tres de base (Corto / Largo / Interno)? */
+export function esCategoriaBase(cat: string | null | undefined): boolean {
+  return CATEGORIAS_BASE.has(nombreCategoriaViaje(cat));
+}
+
+/** La clasificación agregada con ese nombre, si existe. */
+export function categoriaExtraDe(cat: string | null | undefined, extras: readonly CategoriaViajeExtra[] = []): CategoriaViajeExtra | null {
+  const n = nombreCategoriaViaje(cat);
+  return n ? extras.find((e) => nombreCategoriaViaje(e.nombre) === n) ?? null : null;
+}
+
+/** Error al crear/editar una clasificación, o null si está bien. */
+export function errorCategoriaViaje(nombre: string, tarifa: number | null | undefined, extras: readonly CategoriaViajeExtra[], idEditando?: string | null): string | null {
+  const n = nombreCategoriaViaje(nombre);
+  if (!n) return 'Indica el nombre de la clasificación.';
+  if (CATEGORIAS_BASE.has(n)) return `«${n}» ya existe: sale de las tasas de cada conductor.`;
+  if (extras.some((e) => e.id !== idEditando && nombreCategoriaViaje(e.nombre) === n)) return `Ya hay una clasificación «${n}».`;
+  if (!(Number(tarifa) > 0)) return 'Indica la tarifa por viaje en $ (mayor que 0).';
+  return null;
+}
 
 export interface TasasChofer {
   corto: number;
@@ -414,6 +456,7 @@ export function observacionesSinTagsTasas(obs: string | null | undefined): strin
 export function clasificarCategoriaPorTasa(
   tarifa: number | null | undefined,
   chofer?: ConductorTasasRef | null,
+  extras: readonly CategoriaViajeExtra[] = [],
 ): CategoriaViaje {
   const monto = Number(tarifa) || 0;
   if (monto <= 0) return 'VIAJE CORTO';
@@ -424,6 +467,10 @@ export function clasificarCategoriaPorTasa(
   if (Math.abs(monto - tasas.interno) < 0.01) return 'VIAJE INTERNO';
   if (Math.abs(monto - tasas.largo) < 0.01) return 'VIAJE LARGO';
   if (Math.abs(monto - tasas.corto) < 0.01) return 'VIAJE CORTO';
+
+  // 1b. Coincidencia exacta con la tarifa de una clasificación agregada (03-11-2026)
+  const extra = extras.find((e) => e.activo && Math.abs(monto - Number(e.tarifa_usd)) < 0.01);
+  if (extra) return nombreCategoriaViaje(extra.nombre);
 
   // 2. Umbral de viaje interno (valores bajos típicos de cantera / planta)
   const umbralInterno = Math.max(tasas.interno * 1.5, 5);
@@ -436,8 +483,10 @@ export function clasificarCategoriaPorTasa(
   return 'VIAJE CORTO';
 }
 
-export function tarifaSugeridaCategoria(cat: string, chofer?: ConductorTasasRef | null): number {
+export function tarifaSugeridaCategoria(cat: string, chofer?: ConductorTasasRef | null, extras: readonly CategoriaViajeExtra[] = []): number {
   const c = (cat || '').trim().toUpperCase();
+  const extra = categoriaExtraDe(c, extras);
+  if (extra) return Number(extra.tarifa_usd) || 0;
   const tasas = tasasDeConductor(chofer);
   if (c.includes('INTERNO')) return tasas.interno;
   if (c.includes('LARGO')) return tasas.largo;
@@ -453,12 +502,13 @@ export function categoriaDeViaje(
   chofer?: ConductorTasasRef | null,
 ): CategoriaViaje {
   if (!v) return 'VIAJE CORTO';
-  const cv = (v.categoria_viaje ?? '').trim().toUpperCase();
-  if (cv === 'VIAJE CORTO' || cv === 'VIAJE LARGO' || cv === 'VIAJE INTERNO') return cv as CategoriaViaje;
+  // La guardada manda, sea de base o agregada (03-11-2026).
+  const cv = nombreCategoriaViaje(v.categoria_viaje);
+  if (cv) return cv;
   const match = (v.nota ?? '').match(/\[CAT:\s*([^\]]+)\]/i);
   if (match) {
-    const m = match[1].trim().toUpperCase();
-    if (m === 'VIAJE CORTO' || m === 'VIAJE LARGO' || m === 'VIAJE INTERNO') return m as CategoriaViaje;
+    const m = nombreCategoriaViaje(match[1]);
+    if (m) return m;
   }
   const texto = `${v.origen ?? ''} ${v.destino ?? ''} ${v.nota ?? ''}`.toUpperCase();
   if (texto.includes('INTERNO')) return 'VIAJE INTERNO';

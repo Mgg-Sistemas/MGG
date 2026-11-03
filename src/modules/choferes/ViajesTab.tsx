@@ -19,7 +19,8 @@
    vehículo en taller. La base no deja dos rutas EN RUTA del mismo chofer o
    del mismo vehículo.
    ============================================================ */
-import { useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useRealtime } from '@/shared/lib/useRealtime';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -32,11 +33,12 @@ import {
   ESTADO_VIAJE, TIPO_VIAJE, CATEGORIAS_VIAJE, categoriaDeViaje, tarifaSugeridaCategoria, viajeEstaPagado,
   alertasDocumentos, errorViajeRealizado, progresoParadas, textoRuta,
   tarifaTotalViaje, totalViajes, horasDiaVolqueta, errorViajesVolqueta, cantidadViajes, datosConductor,
-  tasasDeConductor, clasificarCategoriaPorTasa,
-  type EstadoViaje, type Parada, type TipoViaje, type CategoriaViaje,
+  tasasDeConductor, clasificarCategoriaPorTasa, categoriaExtraDe, errorCategoriaViaje, nombreCategoriaViaje,
+  type EstadoViaje, type Parada, type TipoViaje, type CategoriaViaje, type CategoriaViajeExtra,
 } from './choferes';
 import {
   cancelarViaje, crearViaje, editarViaje, eliminarViaje, finalizarViaje, guardarParadas, iniciarViaje,
+  listCategoriasViaje, guardarCategoriaViaje, T_CATEGORIAS_VIAJE,
   type Conductor, type VehiculoFlota, type Viaje, type ViajeInput,
 } from './choferes.repository';
 import { FlotaModal } from './ExpedienteTab';
@@ -253,9 +255,22 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
   const diaSalida = salida.slice(0, 10);
   const choferTasas = useMemo(() => tasasDeConductor(chofer), [chofer]);
 
+  // Clasificaciones agregadas con su tarifa (03-11-2026): además de Corto / Largo / Interno.
+  const [extras, setExtras] = useState<CategoriaViajeExtra[]>([]);
+  const cargarExtras = useCallback(() => { listCategoriasViaje().then(setExtras).catch(() => { /* solo las de base */ }); }, []);
+  useEffect(() => { cargarExtras(); }, [cargarExtras]);
+  useRealtime([T_CATEGORIAS_VIAJE], cargarExtras);
+  const extrasActivas = useMemo(() => extras.filter((e) => e.activo), [extras]);
+  const [gestionCat, setGestionCat] = useState(false);
+
+  function aplicarExtra(e: CategoriaViajeExtra) {
+    setTarifa(Number(e.tarifa_usd) || 0);
+    setCategoria(nombreCategoriaViaje(e.nombre));
+  }
+
   function elegirCategoria(c: CategoriaViaje) {
     setCategoria(c);
-    const sugerida = tarifaSugeridaCategoria(c, chofer);
+    const sugerida = tarifaSugeridaCategoria(c, chofer, extras);
     if (sugerida > 0) {
       setTarifa(sugerida);
     }
@@ -311,7 +326,7 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
         setTarifa(t.corto);
         setCategoria('VIAJE CORTO');
       } else {
-        const cat = clasificarCategoriaPorTasa(tarifa, c);
+        const cat = clasificarCategoriaPorTasa(tarifa, c, extras);
         setCategoria(cat);
       }
       // Si el chofer tiene un vehículo externo habitual en sus observaciones (ej. [VEHICULO: A22CYOJ])
@@ -328,7 +343,7 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
 
   function aplicarTasa(monto: number) {
     setTarifa(monto);
-    const cat = clasificarCategoriaPorTasa(monto, chofer);
+    const cat = clasificarCategoriaPorTasa(monto, chofer, extras);
     setCategoria(cat);
   }
 
@@ -497,7 +512,7 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
                   value={tarifa}
                   onChange={(n) => {
                     setTarifa(n);
-                    const cat = clasificarCategoriaPorTasa(n, chofer);
+                    const cat = clasificarCategoriaPorTasa(n, chofer, extras);
                     setCategoria(cat);
                   }}
                   placeholder="0,00"
@@ -528,7 +543,24 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
                   >
                     🔄 Interno (${choferTasas.interno})
                   </button>
+                  {extrasActivas.map((e) => (
+                    <button
+                      key={e.id}
+                      type="button"
+                      className={`btn btn-xs ${categoria === nombreCategoriaViaje(e.nombre) ? 'btn-primary' : 'btn-ghost'}`}
+                      onClick={() => aplicarExtra(e)}
+                      title={`Aplicar tarifa ${etiquetaCategoria(e.nombre)} ($${e.tarifa_usd})`}
+                    >
+                      {e.icono} {etiquetaCategoria(e.nombre)} (${e.tarifa_usd})
+                    </button>
+                  ))}
+                  {canWrite && (
+                    <button type="button" className="btn btn-xs btn-ghost" onClick={() => setGestionCat((v) => !v)} title="Agregar o editar clasificaciones de viaje con su tarifa">
+                      {gestionCat ? '✕ Cerrar' : '+ Clasificación'}
+                    </button>
+                  )}
                 </div>
+                {gestionCat && <GestionCategoriasViaje extras={extras} actor={actor} onCambio={cargarExtras} />}
               </div>
 
               <div>
@@ -537,10 +569,10 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
                 </label>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', minHeight: 38 }}>
                   <span
-                    className={`badge ${categoria === 'VIAJE LARGO' ? 'info' : categoria === 'VIAJE INTERNO' ? 'warning' : 'primary'}`}
+                    className={`badge ${categoria === 'VIAJE LARGO' ? 'info' : categoria === 'VIAJE INTERNO' ? 'warning' : categoria === 'VIAJE CORTO' ? 'primary' : 'success'}`}
                     style={{ fontSize: '.88rem', padding: '.35rem .7rem', fontWeight: 700 }}
                   >
-                    {categoria === 'VIAJE LARGO' ? '🚚 VIAJE LARGO' : categoria === 'VIAJE INTERNO' ? '🔄 VIAJE INTERNO' : '🚗 VIAJE CORTO'}
+                    {categoria === 'VIAJE LARGO' ? '🚚 VIAJE LARGO' : categoria === 'VIAJE INTERNO' ? '🔄 VIAJE INTERNO' : categoria === 'VIAJE CORTO' ? '🚗 VIAJE CORTO' : `${categoriaExtraDe(categoria, extras)?.icono ?? '🛣'} ${categoria}`}
                   </span>
                   <select
                     id="vj-cat"
@@ -553,6 +585,12 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
                     {CATEGORIAS_VIAJE.map((c) => (
                       <option key={c.key} value={c.key}>{c.label}</option>
                     ))}
+                    {extrasActivas.map((e) => (
+                      <option key={e.id} value={nombreCategoriaViaje(e.nombre)}>{etiquetaCategoria(e.nombre)}</option>
+                    ))}
+                    {!CATEGORIAS_VIAJE.some((c) => c.key === categoria) && !extrasActivas.some((e) => nombreCategoriaViaje(e.nombre) === categoria) && (
+                      <option value={categoria}>{etiquetaCategoria(categoria)}</option>
+                    )}
                   </select>
                 </div>
                 <span className="muted" style={{ fontSize: '.75rem', display: 'block', marginTop: 4 }}>
@@ -595,6 +633,80 @@ export function ViajeModal({ inicial, conductores, flota, viajes, descansos, hoy
 }
 
 /* ───────── Detalle + paradas ───────── */
+/** «VIAJE A CANTERA» → «Viaje a cantera», como las de base en la lista. */
+function etiquetaCategoria(nombre: string): string {
+  const n = nombreCategoriaViaje(nombre).toLowerCase();
+  return n.charAt(0).toUpperCase() + n.slice(1);
+}
+
+/**
+ * Agregar o editar clasificaciones de viaje con su tarifa (03-11-2026, pedido de la
+ * administradora). Corto / Largo / Interno no se tocan aquí: salen de las tasas de cada
+ * conductor. Una clasificación no se borra (hay viajes que la nombran): se desactiva.
+ */
+function GestionCategoriasViaje({ extras, actor, onCambio }: { extras: CategoriaViajeExtra[]; actor: string; onCambio: () => void }) {
+  const [editId, setEditId] = useState<string | null>(null);
+  const [nombre, setNombre] = useState('');
+  const [icono, setIcono] = useState('🛣');
+  const [tarifa, setTarifa] = useState<number | null>(null);
+  const [guardando, setGuardando] = useState(false);
+
+  function editar(e: CategoriaViajeExtra | null) {
+    setEditId(e?.id ?? null);
+    setNombre(e ? etiquetaCategoria(e.nombre) : '');
+    setIcono(e?.icono ?? '🛣');
+    setTarifa(e ? Number(e.tarifa_usd) : null);
+  }
+
+  async function guardar() {
+    const error = errorCategoriaViaje(nombre, tarifa, extras, editId);
+    if (error) { toast(error, 'error'); return; }
+    setGuardando(true);
+    try {
+      const previa = extras.find((e) => e.id === editId);
+      await guardarCategoriaViaje({ id: editId, nombre, icono, tarifa_usd: Number(tarifa), activo: previa?.activo ?? true }, actor);
+      toast(editId ? 'Clasificación actualizada.' : 'Clasificación agregada.', 'success');
+      editar(null);
+      onCambio();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo guardar la clasificación', 'error');
+    } finally { setGuardando(false); }
+  }
+
+  async function alternar(e: CategoriaViajeExtra) {
+    try {
+      await guardarCategoriaViaje({ ...e, activo: !e.activo }, actor);
+      onCambio();
+    } catch (er) {
+      toast(er instanceof Error ? er.message : 'No se pudo cambiar la clasificación', 'error');
+    }
+  }
+
+  return (
+    <div style={{ marginTop: '.6rem', padding: '.6rem', border: '1px dashed var(--border)', borderRadius: 'var(--radius)' }}>
+      <div style={{ fontSize: '.8rem', fontWeight: 600, marginBottom: '.4rem' }}>{editId ? '✏ Editar clasificación' : '+ Nueva clasificación de viaje'}</div>
+      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', alignItems: 'center' }}>
+        <input className="input" style={{ width: 56, textAlign: 'center' }} value={icono} onChange={(e) => setIcono(e.target.value)} aria-label="Ícono" maxLength={4} />
+        <input className="input" style={{ flex: '1 1 160px' }} value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej.: Viaje a cantera" aria-label="Nombre de la clasificación" />
+        <DecimalInput className="input" style={{ width: 110 }} value={tarifa} onChange={setTarifa} placeholder="Tarifa $" aria-label="Tarifa de la clasificación en dólares" />
+        <button type="button" className="btn btn-xs btn-primary" onClick={() => { void guardar(); }} disabled={guardando}>{guardando ? 'Guardando…' : editId ? 'Guardar' : 'Agregar'}</button>
+        {editId && <button type="button" className="btn btn-xs btn-ghost" onClick={() => editar(null)}>Cancelar</button>}
+      </div>
+      {extras.length > 0 && (
+        <div style={{ marginTop: '.5rem', display: 'grid', gap: '.25rem' }}>
+          {extras.map((e) => (
+            <div key={e.id} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.8rem', opacity: e.activo ? 1 : 0.55 }}>
+              <span style={{ flex: 1 }}>{e.icono} {etiquetaCategoria(e.nombre)} · <span className="mono">{money(e.tarifa_usd)}</span>{!e.activo && ' · desactivada'}</span>
+              <button type="button" className="btn btn-xs btn-ghost" onClick={() => editar(e)}>✏ Editar</button>
+              <button type="button" className="btn btn-xs btn-ghost" onClick={() => { void alternar(e); }}>{e.activo ? 'Desactivar' : 'Activar'}</button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DetalleViajeModal({ viaje: v, conductor, vehiculo, canWrite, onClose, onChanged }: {
   viaje: Viaje; conductor?: Conductor; vehiculo?: VehiculoFlota; canWrite: boolean; onClose: () => void; onChanged: () => Promise<void>;
 }) {

@@ -20,6 +20,7 @@ import type { CuentaCaja } from '@/shared/lib/types';
 import type { Vehiculo } from '@/modules/asignaciones/vehiculos.repository';
 import {
   tipoViajeDe, cantidadViajes, tasasDeConductor, codificarObservacionesConTasas, esCargoDeChofer, clasificarDocPersonal,
+  nombreCategoriaViaje, type CategoriaViajeExtra,
   type Liquidacion, type LineaRecibo, type Parada, type ReciboCalculado, type TipoViaje, type TasasChofer,
 } from './choferes';
 import { mensajeErrorDocumento, nombreSeguro, validarArchivoDocumento } from '@/modules/rrhh/documentosPersonal';
@@ -285,6 +286,43 @@ export async function listFlota(): Promise<VehiculoFlota[]> {
   const { data, error } = await supabase.from(T_FLOTA).select('*').order('marca').order('modelo').order('placa');
   if (error) throw err(error, 'No se pudo leer la flota.');
   return (data ?? []) as VehiculoFlota[];
+}
+
+/* ───────────── Clasificaciones de viaje agregadas (03-11-2026) ───────────── */
+
+export const T_CATEGORIAS_VIAJE = 'choferes_categorias_viaje';
+
+/** Clasificaciones agregadas por el usuario (las de base salen de las tasas del conductor). */
+export async function listCategoriasViaje(): Promise<CategoriaViajeExtra[]> {
+  const { data, error } = await supabase.from(T_CATEGORIAS_VIAJE).select('id, nombre, icono, tarifa_usd, activo').order('nombre');
+  if (error) {
+    // Sin la tabla todavía: solo las tres de base.
+    if (esTablaFaltante(error)) return [];
+    throw err(error, 'No se pudieron leer las clasificaciones de viaje.');
+  }
+  return (data ?? []).map((r) => ({ ...r, tarifa_usd: Number(r.tarifa_usd) || 0 })) as CategoriaViajeExtra[];
+}
+
+export async function guardarCategoriaViaje(
+  c: { id?: string | null; nombre: string; icono?: string | null; tarifa_usd: number; activo?: boolean },
+  actor: string,
+): Promise<CategoriaViajeExtra> {
+  const fila = {
+    nombre: nombreCategoriaViaje(c.nombre),
+    icono: (c.icono ?? '').trim() || '🛣',
+    tarifa_usd: Math.round((Number(c.tarifa_usd) || 0) * 100) / 100,
+    activo: c.activo ?? true,
+    updated_at: new Date().toISOString(),
+  };
+  const q = c.id
+    ? supabase.from(T_CATEGORIAS_VIAJE).update(fila).eq('id', c.id)
+    : supabase.from(T_CATEGORIAS_VIAJE).insert({ ...fila, created_by: actor });
+  const { data, error } = await q.select('id, nombre, icono, tarifa_usd, activo').single();
+  if (error) {
+    if ((error as { code?: string }).code === '23505') throw new Error(`Ya hay una clasificación «${fila.nombre}».`);
+    throw err(error, 'No se pudo guardar la clasificación.');
+  }
+  return { ...data, tarifa_usd: Number(data.tarifa_usd) || 0 } as CategoriaViajeExtra;
 }
 
 /* ───────────── Viajes ───────────── */
