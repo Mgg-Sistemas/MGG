@@ -288,7 +288,7 @@ describe('textoOrdenAprobacion · para pedirle la aprobación al Gerente', () =>
   it('lleva orden, estado, proveedor, detalle, personas, productos, condición y total', () => {
     const l = textoOrdenAprobacion(pend, 'MAXI SHOES', personas).split('\n');
     expect(l[0]).toBe('🔹 *ORDEN:* OC-2026-0130');
-    expect(l[1]).toBe('⏳ *Pendiente por aprobación · Gerente General*');
+    expect(l[1]).toBe('⏳ *Pendiente por aprobar · Gerente General*');
     expect(l).toContain('🏭 *Proveedor:* MAXI SHOES');
     expect(l).toContain('🙋 *Solicita:* JAIME CAMPO');
     expect(l).toContain('🛒 *Analista de compras:* NAZARET SALAZAR');

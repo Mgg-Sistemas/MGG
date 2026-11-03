@@ -236,7 +236,7 @@ export function textoOrdenAprobacion(
 
   const L: string[] = [];
   L.push(`🔹 *ORDEN:* ${orden.oc_codigo ?? orden.codigo}`);
-  L.push('⏳ *Pendiente por aprobación · Gerente General*');
+  L.push('⏳ *Pendiente por aprobar · Gerente General*');
   if (orden.urgente) L.push('🚨 *URGENTE*');
   L.push(`🏭 *Proveedor:* ${proveedorNombre || '—'}`);
   if (detalle) L.push(`📝 *Detalle:* ${detalle}`);
