@@ -10,6 +10,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 import { SEGUNDOS_ENLACE_FOTO, nombreFotoCompartir, tipoDeFoto } from '@/shared/lib/fotosWhatsapp';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Producto } from '@/shared/lib/types';
 import { registrarMovimiento, transferir } from './movimientos.repository';
 import {
@@ -76,6 +77,24 @@ export async function listPorRetornar(almacen?: string | null): Promise<SalidaTe
   const { data, error } = await q;
   if (error) throw err(error, 'No se pudieron leer las salidas por retornar.');
   return (data ?? []).map((r) => normalizar(r as Record<string, unknown>));
+}
+
+/**
+ * Histórico de salidas de un almacén entre dos días (hora de Venezuela), de la más
+ * nueva a la más vieja (02-11-2026). Va por páginas: Supabase corta en 1.000 filas
+ * sin avisar, y el desempate por id evita que las páginas se pisen.
+ */
+export async function listSalidasAlmacen(almacen: string, desde: string, hasta: string): Promise<SalidaTelefono[]> {
+  try {
+    const filas = await todasLasFilas<Record<string, unknown>>((d, h) => supabase.from(TABLE).select('*')
+      .eq('almacen', almacen)
+      .gte('created_at', `${desde}T00:00:00-04:00`).lte('created_at', `${hasta}T23:59:59.999-04:00`)
+      .order('created_at', { ascending: false }).order('id', { ascending: false })
+      .range(d, h));
+    return filas.map(normalizar);
+  } catch (e) {
+    throw err(e, 'No se pudo leer el histórico de salidas.');
+  }
 }
 
 /**

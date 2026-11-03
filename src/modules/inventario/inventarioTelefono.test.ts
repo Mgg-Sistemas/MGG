@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
-  errorRetorno, errorSalida, errorTraslado, filtrarPorRetornar, mensajeEntrada, mensajeProductoNuevo, mensajeRetorno, mensajeSalida,
-  mensajeStock, mensajeTraslado, pendienteRetorno, stockPorPeriodo, type SalidaTelefono,
+  comprobanteDeSalida, errorRetorno, errorSalida, errorTraslado, filaHistoricoSalida, filtrarPorRetornar, filtrarSalidas,
+  mensajeEntrada, mensajeProductoNuevo, mensajeRetorno, mensajeSalida, mensajeStock, mensajeTraslado, pendienteRetorno,
+  stockPorPeriodo, textoRetorno, ultimosDias, type SalidaTelefono,
 } from './inventarioTelefono';
+import { muestraPdfEnPagina } from '@/shared/lib/reportPreview';
 
 const salida: SalidaTelefono = {
   id: 's1', codigo: 'SAT-0007', almacen: 'Los Pinos', producto_id: 'p1', producto_nombre: 'MANGUERA 2"',
@@ -94,6 +96,57 @@ describe('vista de teléfono de inventario · mensajes de WhatsApp', () => {
     expect(t).toContain('🔢 *Cantidad:* 3 PAR');
     expect(t).toContain('📊 *Queda en Los Pinos:* 7 PAR');
     sinSelector(t);
+  });
+});
+
+describe('histórico de salidas (02-11-2026)', () => {
+  it('abre con los últimos 60 días contando hoy, cruzando meses', () => {
+    expect(ultimosDias(60, '2026-11-02')).toEqual({ desde: '2026-09-04', hasta: '2026-11-02' });
+    expect(ultimosDias(1, '2026-11-02')).toEqual({ desde: '2026-11-02', hasta: '2026-11-02' });
+  });
+
+  it('el buscador encuentra por material, N° SAT o motivo', () => {
+    const otra = { ...salida, id: 's2', codigo: 'SAT-0120', producto_nombre: 'CABLE', motivo: 'Taller eléctrico' };
+    expect(filtrarSalidas([salida, otra], 'sat-0120').map((s) => s.id)).toEqual(['s2']);
+    expect(filtrarSalidas([salida, otra], 'electrico').map((s) => s.id)).toEqual(['s2']);
+    expect(filtrarSalidas([salida, otra], 'MANGUERA').map((s) => s.id)).toEqual(['s1']);
+  });
+
+  it('el retorno se lee en palabras', () => {
+    expect(textoRetorno({ ...salida, retorna: false })).toBe('No retorna');
+    expect(textoRetorno(salida)).toBe('Retornó 4 MTS · faltan 6 MTS');
+    expect(textoRetorno({ ...salida, retornado: 0 })).toBe('Por retornar: 10 MTS');
+    expect(textoRetorno({ ...salida, retornado: 10 })).toBe('Retornó completo');
+  });
+
+  it('la fila lleva N°, fecha, motivo, quién autorizó y quién registró', () => {
+    const f = filaHistoricoSalida(salida, 'ISNER');
+    expect(f.titulo).toBe('MANGUERA 2"');
+    expect(f.cantidad).toBe('10 MTS');
+    expect(f.lineas).toEqual(['SAT-0007 · 29/10/2026 10:00', 'Motivo: Bomba del pozo 3', 'Autorizó LEYDIS RENGEL · Registró ISNER']);
+    expect(filaHistoricoSalida({ ...salida, autorizado_por: null }).lineas).toHaveLength(2);
+  });
+
+  it('el comprobante es el mismo de recién registrada', () => {
+    expect(comprobanteDeSalida(salida, 'OTRO')).toMatchObject({
+      tipo: 'salida', codigo: 'SAT-0007', producto: { nombre: 'MANGUERA 2"', unidad: 'MTS' }, cantidad: 10,
+      detalle: 'Bomba del pozo 3', autorizadoPor: 'LEYDIS RENGEL', retorna: true, fotos: 1,
+      actor: 'isner@x.com', actorName: 'ISNER', at: '2026-10-29T14:00:00Z',
+    });
+    expect(comprobanteDeSalida({ ...salida, actor: null, actor_name: null }, 'KELVIN')).toMatchObject({ actor: 'KELVIN', actorName: 'KELVIN' });
+  });
+});
+
+describe('PDF en el teléfono (02-11-2026)', () => {
+  it('Android y iPhone no pintan el PDF dentro de la página: el visor ofrece abrirlo aparte', () => {
+    const android = 'Mozilla/5.0 (Linux; Android 14; SM-A145M) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Mobile Safari/537.36';
+    const iphone = 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1';
+    const pc = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
+    expect(muestraPdfEnPagina({ userAgent: android, pdfViewerEnabled: true })).toBe(false);
+    expect(muestraPdfEnPagina({ userAgent: iphone, pdfViewerEnabled: true })).toBe(false);
+    expect(muestraPdfEnPagina({ userAgent: pc, pdfViewerEnabled: true })).toBe(true);
+    expect(muestraPdfEnPagina({ userAgent: pc, pdfViewerEnabled: false })).toBe(false);
+    expect(muestraPdfEnPagina(undefined)).toBe(true);
   });
 });
 

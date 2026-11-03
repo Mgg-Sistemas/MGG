@@ -174,15 +174,64 @@ function imprimirImagen(url: string): void {
   document.body.appendChild(frame);
 }
 
+/**
+ * ¿Este navegador pinta un PDF DENTRO de la página (en el iframe del visor)?
+ *
+ * POR QUÉ (02-11-2026). La administradora reportó que en la vista de teléfono
+ * de Inventario «no se ve el PDF» de la salida: el botón estaba y el PDF se
+ * armaba, pero Chrome de Android no muestra un PDF metido en un iframe (queda
+ * el recuadro gris vacío) y el iPhone pinta solo una imagen de la primera hoja.
+ * En esos casos el visor ofrece «Abrir el PDF» en su propia pestaña, que el
+ * teléfono sí abre con su visor de PDF. Sigue siendo con el botón: nada se baja solo.
+ */
+export function muestraPdfEnPagina(nav: { pdfViewerEnabled?: boolean; userAgent?: string } | undefined): boolean {
+  if (!nav) return true;
+  if (nav.pdfViewerEnabled === false) return false;
+  return !/Android|iPhone|iPod|Mobi/i.test(nav.userAgent ?? '');
+}
+
+/** El cuerpo del visor cuando el PDF no se puede pintar en la página (teléfono). */
+function avisoAbrirPdf(url: string): HTMLElement {
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem;padding:1.5rem;text-align:center;color:#fff;';
+  const icono = document.createElement('div');
+  icono.style.cssText = 'font-size:3rem;line-height:1;';
+  icono.textContent = '📄';
+  const texto = document.createElement('p');
+  texto.style.cssText = 'margin:0;max-width:28rem;font-size:1rem;';
+  texto.textContent = 'El PDF está listo. Este teléfono no lo muestra dentro de esta ventana: tócalo para abrirlo en el visor de PDF.';
+  const abrir = document.createElement('button');
+  abrir.className = 'btn btn-primary';
+  abrir.style.cssText = 'min-height:56px;font-size:1.15rem;font-weight:800;padding:.6rem 1.4rem;';
+  abrir.textContent = '📄 Abrir el PDF';
+  abrir.addEventListener('click', () => {
+    const w = window.open(url, '_blank');
+    if (!w) {
+      try { window.alert('El navegador bloqueó la pestaña nueva. Toca «Descargar» y abre el PDF desde la descarga.'); } catch { /* sin alert */ }
+    }
+  });
+  const ayuda = document.createElement('small');
+  ayuda.style.cssText = 'opacity:.8;max-width:28rem;';
+  ayuda.textContent = 'Si no se abre, toca «↓ Descargar» y ábrelo desde la descarga.';
+  wrap.append(icono, texto, abrir, ayuda);
+  return wrap;
+}
+
 /** Muestra un PDF (jsPDF doc) en el visor. Lo usa el patch de `save`. */
 export function previewPdfDoc(doc: DocPdf, filename: string): void {
   const blob = doc.output('blob') as Blob;
   const url = URL.createObjectURL(blob);
-  const iframe = document.createElement('iframe');
-  iframe.src = url;
-  iframe.style.cssText = 'width:100%;height:100%;border:0;display:block;';
+  let cuerpo: HTMLElement;
+  if (muestraPdfEnPagina(typeof navigator === 'undefined' ? undefined : navigator)) {
+    const iframe = document.createElement('iframe');
+    iframe.src = url;
+    iframe.style.cssText = 'width:100%;height:100%;border:0;display:block;';
+    cuerpo = iframe;
+  } else {
+    cuerpo = avisoAbrirPdf(url);
+  }
   abrirVisor({
-    titulo: 'PDF', filename, cuerpo: iframe, blob,
+    titulo: 'PDF', filename, cuerpo, blob,
     onClose: () => URL.revokeObjectURL(url),
     imprimir: () => imprimirPdfGenerado(doc, url),
   });

@@ -12,6 +12,8 @@
    · «Por retornar»: lo que salió y vuelve; retorno total o parcial.
    · «Traslado entre almacenes»: pasa material directo a otro almacén.
    · «Reporte de stock»: lo que hay al cierre de un período.
+   · «Histórico de salidas» (02-11-2026): las salidas ya hechas del almacén, cada
+     una con su PDF y su WhatsApp (con sus fotos), para sacarlos cuando haga falta.
    Cada botón termina en su aviso para WhatsApp; el de la salida lleva sus
    fotos adjuntas (02-11-2026, ver shared/ui/CompartirWhatsapp). El almacenista con sede SOLO ve
    (y mueve en) los almacenes de su sede (sectorización, 02-11-2026); los demás
@@ -41,13 +43,14 @@ import { CategoriaProductoSelect, asegurarCategoria, esCategoriaReal } from './C
 import { SIN_SEDE, nombreAlmacenVisible } from './sectorizacion';
 import { useSectorizacion } from './useSectorizacion';
 import {
-  MAX_FOTOS_SALIDA, errorFotos, errorRetorno, errorSalida, errorTraslado, fechaHoraVE, filtrarPorRetornar, leerCantidad,
+  DIAS_HISTORICO, MAX_FOTOS_SALIDA, comprobanteDeSalida, errorFotos, errorRetorno, errorSalida, errorTraslado, fechaHoraVE,
+  filaHistoricoSalida, filtrarPorRetornar, filtrarSalidas, leerCantidad,
   mensajeEntrada, mensajeProductoNuevo, mensajeRetorno, mensajeSalida, mensajeStock, mensajeTraslado, num,
-  pendienteRetorno, stockPorPeriodo, type FotoSalida, type MovimientoStock, type SalidaTelefono,
+  pendienteRetorno, stockPorPeriodo, textoRetorno, ultimosDias, type FotoSalida, type MovimientoStock, type SalidaTelefono,
 } from './inventarioTelefono';
 import {
-  archivosFotosSalida, enlacesFotosSalida, listPorRetornar, movimientosAlmacenDesde, productosDeAlmacen, registrarSalidaTelefono,
-  retornarSalidaTelefono, subirFotosSalida, trasladarTelefono, urlFotoSalida, type ProductoEnAlmacen,
+  archivosFotosSalida, enlacesFotosSalida, listPorRetornar, listSalidasAlmacen, movimientosAlmacenDesde, productosDeAlmacen,
+  registrarSalidaTelefono, retornarSalidaTelefono, subirFotosSalida, trasladarTelefono, urlFotoSalida, type ProductoEnAlmacen,
 } from './inventarioTelefono.repository';
 
 export const RUTA_INVENTARIO_TELEFONO = '/app/inventario/telefono';
@@ -65,7 +68,7 @@ const leerAlmacen = () => { try { return localStorage.getItem(CLAVE_ALMACEN) ?? 
 const guardarAlmacen = (n: string) => { try { localStorage.setItem(CLAVE_ALMACEN, n); } catch { /* sin almacenamiento: se vuelve a elegir */ } };
 const esImagen = (f: File) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name);
 
-type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'traslado' | 'reporte' | 'listo' | 'listoSalida';
+type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'traslado' | 'reporte' | 'historico' | 'listo' | 'listoSalida';
 
 /** Los almacenes agrupados por sede, para los `<select>`. */
 function porSede(almacenes: Almacen[]): [string, Almacen[]][] {
@@ -265,6 +268,17 @@ export function InventarioMovilView() {
         </button>
       )}
 
+      {/* 02-11-2026: las salidas ya hechas, para volver a sacar su PDF o su WhatsApp. Lo ve quien ve el almacén. */}
+      {!loading && paso === 'inicio' && almacen && (
+        <button type="button" className="surt-btn salida" style={{ width: '100%', minHeight: 84, marginTop: '.75rem' }}
+          onClick={() => setPaso('historico')}>
+          <span>🧾 Histórico de salidas</span>
+          <small>Las salidas de {nombreAlm}: su PDF y su WhatsApp</small>
+        </button>
+      )}
+
+      {paso === 'historico' && <HistoricoSalidas almacen={almacen} onVolver={volver} />}
+
       {paso === 'listo' && listo && <Listo titulo={listo.titulo} texto={listo.texto} pdf={listo.pdf} onVolver={volver} />}
 
       {paso === 'listoSalida' && salidaHecha && (
@@ -342,31 +356,39 @@ export function InventarioMovilView() {
 }
 
 /** Lo guardado: el aviso para WhatsApp y la vuelta al inicio. */
-function Listo({ titulo, texto, pdf, fotos, onVolver, children }: {
-  titulo: string; texto: string; pdf?: ComprobanteMaterial; fotos?: FotosParaWhatsapp; onVolver: () => void; children?: ReactNode;
+function Listo({ titulo, texto, pdf, fotos, onVolver, volverTexto = '← Volver al inicio', children }: {
+  titulo: string; texto: string; pdf?: ComprobanteMaterial; fotos?: FotosParaWhatsapp; onVolver: () => void;
+  volverTexto?: string; children?: ReactNode;
 }) {
+  return (
+    <div className="surt-form">
+      <div className="surt-form-titulo"><span className="icono" aria-hidden>✅</span><strong>{titulo}</strong></div>
+      {children}
+      <CompartirWhatsapp texto={texto} fotos={fotos} />
+      {pdf && <BotonPdf pdf={pdf} className="btn btn-ghost surt-guardar" texto="📄 Ver PDF del comprobante" />}
+      <button type="button" className="btn btn-primary surt-guardar" onClick={onVolver}>{volverTexto}</button>
+    </div>
+  );
+}
+
+/**
+ * El comprobante en PDF (30-10-2026): mismo formato que Salidas y Traslados, en vista
+ * previa y solo con el botón (nada se descarga solo). En el teléfono el visor ofrece
+ * abrirlo en su pestaña, porque dentro de la página no se pinta (02-11-2026, ver
+ * shared/lib/reportPreview · muestraPdfEnPagina).
+ */
+function BotonPdf({ pdf, className, texto }: { pdf: ComprobanteMaterial; className: string; texto: string }) {
   const [abriendo, setAbriendo] = useState(false);
-  // El comprobante en PDF (30-10-2026): mismo formato que Salidas y Traslados, en vista
-  // previa y solo con el botón (nada se descarga solo).
   async function verPdf() {
-    if (!pdf) return;
     setAbriendo(true);
     try { await verComprobanteMaterialPdf(pdf); }
     catch (e) { toast(errMsg(e, 'No se pudo armar el PDF'), 'error'); }
     finally { setAbriendo(false); }
   }
   return (
-    <div className="surt-form">
-      <div className="surt-form-titulo"><span className="icono" aria-hidden>✅</span><strong>{titulo}</strong></div>
-      {children}
-      <CompartirWhatsapp texto={texto} fotos={fotos} />
-      {pdf && (
-        <button type="button" className="btn btn-ghost surt-guardar" disabled={abriendo} onClick={() => void verPdf()}>
-          {abriendo ? 'Armando el PDF…' : '📄 Ver PDF del comprobante'}
-        </button>
-      )}
-      <button type="button" className="btn btn-primary surt-guardar" onClick={onVolver}>← Volver al inicio</button>
-    </div>
+    <button type="button" className={className} disabled={abriendo} onClick={() => void verPdf()}>
+      {abriendo ? 'Armando el PDF…' : texto}
+    </button>
   );
 }
 
@@ -394,12 +416,7 @@ function ListoSalida({ salida, quien, onCambio, onVolver }: {
 
   return (
     <Listo titulo={`Salida ${salida.codigo} registrada`} texto={mensajeSalida(salida, quien)} fotos={fotosWhatsapp} onVolver={onVolver}
-      pdf={{
-        tipo: 'salida', codigo: salida.codigo, producto: { nombre: salida.producto_nombre, unidad: salida.unidad },
-        almacen: nombreAlmacenVisible(salida.almacen), cantidad: salida.cantidad, detalle: salida.motivo,
-        autorizadoPor: salida.autorizado_por, retorna: salida.retorna, fotos: salida.fotos.length,
-        actor: salida.actor ?? quien, actorName: salida.actor_name ?? quien, at: salida.created_at,
-      }}>
+      pdf={comprobanteDeSalida(salida, quien)}>
       {/* Las fotos se ven debajo del aviso de WhatsApp, que es con lo que se mandan (02-11-2026). */}
       <div className="surt-campo">
         <label htmlFor="inv-tel-salida-fotos-mas">Fotos ({salida.fotos.length}/{MAX_FOTOS_SALIDA})</label>
@@ -438,6 +455,150 @@ function useFotosParaWhatsapp(fotos: FotoSalida[]): FotosParaWhatsapp | undefine
     // Mientras se preparan (o al sumar una foto) se siguen viendo las que ya estaban.
     return { archivos: listas?.fotos.archivos ?? [], cargando: true };
   }, [clave, listas]);
+}
+
+/** Cuántas salidas se pintan de una vez en el histórico (el resto con «Ver más»). */
+const POR_TANDA = 40;
+
+/**
+ * Histórico de salidas del almacén (02-11-2026, pedido de la administradora): la
+ * lista de las salidas ya hechas, de la más nueva a la más vieja, con su PDF y su
+ * WhatsApp (con las fotos de ESA salida, igual que al registrarla). Abre con los
+ * últimos 60 días; los atajos y el buscador acotan. Lo ve quien ve el almacén: el
+ * almacenista con sede solo llega a los de su sede por el selector de arriba.
+ */
+function HistoricoSalidas({ almacen, onVolver }: { almacen: string; onVolver: () => void }) {
+  const quienDe = useQuien();
+  const hoy = hoyVenezuela();
+  const inicial = ultimosDias(DIAS_HISTORICO, hoy);
+  const [desde, setDesde] = useState(inicial.desde);
+  const [hasta, setHasta] = useState(inicial.hasta);
+  const [salidas, setSalidas] = useState<SalidaTelefono[] | null>(null);
+  const [busca, setBusca] = useState('');
+  const [tope, setTope] = useState(POR_TANDA);
+  const [elegidaId, setElegidaId] = useState<string | null>(null);
+
+  const rangoMalo = !desde || !hasta || desde > hasta || hasta > hoy;
+  // Solo la última consulta pinta (si se cambian las fechas a mitad, la vieja se descarta).
+  const turno = useRef(0);
+  const cargar = useCallback(async () => {
+    if (rangoMalo) return;
+    const mio = ++turno.current;
+    try {
+      const xs = await listSalidasAlmacen(almacen, desde, hasta);
+      if (mio === turno.current) setSalidas(xs);
+    } catch (e) {
+      if (mio === turno.current) { setSalidas([]); toast(errMsg(e, 'No se pudo leer el histórico de salidas'), 'error'); }
+    }
+  }, [almacen, desde, hasta, rangoMalo]);
+  useEffect(() => { setSalidas(null); setTope(POR_TANDA); void cargar(); }, [cargar]);
+  // Al día con lo que registran otros (una salida nueva, un retorno, fotos agregadas).
+  useRealtime(['inventario_salidas_telefono'], () => { void cargar(); });
+
+  const registro = useCallback((s: SalidaTelefono) => quienDe(s.actor_name, s.actor) || s.actor_name || s.actor || '', [quienDe]);
+  const lista = useMemo(() => filtrarSalidas(salidas ?? [], busca), [salidas, busca]);
+  const elegida = elegidaId ? (salidas ?? []).find((s) => s.id === elegidaId) ?? null : null;
+
+  function atajo(r: 'hoy' | 'mes' | 'mesPasado' | 'ult60' | 'ult90') {
+    const x = r === 'hoy' ? { desde: hoy, hasta: hoy }
+      : r === 'ult60' ? ultimosDias(DIAS_HISTORICO, hoy)
+      : r === 'ult90' ? rangoRapido('ult90', hoy)
+      : rangoRapido(r, hoy);
+    setDesde(x.desde); setHasta(x.hasta);
+  }
+
+  if (elegida) {
+    return <SalidaDelHistorico salida={elegida} quien={registro(elegida)} onVolver={() => setElegidaId(null)} />;
+  }
+
+  return (
+    <section className="surt-lista">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', margin: '.5rem 0' }}>
+        <strong style={{ fontSize: '1.1rem' }}>🧾 Histórico de salidas · {nombreAlmacenVisible(almacen)}</strong>
+        <button type="button" className="btn btn-ghost" onClick={onVolver}>← Volver</button>
+      </div>
+      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        <button type="button" className="btn btn-ghost" onClick={() => atajo('hoy')}>Hoy</button>
+        <button type="button" className="btn btn-ghost" onClick={() => atajo('mes')}>Este mes</button>
+        <button type="button" className="btn btn-ghost" onClick={() => atajo('mesPasado')}>Mes pasado</button>
+        <button type="button" className="btn btn-ghost" onClick={() => atajo('ult60')}>60 días</button>
+        <button type="button" className="btn btn-ghost" onClick={() => atajo('ult90')}>90 días</button>
+      </div>
+      <div className="surt-grid2">
+        <div className="surt-campo">
+          <label htmlFor="inv-tel-hist-desde">Desde</label>
+          <input id="inv-tel-hist-desde" type="date" className="input surt-input" value={desde} max={hoy}
+            onChange={(e) => setDesde(e.target.value)} />
+        </div>
+        <div className="surt-campo">
+          <label htmlFor="inv-tel-hist-hasta">Hasta</label>
+          <input id="inv-tel-hist-hasta" type="date" className="input surt-input" value={hasta} max={hoy}
+            onChange={(e) => setHasta(e.target.value)} />
+        </div>
+      </div>
+      <input className="input surt-input" type="search" name="inv-tel-hist-buscar" placeholder="🔍 Material, N° SAT o motivo…"
+        value={busca} onChange={(e) => { setBusca(e.target.value); setTope(POR_TANDA); }} autoComplete="off" aria-label="Buscar en el histórico de salidas" />
+      {rangoMalo ? (
+        <div className="aviso warning sm"><span className="aviso-icono">⚠</span><div>Revisa las fechas: «desde» no puede ir después de «hasta» ni pasar de hoy.</div></div>
+      ) : salidas === null ? (
+        <p className="muted">Cargando salidas…</p>
+      ) : (
+        <>
+          <h2>
+            {busca.trim()
+              ? (lista.length ? `${lista.length} encontrada(s) de ${salidas.length}` : 'Ninguna salida coincide')
+              : `${salidas.length} salida(s) en esas fechas`}
+          </h2>
+          {!salidas.length && <p className="muted">No hay salidas de {nombreAlmacenVisible(almacen)} en esas fechas.</p>}
+          {lista.slice(0, tope).map((s) => {
+            const f = filaHistoricoSalida(s, registro(s));
+            return (
+              <div key={s.id} className="surt-mov surt-hist">
+                <span className="icono" aria-hidden>📤</span>
+                <span style={{ minWidth: 0 }}>
+                  <div className="titulo">{f.titulo}</div>
+                  {f.lineas.map((l) => <div key={l} className="sub">{l}</div>)}
+                  <div className="sub"><strong>{f.retorno}</strong>{s.fotos.length ? ` · 📷 ${s.fotos.length}` : ''}</div>
+                </span>
+                <span className="litros">−{f.cantidad}</span>
+                <div className="surt-hist-acciones">
+                  <BotonPdf pdf={comprobanteDeSalida(s, registro(s))} className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
+                  <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidaId(s.id); window.scrollTo(0, 0); }}>
+                    💬 WhatsApp
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {lista.length > tope && (
+            <button type="button" className="btn btn-ghost btn-grande" style={{ width: '100%' }} onClick={() => setTope((t) => t + POR_TANDA)}>
+              Ver más ({lista.length - tope} restantes)
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Una salida del histórico: su WhatsApp (con sus fotos), su PDF y la vuelta a la lista. */
+function SalidaDelHistorico({ salida, quien, onVolver }: { salida: SalidaTelefono; quien: string; onVolver: () => void }) {
+  const fotosWhatsapp = useFotosParaWhatsapp(salida.fotos);
+  const u = salida.unidad ?? '';
+  return (
+    <Listo titulo={`Salida ${salida.codigo}`} texto={mensajeSalida(salida, quien)} fotos={fotosWhatsapp}
+      pdf={comprobanteDeSalida(salida, quien)} onVolver={onVolver} volverTexto="← Volver al histórico">
+      <div className="surt-detalle">
+        <div className="surt-fila"><span>Material</span><span>{salida.producto_nombre}</span></div>
+        <div className="surt-fila"><span>Cantidad</span><span>{num(salida.cantidad)} {u}</span></div>
+        <div className="surt-fila"><span>Fecha</span><span>{fechaHoraVE(salida.created_at)}</span></div>
+        <div className="surt-fila"><span>Motivo</span><span>{salida.motivo}</span></div>
+        {salida.autorizado_por && <div className="surt-fila"><span>Autorizó</span><span>{salida.autorizado_por}</span></div>}
+        <div className="surt-fila"><span>Retorno</span><span>{textoRetorno(salida)}</span></div>
+        {quien && <div className="surt-fila"><span>Registró</span><span>{quien}</span></div>}
+      </div>
+    </Listo>
+  );
 }
 
 function ReporteStock({ almacen, productos, quien, onVolver }: {

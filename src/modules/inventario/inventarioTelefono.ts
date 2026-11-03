@@ -11,6 +11,7 @@
    stock de un período y los mensajes. Todos los emojis son de color por sí
    mismos, sin el selector U+FE0F (ver combustible/mensajeMovimiento.ts).
    ============================================================ */
+import type { ComprobanteMaterial } from '@/modules/salidas/salidaPdf';
 import { nombreAlmacenVisible } from './sectorizacion';
 
 export const MAX_FOTOS_SALIDA = 4;
@@ -72,14 +73,20 @@ export function pendienteRetorno(s: Pick<SalidaTelefono, 'retorna' | 'cantidad' 
 
 const sinAcentos = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-/** Buscador de «Por retornar»: material, N°, motivo, quién autorizó, quién la cargó o la fecha. */
-export function filtrarPorRetornar<T extends SalidaTelefono>(salidas: T[], busca: string): T[] {
+/**
+ * Buscador de salidas («Por retornar» y el histórico): material, N°, motivo, quién
+ * autorizó, quién la cargó o la fecha, sin importar acentos ni mayúsculas.
+ */
+export function filtrarSalidas<T extends SalidaTelefono>(salidas: T[], busca: string): T[] {
   const q = sinAcentos(busca.trim());
   if (!q) return salidas;
   return salidas.filter((s) => sinAcentos([
     s.producto_nombre, s.codigo, s.motivo, s.autorizado_por ?? '', s.actor_name ?? '', fechaHoraVE(s.created_at),
   ].join(' ')).includes(q));
 }
+
+/** Buscador de «Por retornar» (el mismo de todas las salidas). */
+export const filtrarPorRetornar = filtrarSalidas;
 
 /** Lo que impide registrar la salida. `null` = se puede. */
 export function errorSalida(d: {
@@ -237,6 +244,57 @@ export function mensajeTraslado(d: {
   if (d.quedaOrigen != null) l.push(`📊 *Queda en ${nombreAlmacenVisible(d.origen)}:* ${conUnidad(d.quedaOrigen, d.unidad)}`);
   l.push(...pie(d.origen, d.quien, d.cuando));
   return l.join('\n');
+}
+
+/* ── Histórico de salidas (02-11-2026) ──
+   Pedido de la administradora: desde el teléfono hay que poder volver a sacar
+   el PDF o el WhatsApp de una salida ya hecha, no solo justo al registrarla.
+   Acá va lo que no toca la base: el rango por defecto, cómo se lee el retorno
+   en la lista y el comprobante (el MISMO de recién registrada). */
+
+/** Días hacia atrás que trae el histórico al abrirlo. */
+export const DIAS_HISTORICO = 60;
+
+/** Los últimos `dias` días contando hoy (AAAA-MM-DD, hora de Venezuela). */
+export function ultimosDias(dias: number, hoy: string): { desde: string; hasta: string } {
+  const [y, m, d] = hoy.split('-').map(Number);
+  const atras = Math.max(1, Math.floor(dias)) - 1;
+  return { desde: new Date(Date.UTC(y, m - 1, d - atras)).toISOString().slice(0, 10), hasta: hoy };
+}
+
+/** Cómo va el retorno de una salida, en palabras. */
+export function textoRetorno(s: Pick<SalidaTelefono, 'retorna' | 'cantidad' | 'retornado' | 'unidad'>): string {
+  if (!s.retorna) return 'No retorna';
+  const falta = pendienteRetorno(s);
+  if (falta <= 0) return 'Retornó completo';
+  if (Number(s.retornado) > 0) return `Retornó ${conUnidad(Number(s.retornado), s.unidad)} · faltan ${conUnidad(falta, s.unidad)}`;
+  return `Por retornar: ${conUnidad(falta, s.unidad)}`;
+}
+
+/** Lo que se ve de cada salida en el histórico. `registro` = quién la cargó (nombre visible). */
+export interface FilaHistoricoSalida { titulo: string; cantidad: string; lineas: string[]; retorno: string }
+
+export function filaHistoricoSalida(s: SalidaTelefono, registro?: string | null): FilaHistoricoSalida {
+  const quienes = [
+    s.autorizado_por ? `Autorizó ${s.autorizado_por}` : '',
+    registro ? `Registró ${registro}` : '',
+  ].filter(Boolean).join(' · ');
+  return {
+    titulo: s.producto_nombre,
+    cantidad: conUnidad(s.cantidad, s.unidad),
+    lineas: [`${s.codigo} · ${fechaHoraVE(s.created_at)}`, `Motivo: ${s.motivo}`, quienes].filter(Boolean),
+    retorno: textoRetorno(s),
+  };
+}
+
+/** El comprobante en PDF de una salida: igual recién registrada que desde el histórico. */
+export function comprobanteDeSalida(s: SalidaTelefono, quien: string): ComprobanteMaterial {
+  return {
+    tipo: 'salida', codigo: s.codigo, producto: { nombre: s.producto_nombre, unidad: s.unidad },
+    almacen: nombreAlmacenVisible(s.almacen), cantidad: s.cantidad, detalle: s.motivo,
+    autorizadoPor: s.autorizado_por, retorna: s.retorna, fotos: s.fotos.length,
+    actor: s.actor ?? quien, actorName: s.actor_name ?? quien, at: s.created_at,
+  };
 }
 
 /* ── Reporte de stock por período (igual que en GT) ── */
