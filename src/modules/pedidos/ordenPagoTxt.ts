@@ -16,6 +16,7 @@
 import type { Orden, PagoMetodo } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
 import { BANCOS_VE } from '@/shared/lib/bancos';
+import { dateTime } from '@/shared/lib/format';
 import { labelCondicionPago } from './ofertas.repository';
 // El enlace y el «compartir» son los MISMOS de Combustible/Alimentación: una sola implementación
 // del «no wa.me» y de la hoja de compartir del teléfono.
@@ -162,6 +163,8 @@ export function textoOrdenPago(
   if (detalle) L.push(`📝 *Detalle:* ${detalle}`);
   if (nota) L.push(`📌 *Nota:* ${nota.replace(/\s*\r?\n\s*/g, ' ')}`);
   L.push(...lineasPersonas(personas));
+  // Cuándo la aprobó el Gerente (03-11-2026, pedido de la administradora).
+  if (orden.oc_aprobada_en) L.push(`📅 *Fecha de aprobación:* ${dateTime(orden.oc_aprobada_en)}`);
   L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}`);
   // En una cuenta abierta lo que se va a pagar hoy NO es el total: es el saldo.
   // Mandar solo el total invita a pagar de más, así que el abonado y lo que

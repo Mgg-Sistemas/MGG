@@ -18,6 +18,15 @@ const base = {
 
 const txt = (o: Partial<Orden> = {}) => textoOrdenPago({ ...base, ...o } as Orden, 'MAXI SHOES');
 
+describe('textoOrdenPago · fecha de aprobación (03-11-2026)', () => {
+  it('sale cuando el Gerente ya la aprobó, y no antes', () => {
+    const con = textoOrdenPago({ ...base, oc_aprobada_en: '2026-11-03T14:30:00Z' } as Orden, 'X');
+    const linea = con.split('\n').find((l) => l.startsWith('📅 *Fecha de aprobación:* '));
+    expect(linea).toMatch(/03 nov.* 2026/);
+    expect(textoOrdenPago({ ...base, oc_aprobada_en: null } as Orden, 'X')).not.toContain('Fecha de aprobación');
+  });
+});
+
 describe('textoOrdenPago · formato corto para WhatsApp', () => {
   it('sale exactamente con la forma pedida', () => {
     expect(txt().split('\n')).toEqual([
