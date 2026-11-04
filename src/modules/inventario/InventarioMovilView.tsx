@@ -35,6 +35,7 @@ import { adjuntaArchivos } from '@/shared/lib/fotosWhatsapp';
 import { descargarOrdenSalidaPdf, verComprobanteMaterialPdf, type ComprobanteMaterial } from '@/modules/salidas/salidaPdf';
 import { listAutorizadoresActivos } from '@/modules/combustible/combustible.repository';
 import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
+import { RecepcionesTelefono } from './RecepcionesTelefono';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import { createProducto, findBySku, getUnidades, siguienteSkuLibre } from './inventario.repository';
 import { listAlmacenes } from './almacenes.repository';
@@ -74,7 +75,7 @@ const leerAlmacen = () => { try { return localStorage.getItem(CLAVE_ALMACEN) ?? 
 const guardarAlmacen = (n: string) => { try { localStorage.setItem(CLAVE_ALMACEN, n); } catch { /* sin almacenamiento: se vuelve a elegir */ } };
 const esImagen = (f: File) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name);
 
-type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'traslado' | 'reporte' | 'historico' | 'historicoTraslados' | 'listo' | 'listoSalida';
+type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'traslado' | 'reporte' | 'historico' | 'historicoTraslados' | 'recepciones' | 'listo' | 'listoSalida';
 
 /** Los almacenes agrupados por sede, para los `<select>`. */
 function porSede(almacenes: Almacen[]): [string, Almacen[]][] {
@@ -280,6 +281,17 @@ export function InventarioMovilView() {
 
       {/* 02-11-2026: las salidas ya hechas, para volver a sacar su PDF o su WhatsApp. 03-11: también los
           traslados, y los dos botones uno al lado del otro (pedido de la administradora). Lo ve quien ve el almacén. */}
+      {/* 04-11-2026: 📥 Recepciones en el teléfono: lo que entrega el delivery (o llega) entra al almacén elegido. */}
+      {!loading && paso === 'inicio' && almacen && (
+        <button type="button" className="surt-btn entrada" style={{ width: '100%', minHeight: 84, marginTop: '.75rem' }} onClick={() => setPaso('recepciones')}>
+          <span>📥 Recepciones</span>
+          <small>Las OC por recibir y lo que trajo el delivery: entra a {nombreAlm}</small>
+        </button>
+      )}
+      {paso === 'recepciones' && almacen && (
+        <RecepcionesTelefono almacen={almacen} canWrite={puedeMoverAqui} actor={actor} actorName={actorName} quien={quien} onVolver={volver} />
+      )}
+
       {!loading && paso === 'inicio' && almacen && (
         <div className="surt-historicos">
           <button type="button" className="surt-btn salida" onClick={() => setPaso('historico')}>

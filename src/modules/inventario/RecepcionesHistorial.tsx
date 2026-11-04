@@ -21,6 +21,10 @@ import {
   type Recepcion,
 } from './recepcionesHistorico';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
+import { useQuien } from '@/shared/lib/directorioUsuarios';
+import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
+import { mensajeRecepcion, type DatosRecepcion } from './recepcionReporte';
+import { nombresProveedores } from './recepcionTelefono.repository';
 
 /** Hace `n` días, en ISO corto. */
 function hace(n: number): string {
@@ -41,6 +45,21 @@ export function RecepcionesHistorialModal({ productos, onClose }: {
   const [recs, setRecs] = useState<Recepcion[]>([]);
   const [cargando, setCargando] = useState(true);
   const [abierta, setAbierta] = useState<string | null>(null);
+  // 04-11-2026: el PDF y el WhatsApp de cada recepción (como en el teléfono).
+  const quienDe = useQuien();
+  const [whatsapp, setWhatsapp] = useState<string | null>(null);
+  async function datosDe(r: Recepcion): Promise<DatosRecepcion> {
+    const provs = await nombresProveedores(r.proveedor_id ? [r.proveedor_id] : []).catch(() => new Map<string, string>());
+    return {
+      codigo: r.codigo, documento: r.documento, proveedor: (r.proveedor_id && provs.get(r.proveedor_id)) || null, almacen: r.almacen,
+      at: r.at, quien: quienDe(r.actor_name, r.actor) || r.actor_name || r.actor,
+      items: r.items.map((i) => ({ nombre: prodPorId.get(i.producto_id)?.nombre ?? i.producto_id, unidad: prodPorId.get(i.producto_id)?.unidad ?? null, cantidad: i.cantidad, precio: i.precio })),
+    };
+  }
+  async function verPdf(r: Recepcion) {
+    try { const { verRecepcionPdf } = await import('./recepcionPdf'); await verRecepcionPdf(await datosDe(r)); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo armar el PDF', 'error'); }
+  }
 
   const prodPorId = useMemo(
     () => new Map(productos.map((p) => [p.id, p] as const)),
@@ -125,6 +144,7 @@ export function RecepcionesHistorialModal({ productos, onClose }: {
                 <th style={{ textAlign: 'right' }}>Ítems</th>
                 <th style={{ textAlign: 'right' }}>Unidades</th>
                 <th style={{ textAlign: 'right' }}>Valor</th>
+                <th />
               </tr></thead>
               <tbody>
                 {filtradas.map((r) => {
@@ -151,10 +171,15 @@ export function RecepcionesHistorialModal({ productos, onClose }: {
                         <td className="mono" style={{ textAlign: 'right' }}>
                           {r.valor == null ? <span className="dim">—</span> : money(r.valor)}
                         </td>
+                        <td style={{ whiteSpace: 'nowrap' }} onClick={(e) => e.stopPropagation()}>
+                          <button type="button" className="btn btn-ghost btn-xs" title="Comprobante de recepción en PDF" onClick={() => void verPdf(r)}>📄 PDF</button>
+                          <button type="button" className="btn btn-ghost btn-xs" title="Aviso de la recepción por WhatsApp"
+                            onClick={() => { void datosDe(r).then((d) => setWhatsapp(mensajeRecepcion(d))); }}>💬</button>
+                        </td>
                       </tr>
                       {abierto && (
                         <tr>
-                          <td colSpan={7} style={{ paddingTop: 0 }}>
+                          <td colSpan={8} style={{ paddingTop: 0 }}>
                             <table className="table" style={{ fontSize: '.78rem', margin: '.2rem 0 .5rem' }}>
                               <tbody>
                                 {r.items.map((it) => {
@@ -187,6 +212,7 @@ export function RecepcionesHistorialModal({ productos, onClose }: {
           </div>
         </>
       )}
+      {whatsapp && <MensajeWhatsappModal titulo="Recepción · WhatsApp" texto={whatsapp} onClose={() => setWhatsapp(null)} />}
     </Modal>
   );
 }

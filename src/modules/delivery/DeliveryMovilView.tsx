@@ -19,7 +19,8 @@ import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { RUTA_TELEFONO } from '@/modules/auth/vistasTelefono';
-import { DESTINOS_RECEPCION, nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
+import { DESTINOS_RECEPCION, RESPALDO_POR_CORREO, nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
+import { avisarRecepcionPendiente } from '@/modules/inventario/recepcionTelefono.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { PanelRutaMovil, metrosAlPedido, useMiPosicion } from './RutaDeliveryMovil';
 import { ordenarLibresPorCercania, type Punto } from './deliveryRutas';
@@ -35,7 +36,7 @@ import {
   claveDe, esRetiro, mensajeEnRuta, mensajeEntregado, mensajeNoDisponible, montoTxt, ocDe, type FotoDelivery, type PedidoDelivery,
 } from './delivery';
 import {
-  cancelarPedido, compartirUbicacion, listProveedoresUbicacion, puntosDeProveedores, useDestinosDelivery, marcarNoDisponible, recibirOcEntregada, comprobantePagoDelivery, listPedidosDelivery, marcarEnRuta, marcarEntregado,
+  cancelarPedido, compartirUbicacion, listProveedoresUbicacion, puntosDeProveedores, useDestinosDelivery, marcarNoDisponible,  comprobantePagoDelivery, listPedidosDelivery, marcarEnRuta, marcarEntregado,
   quitarFotoDelivery, subirFotosDelivery, tomarPedido, urlFotoDelivery, useDeliveryConectado, type ComprobantePagoDelivery,
 } from './delivery.repository';
 import {
@@ -228,7 +229,7 @@ export function DeliveryMovilView() {
         <FormCancelar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
       )}
       {accion?.tipo === 'entregar' && pedidoAccion && (
-        <FormEntregar p={pedidoAccion} quien={quien} actor={actor} actorName={actorName} onCancel={volver} onHecho={hecho} />
+        <FormEntregar p={pedidoAccion} quien={quien} onCancel={volver} onHecho={hecho} />
       )}
 
       {enPantallaPrincipal && (
@@ -590,8 +591,8 @@ function FormCancelar({ p, quien, onCancel, onHecho }: {
 /** Dónde entrega el delivery (02-11-2026): solo LOS PINOS o MATANZA, como la recepción de Compras. */
 const DESTINOS_ENTREGA = DESTINOS_RECEPCION.filter((d) => d.label === 'LOS PINOS' || d.label === 'MATANZA');
 
-function FormEntregar({ p, quien, actor, actorName, onCancel, onHecho }: {
-  p: PedidoDelivery; quien: string; actor: string; actorName: string | null;
+function FormEntregar({ p, quien, onCancel, onHecho }: {
+  p: PedidoDelivery; quien: string;
   onCancel: () => void; onHecho: (titulo: string, texto: string) => void;
 }) {
   // Propuesto: el almacén de la OC (o la sede de la SP) si es uno de los dos.
@@ -608,19 +609,18 @@ function FormEntregar({ p, quien, actor, actorName, onCancel, onHecho }: {
     const donde = nombreAlmacenVisible(almacen);
     // La OC queda recibida en inventario en ese almacén. Si no se puede (p. ej. un renglón
     // sin ficha), la entrega se registra igual y se avisa: Compras la recibe a mano.
-    let inventario: string | null = null;
-    if (!esRetiro(p)) {
-      try {
-        const r = await recibirOcEntregada(p.orden_id, almacen, nota.trim() || null, actor, actorName);
-        inventario = r === 'recibida' ? `recibida en ${donde}` : 'ya la había recibido Compras';
-      } catch (err) {
-        inventario = `NO se pudo recibir: ${errMsg(err, 'error al recibir')}. Compras debe recibirla.`;
-        toast(`La entrega se registra, pero la OC no entró al inventario: ${errMsg(err, 'error al recibir')}`, 'warning');
-      }
-    }
+    // 04-11-2026 (pedido de la administradora): ya NO se recibe sola al entregar. Queda
+    // pendiente y le llega el aviso al almacenista de ese almacén (Los Pinos → Isner,
+    // Matanza → Carlos), que la RECEPCIONA en su teléfono: ahí entra al inventario y
+    // la orden queda recibida en Compras.
+    const inventario = esRetiro(p) ? null : `pendiente de recepción por el almacenista de ${donde}`;
     try {
       await marcarEntregado(p.pedido_id, almacen, nota.trim() || null);
-      toast(inventario?.startsWith('recibida') ? `${ocDe(p)} entregada y recibida en ${donde}.` : `${ocDe(p)} entregada en ${donde}.`, 'success');
+      if (!esRetiro(p)) {
+        const correos = Object.entries(RESPALDO_POR_CORREO).filter(([, v]) => v.almacenRecepcion === almacen).map(([c]) => c);
+        void avisarRecepcionPendiente(correos, { codigo: ocDe(p), repartidor: quien, almacen: donde }).catch(() => { /* el aviso es extra */ });
+      }
+      toast(`${ocDe(p)} entregada en ${donde}${esRetiro(p) ? '' : ': el almacenista la recepciona'}.`, 'success');
       onHecho('Entregado en almacén', mensajeEntregado(p, quien, donde, nota, null, inventario));
     } catch (err) {
       toast(errMsg(err, 'No se pudo marcar la entrega'), 'error');
@@ -644,7 +644,7 @@ function FormEntregar({ p, quien, actor, actorName, onCancel, onHecho }: {
           ))}
         </div>
         <small className="muted">
-          {esRetiro(p) ? 'Material de almacén: no se vuelve a recibir.' : 'Al confirmar, la orden queda recibida en el inventario de ese almacén.'}
+          {esRetiro(p) ? 'Material de almacén: no se vuelve a recibir.' : 'Al confirmar, le llega el aviso al almacenista de ese almacén para que la recepcione en su teléfono.'}
           {p.almacen_destino ? ` La orden indica ${nombreAlmacenVisible(p.almacen_destino)}.` : ''}
         </small>
       </div>
