@@ -24,7 +24,7 @@ function normalizarGrados(grados: string[] | null | undefined): string[] {
 }
 import { normalizarCorreo, type Genero, type Parentesco } from './fichaPersonal';
 import { esCargoDeChofer } from '@/modules/choferes/choferes';
-import { normalizarDatosBancarios, type DatosBancarios } from './datosBancarios';
+import { leerCuentas, type CuentaPago } from './datosBancarios';
 
 const TABLE = 'personal';
 const TABLA_SUELDOS = 'personal_sueldos';
@@ -99,8 +99,6 @@ export interface PersonalInput {
   correo?: string | null;
   contacto_emergencia?: string | null;
   contacto_emergencia_tlf?: string | null;
-  /** Datos bancarios (03-11-2026): pago móvil, transferencia, Binance, TRC20, TRON. */
-  datos_pago?: DatosBancarios | null;
   foto_url?: string | null;
   /** Encuadre de la foto del carnet: posición 0..1 (default 0,5) y zoom ≥1 (default 1). */
   foto_pos_x?: number | null;
@@ -207,13 +205,28 @@ function payload(input: PersonalInput) {
     correo: input.correo === undefined ? undefined : (normalizarCorreo(input.correo) || null),
     contacto_emergencia: input.contacto_emergencia?.trim() || null,
     contacto_emergencia_tlf: input.contacto_emergencia_tlf?.trim() || null,
-    datos_pago: input.datos_pago === undefined ? undefined : normalizarDatosBancarios(input.datos_pago),
     foto_url: input.foto_url?.trim() || null,
     // Encuadre de la foto (lo ajusta el usuario): posición 0..1 y zoom entre 1 y 4.
     foto_pos_x: clamp(Number(input.foto_pos_x ?? 0.5), 0, 1),
     foto_pos_y: clamp(Number(input.foto_pos_y ?? 0.5), 0, 1),
     foto_zoom: clamp(Number(input.foto_zoom ?? 1), 1, 4),
   });
+}
+
+/* ── Datos bancarios (03/11/2026, como en GT): personal.datos_pago = { cuentas: CuentaPago[] } ── */
+
+/** Las formas de pago de una persona (pago móvil, transferencia, Binance, TRC20). */
+export async function listCuentasPago(id: string): Promise<CuentaPago[]> {
+  const { data, error } = await supabase.from(TABLE).select('datos_pago').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return leerCuentas((data as { datos_pago?: unknown } | null)?.datos_pago);
+}
+
+/** Reemplaza la lista completa. Pide la fila de vuelta: sin permiso la base no toca nada y no da error. */
+export async function guardarCuentasPago(id: string, cuentas: CuentaPago[]): Promise<void> {
+  const { data, error } = await supabase.from(TABLE).update({ datos_pago: { cuentas } }).eq('id', id).select('id');
+  if (error) throw error;
+  if (!data?.length) throw new Error('No se pudieron guardar los datos bancarios: no tienes permiso de escritura en RRHH.');
 }
 
 const BUCKET_DOCS = 'personal-docs';

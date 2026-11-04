@@ -1,103 +1,116 @@
 /* ============================================================
-   MGG · RRHH · Datos bancarios del trabajador (03-11-2026)
+   Golden Touch · RRHH · Datos bancarios del trabajador (03/11/2026)
 
-   Pedido de la administradora: en la ficha, un segmento «DATOS BANCARIOS»:
-   · En Bs: PAGO MÓVIL (banco, teléfono, cédula) y TRANSFERENCIA (banco,
-     número de cuenta, titular, cédula).
-   · En USDT: BINANCE (usuario), red TRC20 («TR20») y TRON (direcciones).
-   Se guarda en `personal.datos_pago` (jsonb, ya existía sin uso). Todo es
-   opcional: se llena lo que el trabajador tenga.
+   Formas de pago de cada persona, guardadas en `personal.datos_pago` (jsonb que
+   ya existía y estaba vacío) como { cuentas: CuentaPago[] }:
+     · Bs   → Pago móvil (banco, teléfono, cédula) · Transferencia (banco, cuenta
+              de 20 dígitos, tipo, titular, cédula/RIF del titular).
+     · USDT → Binance (usuario, correo o Binance ID) · TRC20 (dirección TRON).
+   Las validaciones son suaves: avisan, y la pantalla no deja guardar si fallan.
    ============================================================ */
 import { labelBanco } from '@/shared/lib/bancos';
 
-export interface PagoMovil { banco: string; telefono: string; cedula: string }
-export interface Transferencia { banco: string; cuenta: string; titular: string; cedula: string }
-export interface DatosBancarios {
-  pago_movil: PagoMovil;
-  transferencia: Transferencia;
-  binance: string;
-  trc20: string;
-  tron: string;
+export type TipoCuentaPago = 'pago_movil' | 'transferencia' | 'binance' | 'trc20';
+
+export interface CuentaPago {
+  id: string;
+  tipo: TipoCuentaPago;
+  /** Código SUDEBAN del banco (pago móvil / transferencia). */
+  banco?: string | null;
+  telefono?: string | null;
+  cedula?: string | null;
+  cuenta?: string | null;
+  tipo_cuenta?: 'corriente' | 'ahorro' | null;
+  titular?: string | null;
+  /** Binance: usuario, correo o Binance ID. */
+  usuario?: string | null;
+  /** TRC20: dirección de billetera en la red TRON. */
+  direccion?: string | null;
+  principal?: boolean;
 }
 
-export const DATOS_BANCARIOS_VACIOS: DatosBancarios = {
-  pago_movil: { banco: '', telefono: '', cedula: '' },
-  transferencia: { banco: '', cuenta: '', titular: '', cedula: '' },
-  binance: '',
-  trc20: '',
-  tron: '',
-};
+export const TIPOS_CUENTA: { tipo: TipoCuentaPago; label: string; moneda: 'Bs' | 'USDT'; icono: string }[] = [
+  { tipo: 'pago_movil', label: 'Pago móvil', moneda: 'Bs', icono: '📱' },
+  { tipo: 'transferencia', label: 'Transferencia', moneda: 'Bs', icono: '🏦' },
+  { tipo: 'binance', label: 'Binance', moneda: 'USDT', icono: '🟡' },
+  { tipo: 'trc20', label: 'TRC20 (red TRON)', moneda: 'USDT', icono: '🔗' },
+];
 
-const txt = (v: unknown) => (typeof v === 'string' ? v : v == null ? '' : String(v)).trim();
-const obj = (v: unknown): Record<string, unknown> => (v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {});
+export const infoTipo = (t: TipoCuentaPago) => TIPOS_CUENTA.find((x) => x.tipo === t) ?? TIPOS_CUENTA[0];
 
-/** Lee lo guardado (o null) a la forma del formulario, con todo en texto. */
-export function leerDatosBancarios(raw: unknown): DatosBancarios {
-  const r = obj(raw);
-  const pm = obj(r.pago_movil);
-  const tr = obj(r.transferencia);
-  return {
-    pago_movil: { banco: txt(pm.banco), telefono: txt(pm.telefono), cedula: txt(pm.cedula) },
-    transferencia: { banco: txt(tr.banco), cuenta: txt(tr.cuenta), titular: txt(tr.titular), cedula: txt(tr.cedula) },
-    binance: txt(r.binance),
-    trc20: txt(r.trc20),
-    tron: txt(r.tron),
-  };
+const soloDigitos = (s: string | null | undefined) => (s ?? '').replace(/\D/g, '');
+
+/** Teléfono venezolano de pago móvil: 04xx + 7 dígitos (acepta guiones, espacios o +58). */
+export function telefonoValido(t: string | null | undefined): boolean {
+  let d = soloDigitos(t);
+  if (d.startsWith('58') && d.length === 12) d = `0${d.slice(2)}`;
+  return /^04(12|14|16|24|26|22)\d{7}$/.test(d);
 }
 
-const soloDigitos = (s: string) => s.replace(/\D+/g, '');
-
-/**
- * Lo que se guarda: limpio, la cuenta solo con dígitos, la cédula en mayúsculas, y
- * null si no hay nada (para no guardar un objeto vacío).
- */
-export function normalizarDatosBancarios(d: DatosBancarios | null | undefined): DatosBancarios | null {
-  if (!d) return null;
-  const x = leerDatosBancarios(d);
-  const out: DatosBancarios = {
-    pago_movil: { banco: x.pago_movil.banco, telefono: x.pago_movil.telefono, cedula: x.pago_movil.cedula.toUpperCase() },
-    transferencia: {
-      banco: x.transferencia.banco, cuenta: soloDigitos(x.transferencia.cuenta),
-      titular: x.transferencia.titular.toUpperCase(), cedula: x.transferencia.cedula.toUpperCase(),
-    },
-    binance: x.binance,
-    trc20: x.trc20,
-    tron: x.tron,
-  };
-  return tieneDatosBancarios(out) ? out : null;
+/** Número de cuenta: 20 dígitos y los 4 primeros = código del banco (si se indicó). */
+export function cuentaValida(cuenta: string | null | undefined, banco?: string | null): boolean {
+  const d = soloDigitos(cuenta);
+  if (d.length !== 20) return false;
+  return !banco || d.startsWith(banco);
 }
 
-export function tieneDatosBancarios(d: DatosBancarios | null | undefined): boolean {
-  if (!d) return false;
-  return [d.pago_movil.banco, d.pago_movil.telefono, d.pago_movil.cedula, d.transferencia.banco, d.transferencia.cuenta,
-    d.transferencia.titular, d.transferencia.cedula, d.binance, d.trc20, d.tron].some((v) => !!v.trim());
+/** Dirección TRON (TRC20): empieza por T y tiene 34 caracteres base58. */
+export function direccionTronValida(dir: string | null | undefined): boolean {
+  return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test((dir ?? '').trim());
 }
 
-/** Avisos que no dejan guardar: una cuenta que no tiene 20 dígitos o un pago móvil a medias. */
-export function errorDatosBancarios(d: DatosBancarios | null | undefined): string | null {
-  if (!d) return null;
-  const cuenta = soloDigitos(d.transferencia.cuenta);
-  if (cuenta && cuenta.length !== 20) return 'El número de cuenta debe tener 20 dígitos.';
-  const pm = d.pago_movil;
-  const algoPm = !!(pm.banco || pm.telefono.trim() || pm.cedula.trim());
-  if (algoPm && !(pm.banco && pm.telefono.trim() && pm.cedula.trim())) return 'Pago móvil: indica banco, teléfono y cédula.';
-  return null;
+/** Cédula o RIF: V/E/J/G/P + dígitos (el prefijo es opcional en cédulas). */
+export function cedulaValida(c: string | null | undefined): boolean {
+  return /^([VEJGP]-?)?\d{6,10}(-?\d)?$/i.test((c ?? '').replace(/[.\s]/g, ''));
 }
 
-/** Renglones para la ficha y el PDF: [etiqueta, valor]. Solo lo que tiene datos. */
-export function renglonesDatosBancarios(raw: unknown): [string, string][] {
-  const d = leerDatosBancarios(raw);
-  const out: [string, string][] = [];
-  const pm = d.pago_movil;
-  if (pm.banco || pm.telefono || pm.cedula) {
-    out.push(['Pago móvil (Bs)', [pm.banco ? labelBanco(pm.banco) : '', pm.telefono, pm.cedula].filter(Boolean).join(' · ')]);
+/** Qué le falta o tiene mal una cuenta; `null` si está bien. */
+export function errorCuenta(c: CuentaPago): string | null {
+  switch (c.tipo) {
+    case 'pago_movil':
+      if (!c.banco) return 'Elige el banco del pago móvil.';
+      if (!telefonoValido(c.telefono)) return 'El teléfono debe ser 04xx-xxxxxxx.';
+      if (!cedulaValida(c.cedula)) return 'Indica la cédula del pago móvil (ej. V-12345678).';
+      return null;
+    case 'transferencia':
+      if (!c.banco) return 'Elige el banco de la cuenta.';
+      if (!cuentaValida(c.cuenta, c.banco)) return 'La cuenta debe tener 20 dígitos y empezar por el código del banco.';
+      if (!c.titular?.trim()) return 'Indica el titular de la cuenta.';
+      if (!cedulaValida(c.cedula)) return 'Indica la cédula o RIF del titular.';
+      return null;
+    case 'binance':
+      return c.usuario?.trim() ? null : 'Indica el usuario, correo o Binance ID.';
+    case 'trc20':
+      return direccionTronValida(c.direccion) ? null : 'La dirección TRC20 empieza por T y tiene 34 caracteres.';
+    default:
+      return 'Tipo de cuenta desconocido.';
   }
-  const tr = d.transferencia;
-  if (tr.banco || tr.cuenta || tr.titular || tr.cedula) {
-    out.push(['Transferencia (Bs)', [tr.banco ? labelBanco(tr.banco) : '', tr.cuenta, tr.titular, tr.cedula].filter(Boolean).join(' · ')]);
-  }
-  if (d.binance) out.push(['Binance (USDT)', d.binance]);
-  if (d.trc20) out.push(['USDT · red TRC20', d.trc20]);
-  if (d.tron) out.push(['USDT · TRON', d.tron]);
+}
+
+/** Lee `personal.datos_pago` sin fallar con datos viejos o vacíos. */
+export function leerCuentas(datosPago: unknown): CuentaPago[] {
+  const lista = (datosPago as { cuentas?: unknown } | null)?.cuentas;
+  if (!Array.isArray(lista)) return [];
+  return lista.filter((x): x is CuentaPago => !!x && typeof x === 'object' && typeof (x as CuentaPago).tipo === 'string');
+}
+
+/** Renglones «etiqueta: valor» de una cuenta (para la ficha y para copiar). */
+export function datosDeCuenta(c: CuentaPago): { etiqueta: string; valor: string }[] {
+  const out: { etiqueta: string; valor: string }[] = [];
+  const add = (etiqueta: string, valor?: string | null) => { if (valor?.trim()) out.push({ etiqueta, valor: valor.trim() }); };
+  if (c.banco) add('Banco', labelBanco(c.banco));
+  add('Teléfono', c.telefono);
+  add('Cuenta', c.cuenta ? soloDigitos(c.cuenta) : null);
+  add('Tipo de cuenta', c.tipo_cuenta === 'ahorro' ? 'Ahorro' : c.tipo_cuenta === 'corriente' ? 'Corriente' : null);
+  add('Titular', c.titular);
+  add(c.tipo === 'transferencia' ? 'Cédula/RIF del titular' : 'Cédula', c.cedula);
+  add('Usuario / Binance ID', c.usuario);
+  add('Dirección TRC20', c.direccion);
   return out;
+}
+
+/** Todo el bloque en texto, para pegarlo en un chat o en el banco. */
+export function textoCuenta(c: CuentaPago): string {
+  const i = infoTipo(c.tipo);
+  return [`${i.label} (${i.moneda})`, ...datosDeCuenta(c).map((d) => `${d.etiqueta}: ${d.valor}`)].join('\n');
 }

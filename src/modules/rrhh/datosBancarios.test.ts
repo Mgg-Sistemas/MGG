@@ -1,38 +1,43 @@
 import { describe, expect, it } from 'vitest';
-import {
-  DATOS_BANCARIOS_VACIOS, errorDatosBancarios, leerDatosBancarios, normalizarDatosBancarios, renglonesDatosBancarios,
-} from './datosBancarios';
+import { cuentaValida, direccionTronValida, errorCuenta, leerCuentas, telefonoValido, textoCuenta } from './datosBancarios';
 
-describe('datos bancarios del trabajador (03-11-2026)', () => {
-  it('sin nada no guarda un objeto vacío', () => {
-    expect(normalizarDatosBancarios(DATOS_BANCARIOS_VACIOS)).toBeNull();
-    expect(leerDatosBancarios(null)).toEqual(DATOS_BANCARIOS_VACIOS);
+describe('datos bancarios del trabajador', () => {
+  it('teléfono de pago móvil 04xx', () => {
+    expect(telefonoValido('0414-1234567')).toBe(true);
+    expect(telefonoValido('+58 412 1234567')).toBe(true);
+    expect(telefonoValido('0212-1234567')).toBe(false);
+    expect(telefonoValido('0414123')).toBe(false);
   });
 
-  it('limpia la cuenta y pone en mayúsculas la cédula y el titular', () => {
-    const d = normalizarDatosBancarios({
-      ...DATOS_BANCARIOS_VACIOS,
-      transferencia: { banco: '0102', cuenta: '0102-0000-11-2222333344', titular: 'juan perez', cedula: 'v-12345678' },
-    });
-    expect(d?.transferencia).toEqual({ banco: '0102', cuenta: '01020000112222333344', titular: 'JUAN PEREZ', cedula: 'V-12345678' });
+  it('cuenta de 20 dígitos que empieza por el banco', () => {
+    expect(cuentaValida('0134-0000-00-0000000000', '0134')).toBe(true);
+    expect(cuentaValida('0102000000000000000000', '0134')).toBe(false);
+    expect(cuentaValida('013400000', '0134')).toBe(false);
   });
 
-  it('avisa la cuenta corta y el pago móvil a medias', () => {
-    const base = { ...DATOS_BANCARIOS_VACIOS };
-    expect(errorDatosBancarios({ ...base, transferencia: { ...base.transferencia, cuenta: '0102 1234' } })).toMatch(/20 dígitos/);
-    expect(errorDatosBancarios({ ...base, pago_movil: { banco: '0105', telefono: '', cedula: '' } })).toMatch(/Pago móvil/);
-    expect(errorDatosBancarios({ ...base, binance: 'juan_p' })).toBeNull();
+  it('dirección TRON', () => {
+    expect(direccionTronValida('TJYeasTPa6gpEEfYqNnAXTqKMJdkzYvZPh')).toBe(true);
+    expect(direccionTronValida('0xabc')).toBe(false);
+    expect(direccionTronValida('TJYeasTPa6gpEEfYqNnAXTqKMJdkzYvZP0')).toBe(false); // 0 no es base58
   });
 
-  it('arma los renglones de la ficha con lo que hay', () => {
-    const r = renglonesDatosBancarios({
-      pago_movil: { banco: '0105', telefono: '0414-1234567', cedula: 'V-1' },
-      binance: 'juan_p', trc20: 'TXabc', tron: '',
-    });
-    expect(r).toEqual([
-      ['Pago móvil (Bs)', '0105 · Mercantil · 0414-1234567 · V-1'],
-      ['Binance (USDT)', 'juan_p'],
-      ['USDT · red TRC20', 'TXabc'],
-    ]);
+  it('errores por tipo', () => {
+    expect(errorCuenta({ id: '1', tipo: 'pago_movil', banco: '0134', telefono: '04141234567', cedula: 'V-12345678' })).toBeNull();
+    expect(errorCuenta({ id: '1', tipo: 'pago_movil', banco: '0134', telefono: '123', cedula: 'V-12345678' })).toMatch(/04xx/);
+    expect(errorCuenta({ id: '2', tipo: 'binance', usuario: '' })).toMatch(/Binance/);
+    expect(errorCuenta({ id: '3', tipo: 'trc20', direccion: 'TJYeasTPa6gpEEfYqNnAXTqKMJdkzYvZPh' })).toBeNull();
+  });
+
+  it('lee datos viejos o vacíos sin fallar', () => {
+    expect(leerCuentas(null)).toEqual([]);
+    expect(leerCuentas({})).toEqual([]);
+    expect(leerCuentas({ cuentas: [{ id: 'a', tipo: 'binance', usuario: 'juan' }, 5, null] })).toHaveLength(1);
+  });
+
+  it('texto para copiar', () => {
+    const t = textoCuenta({ id: '1', tipo: 'pago_movil', banco: '0134', telefono: '0414-1234567', cedula: 'V-12345678' });
+    expect(t).toContain('Pago móvil (Bs)');
+    expect(t).toContain('Banco: 0134 · Banesco');
+    expect(t).toContain('Teléfono: 0414-1234567');
   });
 });

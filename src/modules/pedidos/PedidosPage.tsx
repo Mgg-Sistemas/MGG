@@ -138,7 +138,7 @@ import { quienCargo, quienSolicita } from './quienSolicita';
 import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
 import { esOrdenDelFlujoNuevo, useFlujoCompras, useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
 import { etiquetaRetencionMomento, type RetencionMomento } from './retencionMomento';
-import { TIPOS_RETENCION, armarRetenciones, totalRetenciones, type RetencionOc, type TipoRetencion } from './retencionesOc';
+import { TIPOS_RETENCION, armarRetenciones, retencionesDe, totalRetenciones, type RetencionOc, type TipoRetencion } from './retencionesOc';
 import {
   desgloseAlmacen, etiquetaSede, fmtCant, mensajeRevisionAlmacen, mensajeSolicitudPedido, resumenRevision, SEDES_REVISION_ALMACEN,
   textoEstadoSedes, trasladosDeSolicitud,
@@ -2622,6 +2622,18 @@ const KanbanCard = memo(function KanbanCard({
             ↻ {changes}
           </span>
         )}
+        {/* 04-11-2026 (como en GT): la OC que contiene retención dice si ya se retuvo, y si está pagada. */}
+        {(orden.retencion_momento || retencionesDe(orden).length > 0) && (<>
+          <span className="badge" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }}
+            title={retencionesDe(orden).length ? `Retiene: ${retencionesDe(orden).map((r) => r.tipo).join(', ')}` : 'Contiene retención'}>
+            🧾 Contiene retención
+          </span>
+          <span className={`badge ${orden.retencion_hecha_en ? 'success' : 'danger'}`} style={{ fontSize: '.62rem', padding: '.05rem .35rem' }}
+            title={orden.retencion_hecha_en ? `Retenida · ${dateTime(orden.retencion_hecha_en)}` : 'Falta hacer la retención'}>
+            {orden.retencion_hecha_en ? '✓ Retenida' : 'No retenida'}
+          </span>
+          {['pagada', 'recibida', 'finalizada'].includes(orden.estado) && <span className="muted" style={{ fontSize: '.62rem' }}>✓ Pagada</span>}
+        </>)}
         {orden.revisada_almacen_en && (
           <span className="badge info" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }} title={`Revisada por almacén · ${dateTime(orden.revisada_almacen_en)}`}>
             📦 Revisada por almacén

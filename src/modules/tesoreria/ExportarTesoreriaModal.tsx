@@ -62,7 +62,7 @@ import {
 } from './exportarTesoreria';
 import { textoWhatsappTesoreria } from './whatsappTesoreria';
 
-const CLAVE_PREFS = 'mgg.tesoreria.reporte.v1';
+const CLAVE_PREFS = 'mgg.tesoreria.reporte.v1.v2';
 
 const AMBITOS: { id: AmbitoTesoreria; icon: string; label: string }[] = [
   { id: 'movimientos', icon: '📒', label: 'Movimientos de caja' },
@@ -107,7 +107,8 @@ interface Prefs {
 function leerPrefs(): Prefs {
   const def: Prefs = {
     ambito: 'movimientos', agrupacion: 'categoria_gasto', campos: CAMPOS_POR_DEFECTO_POR_MODO.categoria_gasto,
-    baseTasa: 'bcv_dia', mostrarUsd: true, mostrarBs: true, incluirResumen: true, kpisSimplificados: false,
+    // 04-11-2026 (pedido de la administradora): por defecto solo $ y una tarjeta TOTAL $; sin Bs.
+    baseTasa: 'bcv_dia', mostrarUsd: true, mostrarBs: false, incluirResumen: true, kpisSimplificados: true,
   };
   try {
     const p = JSON.parse(localStorage.getItem(CLAVE_PREFS) ?? 'null') as Partial<Prefs> | null;
@@ -119,9 +120,9 @@ function leerPrefs(): Prefs {
       campos: Array.isArray(p.campos) && p.campos.length ? p.campos.filter((c) => claves.has(c)) : def.campos,
       baseTasa: p.baseTasa === 'historica' ? 'historica' : 'bcv_dia',
       mostrarUsd: typeof p.mostrarUsd === 'boolean' ? p.mostrarUsd : true,
-      mostrarBs: typeof p.mostrarBs === 'boolean' ? p.mostrarBs : true,
+      mostrarBs: typeof p.mostrarBs === 'boolean' ? p.mostrarBs : false,
       incluirResumen: typeof p.incluirResumen === 'boolean' ? p.incluirResumen : true,
-      kpisSimplificados: p.kpisSimplificados === true,
+      kpisSimplificados: p.kpisSimplificados !== false,
     };
   } catch {
     return def;

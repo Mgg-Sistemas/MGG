@@ -10,6 +10,7 @@ import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
+import { resolverQuien } from '@/shared/lib/directorioUsuarios';
 import { ESTADO_DELIVERY, fechaHoraVE, montoTxt, ocDe, type PedidoDelivery } from './delivery';
 import { duracionTxt, totalesResumen, type FilaHistorialDelivery, type ResumenDelivery } from './deliveryPanel';
 import {
@@ -167,7 +168,9 @@ export async function pdfComprobanteDelivery(p: PedidoDelivery, ver?: VerAlmacen
     margin: MARGENES_TABLA,
   });
 
-  const hist = historialComprobanteDelivery(p);
+  // Nombre y apellido de quien hizo cada paso (no el correo).
+  const quien = await resolverQuien();
+  const hist = historialComprobanteDelivery(p, (correo) => quien(null, correo));
   if (hist.length) {
     cy = seccion(doc, 'Historial', finalY(doc) + 14);
     autoTable(doc, {

@@ -16,6 +16,20 @@ export interface PuntoMapa { lat: number; lng: number }
 
 const fmt = (n: number) => n.toFixed(6);
 
+/** Busca una dirección escrita en OpenStreetMap (Nominatim), cerca de Ciudad Guayana. Null si no la encuentra. */
+async function buscarDireccion(texto: string): Promise<PuntoMapa | null> {
+  const q = texto.trim();
+  if (q.length < 6) return null;
+  const params = new URLSearchParams({ format: 'json', limit: '1', countrycodes: 've', q, viewbox: '-63.2,8.6,-62.3,7.9', bounded: '0' });
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, { headers: { 'Accept-Language': 'es' } });
+    if (!r.ok) return null;
+    const j = await r.json() as Array<{ lat?: string; lon?: string }>;
+    const lat = Number(j[0]?.lat); const lng = Number(j[0]?.lon);
+    return Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+  } catch { return null; }
+}
+
 export function MapaSelector({ titulo, subtitulo, inicial, centro, permitirQuitar, onCerrar, onGuardar }: {
   titulo: string;
   subtitulo?: string;
@@ -82,9 +96,14 @@ export function MapaSelector({ titulo, subtitulo, inicial, centro, permitirQuita
   }
 
   const [coords, setCoords] = useState('');
-  function irACoordenadas() {
-    const p = leerCoordenadas(coords);
-    if (!p) { setAviso('No se entienden esas coordenadas. Escríbelas como «8.2869, -62.7467» (con punto decimal) o pega el enlace de Google Maps.'); return; }
+  // 04-11-2026: coordenadas, enlace de Google, código Plus («77V8+J6F, …») o, si no, la
+  // dirección escrita, que se busca en OpenStreetMap (solo al tocar el botón).
+  async function irACoordenadas() {
+    const p = leerCoordenadas(coords) ?? await buscarDireccion(coords);
+    if (!p) {
+      setAviso('No se encontró ese lugar. Pega las coordenadas («8.2869, -62.7467»), el enlace o el código Plus de Google Maps («77V8+J6F»), o toca el mapa.');
+      return;
+    }
     setAviso(null);
     ponerAlfiler.current(p);
     mapa.current?.setView([p.lat, p.lng], 17);
@@ -121,9 +140,9 @@ export function MapaSelector({ titulo, subtitulo, inicial, centro, permitirQuita
       {/* 03-11-2026: también por coordenadas, escritas o pegadas de Google Maps. */}
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.5rem' }}>
         <input className="input" style={{ flex: '1 1 260px' }} value={coords} onChange={(e) => setCoords(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); irACoordenadas(); } }}
-          placeholder="Coordenadas: 8.2869, -62.7467 · o pega el enlace de Google Maps" aria-label="Coordenadas" />
-        <button type="button" className="btn btn-ghost btn-sm" onClick={irACoordenadas} disabled={!coords.trim()}>Ir a las coordenadas</button>
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void irACoordenadas(); } }}
+          placeholder="Coordenadas, enlace o código Plus de Google Maps (77V8+J6F), o la dirección" aria-label="Coordenadas" />
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => { void irACoordenadas(); }} disabled={!coords.trim()}>Ir</button>
       </div>
       {aviso && <div className="aviso warning sm" style={{ marginBottom: '.5rem' }}><span className="aviso-icono">⚠</span><div>{aviso}</div></div>}
       {/* isolation: los paneles de Leaflet (z-index 400–1000) no se montan sobre las ventanas del sistema. */}

@@ -102,9 +102,10 @@ export function itemsComprobanteDelivery(p: PedidoDelivery): string[][] {
 }
 
 /** El historial guardado del pedido: [fecha, evento, quién, motivo]. */
-export function historialComprobanteDelivery(p: PedidoDelivery): string[][] {
+/** `nombre` pasa el correo guardado a «Nombre Apellido» (04-11-2026: en el PDF salía el correo). */
+export function historialComprobanteDelivery(p: PedidoDelivery, nombre: (correo: string) => string = (c) => c): string[][] {
   return (p.historial ?? []).map((e) => [
-    fechaHoraVE(e.at) || '—', estadoTxt(e.evento), limpio(e.actor) || '—', limpio(e.motivo) || '—',
+    fechaHoraVE(e.at) || '—', estadoTxt(e.evento), limpio(e.actor) ? (nombre(limpio(e.actor)) || limpio(e.actor)) : '—', limpio(e.motivo) || '—',
   ]);
 }
 
