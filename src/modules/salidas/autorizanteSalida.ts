@@ -102,3 +102,16 @@ export function autorizanteDe(
   const quien = puedeAutorizarSalidas(correo) ? correo : CORREO_FIRMA;
   return { nombre: AUTORIZAN_SALIDAS[quien], firma: quien === CORREO_FIRMA, pendiente: false };
 }
+
+/**
+ * El correo de quien autoriza salidas a partir del NOMBRE elegido en el teléfono
+ * (04-11-2026): «Leydis Rengel», «LEIDYS RENGEL», «Jesús Lozada»… Sin acentos ni
+ * mayúsculas, y tolera Leydis/Leidys. Null si no es ninguno de los que autorizan.
+ */
+export function correoAutorizantePorNombre(nombre: string | null | undefined): string | null {
+  const norm = (t: string) => t.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/LEIDYS/g, 'LEYDIS').replace(/\s+/g, ' ').trim();
+  const n = norm(nombre ?? '');
+  if (!n) return null;
+  for (const [correo, nom] of Object.entries(AUTORIZAN_SALIDAS)) if (norm(nom) === n) return correo;
+  return null;
+}

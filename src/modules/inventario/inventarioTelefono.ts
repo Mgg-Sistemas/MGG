@@ -236,14 +236,15 @@ export function mensajeSalidaLote(ss: SalidaTelefono[], quien?: string | null): 
 /** El aviso de un traslado con varios materiales (04-11-2026). Con uno solo, el de siempre. */
 export function mensajeTrasladoLote(d: {
   origen: string; destino: string; lineas: { nombre: string; sku?: string | null; unidad?: string | null; cantidad: number }[];
-  motivo: string; quien?: string | null; cuando?: string | null;
+  motivo: string; quien?: string | null; cuando?: string | null; codigo?: string | null;
 }): string {
   if (d.lineas.length === 1) {
     const x = d.lineas[0];
-    return mensajeTraslado({ origen: d.origen, destino: d.destino, nombre: x.nombre, sku: x.sku, unidad: x.unidad, cantidad: x.cantidad, motivo: d.motivo, quien: d.quien, cuando: d.cuando });
+    return mensajeTraslado({ origen: d.origen, destino: d.destino, nombre: x.nombre, sku: x.sku, unidad: x.unidad, cantidad: x.cantidad, motivo: d.motivo, quien: d.quien, cuando: d.cuando, codigo: d.codigo });
   }
   const l = [
     '🔁 *TRASLADO ENTRE ALMACENES*',
+    ...(d.codigo ? [`🔖 *N°:* ${d.codigo}`] : []),
     `🏬 *De:* ${nombreAlmacenVisible(d.origen)}`,
     `🏬 *A:* ${nombreAlmacenVisible(d.destino)}`,
     '',
@@ -276,9 +277,12 @@ export function mensajeRetorno(s: SalidaTelefono, cantidad: number, nota?: strin
 export function mensajeTraslado(d: {
   origen: string; destino: string; nombre: string; sku?: string | null; unidad?: string | null; cantidad: number;
   motivo: string; quedaOrigen?: number | null; quien?: string | null; cuando?: string | null;
+  /** N° del traslado (TRA-ISNER-0001), desde el 04-11-2026. */
+  codigo?: string | null;
 }): string {
   const l = [
     '🔁 *TRASLADO ENTRE ALMACENES*',
+    ...(d.codigo ? [`🔖 *N°:* ${d.codigo}`] : []),
     `🏬 *De:* ${nombreAlmacenVisible(d.origen)}`,
     `🏬 *A:* ${nombreAlmacenVisible(d.destino)}`,
     '',

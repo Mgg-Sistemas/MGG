@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { autorizanteDe, puedeAutorizarSalidas, NOMBRE_FIRMA, SIN_AUTORIZACION_NOMBRE } from './autorizanteSalida';
+import { autorizanteDe, correoAutorizantePorNombre, puedeAutorizarSalidas, NOMBRE_FIRMA, SIN_AUTORIZACION_NOMBRE } from './autorizanteSalida';
 
 describe('quién autoriza salidas y traslados', () => {
   it('solo Leydis Rengel y Jesús Lozada pueden autorizar', () => {
@@ -61,5 +61,14 @@ describe('quién autoriza salidas y traslados', () => {
   it('Leydis y Jesús siguen con su nombre de siempre aunque aprueben después', () => {
     expect(autorizanteDe('jhzgcontabilidad@gmail.com', false, { aprobadaEn: '2026-10-29T10:00:00-04:00', nombre: 'Leydis' }))
       .toEqual({ nombre: NOMBRE_FIRMA, firma: true, pendiente: false });
+  });
+});
+
+describe('correoAutorizantePorNombre (04-11-2026)', () => {
+  it('reconoce a Leydis y a Jesús por su nombre, con o sin acento', () => {
+    expect(correoAutorizantePorNombre('LEYDIS RENGEL')).toBe('jhzgcontabilidad@gmail.com');
+    expect(correoAutorizantePorNombre('Leidys Rengel')).toBe('jhzgcontabilidad@gmail.com');
+    expect(correoAutorizantePorNombre('Jesús Lozada')).toBe('mineralgroupguayanaca@gmail.com');
+    expect(correoAutorizantePorNombre('ENDER MEJIA')).toBeNull();
   });
 });

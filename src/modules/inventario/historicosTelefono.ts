@@ -19,7 +19,7 @@
 import type { OpcionesOrdenPdf } from '@/modules/salidas/salidaPdf';
 import type { ItemSolicitudSalida, SolicitudSalida } from '@/shared/lib/types';
 import {
-  fechaHoraVE, filaHistoricoSalida, filtrarSalidas, mensajeSalidaLote, mensajeTraslado, num, textoRetorno, type SalidaTelefono,
+  fechaHoraVE, filaHistoricoSalida, filtrarSalidas, mensajeSalidaLote, mensajeTraslado, mensajeTrasladoLote, num, textoRetorno, type SalidaTelefono,
 } from './inventarioTelefono';
 import { nombreAlmacenVisible } from './sectorizacion';
 
@@ -262,10 +262,12 @@ export function ordenDeSalidaTelefonoLote(ss: SalidaTelefono[], quien: string, p
 /** La ORDEN DE TRASLADO de un traslado del teléfono con varios materiales, armada al hacerlo. */
 export function ordenDeTrasladoTelefonoLote(d: {
   origen: string; destino: string; motivo: string; quien: string; actor: string; actorName: string | null; at: string;
+  /** N° del traslado (TRA-ISNER-0001). */
+  codigo?: string | null;
   lineas: { producto_id: string; nombre: string; unidad: string | null; cantidad: number; precio: number | null }[];
 }): OrdenParaPdf {
   const origen = nombreAlmacenVisible(d.origen);
-  const ref = `TT-${d.at.replace(/\D/g, '').slice(2, 12)}`;
+  const ref = d.codigo || `TT-${d.at.replace(/\D/g, '').slice(2, 12)}`;
   return {
     sol: {
       id: ref, codigo: ref, num_usuario: null, scope: 'traslado', tipo: 'material', estado: 'ejecutada',
@@ -300,6 +302,8 @@ export interface TrasladoTelefono {
   precio: number | null;
   actor: string | null;
   actor_name: string | null;
+  /** N° del traslado; los viejos no tienen y se les muestra TT-…. */
+  codigo?: string | null;
 }
 
 /** El renglón del kardex de un traslado del teléfono, como llega de la base. */
@@ -314,6 +318,8 @@ export interface MovimientoTraslado {
   actor?: string | null;
   actor_name?: string | null;
   at: string;
+  /** N° del traslado (TRA-ISNER-0001), desde el 04-11-2026. */
+  ref_codigo?: string | null;
   producto?: { sku?: string | null; nombre?: string | null; unidad?: string | null } | null;
 }
 
@@ -339,12 +345,16 @@ export function trasladoDeMovimiento(m: MovimientoTraslado): TrasladoTelefono | 
     id: m.id, at: m.at, origen: sale ? almacen : otro, destino: sale ? otro : almacen,
     producto_id: m.producto_id, producto_nombre: m.producto?.nombre || '—', sku: m.producto?.sku ?? null,
     unidad: m.producto?.unidad ?? null, cantidad: Math.abs(delta), motivo, precio: precio > 0 ? precio : null,
-    actor: m.actor ?? null, actor_name: m.actor_name ?? null,
+    actor: m.actor ?? null, actor_name: m.actor_name ?? null, codigo: m.ref_codigo ?? null,
   };
 }
 
+/** El N° con que se muestra un traslado del teléfono. */
+export const numeroTraslado = (t: Pick<TrasladoTelefono, 'id' | 'codigo'>) => t.codigo || refTrasladoTelefono(t.id);
+
 export type FilaTraslado =
-  | { origen: 'telefono'; id: string; at: string; traslado: TrasladoTelefono }
+  /** `grupo`: los materiales de ese traslado (mismo N°, 04-11-2026); `traslado` es el primero. */
+  | { origen: 'telefono'; id: string; at: string; traslado: TrasladoTelefono; grupo: TrasladoTelefono[] }
   | { origen: 'modulo'; id: string; at: string; sol: SolicitudSalida };
 
 /**
@@ -353,12 +363,23 @@ export type FilaTraslado =
  */
 export function mezclarTraslados(telefono: TrasladoTelefono[], modulo: SolicitudSalida[], almacen: string): FilaTraslado[] {
   const filas: FilaTraslado[] = [
-    ...telefono.filter((t) => t.origen === almacen || t.destino === almacen)
-      .map((t): FilaTraslado => ({ origen: 'telefono', id: `t:${t.id}`, at: t.at, traslado: t })),
+    ...agruparTraslados(telefono.filter((t) => t.origen === almacen || t.destino === almacen))
+      .map((g): FilaTraslado => ({ origen: 'telefono', id: `t:${g[0].id}`, at: g[0].at, traslado: g[0], grupo: g })),
     ...modulo.filter((s) => s.scope === 'traslado' && movioStock(s) && tocaAlmacen(s, almacen))
       .map((s): FilaTraslado => ({ origen: 'modulo', id: `m:${s.id}`, at: s.created_at, sol: s })),
   ];
   return filas.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id.localeCompare(b.id)));
+}
+
+/** Junta los materiales de un mismo traslado (mismo N°). Los viejos, sin N°, van solos. */
+export function agruparTraslados(ts: TrasladoTelefono[]): TrasladoTelefono[][] {
+  const m = new Map<string, TrasladoTelefono[]>();
+  for (const t of ts) {
+    const k = t.codigo ? `c:${t.codigo}` : `i:${t.id}`;
+    const g = m.get(k);
+    if (g) g.push(t); else m.set(k, [t]);
+  }
+  return [...m.values()];
 }
 
 /** De dónde a dónde (con los nombres que ve la gente). */
@@ -369,11 +390,12 @@ function ruta(origen: string | null | undefined, destino: string | null | undefi
 export function vistaFilaTraslado(f: FilaTraslado, registro?: string | null): VistaFila {
   if (f.origen === 'telefono') {
     const t = f.traslado;
+    const varios = f.grupo.length > 1;
     return {
-      titulo: t.producto_nombre,
-      cantidad: conUnidad(t.cantidad, t.unidad),
+      titulo: varios ? `${t.producto_nombre} y ${f.grupo.length - 1} más` : t.producto_nombre,
+      cantidad: varios ? `${f.grupo.length} materiales` : conUnidad(t.cantidad, t.unidad),
       lineas: [
-        `${refTrasladoTelefono(t.id)} · ${fechaHoraVE(t.at)}`,
+        `${numeroTraslado(t)} · ${fechaHoraVE(t.at)}`,
         ruta(t.origen, t.destino),
         t.motivo ? `Motivo: ${t.motivo}` : '',
         registro ? `Registró ${registro}` : '',
@@ -405,7 +427,7 @@ export function buscarFilasTraslado(filas: FilaTraslado[], busca: string): FilaT
   if (!q) return filas;
   return filas.filter((f) => {
     const texto = f.origen === 'telefono'
-      ? [f.traslado.producto_nombre, f.traslado.sku ?? '', refTrasladoTelefono(f.traslado.id), f.traslado.motivo,
+      ? [f.traslado.producto_nombre, f.traslado.sku ?? '', numeroTraslado(f.traslado), f.traslado.motivo,
         f.traslado.origen, f.traslado.destino, nombreAlmacenVisible(f.traslado.origen), nombreAlmacenVisible(f.traslado.destino),
         f.traslado.actor_name ?? '', fechaHoraVE(f.at)].join(' ')
       : textoBuscableSolicitud(f.sol, f.at);
@@ -417,9 +439,9 @@ export function buscarFilasTraslado(filas: FilaTraslado[], busca: string): FilaT
 export function mensajeFilaTraslado(f: FilaTraslado, quien: string): string {
   if (f.origen === 'telefono') {
     const t = f.traslado;
-    return mensajeTraslado({
-      origen: t.origen, destino: t.destino, nombre: t.producto_nombre, sku: t.sku, unidad: t.unidad,
-      cantidad: t.cantidad, motivo: t.motivo || '—', quien, cuando: t.at,
+    return mensajeTrasladoLote({
+      origen: t.origen, destino: t.destino, motivo: t.motivo || '—', quien, cuando: t.at, codigo: t.codigo,
+      lineas: f.grupo.map((x) => ({ nombre: x.producto_nombre, sku: x.sku, unidad: x.unidad, cantidad: x.cantidad })),
     });
   }
   const sol = f.sol;
@@ -452,7 +474,7 @@ export function ordenDeTrasladoTelefono(t: TrasladoTelefono, quien: string): Ord
   const origen = nombreAlmacenVisible(t.origen);
   return {
     sol: {
-      id: t.id, codigo: refTrasladoTelefono(t.id), num_usuario: null, scope: 'traslado', tipo: 'material', estado: 'ejecutada',
+      id: t.id, codigo: numeroTraslado(t), num_usuario: null, scope: 'traslado', tipo: 'material', estado: 'ejecutada',
       producto_id: t.producto_id, producto_nombre: t.producto_nombre, almacen_origen: origen,
       almacen_destino: nombreAlmacenVisible(t.destino), cantidad: t.cantidad, precio_unit: t.precio,
       items: [{ producto_id: t.producto_id, producto_nombre: t.producto_nombre, cantidad: t.cantidad, precio_unit: t.precio, unidad: t.unidad, almacen: origen }],

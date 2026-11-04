@@ -51,11 +51,11 @@ import {
 import {
   archivosFotosSalida, enlacesFotosSalida, listPorRetornar, listSalidasAlmacen, listSolicitudesModulo, listTrasladosTelefono,
   movimientosAlmacenDesde, precioDeSalidaTelefono, productosDeAlmacen,
-  registrarSalidaTelefonoLote, retornarSalidaTelefono, subirFotosSalidaLote, trasladarTelefono, urlFotoSalida, type ProductoEnAlmacen,
+  registrarSalidaTelefonoLote, reservarCodigoTelefono, retornarSalidaTelefono, subirFotosSalidaLote, trasladarTelefono, urlFotoSalida, type ProductoEnAlmacen,
 } from './inventarioTelefono.repository';
 import {
   buscarFilasSalida, buscarFilasTraslado, mensajeFilaSalida, mensajeFilaTraslado, mezclarSalidas, mezclarTraslados,
-  numeroDeSolicitud, ordenDeSalidaTelefonoLote, ordenDeTrasladoTelefono, ordenDeTrasladoTelefonoLote, refTrasladoTelefono, trasladoDeMovimiento,
+  numeroDeSolicitud, numeroTraslado, ordenDeSalidaTelefonoLote, ordenDeTrasladoTelefono, ordenDeTrasladoTelefonoLote, trasladoDeMovimiento,
   vistaFilaSalida, vistaFilaTraslado, type FilaSalida, type FilaTraslado,
 } from './historicosTelefono';
 
@@ -688,12 +688,21 @@ function HistoricoTraslados({ almacen, onVolver }: { almacen: string; onVolver: 
   const lista = useMemo(() => buscarFilasTraslado(filas ?? [], busca), [filas, busca]);
   const elegido = elegidoId ? (filas ?? []).find((f) => f.id === elegidoId) ?? null : null;
   const pdfDe = (f: FilaTraslado) => (f.origen === 'telefono'
-    ? (() => { const o = ordenDeTrasladoTelefono(f.traslado, registro(f)); return descargarOrdenSalidaPdf(o.sol, o.opciones); })()
+    ? (() => {
+      const t = f.traslado;
+      const o = f.grupo.length > 1
+        ? ordenDeTrasladoTelefonoLote({
+          origen: t.origen, destino: t.destino, motivo: t.motivo, quien: registro(f), actor: t.actor ?? '', actorName: t.actor_name, at: t.at, codigo: t.codigo,
+          lineas: f.grupo.map((x) => ({ producto_id: x.producto_id, nombre: x.producto_nombre, unidad: x.unidad, cantidad: x.cantidad, precio: x.precio })),
+        })
+        : ordenDeTrasladoTelefono(t, registro(f));
+      return descargarOrdenSalidaPdf(o.sol, o.opciones);
+    })()
     : descargarOrdenSalidaPdf(f.sol));
 
   if (elegido) {
     return (
-      <Listo titulo={`Traslado ${elegido.origen === 'telefono' ? refTrasladoTelefono(elegido.traslado.id) : numeroDeSolicitud(elegido.sol)}`}
+      <Listo titulo={`Traslado ${elegido.origen === 'telefono' ? numeroTraslado(elegido.traslado) : numeroDeSolicitud(elegido.sol)}`}
         texto={mensajeFilaTraslado(elegido, registro(elegido))} abrirPdf={() => pdfDe(elegido)}
         onVolver={() => setElegidoId(null)} volverTexto="← Volver al histórico" />
     );
@@ -1259,18 +1268,20 @@ function FormTraslado({ origen, destinos, producto, productos, actor, actorName,
     setGuardando(true);
     const hechos: LineaMaterial[] = [];
     try {
+      // Un N° por traslado, el del almacenista (TRA-ISNER-0001), para todos sus materiales.
+      const codigo = await reservarCodigoTelefono('traslado');
       for (const l of lineas) {
-        await trasladarTelefono({ producto: l.producto, origen, destino, cantidad: leerCantidad(l.cantidad), motivo, actor, actorName });
+        await trasladarTelefono({ producto: l.producto, origen, destino, cantidad: leerCantidad(l.cantidad), motivo, actor, actorName, codigo });
         hechos.push(l);
       }
       const at = new Date().toISOString();
       const ls = lineas.map((l) => ({ producto_id: l.producto.id, nombre: l.producto.nombre, sku: l.producto.sku, unidad: l.producto.unidad, cantidad: leerCantidad(l.cantidad), precio: Number(l.producto.precio) || null }));
       toast(lineas.length > 1 ? `Traslado a ${aNombre}: ${lineas.length} materiales` : `Traslado: ${num(ls[0].cantidad)} ${producto.unidad} de ${producto.nombre} a ${aNombre}`, 'success');
       const texto = lineas.length > 1
-        ? mensajeTrasladoLote({ origen, destino, lineas: ls, motivo, quien, cuando: at })
-        : mensajeTraslado({ origen, destino, nombre: producto.nombre, sku: producto.sku, unidad: producto.unidad, cantidad: ls[0].cantidad, motivo, quedaOrigen: Math.max(0, actual(producto).stock_almacen - ls[0].cantidad), quien });
-      const orden = ordenDeTrasladoTelefonoLote({ origen, destino, motivo, quien, actor, actorName, at, lineas: ls });
-      onHecho(`Traslado a ${aNombre} registrado${lineas.length > 1 ? ` · ${lineas.length} materiales` : ''}`, texto, undefined,
+        ? mensajeTrasladoLote({ origen, destino, lineas: ls, motivo, quien, cuando: at, codigo })
+        : mensajeTraslado({ origen, destino, nombre: producto.nombre, sku: producto.sku, unidad: producto.unidad, cantidad: ls[0].cantidad, motivo, quedaOrigen: Math.max(0, actual(producto).stock_almacen - ls[0].cantidad), quien, codigo });
+      const orden = ordenDeTrasladoTelefonoLote({ origen, destino, motivo, quien, actor, actorName, at, lineas: ls, codigo });
+      onHecho(`Traslado ${codigo} a ${aNombre} registrado${lineas.length > 1 ? ` · ${lineas.length} materiales` : ''}`, texto, undefined,
         () => descargarOrdenSalidaPdf(orden.sol, orden.opciones));
     } catch (err) {
       if (hechos.length) toast(`Se trasladaron ${hechos.length} material(es); el resto no: revisa y vuelve a intentar.`, 'warning');

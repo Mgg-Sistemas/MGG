@@ -122,7 +122,7 @@ export async function listSolicitudesModulo(scope: ScopeSalida, desde: string, h
 export async function listTrasladosTelefono(almacen: string, desde: string, hasta: string): Promise<MovimientoTraslado[]> {
   try {
     return await todasLasFilas<MovimientoTraslado>((d, h) => supabase.from('movimientos')
-      .select('id, producto_id, delta, almacen, detalle, precio_unitario, costo_promedio, actor, actor_name, at, producto:productos(sku, nombre, unidad)')
+      .select('id, producto_id, delta, almacen, detalle, precio_unitario, costo_promedio, actor, actor_name, at, ref_codigo, producto:productos(sku, nombre, unidad)')
       .eq('ref_tipo', 'traslado_telefono').eq('almacen', almacen)
       .gte('at', desdeVE(desde)).lte('at', hastaVE(hasta))
       .order('at', { ascending: false }).order('id', { ascending: false })
@@ -145,7 +145,10 @@ export async function precioDeSalidaTelefono(s: Pick<SalidaTelefono, 'id' | 'pro
   const { data: ex } = await supabase.from('existencias').select('costo_promedio')
     .eq('producto_id', s.producto_id).eq('almacen', s.almacen).maybeSingle();
   const actual = Number((ex as { costo_promedio?: number } | null)?.costo_promedio) || 0;
-  return actual > 0 ? actual : null;
+  if (actual > 0) return actual;
+  const { data: prod } = await supabase.from('productos').select('precio_promedio, precio').eq('id', s.producto_id).maybeSingle();
+  const ficha = Number((prod as { precio_promedio?: number } | null)?.precio_promedio) || Number((prod as { precio?: number } | null)?.precio) || 0;
+  return ficha > 0 ? ficha : null;
 }
 
 /**
@@ -153,12 +156,17 @@ export async function precioDeSalidaTelefono(s: Pick<SalidaTelefono, 'id' | 'pro
  * lleva el N° y la guardia de comida lo vigila) y guarda la salida. Si guardarla falla,
  * devuelve el stock.
  */
-/** Reserva el N° SAT de una salida (una sola vez aunque lleve varios materiales). */
-export async function reservarCodigoSalida(): Promise<string> {
-  const { data: codigo, error } = await supabase.rpc('inv_tel_reservar_codigo');
-  if (error || !codigo) throw err(error, 'No se pudo numerar la salida.');
+/**
+ * Reserva el N° de una salida o un traslado (una sola vez aunque lleve varios materiales).
+ * 04-11-2026: cada almacenista tiene su código y su correlativo: SAT-ISNER-0001,
+ * TRA-CARLOS-0001 (función inv_tel_reservar_codigo_usuario).
+ */
+export async function reservarCodigoTelefono(tipo: 'salida' | 'traslado'): Promise<string> {
+  const { data: codigo, error } = await supabase.rpc('inv_tel_reservar_codigo_usuario', { p_tipo: tipo });
+  if (error || !codigo) throw err(error, tipo === 'salida' ? 'No se pudo numerar la salida.' : 'No se pudo numerar el traslado.');
   return String(codigo);
 }
+export const reservarCodigoSalida = () => reservarCodigoTelefono('salida');
 
 /**
  * Una salida con VARIOS materiales (04-11-2026): todos con el mismo N° SAT, cada uno
@@ -323,10 +331,12 @@ export async function enlacesFotosSalida(fotos: FotoSalida[]): Promise<string[]>
 /** Traslado directo entre almacenes (salida en origen + entrada en destino, con reverso si falla). */
 export async function trasladarTelefono(d: {
   producto: Producto; origen: string; destino: string; cantidad: number; motivo: string; actor: string; actorName: string | null;
+  /** N° del traslado (TRA-ISNER-0001), el mismo para todos sus materiales. */
+  codigo?: string | null;
 }): Promise<void> {
   await transferir({
     producto_id: d.producto.id, almacenOrigen: d.origen, almacenDestino: d.destino, cantidad: d.cantidad,
-    actor: d.actor, actor_name: d.actorName, ref_tipo: 'traslado_telefono',
+    actor: d.actor, actor_name: d.actorName, ref_tipo: 'traslado_telefono', ref_codigo: d.codigo ?? null,
     detalle: `${d.motivo.trim()} (teléfono)`,
   });
 }

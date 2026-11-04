@@ -6,7 +6,7 @@
 import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/types';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
-import { autorizanteDe, figuraQuienAprobo } from './autorizanteSalida';
+import { CORREO_FIRMA, autorizanteDe, correoAutorizantePorNombre, figuraQuienAprobo } from './autorizanteSalida';
 import { cancelacionDe } from './historicoSalidas';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
@@ -251,16 +251,20 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
   // 105 de 179 documentos llevaban la firma de alguien que no intervino.
   // Solo Leydis Rengel o Jesús Lozada figuran como autorizantes. Una aprobación
   // vieja de otra persona figura a nombre de Leydis, con su firma.
+  // 04-11-2026: si el nombre elegido en el teléfono es el de una persona que autoriza
+  // salidas (Leydis Rengel, Jesús Lozada), el papel lleva SU firma, como en el módulo.
+  const correoFijo = autorizadoFijo ? correoAutorizantePorNombre(autorizadoFijo) : null;
   const autoriza = autorizadoFijo
-    ? { nombre: autorizadoFijo.toUpperCase(), firma: false, pendiente: false }
+    ? { nombre: autorizadoFijo.toUpperCase(), firma: correoFijo === CORREO_FIRMA, pendiente: false }
     : autorizanteDe(sol.aprobada_por, sol.sin_autorizacion, {
       aprobadaEn: sol.aprobada_en,
       nombre: sol.aprobada_por ? personaDe(sol.aprobada_por, personas, sol.aprobada_por) : null,
     });
   // Firma cargada en «Usuarios autorizados para:» (28-10-2026) de quien aprobó. Si no
   // cargó firma, queda la regla de siempre (la de Leydis cuando corresponde).
-  const firmaCargada = !autorizadoFijo && figuraQuienAprobo(sol.aprobada_por, sol.aprobada_en)
-    ? await import('@/modules/usuarios/autorizados.repository').then((m) => m.firmaDeCorreo(sol.aprobada_por)).catch(() => null)
+  const correoFirma = autorizadoFijo ? correoFijo : (figuraQuienAprobo(sol.aprobada_por, sol.aprobada_en) ? sol.aprobada_por : null);
+  const firmaCargada = correoFirma
+    ? await import('@/modules/usuarios/autorizados.repository').then((m) => m.firmaDeCorreo(correoFirma)).catch(() => null)
     : null;
   const creo = personaDe(sol.actor, personas, sol.actor_name || sol.solicitante);
 
