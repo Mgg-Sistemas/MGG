@@ -1090,6 +1090,8 @@ export interface Orden {
   /** Flujo nuevo de compras (30-10-2026): ¿se retiene ANTES de pagar (va primero a
    *  Retenciones) o DESPUÉS (va a Tesorería y luego a Retenciones)? null = flujo viejo. */
   retencion_momento?: 'antes' | 'despues' | null;
+  /** Retenciones por tipo indicadas al enviar a pagar (03-11-2026): ver pedidos/retencionesOc.ts. */
+  retenciones?: unknown;
   /** Cuándo/quién marcó en Retenciones la retención como hecha (RPC compras_marcar_retencion). */
   retencion_hecha_en?: string | null;
   retencion_hecha_por?: string | null;

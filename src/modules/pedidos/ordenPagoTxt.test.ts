@@ -18,6 +18,23 @@ const base = {
 
 const txt = (o: Partial<Orden> = {}) => textoOrdenPago({ ...base, ...o } as Orden, 'MAXI SHOES');
 
+describe('textoOrdenPago · retenciones por tipo (03-11-2026)', () => {
+  const retenciones = [{ tipo: 'IVA', modo: 'pct', valor: 75, monto: 12 }, { tipo: 'ISLR', modo: 'monto', valor: 3, monto: 3 }];
+  it('antes de pagar: cada descuento y el neto', () => {
+    const l = textoOrdenPago({ ...base, total: 100, retenciones, retencion_momento: 'antes' } as unknown as Orden, 'X').split('\n');
+    expect(l).toContain('🧾 *Retención IVA:* −$12,00');
+    expect(l).toContain('🧾 *Retención ISLR:* −$3,00');
+    expect(l).toContain('✅ *Neto a pagar:* $85,00');
+  });
+  it('después de pagar: avisa que se paga completo', () => {
+    const t = textoOrdenPago({ ...base, total: 100, retenciones, retencion_momento: 'despues' } as unknown as Orden, 'X');
+    expect(t).toContain('Se paga completo y luego se retiene');
+  });
+  it('sin retenciones no agrega nada', () => {
+    expect(textoOrdenPago({ ...base, total: 100 } as Orden, 'X')).not.toContain('Retención');
+  });
+});
+
 describe('textoOrdenPago · fecha de aprobación (03-11-2026)', () => {
   it('sale cuando el Gerente ya la aprobó, y no antes', () => {
     const con = textoOrdenPago({ ...base, oc_aprobada_en: '2026-11-03T14:30:00Z' } as Orden, 'X');

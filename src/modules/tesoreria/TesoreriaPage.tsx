@@ -101,6 +101,7 @@ import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
 import { enviarMensajeOc } from '@/modules/pedidos/ocChat.repository';
 import { push as pushNotif } from '@/modules/notificaciones/notif.repository';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
+import { etiquetaRetencion, retencionesDe, totalRetenciones } from '@/modules/pedidos/retencionesOc';
 import { ExportarTesoreriaModal } from './ExportarTesoreriaModal';
 import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
 
@@ -6798,6 +6799,21 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
               <span className="muted">Total OC <strong className="mono">{monto(o.total, o.moneda ?? 'USD')}</strong></span>
               <span className="muted">− Descuento <strong className="mono" style={{ color: 'var(--success)' }}>{monto(Number(o.descuento_pago), o.moneda ?? 'USD')}</strong></span>
               <span>A pagar <strong className="mono" style={{ color: 'var(--success)' }}>{monto(baseGeneral, o.moneda ?? 'USD')}</strong></span>
+            </div>
+          </div>
+        )}
+
+        {/* Retenciones indicadas en Compras al enviar a pagar (03-11-2026). Solo lectura. */}
+        {retencionesDe(o).length > 0 && (
+          <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--danger)', background: 'var(--bg-1)' }}>
+            <div style={{ fontSize: '.86rem', display: 'grid', gap: '.2rem' }}>
+              <span>🧾 <strong>Retenciones indicadas por Compras</strong> · {o.retencion_momento === 'antes' ? 'se retiene ANTES de pagar (ya restadas del monto a pagar)' : 'se retiene DESPUÉS de pagar (se paga el total completo)'}</span>
+              <span className="muted">Total OC <strong className="mono">{monto(o.total, o.moneda ?? 'USD')}</strong></span>
+              {retencionesDe(o).map((r) => (
+                <span key={r.tipo} className="muted">− {etiquetaRetencion(r)} <strong className="mono" style={{ color: 'var(--danger)' }}>{monto(r.monto, o.moneda ?? 'USD')}</strong></span>
+              ))}
+              <span>{o.retencion_momento === 'antes' ? 'A pagar' : 'A pagar (completo)'} <strong className="mono" style={{ color: 'var(--success)' }}>{monto(baseGeneral, o.moneda ?? 'USD')}</strong>
+                {o.retencion_momento !== 'antes' && <span className="muted"> · retenciones {monto(totalRetenciones(retencionesDe(o)), o.moneda ?? 'USD')} para Retenciones</span>}</span>
             </div>
           </div>
         )}

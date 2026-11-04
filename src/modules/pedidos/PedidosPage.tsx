@@ -136,8 +136,9 @@ import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
 import { quienCargo, quienSolicita } from './quienSolicita';
 import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
-import { esOrdenDelFlujoNuevo, useFlujoCompras, useFlujoRevisionAlmacen, useOrdenEnFlujoNuevo } from './revisionAlmacen.repository';
+import { esOrdenDelFlujoNuevo, useFlujoCompras, useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
 import { etiquetaRetencionMomento, type RetencionMomento } from './retencionMomento';
+import { TIPOS_RETENCION, armarRetenciones, totalRetenciones, type RetencionOc, type TipoRetencion } from './retencionesOc';
 import {
   desgloseAlmacen, etiquetaSede, fmtCant, mensajeRevisionAlmacen, mensajeSolicitudPedido, resumenRevision, SEDES_REVISION_ALMACEN,
   textoEstadoSedes, trasladosDeSolicitud,
@@ -1601,7 +1602,7 @@ function MetodoPagoModal({
    *  Confirmada pagar y solo se arregla CÓMO se le paga (método y datos del beneficiario). */
   modo?: 'enviar' | 'corregir';
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; numeroAdministracion: string | null; retencionMomento?: RetencionMomento | null }, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; numeroAdministracion: string | null; retencionMomento?: RetencionMomento | null; retenciones?: RetencionOc[] | null }, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
   /** «Cambiar de proveedor»: reabre las cotizaciones de la OC (con su motivo) para escoger otra. Solo al enviar. */
   onReabrir?: (motivo: string) => Promise<void> | void;
 }) {
@@ -1641,13 +1642,13 @@ function MetodoPagoModal({
   const [notaEntrega, setNotaEntrega] = useState(false);
   // Soporte: Nota de entrega → directo a Tesorería. Factura → además pasa por Retenciones.
   const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>('nota_entrega');
-  const [retencionModo, setRetencionModo] = useState<'se_paga_despues' | 'completo_reembolso'>('se_paga_despues');
   // Flujo nuevo de compras (30-10-2026): ¿se retiene ANTES o DESPUÉS de pagar? Solo con el
   // flujo prendido y al enviar a pagar. 'antes' → cola «antes» de Retenciones; 'despues' → ya pagada.
   // 31-10-2026: solo las órdenes NUEVAS; las que ya estaban en curso se pagan como siempre.
   // 01-11-2026: OPCIONAL y no frena el pago (Tesorería paga igual, retenida o no).
-  const flujoNuevo = useOrdenEnFlujoNuevo(orden);
-  const pideMomentoRet = flujoNuevo && !corrigiendo;
+  // 03-11-2026: para toda orden con Factura (ya no solo las del flujo nuevo); la pregunta
+  // vieja «se paga después / completo y reembolso» se quitó.
+  const pideMomentoRet = !corrigiendo && comprobanteTipo === 'factura';
   const [retMomento, setRetMomento] = useState<RetencionMomento | null>(
     orden.retencion_momento === 'antes' || orden.retencion_momento === 'despues' ? orden.retencion_momento : null,
   );
@@ -1664,6 +1665,13 @@ function MetodoPagoModal({
       ? Math.round(baseTotal * descPct) / 100                              // total × % , a 2 decimales
       : Math.max(0, Math.round((Number(descStr) || 0) * 100) / 100);       // monto manual
   const netoAPagar = Math.round(Math.max(0, baseTotal - descNum) * 100) / 100;
+  // Retenciones por tipo (03-11-2026): qué retienen y cuánto (% del total o monto fijo).
+  const [retMarc, setRetMarc] = useState<Partial<Record<TipoRetencion, { modo: 'pct' | 'monto'; valor: string }>>>({});
+  const retenciones = useMemo(() => armarRetenciones(
+    Object.fromEntries(Object.entries(retMarc).map(([k, v]) => [k, { modo: v!.modo, valor: Number(String(v!.valor).replace(',', '.')) || 0 }])),
+    baseTotal,
+  ), [retMarc, baseTotal]);
+  const totalRet = totalRetenciones(retenciones);
 
   // Precarga los datos de pago guardados del proveedor SELECCIONADO (no del original).
   useEffect(() => {
@@ -1712,6 +1720,10 @@ function MetodoPagoModal({
       setError('En multipago, indicá el monto por cada método/moneda.'); return;
     }
     if (esContraEntrega && !corrigiendo && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
+    if (pideMomentoRet && retMomento && Object.keys(retMarc).length && retenciones.length < Object.keys(retMarc).length) {
+      setError('Indica el % o el monto de cada retención marcada (o desmárcala).'); return;
+    }
+    if (pideMomentoRet && retMomento === 'antes' && totalRet > netoAPagar) { setError('Las retenciones no pueden superar el monto a pagar.'); return; }
     if (incluyeDesc) {
       if (descNum <= 0) { setError('Indicá el monto del descuento o desmarcá «El pago incluye descuento».'); return; }
       if (descNum > baseTotal) { setError('El descuento no puede superar el total de la OC.'); return; }
@@ -1730,8 +1742,9 @@ function MetodoPagoModal({
       const numero = numeroAdmin.trim() || null;
       if (numero && numero !== numeroAdminGuardado) await fijarNumeroAdministracionProveedor(proveedorId, numero);
       await onSent(validos, {
-        comprobanteTipo, retencionModo: comprobanteTipo === 'factura' && !pideMomentoRet ? retencionModo : null, numeroAdministracion: numero,
+        comprobanteTipo, retencionModo: null, numeroAdministracion: numero,
         ...(pideMomentoRet && retMomento ? { retencionMomento: retMomento } : {}),
+        ...(pideMomentoRet && retMomento && retenciones.length ? { retenciones } : {}),
       }, qr, incluyeDesc && descNum > 0 ? descNum : null);
     }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo enviar'); setSaving(false); }
@@ -1870,40 +1883,72 @@ function MetodoPagoModal({
             <span style={{ fontSize: '.86rem' }}><strong>Factura</strong></span>
           </label>
         </div>
-        {/* La pregunta vieja de retención solo en las órdenes del flujo viejo: en las nuevas
-            la responde «🧾 Retención ANTES / DESPUÉS de pagar» (02-11-2026: salían las dos). */}
-        {comprobanteTipo === 'factura' && !pideMomentoRet && (
-          <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
-            <div className="muted" style={{ fontSize: '.74rem', marginBottom: '.4rem' }}>Retención</div>
-            <div style={{ display: 'grid', gap: '.35rem' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
-                <input type="radio" name="ret-modo" checked={retencionModo === 'se_paga_despues'} onChange={() => setRetencionModo('se_paga_despues')} />
-                Se paga después
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
-                <input type="radio" name="ret-modo" checked={retencionModo === 'completo_reembolso'} onChange={() => setRetencionModo('completo_reembolso')} />
-                Se paga completo y luego se reembolsa
-              </label>
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Flujo nuevo (30-10-2026): ¿se retiene ANTES o DESPUÉS de pagar? Opcional (01-11-2026):
-          solo dice en qué cola de Retenciones aparece; el pago no se frena. Con el flujo apagado no aparece. */}
+      {/* Retención (02-11 → 03-11-2026): solo con Factura. Primero ¿cuándo se retiene?; con eso
+          marcado, qué retienen (IVA / IGTF / ISLR / ISAE) en % del total o monto fijo. ANTES: el
+          monto que paga Tesorería BAJA. DESPUÉS: Tesorería paga completo y luego va a Retenciones. */}
       {pideMomentoRet && (
         <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem' }}>
-          <div className="card-title" style={{ marginBottom: '.45rem' }}>🧾 Retención <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></div>
-          <div style={{ display: 'grid', gap: '.35rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
+          <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.45rem' }}>Retención · ¿cuándo se retiene? (opcional)</div>
+          <div style={{ display: 'grid', gap: '.45rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.88rem' }}>
               <input type="radio" name="ret-momento" checked={retMomento === 'antes'} onChange={() => setRetMomento('antes')} />
-              <span>Se retiene <strong>ANTES</strong> de pagar <span className="muted">(aparece en Retenciones · si la retienen antes del pago, ⬇ el monto que paga Tesorería BAJA)</span></span>
+              <span><span style={{ color: 'var(--danger)' }}>▼</span> <strong>Retener ANTES de pagar</strong> → va primero a <strong>Retenciones</strong>. Tesorería la paga por el total <strong>menos la retención (el monto BAJA)</strong>.</span>
             </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.86rem' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.88rem' }}>
               <input type="radio" name="ret-momento" checked={retMomento === 'despues'} onChange={() => setRetMomento('despues')} />
-              <span>Se retiene <strong>DESPUÉS</strong> de pagar <span className="muted">(⬆ Tesorería paga el monto COMPLETO y luego va a Retenciones)</span></span>
+              <span><span style={{ color: 'var(--danger)' }}>▲</span> <strong>Retener DESPUÉS de pagar</strong> → va directo a <strong>Tesorería</strong>, que paga el <strong>total completo (el monto SUBE)</strong>. Ya pagada, pasa a Retenciones.</span>
             </label>
+            {retMomento && (
+              <button type="button" className="btn btn-ghost btn-sm" style={{ justifySelf: 'start' }} onClick={() => { setRetMomento(null); setRetMarc({}); }}>✕ Sin retención</button>
+            )}
           </div>
+          {retMomento && (
+            <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
+              <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.4rem' }}>¿Qué retienen? Marca cada uno e indica el % (sobre el total de la OC) o el monto.</div>
+              <div style={{ display: 'grid', gap: '.4rem' }}>
+                {TIPOS_RETENCION.map((tipo) => {
+                  const m = retMarc[tipo];
+                  const calc = retenciones.find((r) => r.tipo === tipo);
+                  return (
+                    <div key={tipo} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', minWidth: 90 }}>
+                        <input type="checkbox" checked={!!m} onChange={(e) => setRetMarc((x) => {
+                          const n = { ...x };
+                          if (e.target.checked) n[tipo] = { modo: 'pct', valor: '' }; else delete n[tipo];
+                          return n;
+                        })} />
+                        <strong>{tipo}</strong>
+                      </label>
+                      {m && (
+                        <>
+                          <select className="select" style={{ width: 'auto' }} value={m.modo}
+                            onChange={(e) => setRetMarc((x) => ({ ...x, [tipo]: { ...m, modo: e.target.value as 'pct' | 'monto' } }))}>
+                            <option value="pct">%</option>
+                            <option value="monto">Monto ({monedaOrden === 'Bs' ? 'Bs' : '$'})</option>
+                          </select>
+                          <input className="input mono" style={{ width: 110 }} inputMode="decimal" value={m.valor}
+                            placeholder={m.modo === 'pct' ? 'ej. 75' : '0,00'}
+                            onChange={(e) => setRetMarc((x) => ({ ...x, [tipo]: { ...m, valor: e.target.value } }))} />
+                          <span className="mono" style={{ color: 'var(--danger)' }}>− {money(calc?.monto ?? 0, monedaOrden)}</span>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {retenciones.length > 0 && (
+                <div style={{ marginTop: '.55rem', fontSize: '.88rem', display: 'grid', gap: '.15rem' }}>
+                  <div>Total OC <strong className="mono">{money(baseTotal, monedaOrden)}</strong></div>
+                  <div>Retenciones <strong className="mono" style={{ color: 'var(--danger)' }}>− {money(totalRet, monedaOrden)}</strong></div>
+                  {retMomento === 'antes'
+                    ? <div>Total a pagar <strong className="mono" style={{ color: 'var(--success)' }}>{money(Math.max(0, netoAPagar - totalRet), monedaOrden)}</strong> <span className="muted">(Tesorería paga este monto)</span></div>
+                    : <div className="muted">Tesorería paga el total completo; las retenciones quedan anotadas para Retenciones.</div>}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 

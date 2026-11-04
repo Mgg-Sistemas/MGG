@@ -17,6 +17,7 @@ import type { Orden, PagoMetodo } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
 import { BANCOS_VE } from '@/shared/lib/bancos';
 import { dateTime } from '@/shared/lib/format';
+import { retencionesDe, totalRetenciones } from './retencionesOc';
 import { labelCondicionPago } from './ofertas.repository';
 // El enlace y el «compartir» son los MISMOS de Combustible/Alimentación: una sola implementación
 // del «no wa.me» y de la hoja de compartir del teléfono.
@@ -173,6 +174,15 @@ export function textoOrdenPago(
   if (abonado > 0) {
     L.push(`✅ *Abonado:* ${montoTxt(abonado, mon)}`);
     L.push(`🔺 *Saldo pendiente:* ${montoTxt(saldoPendiente(orden), mon)}`);
+  }
+  // Retenciones por tipo (03-11-2026): cada descuento y lo que queda.
+  const rets = retencionesDe(orden);
+  if (rets.length) {
+    for (const r of rets) L.push(`🧾 *Retención ${r.tipo}:* −${montoTxt(r.monto, mon)}`);
+    const neto = Math.max(0, (Number(orden.total) || 0) - (Number(orden.descuento_pago) || 0) - totalRetenciones(rets));
+    L.push(orden.retencion_momento === 'antes'
+      ? `✅ *Neto a pagar:* ${montoTxt(neto, mon)}`
+      : `📌 *Se paga completo y luego se retiene* (neto tras retenciones: ${montoTxt(neto, mon)})`);
   }
   const enBs = lineaMontoBs(orden, opts?.tasaBs);
   if (enBs) L.push(enBs);

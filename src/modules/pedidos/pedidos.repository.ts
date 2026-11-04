@@ -58,6 +58,7 @@ const BUCKET_OC = 'compras-oc';
 import { autorizadoPara } from '@/modules/usuarios/autorizados';
 import { flujoRevisionAlmacenActivo } from './revisionAlmacen.repository';
 import { patchRetencionMomento, type RetencionMomento } from './retencionMomento';
+import { retencionQueBajaElPago, type RetencionOc } from './retencionesOc';
 
 async function assertAdmin(accion: string): Promise<void> {
   const { data: auth } = await supabase.auth.getUser();
@@ -1479,6 +1480,8 @@ export async function indicarMetodoPago(
     numeroAdministracion?: string | null;
     /** Flujo nuevo (30-10-2026): ¿se retiene antes o después de pagar? Sin valor = flujo viejo, no se guarda. */
     retencionMomento?: RetencionMomento | null;
+    /** Retenciones por tipo (03-11-2026): IVA / IGTF / ISLR / ISAE. Solo con Factura. */
+    retenciones?: RetencionOc[] | null;
   },
   qr?: File | null,
   descuentoPago?: number | null,
@@ -1530,12 +1533,13 @@ export async function indicarMetodoPago(
     ...(modDesdeMetodo ? { modalidad_pago: modDesdeMetodo, pago_en_divisa: modDesdeMetodo === 'usd', total_divisa: modDesdeMetodo === 'usd' ? (o.total_divisa ?? o.total) : null } : {}),
     comprobante_tipo: comprobanteTipo,
     retencion_modo: retencionModo,
+    retenciones: comprobanteTipo === 'factura' && soporte?.retenciones?.length ? soporte.retenciones : null,
     pago_qr_path: qrPath,
     pago_qr_nombre: qrNombre,
     descuento_pago: descPago > 0 ? descPago : null,
     // Número de administración del proveedor (14-10-2026): lo ven Tesorería y Retenciones.
     numero_administracion: soporte?.numeroAdministracion?.trim() || null,
-    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, qr: !!qrPath, ...(descPago > 0 ? { descuento_pago: descPago } : {}), ...(soporte?.numeroAdministracion?.trim() ? { numero_administracion: soporte.numeroAdministracion.trim() } : {}), ...(modDesdeMetodo ? { modalidad_pago: modDesdeMetodo } : {}), ...(retMomento.retencion_momento ? { retencion_momento: retMomento.retencion_momento } : {}) }),
+    historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, qr: !!qrPath, ...(descPago > 0 ? { descuento_pago: descPago } : {}), ...(soporte?.numeroAdministracion?.trim() ? { numero_administracion: soporte.numeroAdministracion.trim() } : {}), ...(modDesdeMetodo ? { modalidad_pago: modDesdeMetodo } : {}), ...(retMomento.retencion_momento ? { retencion_momento: retMomento.retencion_momento } : {}), ...(comprobanteTipo === 'factura' && soporte?.retenciones?.length ? { retenciones: soporte.retenciones } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -1861,7 +1865,8 @@ function mapPorPagar(orden: Orden, pm: Map<string, string>): OrdenPorPagar {
   const base = esContraEntrega && orden.recibido_total != null ? Number(orden.recibido_total) : Number(orden.total);
   // Descuento indicado en el método de pago: reduce lo que Tesorería paga (no el total OC).
   const descPago = Math.max(0, Math.round((Number(orden.descuento_pago) || 0) * 100) / 100);
-  const montoAPagar = Math.round(Math.max(0, base - descPago) * 100) / 100;
+  // Retenciones (03-11-2026): si se retiene ANTES de pagar, Tesorería paga el total menos ellas.
+  const montoAPagar = Math.round(Math.max(0, base - descPago - retencionQueBajaElPago(orden)) * 100) / 100;
   return {
     orden,
     proveedorNombre: (orden.proveedor_id && pm.get(orden.proveedor_id)) || '—',
