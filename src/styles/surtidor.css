@@ -172,6 +172,12 @@
 }
 .surt-mov:disabled { opacity: .55; cursor: not-allowed; }
 /* Histórico de salidas (02-11-2026): la tarjeta no es un botón; abajo lleva «Ver PDF» y «WhatsApp». */
+/* 03-11-2026: los dos históricos uno al lado del otro («lo quiero uno al lado del otro»);
+   solo en pantallas muy angostas se apilan. */
+.surt-historicos { display: grid; grid-template-columns: 1fr 1fr; gap: .75rem; margin-top: .75rem; }
+.surt-historicos .surt-btn { min-height: 96px; font-size: 1.05rem; padding: .8rem .5rem; }
+.surt-historicos .surt-btn small { white-space: normal; }
+@media (max-width: 340px) { .surt-historicos { grid-template-columns: 1fr; } }
 .surt-hist { cursor: default; }
 .surt-hist .titulo { white-space: normal; }
 .surt-hist-acciones { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }

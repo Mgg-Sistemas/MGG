@@ -11,7 +11,8 @@ import { supabase } from '@/shared/lib/supabase';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 import { SEGUNDOS_ENLACE_FOTO, nombreFotoCompartir, tipoDeFoto } from '@/shared/lib/fotosWhatsapp';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
-import type { Producto } from '@/shared/lib/types';
+import type { Producto, ScopeSalida, SolicitudSalida } from '@/shared/lib/types';
+import type { MovimientoTraslado } from './historicosTelefono';
 import { registrarMovimiento, transferir } from './movimientos.repository';
 import {
   MAX_FOTOS_SALIDA, errorFotos, type FotoSalida, type MovimientoStock, type RetornoSalida, type SalidaTelefono,
@@ -95,6 +96,56 @@ export async function listSalidasAlmacen(almacen: string, desde: string, hasta: 
   } catch (e) {
     throw err(e, 'No se pudo leer el histórico de salidas.');
   }
+}
+
+const desdeVE = (dia: string) => `${dia}T00:00:00-04:00`;
+const hastaVE = (dia: string) => `${dia}T23:59:59.999-04:00`;
+
+/**
+ * Las solicitudes del módulo de Salidas / Traslados de material creadas entre dos días
+ * (03-11-2026), para los históricos del teléfono. Quién ve cuáles y de qué almacén lo
+ * decide `historicosTelefono.ts` (mezclarSalidas / mezclarTraslados). Por páginas.
+ */
+export async function listSolicitudesModulo(scope: ScopeSalida, desde: string, hasta: string): Promise<SolicitudSalida[]> {
+  try {
+    return await todasLasFilas<SolicitudSalida>((d, h) => supabase.from('solicitudes_salida').select('*')
+      .eq('scope', scope).eq('tipo', 'material').eq('estado', 'ejecutada')
+      .gte('created_at', desdeVE(desde)).lte('created_at', hastaVE(hasta))
+      .order('created_at', { ascending: false }).order('id', { ascending: false })
+      .range(d, h));
+  } catch (e) {
+    throw err(e, 'No se pudieron leer las salidas del módulo.');
+  }
+}
+
+/** Los traslados del teléfono que tocan un almacén (su pata en el kardex de ese almacén), entre dos días. */
+export async function listTrasladosTelefono(almacen: string, desde: string, hasta: string): Promise<MovimientoTraslado[]> {
+  try {
+    return await todasLasFilas<MovimientoTraslado>((d, h) => supabase.from('movimientos')
+      .select('id, producto_id, delta, almacen, detalle, precio_unitario, costo_promedio, actor, actor_name, at, producto:productos(sku, nombre, unidad)')
+      .eq('ref_tipo', 'traslado_telefono').eq('almacen', almacen)
+      .gte('at', desdeVE(desde)).lte('at', hastaVE(hasta))
+      .order('at', { ascending: false }).order('id', { ascending: false })
+      .range(d, h) as unknown as PromiseLike<{ data: MovimientoTraslado[] | null; error: { message?: string } | null }>);
+  } catch (e) {
+    throw err(e, 'No se pudieron leer los traslados.');
+  }
+}
+
+/**
+ * El costo unitario de una salida del teléfono AL MOMENTO de la salida, para el PDF:
+ * el costo promedio del almacén que quedó en su renglón del kardex. Si ese renglón no
+ * tiene costo, el costo promedio actual del producto en el almacén. `null` = sin costo.
+ */
+export async function precioDeSalidaTelefono(s: Pick<SalidaTelefono, 'id' | 'producto_id' | 'almacen'>): Promise<number | null> {
+  const { data } = await supabase.from('movimientos').select('precio_unitario, costo_promedio')
+    .eq('ref_tipo', 'salida_telefono').eq('ref_id', s.id).lt('delta', 0).limit(1).maybeSingle();
+  const delKardex = Number((data as { costo_promedio?: number } | null)?.costo_promedio) || Number((data as { precio_unitario?: number } | null)?.precio_unitario) || 0;
+  if (delKardex > 0) return delKardex;
+  const { data: ex } = await supabase.from('existencias').select('costo_promedio')
+    .eq('producto_id', s.producto_id).eq('almacen', s.almacen).maybeSingle();
+  const actual = Number((ex as { costo_promedio?: number } | null)?.costo_promedio) || 0;
+  return actual > 0 ? actual : null;
 }
 
 /**

@@ -25,15 +25,15 @@ import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { RUTA_TELEFONO } from '@/modules/auth/vistasTelefono';
-import { useAutorizados } from '@/modules/usuarios/autorizados.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useQuien } from '@/shared/lib/directorioUsuarios';
 import { hoyVenezuela, rangoRapido } from '@/shared/lib/rangosFecha';
-import type { Almacen } from '@/shared/lib/types';
+import type { Almacen, SolicitudSalida } from '@/shared/lib/types';
 import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp, type FotosParaWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { adjuntaArchivos } from '@/shared/lib/fotosWhatsapp';
-import { verComprobanteMaterialPdf, type ComprobanteMaterial } from '@/modules/salidas/salidaPdf';
+import { descargarOrdenSalidaPdf, verComprobanteMaterialPdf, type ComprobanteMaterial } from '@/modules/salidas/salidaPdf';
+import { listAutorizadoresActivos } from '@/modules/combustible/combustible.repository';
 import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import { createProducto, findBySku, getUnidades, siguienteSkuLibre } from './inventario.repository';
@@ -43,15 +43,21 @@ import { CategoriaProductoSelect, asegurarCategoria, esCategoriaReal } from './C
 import { SIN_SEDE, nombreAlmacenVisible } from './sectorizacion';
 import { useSectorizacion } from './useSectorizacion';
 import {
-  DIAS_HISTORICO, MAX_FOTOS_SALIDA, comprobanteDeSalida, errorFotos, errorRetorno, errorSalida, errorTraslado, fechaHoraVE,
-  filaHistoricoSalida, filtrarPorRetornar, filtrarSalidas, leerCantidad,
+  DIAS_HISTORICO, MAX_FOTOS_SALIDA, errorFotos, errorRetorno, errorSalida, errorTraslado, fechaHoraVE,
+  filtrarPorRetornar, leerCantidad,
   mensajeEntrada, mensajeProductoNuevo, mensajeRetorno, mensajeSalida, mensajeStock, mensajeTraslado, num,
   pendienteRetorno, stockPorPeriodo, textoRetorno, ultimosDias, type FotoSalida, type MovimientoStock, type SalidaTelefono,
 } from './inventarioTelefono';
 import {
-  archivosFotosSalida, enlacesFotosSalida, listPorRetornar, listSalidasAlmacen, movimientosAlmacenDesde, productosDeAlmacen,
+  archivosFotosSalida, enlacesFotosSalida, listPorRetornar, listSalidasAlmacen, listSolicitudesModulo, listTrasladosTelefono,
+  movimientosAlmacenDesde, precioDeSalidaTelefono, productosDeAlmacen,
   registrarSalidaTelefono, retornarSalidaTelefono, subirFotosSalida, trasladarTelefono, urlFotoSalida, type ProductoEnAlmacen,
 } from './inventarioTelefono.repository';
+import {
+  buscarFilasSalida, buscarFilasTraslado, mensajeFilaSalida, mensajeFilaTraslado, mezclarSalidas, mezclarTraslados,
+  numeroDeSolicitud, ordenDeSalidaTelefono, ordenDeTrasladoTelefono, refTrasladoTelefono, trasladoDeMovimiento,
+  vistaFilaSalida, vistaFilaTraslado, type FilaSalida, type FilaTraslado,
+} from './historicosTelefono';
 
 export const RUTA_INVENTARIO_TELEFONO = '/app/inventario/telefono';
 /** Cuántos productos se listan sin buscar: en el teléfono no se recorre el almacén entero. */
@@ -68,7 +74,7 @@ const leerAlmacen = () => { try { return localStorage.getItem(CLAVE_ALMACEN) ?? 
 const guardarAlmacen = (n: string) => { try { localStorage.setItem(CLAVE_ALMACEN, n); } catch { /* sin almacenamiento: se vuelve a elegir */ } };
 const esImagen = (f: File) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name);
 
-type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'traslado' | 'reporte' | 'historico' | 'listo' | 'listoSalida';
+type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'traslado' | 'reporte' | 'historico' | 'historicoTraslados' | 'listo' | 'listoSalida';
 
 /** Los almacenes agrupados por sede, para los `<select>`. */
 function porSede(almacenes: Almacen[]): [string, Almacen[]][] {
@@ -156,6 +162,9 @@ export function InventarioMovilView() {
   const almacen = sel;
   const puedeMoverAqui = canWrite && !!almacen && sector.puedeMover(almacen);
   const motivoAjeno = almacen ? sector.motivo(almacen) : null;
+  // Histórico de salidas (03-11-2026): «solo las de Carlos en el perfil de Carlos». El
+  // almacenista con sede ve las que él registró o ejecutó; sin sede (administración), todas.
+  const soloDe = sector.sectorizado ? (user?.email ?? '') : null;
   const destinos = useMemo(() => (almacenes ?? []).filter((a) => a.nombre !== almacen), [almacenes, almacen]);
 
   const lista = useMemo(() => {
@@ -268,16 +277,23 @@ export function InventarioMovilView() {
         </button>
       )}
 
-      {/* 02-11-2026: las salidas ya hechas, para volver a sacar su PDF o su WhatsApp. Lo ve quien ve el almacén. */}
+      {/* 02-11-2026: las salidas ya hechas, para volver a sacar su PDF o su WhatsApp. 03-11: también los
+          traslados, y los dos botones uno al lado del otro (pedido de la administradora). Lo ve quien ve el almacén. */}
       {!loading && paso === 'inicio' && almacen && (
-        <button type="button" className="surt-btn salida" style={{ width: '100%', minHeight: 84, marginTop: '.75rem' }}
-          onClick={() => setPaso('historico')}>
-          <span>🧾 Histórico de salidas</span>
-          <small>Las salidas de {nombreAlm}: su PDF y su WhatsApp</small>
-        </button>
+        <div className="surt-historicos">
+          <button type="button" className="surt-btn salida" onClick={() => setPaso('historico')}>
+            <span>🧾 Histórico de salidas</span>
+            <small>PDF y WhatsApp de cada salida</small>
+          </button>
+          <button type="button" className="surt-btn traslado" onClick={() => setPaso('historicoTraslados')}>
+            <span>🔁 Histórico de traslados</span>
+            <small>PDF y WhatsApp de cada traslado</small>
+          </button>
+        </div>
       )}
 
-      {paso === 'historico' && <HistoricoSalidas almacen={almacen} onVolver={volver} />}
+      {paso === 'historico' && <HistoricoSalidas almacen={almacen} soloDe={soloDe} onVolver={volver} />}
+      {paso === 'historicoTraslados' && <HistoricoTraslados almacen={almacen} onVolver={volver} />}
 
       {paso === 'listo' && listo && <Listo titulo={listo.titulo} texto={listo.texto} pdf={listo.pdf} onVolver={volver} />}
 
@@ -356,32 +372,37 @@ export function InventarioMovilView() {
 }
 
 /** Lo guardado: el aviso para WhatsApp y la vuelta al inicio. */
-function Listo({ titulo, texto, pdf, fotos, onVolver, volverTexto = '← Volver al inicio', children }: {
-  titulo: string; texto: string; pdf?: ComprobanteMaterial; fotos?: FotosParaWhatsapp; onVolver: () => void;
-  volverTexto?: string; children?: ReactNode;
+/**
+ * Lo guardado: el aviso para WhatsApp y la vuelta al inicio. `pdf` es el comprobante
+ * sencillo (entrada, traslado recién hecho); `abrirPdf`, otro PDF ya armado (la ORDEN
+ * DE SALIDA del módulo, 03-11-2026).
+ */
+function Listo({ titulo, texto, pdf, abrirPdf, fotos, onVolver, volverTexto = '← Volver al inicio', children }: {
+  titulo: string; texto: string; pdf?: ComprobanteMaterial; abrirPdf?: () => Promise<void>; fotos?: FotosParaWhatsapp;
+  onVolver: () => void; volverTexto?: string; children?: ReactNode;
 }) {
+  const abrir = abrirPdf ?? (pdf ? () => verComprobanteMaterialPdf(pdf) : null);
   return (
     <div className="surt-form">
       <div className="surt-form-titulo"><span className="icono" aria-hidden>✅</span><strong>{titulo}</strong></div>
       {children}
       <CompartirWhatsapp texto={texto} fotos={fotos} />
-      {pdf && <BotonPdf pdf={pdf} className="btn btn-ghost surt-guardar" texto="📄 Ver PDF del comprobante" />}
+      {abrir && <BotonPdf abrir={abrir} className="btn btn-ghost surt-guardar" texto="📄 Ver PDF del comprobante" />}
       <button type="button" className="btn btn-primary surt-guardar" onClick={onVolver}>{volverTexto}</button>
     </div>
   );
 }
 
 /**
- * El comprobante en PDF (30-10-2026): mismo formato que Salidas y Traslados, en vista
- * previa y solo con el botón (nada se descarga solo). En el teléfono el visor ofrece
- * abrirlo en su pestaña, porque dentro de la página no se pinta (02-11-2026, ver
- * shared/lib/reportPreview · muestraPdfEnPagina).
+ * El PDF (30-10-2026), en vista previa y solo con el botón (nada se descarga solo). En
+ * el teléfono el visor ofrece abrirlo en su pestaña, porque dentro de la página no se
+ * pinta (02-11-2026, ver shared/lib/reportPreview · muestraPdfEnPagina).
  */
-function BotonPdf({ pdf, className, texto }: { pdf: ComprobanteMaterial; className: string; texto: string }) {
+function BotonPdf({ abrir, className, texto }: { abrir: () => Promise<void>; className: string; texto: string }) {
   const [abriendo, setAbriendo] = useState(false);
   async function verPdf() {
     setAbriendo(true);
-    try { await verComprobanteMaterialPdf(pdf); }
+    try { await abrir(); }
     catch (e) { toast(errMsg(e, 'No se pudo armar el PDF'), 'error'); }
     finally { setAbriendo(false); }
   }
@@ -390,6 +411,16 @@ function BotonPdf({ pdf, className, texto }: { pdf: ComprobanteMaterial; classNa
       {abriendo ? 'Armando el PDF…' : texto}
     </button>
   );
+}
+
+/**
+ * La ORDEN DE SALIDA del módulo de Salidas para una salida del teléfono (03-11-2026,
+ * «que sea como ya se tiene en salidas»), con el costo del almacén de ese momento.
+ */
+async function verOrdenSalidaTelefono(s: SalidaTelefono, quien: string): Promise<void> {
+  const precio = await precioDeSalidaTelefono(s).catch(() => null);
+  const o = ordenDeSalidaTelefono(s, quien, precio);
+  await descargarOrdenSalidaPdf(o.sol, o.opciones);
 }
 
 /** La salida ya guardada: se le pueden sumar fotos (hasta 4) y el aviso se rehace con ellas. */
@@ -416,7 +447,7 @@ function ListoSalida({ salida, quien, onCambio, onVolver }: {
 
   return (
     <Listo titulo={`Salida ${salida.codigo} registrada`} texto={mensajeSalida(salida, quien)} fotos={fotosWhatsapp} onVolver={onVolver}
-      pdf={comprobanteDeSalida(salida, quien)}>
+      abrirPdf={() => verOrdenSalidaTelefono(salida, quien)}>
       {/* Las fotos se ven debajo del aviso de WhatsApp, que es con lo que se mandan (02-11-2026). */}
       <div className="surt-campo">
         <label htmlFor="inv-tel-salida-fotos-mas">Fotos ({salida.fotos.length}/{MAX_FOTOS_SALIDA})</label>
@@ -467,13 +498,56 @@ const POR_TANDA = 40;
  * últimos 60 días; los atajos y el buscador acotan. Lo ve quien ve el almacén: el
  * almacenista con sede solo llega a los de su sede por el selector de arriba.
  */
-function HistoricoSalidas({ almacen, onVolver }: { almacen: string; onVolver: () => void }) {
+/** Atajos de fechas de los históricos (hoy, este mes, mes pasado, 60 y 90 días). */
+function AtajosHistorico({ hoy, onRango }: { hoy: string; onRango: (r: { desde: string; hasta: string }) => void }) {
+  function atajo(r: 'hoy' | 'mes' | 'mesPasado' | 'ult60' | 'ult90') {
+    onRango(r === 'hoy' ? { desde: hoy, hasta: hoy }
+      : r === 'ult60' ? ultimosDias(DIAS_HISTORICO, hoy)
+      : r === 'ult90' ? rangoRapido('ult90', hoy)
+      : rangoRapido(r, hoy));
+  }
+  return (
+    <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+      <button type="button" className="btn btn-ghost" onClick={() => atajo('hoy')}>Hoy</button>
+      <button type="button" className="btn btn-ghost" onClick={() => atajo('mes')}>Este mes</button>
+      <button type="button" className="btn btn-ghost" onClick={() => atajo('mesPasado')}>Mes pasado</button>
+      <button type="button" className="btn btn-ghost" onClick={() => atajo('ult60')}>60 días</button>
+      <button type="button" className="btn btn-ghost" onClick={() => atajo('ult90')}>90 días</button>
+    </div>
+  );
+}
+
+/** Desde / hasta de los históricos. */
+function RangoHistorico({ id, hoy, desde, hasta, setDesde, setHasta }: {
+  id: string; hoy: string; desde: string; hasta: string; setDesde: (v: string) => void; setHasta: (v: string) => void;
+}) {
+  return (
+    <div className="surt-grid2">
+      <div className="surt-campo">
+        <label htmlFor={`${id}-desde`}>Desde</label>
+        <input id={`${id}-desde`} type="date" className="input surt-input" value={desde} max={hoy} onChange={(e) => setDesde(e.target.value)} />
+      </div>
+      <div className="surt-campo">
+        <label htmlFor={`${id}-hasta`}>Hasta</label>
+        <input id={`${id}-hasta`} type="date" className="input surt-input" value={hasta} max={hoy} onChange={(e) => setHasta(e.target.value)} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Histórico de salidas del almacén (02-11-2026; 03-11: también las del módulo de Salidas
+ * que ya descontaron stock, y «solo las de Carlos en el perfil de Carlos»: con `soloDe`
+ * se ven solo las que registró o ejecutó ese usuario). Cada una con su ORDEN DE SALIDA
+ * en PDF y su WhatsApp.
+ */
+function HistoricoSalidas({ almacen, soloDe, onVolver }: { almacen: string; soloDe: string | null; onVolver: () => void }) {
   const quienDe = useQuien();
   const hoy = hoyVenezuela();
   const inicial = ultimosDias(DIAS_HISTORICO, hoy);
   const [desde, setDesde] = useState(inicial.desde);
   const [hasta, setHasta] = useState(inicial.hasta);
-  const [salidas, setSalidas] = useState<SalidaTelefono[] | null>(null);
+  const [filas, setFilas] = useState<FilaSalida[] | null>(null);
   const [busca, setBusca] = useState('');
   const [tope, setTope] = useState(POR_TANDA);
   const [elegidaId, setElegidaId] = useState<string | null>(null);
@@ -485,30 +559,33 @@ function HistoricoSalidas({ almacen, onVolver }: { almacen: string; onVolver: ()
     if (rangoMalo) return;
     const mio = ++turno.current;
     try {
-      const xs = await listSalidasAlmacen(almacen, desde, hasta);
-      if (mio === turno.current) setSalidas(xs);
+      const [tel, mod] = await Promise.all([
+        listSalidasAlmacen(almacen, desde, hasta),
+        listSolicitudesModulo('salida', desde, hasta).catch(() => [] as SolicitudSalida[]),
+      ]);
+      if (mio === turno.current) setFilas(mezclarSalidas(tel, mod, almacen, soloDe));
     } catch (e) {
-      if (mio === turno.current) { setSalidas([]); toast(errMsg(e, 'No se pudo leer el histórico de salidas'), 'error'); }
+      if (mio === turno.current) { setFilas([]); toast(errMsg(e, 'No se pudo leer el histórico de salidas'), 'error'); }
     }
-  }, [almacen, desde, hasta, rangoMalo]);
-  useEffect(() => { setSalidas(null); setTope(POR_TANDA); void cargar(); }, [cargar]);
-  // Al día con lo que registran otros (una salida nueva, un retorno, fotos agregadas).
-  useRealtime(['inventario_salidas_telefono'], () => { void cargar(); });
+  }, [almacen, desde, hasta, rangoMalo, soloDe]);
+  useEffect(() => { setFilas(null); setTope(POR_TANDA); void cargar(); }, [cargar]);
+  // Al día con lo que registran otros (una salida nueva, un retorno, fotos, una ejecución del módulo).
+  useRealtime(['inventario_salidas_telefono', 'solicitudes_salida'], () => { void cargar(); });
 
-  const registro = useCallback((s: SalidaTelefono) => quienDe(s.actor_name, s.actor) || s.actor_name || s.actor || '', [quienDe]);
-  const lista = useMemo(() => filtrarSalidas(salidas ?? [], busca), [salidas, busca]);
-  const elegida = elegidaId ? (salidas ?? []).find((s) => s.id === elegidaId) ?? null : null;
-
-  function atajo(r: 'hoy' | 'mes' | 'mesPasado' | 'ult60' | 'ult90') {
-    const x = r === 'hoy' ? { desde: hoy, hasta: hoy }
-      : r === 'ult60' ? ultimosDias(DIAS_HISTORICO, hoy)
-      : r === 'ult90' ? rangoRapido('ult90', hoy)
-      : rangoRapido(r, hoy);
-    setDesde(x.desde); setHasta(x.hasta);
-  }
+  const registro = useCallback((f: FilaSalida) => {
+    const r = f.origen === 'telefono' ? f.salida : f.sol;
+    return quienDe(r.actor_name ?? null, r.actor ?? null) || r.actor_name || r.actor || '';
+  }, [quienDe]);
+  const lista = useMemo(() => buscarFilasSalida(filas ?? [], busca), [filas, busca]);
+  const elegida = elegidaId ? (filas ?? []).find((f) => f.id === elegidaId) ?? null : null;
 
   if (elegida) {
-    return <SalidaDelHistorico salida={elegida} quien={registro(elegida)} onVolver={() => setElegidaId(null)} />;
+    return elegida.origen === 'telefono'
+      ? <SalidaDelHistorico salida={elegida.salida} quien={registro(elegida)} onVolver={() => setElegidaId(null)} />
+      : (
+        <Listo titulo={`Salida ${numeroDeSolicitud(elegida.sol)}`} texto={mensajeFilaSalida(elegida, registro(elegida))}
+          abrirPdf={() => descargarOrdenSalidaPdf(elegida.sol)} onVolver={() => setElegidaId(null)} volverTexto="← Volver al histórico" />
+      );
   }
 
   return (
@@ -517,53 +594,145 @@ function HistoricoSalidas({ almacen, onVolver }: { almacen: string; onVolver: ()
         <strong style={{ fontSize: '1.1rem' }}>🧾 Histórico de salidas · {nombreAlmacenVisible(almacen)}</strong>
         <button type="button" className="btn btn-ghost" onClick={onVolver}>← Volver</button>
       </div>
-      <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-        <button type="button" className="btn btn-ghost" onClick={() => atajo('hoy')}>Hoy</button>
-        <button type="button" className="btn btn-ghost" onClick={() => atajo('mes')}>Este mes</button>
-        <button type="button" className="btn btn-ghost" onClick={() => atajo('mesPasado')}>Mes pasado</button>
-        <button type="button" className="btn btn-ghost" onClick={() => atajo('ult60')}>60 días</button>
-        <button type="button" className="btn btn-ghost" onClick={() => atajo('ult90')}>90 días</button>
-      </div>
-      <div className="surt-grid2">
-        <div className="surt-campo">
-          <label htmlFor="inv-tel-hist-desde">Desde</label>
-          <input id="inv-tel-hist-desde" type="date" className="input surt-input" value={desde} max={hoy}
-            onChange={(e) => setDesde(e.target.value)} />
-        </div>
-        <div className="surt-campo">
-          <label htmlFor="inv-tel-hist-hasta">Hasta</label>
-          <input id="inv-tel-hist-hasta" type="date" className="input surt-input" value={hasta} max={hoy}
-            onChange={(e) => setHasta(e.target.value)} />
-        </div>
-      </div>
-      <input className="input surt-input" type="search" name="inv-tel-hist-buscar" placeholder="🔍 Material, N° SAT o motivo…"
+      {soloDe !== null && <p className="muted" style={{ margin: '0 0 .4rem' }}>Solo las salidas que registraste o ejecutaste tú.</p>}
+      <AtajosHistorico hoy={hoy} onRango={(r) => { setDesde(r.desde); setHasta(r.hasta); }} />
+      <RangoHistorico id="inv-tel-hist" hoy={hoy} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
+      <input className="input surt-input" type="search" name="inv-tel-hist-buscar" placeholder="🔍 Material, N° SAT / SAL o motivo…"
         value={busca} onChange={(e) => { setBusca(e.target.value); setTope(POR_TANDA); }} autoComplete="off" aria-label="Buscar en el histórico de salidas" />
       {rangoMalo ? (
         <div className="aviso warning sm"><span className="aviso-icono">⚠</span><div>Revisa las fechas: «desde» no puede ir después de «hasta» ni pasar de hoy.</div></div>
-      ) : salidas === null ? (
+      ) : filas === null ? (
         <p className="muted">Cargando salidas…</p>
       ) : (
         <>
           <h2>
             {busca.trim()
-              ? (lista.length ? `${lista.length} encontrada(s) de ${salidas.length}` : 'Ninguna salida coincide')
-              : `${salidas.length} salida(s) en esas fechas`}
+              ? (lista.length ? `${lista.length} encontrada(s) de ${filas.length}` : 'Ninguna salida coincide')
+              : `${filas.length} salida(s) en esas fechas`}
           </h2>
-          {!salidas.length && <p className="muted">No hay salidas de {nombreAlmacenVisible(almacen)} en esas fechas.</p>}
-          {lista.slice(0, tope).map((s) => {
-            const f = filaHistoricoSalida(s, registro(s));
+          {!filas.length && <p className="muted">No hay salidas de {nombreAlmacenVisible(almacen)} en esas fechas.</p>}
+          {lista.slice(0, tope).map((f) => {
+            const v = vistaFilaSalida(f, registro(f));
             return (
-              <div key={s.id} className="surt-mov surt-hist">
+              <div key={f.id} className="surt-mov surt-hist">
                 <span className="icono" aria-hidden>📤</span>
                 <span style={{ minWidth: 0 }}>
-                  <div className="titulo">{f.titulo}</div>
-                  {f.lineas.map((l) => <div key={l} className="sub">{l}</div>)}
-                  <div className="sub"><strong>{f.retorno}</strong>{s.fotos.length ? ` · 📷 ${s.fotos.length}` : ''}</div>
+                  <div className="titulo">{v.titulo}</div>
+                  {v.lineas.map((l) => <div key={l} className="sub">{l}</div>)}
+                  <div className="sub"><strong>{v.estado}</strong> · {v.origen}{f.origen === 'telefono' && f.salida.fotos.length ? ` · 📷 ${f.salida.fotos.length}` : ''}</div>
                 </span>
-                <span className="litros">−{f.cantidad}</span>
+                <span className="litros">−{v.cantidad}</span>
                 <div className="surt-hist-acciones">
-                  <BotonPdf pdf={comprobanteDeSalida(s, registro(s))} className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
-                  <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidaId(s.id); window.scrollTo(0, 0); }}>
+                  <BotonPdf
+                    abrir={() => (f.origen === 'telefono' ? verOrdenSalidaTelefono(f.salida, registro(f)) : descargarOrdenSalidaPdf(f.sol))}
+                    className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
+                  <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidaId(f.id); window.scrollTo(0, 0); }}>
+                    💬 WhatsApp
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+          {lista.length > tope && (
+            <button type="button" className="btn btn-ghost btn-grande" style={{ width: '100%' }} onClick={() => setTope((t) => t + POR_TANDA)}>
+              Ver más ({lista.length - tope} restantes)
+            </button>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * Histórico de traslados (03-11-2026, «quiero que también haya un histórico de traslados»):
+ * los del teléfono (kardex) y los del módulo de Traslados que tocan el almacén, con su
+ * ORDEN en PDF y su WhatsApp.
+ */
+function HistoricoTraslados({ almacen, onVolver }: { almacen: string; onVolver: () => void }) {
+  const quienDe = useQuien();
+  const hoy = hoyVenezuela();
+  const inicial = ultimosDias(DIAS_HISTORICO, hoy);
+  const [desde, setDesde] = useState(inicial.desde);
+  const [hasta, setHasta] = useState(inicial.hasta);
+  const [filas, setFilas] = useState<FilaTraslado[] | null>(null);
+  const [busca, setBusca] = useState('');
+  const [tope, setTope] = useState(POR_TANDA);
+  const [elegidoId, setElegidoId] = useState<string | null>(null);
+
+  const rangoMalo = !desde || !hasta || desde > hasta || hasta > hoy;
+  const turno = useRef(0);
+  const cargar = useCallback(async () => {
+    if (rangoMalo) return;
+    const mio = ++turno.current;
+    try {
+      const [movs, mod] = await Promise.all([
+        listTrasladosTelefono(almacen, desde, hasta),
+        listSolicitudesModulo('traslado', desde, hasta).catch(() => [] as SolicitudSalida[]),
+      ]);
+      const tel = movs.map(trasladoDeMovimiento).filter((t): t is NonNullable<typeof t> => t !== null);
+      if (mio === turno.current) setFilas(mezclarTraslados(tel, mod, almacen));
+    } catch (e) {
+      if (mio === turno.current) { setFilas([]); toast(errMsg(e, 'No se pudo leer el histórico de traslados'), 'error'); }
+    }
+  }, [almacen, desde, hasta, rangoMalo]);
+  useEffect(() => { setFilas(null); setTope(POR_TANDA); void cargar(); }, [cargar]);
+  useRealtime(['solicitudes_salida'], () => { void cargar(); });
+
+  const registro = useCallback((f: FilaTraslado) => {
+    const r = f.origen === 'telefono' ? f.traslado : f.sol;
+    return quienDe(r.actor_name ?? null, r.actor ?? null) || r.actor_name || r.actor || '';
+  }, [quienDe]);
+  const lista = useMemo(() => buscarFilasTraslado(filas ?? [], busca), [filas, busca]);
+  const elegido = elegidoId ? (filas ?? []).find((f) => f.id === elegidoId) ?? null : null;
+  const pdfDe = (f: FilaTraslado) => (f.origen === 'telefono'
+    ? (() => { const o = ordenDeTrasladoTelefono(f.traslado, registro(f)); return descargarOrdenSalidaPdf(o.sol, o.opciones); })()
+    : descargarOrdenSalidaPdf(f.sol));
+
+  if (elegido) {
+    return (
+      <Listo titulo={`Traslado ${elegido.origen === 'telefono' ? refTrasladoTelefono(elegido.traslado.id) : numeroDeSolicitud(elegido.sol)}`}
+        texto={mensajeFilaTraslado(elegido, registro(elegido))} abrirPdf={() => pdfDe(elegido)}
+        onVolver={() => setElegidoId(null)} volverTexto="← Volver al histórico" />
+    );
+  }
+
+  return (
+    <section className="surt-lista">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', margin: '.5rem 0' }}>
+        <strong style={{ fontSize: '1.1rem' }}>🔁 Histórico de traslados · {nombreAlmacenVisible(almacen)}</strong>
+        <button type="button" className="btn btn-ghost" onClick={onVolver}>← Volver</button>
+      </div>
+      <AtajosHistorico hoy={hoy} onRango={(r) => { setDesde(r.desde); setHasta(r.hasta); }} />
+      <RangoHistorico id="inv-tel-histt" hoy={hoy} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} />
+      <input className="input surt-input" type="search" name="inv-tel-histt-buscar" placeholder="🔍 Material, N°, motivo o almacén…"
+        value={busca} onChange={(e) => { setBusca(e.target.value); setTope(POR_TANDA); }} autoComplete="off" aria-label="Buscar en el histórico de traslados" />
+      {rangoMalo ? (
+        <div className="aviso warning sm"><span className="aviso-icono">⚠</span><div>Revisa las fechas: «desde» no puede ir después de «hasta» ni pasar de hoy.</div></div>
+      ) : filas === null ? (
+        <p className="muted">Cargando traslados…</p>
+      ) : (
+        <>
+          <h2>
+            {busca.trim()
+              ? (lista.length ? `${lista.length} encontrado(s) de ${filas.length}` : 'Ningún traslado coincide')
+              : `${filas.length} traslado(s) en esas fechas`}
+          </h2>
+          {!filas.length && <p className="muted">No hay traslados de {nombreAlmacenVisible(almacen)} en esas fechas.</p>}
+          {lista.slice(0, tope).map((f) => {
+            const v = vistaFilaTraslado(f, registro(f));
+            return (
+              <div key={f.id} className="surt-mov surt-hist">
+                <span className="icono" aria-hidden>🔁</span>
+                <span style={{ minWidth: 0 }}>
+                  <div className="titulo">{v.titulo}</div>
+                  {v.lineas.map((l) => <div key={l} className="sub">{l}</div>)}
+                  <div className="sub"><strong>{v.estado}</strong> · {v.origen}</div>
+                </span>
+                <span className="litros">{v.cantidad}</span>
+                <div className="surt-hist-acciones">
+                  <BotonPdf abrir={() => pdfDe(f)} className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
+                  <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidoId(f.id); window.scrollTo(0, 0); }}>
                     💬 WhatsApp
                   </button>
                 </div>
@@ -587,7 +756,7 @@ function SalidaDelHistorico({ salida, quien, onVolver }: { salida: SalidaTelefon
   const u = salida.unidad ?? '';
   return (
     <Listo titulo={`Salida ${salida.codigo}`} texto={mensajeSalida(salida, quien)} fotos={fotosWhatsapp}
-      pdf={comprobanteDeSalida(salida, quien)} onVolver={onVolver} volverTexto="← Volver al histórico">
+      abrirPdf={() => verOrdenSalidaTelefono(salida, quien)} onVolver={onVolver} volverTexto="← Volver al histórico">
       <div className="surt-detalle">
         <div className="surt-fila"><span>Material</span><span>{salida.producto_nombre}</span></div>
         <div className="surt-fila"><span>Cantidad</span><span>{num(salida.cantidad)} {u}</span></div>
@@ -862,13 +1031,15 @@ function FormSalida({ almacen, producto, actor, actorName, onCancel, onHecho }: 
   const cant = leerCantidad(cantidad);
   const stock = producto.stock_almacen;
 
-  // Quién autoriza: los usuarios autorizados a aprobar salidas (Roles y Permisos), por nombre.
-  const autorizados = useAutorizados();
-  const quienDe = useQuien();
-  const autorizadores = useMemo(() => [...new Set((autorizados ?? [])
-    .filter((a) => a.aprobar_salidas)
-    .map((a) => quienDe(null, a.email))
-    .filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es')), [autorizados, quienDe]);
+  // Quién autoriza (03-11-2026): la MISMA lista que Combustible (catálogo «Autorizados»
+  // del surtidor), pedido de la administradora: «te traigas al de combustible». Antes
+  // salía de los usuarios con «aprobar salidas» en Roles y Permisos.
+  const [autorizadores, setAutorizadores] = useState<string[] | null>(null);
+  const cargarAutorizadores = useCallback(() => {
+    listAutorizadoresActivos().then(setAutorizadores).catch(() => setAutorizadores((xs) => xs ?? []));
+  }, []);
+  useEffect(() => { cargarAutorizadores(); }, [cargarAutorizadores]);
+  useRealtime(['combustible_autorizados'], cargarAutorizadores);
 
   const previas = useMemo(() => fotos.map((f) => URL.createObjectURL(f)), [fotos]);
   useEffect(() => () => { previas.forEach((u) => URL.revokeObjectURL(u)); }, [previas]);
@@ -920,11 +1091,11 @@ function FormSalida({ almacen, producto, actor, actorName, onCancel, onHecho }: 
       <div className="surt-campo">
         <label htmlFor="inv-tel-salida-autorizado">¿Quién autorizó?</label>
         <select id="inv-tel-salida-autorizado" className="input surt-input" value={autorizado} onChange={(e) => setAutorizado(e.target.value)}>
-          <option value="">{autorizados === null ? 'Cargando…' : 'Elegir…'}</option>
-          {autorizadores.map((n) => <option key={n} value={n}>{n}</option>)}
+          <option value="">{autorizadores === null ? 'Cargando…' : 'Elegir…'}</option>
+          {(autorizadores ?? []).map((n) => <option key={n} value={n}>{n}</option>)}
         </select>
-        {autorizados !== null && !autorizadores.length && (
-          <small className="surt-alerta">No hay usuarios autorizados para aprobar salidas (Usuarios › Roles y Permisos).</small>
+        {autorizadores !== null && !autorizadores.length && (
+          <small className="surt-alerta">No hay autorizados activos en el catálogo de Combustible (Combustible › Catálogo › Autorizados).</small>
         )}
       </div>
       <div className="surt-campo">

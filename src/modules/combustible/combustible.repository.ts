@@ -999,6 +999,18 @@ export async function listCatalogo(tabla: TablaCatalogo): Promise<CatalogoCombus
   return (data ?? []) as CatalogoCombustible[];
 }
 
+/**
+ * Los nombres de quienes autorizan, activos y ordenados: el catálogo «Autorizados» de
+ * Combustible. Es la lista del surtidor y, desde el 03-11-2026 por pedido de la
+ * administradora («te traigas al de combustible»), también la del «Autorizado por» de
+ * la vista de teléfono de Inventario y Almacenes.
+ */
+export async function listAutorizadoresActivos(): Promise<string[]> {
+  const xs = await listCatalogo('combustible_autorizados');
+  return [...new Set(xs.filter((c) => c.estado === 'activo').map((c) => c.nombre.trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, 'es'));
+}
+
 export async function crearCatalogo(tabla: TablaCatalogo, nombre: string, actorEmail?: string | null): Promise<CatalogoCombustible> {
   const n = nombre.trim();
   if (!n) throw new Error('El nombre es obligatorio.');

@@ -217,7 +217,23 @@ const SOL_ESTADO_TXT: Record<string, string> = {
   cancelada: 'Cancelada',
 };
 
-export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<void> {
+/**
+ * Para usar la ORDEN con algo que NO pasó por la aprobación del módulo (03-11-2026):
+ * las salidas y traslados de la vista de teléfono de Inventario. Pedido de la
+ * administradora: «que sea como ya se tiene en salidas». Ahí no hay `aprobada_por`
+ * (correo de quien apretó «Aprobar»), sino el nombre que eligió el almacenista: se
+ * imprime ese nombre y NO se estampa ninguna firma escaneada, porque esa persona no
+ * firmó en el sistema; la firma va a mano en la línea.
+ */
+export interface OpcionesOrdenPdf {
+  /** Nombre que va en «Autorizado por» en lugar del que sale de la aprobación. */
+  autorizadoPor?: string | null;
+  /** Renglones extra de OBSERVACIONES / NOTAS (retorno, origen del registro…). */
+  notas?: string[];
+}
+
+export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: OpcionesOrdenPdf): Promise<void> {
+  const autorizadoFijo = opciones?.autorizadoPor?.trim() || null;
   const [{ jsPDF }, { default: autoTable }, fmt, pdfLogo, personas] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
@@ -235,13 +251,15 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   // 105 de 179 documentos llevaban la firma de alguien que no intervino.
   // Solo Leydis Rengel o Jesús Lozada figuran como autorizantes. Una aprobación
   // vieja de otra persona figura a nombre de Leydis, con su firma.
-  const autoriza = autorizanteDe(sol.aprobada_por, sol.sin_autorizacion, {
-    aprobadaEn: sol.aprobada_en,
-    nombre: sol.aprobada_por ? personaDe(sol.aprobada_por, personas, sol.aprobada_por) : null,
-  });
+  const autoriza = autorizadoFijo
+    ? { nombre: autorizadoFijo.toUpperCase(), firma: false, pendiente: false }
+    : autorizanteDe(sol.aprobada_por, sol.sin_autorizacion, {
+      aprobadaEn: sol.aprobada_en,
+      nombre: sol.aprobada_por ? personaDe(sol.aprobada_por, personas, sol.aprobada_por) : null,
+    });
   // Firma cargada en «Usuarios autorizados para:» (28-10-2026) de quien aprobó. Si no
   // cargó firma, queda la regla de siempre (la de Leydis cuando corresponde).
-  const firmaCargada = figuraQuienAprobo(sol.aprobada_por, sol.aprobada_en)
+  const firmaCargada = !autorizadoFijo && figuraQuienAprobo(sol.aprobada_por, sol.aprobada_en)
     ? await import('@/modules/usuarios/autorizados.repository').then((m) => m.firmaDeCorreo(sol.aprobada_por)).catch(() => null)
     : null;
   const creo = personaDe(sol.actor, personas, sol.actor_name || sol.solicitante);
@@ -368,6 +386,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida): Promise<voi
   if (sol.motivo) obs.push(`Motivo: ${sol.motivo}`);
   if (sol.nota_entrega) obs.push(`Nota de entrega: ${sol.nota_entrega}`);
   if (sol.consumo_interno) obs.push('Consumo interno: el material se queda dentro de la empresa.');
+  obs.push(...(opciones?.notas ?? []).filter((n) => n.trim()));
   if (obs.length) {
     doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5);
     const wrapped = doc.splitTextToSize(obs.join('\n'), PAGE_W - MARGIN * 2);
