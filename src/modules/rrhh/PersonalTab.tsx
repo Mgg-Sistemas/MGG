@@ -65,6 +65,8 @@ import { MOTIVO_HISTORICO_POR_DEFECTO, corrigeSemilla, esRenglonHistorico, esRen
 import { CargarSueldosHistoricosModal } from './CargarSueldosHistoricosModal';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
+import { BANCOS_VE } from '@/shared/lib/bancos';
+import { DATOS_BANCARIOS_VACIOS, errorDatosBancarios, leerDatosBancarios, renglonesDatosBancarios, type DatosBancarios } from './datosBancarios';
 
 const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', carnet_vence: CARNET_VENCE_POR_DEFECTO, telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', grados_instruccion: [], titulo_obtenido: '', trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '', trabajo_anterior_sueldo: 0, trabajo_anterior_moneda: 'USD', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
 
@@ -119,6 +121,7 @@ function formDePersona(p: Personal, empresa: Empresa): Required<PersonalInput> {
     correo: p.correo ?? '',
     contacto_emergencia: p.contacto_emergencia ?? '',
     contacto_emergencia_tlf: p.contacto_emergencia_tlf ?? '',
+    datos_pago: leerDatosBancarios(p.datos_pago),
     foto_url: p.foto_url ?? '',
     foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x),
     foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y),
@@ -286,6 +289,9 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   const [loading, setLoading] = useState(true);
   const [editId, setEditId] = useState<string | null>(null);
   const [form, setForm] = useState<PersonalInput>(VACIO);
+  // Datos bancarios (03-11-2026): viven en form.datos_pago.
+  const banco = form.datos_pago ?? DATOS_BANCARIOS_VACIOS;
+  const setBanco = (fn: (b: DatosBancarios) => DatosBancarios) => setForm((f) => ({ ...f, datos_pago: fn(f.datos_pago ?? DATOS_BANCARIOS_VACIOS) }));
   const [guardando, setGuardando] = useState(false);
   const [subiendoFoto, setSubiendoFoto] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -617,6 +623,8 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   async function guardar(e: FormEvent) {
     e.preventDefault(); setError(null);
     if (!form.nombre.trim()) { setError('Indicá el nombre.'); return; }
+    const malBanco = errorDatosBancarios(form.datos_pago);
+    if (malBanco) { setError(malBanco); return; }
     const malaFicha = errorNumeroFicha(form.numero_ficha);
     if (malaFicha) { setError(malaFicha); return; }
     // Dos personas con la misma ficha es peor que ninguna: se revisa acá para dar
@@ -1198,6 +1206,49 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                 <small className="hint muted">Se busca escribiendo. Si no está en la lista, se escribe y queda para la próxima.</small>
               </div>
               <div className="form-row"><label>Tel. de emergencia</label><input className="input mono" value={form.contacto_emergencia_tlf ?? ''} onChange={(e) => setForm((f) => ({ ...f, contacto_emergencia_tlf: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
+            </div>
+
+            {/* ── Datos bancarios (03-11-2026) ──
+                Pedido de la administradora: en Bs pago móvil y transferencia; en USDT
+                Binance, TRC20 y TRON. Todo opcional. */}
+            <div className="card" style={{ margin: '.6rem 0' }}>
+              <div style={{ fontWeight: 700, marginBottom: '.15rem' }}>🏦 Datos bancarios</div>
+              <div className="muted" style={{ fontSize: '.82rem', marginBottom: '.6rem' }}>Se llena lo que la persona tenga; todo es opcional.</div>
+              <div style={{ fontWeight: 600, fontSize: '.88rem', margin: '.2rem 0 .3rem' }}>💵 En Bs · Pago móvil</div>
+              <div className="form-grid">
+                <div className="form-row"><label>Banco</label>
+                  <select className="select" value={banco.pago_movil.banco} onChange={(e) => setBanco((b) => ({ ...b, pago_movil: { ...b.pago_movil, banco: e.target.value } }))}>
+                    <option value="">—</option>
+                    {BANCOS_VE.map((x) => <option key={x.codigo} value={x.codigo}>{x.codigo} · {x.nombre}</option>)}
+                  </select></div>
+                <div className="form-row"><label>Teléfono</label><input className="input mono" value={banco.pago_movil.telefono} inputMode="tel" placeholder="0414-1234567"
+                  onChange={(e) => setBanco((b) => ({ ...b, pago_movil: { ...b.pago_movil, telefono: e.target.value } }))} /></div>
+                <div className="form-row"><label>Cédula</label><input className="input mono" value={banco.pago_movil.cedula} placeholder="V-12345678"
+                  onChange={(e) => setBanco((b) => ({ ...b, pago_movil: { ...b.pago_movil, cedula: e.target.value } }))} /></div>
+              </div>
+              <div style={{ fontWeight: 600, fontSize: '.88rem', margin: '.5rem 0 .3rem' }}>💵 En Bs · Transferencia</div>
+              <div className="form-grid">
+                <div className="form-row"><label>Banco</label>
+                  <select className="select" value={banco.transferencia.banco} onChange={(e) => setBanco((b) => ({ ...b, transferencia: { ...b.transferencia, banco: e.target.value } }))}>
+                    <option value="">—</option>
+                    {BANCOS_VE.map((x) => <option key={x.codigo} value={x.codigo}>{x.codigo} · {x.nombre}</option>)}
+                  </select></div>
+                <div className="form-row"><label>Número de cuenta</label><input className="input mono" value={banco.transferencia.cuenta} inputMode="numeric" placeholder="20 dígitos"
+                  onChange={(e) => setBanco((b) => ({ ...b, transferencia: { ...b.transferencia, cuenta: e.target.value } }))} /></div>
+                <div className="form-row"><label>Titular</label><input className="input" value={banco.transferencia.titular} placeholder="Nombre del titular"
+                  onChange={(e) => setBanco((b) => ({ ...b, transferencia: { ...b.transferencia, titular: e.target.value } }))} /></div>
+                <div className="form-row"><label>Cédula del titular</label><input className="input mono" value={banco.transferencia.cedula} placeholder="V-12345678"
+                  onChange={(e) => setBanco((b) => ({ ...b, transferencia: { ...b.transferencia, cedula: e.target.value } }))} /></div>
+              </div>
+              <div style={{ fontWeight: 600, fontSize: '.88rem', margin: '.5rem 0 .3rem' }}>🪙 En USDT</div>
+              <div className="form-grid">
+                <div className="form-row"><label>Binance · usuario</label><input className="input" value={banco.binance} placeholder="Usuario, correo o ID de Binance"
+                  onChange={(e) => setBanco((b) => ({ ...b, binance: e.target.value }))} /></div>
+                <div className="form-row"><label>Red TRC20 (TR20) · dirección</label><input className="input mono" value={banco.trc20} placeholder="T…"
+                  onChange={(e) => setBanco((b) => ({ ...b, trc20: e.target.value }))} /></div>
+                <div className="form-row"><label>TRON · dirección</label><input className="input mono" value={banco.tron} placeholder="T…"
+                  onChange={(e) => setBanco((b) => ({ ...b, tron: e.target.value }))} /></div>
+              </div>
             </div>
 
             {/* ── Condiciones de salud ──
@@ -1822,6 +1873,10 @@ function FichaTecnicaModal({ persona, canWrite, onClose, onEditar, onCambiarEsta
         ['En una emergencia, llamar a', [emergencia || null, persona.contacto_emergencia_tlf || null].filter(Boolean).join(' · ') || '—'],
         ['Dirección', persona.direccion || '—'],
       ]} />
+
+      {renglonesDatosBancarios(persona.datos_pago).length > 0 && (
+        <BloqueFicha titulo="Datos bancarios" pares={renglonesDatosBancarios(persona.datos_pago)} />
+      )}
 
       {/* Antes de los datos laborales: es lo que hay que saber si a la persona
           le pasa algo, no un dato administrativo más. */}
