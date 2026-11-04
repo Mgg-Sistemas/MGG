@@ -47,14 +47,33 @@ export function detalleTxt(orden: Pick<Orden, 'motivo' | 'finalidad'>): string {
     .filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Cédula o RIF con su letra (04-11-2026, pedido de la administradora): «CI: V-12345678»
+ * y «RIF: J-50046044-9». Si se guardó con letra, manda esa letra; si solo son números,
+ * hasta 8 dígitos es una cédula (V) y 9 dígitos un RIF de empresa (J).
+ */
+export function ciRifTxt(v: string | null | undefined): { etiqueta: 'CI' | 'RIF' | 'Pasaporte' | 'CI/RIF'; valor: string } | null {
+  const t = String(v ?? '').toUpperCase().replace(/[\s.]/g, '');
+  if (!t) return null;
+  const m = /^([VEJGPC])?-?(\d+)-?(\d)?$/.exec(t);
+  if (!m) return { etiqueta: 'CI/RIF', valor: String(v).trim() };
+  const digitos = m[2] + (m[3] ?? '');
+  const letra = m[1] ?? (digitos.length <= 8 ? 'V' : 'J');
+  if (digitos.length === 9) return { etiqueta: 'RIF', valor: `${letra}-${digitos.slice(0, 8)}-${digitos.slice(8)}` };
+  if (letra === 'V' || letra === 'E') return { etiqueta: 'CI', valor: `${letra}-${digitos}` };
+  if (letra === 'P') return { etiqueta: 'Pasaporte', valor: `P-${digitos}` };
+  return { etiqueta: 'RIF', valor: `${letra}-${digitos}` };
+}
+
 /** Los datos del beneficiario, uno por renglón: el archivo se lee para TIPEAR el pago. */
 function datosPago(metodo: string, d: Record<string, string> = {}): string[] {
   const out: string[] = [];
   const add = (k: string, v?: string | null) => { if (v && String(v).trim()) out.push(`* ${k}: ${String(v).trim()}`); };
+  const addCi = (v?: string | null) => { const c = ciRifTxt(v); if (c) out.push(`* ${c.etiqueta}: ${c.valor}`); };
   if (metodo === 'pago_movil') {
-    add('Banco', bancoTxt(d.banco)); add('CI/RIF', d.ci_rif); add('Tlf', d.telefono);
+    add('Banco', bancoTxt(d.banco)); addCi(d.ci_rif); add('Tlf', d.telefono);
   } else if (metodo === 'transferencia') {
-    add('Titular', d.nombre); add('CI/RIF', d.ci); add('Banco', bancoTxt(d.banco)); add('Cuenta', d.cuenta);
+    add('Titular', d.nombre); addCi(d.ci); add('Banco', bancoTxt(d.banco)); add('Cuenta', d.cuenta);
   } else if (metodo === 'zelle') {
     add('Titular', d.nombre); add('Correo', d.email);
   } else if (metodo === 'binance_usdt') {

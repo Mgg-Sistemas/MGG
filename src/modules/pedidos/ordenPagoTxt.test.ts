@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { textoOrdenPago, montoTxt, bancoTxt, detalleTxt, saldoPendiente, esCuentaCredito, enlaceWhatsapp, textoOrdenAprobacion, textoOrdenTesoreria } from './ordenPagoTxt';
+import { ciRifTxt, textoOrdenPago, montoTxt, bancoTxt, detalleTxt, saldoPendiente, esCuentaCredito, enlaceWhatsapp, textoOrdenAprobacion, textoOrdenTesoreria } from './ordenPagoTxt';
 import type { Orden } from '@/shared/lib/types';
 
 /** La orden del ejemplo que dio el usuario: calzado para el motorizado. */
@@ -54,7 +54,7 @@ describe('textoOrdenPago · formato corto para WhatsApp', () => {
       '💵 *Total:* $79,00',
       '💳 *Pago móvil:*',
       '* Banco: Banco de Venezuela (0102)',
-      '* CI/RIF: P1131881',
+      '* Pasaporte: P-1131881',
       '* Tlf: 04249692172',
       '🏢 *MINERAL GROUP GUAYANA C.A.*',
     ]);
@@ -451,3 +451,19 @@ describe('textoOrdenTesoreria · mensaje de pago y motivos de no pago (30-10-202
   });
 });
 
+
+describe('ciRifTxt · cédula y RIF con su letra (04-11-2026)', () => {
+  it('pone V a la cédula y J al RIF de 9 dígitos', () => {
+    expect(ciRifTxt('12345678')).toEqual({ etiqueta: 'CI', valor: 'V-12345678' });
+    expect(ciRifTxt('500460449')).toEqual({ etiqueta: 'RIF', valor: 'J-50046044-9' });
+  });
+  it('respeta la letra guardada', () => {
+    expect(ciRifTxt('j-40123456-7')).toEqual({ etiqueta: 'RIF', valor: 'J-40123456-7' });
+    expect(ciRifTxt('G200000001')).toEqual({ etiqueta: 'RIF', valor: 'G-20000000-1' });
+    expect(ciRifTxt('E 8.123.456')).toEqual({ etiqueta: 'CI', valor: 'E-8123456' });
+  });
+  it('lo que no se entiende sale tal cual', () => {
+    expect(ciRifTxt('sin dato')).toEqual({ etiqueta: 'CI/RIF', valor: 'sin dato' });
+    expect(ciRifTxt('')).toBeNull();
+  });
+});
