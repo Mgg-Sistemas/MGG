@@ -66,6 +66,8 @@ import { CargarSueldosHistoricosModal } from './CargarSueldosHistoricosModal';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import { infoTipo, leerCuentas, textoCuenta } from './datosBancarios';
+import { errorCambioCargo, huboCambioCargo } from './cambiosCargo';
+import { HistoricoCargos, HistoricoCargosTodos } from './HistoricoCargos';
 import { DatosBancariosPersona } from './DatosBancariosPersona';
 
 const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', carnet_vence: CARNET_VENCE_POR_DEFECTO, telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', grados_instruccion: [], titulo_obtenido: '', trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '', trabajo_anterior_sueldo: 0, trabajo_anterior_moneda: 'USD', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
@@ -326,6 +328,11 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   // El sueldo con el que se abrió la ficha: contra esto se compara para saber
   // si hubo cambio. No se compara contra la lista, que puede recargarse sola.
   const [sueldoOriginal, setSueldoOriginal] = useState(0);
+  // Cambio de cargo (04-11-2026): si cambia al editar, se piden fecha y motivo para el histórico.
+  const [cargoOriginal, setCargoOriginal] = useState('');
+  const [motivoCargo, setMotivoCargo] = useState('');
+  const [fechaCargo, setFechaCargo] = useState('');
+  const cambiaCargo = !!editId && huboCambioCargo(cargoOriginal, form.cargo);
   const [motivoSueldo, setMotivoSueldo] = useState('');
   const [tipoSueldo, setTipoSueldo] = useState<TipoCambioSueldo>('aumento');
   const [vigenteDesde, setVigenteDesde] = useState('');
@@ -528,7 +535,10 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
     [lista]);
 
   /** Deja el bloque del cambio de sueldo en blanco. */
-  function limpiarCambioSueldo(base: number) {
+  function limpiarCambioSueldo(base: number, cargo: string | null = null) {
+    setCargoOriginal(cargo ?? '');
+    setMotivoCargo('');
+    setFechaCargo(new Date().toISOString().slice(0, 10));
     setSueldoOriginal(base);
     setMotivoSueldo('');
     setTipoSueldo('aumento');
@@ -559,7 +569,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   function editar(p: Personal) {
     setEditId(p.id);
     setForm(formDePersona(p, empresa));
-    limpiarCambioSueldo(Number(p.sueldo_base) || 0);
+    limpiarCambioSueldo(Number(p.sueldo_base) || 0, p.cargo ?? null);
     setFamiliaBorrada([]);
     setFamiliaForm((familiaPorPersona.get(p.id) ?? []).map((x) => ({
       id: x.id, nombre: x.nombre, parentesco: x.parentesco,
@@ -644,6 +654,10 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
     if (editId) {
       const falla = validarCambioSueldo({ anterior: sueldoOriginal, nuevo: form.sueldo_base, motivo: motivoSueldo, vigenteDesde });
       if (falla) { setError(falla); return; }
+      if (cambiaCargo) {
+        const fallaCargo = errorCambioCargo({ cargoNuevo: form.cargo, fecha: fechaCargo, motivo: motivoCargo, hoy: new Date().toISOString().slice(0, 10) });
+        if (fallaCargo) { setError(fallaCargo); return; }
+      }
     }
     setGuardando(true);
     try {
@@ -652,6 +666,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
         await actualizarPersonal(editId, form, {
           motivo: motivoSueldo, tipo: tipoSueldo, vigenteDesde,
           actor, actorName: actorName ?? null,
+          ...(cambiaCargo ? { motivoCargo, fechaCargo } : {}),
         });
       } else {
         // Al crear, la familia se guarda con el id recién asignado: así se
@@ -713,6 +728,8 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
         {/* Todos los cambios de sueldo de todo el personal, con PDF y Excel (09-10-2026). */}
         <button className="btn btn-ghost" onClick={() => setHistoricoSalarial(true)}
           title="Todos los cambios de sueldo del personal: quién, cuándo, de cuánto a cuánto y por qué">📜 Histórico salarial</button>
+        {/* 04-11-2026: todos los cambios de cargo, con su fecha y motivo, en PDF. */}
+        <HistoricoCargosTodos personas={lista} />
         {isAdmin && (
           <button className="btn btn-ghost" onClick={() => setDirectorio(true)} disabled={!visibles.length}
             title="Fotos con nombre y cargo, una al lado de la otra; al imprimir, una debajo de la otra. Respeta el filtro de la lista.">📷 Directorio de fotos</button>
@@ -1104,6 +1121,18 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                 label="Cargo" valor={form.cargo ?? ''} opciones={cargos}
                 onChange={(v) => setForm((f) => ({ ...f, cargo: v }))}
                 hint="Elegí de la lista o agregá uno nuevo (queda guardado)." />
+              {cambiaCargo && (
+                <div className="card" style={{ margin: '.2rem 0 .6rem', padding: '.6rem .75rem', borderColor: 'var(--brand, #ff8a00)' }}>
+                  <div style={{ fontWeight: 700, marginBottom: '.35rem' }}>🔁 Cambio de cargo: {cargoOriginal || '—'} → {form.cargo}</div>
+                  <div className="form-grid">
+                    <div className="form-row"><label>Fecha del cambio</label>
+                      <input className="input" type="date" value={fechaCargo} max={new Date().toISOString().slice(0, 10)} onChange={(e) => setFechaCargo(e.target.value)} /></div>
+                    <div className="form-row"><label>Motivo del cambio</label>
+                      <input className="input" value={motivoCargo} onChange={(e) => setMotivoCargo(e.target.value)} placeholder="Ascenso, reubicación, reestructuración…" /></div>
+                  </div>
+                  <small className="hint muted">Queda en el histórico de cargos de la persona.</small>
+                </div>
+              )}
               <ComboConAgregar
                 label="Departamento" valor={form.departamento ?? ''} opciones={departamentos}
                 onChange={(v) => setForm((f) => ({ ...f, departamento: v }))}
@@ -1824,6 +1853,8 @@ function FichaTecnicaModal({ persona, canWrite, onClose, onEditar, onCambiarEsta
         ['Nacionalidad', persona.nacionalidad || '—'],
         ['Estado civil', persona.estado_civil ? labelEstadoCivil(persona.estado_civil) : '—'],
       ]} />
+
+      <HistoricoCargos persona={persona} canWrite={canWrite} />
 
       <BloqueFicha titulo="Contacto" pares={[
         ['Teléfono', persona.telefono || '—'],

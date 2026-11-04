@@ -25,6 +25,7 @@ function normalizarGrados(grados: string[] | null | undefined): string[] {
 import { normalizarCorreo, type Genero, type Parentesco } from './fichaPersonal';
 import { esCargoDeChofer } from '@/modules/choferes/choferes';
 import { leerCuentas, type CuentaPago } from './datosBancarios';
+import { errorCambioCargo, huboCambioCargo, ordenarCambiosCargo, type CambioCargo } from './cambiosCargo';
 
 const TABLE = 'personal';
 const TABLA_SUELDOS = 'personal_sueldos';
@@ -583,6 +584,9 @@ export interface CambioSueldoOpts {
   vigenteDesde?: string | null;
   actor?: string | null;
   actorName?: string | null;
+  /** Cambio de cargo (04-11-2026): fecha y motivo, obligatorios si el cargo cambió. */
+  motivoCargo?: string | null;
+  fechaCargo?: string | null;
 }
 
 /**
@@ -608,9 +612,17 @@ export async function actualizarPersonal(
   // El sueldo anterior se lee de la BASE, no de la pantalla: si otro lo movió
   // mientras esta ficha estaba abierta, el historial tiene que decir la verdad.
   const { data: actual, error: errLeer } = await supabase
-    .from(TABLE).select('sueldo_base').eq('id', id).maybeSingle();
+    .from(TABLE).select('sueldo_base, cargo, departamento').eq('id', id).maybeSingle();
   if (errLeer) throw errLeer;
   const anterior = Number(actual?.sueldo_base) || 0;
+  // El cargo tampoco cambia en silencio (04-11-2026): con su fecha y su motivo, al histórico.
+  const cargoAntes = (actual as { cargo?: string | null } | null)?.cargo ?? null;
+  const depAntes = (actual as { departamento?: string | null } | null)?.departamento ?? null;
+  const cambiaCargo = huboCambioCargo(cargoAntes, patch.cargo);
+  if (cambiaCargo) {
+    const falla = errorCambioCargo({ cargoNuevo: patch.cargo, fecha: cambio.fechaCargo, motivo: cambio.motivoCargo, hoy: new Date().toISOString().slice(0, 10) });
+    if (falla) throw new Error(falla);
+  }
   const nuevo = aCentavos(patch.sueldo_base);
 
   if (huboCambioSueldo(anterior, nuevo)) {
@@ -622,8 +634,35 @@ export async function actualizarPersonal(
   const { data, error } = await supabase.from(TABLE).update(payload(patch)).eq('id', id).select('*').single();
   if (error) throw errorCedulaRepetida(error, patch.cedula);
   const persona = data as Personal;
+  if (cambiaCargo) {
+    await registrarCambioCargo({
+      personal_id: id, cargo_anterior: cargoAntes, cargo_nuevo: (patch.cargo ?? '').trim(),
+      departamento_anterior: depAntes, departamento_nuevo: patch.departamento?.trim() || null,
+      fecha: cambio.fechaCargo!, motivo: cambio.motivoCargo!.trim(), origen: 'ficha',
+      actor: cambio.actor ?? null, actor_name: cambio.actorName ?? null,
+    });
+  }
   void sincronizarConductorDesdePersonal(persona, cambio.actor ?? undefined);
   return persona;
+}
+
+/* ── Histórico de cambios de cargo (04-11-2026) ── */
+
+/** Los cambios de cargo de una persona, o de todo el personal; del más nuevo al más viejo. */
+export async function listCambiosCargo(personalId?: string): Promise<CambioCargo[]> {
+  const filas = await todasLasFilas<CambioCargo>((d, h) => {
+    let q = supabase.from('rrhh_cambios_cargo').select('*');
+    if (personalId) q = q.eq('personal_id', personalId);
+    return q.order('fecha', { ascending: false }).order('created_at', { ascending: false }).range(d, h);
+  });
+  return ordenarCambiosCargo(filas);
+}
+
+/** Anota un cambio de cargo (desde la ficha o cargado a mano como histórico). */
+export async function registrarCambioCargo(c: Omit<CambioCargo, 'id' | 'created_at'>): Promise<CambioCargo> {
+  const { data, error } = await supabase.from('rrhh_cambios_cargo').insert(c).select('*').single();
+  if (error) throw new Error(`El cargo se guardó, pero no se pudo anotar en el histórico: ${error.message}`);
+  return data as CambioCargo;
 }
 
 /**
