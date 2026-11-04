@@ -170,7 +170,8 @@ export function lineaMontoBs(orden: Orden, tasaBs?: number | null): string | nul
 
 /** El texto completo. Se exporta aparte para poder probarlo sin tocar el navegador. */
 export function textoOrdenPago(
-  orden: Orden, proveedorNombre: string, personas?: PersonasOrden, opts?: { tasaBs?: number | null },
+  orden: Orden, proveedorNombre: string, personas?: PersonasOrden,
+  opts?: { tasaBs?: number | null; cotizaciones?: CotizacionMensaje[] },
 ): string {
   const mon = (orden.moneda ?? 'USD').toUpperCase() === 'BS' ? 'Bs' : '$';
   const detalle = detalleTxt(orden);
@@ -185,6 +186,8 @@ export function textoOrdenPago(
   L.push(...lineasPersonas(personas));
   // Cuándo la aprobó el Gerente (03-11-2026, pedido de la administradora).
   if (orden.oc_aprobada_en) L.push(`📅 *Fecha de aprobación:* ${dateTime(orden.oc_aprobada_en)}`);
+  // Las cotizaciones y cuál escogió el analista, como en el de aprobar (04-11-2026).
+  L.push(...lineasCotizaciones(opts?.cotizaciones ?? [], orden.moneda, opts?.tasaBs));
   L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}`);
   // En una cuenta abierta lo que se va a pagar hoy NO es el total: es el saldo.
   // Mandar solo el total invita a pagar de más, así que el abonado y lo que
@@ -268,7 +271,7 @@ export function textoOrdenAprobacion(
 
   const L: string[] = [];
   L.push(`🔹 *ORDEN:* ${orden.oc_codigo ?? orden.codigo}`);
-  L.push('⏳ *Pendiente por aprobar · Gerente General*');
+  L.push('⏳ *Pendiente por aprobar*');
   if (orden.urgente) L.push('🚨 *URGENTE*');
   L.push(`🏭 *Proveedor:* ${proveedorNombre || '—'}`);
   if (detalle) L.push(`📝 *Detalle:* ${detalle}`);

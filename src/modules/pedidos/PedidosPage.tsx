@@ -2983,14 +2983,12 @@ function OrdenDetailModal({
       : o.aprobada_por ? persona(o.aprobada_por, personaMap, o.aprobada_en) : null,
     autorizo: o.oc_aprobada_por ? persona(o.oc_aprobada_por, personaMap, o.oc_aprobada_en) : null,
   });
-  const textoPago = () => textoOrdenPago(o, nombreProveedorMsg(), personasMsg(), { tasaBs: tasaHoyBs });
-  // «Para aprobar» (02-11-2026): todas las cotizaciones con su monto en $ y Bs, y qué analista
-  // escogió cuál. Se leen al tocar el botón; si fallan, sale el mensaje sin ellas.
-  const textoAprobacion = async () => {
-    let cotizaciones: CotizacionMensaje[] = [];
+  // Todas las cotizaciones con su monto en $ y Bs, y qué analista escogió cuál (02-11-2026).
+  // Se leen al tocar el botón; si fallan, el mensaje sale sin ellas.
+  const cotizacionesMsg = async (): Promise<CotizacionMensaje[]> => {
     try {
       const ofs = unificarPorProveedor(await listOfertasDeOrdenes(ordenesConOfertasDe(o)), ordenesConOfertasDe(o)[0]);
-      cotizaciones = ofs
+      return ofs
         .map((of) => ({
           proveedor: proveedorMap.get(of.proveedor_id)?.razon_social ?? '—',
           monto: montoFinalOferta(of).final,
@@ -2998,9 +2996,12 @@ function OrdenDetailModal({
           elegidaPor: of.estado === 'aceptada' && of.decidida_por_email ? persona(of.decidida_por_email, personaMap, of.decidida_en) : null,
         }))
         .sort((a, b) => a.monto - b.monto);
-    } catch { /* sin cotizaciones: el mensaje sale como antes */ }
-    return textoOrdenAprobacion(o, nombreProveedorMsg(), personasMsg(), { cotizaciones, tasaBs: tasaHoyBs });
+    } catch { return []; }
   };
+  // 04-11-2026 (pedido de la administradora): el de pagar también lleva las cotizaciones.
+  const textoPago = async () => textoOrdenPago(o, nombreProveedorMsg(), personasMsg(), { tasaBs: tasaHoyBs, cotizaciones: await cotizacionesMsg() });
+  const textoAprobacion = async () =>
+    textoOrdenAprobacion(o, nombreProveedorMsg(), personasMsg(), { cotizaciones: await cotizacionesMsg(), tasaBs: tasaHoyBs });
   // Abre la ventana «Avisar» (la de Combustible): se ve el mensaje y se elige copiarlo o mandarlo.
   const botonWhatsapp = (texto: () => string | Promise<string>, etiqueta: string, titulo: string, tituloVentana: string) => (
     <button type="button" className="btn btn-ghost" title={titulo} onClick={() => { void Promise.resolve(texto()).then((t) => setMensajeWs({ titulo: tituloVentana, texto: t })); }}>

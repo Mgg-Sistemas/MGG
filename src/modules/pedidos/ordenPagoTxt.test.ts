@@ -44,6 +44,22 @@ describe('textoOrdenPago · fecha de aprobación (03-11-2026)', () => {
   });
 });
 
+describe('textoOrdenPago · cotizaciones como en el de aprobar (04-11-2026)', () => {
+  it('lleva cada cotizacion y cual escogio el analista, antes del total', () => {
+    const cotizaciones = [
+      { proveedor: 'HOUS', monto: 100, elegida: true, elegidaPor: 'NAZARET SALAZAR' },
+      { proveedor: 'OTRO', monto: 120, elegida: false },
+    ];
+    const l = textoOrdenPago({ ...base, total: 100 } as Orden, 'HOUS', undefined, { cotizaciones }).split('\n');
+    expect(l).toContain('📊 *COTIZACIONES (2):*');
+    expect(l).toContain('✅ *El analista NAZARET SALAZAR escogió la Cotización 1* (HOUS)');
+    expect(l.findIndex((x) => x.startsWith('📊'))).toBeLessThan(l.findIndex((x) => x.startsWith('💵 *Total:*')));
+  });
+  it('sin cotizaciones sale como antes', () => {
+    expect(textoOrdenPago({ ...base, total: 100 } as Orden, 'X')).not.toContain('COTIZACIONES');
+  });
+});
+
 describe('textoOrdenPago · formato corto para WhatsApp', () => {
   it('sale exactamente con la forma pedida', () => {
     expect(txt().split('\n')).toEqual([
@@ -314,7 +330,7 @@ describe('textoOrdenAprobacion · para pedirle la aprobación al Gerente', () =>
   it('lleva orden, estado, proveedor, detalle, personas, productos, condición y total', () => {
     const l = textoOrdenAprobacion(pend, 'MAXI SHOES', personas).split('\n');
     expect(l[0]).toBe('🔹 *ORDEN:* OC-2026-0130');
-    expect(l[1]).toBe('⏳ *Pendiente por aprobar · Gerente General*');
+    expect(l[1]).toBe('⏳ *Pendiente por aprobar*');
     expect(l).toContain('🏭 *Proveedor:* MAXI SHOES');
     expect(l).toContain('🙋 *Solicita:* JAIME CAMPO');
     expect(l).toContain('🛒 *Analista de compras:* NAZARET SALAZAR');
