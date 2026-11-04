@@ -20,7 +20,8 @@ import type { Personal } from '@/shared/lib/types';
 import { listEmpresas } from './empresas.repository';
 import type { DefinicionEmpresa } from './empresa';
 import { listCambiosSueldo, listCargaFamiliarDeTodos, type CambioSueldoRegistro, type FamiliarPersonal } from './personal.repository';
-import { listHistorialTabulador, type HistorialTabulador } from './tabulador.repository';
+import { listHistorialTabulador } from './tabulador.repository';
+import type { HistorialTabulador } from './tabulador';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import type { AmbitoRrhh } from './reporteRrhhDinamico';
 

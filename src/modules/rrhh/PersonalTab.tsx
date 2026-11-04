@@ -69,7 +69,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import { infoTipo, leerCuentas, textoCuenta } from './datosBancarios';
 import { errorCambioCargo, huboCambioCargo } from './cambiosCargo';
-import { HistoricoCargos, HistoricoCargosTodos } from './HistoricoCargos';
+import { HistoricoCargos } from './HistoricoCargos';
 import { HistorialCargoModal } from './HistorialCargoModal';
 import { DatosBancariosPersona } from './DatosBancariosPersona';
 

@@ -12,7 +12,6 @@ import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from 
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import type {
   AmbitoRrhh,
-  CampoColumnaRrhh,
   FilaReporteRrhh,
   ModoAgrupacionRrhh,
   ResumenReporteRrhh,
@@ -48,25 +47,25 @@ export interface OpcionesExportacionRrhh {
 export function textoCeldaRrhh(f: FilaReporteRrhh, clave: string): string {
   switch (clave) {
     case 'empresa':
-      return f.empresaNombre || f.empresaKey || '-';
+      return f.empresaNombre || f.empresaKey || '—';
     case 'ficha':
-      return f.ficha || '-';
+      return f.ficha || '—';
     case 'nombre_completo':
-      return f.nombreCompleto || '-';
+      return f.nombreCompleto || '—';
     case 'cedula':
-      return f.cedula || '-';
+      return f.cedula || '—';
     case 'cargo':
-      return f.cargo || '-';
+      return f.cargo || '—';
     case 'departamento':
-      return f.departamento || '-';
+      return f.departamento || '—';
     case 'estado':
       return f.estado === 'activo' ? 'Activo' : 'Inactivo';
     case 'genero':
-      return f.genero === 'masculino' ? 'M' : f.genero === 'femenino' ? 'F' : '-';
+      return f.genero === 'masculino' ? 'M' : f.genero === 'femenino' ? 'F' : '—';
     case 'fecha_ingreso':
-      return f.fechaIngreso || '-';
+      return f.fechaIngreso || '—';
     case 'antiguedad':
-      return f.antiguedadTexto || '-';
+      return f.antiguedadTexto || '—';
     case 'tiene_hijos':
       return f.tieneHijos ? 'Sí' : 'No';
     case 'cantidad_hijos':
@@ -76,9 +75,9 @@ export function textoCeldaRrhh(f: FilaReporteRrhh, clave: string): string {
     case 'carga_familiar':
       return String(f.cargaFamiliar || 0);
     case 'telefono':
-      return f.telefono || '-';
+      return f.telefono || '—';
     case 'datos_pago':
-      return f.datosPago || '-';
+      return f.datosPago || '—';
     case 'sueldo_base':
       return fmtMonedaUsd(f.sueldoBase);
     case 'sueldo_bs':
@@ -90,23 +89,23 @@ export function textoCeldaRrhh(f: FilaReporteRrhh, clave: string): string {
     case 'sueldo_promedio':
       return fmtMonedaUsd(f.sueldoPromedioUsd ?? f.sueldoBase);
     case 'pct_total':
-      return f.pctTotal != null ? `${fmtNum2(f.pctTotal)}%` : '-';
+      return f.pctTotal != null ? `${fmtNum2(f.pctTotal)}%` : '—';
     case 'fecha_vigencia':
-      return f.fechaVigencia || '-';
+      return f.fechaVigencia || '—';
     case 'sueldo_anterior':
-      return f.sueldoAnterior != null ? fmtMonedaUsd(f.sueldoAnterior) : '-';
+      return f.sueldoAnterior != null ? fmtMonedaUsd(f.sueldoAnterior) : '—';
     case 'sueldo_nuevo':
-      return f.sueldoNuevo != null ? fmtMonedaUsd(f.sueldoNuevo) : '-';
+      return f.sueldoNuevo != null ? fmtMonedaUsd(f.sueldoNuevo) : '—';
     case 'variacion_usd':
-      return f.variacionUsd != null ? fmtMonedaUsd(f.variacionUsd) : '-';
+      return f.variacionUsd != null ? fmtMonedaUsd(f.variacionUsd) : '—';
     case 'variacion_pct':
-      return f.variacionPct != null ? fmtPct(f.variacionPct) : '-';
+      return f.variacionPct != null ? fmtPct(f.variacionPct) : '—';
     case 'motivo':
-      return f.motivo || '-';
+      return f.motivo || '—';
     case 'tipo_cambio':
-      return f.tipoCambio || '-';
+      return f.tipoCambio || '—';
     case 'autor':
-      return f.autor || '-';
+      return f.autor || '—';
     default:
       return String((f as unknown as Record<string, unknown>)[clave] ?? '-');
   }
@@ -219,7 +218,7 @@ export async function descargarRrhhPdf(op: OpcionesExportacionRrhh): Promise<voi
   y += 12;
 
   // Tarjetas KPI ejecutivas en cabecera
-  const kpis = obtenerMetricasFichaRrhh(op.resumen, op.ambito);
+  const kpis = obtenerMetricasFichaRrhh(op.resumen, op.ambito, op.columnasClaves);
   const cardW = (anchoUtilPdf(W) - (kpis.length - 1) * 8) / kpis.length;
   const cardH = 38;
 

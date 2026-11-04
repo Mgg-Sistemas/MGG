@@ -222,8 +222,8 @@ describe('reporteRrhhDinamico - Histórico Salarial', () => {
       sueldoNuevo: 500,
       vigenteDesde: '2026-10-01',
       motivo: 'Aumento por desempeño',
-      tipo: 'individual',
-      actorEmail: 'admin@mgg.com',
+      tipo: 'aumento',
+      actor: 'admin@mgg.com',
       actorName: 'Administradora MGG',
       createdAt: '2026-10-01T10:00:00Z',
     },
@@ -241,8 +241,8 @@ describe('reporteRrhhDinamico - Histórico Salarial', () => {
 
 describe('reporteRrhhDinamico - Histórico de Cargos / Tabulador', () => {
   const personal: Personal[] = [
-    { id: 'p1', nombre: 'Carlos', cargo: 'OPERADOR', sueldo_base: 500, activo: true, created_at: '' },
-    { id: 'p2', nombre: 'Pedro', cargo: 'OPERADOR', sueldo_base: 500, activo: true, created_at: '' },
+    { id: 'p1', nombre: 'Carlos', apellido: 'Perez', cargo: 'OPERADOR', sueldo_base: 500, activo: true, created_at: '' },
+    { id: 'p2', nombre: 'Pedro', apellido: 'Gomez', cargo: 'OPERADOR', sueldo_base: 500, activo: true, created_at: '' },
   ];
 
   const historial: HistorialTabulador[] = [

@@ -357,14 +357,14 @@ export function normalizarPersonalRrhh(
       return edad != null && edad < 18;
     }).length;
     const tieneHijos = cantidadHijos > 0;
-    const totalCarga = familiares.length || Number(p.carga_familiar) || 0;
+    const totalCarga = familiares.length;
 
     return {
       id: p.id,
       ambito: 'personal',
       empresaKey: emp.key,
       empresaNombre: emp.nombre,
-      ficha: p.ficha ? String(p.ficha).padStart(3, '0') : undefined,
+      ficha: p.numero_ficha ? String(p.numero_ficha).padStart(3, '0') : undefined,
       nombreCompleto: nombre,
       cedula: p.cedula?.trim() || undefined,
       cargo: p.cargo?.trim() || 'Sin cargo',
@@ -422,7 +422,7 @@ export function normalizarHistoricoSalarialRrhh(
       ambito: 'historico_salarial',
       empresaKey: emp.key,
       empresaNombre: emp.nombre,
-      ficha: p?.ficha ? String(p.ficha).padStart(3, '0') : undefined,
+      ficha: p?.numero_ficha ? String(p.numero_ficha).padStart(3, '0') : undefined,
       nombreCompleto: nombre,
       cedula: p?.cedula?.trim() || undefined,
       cargo: p?.cargo?.trim() || 'Sin cargo',
@@ -442,7 +442,7 @@ export function normalizarHistoricoSalarialRrhh(
       variacionPct: deltaPct,
       motivo: c.motivo?.trim() || 'Sin motivo',
       tipoCambio: c.tipo || 'cambio',
-      autor: c.actorName || c.actorEmail || 'sistema',
+      autor: c.actorName || c.actor || 'sistema',
     };
   });
 }
@@ -802,8 +802,12 @@ export function calcularResumenRrhh(
 export function obtenerMetricasFichaRrhh(
   resumen: ResumenReporteRrhh,
   ambito: AmbitoRrhh,
+  columnasSel?: readonly string[] | null,
 ): MetricaFichaRrhh[] {
+  const tieneCol = (clave: string) => !columnasSel || columnasSel.includes(clave);
+
   if (ambito === 'historico_salarial') {
+    const tieneSueldos = tieneCol('sueldo_nuevo') || tieneCol('variacion_usd') || tieneCol('sueldo_anterior');
     return [
       {
         clave: 'cambios',
@@ -816,31 +820,34 @@ export function obtenerMetricasFichaRrhh(
       {
         clave: 'aumento_neto',
         etiqueta: 'INCREMENTO TOTAL ($)',
-        valor: fmtMonedaUsd(resumen.incrementoTotalUsd),
-        sub: `Equiv. Bs ${fmtNum2(resumen.incrementoTotalUsd * resumen.tasaBcvReferencia)}`,
-        colorCss: 'var(--success)',
-        colorRgb: [46, 204, 113],
+        valor: tieneSueldos ? fmtMonedaUsd(resumen.incrementoTotalUsd) : '—',
+        sub: tieneSueldos
+          ? `Equiv. Bs ${fmtNum2(resumen.incrementoTotalUsd * resumen.tasaBcvReferencia)}`
+          : '(No marcado en checks de columnas)',
+        colorCss: tieneSueldos ? 'var(--success)' : 'var(--muted)',
+        colorRgb: tieneSueldos ? [46, 204, 113] : [140, 150, 160],
       },
       {
         clave: 'promedio_pct',
         etiqueta: 'VARIACIÓN PROMEDIO',
-        valor: fmtPct(resumen.promedioAumentoPct),
-        sub: 'Porcentaje medio de ajuste',
-        colorCss: 'var(--info)',
-        colorRgb: [52, 152, 219],
+        valor: tieneSueldos ? fmtPct(resumen.promedioAumentoPct) : '—',
+        sub: tieneSueldos ? 'Porcentaje medio de ajuste' : '(No marcado en checks de columnas)',
+        colorCss: tieneSueldos ? 'var(--info)' : 'var(--muted)',
+        colorRgb: tieneSueldos ? [52, 152, 219] : [140, 150, 160],
       },
       {
         clave: 'masa_actual',
         etiqueta: 'MASA SALARIAL ACTUAL',
-        valor: fmtMonedaUsd(resumen.masaSalarialUsd),
-        sub: `Promedio: ${fmtMonedaUsd(resumen.sueldoPromedioUsd)}/pers.`,
-        colorCss: 'var(--warning)',
-        colorRgb: [243, 156, 18],
+        valor: tieneSueldos ? fmtMonedaUsd(resumen.masaSalarialUsd) : '—',
+        sub: tieneSueldos ? `Promedio: ${fmtMonedaUsd(resumen.sueldoPromedioUsd)}/pers.` : '(No marcado en checks de columnas)',
+        colorCss: tieneSueldos ? 'var(--warning)' : 'var(--muted)',
+        colorRgb: tieneSueldos ? [243, 156, 18] : [140, 150, 160],
       },
     ];
   }
 
   if (ambito === 'historico_cargos') {
+    const tieneCargos = tieneCol('cargo') || tieneCol('sueldo_base') || tieneCol('costo_cargo');
     return [
       {
         clave: 'cargos_registrados',
@@ -853,55 +860,106 @@ export function obtenerMetricasFichaRrhh(
       {
         clave: 'masa_cargos',
         etiqueta: 'COSTO TOTAL CARGOS',
-        valor: fmtMonedaUsd(resumen.masaSalarialUsd),
-        sub: `Bs ${fmtNum2(resumen.masaSalarialBs)}`,
-        colorCss: 'var(--success)',
-        colorRgb: [46, 204, 113],
+        valor: tieneCargos ? fmtMonedaUsd(resumen.masaSalarialUsd) : '—',
+        sub: tieneCargos ? `Bs ${fmtNum2(resumen.masaSalarialBs)}` : '(No marcado en checks de columnas)',
+        colorCss: tieneCargos ? 'var(--success)' : 'var(--muted)',
+        colorRgb: tieneCargos ? [46, 204, 113] : [140, 150, 160],
       },
       {
         clave: 'sueldo_promedio_cargo',
         etiqueta: 'SUELDO MEDIO DE CARGO',
-        valor: fmtMonedaUsd(resumen.sueldoPromedioUsd),
-        sub: `Rango: ${fmtMonedaUsd(resumen.sueldoMinUsd)} - ${fmtMonedaUsd(resumen.sueldoMaxUsd)}`,
-        colorCss: 'var(--info)',
-        colorRgb: [52, 152, 219],
+        valor: tieneCargos ? fmtMonedaUsd(resumen.sueldoPromedioUsd) : '—',
+        sub: tieneCargos ? `Rango: ${fmtMonedaUsd(resumen.sueldoMinUsd)} - ${fmtMonedaUsd(resumen.sueldoMaxUsd)}` : '(No marcado en checks de columnas)',
+        colorCss: tieneCargos ? 'var(--info)' : 'var(--muted)',
+        colorRgb: tieneCargos ? [52, 152, 219] : [140, 150, 160],
       },
     ];
   }
 
   // Ámbito Personal (General)
-  return [
-    {
-      clave: 'personal_total',
-      etiqueta: 'COLABORADORES',
-      valor: String(resumen.totalPersonas),
-      sub: `${resumen.activos} activos · ${resumen.inactivos} inactivos`,
-      colorCss: 'var(--primary)',
-      colorRgb: [255, 138, 0],
-    },
-    {
-      clave: 'masa_salarial',
-      etiqueta: 'MASA SALARIAL MENSUAL',
-      valor: fmtMonedaUsd(resumen.masaSalarialUsd),
-      sub: `Bs ${fmtNum2(resumen.masaSalarialBs)} (BCV)`,
-      colorCss: 'var(--success)',
-      colorRgb: [46, 204, 113],
-    },
-    {
-      clave: 'sueldo_promedio',
-      etiqueta: 'SUELDO PROMEDIO',
-      valor: fmtMonedaUsd(resumen.sueldoPromedioUsd),
-      sub: `Mín: ${fmtMonedaUsd(resumen.sueldoMinUsd)} · Máx: ${fmtMonedaUsd(resumen.sueldoMaxUsd)}`,
-      colorCss: 'var(--info)',
-      colorRgb: [52, 152, 219],
-    },
-    {
-      clave: 'hijos_familia',
-      etiqueta: 'HIJOS Y FAMILIA',
-      valor: `${resumen.conHijos} con hijos (${resumen.totalHijos} niños)`,
-      sub: `${resumen.totalHijosMenores} menores de 18 · ${resumen.sinHijos} sin hijos`,
-      colorCss: 'var(--warning)',
-      colorRgb: [243, 156, 18],
-    },
-  ];
+  const tieneSueldo = tieneCol('sueldo_base') || tieneCol('sueldo_bs') || tieneCol('masa_salarial');
+  const tieneHijos = tieneCol('tiene_hijos') || tieneCol('cantidad_hijos') || tieneCol('hijos_menores') || tieneCol('carga_familiar');
+
+  const card1: MetricaFichaRrhh = {
+    clave: 'personal_total',
+    etiqueta: 'COLABORADORES',
+    valor: String(resumen.totalPersonas),
+    sub: `${resumen.activos} activos · ${resumen.inactivos} inactivos`,
+    colorCss: 'var(--primary)',
+    colorRgb: [255, 138, 0],
+  };
+
+  const card2: MetricaFichaRrhh = tieneSueldo
+    ? {
+        clave: 'masa_salarial',
+        etiqueta: 'MASA SALARIAL MENSUAL',
+        valor: fmtMonedaUsd(resumen.masaSalarialUsd),
+        sub: `Bs ${fmtNum2(resumen.masaSalarialBs)} (BCV)`,
+        colorCss: 'var(--success)',
+        colorRgb: [46, 204, 113],
+      }
+    : {
+        clave: 'masa_salarial',
+        etiqueta: 'MASA SALARIAL MENSUAL',
+        valor: '—',
+        sub: '(No marcado en checks de columnas)',
+        colorCss: 'var(--muted)',
+        colorRgb: [140, 150, 160],
+      };
+
+  const card3: MetricaFichaRrhh = tieneSueldo
+    ? {
+        clave: 'sueldo_promedio',
+        etiqueta: 'SUELDO PROMEDIO',
+        valor: fmtMonedaUsd(resumen.sueldoPromedioUsd),
+        sub: `Mín: ${fmtMonedaUsd(resumen.sueldoMinUsd)} · Máx: ${fmtMonedaUsd(resumen.sueldoMaxUsd)}`,
+        colorCss: 'var(--info)',
+        colorRgb: [52, 152, 219],
+      }
+    : tieneCol('genero')
+    ? {
+        clave: 'genero_distribucion',
+        etiqueta: 'DISTRIBUCIÓN DE GÉNERO',
+        valor: `${resumen.hombres}M · ${resumen.mujeres}F`,
+        sub: `${resumen.sinGenero} sin género cargado`,
+        colorCss: 'var(--info)',
+        colorRgb: [52, 152, 219],
+      }
+    : {
+        clave: 'sueldo_promedio',
+        etiqueta: 'SUELDO PROMEDIO',
+        valor: '—',
+        sub: '(No marcado en checks de columnas)',
+        colorCss: 'var(--muted)',
+        colorRgb: [140, 150, 160],
+      };
+
+  const card4: MetricaFichaRrhh = tieneHijos
+    ? {
+        clave: 'hijos_familia',
+        etiqueta: 'HIJOS Y FAMILIA',
+        valor: `${resumen.conHijos} con hijos (${resumen.totalHijos} niños)`,
+        sub: `${resumen.totalHijosMenores} menores de 18 · ${resumen.sinHijos} sin hijos`,
+        colorCss: 'var(--warning)',
+        colorRgb: [243, 156, 18],
+      }
+    : tieneCol('departamento')
+    ? {
+        clave: 'departamentos',
+        etiqueta: 'DEPARTAMENTOS',
+        valor: `${resumen.topDepartamentos.length} áreas`,
+        sub: `Principal: ${resumen.topDepartamentos[0]?.nombre || '—'} (${resumen.topDepartamentos[0]?.personas || 0})`,
+        colorCss: 'var(--warning)',
+        colorRgb: [243, 156, 18],
+      }
+    : {
+        clave: 'hijos_familia',
+        etiqueta: 'HIJOS Y FAMILIA',
+        valor: '—',
+        sub: '(No marcado en checks de columnas)',
+        colorCss: 'var(--muted)',
+        colorRgb: [140, 150, 160],
+      };
+
+  return [card1, card2, card3, card4];
 }

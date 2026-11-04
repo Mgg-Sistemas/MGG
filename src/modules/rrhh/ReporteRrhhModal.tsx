@@ -127,7 +127,6 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
   const [personal, setPersonal] = useState<Personal[]>(personalInicial ?? []);
   const [cambiosSueldo, setCambiosSueldo] = useState<CambioSueldoRegistro[]>([]);
   const [historialTabulador, setHistorialTabulador] = useState<HistorialTabulador[]>([]);
-  const [cargaFamiliar, setCargaFamiliar] = useState<FamiliarPersonal[]>([]);
   const [mapaFamilia, setMapaFamilia] = useState<Map<string, FamiliarPersonal[]>>(new Map());
   const [mapaEmpresas, setMapaEmpresas] = useState<Map<string, DefinicionEmpresa>>(new Map());
   const [tasaBcv, setTasaBcv] = useState(1);
@@ -153,7 +152,6 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
           setEmpresas(datos.empresas);
           setMapaEmpresas(datos.mapaEmpresas);
           setPersonal(datos.personal);
-          setCargaFamiliar(datos.cargaFamiliar);
           setMapaFamilia(datos.mapaFamilia);
           setCambiosSueldo(datos.cambiosSueldo);
           setHistorialTabulador(datos.historialTabulador);
@@ -271,7 +269,7 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
     [filasFiltradas, tasaBcv, empresas],
   );
 
-  const metricasKpi = useMemo(() => obtenerMetricasFichaRrhh(resumen, ambito), [resumen, ambito]);
+  const metricasKpi = useMemo(() => obtenerMetricasFichaRrhh(resumen, ambito, columnasSel), [resumen, ambito, columnasSel]);
 
   const columnasDisponibles = useMemo(
     () => CAMPOS_REPORTE_RRHH.filter((c) => c.ambitos.includes(ambito)),
@@ -360,13 +358,24 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
             <button className="btn btn-ghost" onClick={onClose} disabled={!!generando}>
               Cerrar
             </button>
-            <CompartirWhatsapp texto={textoWa} className="btn btn-ghost" tituloModal="Resumen de RRHH para WhatsApp" />
+            <CompartirWhatsapp texto={textoWa} />
             <button className="btn btn-ghost" onClick={handleExportarCsv} disabled={cargando || !filasProcesadas.length}>
               📋 CSV
             </button>
             <button className="btn btn-ghost" onClick={handleExportarExcel} disabled={cargando || !!generando || !filasProcesadas.length}>
               {generando === 'excel' ? 'Generando...' : '📊 Excel'}
             </button>
+            <select
+              className="select"
+              value={orientacion}
+              onChange={(e) => setOrientacion(e.target.value as 'auto' | 'vertical' | 'horizontal')}
+              title="Orientación del PDF"
+              style={{ fontSize: '.78rem', height: '32px', padding: '0 .4rem' }}
+            >
+              <option value="auto">PDF: Auto</option>
+              <option value="horizontal">PDF: Horizontal</option>
+              <option value="vertical">PDF: Vertical</option>
+            </select>
             <button className="btn btn-primary" onClick={handleExportarPdf} disabled={cargando || !!generando || !filasProcesadas.length}>
               {generando === 'pdf' ? 'Generando...' : '📄 PDF para imprimir'}
             </button>
@@ -439,6 +448,17 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
           })}
         </div>
       </div>
+
+      {empresasSel.length === 0 && (
+        <div style={{ padding: '.5rem .75rem', borderRadius: '6px', background: 'rgba(243, 156, 18, 0.12)', border: '1px solid rgba(243, 156, 18, 0.3)', color: 'var(--warning)', fontSize: '.8rem', marginBottom: '.75rem' }}>
+          ⚠️ Ninguna empresa marcada en las casillas. Marque al menos una empresa arriba para ver colaboradores.
+        </div>
+      )}
+      {columnasSel.length === 0 && (
+        <div style={{ padding: '.5rem .75rem', borderRadius: '6px', background: 'rgba(52, 152, 219, 0.12)', border: '1px solid rgba(52, 152, 219, 0.3)', color: 'var(--info)', fontSize: '.8rem', marginBottom: '.75rem' }}>
+          ℹ️ Ninguna columna marcada. Marque las casillas de columnas para visualizar y exportar información.
+        </div>
+      )}
 
       {/* 3. Filtros y Dimensiones */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '.75rem', marginBottom: '1rem' }}>
