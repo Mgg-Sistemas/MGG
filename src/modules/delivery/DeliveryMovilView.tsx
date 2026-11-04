@@ -34,7 +34,7 @@ import {
 } from './delivery';
 import {
   cancelarPedido, compartirUbicacion, marcarNoDisponible, recibirOcEntregada, comprobantePagoDelivery, listPedidosDelivery, marcarEnRuta, marcarEntregado,
-  subirFotosDelivery, tomarPedido, urlFotoDelivery, useDeliveryConectado, type ComprobantePagoDelivery,
+  quitarFotoDelivery, subirFotosDelivery, tomarPedido, urlFotoDelivery, useDeliveryConectado, type ComprobantePagoDelivery,
 } from './delivery.repository';
 import {
   armarFeed, debeEnviarUbicacion, enChip, errorUbicacion, mapaHref, mensajeDeEstado, telHref, trabajoEnCurso,
@@ -291,6 +291,7 @@ function TarjetaPedido({
   const estado = disponible ? ESTADO_DELIVERY.por_tomar : ESTADO_DELIVERY[p.estado];
   const enCurso = !disponible && (p.estado === 'aceptado' || p.estado === 'en_ruta');
   const mioEnCurso = enCurso && p.es_mio;
+  const mioEntregado = !disponible && p.es_mio && p.estado === 'entregado';
   const items = (p.items ?? []).filter((i) => i.comprar !== false);
   const telProv = telHref(p.proveedor_telefono);
   const telAnalista = telHref(p.analista_telefono);
@@ -363,12 +364,15 @@ function TarjetaPedido({
       )}
       {enCurso && !p.es_mio && <div className="dlv-tomado">🛵 Tomado por <strong>{p.repartidor_nombre ?? 'otro delivery'}</strong>{p.aceptado_en ? ` · ${fechaHoraVE(p.aceptado_en)}` : ''}</div>}
 
-      {/* Aceptar deja el pedido «en camino» (02-11-2026): las fotos al recibir se suben en camino. */}
-      {(p.fotos_recibo.length > 0 || mioEnCurso) && (
-        <FotosPedido p={p} tipo="recibo" puedeSubir={canWrite && mioEnCurso} onCambio={onFotos} />
+      {/* Aceptar deja el pedido «en camino» (02-11-2026): las fotos al recibir se suben en camino.
+          03-11: ya entregado, el delivery que lo llevó puede corregir sus fotos (agregar o quitar). */}
+      {(p.fotos_recibo.length > 0 || mioEnCurso || mioEntregado) && (
+        <FotosPedido p={p} tipo="recibo" puedeSubir={canWrite && (mioEnCurso || mioEntregado)}
+          puedeQuitar={canWrite && (mioEnCurso || mioEntregado)} onCambio={onFotos} />
       )}
-      {(p.fotos_entrega.length > 0 || (mioEnCurso && p.estado === 'en_ruta')) && (
-        <FotosPedido p={p} tipo="entrega" puedeSubir={canWrite && mioEnCurso && p.estado === 'en_ruta'} onCambio={onFotos} />
+      {(p.fotos_entrega.length > 0 || (mioEnCurso && p.estado === 'en_ruta') || mioEntregado) && (
+        <FotosPedido p={p} tipo="entrega" puedeSubir={canWrite && ((mioEnCurso && p.estado === 'en_ruta') || mioEntregado)}
+          puedeQuitar={canWrite && (mioEnCurso || mioEntregado)} onCambio={onFotos} />
       )}
 
       <div className="dlv-acciones">
@@ -413,11 +417,24 @@ function TarjetaPedido({
 
 /* ── Fotos al recibir / de la entrega ── */
 
-function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
-  p: PedidoDelivery; tipo: 'recibo' | 'entrega'; puedeSubir: boolean; onCambio: () => void;
+function FotosPedido({ p, tipo, puedeSubir, puedeQuitar = false, onCambio }: {
+  p: PedidoDelivery; tipo: 'recibo' | 'entrega'; puedeSubir: boolean; puedeQuitar?: boolean; onCambio: () => void;
 }) {
   const fotos = tipo === 'recibo' ? p.fotos_recibo : p.fotos_entrega;
   const [subiendo, setSubiendo] = useState(false);
+
+  async function quitar(f: FotoDelivery) {
+    if (!p.pedido_id) return;
+    if (!window.confirm(`¿Quitar la foto «${f.filename}»?`)) return;
+    setSubiendo(true);
+    try {
+      await quitarFotoDelivery(p.pedido_id, tipo, fotos, f.path);
+      toast('Foto quitada.', 'success');
+      onCambio();
+    } catch (e) {
+      toast(errMsg(e, 'No se pudo quitar la foto'), 'error');
+    } finally { setSubiendo(false); }
+  }
   const faltan = MAX_FOTOS_DELIVERY - fotos.length;
   const titulo = tipo === 'recibo' ? '📷 Fotos al recibir' : '📷 Fotos de la entrega';
   const id = `dlv-fotos-${tipo}-${claveDe(p)}`;
@@ -440,7 +457,7 @@ function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
   return (
     <div className="surt-campo">
       <label htmlFor={puedeSubir ? id : undefined}>{titulo} ({fotos.length}/{MAX_FOTOS_DELIVERY})</label>
-      <MiniaturasFotos fotos={fotos} />
+      <MiniaturasFotos fotos={fotos} onQuitar={puedeQuitar && !subiendo ? (f) => { void quitar(f); } : undefined} />
       {puedeSubir && faltan > 0 && (
         <div className="dlv-subir" style={{ marginTop: fotos.length ? '.5rem' : 0 }}>
           <span className="btn btn-ghost" aria-hidden>{subiendo ? 'Subiendo…' : `${titulo}${fotos.length ? ' (agregar)' : ''}`}</span>
@@ -454,7 +471,7 @@ function FotosPedido({ p, tipo, puedeSubir, onCambio }: {
 }
 
 /** Miniaturas con enlace firmado (se abren en otra pestaña). */
-function MiniaturasFotos({ fotos }: { fotos: FotoDelivery[] }) {
+function MiniaturasFotos({ fotos, onQuitar }: { fotos: FotoDelivery[]; onQuitar?: (f: FotoDelivery) => void }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
   const clave = fotos.map((f) => f.path).join('|');
   useEffect(() => {
@@ -469,9 +486,17 @@ function MiniaturasFotos({ fotos }: { fotos: FotoDelivery[] }) {
   return (
     <div className="rep-fotos">
       {fotos.map((f) => (
-        <a key={f.path} className="rep-foto" href={urls[f.path] || undefined} target="_blank" rel="noopener noreferrer" aria-label={`Ver ${f.filename}`}>
-          {urls[f.path] ? <img src={urls[f.path]} alt={f.filename} /> : <span className="rep-foto-doc">📷</span>}
-        </a>
+        <span key={f.path} style={{ position: 'relative', display: 'inline-block' }}>
+          <a className="rep-foto" href={urls[f.path] || undefined} target="_blank" rel="noopener noreferrer" aria-label={`Ver ${f.filename}`}>
+            {urls[f.path] ? <img src={urls[f.path]} alt={f.filename} /> : <span className="rep-foto-doc">📷</span>}
+          </a>
+          {onQuitar && (
+            <button type="button" className="btn btn-xs" onClick={() => onQuitar(f)} aria-label={`Quitar ${f.filename}`}
+              style={{ position: 'absolute', top: 2, right: 2, padding: '0 .35rem', background: 'var(--danger)', color: '#fff', borderRadius: 999 }}>
+              ✕
+            </button>
+          )}
+        </span>
       ))}
     </div>
   );

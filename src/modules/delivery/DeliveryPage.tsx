@@ -23,11 +23,12 @@ import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import {
-  ESTADO_DELIVERY, MOTIVOS_CANCELACION, claveDe, esRetiro, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe,
+  ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, MOTIVOS_CANCELACION, claveDe, esRetiro, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe,
   type FotoDelivery, type PedidoDelivery,
 } from './delivery';
 import {
-  cancelarPedido, comprobantePagoDelivery, listHistorialDelivery, listPedidosDelivery, urlFotoDelivery, useDeliveryConectado,
+  cancelarPedido, comprobantePagoDelivery, listHistorialDelivery, listPedidosDelivery, quitarFotoDelivery, subirFotosDelivery,
+  urlFotoDelivery, useDeliveryConectado,
   type ComprobantePagoDelivery,
 } from './delivery.repository';
 import {
@@ -278,7 +279,8 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
                       <td>
                         <div style={{ display: 'flex', gap: '.3rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                           {!esRetiro(p) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setComprobante(p)} title="Comprobante que adjuntó Tesorería al pagar">🧾 Comprobante de pago</button>}
-                          <button type="button" className="btn btn-ghost btn-sm" disabled={!nFotos} onClick={() => setFotos(p)} title={nFotos ? 'Ver fotos' : 'Sin fotos todavía'}>📷 {nFotos}</button>
+                          <button type="button" className="btn btn-ghost btn-sm" disabled={!nFotos && !(supervisor && p.estado === 'entregado')} onClick={() => setFotos(p)}
+                            title={supervisor && p.estado === 'entregado' ? 'Ver o editar las fotos' : nFotos ? 'Ver fotos' : 'Sin fotos todavía'}>📷 {nFotos}</button>
                           <button type="button" className="btn btn-ghost btn-sm" disabled={!!generando} title="Comprobante del pedido en vista previa"
                             onClick={() => abrirPdf(clave, () => pdfComprobanteDelivery(p), setGenerando)}>
                             {generando === clave ? 'Generando…' : '📄 Ver PDF'}
@@ -301,7 +303,7 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
         )}
       </div>
 
-      {fotos && <FotosModal pedido={fotos} onClose={() => setFotos(null)} />}
+      {fotos && <FotosModal pedido={fotos} editable={supervisor && fotos.estado === 'entregado'} onCambio={onCambio} onClose={() => setFotos(null)} />}
       {comprobante && <ComprobanteModal pedido={comprobante} onClose={() => setComprobante(null)} />}
       {whatsapp && <MensajeWhatsappModal titulo={whatsapp.titulo} texto={whatsapp.texto} onClose={() => setWhatsapp(null)} />}
       {cancelar && (
@@ -314,31 +316,88 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
 
 /* ───────────── Fotos del pedido ───────────── */
 
-function FotosModal({ pedido, onClose }: { pedido: PedidoDelivery; onClose: () => void }) {
+/**
+ * Las fotos del pedido. 03-11-2026 (pedido de la administradora): con la orden ya
+ * ENTREGADA, el supervisor puede corregir las fotos que subió el delivery (agregar o
+ * quitar). La base lo permite al supervisor y al delivery que la llevó.
+ */
+function FotosModal({ pedido, editable = false, onCambio, onClose }: {
+  pedido: PedidoDelivery; editable?: boolean; onCambio?: () => void; onClose: () => void;
+}) {
+  const [recibo, setRecibo] = useState<FotoDelivery[]>(pedido.fotos_recibo);
+  const [entrega, setEntrega] = useState<FotoDelivery[]>(pedido.fotos_entrega);
+  const [ocupado, setOcupado] = useState(false);
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const clave = [...recibo, ...entrega].map((f) => f.path).join('|');
   useEffect(() => {
     let vivo = true;
-    const todas = [...pedido.fotos_recibo, ...pedido.fotos_entrega];
+    const todas = [...recibo, ...entrega];
     void Promise.all(todas.map(async (f) => [f.path, await urlFotoDelivery(f.path).catch(() => '')] as const))
       .then((pares) => { if (vivo) setUrls(Object.fromEntries(pares)); });
     return () => { vivo = false; };
-  }, [pedido]);
+    // `clave` resume las rutas de las fotos.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clave]);
 
-  const grupo = (titulo: string, fs: FotoDelivery[]) => (
+  const setDe = (tipo: 'recibo' | 'entrega') => (tipo === 'recibo' ? setRecibo : setEntrega);
+  async function quitar(tipo: 'recibo' | 'entrega', actuales: FotoDelivery[], f: FotoDelivery) {
+    if (!pedido.pedido_id || !window.confirm(`¿Quitar la foto «${f.filename}»?`)) return;
+    setOcupado(true);
+    try {
+      setDe(tipo)(await quitarFotoDelivery(pedido.pedido_id, tipo, actuales, f.path));
+      toast('Foto quitada.', 'success');
+      onCambio?.();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo quitar la foto', 'error');
+    } finally { setOcupado(false); }
+  }
+  async function agregar(tipo: 'recibo' | 'entrega', actuales: FotoDelivery[], lista: FileList | null) {
+    const archivos = Array.from(lista ?? []);
+    if (!archivos.length || !pedido.pedido_id) return;
+    if (archivos.some((f) => !/^image\//.test(f.type) && !/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name))) { toast('Solo se pueden subir fotos (imágenes).', 'error'); return; }
+    if (actuales.length + archivos.length > MAX_FOTOS_DELIVERY) { toast(`Se pueden adjuntar hasta ${MAX_FOTOS_DELIVERY} fotos.`, 'error'); return; }
+    setOcupado(true);
+    try {
+      setDe(tipo)(await subirFotosDelivery(pedido.pedido_id, tipo, actuales, archivos));
+      toast(archivos.length === 1 ? 'Foto agregada.' : `${archivos.length} fotos agregadas.`, 'success');
+      onCambio?.();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudieron subir las fotos', 'error');
+    } finally { setOcupado(false); }
+  }
+
+  const grupo = (titulo: string, tipo: 'recibo' | 'entrega', fs: FotoDelivery[]) => (
     <div style={{ marginBottom: '1rem' }}>
-      <div className="card-title" style={{ fontSize: '.9rem' }}>{titulo} ({fs.length})</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
+        <div className="card-title" style={{ fontSize: '.9rem' }}>{titulo} ({fs.length}/{MAX_FOTOS_DELIVERY})</div>
+        {editable && fs.length < MAX_FOTOS_DELIVERY && (
+          <label className="btn btn-ghost btn-sm" style={{ cursor: ocupado ? 'wait' : 'pointer' }}>
+            {ocupado ? 'Guardando…' : '+ Agregar fotos'}
+            <input type="file" accept="image/*" multiple hidden disabled={ocupado}
+              onChange={(e) => { void agregar(tipo, fs, e.target.files); e.target.value = ''; }} />
+          </label>
+        )}
+      </div>
       {!fs.length ? <p className="muted" style={{ margin: 0 }}>Sin fotos.</p> : (
         <div style={{ display: 'grid', gap: '.6rem', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
           {fs.map((f) => (
-            urls[f.path] ? (
-              <a key={f.path} href={urls[f.path]} target="_blank" rel="noopener noreferrer" title={f.filename}>
-                <img src={urls[f.path]} alt={f.filename} style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
-              </a>
-            ) : (
-              <div key={f.path} className="muted" style={{ height: 140, display: 'grid', placeItems: 'center', border: '1px dashed var(--border)', borderRadius: 8, fontSize: '.8rem' }}>
-                {f.path in urls ? 'No se pudo abrir' : 'Cargando…'}
-              </div>
-            )
+            <div key={f.path} style={{ position: 'relative' }}>
+              {urls[f.path] ? (
+                <a href={urls[f.path]} target="_blank" rel="noopener noreferrer" title={f.filename}>
+                  <img src={urls[f.path]} alt={f.filename} style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
+                </a>
+              ) : (
+                <div className="muted" style={{ height: 140, display: 'grid', placeItems: 'center', border: '1px dashed var(--border)', borderRadius: 8, fontSize: '.8rem' }}>
+                  {f.path in urls ? 'No se pudo abrir' : 'Cargando…'}
+                </div>
+              )}
+              {editable && (
+                <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => { void quitar(tipo, fs, f); }}
+                  style={{ position: 'absolute', top: 6, right: 6, background: 'var(--danger)', color: '#fff' }} aria-label={`Quitar ${f.filename}`}>
+                  ✕ Quitar
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -348,8 +407,9 @@ function FotosModal({ pedido, onClose }: { pedido: PedidoDelivery; onClose: () =
   return (
     <Modal title={`📷 Fotos · ${ocDe(pedido)}`} size="lg" onClose={onClose}
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
-      {grupo('Al recibir del proveedor', pedido.fotos_recibo)}
-      {grupo('Al entregar en el almacén', pedido.fotos_entrega)}
+      {editable && <p className="hint muted" style={{ marginTop: 0 }}>Orden entregada: puedes agregar o quitar las fotos que subió el delivery.</p>}
+      {grupo('Al recibir del proveedor', 'recibo', recibo)}
+      {grupo('Al entregar en el almacén', 'entrega', entrega)}
       {pedido.nota_entrega && <p><strong>Nota de entrega:</strong> {pedido.nota_entrega}</p>}
     </Modal>
   );

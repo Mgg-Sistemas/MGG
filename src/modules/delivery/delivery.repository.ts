@@ -134,6 +134,22 @@ export async function subirFotosDelivery(
   return fotos;
 }
 
+/**
+ * Quita una foto del pedido (03-11-2026, pedido de la administradora: ya entregada la
+ * orden se pueden corregir las fotos que subió el delivery). La base deja hacerlo al
+ * delivery que la tomó y al supervisor, en cualquier estado. El archivo se borra del
+ * bucket si se puede; si no, queda huérfano pero ya no figura en el pedido.
+ */
+export async function quitarFotoDelivery(
+  pedidoId: string, tipo: 'recibo' | 'entrega', actuales: FotoDelivery[], path: string,
+): Promise<FotoDelivery[]> {
+  const fotos = actuales.filter((f) => f.path !== path);
+  const { error } = await supabase.rpc('delivery_fotos', { p_pedido_id: pedidoId, p_tipo: tipo, p_fotos: fotos });
+  if (error) throw err(error, 'No se pudo quitar la foto.');
+  await supabase.storage.from(BUCKET).remove([path]).catch(() => null);
+  return fotos;
+}
+
 export async function urlFotoDelivery(path: string): Promise<string> {
   const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 10);
   if (error) throw new Error('No se pudo abrir la foto.');
