@@ -45,6 +45,8 @@ import {
 import { verFichaTecnicaPdf } from './fichaTecnicaPdf';
 import { ExportarPersonalModal } from './ExportarPersonalModal';
 import { DirectorioFotosModal } from './DirectorioFotosModal';
+import { ReporteRrhhModal } from './ReporteRrhhModal';
+import type { AmbitoRrhh } from './reporteRrhhDinamico';
 import { CARNET_VENCE_POR_DEFECTO, UNIDADES_DURACION, finDeMes, textoVence, venceTras, carnetVencido, type UnidadDuracion } from './carnetVence';
 import {
   TIPOS_CAMBIO_SUELDO, huboCambioSueldo, labelTipoCambio, textoVariacion, tipoSugerido,
@@ -713,6 +715,7 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   const [porBorrar, setPorBorrar] = useState<Personal | null>(null);
   const [exportando, setExportando] = useState(false);
   const [historicoSalarial, setHistoricoSalarial] = useState(false);
+  const [reporteDinamico, setReporteDinamico] = useState<{ abierto: boolean; ambito: AmbitoRrhh }>({ abierto: false, ambito: 'personal' });
   async function confirmarBorrado() {
     if (!porBorrar) return;
     try { await eliminarPersonal(porBorrar.id); setPorBorrar(null); await recargar(); toast('Eliminado', 'success'); }
@@ -722,14 +725,15 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.75rem' }}>
-        {/* Exportar: con casillas se elige qué datos salen (ej. solo nombre y cédula). */}
-        <button className="btn btn-ghost" onClick={() => setExportando(true)} disabled={!lista.length}
-          title="Elegí qué datos y de quiénes, y bajalo en Excel o PDF">⬇ Exportar datos</button>
-        {/* Todos los cambios de sueldo de todo el personal, con PDF y Excel (09-10-2026). */}
-        <button className="btn btn-ghost" onClick={() => setHistoricoSalarial(true)}
-          title="Todos los cambios de sueldo del personal: quién, cuándo, de cuánto a cuánto y por qué">📜 Histórico salarial</button>
-        {/* 04-11-2026: todos los cambios de cargo, con su fecha y motivo, en PDF. */}
-        <HistoricoCargosTodos personas={lista} />
+        {/* Reporte dinámico: absorbe exportar datos, histórico salarial e histórico de cargos con soporte multi-empresa y carga familiar */}
+        <button
+          className="btn btn-ghost"
+          onClick={() => setReporteDinamico({ abierto: true, ambito: 'personal' })}
+          disabled={!lista.length}
+          title="Reporte dinámico: directorio multi-empresa, carga familiar (hijos), histórico salarial y de cargos en PDF, Excel o WhatsApp"
+        >
+          📊 Reporte Dinámico
+        </button>
         {isAdmin && (
           <button className="btn btn-ghost" onClick={() => setDirectorio(true)} disabled={!visibles.length}
             title="Fotos con nombre y cargo, una al lado de la otra; al imprimir, una debajo de la otra. Respeta el filtro de la lista.">📷 Directorio de fotos</button>
@@ -746,6 +750,14 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
           </>
         )}
       </div>
+      {reporteDinamico.abierto && (
+        <ReporteRrhhModal
+          empresaInicial={empresa}
+          ambitoInicial={reporteDinamico.ambito}
+          personalInicial={lista}
+          onClose={() => setReporteDinamico({ abierto: false, ambito: 'personal' })}
+        />
+      )}
       {exportando && (
         <ExportarPersonalModal todos={lista} visibles={visibles} hayFiltros={visibles.length !== lista.length}
           onClose={() => setExportando(false)} />
