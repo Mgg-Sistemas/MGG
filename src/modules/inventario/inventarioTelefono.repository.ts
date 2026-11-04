@@ -153,12 +153,57 @@ export async function precioDeSalidaTelefono(s: Pick<SalidaTelefono, 'id' | 'pro
  * lleva el N° y la guardia de comida lo vigila) y guarda la salida. Si guardarla falla,
  * devuelve el stock.
  */
+/** Reserva el N° SAT de una salida (una sola vez aunque lleve varios materiales). */
+export async function reservarCodigoSalida(): Promise<string> {
+  const { data: codigo, error } = await supabase.rpc('inv_tel_reservar_codigo');
+  if (error || !codigo) throw err(error, 'No se pudo numerar la salida.');
+  return String(codigo);
+}
+
+/**
+ * Una salida con VARIOS materiales (04-11-2026): todos con el mismo N° SAT, cada uno
+ * con su fila, su kardex y su retorno. Si uno falla, los anteriores quedan registrados
+ * y el error dice cuál no salió.
+ */
+export async function registrarSalidaTelefonoLote(d: {
+  lineas: { producto: Producto; cantidad: number }[]; almacen: string; motivo: string; autorizadoPor: string;
+  retorna: boolean; actor: string; actorName: string | null;
+}): Promise<SalidaTelefono[]> {
+  const codigo = await reservarCodigoSalida();
+  const hechas: SalidaTelefono[] = [];
+  for (const l of d.lineas) {
+    try {
+      hechas.push(await registrarSalidaTelefono({ ...d, producto: l.producto, cantidad: l.cantidad, codigo }));
+    } catch (e) {
+      if (!hechas.length) throw e;
+      throw new Error(`Salida ${codigo}: quedaron registrados ${hechas.length} material(es), pero «${l.producto.nombre}» no salió: ${err(e, 'error').message}`);
+    }
+  }
+  return hechas;
+}
+
+/** Copia las fotos (ya subidas) a otra fila de la misma salida. */
+export async function copiarFotosSalida(s: SalidaTelefono, fotos: FotoSalida[]): Promise<SalidaTelefono> {
+  const { data, error } = await supabase.rpc('inv_tel_fotos', { p_id: s.id, p_fotos: fotos.slice(0, MAX_FOTOS_SALIDA) });
+  if (error) throw err(error, 'No se pudieron anotar las fotos.');
+  return normalizar(data as Record<string, unknown>);
+}
+
+/** Sube las fotos a la primera fila de la salida y las anota también en las demás. */
+export async function subirFotosSalidaLote(salidas: SalidaTelefono[], archivos: File[]): Promise<SalidaTelefono[]> {
+  if (!salidas.length) return salidas;
+  const primera = await subirFotosSalida(salidas[0], archivos);
+  const resto = await Promise.all(salidas.slice(1).map((s) => copiarFotosSalida(s, primera.fotos)));
+  return [primera, ...resto];
+}
+
 export async function registrarSalidaTelefono(d: {
   producto: Producto; almacen: string; cantidad: number; motivo: string; autorizadoPor: string;
   retorna: boolean; actor: string; actorName: string | null;
+  /** N° ya reservado (salida con varios materiales); si no, se reserva uno. */
+  codigo?: string;
 }): Promise<SalidaTelefono> {
-  const { data: codigo, error: cErr } = await supabase.rpc('inv_tel_reservar_codigo');
-  if (cErr || !codigo) throw err(cErr, 'No se pudo numerar la salida.');
+  const codigo = d.codigo ?? await reservarCodigoSalida();
   const id = crypto.randomUUID();
   const detalle = `${d.motivo.trim()} · autorizó ${d.autorizadoPor.trim()}${d.retorna ? ' · retorna' : ' · no retorna'} · ${d.almacen} (teléfono)`;
   const mov = await registrarMovimiento({

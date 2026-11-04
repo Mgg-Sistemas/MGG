@@ -36,3 +36,15 @@ describe('históricos del teléfono (03-11-2026)', () => {
     expect(mezclarTraslados([sale!], [], 'Los Pinos')).toHaveLength(1);
   });
 });
+
+describe('salida con varios materiales (04-11-2026)', () => {
+  it('junta los materiales que comparten N° SAT en una sola salida', () => {
+    const a = { ...tel('a', 'carlos@x.com', '2026-11-04T10:00:00Z'), codigo: 'SAT-0009', producto_nombre: 'CABLE' } as SalidaTelefono;
+    const b = { ...tel('b', 'carlos@x.com', '2026-11-04T10:00:01Z'), codigo: 'SAT-0009', producto_nombre: 'TUBO' } as SalidaTelefono;
+    const c = { ...tel('c', 'carlos@x.com', '2026-11-04T11:00:00Z'), codigo: 'SAT-0010', producto_nombre: 'CINTA' } as SalidaTelefono;
+    const filas = mezclarSalidas([a, b, c], [], 'General', null);
+    expect(filas).toHaveLength(2);
+    const g = filas.find((f) => f.id === 't:a');
+    expect(g && g.origen === 'telefono' ? g.grupo.map((x) => x.producto_nombre) : []).toEqual(['CABLE', 'TUBO']);
+  });
+});

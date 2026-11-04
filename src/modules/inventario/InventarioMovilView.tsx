@@ -45,17 +45,17 @@ import { useSectorizacion } from './useSectorizacion';
 import {
   DIAS_HISTORICO, MAX_FOTOS_SALIDA, errorFotos, errorRetorno, errorSalida, errorTraslado, fechaHoraVE,
   filtrarPorRetornar, leerCantidad,
-  mensajeEntrada, mensajeProductoNuevo, mensajeRetorno, mensajeSalida, mensajeStock, mensajeTraslado, num,
+  mensajeEntrada, mensajeProductoNuevo, mensajeRetorno, mensajeSalidaLote, mensajeStock, mensajeTraslado, mensajeTrasladoLote, num,
   pendienteRetorno, stockPorPeriodo, textoRetorno, ultimosDias, type FotoSalida, type MovimientoStock, type SalidaTelefono,
 } from './inventarioTelefono';
 import {
   archivosFotosSalida, enlacesFotosSalida, listPorRetornar, listSalidasAlmacen, listSolicitudesModulo, listTrasladosTelefono,
   movimientosAlmacenDesde, precioDeSalidaTelefono, productosDeAlmacen,
-  registrarSalidaTelefono, retornarSalidaTelefono, subirFotosSalida, trasladarTelefono, urlFotoSalida, type ProductoEnAlmacen,
+  registrarSalidaTelefonoLote, retornarSalidaTelefono, subirFotosSalidaLote, trasladarTelefono, urlFotoSalida, type ProductoEnAlmacen,
 } from './inventarioTelefono.repository';
 import {
   buscarFilasSalida, buscarFilasTraslado, mensajeFilaSalida, mensajeFilaTraslado, mezclarSalidas, mezclarTraslados,
-  numeroDeSolicitud, ordenDeSalidaTelefono, ordenDeTrasladoTelefono, refTrasladoTelefono, trasladoDeMovimiento,
+  numeroDeSolicitud, ordenDeSalidaTelefonoLote, ordenDeTrasladoTelefono, ordenDeTrasladoTelefonoLote, refTrasladoTelefono, trasladoDeMovimiento,
   vistaFilaSalida, vistaFilaTraslado, type FilaSalida, type FilaTraslado,
 } from './historicosTelefono';
 
@@ -104,8 +104,9 @@ export function InventarioMovilView() {
   const [paso, setPaso] = useState<Paso>('inicio');
   const [elegido, setElegido] = useState<ProductoEnAlmacen | null>(null);
   const [busca, setBusca] = useState('');
-  const [listo, setListo] = useState<{ titulo: string; texto: string; pdf?: ComprobanteMaterial } | null>(null);
-  const [salidaHecha, setSalidaHecha] = useState<SalidaTelefono | null>(null);
+  const [listo, setListo] = useState<{ titulo: string; texto: string; pdf?: ComprobanteMaterial; abrirPdf?: () => Promise<void> } | null>(null);
+  // Una salida puede llevar varios materiales (04-11-2026): todas sus filas, mismo N° SAT.
+  const [salidaHecha, setSalidaHecha] = useState<SalidaTelefono[] | null>(null);
 
   const cargarAlmacenes = useCallback(async () => {
     const as = await listAlmacenes('principal');
@@ -181,8 +182,8 @@ export function InventarioMovilView() {
     setPaso('inicio'); setElegido(null); setBusca('');
   }
   function volver() { setPaso('inicio'); setElegido(null); setListo(null); setSalidaHecha(null); }
-  function hecho(titulo: string, texto: string, pdf?: ComprobanteMaterial) {
-    setListo({ titulo, texto, pdf }); setPaso('listo'); setElegido(null);
+  function hecho(titulo: string, texto: string, pdf?: ComprobanteMaterial, abrirPdf?: () => Promise<void>) {
+    setListo({ titulo, texto, pdf, abrirPdf }); setPaso('listo'); setElegido(null);
     void reload().catch(() => {});
   }
   const eligiendo = (paso === 'entrada' || paso === 'salida' || paso === 'traslado') && !elegido;
@@ -295,10 +296,10 @@ export function InventarioMovilView() {
       {paso === 'historico' && <HistoricoSalidas almacen={almacen} soloDe={soloDe} onVolver={volver} />}
       {paso === 'historicoTraslados' && <HistoricoTraslados almacen={almacen} onVolver={volver} />}
 
-      {paso === 'listo' && listo && <Listo titulo={listo.titulo} texto={listo.texto} pdf={listo.pdf} onVolver={volver} />}
+      {paso === 'listo' && listo && <Listo titulo={listo.titulo} texto={listo.texto} pdf={listo.pdf} abrirPdf={listo.abrirPdf} onVolver={volver} />}
 
       {paso === 'listoSalida' && salidaHecha && (
-        <ListoSalida salida={salidaHecha} quien={quien} onCambio={setSalidaHecha} onVolver={volver} />
+        <ListoSalida salidas={salidaHecha} quien={quien} onCambio={setSalidaHecha} onVolver={volver} />
       )}
 
       {paso === 'reporte' && (
@@ -316,13 +317,13 @@ export function InventarioMovilView() {
       )}
 
       {paso === 'salida' && prodActual && (
-        <FormSalida almacen={almacen} producto={prodActual} actor={actor} actorName={actorName}
+        <FormSalida almacen={almacen} producto={prodActual} productos={productos} actor={actor} actorName={actorName}
           onCancel={() => setElegido(null)}
           onHecho={(s) => { setSalidaHecha(s); setPaso('listoSalida'); setElegido(null); void reload().catch(() => {}); }} />
       )}
 
       {paso === 'traslado' && prodActual && (
-        <FormTraslado origen={almacen} destinos={destinos} producto={prodActual} actor={actor} actorName={actorName} quien={quien}
+        <FormTraslado origen={almacen} destinos={destinos} producto={prodActual} productos={productos} actor={actor} actorName={actorName} quien={quien}
           onCancel={() => setElegido(null)} onHecho={hecho} />
       )}
 
@@ -417,16 +418,17 @@ function BotonPdf({ abrir, className, texto }: { abrir: () => Promise<void>; cla
  * La ORDEN DE SALIDA del módulo de Salidas para una salida del teléfono (03-11-2026,
  * «que sea como ya se tiene en salidas»), con el costo del almacén de ese momento.
  */
-async function verOrdenSalidaTelefono(s: SalidaTelefono, quien: string): Promise<void> {
-  const precio = await precioDeSalidaTelefono(s).catch(() => null);
-  const o = ordenDeSalidaTelefono(s, quien, precio);
+async function verOrdenSalidaTelefono(ss: SalidaTelefono[], quien: string): Promise<void> {
+  const precios = await Promise.all(ss.map((s) => precioDeSalidaTelefono(s).catch(() => null)));
+  const o = ordenDeSalidaTelefonoLote(ss, quien, precios);
   await descargarOrdenSalidaPdf(o.sol, o.opciones);
 }
 
 /** La salida ya guardada: se le pueden sumar fotos (hasta 4) y el aviso se rehace con ellas. */
-function ListoSalida({ salida, quien, onCambio, onVolver }: {
-  salida: SalidaTelefono; quien: string; onCambio: (s: SalidaTelefono) => void; onVolver: () => void;
+function ListoSalida({ salidas, quien, onCambio, onVolver }: {
+  salidas: SalidaTelefono[]; quien: string; onCambio: (ss: SalidaTelefono[]) => void; onVolver: () => void;
 }) {
+  const salida = salidas[0];
   const [subiendo, setSubiendo] = useState(false);
   const faltan = MAX_FOTOS_SALIDA - salida.fotos.length;
   const fotosWhatsapp = useFotosParaWhatsapp(salida.fotos);
@@ -438,7 +440,7 @@ function ListoSalida({ salida, quien, onCambio, onVolver }: {
     if (mal) { toast(mal, 'error'); return; }
     setSubiendo(true);
     try {
-      onCambio(await subirFotosSalida(salida, archivos));
+      onCambio(await subirFotosSalidaLote(salidas, archivos));
       toast(archivos.length === 1 ? 'Foto agregada.' : `${archivos.length} fotos agregadas.`, 'success');
     } catch (e) {
       toast(errMsg(e, 'No se pudieron subir las fotos'), 'error');
@@ -446,8 +448,8 @@ function ListoSalida({ salida, quien, onCambio, onVolver }: {
   }
 
   return (
-    <Listo titulo={`Salida ${salida.codigo} registrada`} texto={mensajeSalida(salida, quien)} fotos={fotosWhatsapp} onVolver={onVolver}
-      abrirPdf={() => verOrdenSalidaTelefono(salida, quien)}>
+    <Listo titulo={`Salida ${salida.codigo} registrada${salidas.length > 1 ? ` · ${salidas.length} materiales` : ''}`} texto={mensajeSalidaLote(salidas, quien)} fotos={fotosWhatsapp} onVolver={onVolver}
+      abrirPdf={() => verOrdenSalidaTelefono(salidas, quien)}>
       {/* Las fotos se ven debajo del aviso de WhatsApp, que es con lo que se mandan (02-11-2026). */}
       <div className="surt-campo">
         <label htmlFor="inv-tel-salida-fotos-mas">Fotos ({salida.fotos.length}/{MAX_FOTOS_SALIDA})</label>
@@ -581,7 +583,7 @@ function HistoricoSalidas({ almacen, soloDe, onVolver }: { almacen: string; solo
 
   if (elegida) {
     return elegida.origen === 'telefono'
-      ? <SalidaDelHistorico salida={elegida.salida} quien={registro(elegida)} onVolver={() => setElegidaId(null)} />
+      ? <SalidaDelHistorico grupo={elegida.grupo} quien={registro(elegida)} onVolver={() => setElegidaId(null)} />
       : (
         <Listo titulo={`Salida ${numeroDeSolicitud(elegida.sol)}`} texto={mensajeFilaSalida(elegida, registro(elegida))}
           abrirPdf={() => descargarOrdenSalidaPdf(elegida.sol)} onVolver={() => setElegidaId(null)} volverTexto="← Volver al histórico" />
@@ -624,7 +626,7 @@ function HistoricoSalidas({ almacen, soloDe, onVolver }: { almacen: string; solo
                 <span className="litros">−{v.cantidad}</span>
                 <div className="surt-hist-acciones">
                   <BotonPdf
-                    abrir={() => (f.origen === 'telefono' ? verOrdenSalidaTelefono(f.salida, registro(f)) : descargarOrdenSalidaPdf(f.sol))}
+                    abrir={() => (f.origen === 'telefono' ? verOrdenSalidaTelefono(f.grupo, registro(f)) : descargarOrdenSalidaPdf(f.sol))}
                     className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
                   <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidaId(f.id); window.scrollTo(0, 0); }}>
                     💬 WhatsApp
@@ -751,15 +753,16 @@ function HistoricoTraslados({ almacen, onVolver }: { almacen: string; onVolver: 
 }
 
 /** Una salida del histórico: su WhatsApp (con sus fotos), su PDF y la vuelta a la lista. */
-function SalidaDelHistorico({ salida, quien, onVolver }: { salida: SalidaTelefono; quien: string; onVolver: () => void }) {
+function SalidaDelHistorico({ grupo, quien, onVolver }: { grupo: SalidaTelefono[]; quien: string; onVolver: () => void }) {
+  const salida = grupo[0];
   const fotosWhatsapp = useFotosParaWhatsapp(salida.fotos);
-  const u = salida.unidad ?? '';
   return (
-    <Listo titulo={`Salida ${salida.codigo}`} texto={mensajeSalida(salida, quien)} fotos={fotosWhatsapp}
-      abrirPdf={() => verOrdenSalidaTelefono(salida, quien)} onVolver={onVolver} volverTexto="← Volver al histórico">
+    <Listo titulo={`Salida ${salida.codigo}`} texto={mensajeSalidaLote(grupo, quien)} fotos={fotosWhatsapp}
+      abrirPdf={() => verOrdenSalidaTelefono(grupo, quien)} onVolver={onVolver} volverTexto="← Volver al histórico">
       <div className="surt-detalle">
-        <div className="surt-fila"><span>Material</span><span>{salida.producto_nombre}</span></div>
-        <div className="surt-fila"><span>Cantidad</span><span>{num(salida.cantidad)} {u}</span></div>
+        {grupo.map((x) => (
+          <div key={x.id} className="surt-fila"><span>{x.producto_nombre}</span><span>{num(x.cantidad)} {x.unidad ?? ''}</span></div>
+        ))}
         <div className="surt-fila"><span>Fecha</span><span>{fechaHoraVE(salida.created_at)}</span></div>
         <div className="surt-fila"><span>Motivo</span><span>{salida.motivo}</span></div>
         {salida.autorizado_por && <div className="surt-fila"><span>Autorizó</span><span>{salida.autorizado_por}</span></div>}
@@ -1018,18 +1021,105 @@ function FormEntrada({ almacen, producto, actor, actorName, quien, onCancel, onH
   );
 }
 
-function FormSalida({ almacen, producto, actor, actorName, onCancel, onHecho }: {
-  almacen: string; producto: ProductoEnAlmacen; actor: string; actorName: string | null;
-  onCancel: () => void; onHecho: (s: SalidaTelefono) => void;
+/** Un material de una salida o traslado con varios (04-11-2026). */
+interface LineaMaterial { producto: ProductoEnAlmacen; cantidad: string }
+
+/**
+ * La lista de materiales de una salida o un traslado (04-11-2026, pedido de la
+ * administradora: «permite poder cargar varios productos en una sola salida o en un
+ * solo traslado»). Cada uno con su cantidad; se agregan más buscando en el almacén.
+ */
+function LineasMateriales({ id, productos, lineas, setLineas }: {
+  id: string; productos: ProductoEnAlmacen[]; lineas: LineaMaterial[]; setLineas: (fn: (ls: LineaMaterial[]) => LineaMaterial[]) => void;
 }) {
-  const [cantidad, setCantidad] = useState('');
+  const [buscando, setBuscando] = useState(false);
+  const [q, setQ] = useState('');
+  const yaEstan = new Set(lineas.map((l) => l.producto.id));
+  const candidatos = useMemo(() => {
+    const t = q.trim().toLowerCase();
+    return productos
+      .filter((p) => p.stock_almacen > 0 && !yaEstan.has(p.id) && (!t || `${p.nombre} ${p.sku}`.toLowerCase().includes(t)))
+      .slice(0, 8);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [productos, q, lineas]);
+  // Siempre con el stock al día (el realtime puede cambiarlo mientras se llena).
+  const actual = (p: ProductoEnAlmacen) => productos.find((x) => x.id === p.id) ?? p;
+
+  return (
+    <div className="surt-campo">
+      <span className="surt-rotulo">Materiales ({lineas.length})</span>
+      <div style={{ display: 'grid', gap: '.5rem' }}>
+        {lineas.map((l, i) => {
+          const p = actual(l.producto);
+          const cant = leerCantidad(l.cantidad);
+          return (
+            <div key={p.id} className="card" style={{ margin: 0, padding: '.55rem .65rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.4rem', alignItems: 'flex-start' }}>
+                <div style={{ minWidth: 0 }}>
+                  <strong style={{ display: 'block' }}>{p.nombre}</strong>
+                  <small className="muted">{p.sku} · hay {num(p.stock_almacen)} {p.unidad}</small>
+                </div>
+                {lineas.length > 1 && (
+                  <button type="button" className="btn btn-ghost btn-sm" aria-label={`Quitar ${p.nombre}`}
+                    onClick={() => setLineas((ls) => ls.filter((_, j) => j !== i))}>✕</button>
+                )}
+              </div>
+              <input id={`${id}-cant-${i}`} className="input surt-litros" inputMode="decimal" value={l.cantidad} placeholder="0"
+                aria-label={`Cantidad de ${p.nombre} (${p.unidad})`} autoFocus={i === lineas.length - 1}
+                onChange={(e) => { const v = e.target.value; setLineas((ls) => ls.map((x, j) => (j === i ? { ...x, cantidad: v } : x))); }} />
+              {cant > 0 && (cant > p.stock_almacen
+                ? <small className="surt-alerta">No alcanza: hay {num(p.stock_almacen)} {p.unidad}.</small>
+                : <small className="muted">Quedan {num(p.stock_almacen - cant)} {p.unidad}.</small>)}
+            </div>
+          );
+        })}
+      </div>
+      {!buscando ? (
+        <button type="button" className="btn btn-ghost btn-grande" style={{ marginTop: '.5rem' }} onClick={() => { setBuscando(true); setQ(''); }}>
+          ＋ Agregar otro material
+        </button>
+      ) : (
+        <div style={{ marginTop: '.5rem', display: 'grid', gap: '.35rem' }}>
+          <input className="input surt-input" type="search" value={q} onChange={(e) => setQ(e.target.value)} autoFocus
+            placeholder="🔍 Buscar el material…" aria-label="Buscar material para agregar" autoComplete="off" />
+          {candidatos.map((p) => (
+            <button key={p.id} type="button" className="surt-mov" onClick={() => { setLineas((ls) => [...ls, { producto: p, cantidad: '' }]); setBuscando(false); }}>
+              <span className="icono" aria-hidden>📦</span>
+              <span style={{ minWidth: 0 }}><div className="titulo">{p.nombre}</div><div className="sub">{p.sku} · {p.categoria}</div></span>
+              <span className="litros">{num(p.stock_almacen)} <small style={{ fontWeight: 600 }}>{p.unidad}</small></span>
+            </button>
+          ))}
+          {!candidatos.length && <small className="muted">No hay más materiales con existencia que coincidan.</small>}
+          <button type="button" className="btn btn-ghost" onClick={() => setBuscando(false)}>Cerrar búsqueda</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Qué está mal en la lista (null si todo bien). */
+function errorLineas(lineas: LineaMaterial[], productos: ProductoEnAlmacen[]): string | null {
+  if (!lineas.length) return 'Agrega al menos un material.';
+  for (const l of lineas) {
+    const p = productos.find((x) => x.id === l.producto.id) ?? l.producto;
+    const c = leerCantidad(l.cantidad);
+    if (!(c > 0)) return `Escribe cuánto de ${p.nombre}.`;
+    if (c > p.stock_almacen) return `No alcanza ${p.nombre}: hay ${num(p.stock_almacen)} ${p.unidad}.`;
+  }
+  return null;
+}
+
+function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, onHecho }: {
+  almacen: string; producto: ProductoEnAlmacen; productos: ProductoEnAlmacen[]; actor: string; actorName: string | null;
+  onCancel: () => void; onHecho: (ss: SalidaTelefono[]) => void;
+}) {
+  const [lineas, setLineas] = useState<LineaMaterial[]>([{ producto, cantidad: '' }]);
   const [motivo, setMotivo] = useState('');
   const [autorizado, setAutorizado] = useState('');
   const [retorna, setRetorna] = useState<boolean | null>(null);
   const [fotos, setFotos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
-  const cant = leerCantidad(cantidad);
-  const stock = producto.stock_almacen;
+  const malLineas = errorLineas(lineas, productos);
 
   // Quién autoriza (03-11-2026): la MISMA lista que Combustible (catálogo «Autorizados»
   // del surtidor), pedido de la administradora: «te traigas al de combustible». Antes
@@ -1053,19 +1143,24 @@ function FormSalida({ almacen, producto, actor, actorName, onCancel, onHecho }: 
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
-    const problema = errorSalida({ productoId: producto.id, cantidad: cant, stock, motivo, autorizado, retorna });
-    if (problema) return toast(problema, 'error');
+    if (malLineas) return toast(malLineas, 'error');
+    for (const l of lineas) {
+      const pr = productos.find((x) => x.id === l.producto.id) ?? l.producto;
+      const problema = errorSalida({ productoId: pr.id, cantidad: leerCantidad(l.cantidad), stock: pr.stock_almacen, motivo, autorizado, retorna });
+      if (problema) return toast(problema, 'error');
+    }
     setGuardando(true);
     try {
-      let s = await registrarSalidaTelefono({
-        producto, almacen, cantidad: cant, motivo, autorizadoPor: autorizado, retorna: !!retorna, actor, actorName,
+      let ss = await registrarSalidaTelefonoLote({
+        lineas: lineas.map((l) => ({ producto: l.producto, cantidad: leerCantidad(l.cantidad) })),
+        almacen, motivo, autorizadoPor: autorizado, retorna: !!retorna, actor, actorName,
       });
       if (fotos.length) {
-        try { s = await subirFotosSalida(s, fotos); }
+        try { ss = await subirFotosSalidaLote(ss, fotos); }
         catch (err) { toast(`La salida quedó registrada, pero las fotos no subieron: ${errMsg(err, 'error')}. Puedes volver a agregarlas.`, 'warning'); }
       }
-      toast(`Salida ${s.codigo}: −${num(cant)} ${producto.unidad} de ${producto.nombre}`, 'success');
-      onHecho(s);
+      toast(ss.length > 1 ? `Salida ${ss[0].codigo}: ${ss.length} materiales` : `Salida ${ss[0].codigo}: −${num(ss[0].cantidad)} ${producto.unidad} de ${producto.nombre}`, 'success');
+      onHecho(ss);
     } catch (err) {
       toast(errMsg(err, 'No se pudo registrar la salida'), 'error');
     } finally { setGuardando(false); }
@@ -1073,16 +1168,8 @@ function FormSalida({ almacen, producto, actor, actorName, onCancel, onHecho }: 
 
   return (
     <form className="surt-form" onSubmit={(e) => void guardar(e)}>
-      <div className="surt-form-titulo"><span className="icono" aria-hidden>⬆</span><strong>Salida · {producto.nombre}</strong></div>
-      <div className="muted">{producto.sku} · hay {num(stock)} {producto.unidad} en {nombreAlmacenVisible(almacen)}</div>
-      <div className="surt-campo">
-        <label htmlFor="inv-tel-salida-cant">Cantidad ({producto.unidad})</label>
-        <input id="inv-tel-salida-cant" className="input surt-litros" inputMode="decimal" value={cantidad}
-          onChange={(e) => setCantidad(e.target.value)} placeholder="0" autoFocus />
-        {cant > 0 && (cant > stock
-          ? <small className="surt-alerta">No alcanza: hay {num(stock)} {producto.unidad}.</small>
-          : <small className="muted">Quedan {num(stock - cant)} {producto.unidad}.</small>)}
-      </div>
+      <div className="surt-form-titulo"><span className="icono" aria-hidden>⬆</span><strong>Salida · {nombreAlmacenVisible(almacen)}</strong></div>
+      <LineasMateriales id="inv-tel-salida" productos={productos} lineas={lineas} setLineas={setLineas} />
       <div className="surt-campo">
         <label htmlFor="inv-tel-salida-motivo">Motivo</label>
         <input id="inv-tel-salida-motivo" className="input surt-input" value={motivo} onChange={(e) => setMotivo(e.target.value)}
@@ -1128,52 +1215,65 @@ function FormSalida({ almacen, producto, actor, actorName, onCancel, onHecho }: 
         )}
       </div>
       <button type="submit" className="btn btn-primary surt-guardar"
-        disabled={guardando || !(cant > 0) || cant > stock || retorna === null || !autorizado.trim()}>
-        {guardando ? 'Guardando…' : '✓ Guardar salida'}
+        disabled={guardando || !!malLineas || retorna === null || !autorizado.trim()}>
+        {guardando ? 'Guardando…' : lineas.length > 1 ? `✓ Guardar salida (${lineas.length} materiales)` : '✓ Guardar salida'}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otro material</button>
     </form>
   );
 }
 
-function FormTraslado({ origen, destinos, producto, actor, actorName, quien, onCancel, onHecho }: {
-  origen: string; destinos: Almacen[]; producto: ProductoEnAlmacen; actor: string; actorName: string | null; quien: string;
-  onCancel: () => void; onHecho: (titulo: string, texto: string, pdf?: ComprobanteMaterial) => void;
+function FormTraslado({ origen, destinos, producto, productos, actor, actorName, quien, onCancel, onHecho }: {
+  origen: string; destinos: Almacen[]; producto: ProductoEnAlmacen; productos: ProductoEnAlmacen[]; actor: string; actorName: string | null; quien: string;
+  onCancel: () => void; onHecho: (titulo: string, texto: string, pdf?: ComprobanteMaterial, abrirPdf?: () => Promise<void>) => void;
 }) {
   const [destino, setDestino] = useState('');
-  const [cantidad, setCantidad] = useState('');
+  const [lineas, setLineas] = useState<LineaMaterial[]>([{ producto, cantidad: '' }]);
   const [motivo, setMotivo] = useState('');
   const [confirmando, setConfirmando] = useState(false);
   const [guardando, setGuardando] = useState(false);
-  const cant = leerCantidad(cantidad);
-  const hay = producto.stock_almacen;
   const deNombre = nombreAlmacenVisible(origen);
   const aNombre = destino ? nombreAlmacenVisible(destino) : '';
-  const datos = { productoId: producto.id, origen, destino, cantidad: cant, stock: hay, motivo };
+  const malLineas = errorLineas(lineas, productos);
+  const actual = (x: ProductoEnAlmacen) => productos.find((y) => y.id === x.id) ?? x;
+  const problemaDe = () => {
+    if (malLineas) return malLineas;
+    for (const l of lineas) {
+      const pr = actual(l.producto);
+      const pb = errorTraslado({ productoId: pr.id, origen, destino, cantidad: leerCantidad(l.cantidad), stock: pr.stock_almacen, motivo });
+      if (pb) return pb;
+    }
+    return null;
+  };
 
   function revisar(e: FormEvent) {
     e.preventDefault();
-    const problema = errorTraslado(datos);
+    const problema = problemaDe();
     if (problema) return toast(problema, 'error');
     setConfirmando(true);
   }
 
   async function trasladar() {
-    const problema = errorTraslado(datos);
+    const problema = problemaDe();
     if (problema) { setConfirmando(false); return toast(problema, 'error'); }
     setGuardando(true);
+    const hechos: LineaMaterial[] = [];
     try {
-      await trasladarTelefono({ producto, origen, destino, cantidad: cant, motivo, actor, actorName });
-      toast(`Traslado: ${num(cant)} ${producto.unidad} de ${producto.nombre} a ${aNombre}`, 'success');
-      onHecho(`Traslado a ${aNombre} registrado`, mensajeTraslado({
-        origen, destino, nombre: producto.nombre, sku: producto.sku, unidad: producto.unidad, cantidad: cant,
-        motivo, quedaOrigen: Math.max(0, hay - cant), quien,
-      }), {
-        tipo: 'traslado', producto: { sku: producto.sku, nombre: producto.nombre, unidad: producto.unidad },
-        almacen: deNombre, destino: aNombre, cantidad: cant, precioUnitario: Number(producto.precio) || null,
-        detalle: motivo, actor, actorName, at: new Date().toISOString(),
-      });
+      for (const l of lineas) {
+        await trasladarTelefono({ producto: l.producto, origen, destino, cantidad: leerCantidad(l.cantidad), motivo, actor, actorName });
+        hechos.push(l);
+      }
+      const at = new Date().toISOString();
+      const ls = lineas.map((l) => ({ producto_id: l.producto.id, nombre: l.producto.nombre, sku: l.producto.sku, unidad: l.producto.unidad, cantidad: leerCantidad(l.cantidad), precio: Number(l.producto.precio) || null }));
+      toast(lineas.length > 1 ? `Traslado a ${aNombre}: ${lineas.length} materiales` : `Traslado: ${num(ls[0].cantidad)} ${producto.unidad} de ${producto.nombre} a ${aNombre}`, 'success');
+      const texto = lineas.length > 1
+        ? mensajeTrasladoLote({ origen, destino, lineas: ls, motivo, quien, cuando: at })
+        : mensajeTraslado({ origen, destino, nombre: producto.nombre, sku: producto.sku, unidad: producto.unidad, cantidad: ls[0].cantidad, motivo, quedaOrigen: Math.max(0, actual(producto).stock_almacen - ls[0].cantidad), quien });
+      const orden = ordenDeTrasladoTelefonoLote({ origen, destino, motivo, quien, actor, actorName, at, lineas: ls });
+      onHecho(`Traslado a ${aNombre} registrado${lineas.length > 1 ? ` · ${lineas.length} materiales` : ''}`, texto, undefined,
+        () => descargarOrdenSalidaPdf(orden.sol, orden.opciones));
     } catch (err) {
+      if (hechos.length) toast(`Se trasladaron ${hechos.length} material(es); el resto no: revisa y vuelve a intentar.`, 'warning');
       toast(errMsg(err, 'No se pudo trasladar'), 'error');
       setConfirmando(false);
     } finally {
@@ -1186,12 +1286,12 @@ function FormTraslado({ origen, destinos, producto, actor, actorName, quien, onC
       <div className="surt-form">
         <div className="surt-form-titulo"><span className="icono" aria-hidden>🔁</span><strong>¿Confirmas el traslado?</strong></div>
         <div className="surt-detalle">
-          <div className="surt-fila"><span>Material</span><span>{producto.nombre}</span></div>
-          <div className="surt-fila"><span>Cantidad</span><span>{num(cant)} {producto.unidad}</span></div>
+          {lineas.map((l) => (
+            <div key={l.producto.id} className="surt-fila"><span>{l.producto.nombre}</span><span>{num(leerCantidad(l.cantidad))} {l.producto.unidad}</span></div>
+          ))}
           <div className="surt-fila"><span>De</span><span>{deNombre}</span></div>
           <div className="surt-fila"><span>A</span><span>{aNombre}</span></div>
           <div className="surt-fila"><span>Motivo</span><span>{motivo.trim()}</span></div>
-          <div className="surt-fila"><span>Queda en {deNombre}</span><span>{num(Math.max(0, hay - cant))} {producto.unidad}</span></div>
         </div>
         <button type="button" className="btn btn-primary surt-guardar" disabled={guardando} onClick={() => void trasladar()}>
           {guardando ? 'Trasladando…' : `✓ Sí, trasladar a ${aNombre}`}
@@ -1203,8 +1303,7 @@ function FormTraslado({ origen, destinos, producto, actor, actorName, quien, onC
 
   return (
     <form className="surt-form" onSubmit={revisar}>
-      <div className="surt-form-titulo"><span className="icono" aria-hidden>🔁</span><strong>Traslado · {producto.nombre}</strong></div>
-      <div className="muted">{producto.sku} · hay {num(hay)} {producto.unidad} en {deNombre}</div>
+      <div className="surt-form-titulo"><span className="icono" aria-hidden>🔁</span><strong>Traslado · desde {deNombre}</strong></div>
       <div className="surt-campo">
         <label htmlFor="inv-tel-traslado-destino">¿A qué almacén va?</label>
         <select id="inv-tel-traslado-destino" className="input surt-input" value={destino} onChange={(e) => setDestino(e.target.value)}>
@@ -1216,20 +1315,14 @@ function FormTraslado({ origen, destinos, producto, actor, actorName, quien, onC
           ))}
         </select>
       </div>
-      <div className="surt-campo">
-        <label htmlFor="inv-tel-traslado-cant">¿Cuánto se traslada? ({producto.unidad})</label>
-        <input id="inv-tel-traslado-cant" className="input surt-litros" inputMode="decimal" value={cantidad}
-          onChange={(e) => setCantidad(e.target.value)} placeholder="0" />
-        {cant > 0 && cant <= hay && <small className="muted">En {deNombre} quedan {num(hay - cant)} {producto.unidad}.</small>}
-        {cant > hay && <small className="surt-alerta">No alcanza: hay {num(hay)} {producto.unidad}.</small>}
-      </div>
+      <LineasMateriales id="inv-tel-traslado" productos={productos} lineas={lineas} setLineas={setLineas} />
       <div className="surt-campo">
         <label htmlFor="inv-tel-traslado-motivo">Motivo</label>
         <input id="inv-tel-traslado-motivo" className="input surt-input" value={motivo} onChange={(e) => setMotivo(e.target.value)}
           placeholder="Para qué se lleva, quién lo lleva…" autoComplete="off" />
       </div>
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={!destino || !(cant > 0) || cant > hay}>
-        🔁 Revisar traslado
+      <button type="submit" className="btn btn-primary surt-guardar" disabled={!destino || !!malLineas}>
+        🔁 Revisar traslado{lineas.length > 1 ? ` (${lineas.length} materiales)` : ''}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel}>← Otro material</button>
     </form>

@@ -19,7 +19,7 @@
 import type { OpcionesOrdenPdf } from '@/modules/salidas/salidaPdf';
 import type { ItemSolicitudSalida, SolicitudSalida } from '@/shared/lib/types';
 import {
-  fechaHoraVE, filaHistoricoSalida, filtrarSalidas, mensajeSalida, mensajeTraslado, num, textoRetorno, type SalidaTelefono,
+  fechaHoraVE, filaHistoricoSalida, filtrarSalidas, mensajeSalidaLote, mensajeTraslado, num, textoRetorno, type SalidaTelefono,
 } from './inventarioTelefono';
 import { nombreAlmacenVisible } from './sectorizacion';
 
@@ -77,7 +77,8 @@ export function esDelUsuario(
 /* ── Histórico de salidas ── */
 
 export type FilaSalida =
-  | { origen: 'telefono'; id: string; at: string; salida: SalidaTelefono }
+  /** `grupo`: los materiales de esa salida (mismo N° SAT, 04-11-2026); `salida` es el primero. */
+  | { origen: 'telefono'; id: string; at: string; salida: SalidaTelefono; grupo: SalidaTelefono[] }
   | { origen: 'modulo'; id: string; at: string; sol: SolicitudSalida };
 
 /**
@@ -89,12 +90,22 @@ export function mezclarSalidas(
   telefono: SalidaTelefono[], modulo: SolicitudSalida[], almacen: string, email: string | null,
 ): FilaSalida[] {
   const filas: FilaSalida[] = [
-    ...telefono.filter((s) => s.almacen === almacen && esDelUsuario(s, email))
-      .map((s): FilaSalida => ({ origen: 'telefono', id: `t:${s.id}`, at: s.created_at, salida: s })),
+    ...agruparPorCodigo(telefono.filter((s) => s.almacen === almacen && esDelUsuario(s, email)))
+      .map((g): FilaSalida => ({ origen: 'telefono', id: `t:${g[0].id}`, at: g[0].created_at, salida: g[0], grupo: g })),
     ...modulo.filter((s) => s.scope === 'salida' && movioStock(s) && tocaAlmacen(s, almacen) && esDelUsuario(s, email))
       .map((s): FilaSalida => ({ origen: 'modulo', id: `m:${s.id}`, at: s.created_at, sol: s })),
   ];
   return filas.sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : a.id.localeCompare(b.id)));
+}
+
+/** Junta las salidas del teléfono que comparten N° SAT (una salida con varios materiales). */
+export function agruparPorCodigo(ss: SalidaTelefono[]): SalidaTelefono[][] {
+  const m = new Map<string, SalidaTelefono[]>();
+  for (const s of ss) {
+    const g = m.get(s.codigo);
+    if (g) g.push(s); else m.set(s.codigo, [s]);
+  }
+  return [...m.values()].map((g) => [...g].sort((a, b) => a.created_at.localeCompare(b.created_at)));
 }
 
 /** Lo que se busca de una salida del módulo: N°, materiales, motivo, destino, quién. */
@@ -111,7 +122,7 @@ export function buscarFilasSalida(filas: FilaSalida[], busca: string): FilaSalid
   const q = sinAcentos(busca.trim());
   if (!q) return filas;
   return filas.filter((f) => (f.origen === 'telefono'
-    ? filtrarSalidas([f.salida], busca).length > 0
+    ? filtrarSalidas(f.grupo, busca).length > 0
     : sinAcentos(textoBuscableSolicitud(f.sol, f.at)).includes(q)));
 }
 
@@ -132,6 +143,12 @@ export function numeroDeSolicitud(sol: Pick<SolicitudSalida, 'codigo' | 'num_usu
 export function vistaFilaSalida(f: FilaSalida, registro?: string | null): VistaFila {
   if (f.origen === 'telefono') {
     const v = filaHistoricoSalida(f.salida, registro);
+    if (f.grupo.length > 1) {
+      return {
+        titulo: `${f.salida.producto_nombre} y ${f.grupo.length - 1} más`, cantidad: `${f.grupo.length} materiales`,
+        lineas: v.lineas, estado: v.retorno, origen: ETIQUETA_ORIGEN.telefono,
+      };
+    }
     return { titulo: v.titulo, cantidad: v.cantidad, lineas: v.lineas, estado: v.retorno, origen: ETIQUETA_ORIGEN.telefono };
   }
   const sol = f.sol;
@@ -185,7 +202,7 @@ export function mensajeSalidaModulo(sol: SolicitudSalida, quien?: string | null)
 
 /** El mensaje de una fila del histórico de salidas (el mismo de cuando se registró). */
 export function mensajeFilaSalida(f: FilaSalida, quien: string): string {
-  return f.origen === 'telefono' ? mensajeSalida(f.salida, quien) : mensajeSalidaModulo(f.sol, quien);
+  return f.origen === 'telefono' ? mensajeSalidaLote(f.grupo, quien) : mensajeSalidaModulo(f.sol, quien);
 }
 
 /* ── La ORDEN DE SALIDA del módulo para una salida del teléfono ── */
@@ -217,6 +234,50 @@ export function ordenDeSalidaTelefono(s: SalidaTelefono, quien: string, precio: 
         ...(s.fotos.length ? [`Fotos: ${s.fotos.length}`] : []),
         'Registrada desde la vista de teléfono de Inventario y Almacenes.',
       ],
+    },
+  };
+}
+
+/**
+ * La ORDEN DE SALIDA de una salida del teléfono con VARIOS materiales (04-11-2026): un
+ * renglón por material, con el costo de cada uno. Con uno solo, la de siempre.
+ */
+export function ordenDeSalidaTelefonoLote(ss: SalidaTelefono[], quien: string, precios: (number | null)[]): OrdenParaPdf {
+  const base = ordenDeSalidaTelefono(ss[0], quien, precios[0] ?? null);
+  if (ss.length <= 1) return base;
+  const almacen = nombreAlmacenVisible(ss[0].almacen);
+  return {
+    sol: {
+      ...base.sol,
+      producto_nombre: `${ss[0].producto_nombre} y ${ss.length - 1} más`,
+      items: ss.map((s, i) => {
+        const p = precios[i] && (precios[i] as number) > 0 ? precios[i] : null;
+        return { producto_id: s.producto_id, producto_nombre: s.producto_nombre, cantidad: s.cantidad, precio_unit: p, unidad: s.unidad, almacen };
+      }),
+    },
+    opciones: base.opciones,
+  };
+}
+
+/** La ORDEN DE TRASLADO de un traslado del teléfono con varios materiales, armada al hacerlo. */
+export function ordenDeTrasladoTelefonoLote(d: {
+  origen: string; destino: string; motivo: string; quien: string; actor: string; actorName: string | null; at: string;
+  lineas: { producto_id: string; nombre: string; unidad: string | null; cantidad: number; precio: number | null }[];
+}): OrdenParaPdf {
+  const origen = nombreAlmacenVisible(d.origen);
+  const ref = `TT-${d.at.replace(/\D/g, '').slice(2, 12)}`;
+  return {
+    sol: {
+      id: ref, codigo: ref, num_usuario: null, scope: 'traslado', tipo: 'material', estado: 'ejecutada',
+      producto_id: d.lineas[0]?.producto_id ?? null, producto_nombre: d.lineas.length > 1 ? `${d.lineas[0].nombre} y ${d.lineas.length - 1} más` : (d.lineas[0]?.nombre ?? ''),
+      almacen_origen: origen, almacen_destino: nombreAlmacenVisible(d.destino), cantidad: d.lineas[0]?.cantidad ?? 0, precio_unit: d.lineas[0]?.precio ?? null,
+      items: d.lineas.map((l) => ({ producto_id: l.producto_id, producto_nombre: l.nombre, cantidad: l.cantidad, precio_unit: l.precio, unidad: l.unidad, almacen: origen })),
+      solicitante: d.quien, motivo: d.motivo || null, historial: [], aprobada_por: null,
+      actor: d.actor, actor_name: d.actorName ?? d.quien, created_at: d.at, ejecutada_en: d.at, mov_ref: 'traslado_telefono',
+    },
+    opciones: {
+      autorizadoPor: 'No requiere (traslado directo desde el teléfono)',
+      notas: ['Registrado desde la vista de teléfono de Inventario y Almacenes.'],
     },
   };
 }

@@ -210,6 +210,51 @@ export function mensajeSalida(s: SalidaTelefono, quien?: string | null): string 
   return l.join('\n');
 }
 
+/**
+ * El aviso de una salida con varios materiales (04-11-2026): un solo N° y la lista.
+ * Con uno solo es el aviso de siempre.
+ */
+export function mensajeSalidaLote(ss: SalidaTelefono[], quien?: string | null): string {
+  if (ss.length <= 1) return ss[0] ? mensajeSalida(ss[0], quien) : '';
+  const s = ss[0];
+  const l = [
+    '📤 *SALIDA DE ALMACÉN*',
+    `🔖 *N°:* ${s.codigo}`,
+    `🏬 *Almacén:* ${nombreAlmacenVisible(s.almacen)}`,
+    '',
+    `📦 *Materiales (${ss.length}):*`,
+    ...ss.map((x) => `• ${x.producto_nombre}: ${conUnidad(x.cantidad, x.unidad)}`),
+    `📝 *Motivo:* ${s.motivo}`,
+  ];
+  if (s.autorizado_por) l.push(`✅ *Autorizado por:* ${s.autorizado_por}`);
+  l.push(s.retorna ? '🔄 *Retorna:* SÍ' : '❌ *Retorna:* NO');
+  if (s.fotos.length) l.push(`📷 *Fotos:* ${s.fotos.length}`);
+  l.push(...pie(s.almacen, quien ?? s.actor_name ?? s.actor, s.created_at));
+  return l.join('\n');
+}
+
+/** El aviso de un traslado con varios materiales (04-11-2026). Con uno solo, el de siempre. */
+export function mensajeTrasladoLote(d: {
+  origen: string; destino: string; lineas: { nombre: string; sku?: string | null; unidad?: string | null; cantidad: number }[];
+  motivo: string; quien?: string | null; cuando?: string | null;
+}): string {
+  if (d.lineas.length === 1) {
+    const x = d.lineas[0];
+    return mensajeTraslado({ origen: d.origen, destino: d.destino, nombre: x.nombre, sku: x.sku, unidad: x.unidad, cantidad: x.cantidad, motivo: d.motivo, quien: d.quien, cuando: d.cuando });
+  }
+  const l = [
+    '🔁 *TRASLADO ENTRE ALMACENES*',
+    `🏬 *De:* ${nombreAlmacenVisible(d.origen)}`,
+    `🏬 *A:* ${nombreAlmacenVisible(d.destino)}`,
+    '',
+    `📦 *Materiales (${d.lineas.length}):*`,
+    ...d.lineas.map((x) => `• ${x.nombre}${x.sku ? ` (${x.sku})` : ''}: ${conUnidad(x.cantidad, x.unidad)}`),
+    `📝 *Motivo:* ${d.motivo.trim()}`,
+  ];
+  l.push(...pie(d.origen, d.quien, d.cuando));
+  return l.join('\n');
+}
+
 /** El aviso de un retorno (total o parcial). `s` es la salida YA actualizada. */
 export function mensajeRetorno(s: SalidaTelefono, cantidad: number, nota?: string | null, quien?: string | null, cuando?: string | null): string {
   const falta = pendienteRetorno(s);
