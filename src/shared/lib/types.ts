@@ -728,6 +728,11 @@ export interface Proveedor {
   /** Actividad económica escrita a mano en la cotización (opcional, texto libre) mientras
    *  no haya catálogo definitivo; `actividad_economica` (CIIU) sigue siendo el código. */
   actividad_economica_texto?: string | null;
+  /** Dónde queda en el mapa (03-11-2026, Delivery): ambos o ninguno. */
+  lat?: number | null;
+  lng?: number | null;
+  ubicado_en?: string | null;
+  ubicado_por?: string | null;
   categorias: string[];
   origen: OrigenProveedor;
   estado: EstadoGenerico;

@@ -21,6 +21,8 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { RUTA_TELEFONO } from '@/modules/auth/vistasTelefono';
 import { DESTINOS_RECEPCION, nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { PanelRutaMovil, metrosAlPedido, useMiPosicion } from './RutaDeliveryMovil';
+import { ordenarLibresPorCercania, type Punto } from './deliveryRutas';
 import { useQuien } from '@/shared/lib/directorioUsuarios';
 import { toast } from '@/shared/ui/Toast';
 import { Modal } from '@/shared/ui/Modal';
@@ -33,7 +35,7 @@ import {
   claveDe, esRetiro, mensajeEnRuta, mensajeEntregado, mensajeNoDisponible, montoTxt, ocDe, type FotoDelivery, type PedidoDelivery,
 } from './delivery';
 import {
-  cancelarPedido, compartirUbicacion, marcarNoDisponible, recibirOcEntregada, comprobantePagoDelivery, listPedidosDelivery, marcarEnRuta, marcarEntregado,
+  cancelarPedido, compartirUbicacion, listProveedoresUbicacion, puntosDeProveedores, useDestinosDelivery, marcarNoDisponible, recibirOcEntregada, comprobantePagoDelivery, listPedidosDelivery, marcarEnRuta, marcarEntregado,
   quitarFotoDelivery, subirFotosDelivery, tomarPedido, urlFotoDelivery, useDeliveryConectado, type ComprobantePagoDelivery,
 } from './delivery.repository';
 import {
@@ -109,7 +111,21 @@ export function DeliveryMovilView() {
   useRealtime(['delivery_pedidos', 'ordenes'], () => { void reload().catch(() => {}); });
 
 
-  const feed = useMemo(() => armarFeed(activos, cerrados), [activos, cerrados]);
+  // 03-11-2026 (tipo Yummy / Ridery): mi posición, los proveedores ubicados y los almacenes,
+  // para el proveedor más cercano, el orden por cercanía y la ruta del pedido en curso.
+  const gps = useMiPosicion();
+  const [destinos] = useDestinosDelivery();
+  const [provPts, setProvPts] = useState<Map<string, Punto>>(new Map());
+  const idsProv = useMemo(() => [...new Set([...activos, ...cerrados].map((x) => x.proveedor_id).filter((x): x is string => !!x))].sort().join(','), [activos, cerrados]);
+  const cargarProv = useCallback(() => {
+    if (!idsProv) { setProvPts(new Map()); return; }
+    listProveedoresUbicacion(idsProv.split(',')).then((ps) => setProvPts(puntosDeProveedores(ps))).catch(() => { /* sin ubicaciones */ });
+  }, [idsProv]);
+  useEffect(() => { cargarProv(); }, [cargarProv]);
+
+  const feedBase = useMemo(() => armarFeed(activos, cerrados), [activos, cerrados]);
+  const feed = useMemo(() => ordenarLibresPorCercania(feedBase, (x) => metrosAlPedido(gps.yo, x, provPts, destinos)), [feedBase, gps.yo, provPts, destinos]);
+  const libres = useMemo(() => feed.filter((f) => f.disponible).map((f) => f.p), [feed]);
   const visibles = useMemo(() => feed.filter((f) => enChip(f, chip)), [feed, chip]);
   const cuenta = useMemo(() => Object.fromEntries(CHIPS.map((c) => [c.key, feed.filter((f) => enChip(f, c.key)).length])) as Record<ChipDelivery, number>, [feed]);
   const enCurso = trabajoEnCurso(feed);
@@ -217,6 +233,8 @@ export function DeliveryMovilView() {
 
       {enPantallaPrincipal && (
         <>
+          <PanelRutaMovil yo={gps.yo} gpsError={gps.error} libres={libres} enCurso={enCurso} provPts={provPts}
+            destinos={destinos} canWrite={canWrite} onUbicado={cargarProv} />
           <div className="dlv-chips" role="tablist" aria-label="Filtrar pedidos">
             {CHIPS.map((c) => (
               <button key={c.key} type="button" role="tab" aria-selected={chip === c.key}
@@ -709,7 +727,8 @@ function CompartirUbicacion({ pedido }: { pedido: PedidoDelivery | null }) {
   const [quiere, setQuiere] = useState(leerGps);
   const [enviado, setEnviado] = useState<{ t: number; precision: number | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const activo = quiere && !!pedido;
+  // 03-11-2026: se comparte también sin pedido en curso (la PC ve a todos los delivery en el mapa).
+  const activo = quiere;
 
   const pedidoId = useRef<string | null>(null);
   useEffect(() => { pedidoId.current = pedido?.pedido_id ?? null; }, [pedido?.pedido_id]);
@@ -756,8 +775,8 @@ function CompartirUbicacion({ pedido }: { pedido: PedidoDelivery | null }) {
         <div>
           <strong>📍 Compartir mi ubicación</strong>
           <div className="muted" style={{ fontSize: '.8rem' }}>
-            {!pedido ? 'Se comparte solo mientras tienes un pedido aceptado o en ruta.'
-              : activo ? `Compartiendo con la oficina · ${ocDe(pedido)}` : 'Apagada: la oficina no ve dónde vas.'}
+            {activo ? (pedido ? `Compartiendo con la oficina · ${ocDe(pedido)}` : 'Compartiendo con la oficina (sin pedido en curso)')
+              : 'Apagada: la oficina no ve dónde estás.'}
           </div>
         </div>
         <button type="button" role="switch" aria-checked={quiere} aria-label="Compartir mi ubicación"

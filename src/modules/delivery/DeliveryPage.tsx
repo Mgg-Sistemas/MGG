@@ -28,7 +28,7 @@ import {
 } from './delivery';
 import {
   cancelarPedido, comprobantePagoDelivery, listHistorialDelivery, listPedidosDelivery, quitarFotoDelivery, subirFotosDelivery,
-  urlFotoDelivery, useDeliveryConectado,
+  urlFotoDelivery, useDeliveryConectado, useDestinosDelivery,
   type ComprobantePagoDelivery,
 } from './delivery.repository';
 import {
@@ -36,6 +36,9 @@ import {
   rangoDeliveryActivo, repartidoresDe, resumenHistorial, sePuedeCancelar, totalesResumen, type FilaHistorialDelivery,
 } from './deliveryPanel';
 import { DeliveryMapa } from './DeliveryMapa';
+import { UbicarProveedoresModal } from './UbicarProveedoresModal';
+import { DetalleDeliveryModal } from './DetalleDeliveryModal';
+import type { DestinosDelivery } from './deliveryRutas';
 import { pdfComprobanteDelivery, pdfHistorialDelivery, pdfListaDelivery, pdfPorDelivery } from './deliveryPdf';
 import { mensajeHistorialDelivery, mensajeListaDelivery, mensajePorDelivery, mensajeReporteDelivery } from './deliveryReporte';
 
@@ -64,6 +67,10 @@ export function DeliveryPage() {
   const supervisor = isAdmin || can('delivery', 'full');
   const tieneTelefono = vistasTelefono.some((v) => v.key === 'delivery');
   const [vista, setVista] = useState<Vista>('tablero');
+  // 03-11-2026: proveedores y almacenes en el mapa (rutas tipo Yummy / Ridery).
+  const puedeUbicar = isAdmin || can('proveedores', 'escritura') || can('delivery', 'full');
+  const [destinos, setDestinos] = useDestinosDelivery();
+  const [ubicar, setUbicar] = useState(false);
 
   /* ── Tablero: pedidos actuales (y cerrados si se piden) + lo de hoy ── */
   const hoy = useMemo(hoyVenezuela, []);
@@ -156,12 +163,16 @@ export function DeliveryPage() {
         <TableroTab pedidos={pedidos} deHoy={deHoy} cargando={cargando} supervisor={supervisor}
           verCerrados={verCerrados} setVerCerrados={setVerCerrados} onCambio={() => void recargarTablero()} />
       )}
-      {vista === 'mapa' && <DeliveryMapa pedidos={pedidos} />}
+      {vista === 'mapa' && <DeliveryMapa pedidos={pedidos} destinos={destinos} onUbicar={puedeUbicar ? () => setUbicar(true) : undefined} />}
+      {ubicar && (
+        <UbicarProveedoresModal pedidos={pedidos} destinos={destinos} onDestinos={setDestinos}
+          puedeAlmacenes={supervisor} onClose={() => setUbicar(false)} />
+      )}
       {enHistorico && (
         <BarraRango hoy={hoy} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} cargando={cargandoHist} />
       )}
       {vista === 'historico' && <HistoricoTab filas={historial} desde={desde} hasta={hasta} />}
-      {vista === 'por_delivery' && <PorDeliveryTab filas={historial} desde={desde} hasta={hasta} />}
+      {vista === 'por_delivery' && <PorDeliveryTab filas={historial} desde={desde} hasta={hasta} destinos={destinos} />}
     </div>
   );
 }
@@ -605,8 +616,12 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
 
 /* ───────────── Por delivery ───────────── */
 
-function PorDeliveryTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[]; desde: string; hasta: string }) {
+function PorDeliveryTab({ filas, desde, hasta, destinos }: {
+  filas: FilaHistorialDelivery[]; desde: string; hasta: string; destinos: DestinosDelivery;
+}) {
   const resumen = useMemo(() => resumenHistorial(filas), [filas]);
+  // 03-11-2026: al tocar un delivery se abre su detalle (pedidos, tiempos y la ruta en el mapa).
+  const [detalle, setDetalle] = useState<string | null>(null);
   const t = totalesResumen(resumen);
   const [generando, setGenerando] = useState<string | null>(null);
   const [whatsapp, setWhatsapp] = useState<string | null>(null);
@@ -629,6 +644,10 @@ function PorDeliveryTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[
         </button>
       </div>
       {whatsapp && <MensajeWhatsappModal titulo="Pedidos por delivery" texto={whatsapp} onClose={() => setWhatsapp(null)} />}
+      {detalle && (
+        <DetalleDeliveryModal repartidor={detalle} filas={filtrarPorRepartidor(filas, detalle)}
+          desde={desde} hasta={hasta} destinos={destinos} onClose={() => setDetalle(null)} />
+      )}
       {!resumen.length ? <p className="muted" style={{ margin: '.4rem 0' }}>Ningún delivery tomó pedidos en ese rango.</p> : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.88rem' }}>
@@ -640,8 +659,9 @@ function PorDeliveryTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[
             </thead>
             <tbody>
               {resumen.map((r) => (
-                <tr key={r.repartidor}>
-                  <td><strong>{r.repartidor}</strong></td>
+                <tr key={r.repartidor} onClick={() => setDetalle(r.repartidor)} style={{ cursor: 'pointer' }}
+                  title="Ver sus pedidos, tiempos y la ruta en el mapa">
+                  <td><strong>{r.repartidor}</strong> <span className="muted" style={{ fontSize: '.78rem' }}>· ver detalle y ruta</span></td>
                   <td style={{ textAlign: 'right' }}>{r.entregados}</td>
                   <td style={{ textAlign: 'right' }}>{r.cancelados}</td>
                   <td style={{ textAlign: 'right' }}>{r.enCurso}</td>

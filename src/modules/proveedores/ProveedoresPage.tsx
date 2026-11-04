@@ -29,6 +29,7 @@ import { mismaTaxonomia } from '@/shared/lib/taxonomias';
 import { useSession } from '@/modules/auth/authStore';
 import { textoFiltros } from './proveedoresReporte';
 import { ExportarProveedoresModal } from './ExportarProveedoresModal';
+import { MapaSelector, type PuntoMapa } from '@/shared/ui/MapaSelector';
 
 type EstadoFilter = '' | EstadoGenerico;
 type CategoriaFilter = string;
@@ -448,6 +449,12 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
   });
   const [categorias, setCategorias] = useState<string[]>([]);
   const [nuevaCat, setNuevaCat] = useState('');
+  // Ubicación en el mapa (03-11-2026, Delivery). Solo viaja en el guardado si se cambió.
+  const { user } = useSession();
+  const [ubic, setUbic] = useState<PuntoMapa | null>(() =>
+    initial?.lat != null && initial?.lng != null ? { lat: Number(initial.lat), lng: Number(initial.lng) } : null);
+  const [ubicCambio, setUbicCambio] = useState(false);
+  const [abrirMapa, setAbrirMapa] = useState(false);
   useEffect(() => {
     let cancelled = false;
     getCategorias(proveedores)
@@ -525,6 +532,12 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
       actividad_economica: form.actividad_economica || null,
       numero_administracion: form.numero_administracion?.trim() || null,
       actividad_economica_texto: form.actividad_economica_texto?.trim().toUpperCase() || null,
+      ...(ubicCambio ? {
+        lat: ubic?.lat ?? null,
+        lng: ubic?.lng ?? null,
+        ubicado_en: ubic ? new Date().toISOString() : null,
+        ubicado_por: ubic ? (user?.email ?? null) : null,
+      } : {}),
     };
     if (!payload.rif || !payload.razon_social) {
       toast('RIF (con número) y razón social son obligatorios', 'error');
@@ -631,6 +644,28 @@ function ProveedorFormModal({ initial, isEdit, proveedores, onCancel, onSubmit }
             onChange={(e) => update('direccion', e.target.value.toUpperCase())}
           />
         </div>
+
+        <div className="form-row">
+          <label>📍 Ubicación en el mapa <span className="muted" style={{ fontWeight: 400 }}>(para la ruta de Delivery)</span></label>
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={() => setAbrirMapa(true)}>
+              {ubic ? '📍 Cambiar en el mapa' : '📍 Marcar en el mapa'}
+            </button>
+            {ubic
+              ? <span className="mono muted" style={{ fontSize: '.8rem' }}>{ubic.lat.toFixed(6)}, {ubic.lng.toFixed(6)}{ubicCambio ? ' · sin guardar' : ''}</span>
+              : <span className="muted" style={{ fontSize: '.8rem' }}>Sin ubicar: el delivery no ve la ruta ni la distancia a este proveedor.</span>}
+          </div>
+        </div>
+        {abrirMapa && (
+          <MapaSelector
+            titulo={`📍 Ubicar · ${form.razon_social || 'proveedor'}`}
+            subtitulo={form.direccion ? `Dirección: ${form.direccion}` : undefined}
+            inicial={ubic}
+            permitirQuitar
+            onCerrar={() => setAbrirMapa(false)}
+            onGuardar={(p) => { setUbic(p); setUbicCambio(true); setAbrirMapa(false); }}
+          />
+        )}
 
         <div className="form-row">
           <label>📞 Teléfono de administración <span className="muted" style={{ fontWeight: 400 }}>(de la administración del proveedor)</span></label>
@@ -755,6 +790,12 @@ function ProveedorDetailModal({ proveedor, onClose }: DetailModalProps) {
         <DetailRow label="Teléfono" value={proveedor.telefono || '—'} />
         <DetailRow label="Correo" value={proveedor.email || '—'} />
         <DetailRow label="Dirección" value={proveedor.direccion || '—'} />
+        <DetailRow
+          label="📍 En el mapa"
+          value={proveedor.lat != null && proveedor.lng != null
+            ? <a href={`https://www.google.com/maps/search/?api=1&query=${proveedor.lat},${proveedor.lng}`} target="_blank" rel="noopener noreferrer">Ver en Google Maps</a>
+            : <span className="muted">Sin ubicar</span>}
+        />
         <DetailRow label="📞 Tel. administración" value={proveedor.numero_administracion ? <span className="mono">{proveedor.numero_administracion}</span> : '—'} />
         <DetailRow label="Origen" value={proveedor.origen === 'internacional' ? '🌎 Internacional' : '🇻🇪 Nacional'} />
         <DetailRow
