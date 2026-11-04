@@ -42,3 +42,6 @@ end $$;
 
 select (select relrowsecurity from pg_class where oid = 'public.rrhh_cambios_cargo'::regclass) as rls,
        (select count(*) from public.rrhh_cambios_cargo) as filas;
+
+-- 04-11-2026 (como en GT): nota opcional del cambio.
+alter table public.rrhh_cambios_cargo add column if not exists nota text;

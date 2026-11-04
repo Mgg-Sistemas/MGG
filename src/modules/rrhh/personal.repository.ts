@@ -658,6 +658,38 @@ export async function listCambiosCargo(personalId?: string): Promise<CambioCargo
   return ordenarCambiosCargo(filas);
 }
 
+/**
+ * Cambia el cargo de una persona (04-11-2026, como en GT: «🧭 Cambiar cargo»): actualiza
+ * la ficha y anota el cambio con su fecha y motivo. El cargo anterior se lee de la BASE.
+ */
+export async function cambiarCargoPersona(d: {
+  personalId: string; cargoNuevo: string; departamentoNuevo?: string | null; fecha: string; motivo: string;
+  nota?: string | null; actor: string | null; actorName: string | null;
+}): Promise<CambioCargo> {
+  const { data: actual, error: e1 } = await supabase.from(TABLE).select('cargo, departamento').eq('id', d.personalId).maybeSingle();
+  if (e1) throw e1;
+  const cargoAntes = (actual as { cargo?: string | null } | null)?.cargo ?? null;
+  const depAntes = (actual as { departamento?: string | null } | null)?.departamento ?? null;
+  const cargoNuevo = d.cargoNuevo.trim().toUpperCase();
+  const depNuevo = d.departamentoNuevo?.trim() ? d.departamentoNuevo.trim().toUpperCase() : depAntes;
+  const falla = errorCambioCargo({ cargoNuevo, fecha: d.fecha, motivo: d.motivo, hoy: new Date().toISOString().slice(0, 10) });
+  if (falla) throw new Error(falla);
+  if (!huboCambioCargo(cargoAntes, cargoNuevo) && (depNuevo ?? '') === (depAntes ?? '')) throw new Error('El cargo nuevo es el mismo que tiene hoy.');
+  const { data: upd, error: e2 } = await supabase.from(TABLE).update({ cargo: cargoNuevo, departamento: depNuevo }).eq('id', d.personalId).select('id');
+  if (e2) throw e2;
+  if (!upd?.length) throw new Error('No se pudo cambiar el cargo: no tienes permiso de escritura en RRHH.');
+  return registrarCambioCargo({
+    personal_id: d.personalId, cargo_anterior: cargoAntes, cargo_nuevo: cargoNuevo, departamento_anterior: depAntes, departamento_nuevo: depNuevo,
+    fecha: d.fecha, motivo: d.motivo.trim(), nota: d.nota?.trim() || null, origen: 'ficha', actor: d.actor, actor_name: d.actorName,
+  });
+}
+
+/** Borra un renglón del histórico (no cambia el cargo de hoy). */
+export async function borrarCambioCargo(id: string): Promise<void> {
+  const { error } = await supabase.from('rrhh_cambios_cargo').delete().eq('id', id);
+  if (error) throw error;
+}
+
 /** Anota un cambio de cargo (desde la ficha o cargado a mano como histórico). */
 export async function registrarCambioCargo(c: Omit<CambioCargo, 'id' | 'created_at'>): Promise<CambioCargo> {
   const { data, error } = await supabase.from('rrhh_cambios_cargo').insert(c).select('*').single();

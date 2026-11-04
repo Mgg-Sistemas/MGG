@@ -70,6 +70,7 @@ import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import { infoTipo, leerCuentas, textoCuenta } from './datosBancarios';
 import { errorCambioCargo, huboCambioCargo } from './cambiosCargo';
 import { HistoricoCargos, HistoricoCargosTodos } from './HistoricoCargos';
+import { HistorialCargoModal } from './HistorialCargoModal';
 import { DatosBancariosPersona } from './DatosBancariosPersona';
 
 const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', carnet_vence: CARNET_VENCE_POR_DEFECTO, telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', grados_instruccion: [], titulo_obtenido: '', trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '', trabajo_anterior_sueldo: 0, trabajo_anterior_moneda: 'USD', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
@@ -297,6 +298,8 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   const [error, setError] = useState<string | null>(null);
   const [histPersona, setHistPersona] = useState<Personal | null>(null);
   const [sueldoPersona, setSueldoPersona] = useState<Personal | null>(null);
+  // 04-11-2026 (como en GT): 🧭 Histórico de cargos y «Cambiar cargo».
+  const [cargoPersona, setCargoPersona] = useState<Personal | null>(null);
   const [docsPersona, setDocsPersona] = useState<Personal | null>(null);
   // Los papeles de todo el personal, para poder marcar en el listado quién los
   // tiene completos sin pedir uno por uno.
@@ -994,6 +997,8 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                   <button className="btn btn-sm btn-ghost" onClick={() => setConstanciaPersona(p)} title="Constancia de trabajo (PDF)">📄</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setHistPersona(p)} title="Histórico de pagos">🧾</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setSueldoPersona(p)} title="Historial de sueldos: cuándo cambió y por qué">💵</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setCargoPersona(p)}
+                    title="Histórico de cargos: de cuál a cuál, la fecha del cambio y el motivo (con PDF)">🧭</button>
                   <button className="btn btn-sm btn-ghost" onClick={() => setDocsPersona(p)} title="Documentación: cédula, RIF y currículum">📁</button>
                   {canWrite && <>
                     <button className="btn btn-sm btn-ghost" onClick={() => editar(p)} title="Editar">✎</button>
@@ -1129,10 +1134,28 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                 )}
                 {editId && <small className="hint muted">Quedan en un depósito privado: se abren con un enlace temporal, no con una dirección pública.</small>}
               </div>
-              <ComboConAgregar
-                label="Cargo" valor={form.cargo ?? ''} opciones={cargos}
-                onChange={(v) => setForm((f) => ({ ...f, cargo: v }))}
-                hint="Elegí de la lista o agregá uno nuevo (queda guardado)." />
+              {editId ? (
+                /* 04-11-2026 (como en GT): en una ficha que ya existe el cargo se cambia desde 🧭,
+                   con fecha y motivo, y queda en el histórico de cargos (como el sueldo). */
+                <div className="form-row">
+                  <label>Cargo</label>
+                  <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <input className="input" readOnly tabIndex={-1} value={form.cargo ?? ''} style={{ maxWidth: 240, opacity: .75 }} />
+                    {canWrite && (
+                      <button type="button" className="btn btn-sm btn-ghost"
+                        onClick={() => { const pe = lista.find((x) => x.id === editId); if (pe) { cerrarForm(); setCargoPersona(pe); } }}>
+                        🧭 Cambiar cargo
+                      </button>
+                    )}
+                  </div>
+                  <small className="muted">Se cambia desde 🧭, con fecha y motivo, y queda en el histórico de cargos.</small>
+                </div>
+              ) : (
+                <ComboConAgregar
+                  label="Cargo" valor={form.cargo ?? ''} opciones={cargos}
+                  onChange={(v) => setForm((f) => ({ ...f, cargo: v }))}
+                  hint="Elegí de la lista o agregá uno nuevo (queda guardado)." />
+              )}
               {cambiaCargo && (
                 <div className="card" style={{ margin: '.2rem 0 .6rem', padding: '.6rem .75rem', borderColor: 'var(--brand, #ff8a00)' }}>
                   <div style={{ fontWeight: 700, marginBottom: '.35rem' }}>🔁 Cambio de cargo: {cargoOriginal || '—'} → {form.cargo}</div>
@@ -1498,6 +1521,10 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
       )}
 
       {histPersona && <HistoricoPersonaModal persona={histPersona} onClose={() => setHistPersona(null)} />}
+      {cargoPersona && (
+        <HistorialCargoModal persona={cargoPersona} canWrite={canWrite} isAdmin={isAdmin} cargos={cargos} departamentos={departamentos}
+          actor={actor} actorName={actorName ?? null} onClose={() => setCargoPersona(null)} onCambio={() => { void recargar(); }} />
+      )}
       {sueldoPersona && <HistorialSueldoModal persona={sueldoPersona} canWrite={canWrite} isAdmin={isAdmin} actor={actor} actorName={actorName ?? null} onClose={() => setSueldoPersona(null)} />}
       {transferir && (
         <TransferirEmpresaModal persona={transferir} empresas={empresas} actor={actor} actorName={actorName ?? null}

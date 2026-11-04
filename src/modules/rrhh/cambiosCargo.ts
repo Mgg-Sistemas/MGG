@@ -20,6 +20,7 @@ export interface CambioCargo {
   origen: 'ficha' | 'historico';
   actor: string | null;
   actor_name: string | null;
+  nota?: string | null;
   created_at: string;
 }
 
@@ -66,4 +67,20 @@ export function celdasCambioCargo(f: FilaReporteCargo): string[] {
     ? `${c.departamento_anterior?.trim() || '—'} → ${c.departamento_nuevo?.trim() || '—'}` : (c.departamento_nuevo?.trim() || '—');
   return [fechaCorta(c.fecha), f.persona, f.cedula || '—', c.cargo_anterior?.trim() || '—', c.cargo_nuevo, dep, c.motivo,
     f.registro + (c.origen === 'historico' ? ' (histórico)' : '')];
+}
+
+/** Motivos para elegir (como en GT); «Otro» pide escribirlo. */
+export const MOTIVOS_CARGO = [
+  'Ascenso',
+  'Promoción interna',
+  'Reasignación de área',
+  'Cambio por necesidad operativa',
+  'Fin de período de prueba',
+  'Corrección de datos',
+  'Otro',
+] as const;
+
+/** El motivo que se guarda: el elegido o, con «Otro», lo escrito. */
+export function motivoCargoFinal(motivo: string, otro: string): string {
+  return motivo === 'Otro' ? otro.trim() : motivo;
 }
