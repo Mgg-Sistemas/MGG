@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { AvisoReloj } from '@/shared/ui/AvisoReloj';
 import { signIn, signOutLocal } from './authStore';
 import { isSupabaseConfigured, supabase } from '@/shared/lib/supabase';
 import { verificarSesionAlAbrir } from './entradaAlLogin';
@@ -115,6 +116,8 @@ export function LoginPage() {
       </aside>
 
       <div className="login-form-wrap">
+        {/* 05-11-2026: con la hora del equipo mal la sesión se cae apenas se entra. */}
+        <AvisoReloj style={{ maxWidth: 440, width: '100%' }} />
         {verificando ? (
           <div className="login-form" style={{ display: 'grid', placeItems: 'center', minHeight: '12rem' }}>
             <span className="muted">Verificando tu sesión…</span>

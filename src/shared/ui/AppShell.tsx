@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { AvisoReloj } from './AvisoReloj';
 import { signOut, useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
@@ -564,6 +565,7 @@ export function AppShell() {
       <AvisoSalidaModulo />
 
       <main className="main">
+        <AvisoReloj />
         <Outlet />
       </main>
 
