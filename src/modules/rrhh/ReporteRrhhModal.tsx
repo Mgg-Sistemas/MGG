@@ -124,6 +124,7 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
   // Datos en memoria
   const [cargando, setCargando] = useState(true);
   const [generando, setGenerando] = useState<'excel' | 'pdf' | 'csv' | null>(null);
+  const [mostrarWhatsapp, setMostrarWhatsapp] = useState(false);
   const [personal, setPersonal] = useState<Personal[]>(personalInicial ?? []);
   const [cambiosSueldo, setCambiosSueldo] = useState<CambioSueldoRegistro[]>([]);
   const [historialTabulador, setHistorialTabulador] = useState<HistorialTabulador[]>([]);
@@ -358,7 +359,26 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
             <button className="btn btn-ghost" onClick={onClose} disabled={!!generando}>
               Cerrar
             </button>
-            <CompartirWhatsapp texto={textoWa} />
+            <button
+              type="button"
+              className={`btn ${mostrarWhatsapp ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => {
+                setMostrarWhatsapp((prev) => {
+                  const next = !prev;
+                  if (next) {
+                    setTimeout(() => {
+                      document.getElementById('panel-whatsapp-rrhh')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }, 50);
+                  }
+                  return next;
+                });
+              }}
+              disabled={cargando || !filasProcesadas.length}
+              title={mostrarWhatsapp ? 'Ocultar panel de WhatsApp' : 'Ver y compartir resumen estructurado por WhatsApp'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}
+            >
+              <span>💬</span> {mostrarWhatsapp ? 'Ocultar WhatsApp' : 'WhatsApp'}
+            </button>
             <button className="btn btn-ghost" onClick={handleExportarCsv} disabled={cargando || !filasProcesadas.length}>
               📋 CSV
             </button>
@@ -625,6 +645,37 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
           </div>
         ))}
       </div>
+
+      {/* Panel colapsable de WhatsApp (se muestra u oculta tras presionar el botón) */}
+      {mostrarWhatsapp && (
+        <div
+          id="panel-whatsapp-rrhh"
+          className="card"
+          style={{
+            marginBottom: '1rem',
+            background: 'var(--surface-3, #1e293b)',
+            border: '1px solid var(--success, #25D366)',
+            padding: '.85rem',
+            borderRadius: '8px',
+            boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.2))',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.6rem' }}>
+            <strong style={{ fontSize: '.9rem', display: 'flex', alignItems: 'center', gap: '.45rem', color: 'var(--success, #25D366)' }}>
+              <span>💬</span> Resumen estructurado para WhatsApp ({AMBITOS_RRHH.find((a) => a.id === ambito)?.label ?? 'Reporte'})
+            </strong>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={() => setMostrarWhatsapp(false)}
+              style={{ fontSize: '.78rem' }}
+            >
+              ✕ Ocultar
+            </button>
+          </div>
+          <CompartirWhatsapp texto={textoWa} />
+        </div>
+      )}
 
       {/* 6. Vista Previa en Vivo (Muestra de las 5 primeras filas) */}
       <div>

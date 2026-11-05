@@ -139,6 +139,19 @@ export function ReporteInventarioMatanzasModal({
 
   // Estado ocupado para descargas
   const [busyExport, setBusyExport] = useState<'xlsx' | 'pdf' | 'csv' | null>(null);
+  const [mostrarWhatsapp, setMostrarWhatsapp] = useState(false);
+
+  const alternarWhatsapp = () => {
+    setMostrarWhatsapp((prev) => {
+      const next = !prev;
+      if (next) {
+        setTimeout(() => {
+          document.getElementById('panel-whatsapp-matanzas')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 50);
+      }
+      return next;
+    });
+  };
 
   // Carga de subalmacenes al montar
   useEffect(() => {
@@ -436,11 +449,20 @@ export function ReporteInventarioMatanzasModal({
             <span className="muted" style={{ fontSize: '.8rem' }}>
               Mostrando {filasFiltradas.length} fila(s)
             </span>
-            <CompartirWhatsapp texto={textoWhatsapp} />
           </div>
-          <div style={{ display: 'flex', gap: '.5rem' }}>
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
             <button className="btn btn-ghost" onClick={onClose} disabled={!!busyExport}>
               Cerrar
+            </button>
+            <button
+              type="button"
+              className={`btn ${mostrarWhatsapp ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={alternarWhatsapp}
+              disabled={!!busyExport || !filasFiltradas.length}
+              title={mostrarWhatsapp ? 'Ocultar panel de WhatsApp' : 'Ver y compartir resumen estructurado por WhatsApp'}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}
+            >
+              <span>💬</span> {mostrarWhatsapp ? 'Ocultar WhatsApp' : 'WhatsApp'}
             </button>
             <button
               className="btn btn-ghost"
@@ -844,6 +866,52 @@ export function ReporteInventarioMatanzasModal({
           </div>
         </div>
       </div>
+
+      {/* Panel colapsable de WhatsApp (se muestra u oculta tras presionar el botón) */}
+      {mostrarWhatsapp && (
+        <div
+          id="panel-whatsapp-matanzas"
+          className="card"
+          style={{
+            marginBottom: '1rem',
+            background: 'var(--surface-3, #1e293b)',
+            border: '1px solid var(--success, #25D366)',
+            padding: '.85rem',
+            borderRadius: '8px',
+            boxShadow: 'var(--shadow-md, 0 4px 12px rgba(0,0,0,0.2))',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              marginBottom: '.6rem',
+            }}
+          >
+            <strong
+              style={{
+                fontSize: '.9rem',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '.45rem',
+                color: 'var(--success, #25D366)',
+              }}
+            >
+              <span>💬</span> Resumen estructurado para WhatsApp ({AMBITOS_INVENTARIO_MATANZAS.find((a) => a.id === ambito)?.label ?? 'Reporte'})
+            </strong>
+            <button
+              type="button"
+              className="btn btn-sm btn-ghost"
+              onClick={() => setMostrarWhatsapp(false)}
+              style={{ fontSize: '.78rem' }}
+            >
+              ✕ Ocultar
+            </button>
+          </div>
+          <CompartirWhatsapp texto={textoWhatsapp} />
+        </div>
+      )}
 
       {/* 5. Vista Previa Tabular */}
       {loading ? (
