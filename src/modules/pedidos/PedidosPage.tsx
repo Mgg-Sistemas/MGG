@@ -254,6 +254,7 @@ function eventLabel(ev: string): string {
       recibida: 'Recepción confirmada',
       finalizada: 'Pedido finalizado',
       revisada_almacen: 'Revisada por almacén',
+      destino_entrega: 'Destino de entrega indicado',
     } as Record<string, string>
   )[ev] ?? ev;
 }

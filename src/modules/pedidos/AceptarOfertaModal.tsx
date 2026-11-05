@@ -62,11 +62,22 @@ interface Props {
     motivo: string,
     adjuntos: File[],
     modalidadPago: 'usd' | 'bs',
+    /** 05-11-2026: a dónde se entrega (lo ve el delivery como dirección de recepción). */
+    destino: DestinoEntregaOc,
   ) => Promise<void> | void;
   onCancel: () => void;
+  /** Lo que ya dice la orden (la SP), para precargar el destino. */
+  destinoInicial?: string | null;
 }
 
-export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloqueados, onConfirm, onCancel }: Props) {
+/** A dónde se entrega la compra (05-11-2026). */
+export type DestinoEntregaOc = 'LOS PINOS' | 'MATANZA';
+
+export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloqueados, onConfirm, onCancel, destinoInicial }: Props) {
+  const [destino, setDestino] = useState<DestinoEntregaOc | null>(() => {
+    const d = String(destinoInicial ?? '').toUpperCase();
+    return d.includes('PINOS') ? 'LOS PINOS' : (d.includes('MATANZA') || d === 'GENERAL') ? 'MATANZA' : null;
+  });
   const esBs = moneda === 'Bs';
   const mo = esBs ? 'Bs' : 'USD';
   const grupos = useMemo(() => agruparPorProducto(oferta.items), [oferta.items]);
@@ -147,10 +158,10 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloque
   const pctAhorro = tieneBcv && tieneUsd && conBcv.final > 0 ? Math.round((diferenciaAhorro / conBcv.final) * 10000) / 100 : 0;
 
   async function confirmar() {
-    if (sinPrecio || sinSeleccion || saving) return;
+    if (sinPrecio || sinSeleccion || saving || !destino) return;
     setSaving(true);
     try {
-      await onConfirm(elegidos, bcvTotal, usdTotal > 0 ? usdTotal : 0, motivo.trim(), adjuntos, modalidadEfectiva);
+      await onConfirm(elegidos, bcvTotal, usdTotal > 0 ? usdTotal : 0, motivo.trim(), adjuntos, modalidadEfectiva, destino);
     } finally {
       setSaving(false);
     }
@@ -159,7 +170,7 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloque
   const footer = (
     <>
       <button className="btn btn-ghost" onClick={onCancel} disabled={saving}>Cancelar</button>
-      <button className="btn btn-primary" onClick={confirmar} disabled={saving || sinPrecio || sinSeleccion}
+      <button className="btn btn-primary" onClick={confirmar} disabled={saving || sinPrecio || sinSeleccion || !destino}
         title={sinSeleccion ? 'Tildá al menos un producto para comprarle a este proveedor' : undefined}>
         {saving ? 'Eligiendo…' : `Elegir oferta${elegidos.length ? ` · ${elegidos.length} producto(s)` : ''} · Pagar ${modalidadEfectiva === 'usd' ? money(totalFinalElegido, 'USD') : money(totalFinalElegido, mo)}`}
       </button>
@@ -186,6 +197,20 @@ export function AceptarOfertaModal({ oferta, proveedorNombre, moneda, skusBloque
           ⚠ <strong>{nDestildados}</strong> producto(s) destildado(s): <strong>no</strong> se le compran a este proveedor y quedan <strong>pendientes por asignar</strong> en la OP madre.
         </p>
       )}
+
+      {/* 05-11-2026: a dónde se entrega. El delivery lo ve como «Dirección de recepción». */}
+      <div className="card" style={{ margin: '0 0 .8rem', padding: '.6rem .8rem', borderLeft: `3px solid ${destino ? 'var(--brand, #ff8a00)' : 'var(--danger, #ef4444)'}` }}>
+        <div style={{ fontSize: '.8rem', fontWeight: 700, letterSpacing: '.04em', marginBottom: '.4rem' }}>📍 ¿A DÓNDE SE ENTREGA? *</div>
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          {(['LOS PINOS', 'MATANZA'] as DestinoEntregaOc[]).map((d) => (
+            <label key={d} className="card" style={{ display: 'flex', alignItems: 'center', gap: '.45rem', margin: 0, padding: '.45rem .75rem', cursor: 'pointer', borderColor: destino === d ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+              <input type="radio" name="destino-entrega" checked={destino === d} onChange={() => setDestino(d)} />
+              <strong>{d}</strong>
+            </label>
+          ))}
+        </div>
+        {!destino && <small style={{ color: 'var(--danger, #ef4444)' }}>Elige a dónde se entrega para poder aceptar la oferta.</small>}
+      </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '.7rem' }}>
         {grupos.map((g) => {

@@ -15,6 +15,7 @@
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { MODULO_FLOTA, RUTA_TELEFONO_FLOTA, TITULO_FLOTA, type Flota } from './flota';
+import { nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { listProveedores } from '@/modules/pedidos/pedidos.repository';
@@ -280,7 +281,7 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
                       <td>
                         <strong>{ocDe(p)}</strong>
                         {p.urgente && <> <span className="badge danger">URGENTE</span></>}
-                        {p.almacen_destino && <div className="muted" style={{ fontSize: '.75rem' }}>🏬 {p.almacen_destino}</div>}
+                        {p.almacen_destino && <div className="muted" style={{ fontSize: '.75rem' }}>📍 Recepción: {nombreAlmacenVisible(p.almacen_destino)}</div>}
                       </td>
                       <td>
                         {p.proveedor_nombre ?? '—'}

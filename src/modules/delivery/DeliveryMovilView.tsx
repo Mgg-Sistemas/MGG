@@ -382,7 +382,7 @@ function TarjetaPedido({
       )}
       {!esRetiro(p) && <div className="dlv-total"><span>Total</span><span>{montoTxt(p.total, p.moneda)}</span></div>}
       {(p.almacen_entrega || p.almacen_destino) && (
-        <div className="dlv-sub">🏬 {p.estado === 'entregado' ? 'Entregado en' : 'Entregar en'}: <strong>{nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</strong></div>
+        <div className="dlv-sub">📍 {p.estado === 'entregado' ? 'Entregado en' : 'Dirección de recepción'}: <strong>{nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</strong></div>
       )}
       {p.estado === 'entregado' && p.entregado_en && (
         <div className="dlv-sub">✅ {fechaHoraVE(p.entregado_en)}{p.repartidor_nombre ? ` · ${p.repartidor_nombre}` : ''}</div>

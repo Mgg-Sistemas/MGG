@@ -14,7 +14,8 @@ import { urlAdjuntoOc, listSubOcs, getOrdenById } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, montoFinalOferta, type ScoredOferta } from './score';
 import { ivaContraOferta } from './cuadreOc';
-import { aprobarOrdenConOferta, sincronizarOrdenConOfertaAceptada } from './pedidos.repository';
+import { aprobarOrdenConOferta, fijarDestinoEntregaOc, sincronizarOrdenConOfertaAceptada } from './pedidos.repository';
+import type { DestinoEntregaOc } from './AceptarOfertaModal';
 import { skusSinCotizar, recortarOfertaAHija } from './subOc';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { ordenDeOfertas, ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
@@ -249,6 +250,7 @@ export function OfertasComparativa({
     motivo: string,
     adjuntosFiles: File[],
     modalidadPago: 'usd' | 'bs' = 'usd',
+    destino: DestinoEntregaOc | null = null,
   ) {
     if (!itemsElegidos.some((it) => (Number(it.precio) || 0) > 0 || (Number(it.precio_usd) || 0) > 0)) {
       toast('Cargá al menos un precio: las marcas elegidas están en $0.', 'error');
@@ -311,6 +313,8 @@ export function OfertasComparativa({
           return;
         }
       }
+      // 05-11-2026: a dónde se entrega (el almacén que recibe; el delivery lo ve como dirección de recepción).
+      if (destino) await fijarDestinoEntregaOc(orden, destino, actorEmail);
       await aceptarOfertaRepo(s.oferta.id, actorEmail, s.score.total);
       try {
         await aprobarOrdenConOferta(
@@ -794,7 +798,8 @@ export function OfertasComparativa({
           proveedorNombre={proveedorMap.get(confirmando.oferta.proveedor_id)?.razon_social ?? 'este proveedor'}
           moneda={orden.moneda}
           skusBloqueados={skusAjenos}
-          onConfirm={(items, bcv, usd, motivo, files, mod) => confirmarAceptacion(confirmando, items, bcv, usd, motivo, files, mod)}
+          destinoInicial={orden.almacen_destino || orden.sede_destino}
+          onConfirm={(items, bcv, usd, motivo, files, mod, dest) => confirmarAceptacion(confirmando, items, bcv, usd, motivo, files, mod, dest)}
           onCancel={() => setConfirmando(null)}
         />
       )}

@@ -3231,3 +3231,18 @@ export async function ensureUnidadSolicitante(nombre: string | null | undefined,
   if (!n) return;
   try { await crearCatalogoPedido('unidad_solicitante', n, actorEmail); } catch { /* no bloquear la creación de la OP */ }
 }
+
+/**
+ * 05-11-2026: a dónde se entrega la compra, elegido al aceptar la cotización: LOS PINOS → almacén
+ * «Los Pinos», MATANZA → «General» (el principal de Matanza). Queda en `almacen_destino`, que es lo
+ * que el delivery ve como dirección de recepción, y en la trazabilidad de la orden.
+ */
+export async function fijarDestinoEntregaOc(o: Orden, destino: 'LOS PINOS' | 'MATANZA', actorEmail: string): Promise<void> {
+  const almacen = destino === 'LOS PINOS' ? 'Los Pinos' : 'General';
+  if (o.almacen_destino === almacen) return;
+  const { error } = await supabase.from(TABLE).update({
+    almacen_destino: almacen,
+    historial: appendHistorial(o, 'destino_entrega', actorEmail, { antes: o.almacen_destino ?? null, despues: almacen, destino }),
+  }).eq('id', o.id);
+  if (error) throw error;
+}
