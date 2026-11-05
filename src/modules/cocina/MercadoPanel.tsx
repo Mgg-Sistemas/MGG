@@ -28,6 +28,7 @@ import {
   type KardexMerma, type KardexRow, type KardexTraslado, type MercadoCocina,
 } from './mercados.repository';
 import { RepartirMercadoModal } from './RepartirMercadoModal';
+import { HistoricoRepartosModal } from './HistoricoRepartosModal';
 import { DistribucionPanel } from './DistribucionPanel';
 import { ListaFisicaMercado, SelectorListaMercado, subirListaMercado } from './ListaFisicaMercado';
 import {
@@ -75,6 +76,8 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
   const [drill, setDrill] = useState<DisponibleItem | null>(null);
   const [cerrar, setCerrar] = useState(false);
   const [repartir, setRepartir] = useState(false);
+  // 05-11-2026: histórico de la distribución entre cocinas y resguardo (PDF y WhatsApp).
+  const [historicoRepartos, setHistoricoRepartos] = useState(false);
   /** La tarjeta del encabezado que se tocó, para explicar de dónde sale su número. */
   const [verCifra, setVerCifra] = useState<ClaveCifra | null>(null);
   /** Todo lo que recorta el kardex. El buscador viejo era solo `texto`. */
@@ -413,6 +416,13 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
         </div>
       )}
 
+      <div style={{ marginBottom: '.8rem' }}>
+        <button className="btn btn-ghost" onClick={() => setHistoricoRepartos(true)}
+          title="Los repartos a otra cocina o al resguardo, con su PDF y su WhatsApp">
+          🧾 Histórico de distribución
+        </button>
+      </div>
+
       {/* La lista en papel de lo que entró a este mercado (fotos o PDF). */}
       <ListaFisicaMercado mercadoId={mercado.id} actor={actor} soloLectura={!canWrite} />
 
@@ -713,6 +723,7 @@ export function MercadoPanel({ resumen, mercados, onElegirMercado, cocinaNombre,
           diferencia={difPorProducto.get(drill.producto_id) ?? null}
           onClose={() => setDrill(null)} />
       )}
+      {historicoRepartos && <HistoricoRepartosModal cocinaNombre={cocinaNombre} onClose={() => setHistoricoRepartos(false)} />}
       {repartir && (
         <RepartirMercadoModal resumen={resumen} cocinaNombre={cocinaNombre} almacen={almacen} actor={actor} userEmail={userEmail}
           onClose={() => setRepartir(false)}
