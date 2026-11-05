@@ -15,10 +15,17 @@ export interface FiltrosMinutas {
   persona: string;
   soloPendientes: boolean;
   palabra: string;
+  /** 05-11-2026: número, tema, lugar, origen y si tiene archivo. */
+  numero: string;
+  tema: string;
+  lugar: string;
+  origen: '' | 'sistema' | 'cargada';
+  conArchivo: boolean;
 }
 
 export const FILTROS_VACIOS: FiltrosMinutas = {
   desde: '', hasta: '', estado: '', persona: '', soloPendientes: false, palabra: '',
+  numero: '', tema: '', lugar: '', origen: '', conArchivo: false,
 };
 
 /** ¿Alguien participó o es responsable de un acuerdo con ese nombre (sin importar acentos)? */
@@ -27,10 +34,18 @@ function involucra(m: Minuta, q: string): boolean {
     || (m.acuerdos ?? []).some((a) => norm(a.responsable).includes(q));
 }
 
-export function filtrarMinutas<T extends Minuta>(lista: T[], f: FiltrosMinutas, hoy: Date = new Date()): T[] {
+export function filtrarMinutas<T extends Minuta & { tiene_adjuntos?: boolean }>(lista: T[], f: FiltrosMinutas, hoy: Date = new Date()): T[] {
   const persona = norm(f.persona).trim();
   const palabra = norm(f.palabra).trim();
+  const numero = norm(f.numero ?? '').trim();
+  const tema = norm(f.tema ?? '').trim();
+  const lugar = norm(f.lugar ?? '').trim();
   return lista.filter((m) => {
+    if (numero && !norm(m.numero).includes(numero)) return false;
+    if (tema && !norm(m.objetivo).includes(tema)) return false;
+    if (lugar && !norm(m.lugar).includes(lugar)) return false;
+    if (f.origen && (m.origen ?? 'sistema') !== f.origen) return false;
+    if (f.conArchivo && !m.tiene_adjuntos) return false;
     if (f.desde && m.fecha < f.desde) return false;
     if (f.hasta && m.fecha > f.hasta) return false;
     if (f.estado && m.estado !== f.estado) return false;

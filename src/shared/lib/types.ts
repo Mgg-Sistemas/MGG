@@ -2377,6 +2377,8 @@ export interface Minuta {
   avances: MinutaAvance[];
   observaciones: string | null;
   anexar_adjuntos_pdf: boolean;
+  /** 05-11-2026: 'sistema' = hecha en el editor; 'cargada' = ya hecha, subida con su archivo. */
+  origen?: 'sistema' | 'cargada';
   busq?: string | null;
   creada_por?: string | null;
   creada_en: string;
