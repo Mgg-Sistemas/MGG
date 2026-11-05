@@ -49,6 +49,8 @@ import { RecepcionesPendientes } from './RecepcionesPendientes';
 import { RecepcionesHistorialModal } from './RecepcionesHistorial';
 import { CasiteritaResumen, CasiteritaDetalleView } from './CasiteritaDetalleView';
 import { ExportInventarioModal } from './ExportInventarioModal';
+import { ReporteInventarioMatanzasModal } from './ReporteInventarioMatanzasModal';
+import type { AmbitoInventarioMatanzas } from './reporteInventarioMatanzasDinamico';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
 import { ProductosInactivosModal } from './ProductosInactivosModal';
 import { FILTRO_SIN_UBICACION, sinUbicacion } from './ubicacionProducto';
@@ -151,7 +153,8 @@ type ModalState =
   | { kind: 'reporteFiltro' }
   | { kind: 'resumen' }
   | { kind: 'sinCosto' }
-  | { kind: 'inactivos' };
+  | { kind: 'inactivos' }
+  | { kind: 'reporteDinamicoMatanzas'; ambito?: AmbitoInventarioMatanzas; subalmacen?: string | null };
 
 /**
  * «🏗 Almacenes» (gestor de almacenes y subalmacenes) queda OCULTO a pedido:
@@ -859,15 +862,17 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
             onClick={() => {
               // Reporte CONTEXTUAL: en un centro/Matanzas, vista previa directa del PDF de esos
               // productos; en el inventario general (Depósito), abre el selector por almacén.
-              if (sedeScope) {
+              if (sedeScope === 'CENTRO DE FUNDICION - MATANZAS') {
+                setModal({ kind: 'reporteDinamicoMatanzas', ambito: subVista === 'casiterita' ? 'casiterita' : 'stock', subalmacen: ui.filterAlmacen || null });
+              } else if (sedeScope) {
                 import('./almacenExport').then(({ descargarAlmacenPdf }) => descargarAlmacenPdf(tituloInventario, filtered)).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'));
               } else {
                 setReporteFiltroSel(''); setModal({ kind: 'reporteFiltro' });
               }
             }}
-            title={sedeScope ? `Vista previa del PDF de ${tituloInventario}` : 'Reporte de productos por almacén (filtro) con vista previa PDF'}
+            title={sedeScope === 'CENTRO DE FUNDICION - MATANZAS' ? 'Reporte Dinámico configurable de Matanzas (stock, kárdex, casiterita, alertas)' : (sedeScope ? `Vista previa del PDF de ${tituloInventario}` : 'Reporte de productos por almacén (filtro) con vista previa PDF')}
           >
-            📄 Reporte {sedeScope ? `· ${subVista === 'casiterita' ? 'Casiterita' : tituloInventario}` : 'por almacén'}
+            {sedeScope === 'CENTRO DE FUNDICION - MATANZAS' ? '📊 Reporte Dinámico' : `📄 Reporte ${sedeScope ? `· ${subVista === 'casiterita' ? 'Casiterita' : tituloInventario}` : 'por almacén'}`}
           </button>
           {!esDeposito && !centroMode && (
           <button
@@ -939,7 +944,17 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
               🗄 PRODUCTOS DESHABILITADOS <span className="badge" style={{ marginLeft: '.35rem' }}>{inactivosCount}</span>
             </button>
           )}
-          <button className="btn btn-ghost" onClick={() => setModal({ kind: 'export' })} title="Exportar inventario filtrado">
+          <button
+            className="btn btn-ghost"
+            onClick={() => {
+              if (sedeScope === 'CENTRO DE FUNDICION - MATANZAS') {
+                setModal({ kind: 'reporteDinamicoMatanzas', ambito: 'stock', subalmacen: ui.filterAlmacen || null });
+              } else {
+                setModal({ kind: 'export' });
+              }
+            }}
+            title={sedeScope === 'CENTRO DE FUNDICION - MATANZAS' ? 'Reporte Dinámico y exportación de Matanzas' : 'Exportar inventario filtrado'}
+          >
             ↓ Exportar
           </button>
           {canWrite && (
@@ -1435,6 +1450,13 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           </Modal>
         );
       })()}
+      {modal.kind === 'reporteDinamicoMatanzas' && (
+        <ReporteInventarioMatanzasModal
+          ambitoInicial={modal.ambito ?? 'stock'}
+          subalmacenInicial={modal.subalmacen ?? null}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
       {modal.kind === 'export' && (
         <ExportInventarioModal
           productos={productos}
