@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSession } from '@/modules/auth/authStore';
+import { MinutasTab } from './MinutasTab';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -18,7 +19,7 @@ import {
 } from './empresa';
 import { contarPersonalPorEmpresa, listEmpresas } from './empresas.repository';
 
-type Vista = 'personal' | 'tabulador' | 'anticipos' | 'nomina' | 'vacaciones' | 'descansos' | 'administrativo';
+type Vista = 'personal' | 'tabulador' | 'anticipos' | 'nomina' | 'vacaciones' | 'descansos' | 'administrativo' | 'minutas';
 
 const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'personal', label: 'Personal', icon: '👥' },
@@ -28,6 +29,8 @@ const TABS: { key: Vista; label: string; icon: string }[] = [
   { key: 'vacaciones', label: 'Vacaciones', icon: '🏖' },
   { key: 'descansos', label: 'Descansos', icon: '🏠' },
   { key: 'administrativo', label: 'Administrativo', icon: '🗂' },
+  // 05-11-2026: traído de GT.
+  { key: 'minutas', label: 'Minutas', icon: '📝' },
 ];
 
 /* Las nóminas son las empresas de `rrhh_empresas` (14-10-2026): MGG y las que
@@ -141,6 +144,8 @@ export function RrhhPage() {
         {vista === 'vacaciones' && <VacacionesTab key={empresa} canWrite={canWrite} actor={actor} actorName={actorName} empresa={empresa} />}
         {vista === 'descansos' && <DescansosTab key={empresa} canWrite={canWrite} actor={actor} actorName={actorName} empresa={empresa} />}
         {vista === 'administrativo' && <AdministrativoTab key={empresa} canWrite={canWrite} actor={actor} actorName={actorName} empresa={empresa} />}
+        {/* Sin `key`: las minutas son de toda la organización, no dependen de la nómina. */}
+        {vista === 'minutas' && <MinutasTab canWrite={canWrite} actor={actor} />}
       </>}
 
       {gestionar && empresas && (

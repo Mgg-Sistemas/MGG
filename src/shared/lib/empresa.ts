@@ -21,6 +21,9 @@ export const EMPRESA_DOMICILIO = 'Zona Industrial Los Pinos, Puerto Ordaz, Estad
 /** Correo electrónico / email fiscal de la empresa por defecto. */
 export const EMPRESA_EMAIL = 'administracion@mgg.com';
 
+/** La línea de contacto del membrete (minutas, 05-11-2026). */
+export const EMPRESA_CONTACTO = EMPRESA_EMAIL;
+
 
 export interface IdentidadEmpresa {
   nombre: string;

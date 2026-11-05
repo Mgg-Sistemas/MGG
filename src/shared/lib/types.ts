@@ -2332,3 +2332,65 @@ export interface Asignacion {
   created_at: string;
   updated_at?: string | null;
 }
+
+/* ───────────── RRHH · Minutas de reunión (traído de GT 05-11-2026) ───────────── */
+
+export type EstadoMinuta = 'borrador' | 'finalizada';
+
+export interface MinutaParticipante {
+  /** `null` = invitado externo escrito a mano (no está en el personal). */
+  personal_id: string | null;
+  nombre: string;
+  cargo: string;
+}
+
+export interface MinutaAcuerdo {
+  responsable: string;
+  actividad: string;
+  fecha_compromiso: string | null;
+}
+
+export interface MinutaAvance {
+  actividad: string;
+  responsable: string;
+  fecha_programada: string | null;
+  revision_fecha: string | null;
+  pct_inicial: number | null;
+  revision_final: string;
+  pct_avance: number | null;
+}
+
+export interface Minuta {
+  id: string;
+  numero: string;
+  estado: EstadoMinuta;
+  lugar: string | null;
+  fecha: string;
+  hora_inicio: string | null;
+  objetivo: string | null;
+  orden_dia: string[];
+  participantes: MinutaParticipante[];
+  acuerdos: MinutaAcuerdo[];
+  otros_asuntos: string | null;
+  proxima_fecha: string | null;
+  proximos_puntos: string[];
+  avances: MinutaAvance[];
+  observaciones: string | null;
+  anexar_adjuntos_pdf: boolean;
+  busq?: string | null;
+  creada_por?: string | null;
+  creada_en: string;
+  modificada_por?: string | null;
+  modificada_en?: string | null;
+}
+
+export interface MinutaAdjunto {
+  id: string;
+  minuta_id: string;
+  nombre: string;
+  path: string;
+  tipo: string;
+  bytes: number;
+  subido_por?: string | null;
+  subido_en: string;
+}
