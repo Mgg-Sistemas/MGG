@@ -284,7 +284,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
   const { filas, resumen } = useMemo(() => procesarFilasReporteTesoreria(filtradas, agrupacion, { ordenarPor }), [filtradas, agrupacion, ordenarPor]);
 
   // Columnas visibles (respetan los interruptores de moneda)
-  const columnasVisibles = useMemo(() => columnasVisiblesTesoreria(marcados, { mostrarUsd, mostrarBs }), [marcados, mostrarUsd, mostrarBs]);
+  const columnasVisibles = useMemo(() => columnasVisiblesTesoreria(marcados, { mostrarUsd, mostrarBs, ambito }), [marcados, mostrarUsd, mostrarBs, ambito]);
 
   const cambiarAgrupacion = (modo: ModoAgrupacionTesoreria) => { setAgrupacion(modo); setMarcados(CAMPOS_POR_DEFECTO_POR_MODO[modo]); };
   const alternarColumna = (clave: string) => setMarcados((prev) => (prev.includes(clave) ? prev.filter((c) => c !== clave) : [...prev, clave]));
@@ -635,7 +635,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
                 const acento = ACENTO_FLUJO[f.tipo_movimiento];
                 const metricas = obtenerMetricasFichaTesoreria(f, marcados, { mostrarUsd, mostrarBs });
                 const titulo = f.contraparte && f.contraparte !== '—' ? f.contraparte : (f.categoria || f.concepto || 'Sin clasificar');
-                const sub = [f.categoria !== titulo ? f.categoria : null, f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null, f.fecha ? fmtFechaCorta(f.fecha) : null].filter(Boolean).join(' · ');
+                const sub = [f.codigo || null, f.categoria !== titulo ? f.categoria : null, f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null, f.fecha ? fmtFechaCorta(f.fecha) : null].filter(Boolean).join(' · ');
                 return (
                   <div key={f.id} style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderLeft: `4px solid ${acento}`, borderRadius: 'var(--r-sm)', padding: '.55rem .7rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '.5rem' }}>

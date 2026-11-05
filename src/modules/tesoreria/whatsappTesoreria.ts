@@ -95,7 +95,9 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
   }
 
   filas.slice(0, LIMITE_ITEMS_WHATSAPP).forEach((f, i) => {
-    L.push(`${i + 1}. ${EMOJI_FLUJO[f.tipo_movimiento]} ${etiquetaFila(f)} — *${f.moneda_original} ${num(f.monto_original)}*`);
+    // 04-11-2026: con el código de la OC (o del documento) delante del proveedor.
+    const cod = unaLinea(f.codigo);
+    L.push(`${i + 1}. ${EMOJI_FLUJO[f.tipo_movimiento]} ${cod ? `*${cod}* · ` : ''}${etiquetaFila(f)} — *${f.moneda_original} ${num(f.monto_original)}*`);
   });
   if (filas.length > LIMITE_ITEMS_WHATSAPP) {
     L.push(`… (+${filas.length - LIMITE_ITEMS_WHATSAPP} ítem(s) más)`);

@@ -393,6 +393,21 @@ function nombreCaja(m: MovimientoCaja): string {
   return `${caja} · ${etq}`;
 }
 
+/** El código de la orden que paga el movimiento («Pago OC SV-2026-0021 · …»); si no, el correlativo del gasto (04-11-2026). */
+export function codigoDeMovimiento(m: Pick<MovimientoCaja, 'motivo' | 'gasto_correlativo'>): string | null {
+  const cod = /\b(?:OC|SV|CD|SD|OS|SP)-\d{4}-\d{3,5}(?:-\d+)?\b/i.exec(m.motivo ?? '');
+  if (cod) return cod[0].toUpperCase();
+  return m.gasto_correlativo != null ? String(m.gasto_correlativo) : null;
+}
+
+/** Estado de un movimiento ya hecho (el libro no tiene «por pagar»). */
+function estadoDeMovimiento(m: Pick<MovimientoCaja, 'tipo'>): string {
+  if (m.tipo === 'salida') return 'Pagado';
+  if (m.tipo === 'entrada') return 'Ingresado';
+  if (m.tipo === 'traslado_salida' || m.tipo === 'traslado_entrada') return 'Traslado';
+  return 'Ajuste';
+}
+
 /**
  * Normaliza los movimientos del libro a filas del reporte.
  * `base` elige la valuación (BCV del día o histórica por fecha del movimiento).
@@ -411,7 +426,7 @@ export function normalizarMovimientosTesoreria(
       ambito: 'movimientos',
       fecha,
       hora: horaDe(m.at),
-      codigo: m.gasto_correlativo != null ? String(m.gasto_correlativo) : null,
+      codigo: codigoDeMovimiento(m),
       caja_origen: nombreCaja(m),
       caja_destino: m.destino ?? null,
       moneda_original: m.moneda,
@@ -422,9 +437,10 @@ export function normalizarMovimientosTesoreria(
       contraparte: (m.beneficiario ?? '').trim() || '—',
       concepto: (m.motivo ?? '').trim(),
       origen_documento: origenDeMovimiento(m),
-      estado: null,
-      metodo_pago: null,
-      datos_pago_resumen: null,
+      // 04-11-2026: «Método / Estado» salía «—»: de dónde salió (caja · billetera · moneda) y el estado.
+      estado: estadoDeMovimiento(m),
+      metodo_pago: [nombreCaja(m), m.cuenta, m.moneda].filter(Boolean).join(' · '),
+      datos_pago_resumen: [nombreCaja(m), m.cuenta, m.moneda].filter(Boolean).join(' · '),
       tasa_bcv_aplicada: R,
       monto_usd: conv.usd,
       monto_bs: conv.bs,
@@ -738,6 +754,11 @@ interface AcumuladorTesoreria {
   bs: number;
   original: number;
   operaciones: number;
+  /** Los códigos (OC/SV/CD) de lo que entra en el grupo (04-11-2026). */
+  codigos: string[];
+  /** Estados y métodos/datos de pago distintos del grupo (04-11-2026: salían «—» al agrupar). */
+  estados: string[];
+  metodos: string[];
   /** |USD| acumulado por tipo de flujo, para el % relativo al propio tipo. */
   porTipo: Record<TipoFlujoTesoreria, number>;
 }
@@ -817,7 +838,7 @@ export function procesarFilasReporteTesoreria(
         contraparte: f.contraparte,
         origen: f.origen_documento,
         monedasUsadas: new Set<string>(),
-        usd: 0, bs: 0, original: 0, operaciones: 0,
+        usd: 0, bs: 0, original: 0, operaciones: 0, codigos: [], estados: [], metodos: [],
         porTipo: { ingreso: 0, egreso: 0, traslado: 0 },
       };
       mapa.set(clave, g);
@@ -826,6 +847,10 @@ export function procesarFilasReporteTesoreria(
     g.bs += f.monto_bs;
     g.original += f.monto_original;
     g.operaciones += 1;
+    if (f.codigo && !g.codigos.includes(f.codigo)) g.codigos.push(f.codigo);
+    if (f.estado && !g.estados.includes(f.estado)) g.estados.push(f.estado);
+    const met = f.datos_pago_resumen || f.metodo_pago;
+    if (met && !g.metodos.includes(met)) g.metodos.push(met);
     g.monedasUsadas.add(f.moneda_original);
     g.porTipo[f.tipo_movimiento] += Math.abs(f.monto_usd);
   }
@@ -838,7 +863,7 @@ export function procesarFilasReporteTesoreria(
       ambito: filasDetalle[0]?.ambito ?? 'movimientos',
       fecha: g.fecha,
       hora: null,
-      codigo: null,
+      codigo: g.codigos.length ? g.codigos.join(', ') : null,
       caja_origen: agrupacion === 'caja' ? g.etiqueta : g.caja,
       caja_destino: null,
       moneda_original: monedaRep,
@@ -849,9 +874,9 @@ export function procesarFilasReporteTesoreria(
       contraparte: agrupacion === 'contraparte' ? g.etiqueta : g.contraparte,
       concepto: g.etiqueta,
       origen_documento: agrupacion === 'origen_documento' ? g.etiqueta : g.origen,
-      estado: null,
-      metodo_pago: null,
-      datos_pago_resumen: null,
+      estado: g.estados.length ? g.estados.join(' / ') : null,
+      metodo_pago: g.metodos.length ? g.metodos.join(' | ') : null,
+      datos_pago_resumen: g.metodos.length ? g.metodos.join(' | ') : null,
       tasa_bcv_aplicada: tasaRef,
       monto_usd: round2(g.usd),
       monto_bs: round2(g.bs),

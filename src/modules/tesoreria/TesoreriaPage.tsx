@@ -103,6 +103,7 @@ import { push as pushNotif } from '@/modules/notificaciones/notif.repository';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import { etiquetaRetencion, retencionesDe, totalRetenciones } from '@/modules/pedidos/retencionesOc';
 import { ExportarTesoreriaModal } from './ExportarTesoreriaModal';
+import { ResumenPorPagarModal } from './ResumenPorPagarModal';
 import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
 
 /**
@@ -621,6 +622,14 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
   };
   const [eFecha, setEFecha] = useState(isoAInputLocal(mov.at));
+  // 04-11-2026 (pedido de la administradora): la categoría de gasto y el gasto (subcategoría)
+  // también se corrigen al editar. Se guardan por nombre, como al registrar el egreso.
+  const [eGCat, setEGCat] = useState(mov.gasto_categoria ?? '');
+  const [eGSub, setEGSub] = useState(mov.gasto_subcategoria ?? '');
+  const [gastoRows, setGastoRows] = useState<CategoriaGasto[]>([]);
+  useEffect(() => { if (editando) listCategoriasGasto(true).then(setGastoRows).catch(() => setGastoRows([])); }, [editando]);
+  const eGCatId = soloCategorias(gastoRows).find((c) => c.nombre === eGCat)?.id ?? '';
+  const eGSubs = eGCatId ? subcategoriasDe(gastoRows, eGCatId) : [];
   const [confirmDel, setConfirmDel] = useState(false);
   const [guardando, setGuardando] = useState(false);
 
@@ -658,6 +667,7 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
       await editarMovimientoCajaFull(mov, {
         monto: m, motivo: eMotivo, at: atISO,
         cajaId: eCajaId, cuenta: nuevaCuenta, moneda: monedaStr || mov.moneda,
+        gastoCategoria: eGCat.trim() || null, gastoSubcategoria: eGCat.trim() ? (eGSub.trim() || null) : null,
       });
       toast('Movimiento actualizado · saldos recalculados', 'success');
       setEditando(false);
@@ -739,7 +749,7 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
     <Modal title="Detalle del movimiento" size="lg" onClose={onClose} footer={
       editando ? (
         <>
-          <button className="btn btn-ghost" onClick={() => { setEditando(false); setEMonto(String(Number(mov.monto) || 0)); setEMotivo(mov.motivo ?? ''); setEFecha(isoAInputLocal(mov.at)); setECajaId(mov.caja_id); setEBilletera(`${mov.cuenta ?? ''}|${mov.moneda}`); }} disabled={guardando}>Cancelar</button>
+          <button className="btn btn-ghost" onClick={() => { setEditando(false); setEMonto(String(Number(mov.monto) || 0)); setEMotivo(mov.motivo ?? ''); setEFecha(isoAInputLocal(mov.at)); setECajaId(mov.caja_id); setEBilletera(`${mov.cuenta ?? ''}|${mov.moneda}`); setEGCat(mov.gasto_categoria ?? ''); setEGSub(mov.gasto_subcategoria ?? ''); }} disabled={guardando}>Cancelar</button>
           <button className="btn btn-primary" onClick={guardarEdicion} disabled={guardando}>{guardando ? 'Guardando…' : '✓ Guardar cambios'}</button>
         </>
       ) : (
@@ -790,6 +800,23 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
               <input className="input mono" type="number" min={0} step={0.01} value={eMonto}
                 onChange={(e) => setEMonto(dosDecimales(e.target.value))} style={{ textAlign: 'right' }} />
             </div>
+            <div className="form-row">
+              <label>Categoría de gasto</label>
+              <select className="select" value={eGCat} onChange={(e) => { setEGCat(e.target.value); setEGSub(''); }}>
+                <option value="">— Sin categoría —</option>
+                {eGCat && !soloCategorias(gastoRows).some((c) => c.nombre === eGCat) && <option value={eGCat}>{eGCat}</option>}
+                {soloCategorias(gastoRows).map((c) => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
+              </select>
+            </div>
+            <div className="form-row">
+              <label>Gasto (subcategoría)</label>
+              <select className="select" value={eGSub} disabled={!eGCat} onChange={(e) => setEGSub(e.target.value)}>
+                <option value="">— Sin subcategoría —</option>
+                {eGSub && !eGSubs.some((c) => c.nombre === eGSub) && <option value={eGSub}>{eGSub}</option>}
+                {eGSubs.map((c) => <option key={c.id} value={c.nombre}>{c.nombre}</option>)}
+              </select>
+              <small className="hint muted">Clasifica el egreso en los reportes de gasto.</small>
+            </div>
             <div className="form-row" style={{ gridColumn: '1 / -1' }}>
               <label>Concepto / motivo</label>
               <input className="input" value={eMotivo} onChange={(e) => setEMotivo(e.target.value)} />
@@ -806,6 +833,7 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
           <div><span className="muted">Caja:</span> <strong>{mov.caja?.nombre ?? '—'}</strong></div>
           <div><span className="muted">Tipo:</span> <strong>{TIPO_MOV_LABEL[mov.tipo] ?? mov.tipo}</strong></div>
           <div><span className="muted">Categoría:</span> <strong>{CAT_LABEL[mov.categoria ?? ''] ?? (mov.categoria || '—')}</strong></div>
+          <div><span className="muted">Gasto:</span> <strong>{[mov.gasto_categoria, mov.gasto_subcategoria].filter(Boolean).join(' · ') || '—'}</strong></div>
           <div><span className="muted">Monto:</span> <strong className="mono" style={{ color: egreso ? 'var(--danger)' : 'var(--success)' }}>{egreso ? '−' : '+'}{monto(mov.monto, mov.moneda)}</strong></div>
           {mov.cuenta && <div><span className="muted">Cuenta:</span> <strong>{mov.cuenta}</strong></div>}
           {mov.tasa_bs != null && mov.tasa_bs > 0 && <div><span className="muted">Tasa aplicada:</span> <strong className="mono">{monto(mov.tasa_bs, 'Bs')} / $</strong></div>}
@@ -4480,6 +4508,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
   // Selección para pago en lote (mismo proveedor + mismo método/moneda).
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
   const [lote, setLote] = useState(false);
+  // 04-11-2026: resumen por WhatsApp de varias (o todas) con su motivo de pago.
+  const [resumenWa, setResumenWa] = useState(false);
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -4530,6 +4560,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
 
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
         <BotonReporteTesoreria ambito="por_pagar" />
+        <button className="btn btn-sm btn-ghost" disabled={loading || (!rows.length && !directos.length)} onClick={() => setResumenWa(true)}
+          title="Resumen por WhatsApp: se eligen todas o una a una, con el motivo de pago de cada una, el total y la fecha">💬 Resumen WhatsApp</button>
       </div>
 
       {seleccionadas.length >= 2 && (
@@ -4648,6 +4680,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
           onPaid={async () => { setLote(false); setMarcadas(new Set()); await reload(); onPaid(); }}
         />
       )}
+
+      {resumenWa && <ResumenPorPagarModal rows={rows} directos={directos} onClose={() => setResumenWa(false)} />}
 
       {pagarDir && (
         <PagarDirectoModal

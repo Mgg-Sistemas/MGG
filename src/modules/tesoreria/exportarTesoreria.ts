@@ -144,8 +144,13 @@ export function textoCeldaTesoreria(f: FilaReporteTesoreria, col: CampoColumnaTe
 }
 
 /** Columnas seleccionadas (en el orden del catálogo), respetando los interruptores de moneda. */
-export function columnasVisiblesTesoreria(columnasClaves: string[], meta: { mostrarUsd: boolean; mostrarBs: boolean }): CampoColumnaTesoreria[] {
+/** Ámbitos donde cada renglón es una orden: ahí el código de la OC sale siempre (04-11-2026). */
+const AMBITOS_CON_CODIGO_OC = new Set<string>(['por_pagar', 'creditos_cartera']);
+
+export function columnasVisiblesTesoreria(columnasClaves: string[], meta: { mostrarUsd: boolean; mostrarBs: boolean; ambito?: string }): CampoColumnaTesoreria[] {
+  const forzarCodigo = !!meta.ambito && AMBITOS_CON_CODIGO_OC.has(meta.ambito);
   return CAMPOS_REPORTE_TESORERIA.filter((c) => {
+    if (c.clave === 'codigo' && forzarCodigo) return true;
     if (!columnasClaves.includes(c.clave)) return false;
     if (c.clave === 'monto_usd' && !meta.mostrarUsd) return false;
     if (c.clave === 'monto_bs' && !meta.mostrarBs) return false;
@@ -535,6 +540,7 @@ export async function descargarTesoreriaPdf(
         doc.setFontSize(7.2);
         doc.setTextColor(100, 116, 139);
         const partes = [
+          f.codigo || null,
           f.categoria && f.categoria !== tituloBase ? f.categoria : null,
           f.origen_documento && f.origen_documento !== f.categoria ? f.origen_documento : null,
           f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null,

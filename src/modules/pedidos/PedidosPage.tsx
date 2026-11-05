@@ -2988,12 +2988,16 @@ function OrdenDetailModal({
   const cotizacionesMsg = async (): Promise<CotizacionMensaje[]> => {
     try {
       const ofs = unificarPorProveedor(await listOfertasDeOrdenes(ordenesConOfertasDe(o)), ordenesConOfertasDe(o)[0]);
+      // 04-11-2026: el ✅ solo en la que escogió el analista PARA ESTA OC. En una SP repartida
+      // entre proveedores hay varias «aceptadas» (una por sub-OC) y salían todas con ✅.
+      const esLaDeEstaOc = (of: (typeof ofs)[number]) =>
+        of.estado === 'aceptada' && (!o.proveedor_id || of.proveedor_id === o.proveedor_id);
       return ofs
         .map((of) => ({
           proveedor: proveedorMap.get(of.proveedor_id)?.razon_social ?? '—',
           monto: montoFinalOferta(of).final,
-          elegida: of.estado === 'aceptada',
-          elegidaPor: of.estado === 'aceptada' && of.decidida_por_email ? persona(of.decidida_por_email, personaMap, of.decidida_en) : null,
+          elegida: esLaDeEstaOc(of),
+          elegidaPor: esLaDeEstaOc(of) && of.decidida_por_email ? persona(of.decidida_por_email, personaMap, of.decidida_en) : null,
         }))
         .sort((a, b) => a.monto - b.monto);
     } catch { return []; }

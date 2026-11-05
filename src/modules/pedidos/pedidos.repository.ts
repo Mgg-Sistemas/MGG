@@ -1034,6 +1034,10 @@ export async function aprobarOrdenConOferta(
     proveedor_id: ofertaProveedorId,
     items: repEf ? repEf.items : itemsConContexto,
     total: totalOc,
+    // 04-11-2026 (SV-2026-0021): si la oferta se cotizó SOLO en $, el precio del renglón es en $;
+    // una orden que venía en Bs pasa a $ (se paga igual en Bs al cambio si así se eligió).
+    // Antes quedaba «Bs 26,23» siendo $26,23.
+    ...(soloUsd && (o.moneda ?? '').toUpperCase() === 'BS' ? { moneda: 'USD' } : {}),
     total_divisa: efectivoOf != null ? Math.round((efectivoOf - descObt + ivaOf + igtfOf + ajusteOf) * 100) / 100 : null,
     modalidad_pago: modalidadPago ?? (pagaEnDivisa ? 'usd' : 'bs'),
     pago_en_divisa: pagaEnDivisa,
