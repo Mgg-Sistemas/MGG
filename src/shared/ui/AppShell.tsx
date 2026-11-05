@@ -59,7 +59,7 @@ export function AppShell() {
   const tienePantalla = (key: 'surtidor' | 'comidas') => !isAdmin && vistasTelefono.some((v) => v.key === key);
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('solicitud_pedido') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('choferes') || can('acopio') || can('ventas') || can('tesoreria') || can('delivery'));
+  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('solicitud_pedido') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('choferes') || can('acopio') || can('ventas') || can('tesoreria') || can('delivery') || can('carga_pesada'));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -354,7 +354,7 @@ export function AppShell() {
           {can('pedidos') ? <NavItem to="/app/pedidos" icon="✉" label="Pedidos / Compras" />
             : can('solicitud_pedido') && <NavItem to="/app/pedidos" icon="✉" label="Solicitud de Pedido" />}
           {can('proveedores') && <NavItem to="/app/proveedores" icon="⚒" label="Proveedores" />}
-          {can('delivery') && <NavItem to="/app/delivery" icon="🛵" label="Delivery" />}
+          {(can('delivery') || can('carga_pesada')) && <NavItem to="/app/delivery" icon="🛵" label="Delivery" />}
           {(can('inventario') || can('deposito')) && (
             can('deposito') ? (
               <NavGroup icon="⬢" label="Inventario" defaultOpen={location.pathname.startsWith('/app/inventario') || location.pathname.startsWith('/app/deposito')}>

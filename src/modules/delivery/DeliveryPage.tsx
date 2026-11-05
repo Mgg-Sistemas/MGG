@@ -14,6 +14,7 @@
    (config compras.delivery): mientras tanto las listas quedan vacías.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { MODULO_FLOTA, RUTA_TELEFONO_FLOTA, TITULO_FLOTA, type Flota } from './flota';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { listProveedores } from '@/modules/pedidos/pedidos.repository';
@@ -64,8 +65,11 @@ function abrirPdf(clave: string, generar: () => Promise<void>, setGenerando: (v:
 export function DeliveryPage() {
   const { can, isAdmin, vistasTelefono } = usePermissions();
   const conectado = useDeliveryConectado();
-  const supervisor = isAdmin || can('delivery', 'full');
-  const tieneTelefono = vistasTelefono.some((v) => v.key === 'delivery');
+  // 04-11-2026: Delivery y Carga pesada (switch). Cada quien ve las flotas que tiene.
+  const flotas = (['delivery', 'carga_pesada'] as Flota[]).filter((f) => isAdmin || can(MODULO_FLOTA[f], 'lectura'));
+  const [flota, setFlota] = useState<Flota>(() => flotas[0] ?? 'delivery');
+  const supervisor = isAdmin || can(MODULO_FLOTA[flota], 'full');
+  const tieneTelefono = vistasTelefono.some((v) => v.key === flota);
   const [vista, setVista] = useState<Vista>('tablero');
   // 03-11-2026: proveedores y almacenes en el mapa (rutas tipo Yummy / Ridery).
   const puedeUbicar = isAdmin || can('proveedores', 'escritura') || can('delivery', 'full');
@@ -95,14 +99,14 @@ export function DeliveryPage() {
 
   const recargarTablero = useCallback(async () => {
     try {
-      const [ps, hh] = await Promise.all([listPedidosDelivery(verCerrados), listHistorialDelivery(hoy, hoy)]);
+      const [ps, hh] = await Promise.all([listPedidosDelivery(verCerrados, flota), listHistorialDelivery(hoy, hoy, flota)]);
       setPedidos(ps);
       setDeHoy(armarFilasHistorial(hh, proveedores));
       setErrorCarga(null);
     } catch (e) {
       setErrorCarga(msgError(e, 'No se pudieron leer los pedidos de Delivery.'));
     } finally { setCargando(false); }
-  }, [verCerrados, hoy, proveedores]);
+  }, [verCerrados, hoy, proveedores, flota]);
   useEffect(() => { void recargarTablero(); }, [recargarTablero]);
 
   const enHistorico = vista === 'historico' || vista === 'por_delivery';
@@ -110,11 +114,11 @@ export function DeliveryPage() {
     if (!desde || !hasta || desde > hasta) return;
     setCargandoHist(true);
     try {
-      setHistorial(armarFilasHistorial(await listHistorialDelivery(desde, hasta), proveedores));
+      setHistorial(armarFilasHistorial(await listHistorialDelivery(desde, hasta, flota), proveedores));
     } catch (e) {
       toast(msgError(e, 'No se pudo leer el histórico.'), 'error');
     } finally { setCargandoHist(false); }
-  }, [desde, hasta, proveedores]);
+  }, [desde, hasta, proveedores, flota]);
   useEffect(() => { if (enHistorico) void recargarHistorial(); }, [enHistorico, recargarHistorial]);
 
   // Tiempo real: lo que hace el motorizado en su teléfono (o Tesorería al pagar) se ve sin recargar.
@@ -128,13 +132,21 @@ export function DeliveryPage() {
     <div>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div style={{ flex: '1 1 320px' }}>
-          <h1 style={{ margin: 0 }}>🛵 Delivery</h1>
+          <h1 style={{ margin: 0 }}>{TITULO_FLOTA[flota]}</h1>
           <p className="hint muted" style={{ margin: '.25rem 0 0' }}>
             Órdenes pagadas por Tesorería que un motorizado toma, busca donde el proveedor y entrega en el almacén, con fotos y aviso por WhatsApp.
           </p>
         </div>
-        {tieneTelefono && <Link to="/app/delivery/telefono" className="btn btn-ghost btn-sm">📱 Vista de teléfono</Link>}
+        {tieneTelefono && <Link to={RUTA_TELEFONO_FLOTA[flota]} className="btn btn-ghost btn-sm">📱 Vista de teléfono</Link>}
       </div>
+
+      {flotas.length > 1 && (
+        <div className="view-toggle" role="tablist" aria-label="Flota" style={{ marginBottom: '.8rem' }}>
+          {flotas.map((f) => (
+            <button key={f} role="tab" aria-selected={flota === f} className={flota === f ? 'active' : ''} onClick={() => setFlota(f)}>{TITULO_FLOTA[f]}</button>
+          ))}
+        </div>
+      )}
 
       {conectado === false && (
         <div className="aviso info" style={{ marginBottom: '1rem' }}>
@@ -163,7 +175,7 @@ export function DeliveryPage() {
         <TableroTab pedidos={pedidos} deHoy={deHoy} cargando={cargando} supervisor={supervisor}
           verCerrados={verCerrados} setVerCerrados={setVerCerrados} onCambio={() => void recargarTablero()} />
       )}
-      {vista === 'mapa' && <DeliveryMapa pedidos={pedidos} destinos={destinos} onUbicar={puedeUbicar ? () => setUbicar(true) : undefined} />}
+      {vista === 'mapa' && <DeliveryMapa pedidos={pedidos} destinos={destinos} flota={flota} onUbicar={puedeUbicar ? () => setUbicar(true) : undefined} />}
       {ubicar && (
         <UbicarProveedoresModal pedidos={pedidos} destinos={destinos} onDestinos={setDestinos}
           puedeAlmacenes={supervisor} onClose={() => setUbicar(false)} />

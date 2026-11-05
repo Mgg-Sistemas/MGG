@@ -4,6 +4,8 @@
  */
 export type Role = string;
 export type EstadoGenerico = 'activo' | 'inactivo';
+/** ¿Quién entrega la orden pagada? (04-11-2026) delivery | carga_pesada | proveedor (entrega a domicilio). */
+export type EntregaModalidad = 'delivery' | 'carga_pesada' | 'proveedor';
 export type EstadoOrden = 'pendiente' | 'aprobada' | 'oc_creada' | 'confirmada_metodo' | 'oc_aprobada' | 'pagada' | 'oc_emitida' | 'rechazada' | 'recibida' | 'finalizada' | 'cancelada' | 'anulada' | 'desistida_proveedor' | 'reasignada' | 'por_recibir' | 'cuenta_abierta' | 'asignada' | 'revision_almacen' | 'atendida_almacen';
 
 /** Condiciones de pago de una oferta. */
@@ -1092,6 +1094,8 @@ export interface Orden {
   retencion_momento?: 'antes' | 'despues' | null;
   /** Retenciones por tipo indicadas al enviar a pagar (03-11-2026): ver pedidos/retencionesOc.ts. */
   retenciones?: unknown;
+  /** Quién entrega una vez pagada (04-11-2026). null = delivery (las de antes). */
+  entrega_modalidad?: EntregaModalidad | null;
   /** Cuándo/quién marcó en Retenciones la retención como hecha (RPC compras_marcar_retencion). */
   retencion_hecha_en?: string | null;
   retencion_hecha_por?: string | null;

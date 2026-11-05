@@ -15,6 +15,7 @@
    previa) y «💬 WhatsApp» con el reporte; solo salen al tocar el botón.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { FlotaContext, MODULO_FLOTA, TITULO_FLOTA, useFlota, type Flota } from './flota';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -68,11 +69,21 @@ const CHIPS: Array<{ key: ChipDelivery; label: string }> = [
 
 type Accion = { tipo: 'cancelar' | 'entregar'; ordenId: string };
 
+/** 04-11-2026: la misma pantalla sirve a Delivery y a Carga pesada; cada una ve solo sus pedidos. */
 export function DeliveryMovilView() {
+  return <FlotaContext.Provider value="delivery"><PantallaFlota flota="delivery" /></FlotaContext.Provider>;
+}
+
+/** La pantalla de teléfono del rol CARGA PESADA: solo los pedidos marcados «Carga pesada». */
+export function CargaPesadaMovilView() {
+  return <FlotaContext.Provider value="carga_pesada"><PantallaFlota flota="carga_pesada" /></FlotaContext.Provider>;
+}
+
+function PantallaFlota({ flota }: { flota: Flota }) {
   const { user } = useSession();
   const { can, appUser, soloTelefono, vistasTelefono } = usePermissions();
   const quienDe = useQuien();
-  const canWrite = can('delivery', 'escritura');
+  const canWrite = can(MODULO_FLOTA[flota], 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
   const quien = quienDe(actorName, actor) || actorName || actor;
@@ -95,13 +106,13 @@ export function DeliveryMovilView() {
   const reload = useCallback(async () => {
     const mio = ++turno.current;
     const [a, c] = await Promise.all([
-      listPedidosDelivery(false),
-      listPedidosDelivery(true).catch(() => [] as PedidoDelivery[]),
+      listPedidosDelivery(false, flota),
+      listPedidosDelivery(true, flota).catch(() => [] as PedidoDelivery[]),
     ]);
     if (mio !== turno.current) return;
     setActivos(a);
     setCerrados(c);
-  }, []);
+  }, [flota]);
 
   useEffect(() => {
     let vivo = true;
@@ -192,7 +203,7 @@ export function DeliveryMovilView() {
     <div className="surtidor">
       <header className="surt-head">
         <div>
-          <h1>🛵 Delivery</h1>
+          <h1>{TITULO_FLOTA[flota]}</h1>
           <div className="muted" style={{ fontSize: '.85rem' }}><NombreUsuario nombre={actorName} correo={actor} /></div>
         </div>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
@@ -253,7 +264,7 @@ export function DeliveryMovilView() {
               </button>
               <button type="button" className="btn btn-ghost"
                 onClick={() => setReporte({
-                  titulo: 'Pedidos de Delivery',
+                  titulo: flota === 'carga_pesada' ? 'Pedidos de Carga pesada' : 'Pedidos de Delivery',
                   texto: mensajeListaDelivery({ pedidos: pedidosVisibles, filtro: filtroChip, ver: nombreAlmacenVisible }),
                 })}>
                 💬 WhatsApp
@@ -724,6 +735,7 @@ function ComprobantePago({ p, onClose }: { p: PedidoDelivery; onClose: () => voi
 /* ── Compartir mi ubicación ── */
 
 function CompartirUbicacion({ pedido }: { pedido: PedidoDelivery | null }) {
+  const flota = useFlota();
   const [quiere, setQuiere] = useState(leerGps);
   const [enviado, setEnviado] = useState<{ t: number; precision: number | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -753,13 +765,13 @@ function CompartirUbicacion({ pedido }: { pedido: PedidoDelivery | null }) {
       compartirUbicacion({
         lat: punto.lat, lng: punto.lng, precision: pos.coords.accuracy ?? null,
         velocidad: pos.coords.speed ?? null, rumbo: pos.coords.heading ?? null,
-      }, pedidoId.current)
+      }, pedidoId.current, flota)
         .then(() => { setEnviado({ t: punto.t, precision: pos.coords.accuracy ?? null }); setError(null); })
         .catch((e) => setError(errMsg(e, 'No se pudo compartir la ubicación.')))
         .finally(() => { enviando = false; });
     }, (e) => setError(errorUbicacion(e.code)), { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 });
     return () => navigator.geolocation.clearWatch(id);
-  }, [activo]);
+  }, [activo, flota]);
 
   function cambiar() {
     const v = !quiere;

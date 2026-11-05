@@ -113,6 +113,7 @@ import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import type { Almacen } from '@/shared/lib/types';
+import { OPCIONES_ENTREGA, etiquetaEntrega, pideEntrega, type EntregaModalidad } from './entregaModalidad';
 import { OfertasComparativa } from './OfertasComparativa';
 import { AsignarProveedoresModal } from './AsignarProveedoresModal';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
@@ -1246,7 +1247,7 @@ export function PedidosPage() {
             try {
               const email = usuario?.email ?? user?.email ?? 'sistema';
               const codigo = modal.orden.oc_codigo ?? modal.orden.codigo;
-              await corregirMetodoPago(modal.orden, metodos, email, soporte.numeroAdministracion);
+              await corregirMetodoPago(modal.orden, metodos, email, soporte.numeroAdministracion, soporte.entregaModalidad);
               notify(`OC ${codigo} · método de pago corregido · Tesorería ya ve los datos nuevos`, 'success', { link: '#/app/tesoreria' });
               setModal({ kind: 'none' });
               await refresh();
@@ -1602,7 +1603,7 @@ function MetodoPagoModal({
    *  Confirmada pagar y solo se arregla CÓMO se le paga (método y datos del beneficiario). */
   modo?: 'enviar' | 'corregir';
   onClose: () => void;
-  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; numeroAdministracion: string | null; retencionMomento?: RetencionMomento | null; retenciones?: RetencionOc[] | null }, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
+  onSent: (metodos: PagoMetodo[], soporte: { comprobanteTipo: 'nota_entrega' | 'factura'; retencionModo: 'se_paga_despues' | 'completo_reembolso' | null; numeroAdministracion: string | null; retencionMomento?: RetencionMomento | null; retenciones?: RetencionOc[] | null; entregaModalidad?: EntregaModalidad | null }, qr: File | null, descuentoPago: number | null) => Promise<void> | void;
   /** «Cambiar de proveedor»: reabre las cotizaciones de la OC (con su motivo) para escoger otra. Solo al enviar. */
   onReabrir?: (motivo: string) => Promise<void> | void;
 }) {
@@ -1640,6 +1641,9 @@ function MetodoPagoModal({
   // Contra entrega: ya se recibió y verificó; se confirma la Nota de entrega antes de pagar.
   const esContraEntrega = orden.condiciones_pago === 'contra_entrega';
   const [notaEntrega, setNotaEntrega] = useState(false);
+  // 04-11-2026: ¿quién entrega una vez pagada? Delivery, Carga pesada o el proveedor (a domicilio).
+  const conEntrega = pideEntrega(orden);
+  const [entrega, setEntrega] = useState<EntregaModalidad | null>(orden.entrega_modalidad ?? null);
   // Soporte: Nota de entrega → directo a Tesorería. Factura → además pasa por Retenciones.
   const [comprobanteTipo, setComprobanteTipo] = useState<'nota_entrega' | 'factura'>('nota_entrega');
   // Flujo nuevo de compras (30-10-2026): ¿se retiene ANTES o DESPUÉS de pagar? Solo con el
@@ -1720,6 +1724,7 @@ function MetodoPagoModal({
       setError('En multipago, indicá el monto por cada método/moneda.'); return;
     }
     if (esContraEntrega && !corrigiendo && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
+    if (conEntrega && !entrega) { setError('Indica quién entrega: Delivery, Carga pesada o Con entrega a domicilio.'); return; }
     if (pideMomentoRet && retMomento && Object.keys(retMarc).length && retenciones.length < Object.keys(retMarc).length) {
       setError('Indica el % o el monto de cada retención marcada (o desmárcala).'); return;
     }
@@ -1743,6 +1748,7 @@ function MetodoPagoModal({
       if (numero && numero !== numeroAdminGuardado) await fijarNumeroAdministracionProveedor(proveedorId, numero);
       await onSent(validos, {
         comprobanteTipo, retencionModo: null, numeroAdministracion: numero,
+        ...(conEntrega && entrega ? { entregaModalidad: entrega } : {}),
         ...(pideMomentoRet && retMomento ? { retencionMomento: retMomento } : {}),
         ...(pideMomentoRet && retMomento && retenciones.length ? { retenciones } : {}),
       }, qr, incluyeDesc && descNum > 0 ? descNum : null);
@@ -1884,6 +1890,25 @@ function MetodoPagoModal({
           </label>
         </div>
       </div>
+
+      {/* ¿Quién entrega? (04-11-2026): Delivery / Carga pesada → una vez pagada va a esa vista;
+          Con entrega a domicilio → la trae el proveedor y no va a ninguna. */}
+      {conEntrega && (
+        <div className="card" style={{ margin: '0 0 .75rem', padding: '.7rem .85rem', borderLeft: '3px solid var(--brand, #ff8a00)' }}>
+          <div style={{ fontSize: '.8rem', fontWeight: 700, letterSpacing: '.04em', marginBottom: '.45rem' }}>🛵 DELIVERY · ¿QUIÉN ENTREGA?</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '.45rem' }}>
+            {OPCIONES_ENTREGA.map((op) => (
+              <label key={op.value} className="card" style={{ display: 'flex', alignItems: 'flex-start', gap: '.5rem', margin: 0, padding: '.55rem .7rem', cursor: 'pointer', borderColor: entrega === op.value ? 'var(--brand, #ff8a00)' : 'var(--border)' }}>
+                <input type="checkbox" checked={entrega === op.value} onChange={() => setEntrega(entrega === op.value ? null : op.value)} style={{ marginTop: '.2rem' }} />
+                <span style={{ fontSize: '.86rem' }}>
+                  <strong>{op.icono} {op.label}</strong>
+                  <span className="muted" style={{ display: 'block', fontSize: '.74rem', marginTop: '.15rem' }}>{op.ayuda}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Retención (02-11 → 03-11-2026): solo con Factura. Primero ¿cuándo se retiene?; con eso
           marcado, qué retienen (IVA / IGTF / ISLR / ISAE) en % del total o monto fijo. ANTES: el
@@ -3444,6 +3469,13 @@ function OrdenDetailModal({
               {o.condiciones_pago ? labelCondicionPago(o.condiciones_pago) : 'Contado / anticipado'}
             </span>
           </div>
+        </div>
+      )}
+      {/* 04-11-2026: quién entrega (se elige al indicar el método de pago). */}
+      {o.oc_codigo && o.entrega_modalidad && (
+        <div className="detail-row">
+          <div className="k">Entrega</div>
+          <div className="v"><span className="badge">{etiquetaEntrega(o.entrega_modalidad)}</span></div>
         </div>
       )}
       {o.oc_codigo && (() => {

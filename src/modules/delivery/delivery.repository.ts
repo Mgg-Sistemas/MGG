@@ -10,6 +10,7 @@ import type { Orden } from '@/shared/lib/types';
 import { elegirComprobanteTesoreria } from '@/modules/pedidos/comprobanteTesoreria';
 import { recibirOrdenParcial } from '@/modules/pedidos/pedidos.repository';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import type { Flota } from './flota';
 import { MAX_FOTOS_DELIVERY, type FotoDelivery, type PedidoDelivery, type TipoDelivery, type UbicacionDelivery } from './delivery';
 import {
   claveParadas, leerDestinos, leerRutaOsrm, lineaRecta, puntoValido, urlRutaOsrm,
@@ -59,8 +60,9 @@ export function useDeliveryConectado(): boolean | null {
  * los retiros en Los Pinos de las SP que almacén atiende), los en curso y,
  * con `incluirCerrados`, los entregados y cancelados (histórico).
  */
-export async function listPedidosDelivery(incluirCerrados = false): Promise<PedidoDelivery[]> {
-  const { data, error } = await supabase.rpc('delivery_pedidos_listado', { p_incluir_cerrados: incluirCerrados });
+/** 04-11-2026: cada flota (Delivery / Carga pesada) ve solo lo suyo. */
+export async function listPedidosDelivery(incluirCerrados = false, flota: Flota = 'delivery'): Promise<PedidoDelivery[]> {
+  const { data, error } = await supabase.rpc('delivery_pedidos_listado', { p_incluir_cerrados: incluirCerrados, p_flota: flota });
   if (error) throw err(error, 'No se pudieron leer los pedidos.');
   return ((data ?? []) as Record<string, unknown>[]).map(normalizar);
 }
@@ -165,22 +167,23 @@ export async function urlFotoDelivery(path: string): Promise<string> {
 export async function compartirUbicacion(
   pos: { lat: number; lng: number; precision?: number | null; velocidad?: number | null; rumbo?: number | null },
   pedidoId?: string | null,
+  flota: Flota = 'delivery',
 ): Promise<void> {
   const { error } = await supabase.rpc('delivery_ubicar', {
     p_lat: pos.lat, p_lng: pos.lng, p_precision: pos.precision ?? null,
-    p_velocidad: pos.velocidad ?? null, p_rumbo: pos.rumbo ?? null, p_pedido_id: pedidoId ?? null,
+    p_velocidad: pos.velocidad ?? null, p_rumbo: pos.rumbo ?? null, p_pedido_id: pedidoId ?? null, p_flota: flota,
   });
   if (error) throw err(error, 'No se pudo compartir la ubicación.');
 }
 
-export async function listUbicaciones(): Promise<UbicacionDelivery[]> {
-  const { data, error } = await supabase.from('delivery_ubicaciones').select('*').order('actualizado_en', { ascending: false });
+export async function listUbicaciones(flota: Flota = 'delivery'): Promise<UbicacionDelivery[]> {
+  const { data, error } = await supabase.from('delivery_ubicaciones').select('*').eq('flota', flota).order('actualizado_en', { ascending: false });
   if (error) throw err(error, 'No se pudieron leer las ubicaciones.');
   return (data ?? []) as UbicacionDelivery[];
 }
 
 /** Histórico directo de la tabla (incluye cada cancelación aunque la OC se haya retomado). */
-export async function listHistorialDelivery(desde: string, hasta: string): Promise<Array<{
+export async function listHistorialDelivery(desde: string, hasta: string, flota: Flota = 'delivery'): Promise<Array<{
   id: string; orden_id: string; tipo?: string | null; estado: string; repartidor_nombre: string | null; repartidor_email: string | null;
   aceptado_en: string; en_ruta_en: string | null; entregado_en: string | null; cancelado_en: string | null;
   motivo_cancel: string | null; almacen_entrega: string | null;
@@ -188,6 +191,7 @@ export async function listHistorialDelivery(desde: string, hasta: string): Promi
 }>> {
   const { data, error } = await supabase.from('delivery_pedidos')
     .select('id, orden_id, tipo, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, orden:ordenes(oc_codigo, codigo, total, moneda, proveedor_id)')
+    .eq('flota', flota)
     .gte('aceptado_en', `${desde}T00:00:00-04:00`).lte('aceptado_en', `${hasta}T23:59:59-04:00`)
     .order('aceptado_en', { ascending: false });
   if (error) throw err(error, 'No se pudo leer el histórico.');

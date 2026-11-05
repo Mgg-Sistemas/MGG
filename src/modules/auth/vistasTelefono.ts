@@ -17,7 +17,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'maquinaria' | 'retenciones' | 'inventario' | 'solicitudes' | 'delivery';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'maquinaria' | 'retenciones' | 'inventario' | 'solicitudes' | 'delivery' | 'carga_pesada';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -63,6 +63,12 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
     key: 'delivery', label: 'Delivery', icono: '🛵', modulo: 'delivery',
     ruta: '/app/delivery/telefono',
     descripcion: 'Tomar pedidos pagados, ir en ruta, entregar en almacén y compartir ubicación',
+  },
+  {
+    // Carga pesada (04-11-2026): lo mismo que Delivery, solo con los pedidos marcados «Carga pesada».
+    key: 'carga_pesada', label: 'Carga pesada', icono: '🚚', modulo: 'carga_pesada',
+    ruta: '/app/carga-pesada/telefono',
+    descripcion: 'Pedidos de carga pesada: tomar, ir en ruta, entregar en almacén y compartir ubicación',
   },
 ];
 

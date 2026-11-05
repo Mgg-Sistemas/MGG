@@ -13,6 +13,7 @@
    proveedor (si falta recogerlo) → almacén.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { Flota } from './flota';
 import L from 'leaflet';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { CENTRO_PUERTO_ORDAZ, ZOOM_CIUDAD, colorDe, crearMapaBase, iconoPildora } from '@/shared/lib/mapaBase';
@@ -58,8 +59,10 @@ function pedidoDe(u: UbicacionDelivery, porId: Map<string, PedidoDelivery>, pedi
   return suyos.find((p) => p.estado === 'en_ruta') ?? suyos[0];
 }
 
-export function DeliveryMapa({ pedidos, destinos, onUbicar }: {
+export function DeliveryMapa({ pedidos, destinos, onUbicar, flota = 'delivery' }: {
   pedidos: PedidoDelivery[];
+  /** 04-11-2026: se ven solo los repartidores de esta flota. */
+  flota?: Flota;
   destinos: DestinosDelivery;
   /** Abre «📍 Ubicar proveedores» (solo si el usuario puede ubicar). */
   onUbicar?: () => void;
@@ -78,12 +81,12 @@ export function DeliveryMapa({ pedidos, destinos, onUbicar }: {
 
   const cargar = useCallback(async () => {
     try {
-      setUbicaciones(await listUbicaciones());
+      setUbicaciones(await listUbicaciones(flota));
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudieron leer las ubicaciones.');
     }
-  }, []);
+  }, [flota]);
   useEffect(() => { void cargar(); }, [cargar]);
   useRealtime(['delivery_ubicaciones'], () => { void cargar(); });
 

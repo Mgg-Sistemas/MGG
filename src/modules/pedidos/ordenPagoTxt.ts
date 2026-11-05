@@ -19,6 +19,9 @@ import { BANCOS_VE } from '@/shared/lib/bancos';
 import { dateTime } from '@/shared/lib/format';
 import { retencionesDe, totalRetenciones } from './retencionesOc';
 import { labelCondicionPago } from './ofertas.repository';
+import { OPCIONES_ENTREGA } from './entregaModalidad';
+
+const etiquetaEntregaTxt = (m: string) => OPCIONES_ENTREGA.find((x) => x.value === m)?.label ?? m;
 // El enlace y el «compartir» son los MISMOS de Combustible/Alimentación: una sola implementación
 // del «no wa.me» y de la hoja de compartir del teléfono.
 export { enlaceWhatsapp, puedeCompartir, compartirMovimiento } from '@/modules/combustible/mensajeMovimiento';
@@ -208,6 +211,8 @@ export function textoOrdenPago(
   }
   const enBs = lineaMontoBs(orden, opts?.tasaBs);
   if (enBs) L.push(enBs);
+  // Quién entrega (04-11-2026): Delivery, Carga pesada o el proveedor a domicilio.
+  if (orden.entrega_modalidad) L.push(`🚚 *Entrega:* ${etiquetaEntregaTxt(orden.entrega_modalidad)}`);
   // En cuentas a crédito no se muestra método de pago (se paga por abonos en Tesorería;
   // no lleva método fijo ni se muestra «todavía sin método de pago indicado»).
   if (!esCuentaCredito(orden)) {

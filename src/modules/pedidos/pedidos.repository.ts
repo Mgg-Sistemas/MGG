@@ -59,6 +59,7 @@ import { autorizadoPara } from '@/modules/usuarios/autorizados';
 import { flujoRevisionAlmacenActivo } from './revisionAlmacen.repository';
 import { patchRetencionMomento, type RetencionMomento } from './retencionMomento';
 import { retencionQueBajaElPago, type RetencionOc } from './retencionesOc';
+import type { EntregaModalidad } from './entregaModalidad';
 
 async function assertAdmin(accion: string): Promise<void> {
   const { data: auth } = await supabase.auth.getUser();
@@ -1486,6 +1487,8 @@ export async function indicarMetodoPago(
     retencionMomento?: RetencionMomento | null;
     /** Retenciones por tipo (03-11-2026): IVA / IGTF / ISLR / ISAE. Solo con Factura. */
     retenciones?: RetencionOc[] | null;
+    /** Quién entrega una vez pagada (04-11-2026): delivery, carga pesada o el proveedor. */
+    entregaModalidad?: EntregaModalidad | null;
   },
   qr?: File | null,
   descuentoPago?: number | null,
@@ -1543,6 +1546,7 @@ export async function indicarMetodoPago(
     descuento_pago: descPago > 0 ? descPago : null,
     // Número de administración del proveedor (14-10-2026): lo ven Tesorería y Retenciones.
     numero_administracion: soporte?.numeroAdministracion?.trim() || null,
+    ...(soporte?.entregaModalidad ? { entrega_modalidad: soporte.entregaModalidad } : {}),
     historial: appendHistorial(o, 'metodo_pago', actorEmail, { metodos: limpios, comprobante: comprobanteTipo, retencion_modo: retencionModo, qr: !!qrPath, ...(descPago > 0 ? { descuento_pago: descPago } : {}), ...(soporte?.numeroAdministracion?.trim() ? { numero_administracion: soporte.numeroAdministracion.trim() } : {}), ...(modDesdeMetodo ? { modalidad_pago: modDesdeMetodo } : {}), ...(retMomento.retencion_momento ? { retencion_momento: retMomento.retencion_momento } : {}), ...(comprobanteTipo === 'factura' && soporte?.retenciones?.length ? { retenciones: soporte.retenciones } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
@@ -1572,6 +1576,8 @@ export async function corregirMetodoPago(
   actorEmail: string,
   /** Número de administración del proveedor (14-10-2026). undefined = no se tocó. */
   numeroAdministracion?: string | null,
+  /** Quién entrega (04-11-2026). undefined = no se tocó. */
+  entregaModalidad?: EntregaModalidad | null,
 ): Promise<Orden> {
   const impedimento = motivoNoCorregible(o);
   if (impedimento) throw new Error(impedimento);
@@ -1593,7 +1599,9 @@ export async function corregirMetodoPago(
     metodo_pago_en: new Date().toISOString(),
     ...(modDesdeMetodo ? { modalidad_pago: modDesdeMetodo, pago_en_divisa: modDesdeMetodo === 'usd', total_divisa: modDesdeMetodo === 'usd' ? (o.total_divisa ?? o.total) : null } : {}),
     ...(numeroAdministracion !== undefined ? { numero_administracion: numeroAdministracion?.trim() || null } : {}),
+    ...(entregaModalidad ? { entrega_modalidad: entregaModalidad } : {}),
     historial: appendHistorial(o, 'metodo_pago_corregido', actorEmail, {
+      ...(entregaModalidad && entregaModalidad !== (o.entrega_modalidad ?? null) ? { entrega_antes: o.entrega_modalidad ?? null, entrega_despues: entregaModalidad } : {}),
       antes: o.metodo_pago ?? null,
       despues: limpios,
       ...(numeroAdministracion !== undefined ? { numero_administracion: numeroAdministracion?.trim() || null } : {}),

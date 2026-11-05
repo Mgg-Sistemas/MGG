@@ -7,6 +7,7 @@ export type ModuleKey =
   | 'pedidos'
   | 'proveedores'
   | 'delivery'
+  | 'carga_pesada'
   | 'inventario'
   | 'deposito'
   | 'produccion'
@@ -56,6 +57,8 @@ export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'proveedores', label: 'Proveedores' },
   // Delivery (30-10-2026): la OC pagada la toma un motorizado y la entrega en el almacén.
   { key: 'delivery',    label: 'Delivery' },
+  // Carga pesada (04-11-2026): como Delivery, otra flota; cada una ve solo sus pedidos.
+  { key: 'carga_pesada', label: 'Carga pesada' },
   { key: 'inventario',  label: 'Inventario' },
   { key: 'deposito',    label: 'Depósito', path: 'deposito' },
   { key: 'produccion',  label: 'Fundición' },
