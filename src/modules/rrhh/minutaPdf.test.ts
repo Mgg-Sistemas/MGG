@@ -9,7 +9,7 @@ const vacia = () => ({ a: '' });
 describe('filasConRenglones', () => {
   it('la hoja en blanco sale con los renglones del formato de papel', () => {
     expect(filasConRenglones([], RENGLONES_HOJA.ordenDia, vacia)).toHaveLength(7);
-    expect(filasConRenglones([], RENGLONES_HOJA.participantes, vacia)).toHaveLength(6);
+    expect(filasConRenglones([], RENGLONES_HOJA.participantes, vacia)).toHaveLength(20);
     expect(filasConRenglones([], RENGLONES_HOJA.acuerdos, vacia)).toHaveLength(6);
     expect(filasConRenglones([], RENGLONES_HOJA.avances, vacia)).toHaveLength(4);
   });
@@ -33,7 +33,7 @@ describe('filasConRenglones', () => {
 describe('RENGLONES_HOJA', () => {
   it('coincide con el formato en papel de la empresa', () => {
     expect(RENGLONES_HOJA).toEqual({
-      ordenDia: 7, participantes: 6, acuerdos: 6, avances: 4, observaciones: 7,
+      ordenDia: 7, participantes: 20, acuerdos: 6, avances: 4, observaciones: 7,
       proximosPuntos: 7, otrosAsuntos: 7,
     });
   });
@@ -98,7 +98,7 @@ describe('construirMinutaPdf', () => {
 describe('minimoFilas', () => {
   it('sin filas cargadas devuelve el mínimo del papel de cada sección', () => {
     expect(minimoFilas('ordenDia', 0)).toBe(7);
-    expect(minimoFilas('participantes', 0)).toBe(6);
+    expect(minimoFilas('participantes', 0)).toBe(20);
     expect(minimoFilas('acuerdos', 0)).toBe(6);
     expect(minimoFilas('avances', 0)).toBe(4);
     expect(minimoFilas('observaciones', 0)).toBe(7);
@@ -116,5 +116,37 @@ describe('minimoFilas', () => {
   });
   it('cero filas cargadas da el mínimo del papel, no el extra', () => {
     expect(minimoFilas('acuerdos', 0)).not.toBe(RENGLONES_EXTRA);
+  });
+});
+
+describe('PARTICIPANTES en su propia hoja (hasta 20 firmas)', () => {
+  // Texto de cada página del PDF (jsPDF guarda el contenido de cada hoja en `internal.pages`).
+  const paginas = (doc: Awaited<ReturnType<typeof construirMinutaPdf>>): string[] =>
+    (doc.internal as unknown as { pages: (string[] | undefined)[] }).pages.slice(1).map((p) => (p ?? []).join('\n'));
+  const conTexto = (pgs: string[], t: string): number[] => pgs.map((p, i) => (p.includes(t) ? i + 1 : 0)).filter(Boolean);
+  const gente = (n: number) => Array.from({ length: n }, (_, i) => ({ personal_id: null, nombre: `Persona ${i + 1}`, cargo: `Cargo ${i + 1}` }));
+
+  it('la hoja en blanco lleva la tabla de participantes SOLA en la página 2, sin orden del día ni acuerdos', async () => {
+    const pgs = paginas(await construirMinutaPdf(null));
+    expect(conTexto(pgs, 'PARTICIPANTES')).toEqual([2]);
+    expect(pgs[0]).toContain('ORDEN DEL');
+    expect(pgs[1]).not.toContain('ORDEN DEL');
+    expect(pgs[1]).not.toContain('RESPONSABLE');
+    expect(conTexto(pgs, 'RESPONSABLE')).not.toContain(2);
+    expect(conTexto(pgs, 'RESPONSABLE')[0]).toBe(3);
+  });
+
+  it('con 20 participantes cargados siguen cabiendo todos en esa misma hoja (el encabezado no se repite)', async () => {
+    const pgs = paginas(await construirMinutaPdf(minutaBase({ participantes: gente(20) })));
+    expect(conTexto(pgs, 'PARTICIPANTES')).toEqual([2]);
+    expect(conTexto(pgs, 'Persona 1')).toEqual([2]);
+    expect(conTexto(pgs, 'Persona 20')).toEqual([2]);
+    expect(conTexto(pgs, 'RESPONSABLE')[0]).toBe(3);
+  });
+
+  it('con más de lo que cabe no se pierde nadie: la tabla sigue en la hoja siguiente', async () => {
+    const pgs = paginas(await construirMinutaPdf(minutaBase({ participantes: gente(60) })));
+    expect(conTexto(pgs, 'Persona 60').length).toBe(1);
+    expect(conTexto(pgs, 'PARTICIPANTES').length).toBeGreaterThan(1);
   });
 });

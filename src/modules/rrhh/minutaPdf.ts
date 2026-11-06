@@ -24,7 +24,8 @@ import type {
 import { anchoLogoPdf, dibujarLogoPdf } from '@/shared/lib/pdfLogo';
 
 export const RENGLONES_HOJA = {
-  ordenDia: 7, participantes: 6, acuerdos: 6, avances: 4, observaciones: 7,
+  // 06-11-2026: PARTICIPANTES va en su propia hoja, con lugar para 20 firmas.
+  ordenDia: 7, participantes: 20, acuerdos: 6, avances: 4, observaciones: 7,
   proximosPuntos: 7, otrosAsuntos: 7,
 } as const;
 
@@ -185,7 +186,10 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   /* 3. Orden del día */
   listaNumerada('ORDEN DEL DÍA', m?.orden_dia ?? [], 'ordenDia');
 
-  /* 4. Participantes (firma siempre vacía) */
+  /* 4. Participantes (firma siempre vacía): en su PROPIA hoja, con renglones para
+        20 firmas. Hoja nueva antes y después, para que quede sola y se pueda firmar
+        cómodo; si hay más de lo que cabe, la tabla sigue en la hoja siguiente. */
+  doc.addPage(); y = MARGIN;
   tabla(
     ['PARTICIPANTES', 'CARGO', 'FIRMA'],
     filasConRenglones(
@@ -198,7 +202,8 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
     { minCellHeight: 24 },
   );
 
-  /* 5. Acuerdos */
+  /* 5. Acuerdos (hoja nueva: la de participantes queda sola) */
+  doc.addPage(); y = MARGIN;
   tabla(
     ['RESPONSABLE', 'ACTIVIDAD', 'FECHA COMPROMISO'],
     filasConRenglones(
