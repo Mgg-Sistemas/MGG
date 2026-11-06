@@ -1,6 +1,6 @@
 /* ============================================================
    MGG · Compras · Cierre diario (PDF) · 21-10-2026
-   Una hoja: logo, título, período, FECHA Y HORA DE IMPRESIÓN y los cuatro títulos con su
+   Una hoja: logo, título, período, FECHA Y HORA DE IMPRESIÓN y los títulos con su
    cantidad. Mismos estilos que el resto de los reportes (logo, 2 cm de margen, pie).
    Se MUESTRA en vista previa: nada se descarga solo.
    ============================================================ */

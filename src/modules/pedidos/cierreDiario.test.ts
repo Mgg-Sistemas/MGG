@@ -125,45 +125,45 @@ describe('armarCierre', () => {
   const hoyIso = '2026-10-21T15:00:00.000Z';   // 11:00 a. m. del 21
   const ayerIso = '2026-10-20T15:00:00.000Z';
 
-  it('lleva los cuatro títulos, en el orden pedido', () => {
-    const r = armarCierre({ pedidos: 0, pagadas: 0, pendientesAprobar: [], porPagar: [] }, hoy);
+  it('lleva los tres títulos, en el orden pedido', () => {
+    const r = armarCierre({ pedidos: 0, pagadas: 0, porPagar: [] }, hoy);
     expect(r.items.map((i) => i.titulo)).toEqual([
-      'Total de pedidos', 'Total órdenes pendientes por aprobar', 'Total órdenes por pagar', 'Total órdenes pagadas',
+      'Total de pedidos', 'Total órdenes por pagar', 'Total órdenes pagadas',
     ]);
     expect(r.items.map((i) => i.key)).toEqual(ITEMS_CIERRE.map((i) => i.key));
     expect(r.items.every((i) => i.cantidad === 0)).toBe(true);
   });
 
   it('«HOY» solo cuenta lo que entró hoy a cada estado', () => {
-    const r = armarCierre({ pedidos: 7, pagadas: 3, pendientesAprobar: [hoyIso, ayerIso, hoyIso, null], porPagar: [ayerIso, hoyIso] }, hoy);
-    expect(r.items.map((i) => i.cantidad)).toEqual([7, 2, 1, 3]);
+    const r = armarCierre({ pedidos: 7, pagadas: 3, porPagar: [ayerIso, hoyIso] }, hoy);
+    expect(r.items.map((i) => i.cantidad)).toEqual([7, 1, 3]);
   });
 
   it('con la semana entra también lo de ayer', () => {
     const semana = rangoCierre(filtro({ modo: 'semana' }), HOY);
-    const r = armarCierre({ pedidos: 20, pagadas: 9, pendientesAprobar: [hoyIso, ayerIso, '2026-10-12T15:00:00.000Z'], porPagar: [ayerIso, hoyIso, '2026-10-05T15:00:00.000Z'] }, semana);
-    expect(r.items.map((i) => i.cantidad)).toEqual([20, 2, 2, 9]);
+    const r = armarCierre({ pedidos: 20, pagadas: 9, porPagar: [ayerIso, hoyIso, '2026-10-05T15:00:00.000Z'] }, semana);
+    expect(r.items.map((i) => i.cantidad)).toEqual([20, 2, 9]);
   });
 
   it('con el mes entra todo el mes, y lo de otro mes no', () => {
     const mes = rangoCierre(filtro({ modo: 'mes', mes: '2026-10' }), HOY);
-    const r = armarCierre({ pedidos: 1, pagadas: 1, pendientesAprobar: ['2026-10-01T15:00:00Z', '2026-10-31T15:00:00Z', '2026-09-30T15:00:00Z', '2026-11-01T15:00:00Z'], porPagar: [] }, mes);
+    const r = armarCierre({ pedidos: 1, pagadas: 1, porPagar: ['2026-10-01T15:00:00Z', '2026-10-31T15:00:00Z', '2026-09-30T15:00:00Z', '2026-11-01T15:00:00Z'] }, mes);
     expect(r.items[1].cantidad).toBe(2);
   });
 
   it('las cantidades que ya trae la base se respetan y nunca salen negativas ni decimales', () => {
-    const r = armarCierre({ pedidos: -3, pagadas: 4.9, pendientesAprobar: [], porPagar: [] }, hoy);
+    const r = armarCierre({ pedidos: -3, pagadas: 4.9, porPagar: [] }, hoy);
     expect(r.items[0].cantidad).toBe(0);
-    expect(r.items[3].cantidad).toBe(4);
+    expect(r.items[2].cantidad).toBe(4);
   });
 });
 
 describe('mensajeCierreDiario · WhatsApp', () => {
   const rango = rangoCierre(filtro(), HOY);
-  const r = armarCierre({ pedidos: 12, pagadas: 3, pendientesAprobar: ['2026-10-21T15:00:00.000Z', '2026-10-21T16:00:00.000Z'], porPagar: ['2026-10-21T15:00:00.000Z'] }, rango);
+  const r = armarCierre({ pedidos: 12, pagadas: 3, porPagar: ['2026-10-21T15:00:00.000Z'] }, rango);
   const impreso = '2026-10-21T12:45:00.000Z'; // 8:45 a. m. en Caracas
 
-  it('lleva título, período, hora de impresión y los cuatro títulos cortos, con espacios entre líneas y pie de empresa', () => {
+  it('lleva título, período, hora de impresión y los tres títulos cortos, con espacios entre líneas y pie de empresa', () => {
     expect(mensajeCierreDiario(r, impreso).split('\n')).toEqual([
       '📊 *CIERRE DIARIO · COMPRAS*',
       '',
@@ -172,8 +172,6 @@ describe('mensajeCierreDiario · WhatsApp', () => {
       '🕒 *Impreso:* 21/10/2026 · 8:45 a. m.',
       '',
       '📥 *Pedidos:* 12',
-      '',
-      '⏳ *Órdenes pendientes por aprobar:* 2',
       '',
       '💵 *Órdenes por pagar:* 1',
       '',
@@ -191,10 +189,10 @@ describe('mensajeCierreDiario · WhatsApp', () => {
 describe('Excel del cierre diario', () => {
   beforeEach(() => { capturado.wb = undefined; });
 
-  it('lleva período, hora de impresión y las cuatro cantidades como NÚMERO', async () => {
+  it('lleva período, hora de impresión y las tres cantidades como NÚMERO', async () => {
     const { exportarCierreDiarioExcel } = await import('./cierreDiarioExcel');
     const rango = rangoCierre(filtro({ modo: 'semana' }), HOY);
-    const r = armarCierre({ pedidos: 12, pagadas: 3, pendientesAprobar: ['2026-10-21T15:00:00.000Z'], porPagar: [] }, rango);
+    const r = armarCierre({ pedidos: 12, pagadas: 3, porPagar: ['2026-10-21T15:00:00.000Z'] }, rango);
     await exportarCierreDiarioExcel(r, '2026-10-21T12:45:00.000Z');
     expect(capturado.nombre).toBe('cierre-diario-compras.xlsx');
     expect(capturado.wb!.SheetNames).toEqual(['Cierre diario']);
@@ -204,7 +202,6 @@ describe('Excel del cierre diario', () => {
     expect(celdas).toContain('📋 Total de pedidos');
     expect(celdas).toContain(12);
     expect(celdas).toContain(1);
-    expect(celdas).toContain(0);
     expect(celdas).toContain(3);
   });
 

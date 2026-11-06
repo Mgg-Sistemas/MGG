@@ -11,7 +11,6 @@ import { fmtMonto } from './comprasReporte';
 /** Rótulo y emoji del mensaje (formato acordado, igual al de Golden Touch). */
 const EN_MENSAJE: Record<string, { emoji: string; titulo: string }> = {
   pedidos: { emoji: '📥', titulo: 'Pedidos' },
-  pendientes_aprobar: { emoji: '⏳', titulo: 'Órdenes pendientes por aprobar' },
   por_pagar: { emoji: '💵', titulo: 'Órdenes por pagar' },
   pagadas: { emoji: '✅', titulo: 'Órdenes pagadas' },
 };

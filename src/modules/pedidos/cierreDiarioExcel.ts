@@ -1,7 +1,7 @@
 /* ============================================================
    MGG · Compras · Cierre diario (Excel) · 21-10-2026
    Una hoja con lo mismo que la pantalla: título, período, fecha y hora de impresión,
-   los cuatro títulos con su cantidad y la tabla de actividad por analista
+   los títulos con su cantidad y la tabla de actividad por analista
    (cotizaciones cargadas y órdenes finalizadas). Cantidades como NÚMEROS.
    Estilos del sistema. Se MUESTRA en vista previa: nada se descarga solo.
    ============================================================ */

@@ -1,9 +1,9 @@
 /* ============================================================
    MGG · Compras · Cierre diario (modal en pantalla) · 21-10-2026
-   Modo RESUMEN: cuatro títulos con su cantidad —pedidos, órdenes pendientes por
-   aprobar, órdenes por pagar y órdenes pagadas—. Se filtra por día, semana, mes o
-   rango de fechas (con «Hoy» solo se ve lo de hoy). Indica la fecha y la hora en que se
-   imprime. Salidas con la misma data: PDF, Excel y WhatsApp (ventana «Avisar»).
+   Modo RESUMEN: tres títulos con su cantidad —pedidos, órdenes por pagar y órdenes
+   pagadas—. Se filtra por día, semana, mes o rango de fechas (con «Hoy» solo se ve lo
+   de hoy). Indica la fecha y la hora en que se imprime. Salidas con la misma data: PDF,
+   Excel y WhatsApp (ventana «Avisar»).
    Las reglas de cada cantidad están en `cierreDiario.ts`. Se actualiza en vivo.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -149,7 +149,7 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
         <div><strong>🕒 Fecha y hora de impresión:</strong> {fechaReporteTexto(consultado)} <span style={{ opacity: .8 }}>(al generar el PDF, el Excel o el WhatsApp se anota la hora exacta)</span></div>
       </div>
 
-      {/* ── Resumen: los cuatro títulos con su cantidad ── */}
+      {/* ── Resumen: los tres títulos con su cantidad ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '.7rem' }}>
         {ITEMS_CIERRE.map((it) => {
           const cantidad = resumen?.items.find((x) => x.key === it.key)?.cantidad;

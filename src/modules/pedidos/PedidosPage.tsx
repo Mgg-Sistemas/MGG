@@ -658,7 +658,7 @@ export function PedidosPage() {
           <button
             className="btn btn-ghost"
             onClick={() => setCierreOpen(true)}
-            title="Cierre diario: total de pedidos, órdenes pendientes por aprobar, por pagar y pagadas, filtrable por día, semana, mes o rango; en PDF, Excel y WhatsApp"
+            title="Cierre diario: total de pedidos, órdenes por pagar y pagadas, filtrable por día, semana, mes o rango; en PDF, Excel y WhatsApp"
           >
             📆 Cierre diario
           </button>

@@ -1,9 +1,7 @@
 /* ============================================================
    MGG · Compras · Cierre diario (lógica pura) · 21-10-2026
-   Resumen de CUATRO cantidades, filtrable por día, semana, mes o rango de fechas:
+   Resumen de TRES cantidades, filtrable por día, semana, mes o rango de fechas:
      · Total de pedidos                     → solicitudes CREADAS en el período.
-     · Total órdenes pendientes por aprobar → OC en «Pendiente por aprobación» que
-                                              ENTRARON ahí en el período y siguen ahí.
      · Total órdenes por pagar              → OC confirmadas (por indicar método o ya
                                               en Tesorería) que ENTRARON a pago en el
                                               período y siguen sin pagarse.
@@ -117,7 +115,7 @@ export function enRango(iso: string | null | undefined, r: Pick<RangoCierre, 'de
   return !!f && f >= r.desde && f <= r.hasta;
 }
 
-export type ClaveCierre = 'pedidos' | 'pendientes_aprobar' | 'por_pagar' | 'pagadas';
+export type ClaveCierre = 'pedidos' | 'por_pagar' | 'pagadas';
 
 export interface ItemCierre {
   key: ClaveCierre;
@@ -130,7 +128,6 @@ export interface ItemCierre {
 /** Los títulos, en el orden pedido. */
 export const ITEMS_CIERRE: { key: ClaveCierre; titulo: string; emoji: string; ayuda: string }[] = [
   { key: 'pedidos', titulo: 'Total de pedidos', emoji: '📋', ayuda: 'Solicitudes creadas en el período' },
-  { key: 'pendientes_aprobar', titulo: 'Total órdenes pendientes por aprobar', emoji: '⏳', ayuda: 'Pendientes del Gerente General que entraron en el período' },
   { key: 'por_pagar', titulo: 'Total órdenes por pagar', emoji: '💰', ayuda: 'Confirmadas en el período que siguen sin pagarse' },
   { key: 'pagadas', titulo: 'Total órdenes pagadas', emoji: '✅', ayuda: 'Pagadas en el período' },
 ];
@@ -209,8 +206,8 @@ export interface EntradasCierre {
   pedidos: number;
   /** Órdenes pagadas en el rango (ya contadas por la base). */
   pagadas: number;
-  /** Fecha (ISO) en que cada orden pendiente de aprobar entró a ese estado. */
-  pendientesAprobar: (string | null | undefined)[];
+  /** Fecha (ISO) en que cada orden pendiente de aprobar entró a ese estado (opcional / histórico). */
+  pendientesAprobar?: (string | null | undefined)[];
   /** Fecha (ISO) en que cada orden por pagar entró a pago. */
   porPagar: (string | null | undefined)[];
   /** Las mismas órdenes por pagar con proveedor y monto, para el detalle del cierre. */
@@ -258,7 +255,6 @@ export function detallePorPagar(ocs: OcPorPagarEntrada[], rango: Pick<RangoCierr
 export function armarCierre(e: EntradasCierre, rango: RangoCierre): ResumenCierre {
   const cantidad: Record<ClaveCierre, number> = {
     pedidos: Math.max(0, Math.trunc(Number(e.pedidos) || 0)),
-    pendientes_aprobar: e.pendientesAprobar.filter((f) => enRango(f, rango)).length,
     por_pagar: e.porPagar.filter((f) => enRango(f, rango)).length,
     pagadas: Math.max(0, Math.trunc(Number(e.pagadas) || 0)),
   };

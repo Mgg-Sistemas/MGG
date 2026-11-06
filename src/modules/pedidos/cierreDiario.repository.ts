@@ -9,12 +9,10 @@ import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { listOrdenesPorPagar } from './pedidos.repository';
 import {
   armarCierre,
-  fechaEntradaAprobacion,
   fechaEntradaPago,
   limitesISO,
   type AnalistaBase,
   type CotizacionAnalista,
-  type OrdenFechas,
   type OrdenFinalizadaAnalista,
   type RangoCierre,
   type ResumenCierre,
@@ -24,7 +22,7 @@ const TABLE = 'ordenes';
 
 export async function cargarCierreDiario(rango: RangoCierre): Promise<ResumenCierre> {
   const { inicio, fin } = limitesISO(rango);
-  const [pedidos, pagadas, aprobar, pagar, tasaHoy, cotizaciones, finalizadas, usuarios] = await Promise.all([
+  const [pedidos, pagadas, pagar, tasaHoy, cotizaciones, finalizadas, usuarios] = await Promise.all([
     // Solicitudes creadas en el período (las sub-OC cuelgan de su pedido: no se cuentan aparte).
     supabase
       .from(TABLE)
@@ -39,17 +37,6 @@ export async function cargarCierreDiario(rango: RangoCierre): Promise<ResumenCie
       .gte('pagada_en', inicio)
       .lte('pagada_en', fin)
       .neq('estado', 'anulada'),
-    todasLasFilas<OrdenFechas>(
-      (desde, hasta) =>
-        supabase
-          .from(TABLE)
-          .select('id, estado, created_at, oc_creada_en')
-          .eq('estado', 'oc_creada')
-          .order('created_at', { ascending: true })
-          .order('id', { ascending: true })
-          .range(desde, hasta),
-      PAGINA_SUPABASE,
-    ),
     // OC por pagar (confirmadas o ya en Tesorería, sin pagar): con proveedor y monto a pagar,
     // para contarlas y para el detalle del cierre (una sola lista: nunca se descuadran).
     listOrdenesPorPagar(),
@@ -116,7 +103,6 @@ export async function cargarCierreDiario(rango: RangoCierre): Promise<ResumenCie
     {
       pedidos: pedidos.count ?? 0,
       pagadas: pagadas.count ?? 0,
-      pendientesAprobar: aprobar.map(fechaEntradaAprobacion),
       porPagar: pagar.map((p) => fechaEntradaPago(p.orden)),
       porPagarOc: pagar.map((p) => ({
         codigo: p.orden.oc_codigo ?? p.orden.codigo,
