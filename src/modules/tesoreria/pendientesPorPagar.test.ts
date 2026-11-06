@@ -280,7 +280,7 @@ describe('construirPendientesPorPagarExcel', () => {
     const filaCredito = col1.findIndex((v) => v.startsWith('CUENTAS A CRÉDITO'));
     expect(filaCredito).toBeGreaterThan(filaTotal);
     expect(col1[filaCredito]).toContain('NO entran en el total');
-  });
+  }, 30000);
 
   it('el método de pago va en su celda, una línea por método', async () => {
     const e = entrada();

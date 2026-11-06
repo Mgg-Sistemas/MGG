@@ -410,6 +410,7 @@ export function TesoreriaPage() {
             <button className="btn btn-ghost" onClick={() => setModal('grafico')}>📊 Tasas Binance</button>
             <button className="btn btn-ghost" onClick={() => setModal('tasas')}>📈 Historial Tasas</button>
             <button className="btn btn-ghost" onClick={() => setModal('resumen')}>📊 Resumen</button>
+            <BotonReporteTesoreria ambito="movimientos" label="📊 Reporte dinámico" className="btn btn-ghost" />
           </div>
 
           {/* Saldos por caja (multimoneda; clic = detalle, ingreso, trazabilidad) */}
