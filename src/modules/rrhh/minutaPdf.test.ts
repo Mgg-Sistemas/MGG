@@ -119,34 +119,46 @@ describe('minimoFilas', () => {
   });
 });
 
-describe('PARTICIPANTES en su propia hoja (hasta 20 firmas)', () => {
+describe('PARTICIPANTES en su propia hoja, al final de la minuta (hasta 20 firmas)', () => {
   // Texto de cada página del PDF (jsPDF guarda el contenido de cada hoja en `internal.pages`).
   const paginas = (doc: Awaited<ReturnType<typeof construirMinutaPdf>>): string[] =>
     (doc.internal as unknown as { pages: (string[] | undefined)[] }).pages.slice(1).map((p) => (p ?? []).join('\n'));
   const conTexto = (pgs: string[], t: string): number[] => pgs.map((p, i) => (p.includes(t) ? i + 1 : 0)).filter(Boolean);
   const gente = (n: number) => Array.from({ length: n }, (_, i) => ({ personal_id: null, nombre: `Persona ${i + 1}`, cargo: `Cargo ${i + 1}` }));
 
-  it('la hoja en blanco lleva la tabla de participantes SOLA en la página 2, sin orden del día ni acuerdos', async () => {
+  it('la hoja en blanco lleva la tabla de participantes SOLA en la última página, después de Observaciones', async () => {
     const pgs = paginas(await construirMinutaPdf(null));
-    expect(conTexto(pgs, 'PARTICIPANTES')).toEqual([2]);
-    expect(pgs[0]).toContain('ORDEN DEL');
-    expect(pgs[1]).not.toContain('ORDEN DEL');
-    expect(pgs[1]).not.toContain('RESPONSABLE');
-    expect(conTexto(pgs, 'RESPONSABLE')).not.toContain(2);
-    expect(conTexto(pgs, 'RESPONSABLE')[0]).toBe(3);
+    const ultima = pgs.length;
+    expect(conTexto(pgs, 'PARTICIPANTES')).toEqual([ultima]);
+    expect(pgs[ultima - 1]).not.toContain('ORDEN DEL');
+    expect(pgs[ultima - 1]).not.toContain('RESPONSABLE');
+    expect(pgs[ultima - 1]).not.toContain('OBSERVACIONES');
+    expect(conTexto(pgs, 'OBSERVACIONES')).toEqual([ultima - 1]);
+    // El orden del día y los acuerdos arrancan en la primera página, sin hoja de participantes en medio.
+    expect(conTexto(pgs, 'ORDEN DEL')[0]).toBe(1);
+    expect(conTexto(pgs, 'RESPONSABLE')[0]).toBe(1);
   });
 
   it('con 20 participantes cargados siguen cabiendo todos en esa misma hoja (el encabezado no se repite)', async () => {
     const pgs = paginas(await construirMinutaPdf(minutaBase({ participantes: gente(20) })));
-    expect(conTexto(pgs, 'PARTICIPANTES')).toEqual([2]);
-    expect(conTexto(pgs, 'Persona 1')).toEqual([2]);
-    expect(conTexto(pgs, 'Persona 20')).toEqual([2]);
-    expect(conTexto(pgs, 'RESPONSABLE')[0]).toBe(3);
+    const ultima = pgs.length;
+    expect(conTexto(pgs, 'PARTICIPANTES')).toEqual([ultima]);
+    expect(conTexto(pgs, 'Persona 1')).toEqual([ultima]);
+    expect(conTexto(pgs, 'Persona 20')).toEqual([ultima]);
   });
 
-  it('con más de lo que cabe no se pierde nadie: la tabla sigue en la hoja siguiente', async () => {
+  it('con más de lo que cabe no se pierde nadie: la tabla sigue en la hoja siguiente, al final', async () => {
     const pgs = paginas(await construirMinutaPdf(minutaBase({ participantes: gente(60) })));
-    expect(conTexto(pgs, 'Persona 60').length).toBe(1);
-    expect(conTexto(pgs, 'PARTICIPANTES').length).toBeGreaterThan(1);
+    const hojas = conTexto(pgs, 'PARTICIPANTES');
+    expect(conTexto(pgs, 'Persona 60')).toEqual([pgs.length]);
+    expect(hojas.length).toBeGreaterThan(1);
+    expect(hojas[hojas.length - 1]).toBe(pgs.length);
+  });
+
+  it('los anexos van DESPUÉS de la hoja de participantes', async () => {
+    const pgs = paginas(await construirMinutaPdf(minutaBase(), { adjuntos: [{ nombre: 'acta-firmada.pdf' }] }));
+    const ultima = pgs.length;
+    expect(pgs[ultima - 1]).toContain('ARCHIVOS ADJUNTOS');
+    expect(conTexto(pgs, 'PARTICIPANTES')).toEqual([ultima - 1]);
   });
 });

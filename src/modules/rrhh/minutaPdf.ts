@@ -186,24 +186,7 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
   /* 3. Orden del día */
   listaNumerada('ORDEN DEL DÍA', m?.orden_dia ?? [], 'ordenDia');
 
-  /* 4. Participantes (firma siempre vacía): en su PROPIA hoja, con renglones para
-        20 firmas. Hoja nueva antes y después, para que quede sola y se pueda firmar
-        cómodo; si hay más de lo que cabe, la tabla sigue en la hoja siguiente. */
-  doc.addPage(); y = MARGIN;
-  tabla(
-    ['PARTICIPANTES', 'CARGO', 'FIRMA'],
-    filasConRenglones(
-      m?.participantes ?? [],
-      minimoFilas('participantes', m?.participantes.length ?? 0),
-      () => ({ personal_id: null, nombre: '', cargo: '' } as MinutaParticipante),
-    ).map((p) => [pdfSafe(p.nombre), pdfSafe(p.cargo), '']),
-    { 1: { cellWidth: 130 }, 2: { cellWidth: 120 } },
-    // 24 pt (~8,5 mm): la firma se hace a mano sobre el papel.
-    { minCellHeight: 24 },
-  );
-
-  /* 5. Acuerdos (hoja nueva: la de participantes queda sola) */
-  doc.addPage(); y = MARGIN;
+  /* 4. Acuerdos (los participantes van en su hoja, al final de la minuta) */
   tabla(
     ['RESPONSABLE', 'ACTIVIDAD', 'FECHA COMPROMISO'],
     filasConRenglones(
@@ -282,6 +265,22 @@ export async function construirMinutaPdf(m: Minuta | null, opciones?: OpcionesMi
     filasConRenglones(obs, minimoFilas('observaciones', obs.length), () => '').map((t) => [t]),
     {},
     { cellPadding: 4 },
+  );
+
+  /* 11. Participantes (firma siempre vacía): en su PROPIA hoja, la ÚLTIMA de la minuta
+        (antes de los anexos), con renglones para 20 firmas. Si hay más de lo que cabe, la
+        tabla sigue en la hoja siguiente con su encabezado. */
+  doc.addPage(); y = MARGIN;
+  tabla(
+    ['PARTICIPANTES', 'CARGO', 'FIRMA'],
+    filasConRenglones(
+      m?.participantes ?? [],
+      minimoFilas('participantes', m?.participantes.length ?? 0),
+      () => ({ personal_id: null, nombre: '', cargo: '' } as MinutaParticipante),
+    ).map((p) => [pdfSafe(p.nombre), pdfSafe(p.cargo), '']),
+    { 1: { cellWidth: 130 }, 2: { cellWidth: 120 } },
+    // 24 pt (~8,5 mm): la firma se hace a mano sobre el papel.
+    { minCellHeight: 24 },
   );
 
   /* ── Adjuntos: una página por imagen; los PDF solo se listan por nombre ── */
