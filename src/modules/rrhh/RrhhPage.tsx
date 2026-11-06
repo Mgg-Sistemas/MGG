@@ -18,6 +18,9 @@ import {
   type DefinicionEmpresa, type Empresa,
 } from './empresa';
 import { contarPersonalPorEmpresa, listEmpresas } from './empresas.repository';
+import { CumpleaneroBanner } from './CumpleaneroBanner';
+import { obtenerCumpleaneros, type Cumpleanero } from './cumpleanos';
+import { listTodoPersonal } from './personal.repository';
 
 type Vista = 'personal' | 'tabulador' | 'anticipos' | 'nomina' | 'vacaciones' | 'descansos' | 'administrativo' | 'minutas';
 
@@ -48,6 +51,7 @@ export function RrhhPage() {
 
   const [empresas, setEmpresas] = useState<DefinicionEmpresa[] | null>(null);
   const [conteo, setConteo] = useState<Record<string, number> | null>(null);
+  const [cumpleaneros, setCumpleaneros] = useState<Cumpleanero[]>([]);
   const [gestionar, setGestionar] = useState(false);
   const [empresa, setEmpresa] = useState<Empresa>(() => empresaGuardada());
 
@@ -61,9 +65,22 @@ export function RrhhPage() {
   const cargarConteo = useCallback(() => {
     contarPersonalPorEmpresa().then(setConteo).catch(() => setConteo(null));
   }, []);
-  useEffect(() => { cargarEmpresas(); cargarConteo(); }, [cargarEmpresas, cargarConteo]);
+  // Cumpleañeros del día entre todo el personal activo de la organización
+  const cargarCumpleaneros = useCallback(() => {
+    listTodoPersonal(true)
+      .then((ps) => setCumpleaneros(obtenerCumpleaneros(ps)))
+      .catch(() => setCumpleaneros([]));
+  }, []);
+  useEffect(() => {
+    cargarEmpresas();
+    cargarConteo();
+    cargarCumpleaneros();
+  }, [cargarEmpresas, cargarConteo, cargarCumpleaneros]);
   useRealtime(['rrhh_empresas'], cargarEmpresas);
-  useRealtime(['personal'], cargarConteo);
+  useRealtime(['personal'], () => {
+    cargarConteo();
+    cargarCumpleaneros();
+  });
 
   const activas = useMemo(() => (empresas ?? []).filter((e) => e.activa), [empresas]);
   // La nómina abierta tiene que existir y estar activa; si no, cae en la primera.
@@ -128,6 +145,8 @@ export function RrhhPage() {
           {activas.length > 1 && <> Cada nómina tiene su propio personal, anticipos, períodos y recibos; una persona se pasa de una a otra con <strong>↔ Transferir</strong> en su ficha.</>}
         </p>
       </header>
+
+      <CumpleaneroBanner cumpleaneros={cumpleaneros} />
 
       <div className="view-toggle" role="tablist" aria-label="Vista de RRHH" style={{ marginBottom: '1rem', flexWrap: 'wrap' }}>
         {TABS.map((t) => (
