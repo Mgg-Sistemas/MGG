@@ -59,7 +59,7 @@ import { autorizadoPara } from '@/modules/usuarios/autorizados';
 import { flujoRevisionAlmacenActivo } from './revisionAlmacen.repository';
 import { patchRetencionMomento, type RetencionMomento } from './retencionMomento';
 import { retencionQueBajaElPago, type RetencionOc } from './retencionesOc';
-import type { EntregaModalidad } from './entregaModalidad';
+import { etiquetaEntrega, type EntregaModalidad } from './entregaModalidad';
 
 async function assertAdmin(accion: string): Promise<void> {
   const { data: auth } = await supabase.auth.getUser();
@@ -3281,5 +3281,27 @@ export async function marcarPagadaSinCaja(input: { orden: Orden; motivo: string;
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
+  return data as Orden;
+}
+
+/**
+ * 06-11-2026 (pedido de la administradora): la OC pagada espera en «Pendientes por recibir»
+ * hasta que el analista confirma el retiro y quién entrega (Delivery, Carga pesada o Con
+ * entrega a domicilio). Recién entonces la ve la flota que toca. Queda en la trazabilidad.
+ */
+export async function confirmarRetiroOc(o: Orden, modalidad: EntregaModalidad, actorEmail: string): Promise<Orden> {
+  if (o.estado !== 'pagada') throw new Error('Solo se confirma el retiro de una orden pagada.');
+  if (o.recibida_en) throw new Error('Esta orden ya se recibió en el almacén.');
+  if (o.retiro_confirmado_en) throw new Error('El retiro de esta orden ya estaba confirmado.');
+  const ahora = new Date().toISOString();
+  const patch = {
+    entrega_modalidad: modalidad,
+    retiro_confirmado_en: ahora,
+    retiro_confirmado_por: actorEmail,
+    historial: appendHistorial(o, 'retiro_confirmado', actorEmail, { motivo: etiquetaEntrega(modalidad), entrega_modalidad: modalidad }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).is('retiro_confirmado_en', null).select('*').maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('Otra persona ya confirmó el retiro de esta orden. Recarga para verla.');
   return data as Orden;
 }

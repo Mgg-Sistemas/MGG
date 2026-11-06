@@ -113,7 +113,8 @@ import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import type { Almacen } from '@/shared/lib/types';
-import { OPCIONES_ENTREGA, etiquetaEntrega, pideEntrega, type EntregaModalidad } from './entregaModalidad';
+import { OPCIONES_ENTREGA, etiquetaEntrega, pendienteRetiro, pideEntrega, type EntregaModalidad } from './entregaModalidad';
+import { ConfirmarRetiroModal } from './ConfirmarRetiroModal';
 import { OfertasComparativa } from './OfertasComparativa';
 import { AsignarProveedoresModal } from './AsignarProveedoresModal';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
@@ -193,18 +194,30 @@ function EstadoBadge({ estado }: { estado: string | null | undefined }) {
   return <StatusBadge estado={estado} />;
 }
 
-const KANBAN_COLS_OC:{ key: EstadoOrden; label: string }[] = [
+/** 06-11-2026: columna que no es un estado: OC pagadas que esperan que Compras confirme el retiro. */
+type ColumnaKanban = EstadoOrden | 'por_retirar';
+/**
+ * En qué columna cae una orden: la pagada sin retiro confirmado va a «Pendientes por recibir»
+ * y la que el proveedor desistió vuelve a «Pendiente (cargar ofertas)» (hay que reasignarla).
+ */
+function columnaDeOrden(o: Orden): ColumnaKanban {
+  if (pendienteRetiro(o)) return 'por_retirar';
+  if (o.estado === 'desistida_proveedor') return 'aprobada';
+  return o.estado;
+}
+
+const KANBAN_COLS_OC:{ key: ColumnaKanban; label: string }[] = [
   { key: 'aprobada', label: 'Pendiente (cargar ofertas)' },              // OP aprobada → cargar cotizaciones
   { key: 'oc_creada', label: 'Ordenes pendiente por aprobar' }, // oferta elegida → espera aprobación
   { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },        // a crédito → abonos hasta saldar
   { key: 'confirmada_metodo', label: 'Confirmada (indicar método de pago)' }, // gerente confirmó → falta método
   { key: 'oc_aprobada', label: 'Confirmada pagar' },                     // método indicado → Tesorería
+  { key: 'por_retirar', label: 'Pendientes por recibir' },               // pagada → Compras confirma el retiro (06-11)
   { key: 'por_recibir', label: 'Pendiente por recepción' },             // contra entrega / crédito saldado
   { key: 'pagada', label: 'Pagada' },
   { key: 'recibida', label: 'Recibida' },
   { key: 'finalizada', label: 'Finalizada' },
   { key: 'anulada', label: 'Anulada' },
-  { key: 'desistida_proveedor', label: 'Proveedor desistió' },
 ];
 
 // Servicios (clase='servicio'): comparten el ciclo completo de una OC, pero viven en su
@@ -256,6 +269,10 @@ function eventLabel(ev: string): string {
       revisada_almacen: 'Revisada por almacén',
       destino_entrega: 'Destino de entrega indicado',
       pagada_sin_caja: 'Pagada sin descontar de caja (Tesorería)',
+      retiro_confirmado: 'Retiro confirmado por Compras',
+      delivery_tomado: 'Pedido tomado para retirar',
+      delivery_entregado: 'Pedido entregado en el almacén',
+      delivery_no_disponible: 'No disponible para retirarlo',
     } as Record<string, string>
   )[ev] ?? ev;
 }
@@ -287,6 +304,10 @@ function eventClass(ev: string): string {
       recibida: 'ok',
       finalizada: 'ok',
       revisada_almacen: 'info',
+      retiro_confirmado: 'ok',
+      delivery_tomado: 'info',
+      delivery_entregado: 'ok',
+      delivery_no_disponible: 'warn',
     } as Record<string, string>
   )[ev] ?? '';
 }
@@ -307,6 +328,7 @@ type ModalKind =
   | { kind: 'anular-oc'; orden: Orden }
   | { kind: 'modificar-oc'; orden: Orden }
   | { kind: 'desistir'; orden: Orden }
+  | { kind: 'confirmar-retiro'; orden: Orden }
   | { kind: 'receive'; orden: Orden }
   | { kind: 'abono'; orden: Orden }
   | { kind: 'finalizar'; orden: Orden }
@@ -333,7 +355,7 @@ export function PedidosPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [filterText, setFilterText] = useState('');
-  const [filterEstado, setFilterEstado] = useState<EstadoOrden | ''>('');
+  const [filterEstado, setFilterEstado] = useState<ColumnaKanban | ''>('');
   // «Realizada por» (16-10-2026): correo del analista que creó la OC ('' = todos los usuarios).
   const [filterCreador, setFilterCreador] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>(() => {
@@ -532,7 +554,8 @@ export function PedidosPage() {
   const filteredOrdenes = useMemo(() => {
     // El filtro de estado vale en Lista Y en Kanban (17-10-2026: antes en Kanban estaba
     // deshabilitado y la administradora lo reportó como «no funciona»); en Kanban deja solo esa columna.
-    const porEstado = ordenesDePestana.filter((o) => !(filterEstado && o.estado !== filterEstado));
+    const porEstado = ordenesDePestana.filter((o) => !filterEstado
+      || (filterEstado === 'por_retirar' ? pendienteRetiro(o) : o.estado === filterEstado));
     // Buscador ampliado (16-10-2026): por cualquier dato de la orden (código, proveedor,
     // solicitante, renglones, estado, monto, fecha, método de pago, quién la hizo…) y el
     // filtro «Realizada por». Ver buscarOrdenes.ts.
@@ -810,7 +833,7 @@ export function PedidosPage() {
           className="select"
           style={{ maxWidth: 220 }}
           value={filterEstado}
-          onChange={(e) => setFilterEstado(e.target.value as EstadoOrden | '')}
+          onChange={(e) => setFilterEstado(e.target.value as ColumnaKanban | '')}
           title="Filtra por estado en Kanban (deja solo esa columna) y en Lista"
         >
           <option value="">Todos los estados</option>
@@ -820,6 +843,7 @@ export function PedidosPage() {
           {!soloSolicitud && (<>
           <option value="oc_creada">OC creada</option>
           <option value="oc_aprobada">OC confirmada</option>
+          <option value="por_retirar">Pendientes por recibir</option>
           <option value="pagada">Pagadas</option>
           <option value="desistida_proveedor">Proveedor desistió</option>
           </>)}
@@ -933,6 +957,7 @@ export function PedidosPage() {
           onAnular={() => setModal({ kind: 'anular-oc', orden: currentDetail })}
           onModificar={() => setModal({ kind: 'modificar-oc', orden: currentDetail })}
           onDesistir={() => setModal({ kind: 'desistir', orden: currentDetail })}
+          onConfirmarRetiro={() => setModal({ kind: 'confirmar-retiro', orden: currentDetail })}
           onReceive={() => setModal({ kind: 'receive', orden: currentDetail })}
           onAbono={() => setModal({ kind: 'abono', orden: currentDetail })}
           onEnviarRecepcion={async () => {
@@ -1125,6 +1150,21 @@ export function PedidosPage() {
             } catch (e) {
               toast(e instanceof Error ? e.message : 'Error al cancelar', 'error');
             }
+          }}
+        />
+      )}
+
+      {/* Modal: confirmar el retiro de una OC pagada (06-11-2026) */}
+      {modal.kind === 'confirmar-retiro' && (
+        <ConfirmarRetiroModal
+          orden={modal.orden}
+          proveedorNombre={modal.orden.proveedor_id ? proveedorMap.get(modal.orden.proveedor_id)?.razon_social ?? null : null}
+          actorEmail={usuario?.email ?? user?.email ?? 'sistema'}
+          onClose={() => setModal({ kind: 'detail', ordenId: modal.orden.id })}
+          onHecho={async (o) => {
+            notify(`Retiro confirmado · ${o.oc_codigo ?? o.codigo} · ${etiquetaEntrega(o.entrega_modalidad)}`, 'success', { link: '#/app/pedidos' });
+            await refresh();
+            setModal({ kind: 'detail', ordenId: o.id });
           }}
         />
       )}
@@ -2529,20 +2569,21 @@ function OrdenesTable({ ordenes, proveedorMap, personaMap, canManageProcurement,
 interface KanbanBoardProps {
   ordenes: Orden[];
   proveedorMap: Map<string, Proveedor>;
-  cols: { key: EstadoOrden; label: string }[];
+  cols: { key: ColumnaKanban; label: string }[];
   onOpen: (id: string) => void;
   noLeidos: Map<string, number>;
   /** Máximo de tarjetas por columna (el resto se consulta en el Histórico). Sin definir = sin límite. */
   maxPorColumna?: number;
   /** Columnas exentas del límite (se muestran completas). */
-  columnasSinLimite?: EstadoOrden[];
+  columnasSinLimite?: ColumnaKanban[];
 }
 function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, maxPorColumna, columnasSinLimite }: KanbanBoardProps) {
   const byState = useMemo(() => {
-    const map = new Map<EstadoOrden, Orden[]>();
+    const map = new Map<ColumnaKanban, Orden[]>();
     cols.forEach((c) => map.set(c.key, []));
     ordenes.forEach((o) => {
-      const list = map.get(o.estado);
+      // Si esta pestaña no tiene la columna especial, la orden cae en la de su estado.
+      const list = map.get(columnaDeOrden(o)) ?? map.get(o.estado);
       if (list) list.push(o);
     });
     return map;
@@ -2559,7 +2600,7 @@ function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, maxPorColu
         const ocultas = items.length - visibles.length;
         return (
           <div className="kanban-col" data-state={col.key} key={col.key}
-            style={ESTADOS_ALMACEN[col.key] ? ({ '--col-accent': ESTADOS_ALMACEN[col.key]!.accent } as CSSProperties) : undefined}>
+            style={ESTADOS_ALMACEN[col.key as EstadoOrden] ? ({ '--col-accent': ESTADOS_ALMACEN[col.key as EstadoOrden]!.accent } as CSSProperties) : undefined}>
             <div className="kanban-col-head">
               <span className="title">{col.label}</span>
               <span className="count">{items.length}</span>
@@ -2778,6 +2819,8 @@ interface OrdenDetailModalProps {
   onAnular: () => void;
   onModificar: () => void;
   onDesistir: () => void;
+  /** 06-11-2026: OC pagada en «Pendientes por recibir» → confirmar el retiro y quién entrega. */
+  onConfirmarRetiro: () => void;
   onReceive: () => void;
   onAbono: () => void;
   onEnviarRecepcion: () => void;
@@ -2816,6 +2859,7 @@ function OrdenDetailModal({
   onAnular,
   onModificar,
   onDesistir,
+  onConfirmarRetiro,
   onReceive,
   onAbono,
   onEnviarRecepcion,
@@ -3269,6 +3313,12 @@ function OrdenDetailModal({
       )}
       {/* OC pagada y aún no recibida (anticipado/contado): ya se puede recibir.
           En contra entrega la recepción ocurrió ANTES del pago, así que no se repite. */}
+      {pendienteRetiro(o) && canManageProcurement && (
+        <button className="btn btn-primary" onClick={onConfirmarRetiro}
+          title="Confirmar que se va a retirar y quién entrega: Delivery, Carga pesada o Con entrega a domicilio. Recién entonces le llega al delivery.">
+          🚚 Confirmar retiro
+        </button>
+      )}
       {isPagada && !o.recibida_en && canManageProcurement && (
         <>
           <button className="btn btn-ghost" onClick={handleOcPdf} title="Descargar la OC en PDF">↓ OC PDF</button>
@@ -3481,10 +3531,19 @@ function OrdenDetailModal({
         </div>
       )}
       {/* 04-11-2026: quién entrega (se elige al indicar el método de pago). */}
-      {o.oc_codigo && o.entrega_modalidad && (
+      {o.oc_codigo && (o.entrega_modalidad || pendienteRetiro(o)) && (
         <div className="detail-row">
           <div className="k">Entrega</div>
-          <div className="v"><span className="badge">{etiquetaEntrega(o.entrega_modalidad)}</span></div>
+          <div className="v">
+            {o.entrega_modalidad && <span className="badge">{etiquetaEntrega(o.entrega_modalidad)}</span>}{' '}
+            {/* 06-11-2026: la OC pagada espera que Compras confirme el retiro. */}
+            {pendienteRetiro(o) && <span className="badge warning">⏳ Pendiente por confirmar el retiro</span>}
+            {o.retiro_confirmado_en && (
+              <span className="muted" style={{ fontSize: '.85rem' }}>
+                ✓ Retiro confirmado por {persona(o.retiro_confirmado_por, personaMap, o.retiro_confirmado_en)} · {dateTime(o.retiro_confirmado_en)}
+              </span>
+            )}
+          </div>
         </div>
       )}
       {o.oc_codigo && (() => {

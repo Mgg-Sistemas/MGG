@@ -1096,6 +1096,9 @@ export interface Orden {
   retenciones?: unknown;
   /** Quién entrega una vez pagada (04-11-2026). null = delivery (las de antes). */
   entrega_modalidad?: EntregaModalidad | null;
+  /** 06-11-2026: cuándo Compras confirmó el retiro de la OC pagada. Sin dato = «Pendientes por recibir» (el delivery no la ve). */
+  retiro_confirmado_en?: string | null;
+  retiro_confirmado_por?: string | null;
   /** 06-11-2026: si tiene texto, Tesorería la marcó pagada SIN descontar de ninguna caja (el motivo). */
   pago_sin_caja_motivo?: string | null;
   /** Cuándo/quién marcó en Retenciones la retención como hecha (RPC compras_marcar_retencion). */

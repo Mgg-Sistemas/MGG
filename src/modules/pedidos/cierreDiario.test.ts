@@ -125,10 +125,10 @@ describe('armarCierre', () => {
   const hoyIso = '2026-10-21T15:00:00.000Z';   // 11:00 a. m. del 21
   const ayerIso = '2026-10-20T15:00:00.000Z';
 
-  it('lleva los tres títulos, en el orden pedido', () => {
+  it('lleva los cuatro títulos, en el orden pedido', () => {
     const r = armarCierre({ pedidos: 0, pagadas: 0, porPagar: [] }, hoy);
     expect(r.items.map((i) => i.titulo)).toEqual([
-      'Total de pedidos', 'Total órdenes por pagar', 'Total órdenes pagadas',
+      'Total de pedidos', 'Total órdenes por pagar', 'Total órdenes pagadas', 'Total órdenes pendientes por retirar',
     ]);
     expect(r.items.map((i) => i.key)).toEqual(ITEMS_CIERRE.map((i) => i.key));
     expect(r.items.every((i) => i.cantidad === 0)).toBe(true);
@@ -136,13 +136,13 @@ describe('armarCierre', () => {
 
   it('«HOY» solo cuenta lo que entró hoy a cada estado', () => {
     const r = armarCierre({ pedidos: 7, pagadas: 3, porPagar: [ayerIso, hoyIso] }, hoy);
-    expect(r.items.map((i) => i.cantidad)).toEqual([7, 1, 3]);
+    expect(r.items.map((i) => i.cantidad)).toEqual([7, 1, 3, 0]);
   });
 
   it('con la semana entra también lo de ayer', () => {
     const semana = rangoCierre(filtro({ modo: 'semana' }), HOY);
     const r = armarCierre({ pedidos: 20, pagadas: 9, porPagar: [ayerIso, hoyIso, '2026-10-05T15:00:00.000Z'] }, semana);
-    expect(r.items.map((i) => i.cantidad)).toEqual([20, 2, 9]);
+    expect(r.items.map((i) => i.cantidad)).toEqual([20, 2, 9, 0]);
   });
 
   it('con el mes entra todo el mes, y lo de otro mes no', () => {
@@ -176,6 +176,8 @@ describe('mensajeCierreDiario · WhatsApp', () => {
       '💵 *Órdenes por pagar:* 1',
       '',
       '✅ *Órdenes pagadas:* 3',
+      '',
+      '🚚 *Órdenes pendientes por retirar:* 0',
       '',
       '🏢 *MINERAL GROUP GUAYANA C.A.*',
     ]);

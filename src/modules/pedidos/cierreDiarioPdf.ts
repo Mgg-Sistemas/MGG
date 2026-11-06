@@ -104,6 +104,36 @@ export async function descargarCierreDiarioPdf(r: ResumenCierre, impresoIso: str
     }
   }
 
+  // 06-11-2026: OC pagadas que siguen pendientes por retirar (Compras no confirmó el retiro).
+  const pr = r.porRetirarDetalle ?? [];
+  if (pr.length > 0) {
+    let yr = finalY + 28;
+    if (yr + 80 > limiteInferiorPdf(H)) { doc.addPage(); yr = MARGEN_PDF + 14; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 138, 0);
+    doc.text(`ÓRDENES PENDIENTES POR RETIRAR (${pr.length})`, MARGEN_PDF, yr);
+    doc.setTextColor(0, 0, 0);
+    const wNum = 30, wOrden = 100, wEntrega = 130, wFecha = 80;
+    autoTable(doc, {
+      startY: yr + 12,
+      head: [['#', 'ORDEN', 'PROVEEDOR', 'ENTREGA', 'PAGADA']],
+      body: pr.map((f, i) => [String(i + 1), f.codigo, f.proveedor, f.entrega.replace(/^\S+\s/, ''), f.pagada]),
+      styles: { fontSize: 10, cellPadding: 7, valign: 'middle' },
+      headStyles: { fillColor: [255, 224, 189], textColor: [138, 75, 0], fontStyle: 'bold', halign: 'center', fontSize: 10 },
+      bodyStyles: { textColor: [20, 20, 20] },
+      alternateRowStyles: { fillColor: [255, 246, 236] },
+      tableWidth: CW,
+      columnStyles: {
+        0: { cellWidth: wNum, halign: 'center' },
+        1: { cellWidth: wOrden },
+        2: { cellWidth: CW - wNum - wOrden - wEntrega - wFecha },
+        3: { cellWidth: wEntrega },
+        4: { cellWidth: wFecha, halign: 'center' },
+      },
+      margin: { ...MARGENES_TABLA_PDF },
+    });
+    finalY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? (yr + 100);
+  }
+
   if (r.analistas && r.analistas.length > 0) {
     let y2 = finalY + 28;
     doc.setFont('helvetica', 'bold');

@@ -115,7 +115,7 @@ export function enRango(iso: string | null | undefined, r: Pick<RangoCierre, 'de
   return !!f && f >= r.desde && f <= r.hasta;
 }
 
-export type ClaveCierre = 'pedidos' | 'por_pagar' | 'pagadas';
+export type ClaveCierre = 'pedidos' | 'por_pagar' | 'pagadas' | 'por_retirar';
 
 export interface ItemCierre {
   key: ClaveCierre;
@@ -130,6 +130,7 @@ export const ITEMS_CIERRE: { key: ClaveCierre; titulo: string; emoji: string; ay
   { key: 'pedidos', titulo: 'Total de pedidos', emoji: '📋', ayuda: 'Solicitudes creadas en el período' },
   { key: 'por_pagar', titulo: 'Total órdenes por pagar', emoji: '💰', ayuda: 'Confirmadas en el período que siguen sin pagarse' },
   { key: 'pagadas', titulo: 'Total órdenes pagadas', emoji: '✅', ayuda: 'Pagadas en el período' },
+  { key: 'por_retirar', titulo: 'Total órdenes pendientes por retirar', emoji: '🚚', ayuda: 'Pagadas en el período que Compras aún no confirma para retiro' },
 ];
 
 export interface ResumenAnalista {
@@ -199,6 +200,8 @@ export interface ResumenCierre {
   analistas: ResumenAnalista[];
   /** Detalle (proveedor, monto $ y total) de las OC contadas en «Total órdenes por pagar». */
   porPagarDetalle: DetallePorPagar;
+  /** 06-11-2026: las OC pagadas en el período que siguen «Pendientes por recibir» (sin confirmar el retiro). */
+  porRetirarDetalle: FilaOcPorRetirar[];
 }
 
 export interface EntradasCierre {
@@ -214,6 +217,8 @@ export interface EntradasCierre {
   porPagarOc?: OcPorPagarEntrada[];
   /** Tasa BCV (Bs por $) para pasar a $ las OC en bolívares. */
   tasa?: number;
+  /** OC pagadas que siguen pendientes por retirar (Compras no confirmó el retiro). */
+  porRetirarOc?: OcPorRetirarEntrada[];
   /** Cotizaciones registradas en el período. */
   cotizaciones?: CotizacionAnalista[];
   /** Órdenes finalizadas en el período. */
@@ -225,6 +230,33 @@ export interface EntradasCierre {
 }
 
 const round2 = (n: number): number => Math.round((Number(n) || 0) * 100) / 100;
+
+/** Una OC pagada que espera la confirmación del retiro, tal como llega de la base. */
+export interface OcPorRetirarEntrada {
+  codigo: string;
+  proveedor: string;
+  /** Quién entrega según lo indicado al pagar (texto con emoji); se confirma en Compras. */
+  entrega: string;
+  /** Fecha (ISO) en que se pagó. */
+  pagada: string | null | undefined;
+}
+
+export interface FilaOcPorRetirar {
+  codigo: string;
+  proveedor: string;
+  entrega: string;
+  /** Día del pago (DD/MM/AAAA). */
+  pagada: string;
+}
+
+/** Las OC pagadas dentro del rango que siguen pendientes por retirar, de la más vieja a la más nueva. */
+export function detallePorRetirar(ocs: OcPorRetirarEntrada[], rango: Pick<RangoCierre, 'desde' | 'hasta'>): FilaOcPorRetirar[] {
+  return ocs
+    .filter((o) => enRango(o.pagada, rango))
+    .map((o) => ({ ...o, dia: fechaVE(o.pagada) as string }))
+    .sort((a, b) => a.dia.localeCompare(b.dia) || a.codigo.localeCompare(b.codigo, 'es'))
+    .map(({ codigo, proveedor, entrega, dia }) => ({ codigo, proveedor, entrega, pagada: fechaCorta(dia) }));
+}
 
 /**
  * El detalle de las OC pendientes por pagar que entraron a pago dentro del rango (las mismas
@@ -257,7 +289,10 @@ export function armarCierre(e: EntradasCierre, rango: RangoCierre): ResumenCierr
     pedidos: Math.max(0, Math.trunc(Number(e.pedidos) || 0)),
     por_pagar: e.porPagar.filter((f) => enRango(f, rango)).length,
     pagadas: Math.max(0, Math.trunc(Number(e.pagadas) || 0)),
+    por_retirar: 0,
   };
+  const porRetirarDetalle = detallePorRetirar(e.porRetirarOc ?? [], rango);
+  cantidad.por_retirar = porRetirarDetalle.length;
 
   // Cotizaciones y órdenes finalizadas por analista en el rango
   const cotsFiltradas = (e.cotizaciones ?? []).filter((c) => enRango(c.registrada_en, rango));
@@ -309,6 +344,7 @@ export function armarCierre(e: EntradasCierre, rango: RangoCierre): ResumenCierr
     totalFinalizadas: finFiltradas.length,
     analistas,
     porPagarDetalle: detallePorPagar(e.porPagarOc ?? [], rango, e.tasa ?? 0),
+    porRetirarDetalle,
   };
 }
 

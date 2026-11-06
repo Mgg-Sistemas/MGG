@@ -215,6 +215,43 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
         )}
       </div>
 
+      {/* ── 06-11-2026: OC pagadas que siguen «Pendientes por recibir» (sin confirmar el retiro) ── */}
+      <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+        <div style={{ fontWeight: 700, fontSize: '.95rem', marginBottom: '.6rem' }}>
+          🚚 Órdenes pendientes por retirar{!cargando && resumen ? ` (${resumen.porRetirarDetalle.length})` : ''}
+        </div>
+        {cargando ? (
+          <div className="muted" style={{ fontSize: '.85rem', padding: '.4rem 0' }}>Cargando…</div>
+        ) : !resumen?.porRetirarDetalle.length ? (
+          <div className="muted" style={{ fontSize: '.85rem', fontStyle: 'italic', padding: '.4rem 0' }}>
+            No quedaron órdenes pendientes por retirar en este período.
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.85rem' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 110 }}>Orden</th>
+                  <th>Proveedor</th>
+                  <th>Entrega</th>
+                  <th style={{ width: 100 }}>Pagada</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resumen.porRetirarDetalle.map((f, i) => (
+                  <tr key={`${f.codigo}-${i}`}>
+                    <td className="mono">{f.codigo}</td>
+                    <td><strong>{f.proveedor}</strong></td>
+                    <td>{f.entrega}</td>
+                    <td className="mono">{f.pagada}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* ── Actividad por analista: cotizaciones y órdenes finalizadas ── */}
       <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.6rem', flexWrap: 'wrap', gap: '.5rem' }}>

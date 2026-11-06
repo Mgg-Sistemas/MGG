@@ -7,6 +7,8 @@ import { supabase } from '@/shared/lib/supabase';
 import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import { listOrdenesPorPagar } from './pedidos.repository';
+import { CORTE_DELIVERY_ISO, etiquetaEntrega, pendienteRetiro } from './entregaModalidad';
+import type { Orden } from '@/shared/lib/types';
 import {
   armarCierre,
   fechaEntradaPago,
@@ -22,7 +24,7 @@ const TABLE = 'ordenes';
 
 export async function cargarCierreDiario(rango: RangoCierre): Promise<ResumenCierre> {
   const { inicio, fin } = limitesISO(rango);
-  const [pedidos, pagadas, pagar, tasaHoy, cotizaciones, finalizadas, usuarios] = await Promise.all([
+  const [pedidos, pagadas, pagar, tasaHoy, cotizaciones, finalizadas, usuarios, porRetirar] = await Promise.all([
     // Solicitudes creadas en el período (las sub-OC cuelgan de su pedido: no se cuentan aparte).
     supabase
       .from(TABLE)
@@ -73,6 +75,8 @@ export async function cargarCierreDiario(rango: RangoCierre): Promise<ResumenCie
     supabase
       .from('usuarios')
       .select('email, nombre, apellido, role, estado'),
+    // 06-11-2026: OC pagadas en el período que siguen «Pendientes por recibir».
+    listPorRetirar(inicio, fin),
   ]);
 
   if (pedidos.error) throw pedidos.error;
@@ -112,6 +116,7 @@ export async function cargarCierreDiario(rango: RangoCierre): Promise<ResumenCie
         entrada: fechaEntradaPago(p.orden),
       })),
       tasa: Number(tasaHoy?.usd) || 0,
+      porRetirarOc: porRetirar,
       cotizaciones,
       finalizadas,
       analistasBase,
@@ -119,4 +124,33 @@ export async function cargarCierreDiario(rango: RangoCierre): Promise<ResumenCie
     },
     rango,
   );
+}
+
+type FilaRetiro = Pick<Orden, 'id' | 'codigo' | 'oc_codigo' | 'estado' | 'clase' | 'condiciones_pago' | 'recibida_en' | 'pagada_en' | 'retiro_confirmado_en' | 'entrega_modalidad' | 'proveedor_id'>;
+
+/** OC pagadas entre inicio y fin que Compras aún no confirmó para retiro, con su proveedor. */
+async function listPorRetirar(inicio: string, fin: string) {
+  const desde = inicio > CORTE_DELIVERY_ISO ? inicio : CORTE_DELIVERY_ISO;
+  const { data, error } = await supabase
+    .from(TABLE)
+    .select('id, codigo, oc_codigo, estado, clase, condiciones_pago, recibida_en, pagada_en, retiro_confirmado_en, entrega_modalidad, proveedor_id')
+    .eq('estado', 'pagada')
+    .is('recibida_en', null)
+    .is('retiro_confirmado_en', null)
+    .gte('pagada_en', desde)
+    .lte('pagada_en', fin);
+  if (error) throw error;
+  const filas = ((data ?? []) as FilaRetiro[]).filter((o) => pendienteRetiro(o));
+  const ids = [...new Set(filas.map((o) => o.proveedor_id).filter((x): x is string => !!x))];
+  const nombres = new Map<string, string>();
+  if (ids.length) {
+    const { data: provs } = await supabase.from('proveedores').select('id, razon_social').in('id', ids);
+    (provs ?? []).forEach((p: { id: string; razon_social: string | null }) => nombres.set(p.id, p.razon_social ?? '—'));
+  }
+  return filas.map((o) => ({
+    codigo: o.oc_codigo ?? o.codigo,
+    proveedor: (o.proveedor_id && nombres.get(o.proveedor_id)) || '—',
+    entrega: etiquetaEntrega(o.entrega_modalidad),
+    pagada: o.pagada_en,
+  }));
 }

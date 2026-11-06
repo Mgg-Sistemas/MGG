@@ -47,6 +47,19 @@ async function construirLibro(r: ResumenCierre, impresoIso: string): Promise<{ X
     }
   }
 
+  // 06-11-2026: OC pagadas que siguen pendientes por retirar.
+  const pr = r.porRetirarDetalle ?? [];
+  let filaSeccionRetiro = -1;
+  let filaEncabezadoRetiro = -1;
+  if (pr.length > 0) {
+    aoa.push([]);
+    filaSeccionRetiro = aoa.length;
+    aoa.push([`ÓRDENES PENDIENTES POR RETIRAR (${pr.length})`]);
+    filaEncabezadoRetiro = aoa.length;
+    aoa.push(['PROVEEDOR', 'ORDEN', 'ENTREGA · PAGADA']);
+    pr.forEach((f) => aoa.push([f.proveedor, f.codigo, `${f.entrega.replace(/^\S+\s/, '')} · ${f.pagada}`]));
+  }
+
   let filaSeccionAnalistas = -1;
   let filaEncabezadoAnalistas = -1;
   let filaInicioAnalistas = -1;
@@ -91,6 +104,9 @@ async function construirLibro(r: ResumenCierre, impresoIso: string): Promise<{ X
   if (filaSeccionDetalle >= 0) {
     merges.push({ s: { r: filaSeccionDetalle, c: 0 }, e: { r: filaSeccionDetalle, c: 2 } });
   }
+  if (filaSeccionRetiro >= 0) {
+    merges.push({ s: { r: filaSeccionRetiro, c: 0 }, e: { r: filaSeccionRetiro, c: 2 } });
+  }
   w['!merges'] = merges;
 
   const t = cell(0, 0); if (t) t.s = TITULO;
@@ -103,6 +119,13 @@ async function construirLibro(r: ResumenCierre, impresoIso: string): Promise<{ X
     const c0 = cell(row, 0); if (c0) c0.s = { ...filaCuerpo, font: { name: 'Arial', sz: 11, color: { rgb: rgb(COLOR_TOTAL_TEXTO) } } };
     const c1 = cell(row, 1);
     if (c1) { c1.z = '0'; c1.s = { ...filaCuerpo, font: { name: 'Arial', sz: 12, bold: true, color: { rgb: rgb(COLOR_TOTAL_TEXTO) } }, alignment: { horizontal: 'right' } }; }
+  }
+
+  // Estilos de la tabla de pendientes por retirar
+  if (filaSeccionRetiro >= 0) {
+    const sCell = cell(filaSeccionRetiro, 0);
+    if (sCell) sCell.s = { font: { name: 'Arial', sz: 12, bold: true, color: { rgb: 'FF8A00' } } };
+    for (let col = 0; col <= 2; col++) { const h = cell(filaEncabezadoRetiro, col); if (h) h.s = ENCABEZADO; }
   }
 
   // Estilos de la tabla de analistas

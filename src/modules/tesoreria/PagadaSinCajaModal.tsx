@@ -45,7 +45,7 @@ export function PagadaSinCajaModal({ orden, actor, onClose, onHecho }: {
         <span className="aviso-icono">ℹ</span>
         <div>
           La orden queda <strong>pagada</strong> pero <strong>no se descuenta dinero de ninguna caja</strong>. Sigue el flujo de siempre:
-          va al delivery (o a carga pesada) y se recibe en el almacén. Queda escrito el motivo en su trazabilidad.
+          pasa a «Pendientes por recibir» en Compras, de ahí al delivery (o a carga pesada) y se recibe en el almacén. Queda escrito el motivo en su trazabilidad.
         </div>
       </div>
       <div className="form-row">

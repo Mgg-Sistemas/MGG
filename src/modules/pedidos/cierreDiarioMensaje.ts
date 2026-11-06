@@ -13,6 +13,7 @@ const EN_MENSAJE: Record<string, { emoji: string; titulo: string }> = {
   pedidos: { emoji: '📥', titulo: 'Pedidos' },
   por_pagar: { emoji: '💵', titulo: 'Órdenes por pagar' },
   pagadas: { emoji: '✅', titulo: 'Órdenes pagadas' },
+  por_retirar: { emoji: '🚚', titulo: 'Órdenes pendientes por retirar' },
 };
 
 export function mensajeCierreDiario(r: ResumenCierre, impresoIso: string = new Date().toISOString()): string {
@@ -46,6 +47,14 @@ export function mensajeCierreDiario(r: ResumenCierre, impresoIso: string = new D
         ? `(${d.enBs} orden(es) en Bs pasada(s) a $ con la tasa BCV: ${fmtMonto(d.tasa, 'Bs')} por $)`
         : `❗ ${d.sinTasa} orden(es) en Bs no suman al total: no hay tasa BCV disponible.`);
     }
+    L.push('');
+  }
+
+  const pr = r.porRetirarDetalle ?? [];
+  if (pr.length > 0) {
+    L.push(`🚚 *ÓRDENES PENDIENTES POR RETIRAR (${pr.length})*`);
+    L.push('');
+    pr.forEach((f, i) => L.push(`${i + 1}. ${f.codigo} · ${f.proveedor} — ${f.entrega} · pagada ${f.pagada}`));
     L.push('');
   }
 

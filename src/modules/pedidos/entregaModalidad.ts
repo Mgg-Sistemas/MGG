@@ -14,8 +14,8 @@ export type { EntregaModalidad };
 export type Flota = 'delivery' | 'carga_pesada';
 
 export const OPCIONES_ENTREGA: { value: EntregaModalidad; label: string; icono: string; ayuda: string }[] = [
-  { value: 'delivery', label: 'Delivery', icono: '🛵', ayuda: 'Una vez pagada, la orden va a la vista de Delivery.' },
-  { value: 'carga_pesada', label: 'Carga pesada', icono: '🚚', ayuda: 'Una vez pagada, va a Carga pesada (la ven solo los de carga pesada).' },
+  { value: 'delivery', label: 'Delivery', icono: '🛵', ayuda: 'Va a la vista de Delivery cuando Compras confirma el retiro.' },
+  { value: 'carga_pesada', label: 'Carga pesada', icono: '🚚', ayuda: 'Va a Carga pesada (solo la ven los de carga pesada) cuando Compras confirma el retiro.' },
   { value: 'proveedor', label: 'Con entrega a domicilio', icono: '🏠', ayuda: 'El proveedor hace la entrega: no va a Delivery ni a Carga pesada.' },
 ];
 
@@ -36,3 +36,19 @@ export function pideEntrega(o: Pick<Orden, 'clase' | 'condiciones_pago'>): boole
 
 /** Nombre de la flota para la pantalla. */
 export const NOMBRE_FLOTA: Record<Flota, string> = { delivery: 'Delivery', carga_pesada: 'Carga pesada' };
+
+/** Desde aquí el delivery toma las OC pagadas (el mismo corte que usa la base). */
+export const CORTE_DELIVERY_ISO = '2026-11-03T04:00:00.000Z';
+
+/**
+ * 06-11-2026: ¿la OC está en «Pendientes por recibir»? Pagada, sin recibir, de productos, y
+ * Compras todavía no confirmó el retiro (ni quién entrega). Mientras tanto el delivery no la ve.
+ */
+export function pendienteRetiro(o: Pick<Orden, 'estado' | 'clase' | 'condiciones_pago' | 'oc_codigo' | 'recibida_en' | 'pagada_en' | 'retiro_confirmado_en'>): boolean {
+  return o.estado === 'pagada'
+    && !o.recibida_en
+    && !o.retiro_confirmado_en
+    && !!o.oc_codigo
+    && pideEntrega(o)
+    && !!o.pagada_en && new Date(o.pagada_en).getTime() >= new Date(CORTE_DELIVERY_ISO).getTime();
+}
