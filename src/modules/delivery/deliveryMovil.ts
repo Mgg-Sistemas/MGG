@@ -73,7 +73,7 @@ export function mapaHref(direccion: string | null | undefined): string | null {
 
 /* ── Listado ── */
 
-export type ChipDelivery = 'todos' | 'por_tomar' | 'en_ruta' | 'entregados';
+export type ChipDelivery = 'por_tomar' | 'en_ruta' | 'entregados';
 
 export interface PedidoFeed {
   p: PedidoDelivery;
@@ -113,7 +113,7 @@ export function armarFeed(activos: PedidoDelivery[], conCerrados: PedidoDelivery
   return [...mios, ...libres, ...ajenos, ...entregados];
 }
 
-export function enChip(f: PedidoFeed, chip: ChipDelivery): boolean {
+export function enChip(f: PedidoFeed, chip: ChipDelivery | 'todos'): boolean {
   if (chip === 'todos') return true;
   if (chip === 'por_tomar') return f.disponible;
   if (chip === 'en_ruta') return !f.disponible && (f.p.estado === 'aceptado' || f.p.estado === 'en_ruta');
