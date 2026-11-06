@@ -104,6 +104,7 @@ import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import { etiquetaRetencion, retencionesDe, totalRetenciones } from '@/modules/pedidos/retencionesOc';
 import { ExportarTesoreriaModal } from './ExportarTesoreriaModal';
 import { ResumenPorPagarModal } from './ResumenPorPagarModal';
+import { PagadaSinCajaModal } from './PagadaSinCajaModal';
 import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
 
 /**
@@ -6350,6 +6351,8 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
   const [motivoOtroTexto, setMotivoOtroTexto] = useState('');
   const [notificandoNo, setNotificandoNo] = useState(false);
   const [waModal, setWaModal] = useState<{ titulo: string; texto: string; onCerrar?: () => void } | null>(null);
+  // 06-11-2026: marcar pagada sin descontar de caja (con motivo).
+  const [sinCaja, setSinCaja] = useState(false);
   // Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura.
   const [comisionMonto, setComisionMonto] = useState('');
   const [comisionSaldoId, setComisionSaldoId] = useState('');
@@ -6742,6 +6745,12 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
     <>
       <button className="btn btn-ghost" onClick={() => import('@/modules/pedidos/ordenCompraPdf').then(({ descargarOrdenCompraPdf }) => descargarOrdenCompraPdf(o.id)).catch(() => toast('No se pudo generar el PDF', 'error'))}>↓ OC PDF</button>
       <button className="btn btn-ghost" onClick={onClose} disabled={saving || notificandoNo}>{row.esperandoMetodo ? 'Cerrar' : 'Cancelar'}</button>
+      {sePagara === 'si' && (
+        <button type="button" className="btn btn-ghost" onClick={() => setSinCaja(true)} disabled={saving}
+          title="La orden queda pagada sin sacar dinero de ninguna caja (con el motivo); sigue a delivery y al almacén">
+          🧾 Pagada sin descontar de caja
+        </button>
+      )}
       {!row.esperandoMetodo && sePagara === 'si' && (
         <button type="submit" form="pagar-oc" className="btn btn-primary" disabled={saving}>
           {saving ? 'Pagando…' : `PAGAR ORDEN · ${esMultimoneda ? monto(enMonedaOrden(sumUsdMulti), monedaOrden) : monto(Number(montoStr) || 0, moneda)}${excedeTotal ? ' · con reembolso' : ''}`}
@@ -7452,6 +7461,23 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
       />
 
       {/* Modal para enviar aviso formateado por WhatsApp (30-10-2026) */}
+      {sinCaja && (
+        <PagadaSinCajaModal orden={o} actor={actor} onClose={() => setSinCaja(false)}
+          onHecho={(_o, motivo) => {
+            setSinCaja(false);
+            toast(`${codigoOc} marcada pagada sin descontar de caja`, 'success');
+            setWaModal({
+              titulo: `Avisar por WhatsApp · OC ${codigoOc} PAGADA`,
+              texto: textoOrdenTesoreria({
+                orden: o, proveedorNombre: row.proveedorNombre,
+                personas: { solicita: quienSolicitaConRespaldo(o) || o.solicitante, analista: analistaEncargado() },
+                montoUsd: totalUsd, montoBs: totalBs, tasaBs: tasa,
+                estado: `PAGADA (sin descontar de caja) · ${motivo}`,
+              }),
+              onCerrar: () => { setWaModal(null); onPaid(); },
+            });
+          }} />
+      )}
       {waModal && (
         <MensajeWhatsappModal
           titulo={waModal.titulo}

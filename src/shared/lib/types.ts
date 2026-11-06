@@ -1096,6 +1096,8 @@ export interface Orden {
   retenciones?: unknown;
   /** Quién entrega una vez pagada (04-11-2026). null = delivery (las de antes). */
   entrega_modalidad?: EntregaModalidad | null;
+  /** 06-11-2026: si tiene texto, Tesorería la marcó pagada SIN descontar de ninguna caja (el motivo). */
+  pago_sin_caja_motivo?: string | null;
   /** Cuándo/quién marcó en Retenciones la retención como hecha (RPC compras_marcar_retencion). */
   retencion_hecha_en?: string | null;
   retencion_hecha_por?: string | null;

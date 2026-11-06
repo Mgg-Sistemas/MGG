@@ -255,6 +255,7 @@ function eventLabel(ev: string): string {
       finalizada: 'Pedido finalizado',
       revisada_almacen: 'Revisada por almacén',
       destino_entrega: 'Destino de entrega indicado',
+      pagada_sin_caja: 'Pagada sin descontar de caja (Tesorería)',
     } as Record<string, string>
   )[ev] ?? ev;
 }
@@ -3470,6 +3471,13 @@ function OrdenDetailModal({
               {o.condiciones_pago ? labelCondicionPago(o.condiciones_pago) : 'Contado / anticipado'}
             </span>
           </div>
+        </div>
+      )}
+      {/* 06-11-2026: pagada por Tesorería sin descontar de ninguna caja. */}
+      {o.pago_sin_caja_motivo && (
+        <div className="detail-row">
+          <div className="k">Pago</div>
+          <div className="v"><span className="badge warning">🧾 Pagada sin descontar de caja</span> <span className="muted">{o.pago_sin_caja_motivo}</span></div>
         </div>
       )}
       {/* 04-11-2026: quién entrega (se elige al indicar el método de pago). */}

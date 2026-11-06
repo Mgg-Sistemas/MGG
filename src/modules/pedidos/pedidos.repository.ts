@@ -3246,3 +3246,40 @@ export async function fijarDestinoEntregaOc(o: Orden, destino: 'LOS PINOS' | 'MA
   }).eq('id', o.id);
   if (error) throw error;
 }
+
+/** Qué falta para marcar pagada sin caja (null = bien). */
+export function errorPagoSinCaja(motivo: string | null | undefined): string | null {
+  return (motivo ?? '').trim().length < 5 ? 'Escribe por qué no se descuenta dinero de ninguna caja (mínimo 5 letras).' : null;
+}
+
+/**
+ * 06-11-2026 (pedido de la administradora): Tesorería marca la OC como PAGADA sin descontar
+ * saldo de ninguna caja —la pagó otra empresa, un tercero, ya estaba pagada fuera del sistema…—
+ * con el motivo. No crea movimiento de caja. Sigue el flujo de siempre: queda «pagada», la ve
+ * el delivery y se recibe en el almacén. Si es por Factura, se marca en Retenciones igual que un pago.
+ */
+export async function marcarPagadaSinCaja(input: { orden: Orden; motivo: string; factura?: File | null; actorEmail: string }): Promise<Orden> {
+  const { orden: o } = input;
+  if (o.estado !== 'oc_aprobada' && o.estado !== 'confirmada_metodo')
+    throw new Error('Solo se marcan pagadas las órdenes confirmadas por el Gerente.');
+  const err = errorPagoSinCaja(input.motivo);
+  if (err) throw new Error(err);
+  const motivo = input.motivo.trim();
+  let facturaPath: string | null = null, facturaNombre: string | null = null;
+  if (input.factura) { facturaPath = await subirAdjuntoOc(o.id, input.factura, 'pago'); facturaNombre = input.factura.name; }
+  const ahora = new Date().toISOString();
+  const patch = {
+    estado: 'pagada' as EstadoOrden,
+    pagada_por: input.actorEmail,
+    pagada_en: ahora,
+    caja_id: null,
+    caja_mov_id: null,
+    pago_sin_caja_motivo: motivo,
+    ...(facturaPath ? { factura_path: facturaPath, factura_nombre: facturaNombre } : {}),
+    ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: ahora } : {}),
+    historial: appendHistorial(o, 'pagada_sin_caja', input.actorEmail, { oc_codigo: o.oc_codigo, motivo, total: o.total }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
+}
