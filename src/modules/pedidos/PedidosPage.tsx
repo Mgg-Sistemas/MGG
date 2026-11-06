@@ -197,27 +197,35 @@ function EstadoBadge({ estado }: { estado: string | null | undefined }) {
 /** 06-11-2026: columna que no es un estado: OC pagadas que esperan que Compras confirme el retiro. */
 type ColumnaKanban = EstadoOrden | 'por_retirar';
 /**
- * En qué columna cae una orden: la pagada sin retiro confirmado va a «Pendientes por recibir»
- * y la que el proveedor desistió vuelve a «Pendiente (cargar ofertas)» (hay que reasignarla).
+ * 06-11-2026 (pedido de la administradora): el tablero de Órdenes de Compra tiene SOLO estas
+ * tarjetas, en este orden y con estos nombres. Los pasos que ya no tienen tarjeta caen en la que
+ * les toca, así ninguna orden se pierde:
+ *   · Pagada sin recibir (esperando el retiro o ya con el delivery) y «Pendiente por recepción»
+ *     (contra entrega / crédito saldado) → «Pendiente por recibir».
+ *   · Pagada que ya se recibió (contra entrega) → «Recibida».
+ *   · Anulada → «Canceladas».
+ *   · El proveedor desistió → «Pendiente por cargar ofertas» (hay que reasignarla).
  */
-function columnaDeOrden(o: Orden): ColumnaKanban {
-  if (pendienteRetiro(o)) return 'por_retirar';
-  if (o.estado === 'desistida_proveedor') return 'aprobada';
-  return o.estado;
+function columnaOc(o: Orden): ColumnaKanban {
+  switch (o.estado) {
+    case 'pagada': return o.recibida_en ? 'recibida' : 'por_retirar';
+    case 'por_recibir': return 'por_retirar';
+    case 'anulada': return 'cancelada';
+    case 'desistida_proveedor': return 'aprobada';
+    default: return o.estado;
+  }
 }
 
 const KANBAN_COLS_OC:{ key: ColumnaKanban; label: string }[] = [
-  { key: 'aprobada', label: 'Pendiente (cargar ofertas)' },              // OP aprobada → cargar cotizaciones
-  { key: 'oc_creada', label: 'Ordenes pendiente por aprobar' }, // oferta elegida → espera aprobación
-  { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' },        // a crédito → abonos hasta saldar
-  { key: 'confirmada_metodo', label: 'Confirmada (indicar método de pago)' }, // gerente confirmó → falta método
-  { key: 'oc_aprobada', label: 'Confirmada pagar' },                     // método indicado → Tesorería
-  { key: 'por_retirar', label: 'Pendientes por recibir' },               // pagada → Compras confirma el retiro (06-11)
-  { key: 'por_recibir', label: 'Pendiente por recepción' },             // contra entrega / crédito saldado
-  { key: 'pagada', label: 'Pagada' },
+  { key: 'aprobada', label: 'Pendiente por cargar ofertas' },   // OP aprobada → cargar cotizaciones
+  { key: 'oc_creada', label: 'Pendientes por aprobar' },        // oferta elegida → espera al Gerente
+  { key: 'cuenta_abierta', label: 'Crédito / cuentas abiertas' }, // a crédito → abonos hasta saldar
+  { key: 'confirmada_metodo', label: 'Pendiente método de pago' }, // gerente confirmó → falta método
+  { key: 'oc_aprobada', label: 'Confirmada pagar' },            // método indicado → Tesorería
+  { key: 'por_retirar', label: 'Pendiente por recibir' },       // pagada → confirmar retiro → delivery → almacén
   { key: 'recibida', label: 'Recibida' },
   { key: 'finalizada', label: 'Finalizada' },
-  { key: 'anulada', label: 'Anulada' },
+  { key: 'cancelada', label: 'Canceladas' },
 ];
 
 // Servicios (clase='servicio'): comparten el ciclo completo de una OC, pero viven en su
@@ -554,8 +562,8 @@ export function PedidosPage() {
   const filteredOrdenes = useMemo(() => {
     // El filtro de estado vale en Lista Y en Kanban (17-10-2026: antes en Kanban estaba
     // deshabilitado y la administradora lo reportó como «no funciona»); en Kanban deja solo esa columna.
-    const porEstado = ordenesDePestana.filter((o) => !filterEstado
-      || (filterEstado === 'por_retirar' ? pendienteRetiro(o) : o.estado === filterEstado));
+    const porEstado = ordenesDePestana.filter((o) => !filterEstado || o.estado === filterEstado
+      || (scope === 'oc' && columnaOc(o) === filterEstado));
     // Buscador ampliado (16-10-2026): por cualquier dato de la orden (código, proveedor,
     // solicitante, renglones, estado, monto, fecha, método de pago, quién la hizo…) y el
     // filtro «Realizada por». Ver buscarOrdenes.ts.
@@ -564,7 +572,7 @@ export function PedidosPage() {
       labelMetodo: labelMetodoPago,
       nombreDe: nombreDeCorreo,
     });
-  }, [ordenesDePestana, filterText, filterEstado, filterCreador, proveedorMap, nombreDeCorreo]);
+  }, [ordenesDePestana, filterText, filterEstado, filterCreador, proveedorMap, nombreDeCorreo, scope]);
 
   function switchView(mode: ViewMode) {
     setViewMode(mode);
@@ -843,7 +851,7 @@ export function PedidosPage() {
           {!soloSolicitud && (<>
           <option value="oc_creada">OC creada</option>
           <option value="oc_aprobada">OC confirmada</option>
-          <option value="por_retirar">Pendientes por recibir</option>
+          <option value="por_retirar">Pendiente por recibir</option>
           <option value="pagada">Pagadas</option>
           <option value="desistida_proveedor">Proveedor desistió</option>
           </>)}
@@ -891,12 +899,13 @@ export function PedidosPage() {
           ordenes={filteredOrdenes}
           proveedorMap={proveedorMap}
           cols={kanbanCols}
+          columnaDe={scope === 'oc' ? columnaOc : undefined}
           onOpen={openDetail}
           noLeidos={noLeidos}
           // En Órdenes de Compra el tablero muestra hasta 10 por columna (el resto se ve en el
           // Histórico); «Pendiente (cargar ofertas)» queda SIN límite para no ocultar lo que falta cotizar.
           maxPorColumna={scope === 'oc' ? 10 : undefined}
-          columnasSinLimite={scope === 'oc' ? ['aprobada'] : undefined}
+          columnasSinLimite={scope === 'oc' ? ['aprobada', 'por_retirar'] : undefined}
         />
       ) : (
         <OrdenesTable
@@ -2576,18 +2585,22 @@ interface KanbanBoardProps {
   maxPorColumna?: number;
   /** Columnas exentas del límite (se muestran completas). */
   columnasSinLimite?: ColumnaKanban[];
+  /** En qué tarjeta cae cada orden (sin definir = la de su estado). */
+  columnaDe?: (o: Orden) => ColumnaKanban;
 }
-function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, maxPorColumna, columnasSinLimite }: KanbanBoardProps) {
+function KanbanBoard({ ordenes, proveedorMap, cols, onOpen, noLeidos, maxPorColumna, columnasSinLimite, columnaDe }: KanbanBoardProps) {
   const byState = useMemo(() => {
     const map = new Map<ColumnaKanban, Orden[]>();
     cols.forEach((c) => map.set(c.key, []));
     ordenes.forEach((o) => {
-      // Si esta pestaña no tiene la columna especial, la orden cae en la de su estado.
-      const list = map.get(columnaDeOrden(o)) ?? map.get(o.estado);
+      const list = map.get(columnaDe ? columnaDe(o) : o.estado);
       if (list) list.push(o);
     });
+    // «Pendiente por recibir»: primero las que esperan que Compras confirme el retiro.
+    const pr = map.get('por_retirar');
+    if (pr) pr.sort((a, b) => Number(pendienteRetiro(b)) - Number(pendienteRetiro(a)));
     return map;
-  }, [ordenes, cols]);
+  }, [ordenes, cols, columnaDe]);
   const sinLimite = useMemo(() => new Set(columnasSinLimite ?? []), [columnasSinLimite]);
 
   return (
@@ -2702,6 +2715,20 @@ const KanbanCard = memo(function KanbanCard({
           </span>
           {['pagada', 'recibida', 'finalizada'].includes(orden.estado) && <span className="muted" style={{ fontSize: '.62rem' }}>✓ Pagada</span>}
         </>)}
+        {/* 06-11-2026: dentro de «Pendiente por recibir», en qué va la orden. */}
+        {pendienteRetiro(orden) ? (
+          <span className="badge warning" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }} title="Pagada: falta que Compras confirme el retiro y quién entrega">⏳ Confirmar retiro</span>
+        ) : orden.estado === 'pagada' && !orden.recibida_en ? (
+          <span className="badge info" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }} title="Pagada, falta recibirla en el almacén">
+            ✓ Pagada{orden.retiro_confirmado_en ? ` · ${etiquetaEntrega(orden.entrega_modalidad)}` : ''}
+          </span>
+        ) : orden.estado === 'por_recibir' ? (
+          <span className="badge info" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }} title="Contra entrega o crédito saldado: falta recibirla">📦 Por recepción</span>
+        ) : orden.estado === 'anulada' ? (
+          <span className="badge danger" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }}>Anulada</span>
+        ) : orden.estado === 'desistida_proveedor' ? (
+          <span className="badge warning" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }}>⚠ Proveedor desistió</span>
+        ) : null}
         {orden.revisada_almacen_en && (
           <span className="badge info" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }} title={`Revisada por almacén · ${dateTime(orden.revisada_almacen_en)}`}>
             📦 Revisada por almacén
