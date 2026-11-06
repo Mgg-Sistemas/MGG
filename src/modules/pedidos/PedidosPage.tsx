@@ -4787,8 +4787,10 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
   function convertirMoneda() {
     const r = Number(tasaConv) || 0;
     if (r <= 0) { setError('Colocá la tasa (Bs por $) para convertir.'); return; }
-    const toBs = moneda === 'USD';
-    const conv = (n: number) => Math.round((toBs ? n * r : n / r) * 100) / 100;
+    // 06-11-2026: las órdenes van siempre en $. Convertir = pasar a $ lo que se escribió en Bs
+    // (o una solicitud vieja que estaba en Bs). Ya no se convierte de $ a Bs.
+    const toBs = false;
+    const conv = (n: number) => Math.round((n / r) * 100) / 100;
     setLineas((ls) => ls.map((l) => {
       // Si el precio viene del detalle, convierto cada pieza; si es precio manual, convierto ese.
       if (sumaDetallePrecios(l.detalle) > 0) {
@@ -4961,19 +4963,21 @@ function NuevoServicioModal({ usuario, authEmail, orden, onClose, onCreated }: {
 
       <div className="form-row">
         <label>Moneda del servicio</label>
+        {/* 06-11-2026: siempre en $ (SV-0021 y SV-0034 salieron en Bs siendo en $). Lo que se paga
+            en Bs se paga al cambio BCV del día; la orden es en $. La base tampoco deja crearla en Bs. */}
         <div className="view-toggle" role="tablist" style={{ margin: 0 }}>
-          <button type="button" className={moneda === 'USD' ? 'active' : ''} onClick={() => setModeda('USD')}>$ Dólares</button>
-          <button type="button" className={moneda === 'Bs' ? 'active' : ''} onClick={() => setModeda('Bs')}>Bs Bolívares</button>
+          <button type="button" className="active" disabled>$ Dólares</button>
+          {moneda === 'Bs' && <button type="button" className="" disabled title="Solicitud vieja en Bs">Bs (vieja)</button>}
         </div>
-        <small className="hint muted" style={{ fontSize: '.72rem' }}>Los precios estimados se cargan en esta moneda. Se puede cambiar al editar.</small>
+        <small className="hint muted" style={{ fontSize: '.72rem' }}>Los precios se cargan en <strong>$</strong>. Si el proveedor dio el precio en Bs, escríbelo y pásalo a $ con la tasa.</small>
         {/* Convertir los precios a la otra moneda a la tasa (del día o la que ponga el usuario). */}
         <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginTop: '.45rem' }}>
           <span className="muted" style={{ fontSize: '.78rem' }}>Tasa (Bs/$)</span>
           <input className="input mono" type="number" min={0} step="any" style={{ maxWidth: 140 }} value={tasaConv} onChange={(e) => setTasaConv(e.target.value)} placeholder="0,00" />
           {tasaBcv > 0 && Number(tasaConv) !== tasaBcv && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setTasaConv(String(tasaBcv))}>↻ Hoy ({tasaBcv.toLocaleString('es-VE')})</button>}
-          <button type="button" className="btn btn-sm btn-primary" onClick={convertirMoneda}>⇄ Convertir a {moneda === 'USD' ? 'Bs' : '$'}</button>
+          <button type="button" className="btn btn-sm btn-primary" onClick={convertirMoneda}>⇄ Los precios están en Bs: pasar a $</button>
         </div>
-        <small className="hint muted" style={{ fontSize: '.72rem' }}>Convierte los precios cargados a {moneda === 'USD' ? 'Bs' : '$'} a esa tasa. El total va a Tesorería en esa moneda.</small>
+        <small className="hint muted" style={{ fontSize: '.72rem' }}>Divide los precios cargados entre la tasa: quedan en $. Tesorería paga en Bs al cambio si el método es en Bs.</small>
       </div>
 
       <div className="form-row">
