@@ -1,201 +1,217 @@
 /* ============================================================
-   MGG · Tesorería · Resumen PDF de pendientes por pagar
-   Segmentado: Compras directas · OC · Servicios · Servicios directos.
-   Cada segmento con su TOTAL; total GENERAL en grande, con conversión
-   a Bs a la tasa BCV del día. Solo por botón (vista previa).
+   Golden Touch · Tesorería · PDF resumen de pendientes por pagar
+   Relación de TODO lo pendiente por pagar, POR SEGMENTOS:
+     · 🛒 Compras Directas
+     · 📄 Órdenes de Compra (OC)
+     · 🔧 Servicios (Control de Servicio · CS)
+     · 🧰 Servicios Directos
+   Cada renglón en $ y su equivalente en Bs a la TASA DEL DÍA (BCV).
+   Subtotal por segmento (en grande) y TOTAL GENERAL (en grande),
+   ambos en $ y en Bs. Vista previa.
+
+   MÉTODO Y DATOS DE PAGO: cada renglón dice CÓMO se le paga y A DÓNDE, para
+   poder pagar con el papel en la mano sin volver a la pantalla a buscar el
+   teléfono del pago móvil o el número de cuenta. Es la columna ancha y la de
+   letra más grande: es el dato con el que se actúa.
+
+   NO HAY COLUMNA DE NOTAS NI DE FINALIDAD/DETALLE. Las dos contaban QUÉ se
+   compró y POR QUÉ, y se comían el ancho de la tabla. Con este papel no se
+   decide qué comprar —eso ya se decidió— sino que se PAGA, y para pagar hacen
+   falta cuatro cosas: a quién, cuánto, por cuál método y a qué cuenta. Lo
+   demás está en la orden, a un clic en el sistema.
+   Lo único de esas columnas que cambiaba el pago —un servicio que se salda
+   por abonos— se dice ahora en «Estado».
+     · Si Compras ya indicó el método, se muestra ese, con sus datos y
+       —cuando el pago va partido en varias patas— el monto de cada una.
+     · Si el documento todavía no tiene método (las compras y los servicios
+       directos lo eligen recién al pagarlos), se muestran los datos que el
+       proveedor tiene guardados, marcados «(registrado)». Son una referencia,
+       no una instrucción: el método se decide al pagar.
+
+   TEXTO SEGURO PARA jsPDF: todo lo que escribió una persona (proveedor,
+   detalle, notas, datos de pago) pasa por `pdfSafe`. Las fuentes base de
+   jsPDF dibujan Windows-1252: si UNA sola letra queda fuera —un emoji del
+   catálogo de servicios, un ⚠ del propio reporte— jsPDF cambia de codificación
+   y sale TODA la línea con las letras separadas una a una. Pasó con el aviso
+   de cuentas a crédito.
    ============================================================ */
-import { previewPdfDoc } from '@/shared/lib/reportPreview';
-import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
-import type { DirectoFila } from '@/modules/pedidos/DirectosPorPagarModal';
-import { getTasaHoy, aBs, aExtranjero } from './tasas.repository';
+import { previewPdf } from '@/shared/lib/reportePreview';
+import { pdfSafe } from '@/shared/lib/pdfSafe';
+import { dibujarLogoPdf } from '@/shared/lib/pdfLogo';
+import {
+  cargarConLecturas, type DatosPendientesPorPagar, type SegmentoPendiente,
+} from './pendientesPorPagar';
 
-function usd(n: number | null | undefined): string {
-  return `$ ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Bs con separador de miles VE y 2 decimales (sin prefijo). */
+function bsNum(n: number): string {
+  return Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-function bs(n: number | null | undefined): string {
-  return `Bs ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-const esBsMoneda = (m: string | null | undefined): boolean => /bs|ves/i.test(String(m ?? ''));
 
-/** Una fila normalizada del reporte (sirve para OC, servicios y directos). */
-interface FilaRep { codigo: string; nombre: string; estado: string; pago: string; montoUsd: number }
+/**
+ * Los datos (los mismos del Excel y del WhatsApp) llegan con texto crudo; aquí se sanean
+ * para jsPDF. El método de pago se sanea línea por línea: `pdfSafe` recorta espacios al
+ * principio y al final, y aplicado al bloque entero se comería los saltos que separan un
+ * método del otro.
+ */
+interface FilaRep { codigo: string; proveedor: string; estado: string; pago: string; usd: number; bs: number }
+interface Segmento { titulo: string; filas: FilaRep[]; subUsd: number; subBs: number }
+const seguro = (seg: SegmentoPendiente): Segmento => ({
+  titulo: seg.titulo,
+  subUsd: seg.subUsd,
+  subBs: seg.subBs,
+  filas: seg.filas.map((f) => ({
+    codigo: pdfSafe(f.codigo) || '—',
+    proveedor: pdfSafe(f.proveedor) || '—',
+    estado: f.estado,
+    pago: f.pagos.map((l) => pdfSafe(l.texto)).filter(Boolean).join('\n') || '—',
+    usd: f.usd,
+    bs: f.bs,
+  })),
+});
 
-export async function descargarResumenPorPagarPdf(
+/** Lo que llamaban Tesorería y Compras: lee los datos y abre la vista previa del PDF. */
+export async function descargarOrdenesPorPagarPdf(
   rows: OrdenPorPagar[],
-  directos: DirectoFila[] = [],
-  creditos: OrdenPorPagar[] = [], // OC a crédito (cuenta abierta): se listan aparte, saldo pendiente
+  opts?: { creditos?: OrdenPorPagar[] },
 ): Promise<void> {
-  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoDataUrl }, { textoPagoOrden, textoPagoDirecto }] = await Promise.all([
+  await descargarPendientesPorPagarPdf(await cargarConLecturas(rows, opts?.creditos ?? []));
+}
+
+/** Dibuja el PDF a partir de los datos ya armados (los mismos de las otras salidas). */
+export async function descargarPendientesPorPagarPdf(datos: DatosPendientesPorPagar): Promise<void> {
+  const [{ jsPDF }, { default: autoTable }, fmt, { loadLogoPdfDataUrl }] = await Promise.all([
     import('jspdf'),
     import('jspdf-autotable'),
     import('@/shared/lib/format'),
     import('@/shared/lib/pdfLogo'),
-    import('@/modules/pedidos/pendientesPorPagarReporte'),
   ]);
-  const tasaHoy = await getTasaHoy().catch(() => null);
-  const tasa = Number(tasaHoy?.usd) || 0;
-  const logo = await loadLogoDataUrl().catch(() => null);
+  const { tasa, totUsd, totBs, totCant } = datos;
+  const tasaHoy = { fecha: datos.tasaFecha };
+  const segmentos = datos.segmentos.map(seguro);
+  const segCredito = datos.credito ? seguro(datos.credito) : null;
+
+  // ── Documento ──
+  const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: 'landscape' });
   const W = doc.internal.pageSize.getWidth();
-  const MARGIN = MARGEN_PDF; // 2 cm
-  const CW = anchoUtilPdf(W); // ancho útil imprimible (tabla y caja lo comparten)
+  const H = doc.internal.pageSize.getHeight();
+  const MARGIN = 56.69; // 2 cm por lado
   let y = MARGIN;
-  if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, 44, 44); } catch { /* opcional */ } }
+  if (logo) { dibujarLogoPdf(doc, logo, MARGIN, y, 44); }
 
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(14);
   doc.text('PENDIENTES POR PAGAR', W / 2 + 28, y + 20, { align: 'center' });
-  doc.setTextColor(120, 120, 120); doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-  doc.text(tasa > 0 ? `Tasa BCV del día: Bs ${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}/$${tasaHoy?.fecha ? ` · ${tasaHoy.fecha}` : ''}` : 'Sin tasa BCV disponible', W / 2 + 28, y + 36, { align: 'center' });
+  doc.setTextColor(120, 120, 120); doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
+  doc.text(`GOLDEN TOUCH 1127 C.A. · Generado ${fmt.dateTime(datos.generadoEn)}`, W / 2 + 28, y + 35, { align: 'center' });
+  if (tasa > 0) {
+    doc.text(`Tasa BCV: Bs ${bsNum(tasa)} / $${tasaHoy?.fecha ? ' · ' + fmt.date(tasaHoy.fecha) : ''}`, W / 2 + 28, y + 48, { align: 'center' });
+  }
+  if (segCredito) {
+    doc.setTextColor(180, 90, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(8.5);
+    // Sin el ⚠ de antes: no existe en la fuente y arrastraba toda la línea a
+    // la codificación equivocada. El aviso ya resalta por color y negrita.
+    doc.text(`Incluye ${segCredito.filas.length} cuenta(s) a crédito abierta(s) · ${fmt.money(segCredito.subUsd)} (se saldan por abonos)`, W / 2 + 28, y + (tasa > 0 ? 60 : 48), { align: 'center' });
+  }
   doc.setTextColor(0, 0, 0);
-  y += 58;
+  y += segCredito ? 78 : 66;
 
-
-  /* Cómo se paga cada renglón, con los datos del beneficiario.
-     Este PDF lo usa Tesorería para pagar: sin el banco, la cédula y el número de
-     cuenta hay que abrir la OC una por una para poder emitir la transferencia.
-     Una OC puede tener VARIAS patas (multipago): se listan todas, una por línea. */
-  const pagoDe = (r: OrdenPorPagar): string => textoPagoOrden(r.orden);
-  /* Una compra o un servicio directo todavía no tiene método: se elige al pagarlo
-     en Tesorería (o es un REINTEGRO si el dinero lo puso una persona externa). */
-  const pagoDirecto = textoPagoDirecto;
-
-  // ── Segmentos ──
-  const ocRows = rows.filter((r) => r.orden.clase !== 'servicio');
-  const servRows = rows.filter((r) => r.orden.clase === 'servicio');
-  const comprasDir = directos.filter((d) => d.kind === 'compra');
-  const servDir = directos.filter((d) => d.kind === 'servicio');
-
-  const deOrden = (r: OrdenPorPagar): FilaRep => ({
-    codigo: r.orden.oc_codigo ?? r.orden.codigo, nombre: r.proveedorNombre,
-    estado: r.esperandoMetodo ? 'Esperando método' : 'Lista para pagar',
-    pago: pagoDe(r),
-    montoUsd: Number(r.montoAPagar) || 0,
-  });
-  const deDirecto = (d: DirectoFila): FilaRep => ({
-    codigo: d.codigo, nombre: d.titulo,
-    estado: 'Lista para pagar',
-    pago: pagoDirecto(d),
-    // Los directos pueden estar en Bs: se convierten a $ a la tasa del día para el reporte.
-    montoUsd: esBsMoneda(d.moneda) ? aExtranjero(Number(d.total) || 0, tasa) : (Number(d.total) || 0),
-  });
-
-  const segmentosDef: Array<{ titulo: string; color: [number, number, number]; filas: FilaRep[] }> = [
-    { titulo: 'COMPRAS DIRECTAS', color: [37, 99, 235], filas: comprasDir.map(deDirecto) },
-    { titulo: 'ÓRDENES DE COMPRA', color: [255, 138, 0], filas: ocRows.map(deOrden) },
-    { titulo: 'SERVICIOS', color: [124, 92, 255], filas: servRows.map(deOrden) },
-    { titulo: 'SERVICIOS DIRECTOS', color: [16, 138, 120], filas: servDir.map(deDirecto) },
-  ];
-  const segmentos = segmentosDef.filter((s) => s.filas.length > 0);
-
-  const montoCol = (u: number): string[] => [usd(u), tasa > 0 ? bs(aBs(u, tasa)) : '—'];
-
-  // Anchos fijos que suman EXACTO el ancho útil → tabla de margen a margen, simétrica.
-  const wNum = 26, wCod = 74, wUsd = 88, wBs = 106;
-  const libre = CW - (wNum + wCod + wUsd + wBs);
-  // Sin columna DETALLE: era texto libre larguísimo («SOLICITUD DE TERMOMETRO
-  // DIGITAL PARA EL PERSONAL DEL GALPON… NOTA: LA ORDEN FUE MODIFICADA EL DIA…»)
-  // que empujaba el método a una franja ilegible. Quien paga necesita el banco y
-  // la cuenta, no el porqué de la compra: eso ya está en la OC.
-  const wProv = Math.round(libre * 0.34);
-  const wPago = libre - wProv;
-  // En las cuentas a crédito sí queda la columna de abonos: ahí «Abonado X de Y»
-  // es el dato que explica el saldo, no una nota suelta.
-  const wCredAb = Math.round(libre * 0.24);
-  const wCredProv = Math.round(libre * 0.30);
-  const wCredPago = libre - wCredAb - wCredProv;
-
-  for (const seg of segmentos) {
-    const subtotal = seg.filas.reduce((a, f) => a + f.montoUsd, 0);
-    autoTable(doc, {
-      startY: y,
-      head: [[{ content: seg.titulo, colSpan: 6, styles: { fillColor: seg.color, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left', fontSize: 10 } }],
-             ['#', 'CÓDIGO', 'PROVEEDOR / CONCEPTO', 'MÉTODO DE PAGO / DATOS', 'MONTO $', 'MONTO Bs']],
-      body: seg.filas.map((f, i) => [String(i + 1), f.codigo, f.nombre, f.pago, ...montoCol(f.montoUsd)]),
-      foot: [[{ content: `TOTAL ${seg.titulo}`, colSpan: 4, styles: { halign: 'right' } }, usd(subtotal), tasa > 0 ? bs(aBs(subtotal, tasa)) : '—']],
-      styles: { fontSize: 8.5, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
-      headStyles: { fillColor: [225, 225, 225], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
-      footStyles: { fillColor: seg.color, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'right', fontSize: 9 },
-      tableWidth: CW,
-      columnStyles: {
-        0: { halign: 'center', cellWidth: wNum },
-        1: { halign: 'center', cellWidth: wCod },
-        2: { cellWidth: wProv },
-        3: { cellWidth: wPago, fontSize: 10, fontStyle: 'bold', textColor: [20, 20, 20] },
-        4: { halign: 'right', cellWidth: wUsd },
-        5: { halign: 'right', cellWidth: wBs },
-      },
-      margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 70 },
-    });
-    // @ts-expect-error jspdf-autotable agrega lastAutoTable en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 16;
+  if (!segmentos.length && !segCredito) {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(11); doc.setTextColor(90, 90, 90);
+    doc.text('No hay pendientes por pagar.', MARGIN, y + 10);
+    previewPdf(doc, `pendientes-por-pagar-${new Date().toISOString().slice(0, 10)}.pdf`);
+    return;
+  }
+  if (!segmentos.length) {
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(10.5); doc.setTextColor(90, 90, 90);
+    doc.text('No hay pendientes por pagar inmediatos. Solo quedan cuentas a crédito abiertas (abajo).', MARGIN, y + 10);
+    y += 24;
   }
 
-  // ── TOTAL GENERAL (en grande) ──
-  const totalUsd = segmentos.reduce((a, s) => a + s.filas.reduce((b, f) => b + f.montoUsd, 0), 0);
-  const totalBs = tasa > 0 ? aBs(totalUsd, tasa) : 0;
-  const H = doc.internal.pageSize.getHeight();
-  // La caja (66 pt) + la línea del pie deben caber antes del margen inferior.
-  if (y + 66 > limiteInferiorPdf(H) - 14) { doc.addPage(); y = MARGIN; }
-  const boxW = CW;
-  doc.setFillColor(255, 138, 0);
-  doc.rect(MARGIN, y, boxW, 66, 'F');
-  doc.setTextColor(255, 255, 255); doc.setFont('helvetica', 'bold');
-  doc.setFontSize(13); doc.text('TOTAL GENERAL', MARGIN + 16, y + 27);
-  doc.setFontSize(24); doc.text(usd(totalUsd), MARGIN + boxW - 16, y + 28, { align: 'right' });
-  doc.setFontSize(16); doc.text(tasa > 0 ? bs(totalBs) : 'Sin tasa BCV', MARGIN + boxW - 16, y + 54, { align: 'right' });
-  doc.setFontSize(9); doc.setFont('helvetica', 'normal');
-  doc.text(tasa > 0 ? `Convertido a la tasa BCV del día (Bs ${tasa.toLocaleString('es-VE', { minimumFractionDigits: 2 })}/$)` : '', MARGIN + 16, y + 52);
-  doc.setTextColor(0, 0, 0);
-  y += 66 + 16;
+  const drawTable = (seg: Segmento) => {
+    // Título de segmento (salta de página si no cabe con al menos una fila).
+    if (y > H - 120) { doc.addPage(); y = MARGIN; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 138, 0);
+    doc.text(seg.titulo, MARGIN, y);
+    doc.setTextColor(120, 120, 120); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
+    doc.text(`${seg.filas.length} ítem(s)`, MARGIN + 260, y);
+    doc.setTextColor(0, 0, 0);
+    y += 6;
 
-  // ── CUENTAS A CRÉDITO (OC con cuenta abierta) ── se muestran APARTE del total por pagar:
-  //    son deudas que se saldan con abonos, no un egreso inmediato de caja.
-  const CRED_COLOR: [number, number, number] = [220, 38, 38]; // rojo
-  if (creditos.length > 0) {
-    if (y > limiteInferiorPdf(H) - 80) { doc.addPage(); y = MARGIN; }
-    const filasCred = creditos.map((r) => {
-      const total = Number(r.montoAPagar) || 0;
-      const abon = Math.max(0, Number(r.orden.abonado_total) || 0);
-      const saldo = Math.round(Math.max(0, total - abon) * 100) / 100;
-      return {
-        codigo: r.orden.oc_codigo ?? r.orden.codigo,
-        nombre: r.proveedorNombre,
-        detalle: `Abonado ${usd(abon)} de ${usd(total)}`,
-        pago: pagoDe(r),
-        saldo,
-      };
-    });
-    const subCred = filasCred.reduce((a, f) => a + f.saldo, 0);
+    const body = seg.filas.map((f, i) => [
+      String(i + 1), f.codigo, f.proveedor, f.estado, f.pago,
+      fmt.money(f.usd), tasa > 0 ? bsNum(f.bs) : '—',
+    ]);
     autoTable(doc, {
       startY: y,
-      head: [[{ content: 'CUENTAS A CRÉDITO (cuenta abierta · se saldan con abonos)', colSpan: 7, styles: { fillColor: CRED_COLOR, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'left', fontSize: 10 } }],
-             ['#', 'CÓDIGO', 'PROVEEDOR / CONCEPTO', 'ABONOS', 'MÉTODO DE PAGO / DATOS', 'SALDO $', 'SALDO Bs']],
-      body: filasCred.map((f, i) => [String(i + 1), f.codigo, f.nombre, f.detalle, f.pago, ...montoCol(f.saldo)]),
-      foot: [[{ content: 'TOTAL A CRÉDITO (saldo pendiente)', colSpan: 5, styles: { halign: 'right' } }, usd(subCred), tasa > 0 ? bs(aBs(subCred, tasa)) : '—']],
-      styles: { fontSize: 8, cellPadding: 3.5, valign: 'middle', overflow: 'linebreak' },
-      headStyles: { fillColor: [225, 225, 225], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
-      footStyles: { fillColor: CRED_COLOR, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'right', fontSize: 9 },
-      tableWidth: CW,
+      head: [['ITEM', 'CÓDIGO', 'PROVEEDOR', 'ESTADO', 'MÉTODO Y DATOS DE PAGO', 'MONTO $', 'MONTO Bs']],
+      body,
+      foot: [['', '', '', '', 'SUBTOTAL', fmt.money(seg.subUsd), tasa > 0 ? bsNum(seg.subBs) : '—']],
+      styles: { fontSize: 9, cellPadding: 4, valign: 'middle', overflow: 'linebreak' },
+      headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
+      footStyles: { fillColor: [255, 244, 232], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'right', fontSize: 9 },
+      tableWidth: 'auto',
       columnStyles: {
-        0: { halign: 'center', cellWidth: wNum },
-        1: { halign: 'center', cellWidth: wCod },
-        2: { cellWidth: wCredProv },
-        3: { cellWidth: wCredAb },
-        4: { cellWidth: wCredPago, fontSize: 10, fontStyle: 'bold', textColor: [20, 20, 20] },
-        5: { halign: 'right', cellWidth: wUsd },
-        6: { halign: 'right', cellWidth: wBs },
+        0: { halign: 'center', cellWidth: 24 },
+        1: { halign: 'center', cellWidth: 66 },
+        2: { cellWidth: 140 },
+        3: { halign: 'center', cellWidth: 72 },
+        // Sin NOTAS ni FINALIDAD, todo el ancho sobrante queda para el método y
+        // sus datos: es lo que se lee para pagar. Sin ancho fijo (se lleva el
+        // resto de la tabla) y con el cuerpo más grande y en negrita.
+        4: { fontSize: 10, fontStyle: 'bold', textColor: [20, 20, 20] },
+        5: { halign: 'right', cellWidth: 58 },
+        6: { halign: 'right', cellWidth: 68 },
       },
-      margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 40 },
+      margin: MARGIN,
     });
-    // @ts-expect-error jspdf-autotable agrega lastAutoTable en runtime
-    y = (doc.lastAutoTable?.finalY ?? y) + 8;
+    y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 16;
+  };
+
+  for (const seg of segmentos) drawTable(seg);
+
+  // ── TOTAL GENERAL en grande ($ y su equivalente en Bs) ── (solo lo por pagar; el crédito va aparte)
+  if (segmentos.length) {
+    const boxH = tasa > 0 ? 76 : 48;
+    if (y > H - (boxH + MARGIN)) { doc.addPage(); y = MARGIN; }
+    const boxW = 340;
+    const boxX = W - MARGIN - boxW;
+    doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.4);
+    doc.setFillColor(255, 244, 232);
+    doc.roundedRect(boxX, y, boxW, boxH, 6, 6, 'FD');
+
+    doc.setTextColor(60, 60, 60); doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
+    doc.text(`TOTAL GENERAL · ${totCant} ítem(s)`, boxX + 14, y + 22);
+    doc.setTextColor(20, 20, 20); doc.setFont('helvetica', 'bold'); doc.setFontSize(22);
+    doc.text(fmt.money(totUsd), boxX + boxW - 14, y + 26, { align: 'right' });
+
+    if (tasa > 0) {
+      doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(19);
+      doc.text(`Bs ${bsNum(totBs)}`, boxX + boxW - 14, y + 56, { align: 'right' });
+      doc.setTextColor(120, 120, 120); doc.setFont('helvetica', 'normal'); doc.setFontSize(8);
+      doc.text(`Convertido a la tasa BCV del día: Bs ${bsNum(tasa)} / $`, boxX + 14, y + 56);
+    }
+    doc.setTextColor(0, 0, 0);
+    y += boxH + 20;
   }
 
-  doc.setFontSize(8); doc.setTextColor(120, 120, 120);
-  const nTotal = rows.length + directos.length;
-  const credTxt = creditos.length > 0 ? ` · ${creditos.length} cuenta(s) a crédito` : ' · sin cuentas a crédito';
-  doc.text(`Generado ${fmt.dateTime(new Date().toISOString())} · ${nTotal} pendiente(s)${credTxt} · Mineral Group Guayana C.A.`, MARGIN, limiteInferiorPdf(H));
+  // ── Anexo: CUENTAS A CRÉDITO (no forman parte del total por pagar) ──
+  if (segCredito) {
+    if (y > H - 130) { doc.addPage(); y = MARGIN; }
+    doc.setFont('helvetica', 'italic'); doc.setFontSize(8.5); doc.setTextColor(120, 120, 120);
+    doc.text('Estas compras se hicieron a crédito (cuenta abierta): NO entran en el total de arriba; se saldan por abonos en Tesorería.', MARGIN, y);
+    y += 12;
+    drawTable(segCredito);
+  }
 
-  previewPdfDoc(doc, 'pendientes-por-pagar.pdf');
+  previewPdf(doc, `pendientes-por-pagar-${new Date().toISOString().slice(0, 10)}.pdf`);
+}
+
+
+export async function descargarResumenPorPagarPdf(
+  rows: OrdenPorPagar[],
+  _directos: unknown[] = [],
+  creditos: OrdenPorPagar[] = [],
+): Promise<void> {
+  return descargarOrdenesPorPagarPdf(rows, { creditos });
 }

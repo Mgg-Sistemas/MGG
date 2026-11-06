@@ -89,6 +89,7 @@ export interface ServicioDirecto {
   /** El servicio se salda CON ABONOS (a crédito): en vez de pagarse completo, genera
    *  una Cuenta por Pagar en Tesorería que se abona en el tiempo. */
   con_abonos: boolean;
+  abonado_total?: number | null;
   /** Cuenta por pagar (Tesorería) que respalda el servicio a crédito. */
   credito_cxp_id: string | null;
   /** Pago anticipado: monto + moneda del anticipo (solo se registra, no mueve caja real).

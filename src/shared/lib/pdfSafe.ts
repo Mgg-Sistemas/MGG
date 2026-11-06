@@ -12,6 +12,7 @@ export function pdfSafe(s: string | null | undefined): string {
   return String(s ?? '')
     .replace(/→/g, '->')
     .replace(/←/g, '<-')
+    .replace(/[≈≃≅]/g, '~')
     .replace(/[\u{1F000}-\u{1FFFF}]/gu, '')            // emojis / pictogramas (🛞, 🍽, 🚜…)
     .replace(/[\u{2600}-\u{27BF}]/gu, '')              // símbolos misceláneos y dingbats
     .replace(/[\u{2B00}-\u{2BFF}]/gu, '')              // flechas/estrellas suplementarias

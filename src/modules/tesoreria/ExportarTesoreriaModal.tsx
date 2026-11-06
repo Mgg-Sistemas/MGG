@@ -1,68 +1,69 @@
 /* ============================================================
-   MGG · Tesorería · «Descargar Reporte de Tesorería» (03-11-2026)
-   Traído de Golden Touch (ExportarTesoreriaModal.tsx, 02-11-2026) a pedido
-   de la administradora: el mismo reporte de allá, con los estilos de MGG
-   (card, chip, btn, input, table… del tema; sin los temas de GT).
+   Golden Touch · Tesorería · Diálogo de Reporte y Exportación
+   (02/11/2026)
+
+   Modal interactivo moldeable (patrón de ExportarCombustibleModal):
    - Ámbito: Movimientos de caja · Pendientes por pagar · Cuentas a crédito.
-   - Rango de fechas con atajos; dimensión principal (agrupar por);
-     valuación con tasa BCV del día o histórica, interruptores de $ y Bs.
-   - Filtros por categorías, proveedores, tipos, cajas, monedas y estados.
-   - Columnas por casillas; Fichas o Tabla; orientación; orden; resumen.
-   - Vista previa en vivo y salidas CSV / Excel / WhatsApp / PDF, SOLO al
-     tocar el botón (nada se descarga ni se manda solo).
-   Los datos se leen de Supabase por páginas (reporteTesoreria.repository) y
-   se recargan en vivo (realtime). Las preferencias de pantalla quedan en el
-   navegador (comodidad de cada usuario, no son datos).
-   Reemplaza los viejos «↓ Resumen PDF» de Tesorería (03-11-2026).
+   - Dimensión principal (caja, moneda, tipo, categoría, proveedor, documento,
+     día, mes, detallado).
+   - Valuación: tasa BCV del día vs histórica, con interruptores maestros de
+     USD y Bs (al apagar uno, desaparecen sus cifras de tarjetas, tabla y KPIs).
+   - Filtros por cajas, monedas, tipos, categorías, contrapartes y estados.
+   - Columnas por casillas; formato Fichas vs Tabla; orientación; orden; resumen.
+   - Vista previa en vivo (KPIs + fichas o tabla) y exportación a PDF/Excel/CSV.
+   Las preferencias se guardan en localStorage (por usuario del navegador).
    ============================================================ */
 
-import { useCallback, useEffect, useMemo, useRef, useState, type Dispatch, type SetStateAction } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { mensajeError } from '@/shared/lib/errores';
-import { useRealtime } from '@/shared/lib/useRealtime';
-import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import type { MovimientoCaja } from '@/shared/lib/types';
-import { listOrdenesPorPagar, listOrdenesEnCredito, type OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
-import { cargarDirectosPorPagar, type DirectoFila } from '@/modules/pedidos/DirectosPorPagarModal';
-import { getTasaHoy, hoyVE } from './tasas.repository';
-import type { CuentaPorPagar } from './cuentasPorPagar.repository';
-import type { CuentaPorCobrar } from './cuentasPorCobrar.repository';
-import {
-  listMovimientosReporte, tasasUsdDelRango,
-  listCuentasPorPagarAbiertasReporte, listCuentasPorCobrarAbiertasReporte,
-} from './reporteTesoreria.repository';
+import { listLibroMayor } from './tesoreria.repository';
+import { cargarPendientesPorPagar, generarBloquesPreparacion, lineasDePago, type DatosPendientesPorPagar } from './pendientesPorPagar';
+import { supabase } from '@/shared/lib/supabase';
+import type { PagoMetodo } from '@/shared/lib/types';
+import { listCuentasPorPagar, type CuentaPorPagar } from './cuentasPorPagar.repository';
+import { listCuentasPorCobrar, type CuentaPorCobrar } from './cuentasPorCobrar.repository';
+import { getTasaHoy, getTasasUsdDeFechas } from './tasas.repository';
 import {
   CAMPOS_REPORTE_TESORERIA,
   CAMPOS_POR_DEFECTO_POR_MODO,
+  esColumnaAplicableModoTesoreria,
   ETIQUETA_FLUJO,
-  PRESETS_RANGO_TESORERIA,
-  rangoPresetTesoreria,
+  diaDe,
   normalizarMovimientosTesoreria,
   normalizarPendientesPorPagar,
   normalizarCreditosCartera,
   filtrarFilasTesoreria,
   procesarFilasReporteTesoreria,
   obtenerMetricasFichaTesoreria,
+  resolverCabeceraTarjetaTesoreria,
   type ContextoTasas,
   type AmbitoTesoreria,
   type ModoAgrupacionTesoreria,
   type BaseTasaTesoreria,
   type TipoFlujoTesoreria,
   type FilaReporteTesoreria,
-  type OrdenReporteTesoreria,
 } from './reporteTesoreriaMoldeable';
 import {
-  columnasVisiblesTesoreria,
-  textoCeldaTesoreria,
   descargarTesoreriaCsv,
   descargarTesoreriaExcel,
   descargarTesoreriaPdf,
   type MetadatosExportacionTesoreria,
 } from './exportarTesoreria';
 import { textoWhatsappTesoreria } from './whatsappTesoreria';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 
-const CLAVE_PREFS = 'mgg.tesoreria.reporte.v1.v2';
+const CLAVE_CAMPOS = 'tesoreria.reporte.campos.v1';
+const CLAVE_AMBITO = 'tesoreria.reporte.ambito.v1';
+const CLAVE_AGRUPACION = 'tesoreria.reporte.agrupacion.v1';
+const CLAVE_TASA = 'tesoreria.reporte.tasa.v1';
+const CLAVE_USD = 'tesoreria.reporte.usd.v2';
+const CLAVE_BS = 'tesoreria.reporte.bs.v2';
+const CLAVE_RESUMEN = 'tesoreria.reporte.resumen.v1';
+const CLAVE_KPIS = 'tesoreria.reporte.kpisSimples.v2';
+const CLAVE_PREPARAR = 'tesoreria.reporte.preparar.v1';
 
 const AMBITOS: { id: AmbitoTesoreria; icon: string; label: string }[] = [
   { id: 'movimientos', icon: '📒', label: 'Movimientos de caja' },
@@ -74,7 +75,7 @@ const MODOS: { id: ModoAgrupacionTesoreria; icon: string; label: string }[] = [
   { id: 'caja', icon: '🏦', label: 'Por Caja' },
   { id: 'moneda', icon: '💱', label: 'Por Moneda' },
   { id: 'tipo_movimiento', icon: '🔀', label: 'Por Tipo' },
-  { id: 'categoria_gasto', icon: '🔖', label: 'Por Categoría' },
+  { id: 'categoria_gasto', icon: '🏷️', label: 'Por Categoría' },
   { id: 'contraparte', icon: '👤', label: 'Por Proveedor' },
   { id: 'origen_documento', icon: '📑', label: 'Por Documento' },
   { id: 'dia', icon: '📆', label: 'Por Día' },
@@ -84,66 +85,31 @@ const MODOS: { id: ModoAgrupacionTesoreria; icon: string; label: string }[] = [
 
 const TIPOS_FLUJO: TipoFlujoTesoreria[] = ['egreso', 'ingreso', 'traslado'];
 
-type SeccionFiltro = 'categorias' | 'contrapartes' | 'tipos' | 'cajas' | 'monedas' | 'estados';
+function hoyVE(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+function primerDiaMesActual(): string { return `${hoyVE().slice(0, 7)}-01`; }
+function primerDiaMesAnterior(): string { const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7) + '-01'; }
+function ultimoDiaMesAnterior(): string { const d = new Date(); d.setDate(0); return d.toISOString().slice(0, 10); }
+function diasAtras(n: number): string { const d = new Date(); d.setDate(d.getDate() - n); return d.toISOString().slice(0, 10); }
+function primerDiaAnioActual(): string { return `${new Date().getFullYear()}-01-01`; }
 
-/** Tablas que mueven cada ámbito (recarga en vivo). */
-const TABLAS_REALTIME: Record<AmbitoTesoreria, string[]> = {
-  movimientos: ['movimientos_caja'],
-  por_pagar: ['ordenes', 'compras_directas', 'servicios_directos'],
-  creditos_cartera: ['ordenes', 'cuentas_por_pagar', 'cuentas_por_cobrar'],
-};
-
-interface Prefs {
-  ambito: AmbitoTesoreria;
-  agrupacion: ModoAgrupacionTesoreria;
-  campos: string[];
-  baseTasa: BaseTasaTesoreria;
-  mostrarUsd: boolean;
-  mostrarBs: boolean;
-  incluirResumen: boolean;
-  kpisSimplificados: boolean;
+function leerPrefs() {
+  let ambito: AmbitoTesoreria = 'movimientos';
+  try { const a = localStorage.getItem(CLAVE_AMBITO) as AmbitoTesoreria; if (a && AMBITOS.some((x) => x.id === a)) ambito = a; } catch { /* default */ }
+  let agrupacion: ModoAgrupacionTesoreria = 'categoria_gasto';
+  try { const a = localStorage.getItem(CLAVE_AGRUPACION) as ModoAgrupacionTesoreria; if (a && MODOS.some((x) => x.id === a)) agrupacion = a; } catch { /* default */ }
+  let campos = CAMPOS_POR_DEFECTO_POR_MODO[agrupacion];
+  try { const c = JSON.parse(localStorage.getItem(CLAVE_CAMPOS) ?? 'null'); if (Array.isArray(c) && c.length) campos = c; } catch { /* default */ }
+  let baseTasa: BaseTasaTesoreria = 'bcv_dia';
+  try { const t = localStorage.getItem(CLAVE_TASA) as BaseTasaTesoreria; if (t === 'bcv_dia' || t === 'historica') baseTasa = t; } catch { /* default */ }
+  const leerBool = (k: string, def: boolean) => { try { const v = localStorage.getItem(k); return v == null ? def : v === 'true'; } catch { return def; } };
+  return { ambito, agrupacion, campos, baseTasa, mostrarUsd: leerBool(CLAVE_USD, true), mostrarBs: leerBool(CLAVE_BS, false), incluirResumen: leerBool(CLAVE_RESUMEN, true), kpisSimplificados: leerBool(CLAVE_KPIS, true) };
 }
 
-function leerPrefs(): Prefs {
-  const def: Prefs = {
-    ambito: 'movimientos', agrupacion: 'categoria_gasto', campos: CAMPOS_POR_DEFECTO_POR_MODO.categoria_gasto,
-    // 04-11-2026 (pedido de la administradora): por defecto solo $ y una tarjeta TOTAL $; sin Bs.
-    baseTasa: 'bcv_dia', mostrarUsd: true, mostrarBs: false, incluirResumen: true, kpisSimplificados: true,
-  };
-  try {
-    const p = JSON.parse(localStorage.getItem(CLAVE_PREFS) ?? 'null') as Partial<Prefs> | null;
-    if (!p || typeof p !== 'object') return def;
-    const claves = new Set(CAMPOS_REPORTE_TESORERIA.map((c) => c.clave));
-    return {
-      ambito: AMBITOS.some((a) => a.id === p.ambito) ? (p.ambito as AmbitoTesoreria) : def.ambito,
-      agrupacion: MODOS.some((m) => m.id === p.agrupacion) ? (p.agrupacion as ModoAgrupacionTesoreria) : def.agrupacion,
-      campos: Array.isArray(p.campos) && p.campos.length ? p.campos.filter((c) => claves.has(c)) : def.campos,
-      baseTasa: p.baseTasa === 'historica' ? 'historica' : 'bcv_dia',
-      mostrarUsd: typeof p.mostrarUsd === 'boolean' ? p.mostrarUsd : true,
-      mostrarBs: typeof p.mostrarBs === 'boolean' ? p.mostrarBs : false,
-      incluirResumen: typeof p.incluirResumen === 'boolean' ? p.incluirResumen : true,
-      kpisSimplificados: p.kpisSimplificados !== false,
-    };
-  } catch {
-    return def;
-  }
-}
-
-function guardarPrefs(p: Prefs): void {
-  try { localStorage.setItem(CLAVE_PREFS, JSON.stringify(p)); } catch { /* no crítico */ }
-}
-
-const fmt2 = (v: number) => v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtUsd = (v: number) => `$ ${fmt2(v)}`;
-const fmtBs = (v: number) => `Bs ${fmt2(v)}`;
+const fmtUsd = (v: number) => `$ ${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const fmtBs = (v: number) => `Bs ${v.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 const fmtFechaCorta = (f: string) => { const [y, m, d] = (f || '').split('-'); return y && m && d ? `${d}/${m}` : f; };
-
-/** Color de acento por tipo de flujo (variables del tema de MGG). */
-const ACENTO_FLUJO: Record<TipoFlujoTesoreria, string> = {
-  egreso: 'var(--primary)',
-  ingreso: 'var(--success)',
-  traslado: 'var(--info)',
-};
 
 interface Props {
   ambitoInicial?: AmbitoTesoreria;
@@ -153,10 +119,9 @@ interface Props {
 
 export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }: Props) {
   const prefs = useMemo(() => leerPrefs(), []);
-  const hoy = hoyVE();
 
-  const [desde, setDesde] = useState<string>(() => rangoInicial?.desde || rangoPresetTesoreria('mes', hoy).desde);
-  const [hasta, setHasta] = useState<string>(() => rangoInicial?.hasta || hoy);
+  const [desde, setDesde] = useState<string>(() => rangoInicial?.desde || primerDiaMesActual());
+  const [hasta, setHasta] = useState<string>(() => rangoInicial?.hasta || hoyVE());
   const [ambito, setAmbito] = useState<AmbitoTesoreria>(ambitoInicial ?? prefs.ambito);
   const [agrupacion, setAgrupacion] = useState<ModoAgrupacionTesoreria>(prefs.agrupacion);
   const [baseTasa, setBaseTasa] = useState<BaseTasaTesoreria>(prefs.baseTasa);
@@ -165,11 +130,14 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
   const [marcados, setMarcados] = useState<string[]>(prefs.campos);
   const [incluirResumen, setIncluirResumen] = useState<boolean>(prefs.incluirResumen);
   const [kpisSimplificados, setKpisSimplificados] = useState<boolean>(prefs.kpisSimplificados);
-  const [incluirCerrados, setIncluirCerrados] = useState(true);
+  // «Por preparar» (solo por_pagar): encendido por defecto; se recuerda por equipo.
+  const [incluirPreparar, setIncluirPreparar] = useState<boolean>(() => {
+    try { const v = localStorage.getItem(CLAVE_PREPARAR); return v === null ? true : v === 'true'; } catch { return true; }
+  });
   const [verWhatsapp, setVerWhatsapp] = useState(false);
   const [orientacion, setOrientacion] = useState<'landscape' | 'portrait'>('landscape');
   const [formatoPresentacion, setFormatoPresentacion] = useState<'fichas' | 'tabla'>('fichas');
-  const [ordenarPor, setOrdenarPor] = useState<OrdenReporteTesoreria>('usd');
+  const [ordenarPor, setOrdenarPor] = useState<'usd' | 'bs' | 'fecha' | 'contraparte'>('usd');
 
   // Filtros (vacío = todos)
   const [cajasSel, setCajasSel] = useState<string[]>([]);
@@ -178,53 +146,55 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
   const [categoriasSel, setCategoriasSel] = useState<string[]>([]);
   const [contrapartesSel, setContrapartesSel] = useState<string[]>([]);
   const [estadosSel, setEstadosSel] = useState<string[]>([]);
-  const [seccionFiltro, setSeccionFiltro] = useState<SeccionFiltro>('categorias');
+  const [seccionFiltro, setSeccionFiltro] = useState<'cajas' | 'monedas' | 'tipos' | 'categorias' | 'contrapartes' | 'estados'>('categorias');
 
   // Datos crudos + contexto de tasas
   const [cargando, setCargando] = useState(true);
   const [ocupado, setOcupado] = useState<'pdf' | 'xlsx' | 'csv' | null>(null);
   const [movs, setMovs] = useState<MovimientoCaja[]>([]);
-  const [ordenesPP, setOrdenesPP] = useState<OrdenPorPagar[]>([]);
-  const [directosPP, setDirectosPP] = useState<DirectoFila[]>([]);
-  const [creditosOc, setCreditosOc] = useState<OrdenPorPagar[]>([]);
+  const [pagoPorOrden, setPagoPorOrden] = useState<Map<string, string>>(new Map());
+  const [datosPP, setDatosPP] = useState<DatosPendientesPorPagar | null>(null);
   const [cxp, setCxp] = useState<CuentaPorPagar[]>([]);
   const [cxc, setCxc] = useState<CuentaPorCobrar[]>([]);
-  const [generadoEn, setGeneradoEn] = useState<string>(() => new Date().toISOString());
   const [ctx, setCtx] = useState<ContextoTasas>({ tasaBcvHoy: 0, tasaFecha: null });
-  const [recarga, setRecarga] = useState(0);
-  // Qué combinación ya está cargada: la recarga en vivo de la misma no vuelve a mostrar «Cargando…».
-  const ultimaCarga = useRef('');
 
-  const claveCarga = `${ambito}|${desde}|${hasta}|${incluirCerrados}`;
-
-  // Carga por ámbito + tasas (la recarga en vivo no vuelve a mostrar «Cargando…»).
+  // Carga por ámbito + tasas
   useEffect(() => {
     let cancelado = false;
     async function cargar() {
-      if (ultimaCarga.current !== claveCarga) setCargando(true);
+      setCargando(true);
       try {
         const tasaHoy = await getTasaHoy().catch(() => ({ usd: null, eur: null, fecha: null }));
         const tasaBcvHoy = Number(tasaHoy?.usd) || 0;
         const tasaFecha = tasaHoy?.fecha ?? null;
 
         if (ambito === 'movimientos') {
-          const [lista, tasasPorFecha] = await Promise.all([
-            listMovimientosReporte({ desde, hasta, incluirCerrados }),
-            tasasUsdDelRango(desde, hasta).catch(() => undefined),
-          ]);
-          if (!cancelado) { setMovs(lista); setCtx({ tasaBcvHoy, tasaFecha, tasasPorFecha }); }
+          const lista = await listLibroMayor({ desde, hasta });
+          let tasasPorFecha: Map<string, number> | undefined;
+          try {
+            const dias = [...new Set(lista.map((m) => diaDe(m.at)).filter(Boolean))];
+            tasasPorFecha = await getTasasUsdDeFechas(dias);
+          } catch { tasasPorFecha = undefined; }
+          // 04/11/2026: el método y los datos de pago de las OC pagadas (columna «Método y Datos de Pago»).
+          const pagos = new Map<string, string>();
+          try {
+            const ids = [...new Set(lista.map((m) => m.ref_orden_id).filter((x): x is string => !!x))];
+            for (let i = 0; i < ids.length; i += 150) {
+              const { data } = await supabase.from('ordenes').select('id, metodo_pago, proveedor_id').in('id', ids.slice(i, i + 150));
+              for (const o of (data ?? []) as Array<{ id: string; metodo_pago: PagoMetodo[] | null; proveedor_id: string | null }>) {
+                const t = lineasDePago(o.metodo_pago, o.proveedor_id, {}).map((l) => l.texto).join(' · ');
+                if (t) pagos.set(o.id, t);
+              }
+            }
+          } catch { /* sin método: la columna sale vacía */ }
+          if (!cancelado) { setMovs(lista); setPagoPorOrden(pagos); setCtx({ tasaBcvHoy, tasaFecha, tasasPorFecha }); }
         } else if (ambito === 'por_pagar') {
-          const [o, d] = await Promise.all([listOrdenesPorPagar(), cargarDirectosPorPagar()]);
-          if (!cancelado) { setOrdenesPP(o); setDirectosPP(d); setGeneradoEn(new Date().toISOString()); setCtx({ tasaBcvHoy, tasaFecha }); }
+          const datos = await cargarPendientesPorPagar();
+          if (!cancelado) { setDatosPP(datos); setCtx({ tasaBcvHoy: Number(datos.tasa) || tasaBcvHoy, tasaFecha: datos.tasaFecha ?? tasaFecha }); }
         } else {
-          const [oc, p, c] = await Promise.all([
-            listOrdenesEnCredito(),
-            listCuentasPorPagarAbiertasReporte(),
-            listCuentasPorCobrarAbiertasReporte(),
-          ]);
-          if (!cancelado) { setCreditosOc(oc); setCxp(p); setCxc(c); setCtx({ tasaBcvHoy, tasaFecha }); }
+          const [p, c] = await Promise.all([listCuentasPorPagar(true), listCuentasPorCobrar(true)]);
+          if (!cancelado) { setCxp(p); setCxc(c); setCtx({ tasaBcvHoy, tasaFecha }); }
         }
-        if (!cancelado) ultimaCarga.current = claveCarga;
       } catch (e) {
         if (!cancelado) toast(mensajeError(e, 'No se pudieron cargar los datos de Tesorería'), 'error');
       } finally {
@@ -233,21 +203,14 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
     }
     void cargar();
     return () => { cancelado = true; };
-  }, [ambito, desde, hasta, incluirCerrados, claveCarga, recarga]);
-
-  // Realtime: cualquier cambio en las tablas del ámbito recarga el reporte en silencio.
-  const recargarEnVivo = useCallback(() => setRecarga((n) => n + 1), []);
-  useRealtime(TABLAS_REALTIME[ambito], recargarEnVivo);
-
-  // La tasa histórica solo aplica a los movimientos (como en GT); el resto va a la BCV del día.
-  const baseEfectiva: BaseTasaTesoreria = ambito === 'movimientos' ? baseTasa : 'bcv_dia';
+  }, [ambito, desde, hasta]);
 
   // Normalización a filas de detalle según el ámbito
   const filasDetalle = useMemo<FilaReporteTesoreria[]>(() => {
-    if (ambito === 'movimientos') return normalizarMovimientosTesoreria(movs, ctx, baseEfectiva);
-    if (ambito === 'por_pagar') return normalizarPendientesPorPagar({ ordenes: ordenesPP, directos: directosPP, tasa: ctx.tasaBcvHoy, generadoEn });
-    return normalizarCreditosCartera(creditosOc, cxp, cxc, ctx, baseEfectiva);
-  }, [ambito, movs, ordenesPP, directosPP, generadoEn, creditosOc, cxp, cxc, ctx, baseEfectiva]);
+    if (ambito === 'movimientos') return normalizarMovimientosTesoreria(movs, ctx, baseTasa, pagoPorOrden);
+    if (ambito === 'por_pagar') return datosPP ? normalizarPendientesPorPagar(datosPP) : [];
+    return normalizarCreditosCartera(cxp, cxc, ctx, baseTasa);
+  }, [ambito, movs, pagoPorOrden, datosPP, cxp, cxc, ctx, baseTasa]);
 
   // Catálogos presentes (para los filtros)
   const catalogos = useMemo(() => {
@@ -257,14 +220,13 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
     const categorias = new Map<string, number>();
     const contrapartes = new Map<string, number>();
     const estados = new Map<string, number>();
-    const sumar = (m: Map<string, number>, k: string) => m.set(k, (m.get(k) || 0) + 1);
     for (const f of filasDetalle) {
-      if (f.caja_origen && f.caja_origen !== '—') sumar(cajas, f.caja_origen);
-      sumar(monedas, f.moneda_original);
+      if (f.caja_origen && f.caja_origen !== '—') cajas.set(f.caja_origen, (cajas.get(f.caja_origen) || 0) + 1);
+      monedas.set(f.moneda_original, (monedas.get(f.moneda_original) || 0) + 1);
       tipos.add(f.tipo_movimiento);
-      sumar(categorias, f.categoria);
-      if (f.contraparte && f.contraparte !== '—') sumar(contrapartes, f.contraparte);
-      if (f.estado) sumar(estados, f.estado);
+      categorias.set(f.categoria, (categorias.get(f.categoria) || 0) + 1);
+      if (f.contraparte && f.contraparte !== '—') contrapartes.set(f.contraparte, (contrapartes.get(f.contraparte) || 0) + 1);
+      if (f.estado) estados.set(f.estado, (estados.get(f.estado) || 0) + 1);
     }
     const aLista = (m: Map<string, number>) => Array.from(m.entries()).map(([nombre, count]) => ({ nombre, count })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
     return {
@@ -278,38 +240,48 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
   }, [filasDetalle]);
 
   const filtradas = useMemo(() => filtrarFilasTesoreria(filasDetalle, {
-    cajasSel, monedasSel, tiposSel, categoriasSel, contrapartesSel, estadosSel,
+    cajasSel: cajasSel.length ? cajasSel : undefined,
+    monedasSel: monedasSel.length ? monedasSel : undefined,
+    tiposSel: tiposSel.length ? tiposSel : undefined,
+    categoriasSel: categoriasSel.length ? categoriasSel : undefined,
+    contrapartesSel: contrapartesSel.length ? contrapartesSel : undefined,
+    estadosSel: estadosSel.length ? estadosSel : undefined,
   }), [filasDetalle, cajasSel, monedasSel, tiposSel, categoriasSel, contrapartesSel, estadosSel]);
 
   const { filas, resumen } = useMemo(() => procesarFilasReporteTesoreria(filtradas, agrupacion, { ordenarPor }), [filtradas, agrupacion, ordenarPor]);
+  // Nombre legible de la dimensión activa (sin el prefijo «Por »), para los avisos de claridad:
+  // así el usuario entiende que el nº de tarjetas/filas = nº de grupos de ESA dimensión.
+  const nombreDimension = (MODOS.find((m) => m.id === agrupacion)?.label ?? '').replace(/^Por\s+/, '');
 
-  // Columnas visibles (respetan los interruptores de moneda)
-  const columnasVisibles = useMemo(() => columnasVisiblesTesoreria(marcados, { mostrarUsd, mostrarBs, ambito }), [marcados, mostrarUsd, mostrarBs, ambito]);
+  // Columnas visibles en pantalla (respetan los toggles de moneda y la aplicabilidad al modo)
+  const marcadosVisibles = useMemo(() => marcados.filter((c) => {
+    if (c === 'monto_usd' && !mostrarUsd) return false;
+    if (c === 'monto_bs' && !mostrarBs) return false;
+    if (agrupacion !== 'detallado' && !esColumnaAplicableModoTesoreria(c, agrupacion)) return false;
+    return true;
+  }), [marcados, mostrarUsd, mostrarBs, agrupacion]);
 
   const cambiarAgrupacion = (modo: ModoAgrupacionTesoreria) => { setAgrupacion(modo); setMarcados(CAMPOS_POR_DEFECTO_POR_MODO[modo]); };
+
   const alternarColumna = (clave: string) => setMarcados((prev) => (prev.includes(clave) ? prev.filter((c) => c !== clave) : [...prev, clave]));
 
   // Interruptores maestros: no se pueden apagar los dos a la vez.
-  const alternarUsd = (v: boolean) => {
-    if (!v && !mostrarBs) { toast('Debe quedar al menos una moneda visible ($ o Bs).', 'warning'); return; }
-    setMostrarUsd(v); if (!v && ordenarPor === 'usd') setOrdenarPor('bs');
-  };
-  const alternarBs = (v: boolean) => {
-    if (!v && !mostrarUsd) { toast('Debe quedar al menos una moneda visible ($ o Bs).', 'warning'); return; }
-    setMostrarBs(v); if (!v && ordenarPor === 'bs') setOrdenarPor('usd');
-  };
+  const alternarUsd = (v: boolean) => { if (!v && !mostrarBs) { toast('Debe quedar al menos una moneda visible (USD o Bs).', 'warning'); return; } setMostrarUsd(v); if (!v && ordenarPor === 'usd') setOrdenarPor('bs'); };
+  const alternarBs = (v: boolean) => { if (!v && !mostrarUsd) { toast('Debe quedar al menos una moneda visible (USD o Bs).', 'warning'); return; } setMostrarBs(v); if (!v && ordenarPor === 'bs') setOrdenarPor('usd'); };
 
-  const cambiarAmbito = (a: AmbitoTesoreria) => {
-    if (a === ambito) return;
-    setAmbito(a);
-    // Los filtros del ámbito anterior no aplican al nuevo.
-    setCajasSel([]); setMonedasSel([]); setTiposSel([]); setCategoriasSel([]); setContrapartesSel([]); setEstadosSel([]);
-  };
+  const toggleFiltro = <T extends string>(setLista: React.Dispatch<React.SetStateAction<T[]>>, item: T) =>
+    setLista((prev) => (prev.includes(item) ? prev.filter((x) => x !== item) : [...prev, item]));
+  const filtroActivo = (lista: string[], item: string) => lista.length === 0 || lista.includes(item);
 
-  const hayFiltros = cajasSel.length + monedasSel.length + tiposSel.length + categoriasSel.length + contrapartesSel.length + estadosSel.length > 0;
+  const hayFiltros = cajasSel.length || monedasSel.length || tiposSel.length || categoriasSel.length || contrapartesSel.length || estadosSel.length;
   const limpiarFiltros = () => { setCajasSel([]); setMonedasSel([]); setTiposSel([]); setCategoriasSel([]); setContrapartesSel([]); setEstadosSel([]); };
 
-  const subtituloFiltros = useMemo(() => {
+  const descargar = async (formato: 'pdf' | 'xlsx' | 'csv') => {
+    if (marcadosVisibles.length === 0) { toast('Marca al menos una columna visible para exportar.', 'warning'); return; }
+    if (filas.length === 0) { toast('No hay datos con los filtros y período seleccionados.', 'warning'); return; }
+    setOcupado(formato);
+    try { localStorage.setItem(CLAVE_CAMPOS, JSON.stringify(marcados)); localStorage.setItem(CLAVE_AMBITO, ambito); localStorage.setItem(CLAVE_AGRUPACION, agrupacion); localStorage.setItem(CLAVE_TASA, baseTasa); localStorage.setItem(CLAVE_USD, String(mostrarUsd)); localStorage.setItem(CLAVE_BS, String(mostrarBs)); localStorage.setItem(CLAVE_RESUMEN, String(incluirResumen)); localStorage.setItem(CLAVE_KPIS, String(kpisSimplificados)); localStorage.setItem(CLAVE_PREPARAR, String(incluirPreparar)); } catch { /* no crítico */ }
+
     const partes: string[] = [];
     if (cajasSel.length) partes.push(cajasSel.length === 1 ? cajasSel[0] : `${cajasSel.length} cajas`);
     if (monedasSel.length) partes.push(monedasSel.join('/'));
@@ -317,17 +289,15 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
     if (categoriasSel.length) partes.push(categoriasSel.length === 1 ? categoriasSel[0] : `${categoriasSel.length} categorías`);
     if (contrapartesSel.length) partes.push(contrapartesSel.length === 1 ? contrapartesSel[0] : `${contrapartesSel.length} proveedores`);
     if (estadosSel.length) partes.push(estadosSel.join('/'));
-    return partes.length ? `Filtros: ${partes.join(' · ')}` : undefined;
-  }, [cajasSel, monedasSel, tiposSel, categoriasSel, contrapartesSel, estadosSel]);
 
-  const descargar = async (formato: 'pdf' | 'xlsx' | 'csv') => {
-    if (columnasVisibles.length === 0) { toast('Marca al menos una columna visible para exportar.', 'warning'); return; }
-    if (filas.length === 0) { toast('No hay datos con los filtros y el período seleccionados.', 'warning'); return; }
-    setOcupado(formato);
-    guardarPrefs({ ambito, agrupacion, campos: marcados, baseTasa, mostrarUsd, mostrarBs, incluirResumen, kpisSimplificados });
     const meta: MetadatosExportacionTesoreria = {
-      desde, hasta, ambito, agrupacion, baseTasa: baseEfectiva, mostrarUsd, mostrarBs, subtituloFiltros,
-      incluirResumen, orientacion, formatoPresentacion, ordenarPor, kpisSimplificados,
+      desde, hasta, ambito, agrupacion, baseTasa,
+      monedaConsolidacion: mostrarUsd ? 'usd' : 'bs',
+      mostrarUsd, mostrarBs,
+      subtituloFiltros: partes.length ? `Filtros: ${partes.join(' · ')}` : undefined,
+      incluirResumen, orientacion, formatoPresentacion, ordenarPor,
+      kpisSimplificados,
+      preparacion: ambito === 'por_pagar' && incluirPreparar ? datosPP?.preparacion : undefined,
     };
     try {
       if (formato === 'pdf') await descargarTesoreriaPdf(filas, resumen, marcados, meta);
@@ -340,55 +310,45 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
     }
   };
 
-  // Aviso de WhatsApp: ítems en su moneda + total consolidado (respeta período, filtros y monedas).
-  const textoWsp = useMemo(
-    () => textoWhatsappTesoreria(filtradas, { ambito, desde, hasta, mostrarUsd, mostrarBs }),
-    [filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs],
-  );
+  const surf2 = { background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.65rem .8rem' } as const;
+  const tituloSec = { fontSize: '.84rem', fontWeight: 600, color: 'var(--text, #f1f5f9)' } as const;
 
-  const montoPrincipal = (f: FilaReporteTesoreria) => (mostrarUsd ? fmtUsd(f.monto_usd) : fmtBs(f.monto_bs));
-  const tituloSeccion = { marginBottom: '.5rem' } as const;
-  const seccion = { padding: '.75rem .9rem' } as const;
-  const sinExportar = !!ocupado || cargando || filas.length === 0 || columnasVisibles.length === 0;
-
-  const renderPills = <T extends string>(
-    items: { nombre: T; etiqueta: string; count?: number }[],
-    lista: T[],
-    setLista: Dispatch<SetStateAction<T[]>>,
+  const renderPills = (
+    items: { nombre: string; count: number }[],
+    lista: string[],
+    setLista: React.Dispatch<React.SetStateAction<string[]>>,
     vacio: string,
   ) => (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.3rem' }}>
         <span className="muted" style={{ fontSize: '.76rem' }}>{lista.length === 0 ? 'Todos incluidos' : `${lista.length} seleccionado(s)`}</span>
-        <button type="button" className="btn btn-sm btn-ghost" onClick={() => setLista([])}>Todos</button>
+        <button type="button" className="btn btn-ghost btn-xs" onClick={() => setLista([])}>Todos</button>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', maxHeight: 150, overflowY: 'auto', padding: '.2rem 0' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', maxHeight: '150px', overflowY: 'auto', padding: '.2rem 0' }}>
         {!items.length && <span className="muted" style={{ fontSize: '.76rem' }}>{vacio}</span>}
         {items.map((it) => {
-          const activo = lista.length === 0 || lista.includes(it.nombre);
+          const activo = filtroActivo(lista, it.nombre);
           return (
-            <button key={it.nombre} type="button" className={`chip${activo ? ' chip-active' : ''}`}
-              onClick={() => setLista((prev) => (prev.includes(it.nombre) ? prev.filter((x) => x !== it.nombre) : [...prev, it.nombre]))}>
-              <input type="checkbox" checked={activo} readOnly tabIndex={-1} style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary)' }} />
-              <span>{it.etiqueta}</span>
-              {it.count != null && <span className="muted" style={{ fontSize: '.72rem' }}>({it.count})</span>}
+            <button key={it.nombre} type="button" onClick={() => toggleFiltro(setLista, it.nombre)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', padding: '.25rem .65rem', borderRadius: '999px', fontSize: '.78rem', border: '1px solid', borderColor: activo ? 'var(--primary, #f97316)' : 'var(--border, #334155)', background: activo ? 'rgba(249, 115, 22, 0.15)' : 'var(--surface-1, #0f172a)', color: activo ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={activo} readOnly style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary, #f97316)' }} />
+              <span>{it.nombre}</span>
+              <span className="muted" style={{ fontSize: '.7rem', opacity: 0.85 }}>({it.count})</span>
             </button>
           );
         })}
       </div>
     </div>
   );
-  const conEtiqueta = (xs: { nombre: string; count: number }[]) => xs.map((x) => ({ ...x, etiqueta: x.nombre }));
 
-  const kpi = (label: string, valor: string, color: string) => (
-    <div className="card" style={{ padding: '.55rem .7rem' }}>
-      <div className="muted" style={{ fontSize: '.7rem', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
-      <strong className="mono" style={{ fontSize: '1.05rem', color, display: 'block' }}>{valor}</strong>
-    </div>
-  );
-
-  const pastilla = (activo: boolean, onClick: () => void, texto: string, key?: string) => (
-    <button key={key} type="button" className={`btn btn-sm ${activo ? 'btn-primary' : 'btn-ghost'}`} onClick={onClick}>{texto}</button>
+  // Aviso puntual para WhatsApp: ítems en su moneda + total consolidado, por ámbito.
+  const textoWsp = useMemo(
+    () => textoWhatsappTesoreria(filtradas, {
+      ambito, desde, hasta, mostrarUsd, mostrarBs,
+      tasaRef: resumen.tasaBcvReferencia,
+      preparacion: ambito === 'por_pagar' && incluirPreparar ? datosPP?.preparacion : undefined,
+    }),
+    [filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs, incluirPreparar, datosPP, resumen.tasaBcvReferencia],
   );
 
   return (
@@ -398,26 +358,26 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
       onClose={onClose}
       footer={
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '.5rem', flexWrap: 'wrap' }}>
-          <span className="muted" style={{ fontSize: '.8rem' }}>{cargando ? 'Cargando datos…' : `${filas.length} fila(s) a exportar`}</span>
-          <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="muted" style={{ fontSize: '.8rem' }}>{cargando ? 'Cargando datos...' : (agrupacion === 'detallado' ? `${filas.length} fila(s) a exportar` : `${filas.length} grupo(s) · agrupado por ${nombreDimension}`)}</div>
+          <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
             <button className="btn btn-ghost" onClick={onClose} disabled={!!ocupado}>Cerrar</button>
-            <button className="btn btn-ghost" onClick={() => void descargar('csv')} disabled={sinExportar}>{ocupado === 'csv' ? 'Generando…' : '📝 CSV'}</button>
-            <button className="btn btn-ghost" onClick={() => void descargar('xlsx')} disabled={sinExportar}>{ocupado === 'xlsx' ? 'Generando…' : '📊 Excel'}</button>
+            <button className="btn btn-ghost" onClick={() => void descargar('csv')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'csv' ? 'Generando...' : '📝 CSV'}</button>
+            <button className="btn btn-ghost" onClick={() => void descargar('xlsx')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'xlsx' ? 'Generando...' : '📊 Excel'}</button>
             <button className="btn btn-ghost" onClick={() => setVerWhatsapp(true)} disabled={!!ocupado || cargando || filas.length === 0}>💬 WhatsApp</button>
-            <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={sinExportar}>{ocupado === 'pdf' ? 'Generando…' : '📄 PDF'}</button>
+            <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}</button>
           </div>
         </div>
       }
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem' }}>
-        {/* WhatsApp: el aviso del ámbito actual, con compartir/copiar (solo con el botón) */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '.85rem' }}>
+        {/* Panel de WhatsApp: aviso puntual del ámbito actual, con el texto y los botones de compartir/copiar */}
         {verWhatsapp && (
-          <div className="card" style={{ ...seccion, borderColor: 'var(--success)' }}>
-            <div className="card-title" style={tituloSeccion}>
-              <span>💬 Enviar por WhatsApp · {AMBITOS.find((a) => a.id === ambito)?.label ?? 'Reporte'}</span>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setVerWhatsapp(false)}>← Volver al reporte</button>
+          <div style={{ ...surf2, borderColor: 'var(--primary, #25D366)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+              <span style={tituloSec}>💬 Enviar por WhatsApp — {AMBITOS.find((a) => a.id === ambito)?.label ?? 'Reporte'}</span>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setVerWhatsapp(false)}>← Volver al reporte</button>
             </div>
-            <p className="hint muted" style={{ fontSize: '.78rem', marginTop: 0 }}>
+            <p className="muted" style={{ fontSize: '.76rem', marginTop: 0, marginBottom: '.5rem' }}>
               Aviso directo: cada ítem con su monto y el total consolidado. Respeta el período, los filtros y las monedas activas.
             </p>
             <CompartirWhatsapp texto={textoWsp} />
@@ -425,258 +385,553 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
         )}
 
         {/* Ámbito */}
-        <div className="card" style={seccion}>
-          <div className="card-title" style={tituloSeccion}>🧭 Ámbito del reporte</div>
-          <div className="view-toggle" role="tablist">
+        <div style={surf2}>
+          <div style={{ ...tituloSec, marginBottom: '.4rem' }}>🧭 Ámbito del reporte</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem' }}>
             {AMBITOS.map((a) => (
-              <button key={a.id} type="button" role="tab" aria-selected={ambito === a.id} className={ambito === a.id ? 'active' : ''} onClick={() => cambiarAmbito(a.id)}>
-                {a.icon} {a.label}
+              <button key={a.id} type="button" className={`btn btn-xs ${ambito === a.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAmbito(a.id)} style={{ display: 'flex', alignItems: 'center', gap: '.25rem' }}>
+                <span>{a.icon}</span><span>{a.label}</span>
               </button>
             ))}
           </div>
-          <div className="muted" style={{ fontSize: '.76rem', marginTop: '.45rem' }}>
-            {ambito === 'movimientos' && 'Ingresos, egresos y traslados del libro de caja en el rango elegido.'}
-            {ambito === 'por_pagar' && 'Órdenes de compra, servicios y compras/servicios directos que esperan pago (no dependen del rango de fechas).'}
-            {ambito === 'creditos_cartera' && 'Cuentas a crédito abiertas: compras a crédito y cuentas por pagar (lo que se debe) y cuentas por cobrar (lo que nos deben).'}
-          </div>
+          {ambito !== 'movimientos' && (
+            <div className="muted" style={{ fontSize: '.73rem', marginTop: '.4rem', fontStyle: 'italic' }}>
+              {ambito === 'por_pagar' ? 'Compromisos vigentes por pagar (no dependen del rango de fechas).' : 'Cuentas a crédito abiertas: lo que se debe (CxP) y lo que nos deben (CxC).'}
+            </div>
+          )}
         </div>
+
+        {/* «Por preparar» (solo Pendientes por pagar): cuánto pagar nativo por moneda y método. */}
+        {ambito === 'por_pagar' && (
+          <div style={surf2}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '.45rem', cursor: 'pointer' }}>
+              <input type="checkbox" checked={incluirPreparar} onChange={(e) => setIncluirPreparar(e.target.checked)} />
+              <span style={tituloSec}>💵 Incluir «Por preparar» (totales por método y moneda)</span>
+            </label>
+            <div className="muted" style={{ fontSize: '.73rem', marginTop: '.3rem' }}>
+              Cuánto hay que pagar en cada moneda, nativo y por separado (divisa y bolívares, sin conversión). Apágalo para el reporte como lista simple.
+            </div>
+            {incluirPreparar && cargando && <div className="muted" style={{ fontSize: '.76rem', marginTop: '.5rem' }}>Cargando…</div>}
+            {incluirPreparar && !cargando && datosPP?.preparacion && (() => {
+              const prepRes = generarBloquesPreparacion(datosPP.preparacion, resumen.tasaBcvReferencia, { mostrarUsd, mostrarBs });
+              if (prepRes.bloques.length === 0 && !prepRes.sinMetodoTexto) {
+                return <div className="muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>Nada por preparar con las opciones elegidas.</div>;
+              }
+              return (
+                <div style={{ marginTop: '.6rem', display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+                  {prepRes.bloques.map((b) => (
+                    <div key={b.clave} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '.45rem .7rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '.6rem', fontWeight: 700, padding: '.05rem .4rem', borderRadius: 999, background: b.esDivisa ? 'rgba(34,197,94,.15)' : 'rgba(255,138,0,.15)', color: b.esDivisa ? '#22c55e' : '#FF8A00' }}>
+                          {b.etiqueta}
+                        </span>
+                        <strong style={{ fontSize: '.95rem', color: b.esDivisa ? '#22c55e' : '#FF8A00' }}>
+                          {b.totalTexto}
+                        </strong>
+                        <span className="muted" style={{ fontSize: '.7rem' }}>· {b.nOrdenes} pago(s)</span>
+                      </div>
+                      {b.metodos.length > 0 && (
+                        <div style={{ marginTop: '.3rem', display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+                          {b.metodos.map((m) => (
+                            <div key={m.label} style={{ fontSize: '.75rem', paddingLeft: '.6rem' }}>
+                              • {m.label}: <strong>{m.montoTexto}</strong> <span className="muted" style={{ fontSize: '.68rem' }}>· {m.nOrdenes} op.</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  {prepRes.sinMetodoTexto && (
+                    <div className="muted" style={{ fontSize: '.74rem' }}>
+                      ⏳ {prepRes.sinMetodoTexto}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        )}
 
         {/* Fechas */}
-        <div className="card" style={seccion}>
-          <div className="card-title" style={tituloSeccion}>
-            <span>📅 Rango de fechas</span>
-            <span style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap', textTransform: 'none', letterSpacing: 0 }}>
-              {PRESETS_RANGO_TESORERIA.map((p) => {
-                const r = rangoPresetTesoreria(p.id, hoy);
-                return pastilla(desde === r.desde && hasta === r.hasta, () => { setDesde(r.desde); setHasta(r.hasta); }, p.label, p.id);
-              })}
-            </span>
+        <div style={surf2}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.5rem' }}>
+            <span style={tituloSec}>📅 Rango de Fechas</span>
+            <div style={{ display: 'flex', gap: '.3rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => { setDesde(hoyVE()); setHasta(hoyVE()); }}>Hoy</button>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => { const a = diasAtras(1); setDesde(a); setHasta(a); }}>Ayer</button>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => { setDesde(primerDiaMesActual()); setHasta(hoyVE()); }}>Este mes</button>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => { setDesde(primerDiaMesAnterior()); setHasta(ultimoDiaMesAnterior()); }}>Mes anterior</button>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => { setDesde(diasAtras(30)); setHasta(hoyVE()); }}>Últimos 30d</button>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => { setDesde(diasAtras(90)); setHasta(hoyVE()); }}>Últimos 90d</button>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => { setDesde(primerDiaAnioActual()); setHasta(hoyVE()); }}>Este año</button>
+            </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
-            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
-              Desde <input className="input" type="date" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} style={{ width: 'auto' }} />
-            </label>
-            <label className="muted" style={{ display: 'inline-flex', alignItems: 'center', gap: '.3rem', fontSize: '.8rem' }}>
-              Hasta <input className="input" type="date" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} style={{ width: 'auto' }} />
-            </label>
-            {ambito === 'movimientos' && (
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.8rem', cursor: 'pointer' }} title="Los meses cerrados quedan archivados en el libro; aquí se pueden incluir en el reporte.">
-                <input type="checkbox" checked={incluirCerrados} onChange={(e) => setIncluirCerrados(e.target.checked)} />
-                <span>Incluir meses cerrados</span>
-              </label>
-            )}
+            <label style={{ fontSize: '.8rem', display: 'flex', alignItems: 'center', gap: '.3rem' }}><span>Desde:</span><input type="date" className="form-control form-control-sm" value={desde} onChange={(e) => setDesde(e.target.value)} /></label>
+            <label style={{ fontSize: '.8rem', display: 'flex', alignItems: 'center', gap: '.3rem' }}><span>Hasta:</span><input type="date" className="form-control form-control-sm" value={hasta} onChange={(e) => setHasta(e.target.value)} /></label>
           </div>
         </div>
 
-        {/* Dimensión + valuación */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '.75rem' }}>
-          <div className="card" style={seccion}>
-            <div className="card-title" style={tituloSeccion}>🎯 Dimensión principal (agrupar por)</div>
+        {/* Dimensión + Valuación */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '.6rem' }}>
+          <div style={surf2}>
+            <div style={{ ...tituloSec, marginBottom: '.4rem' }}>🎯 Dimensión principal (Agrupar por)</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem' }}>
-              {MODOS.map((m) => pastilla(agrupacion === m.id, () => cambiarAgrupacion(m.id), `${m.icon} ${m.label}`, m.id))}
+              {MODOS.map((m) => (
+                <button key={m.id} type="button" className={`btn btn-xs ${agrupacion === m.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => cambiarAgrupacion(m.id)} style={{ display: 'flex', alignItems: 'center', gap: '.25rem' }}>
+                  <span>{m.icon}</span><span>{m.label}</span>
+                </button>
+              ))}
             </div>
+            {!cargando && (
+              <div className="muted" style={{ fontSize: '.72rem', marginTop: '.45rem', lineHeight: 1.35 }}>
+                {agrupacion === 'detallado'
+                  ? `Sin agrupar: cada movimiento es una fila (${filas.length} en total).`
+                  : `Agrupando por ${nombreDimension}: ${filas.length} grupo(s) → el reporte tendrá ${filas.length} tarjeta(s)/fila(s). Cambia la dimensión para ver más o menos.`}
+              </div>
+            )}
           </div>
-          <div className="card" style={seccion}>
-            <div className="card-title" style={tituloSeccion}>💱 Valuación y monedas</div>
+          <div style={surf2}>
+            <div style={{ ...tituloSec, marginBottom: '.4rem' }}>💱 Valuación y monedas</div>
+            <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
+              <button
+                type="button"
+                className={`btn btn-xs ${!mostrarUsd && mostrarBs ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: '999px', padding: '.25rem .75rem', fontWeight: !mostrarUsd && mostrarBs ? 700 : 500 }}
+                onClick={() => { setMostrarBs(true); setMostrarUsd(false); if (ordenarPor === 'usd') setOrdenarPor('bs'); }}
+              >
+                🇻🇪 Solo Bolívares (Bs)
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${mostrarUsd && !mostrarBs ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: '999px', padding: '.25rem .75rem', fontWeight: mostrarUsd && !mostrarBs ? 700 : 500 }}
+                onClick={() => { setMostrarUsd(true); setMostrarBs(false); if (ordenarPor === 'bs') setOrdenarPor('usd'); }}
+              >
+                💵 Solo Dólares ($)
+              </button>
+              <button
+                type="button"
+                className={`btn btn-xs ${mostrarUsd && mostrarBs ? 'btn-primary' : 'btn-ghost'}`}
+                style={{ borderRadius: '999px', padding: '.25rem .75rem', fontWeight: mostrarUsd && mostrarBs ? 700 : 500 }}
+                onClick={() => { setMostrarUsd(true); setMostrarBs(true); }}
+              >
+                💱 Ambos (Bs y $)
+              </button>
+            </div>
             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontSize: '.82rem', fontWeight: 600, color: mostrarUsd ? 'var(--success)' : 'var(--text-muted)' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontSize: '.78rem', fontWeight: 600, color: mostrarUsd ? '#22c55e' : '#94a3b8' }}>
                 <input type="checkbox" checked={mostrarUsd} onChange={(e) => alternarUsd(e.target.checked)} /><span>Mostrar $ USD</span>
               </label>
-              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontSize: '.82rem', fontWeight: 600, color: mostrarBs ? 'var(--primary)' : 'var(--text-muted)' }}>
+              <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', cursor: 'pointer', fontSize: '.78rem', fontWeight: 600, color: mostrarBs ? '#FF8A00' : '#94a3b8' }}>
                 <input type="checkbox" checked={mostrarBs} onChange={(e) => alternarBs(e.target.checked)} /><span>Mostrar Bs</span>
               </label>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', fontSize: '.82rem' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer' }}>
-                <input type="radio" name="baseTasaTesoreria" checked={baseEfectiva === 'bcv_dia'} onChange={() => setBaseTasa('bcv_dia')} />
-                <span><strong>Tasa BCV del día</strong> (última oficial)</span>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: ambito === 'movimientos' ? 'pointer' : 'not-allowed', opacity: ambito === 'movimientos' ? 1 : 0.5 }}>
-                <input type="radio" name="baseTasaTesoreria" checked={baseEfectiva === 'historica'} disabled={ambito !== 'movimientos'} onChange={() => setBaseTasa('historica')} />
-                <span><strong>Tasa histórica</strong> de cada movimiento</span>
-              </label>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '.3rem', fontSize: '.8rem' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer' }}><input type="radio" name="baseTasaT" checked={baseTasa === 'bcv_dia'} onChange={() => setBaseTasa('bcv_dia')} /><span><strong>Tasa BCV del día</strong> (última oficial)</span></label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: ambito === 'movimientos' ? 'pointer' : 'not-allowed', opacity: ambito === 'movimientos' ? 1 : 0.5 }}><input type="radio" name="baseTasaT" checked={baseTasa === 'historica'} disabled={ambito !== 'movimientos'} onChange={() => setBaseTasa('historica')} /><span><strong>Tasa histórica</strong> de cada movimiento</span></label>
             </div>
-            <div className="muted" style={{ fontSize: '.74rem', marginTop: '.35rem' }}>
-              Tasa BCV aplicada: {resumen.tasaBcvReferencia > 0 ? `${fmtBs(resumen.tasaBcvReferencia)}/$` : '—'}
-              {ctx.tasaFecha ? ` · del día ${ctx.tasaFecha.split('-').reverse().join('/')}` : ''}
-            </div>
+            <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Tasa BCV aplicada: {resumen.tasaBcvReferencia > 0 ? fmtBs(resumen.tasaBcvReferencia) + '/$' : '—'}</div>
           </div>
         </div>
 
         {/* Filtros */}
-        <div className="card" style={seccion}>
-          <div className="card-title" style={tituloSeccion}>
-            <span>🔍 Filtros</span>
-            {hayFiltros && <button type="button" className="btn btn-sm btn-ghost" onClick={limpiarFiltros}>↺ Restablecer filtros</button>}
+        <div style={surf2}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.5rem' }}>
+            <span style={tituloSec}>🔍 Filtros</span>
+            {!!hayFiltros && <button type="button" className="btn btn-ghost btn-xs" onClick={limpiarFiltros} style={{ color: 'var(--primary, #f97316)' }}>↺ Restablecer filtros</button>}
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem', marginBottom: '.6rem' }}>
             {([
-              ['categorias', '🔖 Categorías', categoriasSel.length],
-              ['contrapartes', '👤 Proveedores', contrapartesSel.length],
-              ['tipos', '🔀 Tipos', tiposSel.length],
-              ['cajas', '🏦 Cajas', cajasSel.length],
-              ['monedas', '💱 Monedas', monedasSel.length],
-              ['estados', '📂 Estados', estadosSel.length],
-            ] as const).map(([id, label, n]) => (
-              <button key={id} type="button" className={`chip${seccionFiltro === id ? ' chip-active' : ''}`} onClick={() => setSeccionFiltro(id)}>
+              ['categorias', '🏷️ Categorías', categoriasSel],
+              ['contrapartes', '👤 Proveedores', contrapartesSel],
+              ['tipos', '🔀 Tipos', tiposSel],
+              ['cajas', '🏦 Cajas', cajasSel],
+              ['monedas', '💱 Monedas', monedasSel],
+              ['estados', '🗂️ Estados', estadosSel],
+            ] as const).map(([id, label, sel]) => (
+              <button key={id} type="button" className={`btn btn-xs ${seccionFiltro === id ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.25rem .65rem' }} onClick={() => setSeccionFiltro(id)}>
                 {label}
-                {n > 0 && <span className="badge primary" style={{ padding: '0 .4rem' }}>{n}</span>}
+                {sel.length > 0 && <span className="badge" style={{ marginLeft: '.35rem', background: 'var(--primary, #f97316)', color: '#000', fontSize: '.68rem', padding: '1px 5px', borderRadius: '999px', fontWeight: 700 }}>{sel.length}</span>}
               </button>
             ))}
           </div>
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.5rem' }}>
-            {seccionFiltro === 'categorias' && renderPills(conEtiqueta(catalogos.categorias), categoriasSel, setCategoriasSel, 'Sin categorías en el período.')}
-            {seccionFiltro === 'contrapartes' && renderPills(conEtiqueta(catalogos.contrapartes), contrapartesSel, setContrapartesSel, 'Sin proveedores/beneficiarios.')}
-            {seccionFiltro === 'cajas' && renderPills(conEtiqueta(catalogos.cajas), cajasSel, setCajasSel, 'Sin cajas en este ámbito.')}
-            {seccionFiltro === 'monedas' && renderPills(conEtiqueta(catalogos.monedas), monedasSel, setMonedasSel, 'Sin monedas.')}
-            {seccionFiltro === 'estados' && renderPills(conEtiqueta(catalogos.estados), estadosSel, setEstadosSel, 'Sin estados en este ámbito.')}
-            {seccionFiltro === 'tipos' && renderPills(catalogos.tipos.map((t) => ({ nombre: t, etiqueta: ETIQUETA_FLUJO[t] })), tiposSel, setTiposSel, 'Sin tipos.')}
+            {seccionFiltro === 'categorias' && renderPills(catalogos.categorias, categoriasSel, setCategoriasSel, 'Sin categorías en el período.')}
+            {seccionFiltro === 'contrapartes' && renderPills(catalogos.contrapartes, contrapartesSel, setContrapartesSel, 'Sin proveedores/beneficiarios.')}
+            {seccionFiltro === 'cajas' && renderPills(catalogos.cajas, cajasSel, setCajasSel, 'Sin cajas en el período.')}
+            {seccionFiltro === 'monedas' && renderPills(catalogos.monedas, monedasSel, setMonedasSel, 'Sin monedas.')}
+            {seccionFiltro === 'estados' && renderPills(catalogos.estados, estadosSel, setEstadosSel, 'Sin estados.')}
+            {seccionFiltro === 'tipos' && (
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+                  <span className="muted" style={{ fontSize: '.76rem' }}>{tiposSel.length === 0 ? 'Todos incluidos' : `${tiposSel.length} seleccionado(s)`}</span>
+                  <button type="button" className="btn btn-ghost btn-xs" onClick={() => setTiposSel([])}>Todos</button>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem' }}>
+                  {catalogos.tipos.map((t) => {
+                    const activo = filtroActivo(tiposSel, t);
+                    return (
+                      <button key={t} type="button" onClick={() => toggleFiltro(setTiposSel, t)}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', padding: '.25rem .65rem', borderRadius: '999px', fontSize: '.78rem', border: '1px solid', borderColor: activo ? 'var(--primary, #f97316)' : 'var(--border, #334155)', background: activo ? 'rgba(249, 115, 22, 0.15)' : 'var(--surface-1, #0f172a)', color: activo ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)', cursor: 'pointer' }}>
+                        <input type="checkbox" checked={activo} readOnly style={{ pointerEvents: 'none', margin: 0, accentColor: 'var(--primary, #f97316)' }} />
+                        <span>{ETIQUETA_FLUJO[t]}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Columnas */}
-        <div className="card" style={seccion}>
-          <div className="card-title" style={tituloSeccion}>
-            <span>🧩 Columnas a mostrar ({marcados.length} seleccionadas)</span>
-            <span style={{ display: 'flex', gap: '.3rem', textTransform: 'none', letterSpacing: 0 }}>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setMarcados(CAMPOS_POR_DEFECTO_POR_MODO[agrupacion])}>Principales</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setMarcados(CAMPOS_REPORTE_TESORERIA.map((c) => c.clave))}>Todas</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setMarcados([])}>Ninguna</button>
-            </span>
+        {/* Banner explicativo de claridad sobre la dimensión activa */}
+        {agrupacion !== 'detallado' && (
+          <div style={{
+            background: 'rgba(249, 115, 22, 0.08)',
+            border: '1px solid rgba(249, 115, 22, 0.3)',
+            borderRadius: 6,
+            padding: '.45rem .75rem',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '.4rem',
+          }}>
+            <div style={{ fontSize: '.76rem', color: '#fed7aa', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              <span style={{ fontSize: '.9rem' }}>💡</span>
+              <span>
+                Estás agrupando por <strong>{nombreDimension}</strong>: reporte en <strong>resumen consolidado</strong> ({filas.length} grupo/s). Los campos individuales (Hora, Código, Saldo) aplican en la dimensión <strong>Detallado</strong>.
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn btn-xs btn-primary"
+              onClick={() => cambiarAgrupacion('detallado')}
+              style={{ fontSize: '.72rem', padding: '.2rem .55rem', borderRadius: 4 }}
+            >
+              📋 Cambiar a vista Detallada
+            </button>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: '.35rem .5rem', maxHeight: 170, overflowY: 'auto' }}>
+        )}
+
+        {/* Columnas */}
+        <div style={surf2}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.4rem' }}>
+            <span style={tituloSec}>
+              ☑️ Columnas a mostrar ({marcadosVisibles.length} {agrupacion !== 'detallado' ? 'aplicables' : 'seleccionadas'})
+            </span>
+            <div style={{ display: 'flex', gap: '.3rem' }}>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setMarcados(CAMPOS_POR_DEFECTO_POR_MODO[agrupacion])}>Principales</button>
+              <button
+                type="button"
+                className="btn btn-ghost btn-xs"
+                onClick={() => {
+                  const cols = CAMPOS_REPORTE_TESORERIA
+                    .filter((c) => esColumnaAplicableModoTesoreria(c.clave, agrupacion))
+                    .map((c) => c.clave);
+                  setMarcados(cols);
+                }}
+              >
+                {agrupacion === 'detallado' ? 'Todas' : 'Todas aplicables'}
+              </button>
+              <button type="button" className="btn btn-ghost btn-xs" onClick={() => setMarcados([])}>Ninguna</button>
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(185px, 1fr))', gap: '.35rem .5rem', maxHeight: '160px', overflowY: 'auto' }}>
             {CAMPOS_REPORTE_TESORERIA.map((col) => {
+              const aplicable = esColumnaAplicableModoTesoreria(col.clave, agrupacion);
               const marcado = marcados.includes(col.clave);
-              const ocultoPorMoneda = (col.clave === 'monto_usd' && !mostrarUsd) || (col.clave === 'monto_bs' && !mostrarBs);
+              const ocultoPorToggle = (col.clave === 'monto_usd' && !mostrarUsd) || (col.clave === 'monto_bs' && !mostrarBs);
               return (
-                <label key={col.clave} title={ocultoPorMoneda ? 'Oculta por el interruptor de moneda' : col.descripcion}
-                  style={{ display: 'flex', alignItems: 'center', gap: '.35rem', fontSize: '.8rem', cursor: 'pointer', color: marcado ? 'var(--text)' : 'var(--text-muted)', opacity: ocultoPorMoneda ? 0.45 : 1 }}>
-                  <input type="checkbox" checked={marcado} onChange={() => alternarColumna(col.clave)} />
+                <label
+                  key={col.clave}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '.35rem',
+                    fontSize: '.78rem',
+                    cursor: aplicable ? 'pointer' : 'help',
+                    color: marcado && aplicable ? 'var(--text, #f1f5f9)' : 'var(--text-muted, #94a3b8)',
+                    opacity: ocultoPorToggle ? 0.45 : !aplicable ? 0.45 : 1,
+                  }}
+                  title={
+                    !aplicable
+                      ? `La columna "${col.etiqueta}" aplica en la dimensión 'Detallado' (transacción individual)`
+                      : ocultoPorToggle
+                        ? 'Oculta por el interruptor de moneda'
+                        : col.descripcion
+                  }
+                  onClick={(e) => {
+                    if (!aplicable) {
+                      e.preventDefault();
+                    }
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={marcado && aplicable}
+                    disabled={!aplicable}
+                    onChange={() => alternarColumna(col.clave)}
+                  />
                   <span>{col.etiqueta}</span>
+                  {!aplicable && (
+                    <span style={{ fontSize: '.6rem', background: 'rgba(255,255,255,0.08)', color: '#94a3b8', padding: '.05rem .28rem', borderRadius: 3, marginLeft: '.15rem' }}>
+                      {col.clave === 'fecha' ? 'Solo Día/Mes' : 'Solo en Detallado'}
+                    </span>
+                  )}
                 </label>
               );
             })}
           </div>
         </div>
 
-        {/* Presentación / orden / orientación / resumen */}
-        <div className="card" style={{ ...seccion, display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.6rem', borderBottom: '1px solid var(--border)', paddingBottom: '.55rem' }}>
+        {/* Formato / orientación / orden / resumen */}
+        <div style={{ ...surf2, display: 'flex', flexDirection: 'column', gap: '.6rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.6rem', borderBottom: '1px solid var(--border)', paddingBottom: '.5rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-              <span className="muted" style={{ fontSize: '.8rem', fontWeight: 600 }}>🎨 Presentación:</span>
-              <div className="view-toggle" role="tablist">
-                <button type="button" className={formatoPresentacion === 'fichas' ? 'active' : ''} onClick={() => setFormatoPresentacion('fichas')}>📂 Fichas ejecutivas</button>
-                <button type="button" className={formatoPresentacion === 'tabla' ? 'active' : ''} onClick={() => setFormatoPresentacion('tabla')}>📊 Tabla</button>
-              </div>
+              <span style={{ ...tituloSec, fontSize: '.82rem' }}>🎨 Presentación:</span>
+              <button type="button" className={`btn btn-xs ${formatoPresentacion === 'fichas' ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.25rem .75rem' }} onClick={() => setFormatoPresentacion('fichas')}>🗂️ Fichas Ejecutivas</button>
+              <button type="button" className={`btn btn-xs ${formatoPresentacion === 'tabla' ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.25rem .75rem' }} onClick={() => setFormatoPresentacion('tabla')}>📊 Tabla Tabular</button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flexWrap: 'wrap' }}>
-              <span className="muted" style={{ fontSize: '.8rem', fontWeight: 600 }}>🎯 Ordenar por:</span>
-              {mostrarUsd && pastilla(ordenarPor === 'usd', () => setOrdenarPor('usd'), '💵 Monto ($)', 'usd')}
-              {mostrarBs && pastilla(ordenarPor === 'bs', () => setOrdenarPor('bs'), '🧾 Monto (Bs)', 'bs')}
-              {pastilla(ordenarPor === 'fecha', () => setOrdenarPor('fecha'), '📆 Fecha', 'fecha')}
-              {pastilla(ordenarPor === 'contraparte', () => setOrdenarPor('contraparte'), '👤 Proveedor', 'contraparte')}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <span style={{ ...tituloSec, fontSize: '.82rem' }}>🎯 Ordenar por:</span>
+              {mostrarUsd && <button type="button" className={`btn btn-xs ${ordenarPor === 'usd' ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.2rem .6rem' }} onClick={() => setOrdenarPor('usd')}>💵 Monto ($)</button>}
+              {mostrarBs && <button type="button" className={`btn btn-xs ${ordenarPor === 'bs' ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.2rem .6rem' }} onClick={() => setOrdenarPor('bs')}>🧾 Monto (Bs)</button>}
+              <button type="button" className={`btn btn-xs ${ordenarPor === 'fecha' ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.2rem .6rem' }} onClick={() => setOrdenarPor('fecha')}>📆 Fecha</button>
+              <button type="button" className={`btn btn-xs ${ordenarPor === 'contraparte' ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.2rem .6rem' }} onClick={() => setOrdenarPor('contraparte')}>👤 Proveedor</button>
             </div>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.6rem' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-              <span className="muted" style={{ fontSize: '.8rem', fontWeight: 600 }}>📐 Orientación del PDF:</span>
-              <div className="view-toggle" role="tablist">
-                <button type="button" className={orientacion === 'landscape' ? 'active' : ''} onClick={() => setOrientacion('landscape')}>Horizontal</button>
-                <button type="button" className={orientacion === 'portrait' ? 'active' : ''} onClick={() => setOrientacion('portrait')}>Vertical</button>
-              </div>
+              <span style={{ ...tituloSec, fontSize: '.82rem' }}>📐 Orientación:</span>
+              <button type="button" className={`btn btn-xs ${orientacion === 'landscape' ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.25rem .75rem' }} onClick={() => setOrientacion('landscape')}>Horizontal</button>
+              <button type="button" className={`btn btn-xs ${orientacion === 'portrait' ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.25rem .75rem' }} onClick={() => setOrientacion('portrait')}>Vertical</button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', fontSize: '.82rem' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.8rem' }}>
                 <input type="checkbox" checked={kpisSimplificados} onChange={(e) => setKpisSimplificados(e.target.checked)} />
                 <span><strong>KPIs en vista simple</strong> (Total $ / Total Bs)</span>
               </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.8rem' }}>
                 <input type="checkbox" checked={incluirResumen} onChange={(e) => setIncluirResumen(e.target.checked)} />
-                <span><strong>Incluir resumen (KPIs)</strong> en la cabecera</span>
+                <span><strong>Incluir resumen (KPIs)</strong> en cabecera</span>
               </label>
             </div>
           </div>
         </div>
 
         {/* KPIs */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '.5rem' }}>
-          {kpi('Filas en reporte', String(filas.length), 'var(--warning)')}
-          {kpisSimplificados ? (
-            <>
-              {mostrarUsd && kpi('Total $', fmtUsd(resumen.totalEgresosUsd + resumen.totalIngresosUsd), 'var(--success)')}
-              {mostrarBs && kpi('Total Bs', fmtBs(resumen.totalEgresosBs + resumen.totalIngresosBs), 'var(--primary)')}
-            </>
-          ) : (
-            <>
-              {mostrarUsd && kpi('Egresos ($)', fmtUsd(resumen.totalEgresosUsd), 'var(--primary)')}
-              {mostrarUsd && kpi('Ingresos ($)', fmtUsd(resumen.totalIngresosUsd), 'var(--success)')}
-              {mostrarBs && kpi('Egresos (Bs)', fmtBs(resumen.totalEgresosBs), 'var(--primary)')}
-              {kpi('Saldo neto', mostrarUsd ? fmtUsd(resumen.saldoNetoUsd) : fmtBs(resumen.saldoNetoBs), (mostrarUsd ? resumen.saldoNetoUsd : resumen.saldoNetoBs) >= 0 ? 'var(--success)' : 'var(--danger)')}
-            </>
-          )}
+        {/* Barra de Totales Ejecutivos con máximo protagonismo */}
+        <div style={{
+          background: 'linear-gradient(135deg, var(--surface-1, #0f172a) 0%, rgba(30, 41, 59, 0.75) 100%)',
+          border: '1.5px solid rgba(255, 138, 0, 0.35)',
+          borderRadius: '8px',
+          padding: '.65rem 1rem',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '.75rem',
+          boxShadow: '0 3px 10px rgba(0,0,0,0.2)',
+        }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '.2rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.45rem' }}>
+              <span style={{
+                fontSize: '.65rem',
+                fontWeight: 800,
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+                color: '#ff8a00',
+                background: 'rgba(255, 138, 0, 0.15)',
+                padding: '.15rem .45rem',
+                borderRadius: '4px',
+              }}>
+                TOTAL CONSOLIDADO DEL REPORTE
+              </span>
+              <span className="badge" style={{ fontSize: '.7rem', background: 'rgba(255,255,255,0.08)', color: '#cbd5e1' }}>
+                {filas.length} {filas.length === 1 ? 'grupo / fila' : 'grupos / filas'}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '1.2rem', flexWrap: 'wrap', marginTop: '.2rem' }}>
+              {mostrarUsd && (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '.4rem' }}>
+                  <span style={{ fontSize: '.85rem', fontWeight: 700, color: '#22c55e' }}>USD</span>
+                  <span style={{ fontSize: '1.75rem', fontWeight: 900, color: '#22c55e', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+                    {fmtUsd(resumen.totalEgresosUsd + resumen.totalIngresosUsd)}
+                  </span>
+                </div>
+              )}
+              {mostrarBs && (
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: '.4rem' }}>
+                  <span style={{ fontSize: '.85rem', fontWeight: 700, color: '#ff8a00' }}>Bs</span>
+                  <span style={{ fontSize: '1.75rem', fontWeight: 900, color: '#ff8a00', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+                    {fmtBs(resumen.totalEgresosBs + resumen.totalIngresosBs)}
+                  </span>
+                </div>
+              )}
+              {!mostrarUsd && !mostrarBs && (
+                <span className="muted" style={{ fontSize: '.82rem' }}>Activa al menos una moneda arriba para visualizar los totales</span>
+              )}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+            <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', padding: '.3rem .6rem', textAlign: 'right' }}>
+              <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>OPERACIONES</div>
+              <div style={{ fontSize: '.9rem', fontWeight: 800, color: '#f8fafc' }}>{resumen.totalOperaciones} ops</div>
+            </div>
+            {resumen.tasaBcvReferencia > 0 && (
+              <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', padding: '.3rem .6rem', textAlign: 'right' }}>
+                <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>TASA BCV</div>
+                <div style={{ fontSize: '.9rem', fontWeight: 800, color: '#38bdf8' }}>{fmtBs(resumen.tasaBcvReferencia)}</div>
+              </div>
+            )}
+            {!kpisSimplificados && (
+              <div style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: '6px', padding: '.3rem .6rem', textAlign: 'right' }}>
+                <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>SALDO NETO</div>
+                <div style={{ fontSize: '.9rem', fontWeight: 800, color: (mostrarUsd ? resumen.saldoNetoUsd : resumen.saldoNetoBs) >= 0 ? '#22c55e' : '#ef4444' }}>
+                  {mostrarUsd ? fmtUsd(resumen.saldoNetoUsd) : fmtBs(resumen.saldoNetoBs)}
+                </div>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Vista previa */}
-        <div className="card" style={seccion}>
-          <div className="card-title" style={tituloSeccion}>
-            <span style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-              🔎 Vista previa <span className="badge">{filas.length} {filas.length === 1 ? 'fila' : 'filas'}</span>
+        <div style={surf2}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+            <span style={{ ...tituloSec, display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+              👁️ Vista previa
+              <span className="badge" style={{ fontSize: '.7rem', background: 'rgba(255,255,255,0.08)', color: '#cbd5e1' }}>{filas.length} {filas.length === 1 ? 'fila' : 'filas'}</span>
             </span>
-            <span className="muted" style={{ fontSize: '.74rem', textTransform: 'none', letterSpacing: 0, fontWeight: 500 }}>{formatoPresentacion === 'fichas' ? 'Fichas ejecutivas' : 'Tabla'}</span>
+            <span className="muted" style={{ fontSize: '.75rem' }}>{formatoPresentacion === 'fichas' ? 'Tarjetas ejecutivas' : 'Cuadrícula tabular'}</span>
           </div>
 
           {cargando ? (
-            <div className="muted" style={{ textAlign: 'center', padding: '1.2rem', fontSize: '.85rem' }}>Cargando datos de Tesorería…</div>
+            <div style={{ textAlign: 'center', padding: '1.2rem', color: '#94a3b8', fontSize: '.82rem' }}>Cargando datos de Tesorería...</div>
           ) : filas.length === 0 ? (
-            <div className="muted" style={{ textAlign: 'center', padding: '1.2rem', fontSize: '.85rem' }}>No hay datos para el ámbito, el período o los filtros seleccionados.</div>
+            <div style={{ textAlign: 'center', padding: '1.2rem', color: '#94a3b8', fontSize: '.82rem' }}>No hay datos para el ámbito, período o filtros seleccionados.</div>
           ) : formatoPresentacion === 'fichas' ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '.55rem', maxHeight: 300, overflowY: 'auto', paddingRight: '.2rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.55rem', maxHeight: '260px', overflowY: 'auto', paddingRight: '.2rem' }}>
               {filas.map((f) => {
-                const acento = ACENTO_FLUJO[f.tipo_movimiento];
-                const metricas = obtenerMetricasFichaTesoreria(f, marcados, { mostrarUsd, mostrarBs });
-                const titulo = f.contraparte && f.contraparte !== '—' ? f.contraparte : (f.categoria || f.concepto || 'Sin clasificar');
-                const sub = [f.codigo || null, f.categoria !== titulo ? f.categoria : null, f.caja_origen && f.caja_origen !== '—' ? f.caja_origen : null, f.fecha ? fmtFechaCorta(f.fecha) : null].filter(Boolean).join(' · ');
+                const acento = f.tipo_movimiento === 'ingreso' ? '#10b981' : f.tipo_movimiento === 'traslado' ? '#38bdf8' : '#FF8A00';
+                const metricas = obtenerMetricasFichaTesoreria(f, marcadosVisibles, { mostrarUsd, mostrarBs });
+                const cab = resolverCabeceraTarjetaTesoreria(f, agrupacion, fmtFechaCorta, marcadosVisibles);
+                const tienePct = marcadosVisibles.includes('pct_total') && f.pct_del_total != null;
+                const tieneTipo = marcadosVisibles.includes('tipo_mov');
+                const mostrarBadge = tienePct || tieneTipo;
                 return (
-                  <div key={f.id} style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderLeft: `4px solid ${acento}`, borderRadius: 'var(--r-sm)', padding: '.55rem .7rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
+                  <div key={f.id} style={{ background: 'var(--surface-1, #0f172a)', border: '1px solid var(--border, #334155)', borderLeft: `4px solid ${acento}`, borderRadius: '6px', padding: '.55rem .7rem', display: 'flex', flexDirection: 'column', gap: '.35rem' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '.5rem' }}>
                       <div style={{ minWidth: 0, flex: 1 }}>
-                        <div style={{ fontWeight: 700, fontSize: '.86rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={titulo}>{titulo}</div>
-                        <div className="muted" style={{ fontSize: '.72rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={sub}>{sub}</div>
-                      </div>
-                      <div style={{ flexShrink: 0, textAlign: 'right', background: 'var(--surface-2)', border: '1px solid var(--border-strong)', borderRadius: 'var(--r-sm)', padding: '.2rem .5rem', lineHeight: 1.2 }}>
-                        <div className="mono" style={{ fontSize: '.8rem', fontWeight: 700, color: acento }}>{f.pct_del_total != null ? `${f.pct_del_total.toFixed(1)}%` : montoPrincipal(f)}</div>
-                        <div className="muted" style={{ fontSize: '.62rem' }}>{ETIQUETA_FLUJO[f.tipo_movimiento]}</div>
-                      </div>
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${metricas.length}, 1fr)`, gap: '.25rem', background: 'var(--bg-1)', padding: '.35rem', borderRadius: 'var(--r-sm)' }}>
-                      {metricas.map((m) => (
-                        <div key={m.clave} style={{ minWidth: 0 }}>
-                          <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>{m.etiqueta}</div>
-                          <div className="mono" style={{ fontSize: '.8rem', fontWeight: 700, color: m.colorCss, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.sub ? `${m.valor} · ${m.sub}` : m.valor}>{m.valor}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', marginBottom: '.15rem' }}>
+                          <span style={{
+                            fontSize: '.62rem',
+                            fontWeight: 700,
+                            textTransform: 'uppercase',
+                            letterSpacing: '0.04em',
+                            color: acento,
+                            background: 'rgba(255, 255, 255, 0.06)',
+                            border: `1px solid ${acento}44`,
+                            padding: '.08rem .32rem',
+                            borderRadius: '3px',
+                            display: 'inline-block',
+                            flexShrink: 0,
+                          }}>
+                            {cab.rotulo}
+                          </span>
+                          <span style={{
+                            fontWeight: 700,
+                            fontSize: '.88rem',
+                            color: '#f8fafc',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }} title={cab.titulo}>
+                            {cab.titulo}
+                          </span>
                         </div>
-                      ))}
+                        {cab.subtitulo ? (
+                          <div className="muted" style={{ fontSize: '.72rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={cab.subtitulo}>
+                            {cab.subtitulo}
+                          </div>
+                        ) : null}
+                      </div>
+                      {mostrarBadge && (
+                        <div style={{ flexShrink: 0, textAlign: 'right', background: 'rgba(255,255,255,0.05)', border: `1px solid ${acento}55`, borderRadius: '6px', padding: '.25rem .55rem', lineHeight: 1.2 }}>
+                          {tienePct && <div style={{ fontSize: '.82rem', fontWeight: 700, color: acento }}>{`${f.pct_del_total!.toFixed(1)}%`}</div>}
+                          {tieneTipo && <div style={{ fontSize: '.62rem', color: '#94a3b8' }}>{ETIQUETA_FLUJO[f.tipo_movimiento]}</div>}
+                        </div>
+                      )}
                     </div>
+                    {(() => {
+                      const metPago = metricas.find((m) => m.clave === 'metodo_pago');
+                      const metricasGrid = metricas.filter((m) => m.clave !== 'metodo_pago');
+                      return (
+                        <>
+                          {metricasGrid.length > 0 && (
+                            <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit, minmax(105px, 1fr))`, gap: '.35rem', marginTop: '.2rem', background: 'rgba(0,0,0,0.2)', padding: '.35rem .5rem', borderRadius: '4px' }}>
+                              {metricasGrid.map((m) => (
+                                <div key={m.clave}>
+                                  <div className="muted" style={{ fontSize: '.6rem', fontWeight: 600 }}>{m.etiqueta}</div>
+                                  <div style={{ fontSize: '.8rem', fontWeight: 700, color: m.colorHex, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={m.valor}>{m.valor}</div>
+                                  {m.sub && <div style={{ fontSize: '.58rem', color: '#94a3b8', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.sub}</div>}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          {metPago && (
+                            <div style={{ marginTop: '.25rem', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)', borderRadius: '4px', padding: '.35rem .55rem', borderLeft: '3px solid #10b981' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                                <span className="muted" style={{ fontSize: '.62rem', fontWeight: 700, textTransform: 'uppercase' }}>Método y Datos de Pago:</span>
+                                <span style={{ fontSize: '.78rem', fontWeight: 700, color: '#10b981' }}>{metPago.valor}</span>
+                              </div>
+                              {metPago.sub && (
+                                <div style={{ fontSize: '.68rem', color: '#cbd5e1', marginTop: '.15rem', wordBreak: 'break-word', lineHeight: 1.25 }}>
+                                  {metPago.sub}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      );
+                    })()}
                   </div>
                 );
               })}
             </div>
-          ) : columnasVisibles.length === 0 ? (
-            <div className="muted" style={{ textAlign: 'center', padding: '1.2rem', fontSize: '.85rem' }}>Marca al menos una columna para ver la tabla.</div>
           ) : (
-            <div className="table-wrap" style={{ maxHeight: 300, overflow: 'auto' }}>
-              <table className="table" style={{ fontSize: '.8rem' }}>
+            <div style={{ maxHeight: '260px', overflow: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.76rem' }}>
                 <thead>
-                  <tr>{columnasVisibles.map((c) => <th key={c.clave} style={{ textAlign: c.alineacion, whiteSpace: 'nowrap' }}>{c.etiqueta}</th>)}</tr>
+                  <tr style={{ background: 'var(--surface-1, #0f172a)', borderBottom: '1px solid var(--border)' }}>
+                    {marcadosVisibles.map((cKey) => {
+                      const cDef = CAMPOS_REPORTE_TESORERIA.find((c) => c.clave === cKey);
+                      return <th key={cKey} style={{ padding: '.4rem .55rem', textAlign: cDef?.alineacion || 'left', color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap' }}>{cDef?.etiqueta || cKey}</th>;
+                    })}
+                  </tr>
                 </thead>
                 <tbody>
                   {filas.map((f, idx) => (
-                    <tr key={f.id || idx}>
-                      {columnasVisibles.map((c) => (
-                        <td key={c.clave} className={c.formato && c.formato !== 'texto' ? 'mono' : undefined}
-                          style={{ textAlign: c.alineacion, whiteSpace: 'nowrap', color: c.clave === 'monto_usd' ? 'var(--success)' : c.clave === 'monto_bs' ? 'var(--primary)' : undefined }}>
-                          {textoCeldaTesoreria(f, c)}
-                        </td>
-                      ))}
+                    <tr key={f.id || idx} style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: idx % 2 === 1 ? 'rgba(255,255,255,0.02)' : 'transparent' }}>
+                      {marcadosVisibles.map((cKey) => {
+                        const cDef = CAMPOS_REPORTE_TESORERIA.find((c) => c.clave === cKey);
+                        let txt = '—';
+                        if (cKey === 'monto_usd') txt = fmtUsd(f.monto_usd);
+                        else if (cKey === 'monto_bs') txt = fmtBs(f.monto_bs);
+                        else if (cKey === 'monto_original') txt = f.monto_original.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                        else if (cKey === 'operaciones') txt = `${f.total_operaciones ?? 1} ops`;
+                        else if (cKey === 'tasa_bcv') txt = f.tasa_bcv_aplicada ? f.tasa_bcv_aplicada.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+                        else if (cKey === 'pct_total') txt = f.pct_del_total != null ? `${f.pct_del_total.toFixed(1)}%` : '—';
+                        else if (cKey === 'saldo_caja') txt = f.saldo_caja_momento != null ? f.saldo_caja_momento.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+                        else if (cKey === 'tipo_mov') txt = ETIQUETA_FLUJO[f.tipo_movimiento];
+                        else if (cKey === 'caja') txt = f.caja_origen || '—';
+                        else if (cKey === 'fecha') txt = f.fecha || '—';
+                        else { const raw = (f as unknown as Record<string, unknown>)[cKey]; txt = raw != null && raw !== '' ? String(raw) : '—'; }
+                        return <td key={cKey} style={{ padding: '.35rem .55rem', textAlign: cDef?.alineacion || 'left', whiteSpace: 'nowrap', color: cKey === 'monto_usd' ? '#22c55e' : cKey === 'monto_bs' ? '#FF8A00' : '#f1f5f9' }}>{txt}</td>;
+                      })}
                     </tr>
                   ))}
                 </tbody>

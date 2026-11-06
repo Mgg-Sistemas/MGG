@@ -61,3 +61,21 @@ export async function guardarDatosPago(
   );
   if (error) throw error;
 }
+
+/** Todos los datos de pago guardados de una lista de proveedores (por método), en una sola consulta. */
+export async function listDatosPagoDeProveedores(
+  proveedorIds: Array<string | null | undefined>,
+): Promise<Record<string, Record<string, DatosPago>>> {
+  const ids = Array.from(new Set(proveedorIds.filter(Boolean) as string[]));
+  if (!ids.length) return {};
+  const { data, error } = await supabase
+    .from('proveedor_datos_pago')
+    .select('proveedor_id, metodo, datos')
+    .in('proveedor_id', ids);
+  if (error) throw error;
+  const out: Record<string, Record<string, DatosPago>> = {};
+  for (const r of (data ?? []) as Array<{ proveedor_id: string; metodo: string; datos: DatosPago }>) {
+    (out[r.proveedor_id] ??= {})[r.metodo] = r.datos ?? {};
+  }
+  return out;
+}

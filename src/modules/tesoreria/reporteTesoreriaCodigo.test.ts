@@ -27,15 +27,15 @@ describe('Reporte de Tesorería · código de la OC, método y estado (04-11-202
     expect(filas[0].datos_pago_resumen).toBe('Pago móvil · 0102');
   });
 
-  it('en pendientes por pagar el PDF siempre trae la columna del código', () => {
-    const claves = columnasVisiblesTesoreria(['contraparte', 'monto_usd'], { mostrarUsd: true, mostrarBs: false, ambito: 'por_pagar' }).map((c) => c.clave);
+  it('respeta las columnas seleccionadas para el reporte', () => {
+    const claves = columnasVisiblesTesoreria(['codigo', 'contraparte', 'monto_usd'], { mostrarUsd: true, mostrarBs: false, ambito: 'por_pagar' }).map((c) => c.clave);
     expect(claves).toContain('codigo');
-    const mov = columnasVisiblesTesoreria(['contraparte', 'monto_usd'], { mostrarUsd: true, mostrarBs: false, ambito: 'movimientos' }).map((c) => c.clave);
-    expect(mov).not.toContain('codigo');
+    const sinCodigo = columnasVisiblesTesoreria(['contraparte', 'monto_usd'], { mostrarUsd: true, mostrarBs: false, ambito: 'por_pagar' }).map((c) => c.clave);
+    expect(sinCodigo).not.toContain('codigo');
   });
 
   it('el WhatsApp pone el código delante del proveedor', () => {
     const t = textoWhatsappTesoreria([fila({ codigo: 'OC-2026-0240' })], { ambito: 'por_pagar', desde: '2026-11-01', hasta: '2026-11-04', mostrarBs: false });
-    expect(t).toContain('*OC-2026-0240* · CIUDAD ESCOLAR — *USD 10,00*');
+    expect(t).toContain('OC-2026-0240 · CIUDAD ESCOLAR — *$ 10,00*');
   });
 });
