@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  armarCierre, enRango, fechaEntradaAprobacion, fechaEntradaPago, fechaVE, limitesISO, rangoCierre, sumarDias, ITEMS_CIERRE,
+  armarCierre, detallePorPagar, enRango, fechaEntradaAprobacion, fechaEntradaPago, fechaVE, limitesISO, rangoCierre, sumarDias, ITEMS_CIERRE,
   type FiltroCierre,
 } from './cierreDiario';
 import { mensajeCierreDiario } from './cierreDiarioMensaje';
@@ -302,5 +302,77 @@ describe('actividad por analista · cotizaciones y órdenes finalizadas', () => 
       '',
       '🏢 *MINERAL GROUP GUAYANA C.A.*',
     ].join('\n'));
+  });
+});
+
+describe('detalle de las OC pendientes por pagar', () => {
+  const hoy = rangoCierre(filtro(), HOY);
+  const hoyIso = '2026-10-21T15:00:00.000Z';
+  const ayerIso = '2026-10-20T15:00:00.000Z';
+  const ocs = [
+    { codigo: 'OC-3', proveedor: 'ZETA SUMINISTROS', monto: 100.5, moneda: 'USD', entrada: hoyIso },
+    { codigo: 'OC-1', proveedor: 'ALFA REPUESTOS', monto: 250, moneda: null, entrada: hoyIso },
+    { codigo: 'OC-2', proveedor: 'ALFA REPUESTOS', monto: 49.5, moneda: 'USD', entrada: hoyIso },
+    { codigo: 'OC-0', proveedor: 'VIEJA C.A.', monto: 999, moneda: 'USD', entrada: ayerIso },
+  ];
+
+  it('lista solo las del período, con proveedor y monto en $, ordenadas por proveedor y código, y suma el total', () => {
+    const d = detallePorPagar(ocs, hoy, 40);
+    expect(d.filas.map((f) => [f.codigo, f.proveedor, f.montoUsd])).toEqual([
+      ['OC-1', 'ALFA REPUESTOS', 250],
+      ['OC-2', 'ALFA REPUESTOS', 49.5],
+      ['OC-3', 'ZETA SUMINISTROS', 100.5],
+    ]);
+    expect(d.totalUsd).toBe(400);
+    expect(d.enBs).toBe(0);
+    expect(d.sinTasa).toBe(0);
+  });
+
+  it('una OC en Bs se pasa a $ con la tasa BCV; sin tasa queda marcada y NO suma al total', () => {
+    const enBs = [{ codigo: 'OC-9', proveedor: 'PROVEEDOR BS', monto: 4000, moneda: 'Bs', entrada: hoyIso }, ...ocs];
+    const con = detallePorPagar(enBs, hoy, 40);
+    expect(con.filas.find((f) => f.codigo === 'OC-9')).toMatchObject({ montoUsd: 100, montoOriginal: 4000, moneda: 'Bs' });
+    expect(con.totalUsd).toBe(500);
+    expect(con.enBs).toBe(1);
+    const sin = detallePorPagar(enBs, hoy, 0);
+    expect(sin.filas.find((f) => f.codigo === 'OC-9')?.montoUsd).toBeNull();
+    expect(sin.totalUsd).toBe(400);
+    expect(sin.sinTasa).toBe(1);
+  });
+
+  it('armarCierre trae el detalle y su cantidad coincide con «Total órdenes por pagar»', () => {
+    const r = armarCierre({ pedidos: 0, pagadas: 0, pendientesAprobar: [], porPagar: ocs.map((o) => o.entrada), porPagarOc: ocs, tasa: 40 }, hoy);
+    expect(r.porPagarDetalle.filas).toHaveLength(3);
+    expect(r.items.find((i) => i.key === 'por_pagar')?.cantidad).toBe(r.porPagarDetalle.filas.length);
+    expect(r.porPagarDetalle.totalUsd).toBe(400);
+  });
+
+  it('sin órdenes por pagar el detalle va vacío y en cero', () => {
+    const r = armarCierre({ pedidos: 0, pagadas: 0, pendientesAprobar: [], porPagar: [] }, hoy);
+    expect(r.porPagarDetalle).toEqual({ filas: [], totalUsd: 0, tasa: 0, enBs: 0, sinTasa: 0 });
+  });
+
+  it('WhatsApp: cada OC con su proveedor y monto, el total, y sin el selector U+FE0F', () => {
+    const r = armarCierre({ pedidos: 0, pagadas: 0, pendientesAprobar: [], porPagar: ocs.map((o) => o.entrada), porPagarOc: ocs, tasa: 40 }, hoy);
+    const msg = mensajeCierreDiario(r, '2026-10-21T12:45:00.000Z');
+    expect(msg).toContain('💵 *DETALLE · ÓRDENES POR PAGAR (3)*');
+    expect(msg).toContain('1. OC-1 · ALFA REPUESTOS — $ 250,00');
+    expect(msg).toContain('3. OC-3 · ZETA SUMINISTROS — $ 100,50');
+    expect(msg).toContain('💰 *TOTAL PENDIENTE POR PAGAR:* $ 400,00');
+    expect(msg).not.toContain('VIEJA C.A.');
+    expect(/️|‍/.test(msg)).toBe(false);
+  });
+
+  it('Excel: el detalle y el total van como NÚMERO', async () => {
+    const { exportarCierreDiarioExcel } = await import('./cierreDiarioExcel');
+    const r = armarCierre({ pedidos: 0, pagadas: 0, pendientesAprobar: [], porPagar: ocs.map((o) => o.entrada), porPagarOc: ocs, tasa: 40 }, hoy);
+    await exportarCierreDiarioExcel(r, '2026-10-21T12:45:00.000Z');
+    const celdas = Object.entries(capturado.wb!.Sheets['Cierre diario']).filter(([k]) => !k.startsWith('!')).map(([, c]) => c.v);
+    expect(celdas).toContain('DETALLE · ÓRDENES POR PAGAR (3)');
+    expect(celdas).toContain('ALFA REPUESTOS');
+    expect(celdas).toContain('OC-3');
+    expect(celdas).toContain(100.5);
+    expect(celdas).toContain('TOTAL PENDIENTE POR PAGAR');
+    expect(celdas).toContain(400);
   });
 });

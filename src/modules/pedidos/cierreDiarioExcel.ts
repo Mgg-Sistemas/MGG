@@ -23,6 +23,30 @@ async function construirLibro(r: ResumenCierre, impresoIso: string): Promise<{ X
     ...r.items.map((i) => [`${i.emoji} ${i.titulo}`, i.cantidad]),
   ];
 
+  // Detalle de las OC pendientes por pagar (proveedor, orden y monto en $ como NÚMERO).
+  const det = r.porPagarDetalle;
+  const hayDetalle = !!det && det.filas.length > 0;
+  let filaSeccionDetalle = -1;
+  let filaEncabezadoDetalle = -1;
+  let filaInicioDetalle = -1;
+  let filaTotalDetalle = -1;
+  if (hayDetalle) {
+    aoa.push([]);
+    filaSeccionDetalle = aoa.length;
+    aoa.push([`DETALLE · ÓRDENES POR PAGAR (${det.filas.length})`]);
+    filaEncabezadoDetalle = aoa.length;
+    aoa.push(['PROVEEDOR', 'ORDEN', 'MONTO $']);
+    filaInicioDetalle = aoa.length;
+    det.filas.forEach((f) => aoa.push([f.proveedor, f.codigo, f.montoUsd == null ? 'Sin tasa BCV' : f.montoUsd]));
+    filaTotalDetalle = aoa.length;
+    aoa.push(['TOTAL PENDIENTE POR PAGAR', '', det.totalUsd]);
+    if (det.enBs > 0) {
+      aoa.push([det.tasa > 0
+        ? `${det.enBs} orden(es) en Bs pasada(s) a $ con la tasa BCV del día: ${det.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs por $.`
+        : `${det.sinTasa} orden(es) en Bs no suman al total: no hay tasa BCV disponible.`]);
+    }
+  }
+
   let filaSeccionAnalistas = -1;
   let filaEncabezadoAnalistas = -1;
   let filaInicioAnalistas = -1;
@@ -63,6 +87,9 @@ async function construirLibro(r: ResumenCierre, impresoIso: string): Promise<{ X
   ];
   if (filaSeccionAnalistas >= 0) {
     merges.push({ s: { r: filaSeccionAnalistas, c: 0 }, e: { r: filaSeccionAnalistas, c: 2 } });
+  }
+  if (filaSeccionDetalle >= 0) {
+    merges.push({ s: { r: filaSeccionDetalle, c: 0 }, e: { r: filaSeccionDetalle, c: 2 } });
   }
   w['!merges'] = merges;
 
@@ -105,6 +132,32 @@ async function construirLibro(r: ResumenCierre, impresoIso: string): Promise<{ X
           alignment: col === 0 ? { horizontal: 'left' } : { horizontal: 'right' },
         };
         if (col > 0) totCell.z = '0';
+      }
+    }
+  }
+
+  // Estilos del detalle de OC por pagar
+  if (filaSeccionDetalle >= 0) {
+    const sDet = cell(filaSeccionDetalle, 0);
+    if (sDet) sDet.s = { font: { name: 'Arial', sz: 12, bold: true, color: { rgb: 'FF8A00' } } };
+    for (let col = 0; col <= 2; col++) {
+      const hCell = cell(filaEncabezadoDetalle, col);
+      if (hCell) hCell.s = ENCABEZADO;
+    }
+    for (let row = filaInicioDetalle; row < filaTotalDetalle; row++) {
+      const c0 = cell(row, 0); if (c0) c0.s = { font: { name: 'Arial', sz: 10, bold: true } };
+      const c1 = cell(row, 1); if (c1) c1.s = { font: { name: 'Arial', sz: 10 } };
+      const c2 = cell(row, 2); if (c2) { if (typeof c2.v === 'number') c2.z = '#,##0.00'; c2.s = { font: { name: 'Arial', sz: 10 }, alignment: { horizontal: 'right' } }; }
+    }
+    for (let col = 0; col <= 2; col++) {
+      const totCell = cell(filaTotalDetalle, col);
+      if (totCell) {
+        totCell.s = {
+          font: { name: 'Arial', sz: 11, bold: true, color: { rgb: rgb(COLOR_TOTAL_TEXTO) } },
+          fill: { patternType: 'solid', fgColor: { rgb: rgb(COLOR_TOTAL) } },
+          alignment: col === 2 ? { horizontal: 'right' } : { horizontal: 'left' },
+        };
+        if (col === 2) totCell.z = '#,##0.00';
       }
     }
   }

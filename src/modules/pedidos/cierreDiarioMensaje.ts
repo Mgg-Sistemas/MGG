@@ -6,6 +6,7 @@
    ============================================================ */
 import type { ResumenCierre } from './cierreDiario';
 import { fechaReporteTexto } from './comprasReporteMensaje';
+import { fmtMonto } from './comprasReporte';
 
 /** Rótulo y emoji del mensaje (formato acordado, igual al de Golden Touch). */
 const EN_MENSAJE: Record<string, { emoji: string; titulo: string }> = {
@@ -30,6 +31,24 @@ export function mensajeCierreDiario(r: ResumenCierre, impresoIso: string = new D
     L.push(`${m.emoji} *${m.titulo}:* ${i.cantidad}`);
     L.push('');
   });
+
+  const d = r.porPagarDetalle;
+  if (d && d.filas.length > 0) {
+    L.push(`💵 *DETALLE · ÓRDENES POR PAGAR (${d.filas.length})*`);
+    L.push('');
+    d.filas.forEach((f, i) => {
+      const monto = f.montoUsd == null ? 'sin tasa BCV' : fmtMonto(f.montoUsd, 'USD');
+      L.push(`${i + 1}. ${f.codigo} · ${f.proveedor} — ${monto}`);
+    });
+    L.push('');
+    L.push(`💰 *TOTAL PENDIENTE POR PAGAR:* ${fmtMonto(d.totalUsd, 'USD')}`);
+    if (d.enBs > 0) {
+      L.push(d.tasa > 0
+        ? `(${d.enBs} orden(es) en Bs pasada(s) a $ con la tasa BCV: ${fmtMonto(d.tasa, 'Bs')} por $)`
+        : `❗ ${d.sinTasa} orden(es) en Bs no suman al total: no hay tasa BCV disponible.`);
+    }
+    L.push('');
+  }
 
   if (r.analistas && r.analistas.length > 0) {
     L.push('👥 *POR ANALISTA*');

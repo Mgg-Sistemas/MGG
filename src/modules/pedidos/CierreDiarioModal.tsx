@@ -14,6 +14,7 @@ import { ITEMS_CIERRE, hoyVE, rangoCierre, type FiltroCierre, type ModoCierre, t
 import { cargarCierreDiario } from './cierreDiario.repository';
 import { mensajeCierreDiario } from './cierreDiarioMensaje';
 import { fechaReporteTexto } from './comprasReporteMensaje';
+import { fmtMonto } from './comprasReporte';
 import { MensajeWhatsappModal } from './MensajeWhatsappModal';
 
 const MODOS: { key: ModoCierre; label: string }[] = [
@@ -22,6 +23,8 @@ const MODOS: { key: ModoCierre; label: string }[] = [
   { key: 'mes', label: 'Mes' },
   { key: 'rango', label: 'Rango de fechas' },
 ];
+
+const montoUsd = (n: number): string => fmtMonto(n, 'USD');
 
 const filtroDeHoy = (): FiltroCierre => {
   const hoy = hoyVE();
@@ -160,6 +163,56 @@ export function CierreDiarioModal({ onClose }: { onClose: () => void }) {
             </div>
           );
         })}
+      </div>
+
+      {/* ── Detalle de las órdenes pendientes por pagar: proveedor, monto en $ y total ── */}
+      <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+        <div style={{ fontWeight: 700, fontSize: '.95rem', marginBottom: '.6rem' }}>
+          💵 Detalle de órdenes pendientes por pagar{!cargando && resumen ? ` (${resumen.porPagarDetalle.filas.length})` : ''}
+        </div>
+        {cargando ? (
+          <div className="muted" style={{ fontSize: '.85rem', padding: '.4rem 0' }}>Cargando órdenes por pagar…</div>
+        ) : !resumen?.porPagarDetalle.filas.length ? (
+          <div className="muted" style={{ fontSize: '.85rem', fontStyle: 'italic', padding: '.4rem 0' }}>
+            No quedaron órdenes pendientes por pagar en este período.
+          </div>
+        ) : (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.85rem' }}>
+              <thead>
+                <tr>
+                  <th style={{ width: 110 }}>Orden</th>
+                  <th>Proveedor</th>
+                  <th style={{ textAlign: 'right', width: 140 }}>Monto $</th>
+                </tr>
+              </thead>
+              <tbody>
+                {resumen.porPagarDetalle.filas.map((f, i) => (
+                  <tr key={`${f.codigo}-${i}`}>
+                    <td className="mono">{f.codigo}</td>
+                    <td><strong>{f.proveedor}</strong></td>
+                    <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 600 }}>
+                      {f.montoUsd == null ? 'Sin tasa BCV' : montoUsd(f.montoUsd)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr style={{ fontWeight: 700, borderTop: '2px solid var(--border)' }}>
+                  <td colSpan={2}>TOTAL PENDIENTE POR PAGAR</td>
+                  <td className="mono" style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{montoUsd(resumen.porPagarDetalle.totalUsd)}</td>
+                </tr>
+              </tfoot>
+            </table>
+            {resumen.porPagarDetalle.enBs > 0 && (
+              <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
+                {resumen.porPagarDetalle.tasa > 0
+                  ? `${resumen.porPagarDetalle.enBs} orden(es) en Bs se pasaron a $ con la tasa BCV del día (${resumen.porPagarDetalle.tasa.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Bs por $).`
+                  : `${resumen.porPagarDetalle.sinTasa} orden(es) en Bs no suman al total porque no hay tasa BCV disponible.`}
+              </small>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Actividad por analista: cotizaciones y órdenes finalizadas ── */}

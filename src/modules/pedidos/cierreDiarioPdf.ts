@@ -7,6 +7,7 @@
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import { fechaReporteTexto } from './comprasReporteMensaje';
+import { fmtMonto } from './comprasReporte';
 import type { ResumenCierre } from './cierreDiario';
 
 export async function descargarCierreDiarioPdf(r: ResumenCierre, impresoIso: string = new Date().toISOString()): Promise<void> {
@@ -56,7 +57,52 @@ export async function descargarCierreDiarioPdf(r: ResumenCierre, impresoIso: str
     margin: { ...MARGENES_TABLA_PDF },
   });
 
-  const finalY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? (y + 150);
+  let finalY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? (y + 150);
+
+  // Detalle de las OC pendientes por pagar: orden, proveedor, monto en $ y total.
+  const det = r.porPagarDetalle;
+  if (det && det.filas.length > 0) {
+    let yd = finalY + 28;
+    if (yd + 80 > limiteInferiorPdf(H)) { doc.addPage(); yd = MARGEN_PDF + 14; }
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(11); doc.setTextColor(255, 138, 0);
+    doc.text(`DETALLE · ÓRDENES POR PAGAR (${det.filas.length})`, MARGEN_PDF, yd);
+    doc.setTextColor(0, 0, 0);
+    const wMonto = 120;
+    const wNum = 30;
+    const wOrden = 100;
+    autoTable(doc, {
+      startY: yd + 12,
+      head: [['#', 'ORDEN', 'PROVEEDOR', 'MONTO $']],
+      body: det.filas.map((f, i) => [String(i + 1), f.codigo, f.proveedor, f.montoUsd == null ? 'Sin tasa BCV' : fmtMonto(f.montoUsd, 'USD')]),
+      foot: [['', '', 'TOTAL PENDIENTE POR PAGAR', fmtMonto(det.totalUsd, 'USD')]],
+      showFoot: 'lastPage',
+      styles: { fontSize: 10, cellPadding: 7, valign: 'middle' },
+      headStyles: { fillColor: [255, 224, 189], textColor: [138, 75, 0], fontStyle: 'bold', halign: 'center', fontSize: 10 },
+      footStyles: { fillColor: [255, 224, 189], textColor: [138, 75, 0], fontStyle: 'bold', fontSize: 11 },
+      bodyStyles: { textColor: [20, 20, 20] },
+      alternateRowStyles: { fillColor: [255, 246, 236] },
+      tableWidth: CW,
+      columnStyles: {
+        0: { cellWidth: wNum, halign: 'center' },
+        1: { cellWidth: wOrden },
+        2: { cellWidth: CW - wNum - wOrden - wMonto },
+        3: { cellWidth: wMonto, halign: 'right', fontStyle: 'bold' },
+      },
+      margin: { ...MARGENES_TABLA_PDF },
+    });
+    finalY = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? (yd + 100);
+    if (det.enBs > 0) {
+      doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(90, 90, 90);
+      doc.text(
+        det.tasa > 0
+          ? `${det.enBs} orden(es) en Bs pasada(s) a $ con la tasa BCV del día: ${fmtMonto(det.tasa, 'Bs')} por $.`
+          : `${det.sinTasa} orden(es) en Bs no suman al total: no hay tasa BCV disponible.`,
+        MARGEN_PDF, finalY + 14,
+      );
+      doc.setTextColor(0, 0, 0);
+      finalY += 14;
+    }
+  }
 
   if (r.analistas && r.analistas.length > 0) {
     let y2 = finalY + 28;

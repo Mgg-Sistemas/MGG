@@ -159,12 +159,49 @@ export interface AnalistaBase {
   nombre: string;
 }
 
+/** Una OC por pagar tal como llega de la base: monto a pagar en SU moneda y cuándo entró a pago. */
+export interface OcPorPagarEntrada {
+  codigo: string;
+  proveedor: string;
+  monto: number;
+  /** Moneda de la orden ('USD' o 'Bs'); lo que no sea bolívares se trata como dólares. */
+  moneda?: string | null;
+  /** Fecha (ISO) en que entró a «por pagar» (ver `fechaEntradaPago`). */
+  entrada: string | null | undefined;
+}
+
+/** Una OC pendiente por pagar, ya con su monto en $. */
+export interface FilaOcPorPagar {
+  codigo: string;
+  proveedor: string;
+  /** Monto en $; null si la OC está en Bs y no hay tasa BCV para pasarla a $. */
+  montoUsd: number | null;
+  /** Monto en la moneda original de la orden. */
+  montoOriginal: number;
+  moneda: 'USD' | 'Bs';
+}
+
+/** El detalle de las OC por pagar del período: mismas órdenes que cuenta «Total órdenes por pagar». */
+export interface DetallePorPagar {
+  filas: FilaOcPorPagar[];
+  /** Suma en $ (las que no se pudieron pasar a $ no entran). */
+  totalUsd: number;
+  /** Tasa BCV (Bs por $) usada para las órdenes en Bs; 0 si no hay. */
+  tasa: number;
+  /** Cuántas OC están en Bs (se pasaron a $ con la tasa). */
+  enBs: number;
+  /** Cuántas OC en Bs quedaron fuera del total por no haber tasa. */
+  sinTasa: number;
+}
+
 export interface ResumenCierre {
   rango: RangoCierre;
   items: ItemCierre[];
   totalCotizaciones: number;
   totalFinalizadas: number;
   analistas: ResumenAnalista[];
+  /** Detalle (proveedor, monto $ y total) de las OC contadas en «Total órdenes por pagar». */
+  porPagarDetalle: DetallePorPagar;
 }
 
 export interface EntradasCierre {
@@ -176,6 +213,10 @@ export interface EntradasCierre {
   pendientesAprobar: (string | null | undefined)[];
   /** Fecha (ISO) en que cada orden por pagar entró a pago. */
   porPagar: (string | null | undefined)[];
+  /** Las mismas órdenes por pagar con proveedor y monto, para el detalle del cierre. */
+  porPagarOc?: OcPorPagarEntrada[];
+  /** Tasa BCV (Bs por $) para pasar a $ las OC en bolívares. */
+  tasa?: number;
   /** Cotizaciones registradas en el período. */
   cotizaciones?: CotizacionAnalista[];
   /** Órdenes finalizadas en el período. */
@@ -184,6 +225,34 @@ export interface EntradasCierre {
   analistasBase?: AnalistaBase[];
   /** Mapa email -> nombre legible de usuario. */
   nombresPorEmail?: Map<string, string>;
+}
+
+const round2 = (n: number): number => Math.round((Number(n) || 0) * 100) / 100;
+
+/**
+ * El detalle de las OC pendientes por pagar que entraron a pago dentro del rango (las mismas
+ * que cuenta «Total órdenes por pagar»), con su monto en $ y el total. Una OC en Bs se pasa a $
+ * con la tasa BCV; sin tasa queda marcada y NO suma al total (no se inventa un monto).
+ * Orden: por proveedor y luego por código.
+ */
+export function detallePorPagar(ocs: OcPorPagarEntrada[], rango: Pick<RangoCierre, 'desde' | 'hasta'>, tasa: number = 0): DetallePorPagar {
+  const t = Number(tasa) > 0 ? Number(tasa) : 0;
+  const filas = ocs
+    .filter((o) => enRango(o.entrada, rango))
+    .map((o): FilaOcPorPagar => {
+      const moneda = /bs|ves/i.test(String(o.moneda ?? '')) ? 'Bs' : 'USD';
+      const montoOriginal = round2(o.monto);
+      const montoUsd = moneda === 'Bs' ? (t > 0 ? round2(montoOriginal / t) : null) : montoOriginal;
+      return { codigo: o.codigo, proveedor: o.proveedor, montoUsd, montoOriginal, moneda };
+    })
+    .sort((a, b) => a.proveedor.localeCompare(b.proveedor, 'es') || a.codigo.localeCompare(b.codigo, 'es'));
+  return {
+    filas,
+    totalUsd: round2(filas.reduce((s, f) => s + (f.montoUsd ?? 0), 0)),
+    tasa: t,
+    enBs: filas.filter((f) => f.moneda === 'Bs').length,
+    sinTasa: filas.filter((f) => f.montoUsd == null).length,
+  };
 }
 
 export function armarCierre(e: EntradasCierre, rango: RangoCierre): ResumenCierre {
@@ -243,6 +312,7 @@ export function armarCierre(e: EntradasCierre, rango: RangoCierre): ResumenCierr
     totalCotizaciones: cotsFiltradas.length,
     totalFinalizadas: finFiltradas.length,
     analistas,
+    porPagarDetalle: detallePorPagar(e.porPagarOc ?? [], rango, e.tasa ?? 0),
   };
 }
 

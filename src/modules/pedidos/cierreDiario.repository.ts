@@ -5,6 +5,8 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { listOrdenesPorPagar } from './pedidos.repository';
 import {
   armarCierre,
   fechaEntradaAprobacion,
@@ -22,7 +24,7 @@ const TABLE = 'ordenes';
 
 export async function cargarCierreDiario(rango: RangoCierre): Promise<ResumenCierre> {
   const { inicio, fin } = limitesISO(rango);
-  const [pedidos, pagadas, aprobar, pagar, cotizaciones, finalizadas, usuarios] = await Promise.all([
+  const [pedidos, pagadas, aprobar, pagar, tasaHoy, cotizaciones, finalizadas, usuarios] = await Promise.all([
     // Solicitudes creadas en el período (las sub-OC cuelgan de su pedido: no se cuentan aparte).
     supabase
       .from(TABLE)
@@ -48,17 +50,11 @@ export async function cargarCierreDiario(rango: RangoCierre): Promise<ResumenCie
           .range(desde, hasta),
       PAGINA_SUPABASE,
     ),
-    todasLasFilas<OrdenFechas>(
-      (desde, hasta) =>
-        supabase
-          .from(TABLE)
-          .select('id, estado, created_at, oc_aprobada_en, metodo_pago_en, historial')
-          .in('estado', ['confirmada_metodo', 'oc_aprobada'])
-          .order('created_at', { ascending: true })
-          .order('id', { ascending: true })
-          .range(desde, hasta),
-      PAGINA_SUPABASE,
-    ),
+    // OC por pagar (confirmadas o ya en Tesorería, sin pagar): con proveedor y monto a pagar,
+    // para contarlas y para el detalle del cierre (una sola lista: nunca se descuadran).
+    listOrdenesPorPagar(),
+    // Tasa BCV del día: solo para pasar a $ las OC que estén en bolívares.
+    getTasaHoy().catch(() => null),
     // Cotizaciones cargadas / realizadas en el período
     todasLasFilas<CotizacionAnalista>(
       (desde, hasta) =>
@@ -121,7 +117,15 @@ export async function cargarCierreDiario(rango: RangoCierre): Promise<ResumenCie
       pedidos: pedidos.count ?? 0,
       pagadas: pagadas.count ?? 0,
       pendientesAprobar: aprobar.map(fechaEntradaAprobacion),
-      porPagar: pagar.map(fechaEntradaPago),
+      porPagar: pagar.map((p) => fechaEntradaPago(p.orden)),
+      porPagarOc: pagar.map((p) => ({
+        codigo: p.orden.oc_codigo ?? p.orden.codigo,
+        proveedor: p.proveedorNombre,
+        monto: p.montoAPagar,
+        moneda: p.orden.moneda,
+        entrada: fechaEntradaPago(p.orden),
+      })),
+      tasa: Number(tasaHoy?.usd) || 0,
       cotizaciones,
       finalizadas,
       analistasBase,
