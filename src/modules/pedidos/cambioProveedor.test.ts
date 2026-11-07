@@ -80,6 +80,10 @@ describe('reapertura de la OC para cambiar de proveedor', () => {
   it('lineaReaperturaOc: si solo trae el id, busca el nombre', () => {
     expect(lineaReaperturaOc({ cambio_proveedor: true, proveedorAnteriorId: 'b' }, buscar)).toBe(' · proveedor anterior: CARNICERIA LA ESPERANZA');
   });
+  it('desde «Confirmada pagar» (07-11-2026) lo dice en la traza', () => {
+    const h = extrasReaperturaOc({ anterior: A, motivo: 'Sin existencia', desde: 'oc_aprobada' });
+    expect(lineaReaperturaOc(h, () => null)).toBe(' · estaba en Confirmada pagar (sin pagar) · proveedor anterior: DISTRIBUIDORA EL TORETE J&M, C.A · J-506575140 · Sin existencia');
+  });
   it('«Modificar OC» (sin cambio de proveedor) no agrega nada', () => {
     expect(lineaReaperturaOc({ motivo: 'Modificación: volver a elegir oferta' }, buscar)).toBe('');
   });

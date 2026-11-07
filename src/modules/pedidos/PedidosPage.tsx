@@ -336,6 +336,7 @@ type ModalKind =
   | { kind: 'anular-oc'; orden: Orden }
   | { kind: 'modificar-oc'; orden: Orden }
   | { kind: 'desistir'; orden: Orden }
+  | { kind: 'cambiar-proveedor'; orden: Orden }
   | { kind: 'confirmar-retiro'; orden: Orden }
   | { kind: 'receive'; orden: Orden }
   | { kind: 'abono'; orden: Orden }
@@ -966,6 +967,7 @@ export function PedidosPage() {
           onAnular={() => setModal({ kind: 'anular-oc', orden: currentDetail })}
           onModificar={() => setModal({ kind: 'modificar-oc', orden: currentDetail })}
           onDesistir={() => setModal({ kind: 'desistir', orden: currentDetail })}
+          onCambiarProveedor={() => setModal({ kind: 'cambiar-proveedor', orden: currentDetail })}
           onConfirmarRetiro={() => setModal({ kind: 'confirmar-retiro', orden: currentDetail })}
           onReceive={() => setModal({ kind: 'receive', orden: currentDetail })}
           onAbono={() => setModal({ kind: 'abono', orden: currentDetail })}
@@ -1200,6 +1202,31 @@ export function PedidosPage() {
               await refresh();
             } catch (e) {
               toast(e instanceof Error ? e.message : 'Error', 'error');
+            }
+          }}
+        />
+      )}
+
+      {/* Modal: cambiar de proveedor una OC en «Confirmada pagar» (07-11-2026): vuelve a cotizar
+          y el Gerente la aprueba de nuevo. */}
+      {modal.kind === 'cambiar-proveedor' && (
+        <MotivoModal
+          title={`Cambiar de proveedor · ${modal.orden.oc_codigo ?? modal.orden.codigo}`}
+          confirmText="Cambiar de proveedor (volver a cotizar)"
+          danger
+          intro="La OC sale de Tesorería y vuelve a «Pendiente por cargar ofertas»: se reabren las cotizaciones para escoger el nuevo proveedor y después el Gerente General la vuelve a aprobar. Se borran la confirmación, el método de pago y los datos del beneficiario (eran del proveedor anterior). Todo queda en la trazabilidad."
+          label="Motivo del cambio de proveedor"
+          placeholder="No tiene el material, cambió el precio, no responde…"
+          onClose={() => setModal({ kind: 'none' })}
+          onConfirm={async (motivo) => {
+            try {
+              await reabrirOcAOfertas(modal.orden, usuario?.email ?? user?.email ?? 'sistema', motivo);
+              notify(`OC ${modal.orden.oc_codigo ?? modal.orden.codigo} · cambio de proveedor: salió de Tesorería y vuelve a «cargar ofertas» para escoger la nueva cotización`, 'warning', { link: '#/app/pedidos' });
+              setModal({ kind: 'none' });
+              await refresh();
+              setOffersReloadKey((k) => k + 1);
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'No se pudo cambiar de proveedor', 'error');
             }
           }}
         />
@@ -2846,6 +2873,8 @@ interface OrdenDetailModalProps {
   onAnular: () => void;
   onModificar: () => void;
   onDesistir: () => void;
+  /** 07-11-2026: OC en «Confirmada pagar» → cambiar de proveedor (vuelve a cotizar y a aprobar). */
+  onCambiarProveedor: () => void;
   /** 06-11-2026: OC pagada en «Pendientes por recibir» → confirmar el retiro y quién entrega. */
   onConfirmarRetiro: () => void;
   onReceive: () => void;
@@ -2886,6 +2915,7 @@ function OrdenDetailModal({
   onAnular,
   onModificar,
   onDesistir,
+  onCambiarProveedor,
   onConfirmarRetiro,
   onReceive,
   onAbono,
@@ -3266,6 +3296,12 @@ function OrdenDetailModal({
           {canManageProcurement && !motivoNoCorregible(o) && (
             <button className="btn btn-ghost" onClick={onCorregirPago} title="Corregir el método de pago y los datos del beneficiario (banco, CI/RIF, teléfono, cuenta). La OC sigue en Confirmada pagar.">
               💳 Editar método de pago / datos
+            </button>
+          )}
+          {/* 07-11-2026: todavía no se pagó → se puede cambiar de proveedor (vuelve a cotizar y a aprobar). */}
+          {canManageProcurement && !o.retencion_hecha_en && (
+            <button className="btn btn-ghost" onClick={onCambiarProveedor} title="Volver a cotizar con otro proveedor: la OC sale de Tesorería, se escoge la nueva cotización y el Gerente la aprueba de nuevo">
+              🔁 Cambiar de proveedor
             </button>
           )}
           {puedeAprobarOc && (

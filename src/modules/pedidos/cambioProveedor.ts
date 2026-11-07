@@ -121,5 +121,7 @@ export function lineaReaperturaOc(h: Evento, resolver: (id: string) => Proveedor
   const id = str(h.proveedorAnteriorId);
   const ant = str(h.proveedorAnterior) || (id ? textoProveedor(resolver(id)) : '');
   const motivo = str(h.motivo);
-  return `${ant && ant !== '—' ? ` · proveedor anterior: ${ant}` : ''}${motivo ? ` · ${motivo}` : ''}`;
+  // 07-11-2026: si estaba en «Confirmada pagar», se dice (salió de Tesorería sin pagarse).
+  const desde = str(h.desde) === 'oc_aprobada' ? ' · estaba en Confirmada pagar (sin pagar)' : '';
+  return `${desde}${ant && ant !== '—' ? ` · proveedor anterior: ${ant}` : ''}${motivo ? ` · ${motivo}` : ''}`;
 }

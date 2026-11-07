@@ -3013,18 +3013,31 @@ export async function anularOrden(
  * es obligatorio y el evento «oc_reabierta» deja en la traza quién, cuándo, el proveedor anterior,
  * el motivo, el total y la confirmación del Gerente que se anula (que también se limpia de la OC,
  * igual que el teléfono de administración, que era del proveedor anterior).
+ * 07-11-2026 (pedido de la administradora): también desde «Confirmada pagar» (pendiente por pagar),
+ * mientras Tesorería no haya pagado nada ni se haya hecho la retención: se borra el método de pago
+ * indicado (era del proveedor anterior), la OC sale de Tesorería y se vuelve a aprobar.
  */
 export async function reabrirOcAOfertas(
   o: Orden,
   actorEmail: string,
   motivo?: string,
 ): Promise<Orden> {
-  if (o.estado !== 'oc_creada' && o.estado !== 'confirmada_metodo')
-    throw new Error('Solo se reabre una OC pendiente de aprobación del gerente o pendiente de indicar el método de pago');
-  const cambioProveedor = o.estado === 'confirmada_metodo';
+  if (o.estado !== 'oc_creada' && o.estado !== 'confirmada_metodo' && o.estado !== 'oc_aprobada')
+    throw new Error('Solo se reabre una OC pendiente de aprobación, pendiente de método de pago o pendiente por pagar');
+  const cambioProveedor = o.estado === 'confirmada_metodo' || o.estado === 'oc_aprobada';
+  const desdePorPagar = o.estado === 'oc_aprobada';
   if (cambioProveedor) {
     const errMotivo = errorMotivoCambio(motivo);
     if (errMotivo) throw new Error(errMotivo);
+  }
+  if (desdePorPagar) {
+    if (o.retencion_hecha_en)
+      throw new Error('Esta OC ya tiene la retención hecha al proveedor actual: no se puede cambiar de proveedor.');
+    // ¿Tesorería ya le pagó algo? (un reembolso no es pago)
+    const { data: pagos, error: pagosErr } = await supabase.from('movimientos_caja').select('id')
+      .eq('ref_orden_id', o.id).or('categoria.is.null,categoria.neq.reembolso_oc').limit(1);
+    if (pagosErr) throw pagosErr;
+    if (pagos?.length) throw new Error('Tesorería ya registró un pago de esta OC: no se puede cambiar de proveedor.');
   }
   // Reabrir todas las ofertas (la aceptada y las descartadas) para re-elegir.
   // En una sub-OC (hija) las ofertas viven en la MADRE: se reabre solo la de SU proveedor
@@ -3049,6 +3062,13 @@ export async function reabrirOcAOfertas(
     oc_creada_por: null,
     oc_creada_en: null,
     ...(cambioProveedor ? { oc_aprobada_por: null, oc_aprobada_en: null, numero_administracion: null } : {}),
+    // Desde «Confirmada pagar»: el método de pago y los datos del beneficiario eran del proveedor anterior.
+    ...(desdePorPagar ? {
+      metodo_pago: null, metodo_pago_por: null, metodo_pago_en: null,
+      comprobante_tipo: null, retencion_modo: null, retenciones: null,
+      retencion_momento: null, retencion_hecha_en: null, retencion_hecha_por: null, retencion_nota: null,
+      pago_qr_path: null, pago_qr_nombre: null, descuento_pago: null, entrega_modalidad: null,
+    } : {}),
     historial: appendHistorial(o, 'oc_reabierta', actorEmail, cambioProveedor
       ? extrasReaperturaOc({
           anterior: (o.proveedor_id ? refs?.get(o.proveedor_id) : null) ?? { id: o.proveedor_id },
