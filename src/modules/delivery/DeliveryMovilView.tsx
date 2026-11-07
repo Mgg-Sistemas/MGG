@@ -23,6 +23,7 @@ import { RUTA_TELEFONO } from '@/modules/auth/vistasTelefono';
 import { DESTINOS_RECEPCION, RESPALDO_POR_CORREO, nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
 import { avisarRecepcionPendiente } from '@/modules/inventario/recepcionTelefono.repository';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { useRecargaAlVolver } from './useRecargaAlVolver';
 import { PanelRutaMovil, metrosAlPedido, useMiPosicion } from './RutaDeliveryMovil';
 import { ordenarLibresPorCercania, type Punto } from './deliveryRutas';
 import { useQuien } from '@/shared/lib/directorioUsuarios';
@@ -120,6 +121,8 @@ function PantallaFlota({ flota }: { flota: Flota }) {
     return () => { vivo = false; };
   }, [reload]);
   useRealtime(['delivery_pedidos', 'ordenes'], () => { void reload().catch(() => {}); });
+  // 07-11-2026: con la pantalla apagada se corta el tiempo real; al volver (y cada 45 s) se recarga.
+  useRecargaAlVolver(reload);
 
 
   // 03-11-2026 (tipo Yummy / Ridery): mi posición, los proveedores ubicados y los almacenes,

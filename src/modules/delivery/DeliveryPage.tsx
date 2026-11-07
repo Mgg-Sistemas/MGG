@@ -21,6 +21,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { listProveedores } from '@/modules/pedidos/pedidos.repository';
 import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { useRecargaAlVolver } from './useRecargaAlVolver';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -128,6 +129,8 @@ export function DeliveryPage() {
     void recargarTablero();
     if (enHistorico) void recargarHistorial();
   });
+  // 07-11-2026: si se cortó el tiempo real (equipo suspendido), al volver y cada 45 s se pone al día.
+  useRecargaAlVolver(recargarTablero);
 
   return (
     <div>
