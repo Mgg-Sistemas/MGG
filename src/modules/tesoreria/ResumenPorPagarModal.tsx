@@ -14,7 +14,7 @@ import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
 import type { DirectoFila } from '@/modules/pedidos/DirectosPorPagarModal';
 import { getTasaHoy, round2 } from './tasas.repository';
 import {
-  ETIQUETA_MOTIVO_LOTE, errorResumenPorPagar, textoResumenPorPagar,
+  ETIQUETA_MOTIVO_LOTE, errorResumenPorPagar, textoResumenPorPagar, textoTesoreriaAlDia,
   type ItemResumenPorPagar, type MotivoPagoLote,
 } from './resumenPorPagarWhatsapp';
 
@@ -54,6 +54,8 @@ export function ResumenPorPagarModal({ rows, directos, onClose }: {
     setMotivos(Object.fromEntries(seleccionadas.map((f) => [f.id, m])));
   }
   function generar() {
+    // 07-11-2026: sin ninguna orden por pagar, el mensaje dice «Tesorería al día».
+    if (!filas.length) { setTexto(textoTesoreriaAlDia(new Date())); return; }
     if (hayBsSinTasa) { toast('No hay tasa BCV del día: no se pueden pasar a $ las órdenes en Bs.', 'error'); return; }
     const items: ItemResumenPorPagar[] = seleccionadas.map((f) => ({
       codigo: f.codigo, proveedor: f.proveedor, montoUsd: enUsd(f),
@@ -67,8 +69,8 @@ export function ResumenPorPagarModal({ rows, directos, onClose }: {
   return (
     <Modal title="💬 Resumen por WhatsApp · Órdenes por pagar" size="lg" onClose={onClose} footer={<>
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
-      <button className="btn btn-primary" disabled={!seleccionadas.length} onClick={generar}>
-        💬 Generar resumen ({seleccionadas.length})
+      <button className="btn btn-primary" disabled={filas.length > 0 && !seleccionadas.length} onClick={generar}>
+        {filas.length ? `💬 Generar resumen (${seleccionadas.length})` : '💬 Generar «Tesorería al día»'}
       </button>
     </>}>
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
@@ -92,7 +94,7 @@ export function ResumenPorPagarModal({ rows, directos, onClose }: {
             <th style={{ textAlign: 'right' }}>A pagar $</th><th>Motivo de pago</th>
           </tr></thead>
           <tbody>
-            {!filas.length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>No hay órdenes por pagar.</td></tr>}
+            {!filas.length && <tr><td colSpan={5} style={{ textAlign: 'center', fontWeight: 700 }}>ÓRDENES PENDIENTES POR PAGAR: 0 · <span style={{ color: 'var(--success)' }}>✅ TESORERÍA AL DÍA EN PAGOS PENDIENTES</span></td></tr>}
             {filas.map((f) => {
               const m = motivos[f.id] ?? 'si';
               const marcada = marcadas.has(f.id);

@@ -63,6 +63,10 @@ function etiquetaFila(f: FilaReporteTesoreria): string {
   return unaLinea(f.categoria) || unaLinea(f.concepto) || '—';
 }
 
+/** 07-11-2026 (pedido de la administradora): lo que dicen los reportes cuando no hay nada por pagar. */
+export const POR_PAGAR_CERO = 'ÓRDENES PENDIENTES POR PAGAR: 0';
+export const TESORERIA_AL_DIA = 'TESORERÍA AL DÍA EN PAGOS PENDIENTES';
+
 export interface OpcionesWhatsappTesoreria {
   ambito: AmbitoTesoreria;
   desde: string;
@@ -74,6 +78,8 @@ export interface OpcionesWhatsappTesoreria {
   tasaRef?: number;
   /** «Por preparar» (solo por_pagar, si el toggle está encendido): totales nativos por moneda/método. */
   preparacion?: PreparacionPorPagar;
+  /** Solo por_pagar: no hay NADA por pagar (sin filtros). Sale «Tesorería al día». */
+  alDia?: boolean;
 }
 
 /**
@@ -97,6 +103,14 @@ export function textoWhatsappTesoreria(filas: FilaReporteTesoreria[], opts: Opci
   L.push('');
 
   if (!filas.length) {
+    if (opts.ambito === 'por_pagar' && opts.alDia) {
+      L.push(`🧾 *${POR_PAGAR_CERO}*`);
+      L.push('');
+      L.push(`✅ *${TESORERIA_AL_DIA}*`);
+      L.push('');
+      L.push(`🏢 *${emp.nombre}*`);
+      return L.join('\n');
+    }
     L.push('Sin registros en este ámbito. ✅');
     return L.join('\n');
   }

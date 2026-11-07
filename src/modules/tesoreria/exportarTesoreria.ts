@@ -20,6 +20,7 @@ import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { identidadEmpresa } from '@/shared/lib/empresa';
 import { loadLogoPdfEmpresa, dibujarLogoPdf, anchoLogoPdf } from '@/shared/lib/pdfLogo';
 import { generarBloquesPreparacion, type PreparacionPorPagar } from './pendientesPorPagar';
+import { POR_PAGAR_CERO, TESORERIA_AL_DIA } from './whatsappTesoreria';
 import type {
   FilaReporteTesoreria,
   ResumenReporteTesoreria,
@@ -79,6 +80,8 @@ const TITULO_AMBITO: Record<AmbitoTesoreria, string> = {
 };
 
 export interface MetadatosExportacionTesoreria {
+  /** 07-11-2026: por_pagar sin nada por pagar → hoja «Tesorería al día». */
+  alDia?: boolean;
   desde: string;
   hasta: string;
   ambito: AmbitoTesoreria;
@@ -429,7 +432,9 @@ export async function descargarTesoreriaPdf(
 
   const columnas = columnasVisibles(columnasClaves, meta);
   if (!columnas.length) throw new Error('Selecciona al menos una columna.');
-  if (!filas.length) throw new Error('No hay datos de tesorería para el período seleccionado.');
+  // 07-11-2026: sin nada por pagar sale la hoja «Tesorería al día».
+  const alDia = !filas.length && meta.ambito === 'por_pagar' && !!meta.alDia;
+  if (!filas.length && !alDia) throw new Error('No hay datos de tesorería para el período seleccionado.');
   const colsClavesValidas = columnas.map((c) => c.clave);
 
   const esFichas = meta.formatoPresentacion !== 'tabla';
@@ -479,6 +484,27 @@ export async function descargarTesoreriaPdf(
   doc.setLineWidth(1.4);
   doc.line(M, y, W - M, y);
   y += 12;
+
+  if (alDia) {
+    const yc = y + 70;
+    doc.setFillColor(236, 253, 243);
+    doc.setDrawColor(22, 163, 74);
+    doc.setLineWidth(1);
+    doc.roundedRect(M, yc - 34, UW, 120, 8, 8, 'FD');
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 30, 30);
+    doc.setFontSize(16);
+    doc.text(pdfSafe(POR_PAGAR_CERO), W / 2, yc, { align: 'center' });
+    doc.setTextColor(21, 128, 61);
+    doc.setFontSize(18);
+    doc.text(pdfSafe(TESORERIA_AL_DIA), W / 2, yc + 40, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(110, 110, 110);
+    doc.text(pdfSafe(`Generado: ${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}`), W / 2, yc + 70, { align: 'center' });
+    previewPdf(doc, `tesoreria-${meta.ambito}-${hoyStr()}.pdf`);
+    return;
+  }
 
   // 1b. «Por preparar» (solo por_pagar, si el usuario dejó su toggle encendido).
   // Totales por moneda/método respetando la elección de moneda (Bs, Dólar o Ambos).

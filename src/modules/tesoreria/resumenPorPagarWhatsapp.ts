@@ -59,6 +59,20 @@ export function errorResumenPorPagar(items: ItemResumenPorPagar[]): string | nul
   return null;
 }
 
+/** 07-11-2026: no hay ninguna orden por pagar → «Tesorería al día». */
+export function textoTesoreriaAlDia(ahora: Date): string {
+  return [
+    '🧾 *RESUMEN · ÓRDENES POR PAGAR*',
+    `📅 *Generado:* ${fechaHoraResumen(ahora)}`,
+    '',
+    '🧾 *ÓRDENES PENDIENTES POR PAGAR: 0*',
+    '',
+    '✅ *TESORERÍA AL DÍA EN PAGOS PENDIENTES*',
+    '',
+    `🏢 *${identidadEmpresa().nombre}*`,
+  ].join('\n');
+}
+
 export function textoResumenPorPagar(items: ItemResumenPorPagar[], ahora: Date): string {
   const L: string[] = [];
   L.push('🧾 *RESUMEN · ÓRDENES POR PAGAR*');

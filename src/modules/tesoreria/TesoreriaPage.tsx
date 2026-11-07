@@ -4562,7 +4562,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
 
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
         <BotonReporteTesoreria ambito="por_pagar" />
-        <button className="btn btn-sm btn-ghost" disabled={loading || (!rows.length && !directos.length)} onClick={() => setResumenWa(true)}
+        <button className="btn btn-sm btn-ghost" disabled={loading} onClick={() => setResumenWa(true)}
           title="Resumen por WhatsApp: se eligen todas o una a una, con el motivo de pago de cada una, el total y la fecha">💬 Resumen WhatsApp</button>
       </div>
 

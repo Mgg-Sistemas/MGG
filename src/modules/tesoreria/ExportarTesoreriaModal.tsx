@@ -212,6 +212,9 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
     return normalizarCreditosCartera(cxp, cxc, ctx, baseTasa);
   }, [ambito, movs, pagoPorOrden, datosPP, cxp, cxc, ctx, baseTasa]);
 
+  // 07-11-2026: por pagar SIN nada pendiente (sin filtros) → «Tesorería al día» en WhatsApp y PDF.
+  const alDia = ambito === 'por_pagar' && !cargando && !!datosPP && filasDetalle.length === 0;
+
   // Catálogos presentes (para los filtros)
   const catalogos = useMemo(() => {
     const cajas = new Map<string, number>();
@@ -278,7 +281,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
 
   const descargar = async (formato: 'pdf' | 'xlsx' | 'csv') => {
     if (marcadosVisibles.length === 0) { toast('Marca al menos una columna visible para exportar.', 'warning'); return; }
-    if (filas.length === 0) { toast('No hay datos con los filtros y período seleccionados.', 'warning'); return; }
+    if (filas.length === 0 && !(alDia && formato === 'pdf')) { toast('No hay datos con los filtros y período seleccionados.', 'warning'); return; }
     setOcupado(formato);
     try { localStorage.setItem(CLAVE_CAMPOS, JSON.stringify(marcados)); localStorage.setItem(CLAVE_AMBITO, ambito); localStorage.setItem(CLAVE_AGRUPACION, agrupacion); localStorage.setItem(CLAVE_TASA, baseTasa); localStorage.setItem(CLAVE_USD, String(mostrarUsd)); localStorage.setItem(CLAVE_BS, String(mostrarBs)); localStorage.setItem(CLAVE_RESUMEN, String(incluirResumen)); localStorage.setItem(CLAVE_KPIS, String(kpisSimplificados)); localStorage.setItem(CLAVE_PREPARAR, String(incluirPreparar)); } catch { /* no crítico */ }
 
@@ -298,6 +301,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
       incluirResumen, orientacion, formatoPresentacion, ordenarPor,
       kpisSimplificados,
       preparacion: ambito === 'por_pagar' && incluirPreparar ? datosPP?.preparacion : undefined,
+      alDia,
     };
     try {
       if (formato === 'pdf') await descargarTesoreriaPdf(filas, resumen, marcados, meta);
@@ -347,8 +351,9 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
       ambito, desde, hasta, mostrarUsd, mostrarBs,
       tasaRef: resumen.tasaBcvReferencia,
       preparacion: ambito === 'por_pagar' && incluirPreparar ? datosPP?.preparacion : undefined,
+      alDia,
     }),
-    [filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs, incluirPreparar, datosPP, resumen.tasaBcvReferencia],
+    [filtradas, ambito, desde, hasta, mostrarUsd, mostrarBs, incluirPreparar, datosPP, resumen.tasaBcvReferencia, alDia],
   );
 
   return (
@@ -363,8 +368,8 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
             <button className="btn btn-ghost" onClick={onClose} disabled={!!ocupado}>Cerrar</button>
             <button className="btn btn-ghost" onClick={() => void descargar('csv')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'csv' ? 'Generando...' : '📝 CSV'}</button>
             <button className="btn btn-ghost" onClick={() => void descargar('xlsx')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'xlsx' ? 'Generando...' : '📊 Excel'}</button>
-            <button className="btn btn-ghost" onClick={() => setVerWhatsapp(true)} disabled={!!ocupado || cargando || filas.length === 0}>💬 WhatsApp</button>
-            <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}</button>
+            <button className="btn btn-ghost" onClick={() => setVerWhatsapp(true)} disabled={!!ocupado || cargando || (filas.length === 0 && !alDia)}>💬 WhatsApp</button>
+            <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={!!ocupado || cargando || (filas.length === 0 && !alDia) || marcadosVisibles.length === 0}>{ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}</button>
           </div>
         </div>
       }
