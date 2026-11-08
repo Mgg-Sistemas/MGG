@@ -33,6 +33,13 @@ describe('textoOrdenPago · retenciones por tipo (03-11-2026)', () => {
   it('sin retenciones no agrega nada', () => {
     expect(textoOrdenPago({ ...base, total: 100 } as Orden, 'X')).not.toContain('Retención');
   });
+  it('el impuesto que se paga en Bs no sale en el WhatsApp, pero el neto lo descuenta (08-11-2026)', () => {
+    const rets = [{ tipo: 'IVA', modo: 'pct', valor: 75, monto: 12, moneda_pago: 'Bs' }, { tipo: 'ISLR', modo: 'monto', valor: 3, monto: 3 }];
+    const l = textoOrdenPago({ ...base, total: 100, retenciones: rets, retencion_momento: 'antes' } as unknown as Orden, 'X').split('\n');
+    expect(l.join('\n')).not.toContain('Retención IVA');
+    expect(l).toContain('🧾 *Retención ISLR:* −$3,00');
+    expect(l).toContain('✅ *Neto a pagar:* $85,00');
+  });
 });
 
 describe('textoOrdenPago · fecha de aprobación (03-11-2026)', () => {

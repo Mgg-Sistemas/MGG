@@ -17,7 +17,7 @@ import type { Orden, PagoMetodo } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
 import { BANCOS_VE } from '@/shared/lib/bancos';
 import { dateTime } from '@/shared/lib/format';
-import { retencionesDe, totalRetenciones } from './retencionesOc';
+import { impuestosEnUsd, retencionesDe, totalRetenciones } from './retencionesOc';
 import { labelCondicionPago } from './ofertas.repository';
 import { OPCIONES_ENTREGA } from './entregaModalidad';
 
@@ -201,9 +201,11 @@ export function textoOrdenPago(
     L.push(`🔺 *Saldo pendiente:* ${montoTxt(saldoPendiente(orden), mon)}`);
   }
   // Retenciones por tipo (03-11-2026): cada descuento y lo que queda.
+  // 08-11-2026: los impuestos que se pagan en Bs NO salen acá (solo los ve Tesorería);
+  // el neto sí los descuenta, porque al proveedor se le paga lo mismo.
   const rets = retencionesDe(orden);
   if (rets.length) {
-    for (const r of rets) L.push(`🧾 *Retención ${r.tipo}:* −${montoTxt(r.monto, mon)}`);
+    for (const r of impuestosEnUsd(rets)) L.push(`🧾 *Retención ${r.tipo}:* −${montoTxt(r.monto, mon)}`);
     const neto = Math.max(0, (Number(orden.total) || 0) - (Number(orden.descuento_pago) || 0) - totalRetenciones(rets));
     L.push(orden.retencion_momento === 'antes'
       ? `✅ *Neto a pagar:* ${montoTxt(neto, mon)}`

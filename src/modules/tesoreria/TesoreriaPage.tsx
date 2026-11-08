@@ -101,7 +101,7 @@ import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
 import { enviarMensajeOc } from '@/modules/pedidos/ocChat.repository';
 import { push as pushNotif } from '@/modules/notificaciones/notif.repository';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
-import { etiquetaRetencion, retencionesDe, totalRetenciones } from '@/modules/pedidos/retencionesOc';
+import { etiquetaRetencion, impuestosEnBs, montoImpuestoEnBs, retencionesDe, sePagaEnBs, totalRetenciones } from '@/modules/pedidos/retencionesOc';
 import { ExportarTesoreriaModal } from './ExportarTesoreriaModal';
 import { ResumenPorPagarModal } from './ResumenPorPagarModal';
 import { PagadaSinCajaModal } from './PagadaSinCajaModal';
@@ -4631,6 +4631,15 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
                       </span>
                     </div>
                   )}
+                  {/* 08-11-2026: impuestos que se pagan aparte en Bs (detalle al abrir la OC). */}
+                  {impuestosEnBs(retencionesDe(r.orden)).length > 0 && (
+                    <div style={{ fontSize: '.66rem', marginTop: '.15rem' }}>
+                      <span className="badge" style={{ background: 'rgba(59,130,246,.15)', color: 'var(--primary)' }}
+                        title="Pago de impuestos en bolívares: el monto en Bs se ve al abrir la OC">
+                        🏛 impuestos en Bs: {impuestosEnBs(retencionesDe(r.orden)).map((x) => x.tipo).join(', ')}
+                      </span>
+                    </div>
+                  )}
                 </td>
                 <td className="muted">{r.orden.oc_creada_en ? fmtDate(r.orden.oc_creada_en) : '—'}</td>
                 <td className="muted">{r.orden.oc_aprobada_en ? fmtDate(r.orden.oc_aprobada_en) : '—'}</td>
@@ -6854,13 +6863,41 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
               <span>🧾 <strong>Retenciones indicadas por Compras</strong> · {o.retencion_momento === 'antes' ? 'se retiene ANTES de pagar (ya restadas del monto a pagar)' : 'se retiene DESPUÉS de pagar (se paga el total completo)'}</span>
               <span className="muted">Total OC <strong className="mono">{monto(o.total, o.moneda ?? 'USD')}</strong></span>
               {retencionesDe(o).map((r) => (
-                <span key={r.tipo} className="muted">− {etiquetaRetencion(r)} <strong className="mono" style={{ color: 'var(--danger)' }}>{monto(r.monto, o.moneda ?? 'USD')}</strong></span>
+                <span key={r.tipo} className="muted">− {etiquetaRetencion(r)} <strong className="mono" style={{ color: 'var(--danger)' }}>{monto(r.monto, o.moneda ?? 'USD')}</strong>
+                  {sePagaEnBs(r) && <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.66rem', background: 'rgba(59,130,246,.15)', color: 'var(--primary)' }}>se paga en Bs</span>}</span>
               ))}
               <span>{o.retencion_momento === 'antes' ? 'A pagar' : 'A pagar (completo)'} <strong className="mono" style={{ color: 'var(--success)' }}>{monto(baseGeneral, o.moneda ?? 'USD')}</strong>
                 {o.retencion_momento !== 'antes' && <span className="muted"> · retenciones {monto(totalRetenciones(retencionesDe(o)), o.moneda ?? 'USD')} para Retenciones</span>}</span>
             </div>
           </div>
         )}
+
+        {/* 08-11-2026: impuestos que Compras indicó pagar en Bs. Solo se ven acá (no van al WhatsApp). */}
+        {impuestosEnBs(retencionesDe(o)).length > 0 && (() => {
+          const enBs = impuestosEnBs(retencionesDe(o));
+          const montosBs = enBs.map((r) => montoImpuestoEnBs(r, o.moneda, tasa));
+          const totalBs = montosBs.every((x) => x != null) ? round2(montosBs.reduce<number>((a, x) => a + (x ?? 0), 0)) : null;
+          return (
+            <div className="card" style={{ marginBottom: '.75rem', borderLeft: '3px solid var(--primary)', background: 'var(--bg-1)' }}>
+              <div style={{ fontSize: '.86rem', display: 'grid', gap: '.2rem' }}>
+                <span>🏛 <strong>Pago de impuestos en Bs</strong> <span className="muted">· {enBs.map((r) => r.tipo).join(', ')}</span></span>
+                {enBs.map((r, i) => (
+                  <span key={r.tipo}>Impuesto <strong>{r.tipo}</strong> en Bs:{' '}
+                    <strong className="mono" style={{ color: 'var(--primary)' }}>{montosBs[i] != null ? monto(montosBs[i]!, 'Bs') : '—'}</strong>
+                    {(o.moneda ?? 'USD') !== 'Bs' && <span className="muted"> ({monto(r.monto, 'USD')}{tasa > 0 ? ` × tasa ${tasa.toLocaleString('es-VE', { maximumFractionDigits: 4 })}` : ''})</span>}
+                  </span>
+                ))}
+                {enBs.length > 1 && totalBs != null && <span>Total impuestos en Bs <strong className="mono" style={{ color: 'var(--primary)' }}>{monto(totalBs, 'Bs')}</strong></span>}
+                <span className="muted" style={{ fontSize: '.78rem' }}>
+                  {tasa > 0
+                    ? <>Tasa BCV{tasaFecha ? ` del ${tasaFecha}` : ' del día'}. </>
+                    : tasaLista ? <>Sin tasa BCV cargada hoy: el monto en Bs sale al cargarla. </> : null}
+                  Se paga aparte en bolívares; no sale en el mensaje de WhatsApp.
+                </span>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Observación del analista al elegir la oferta (por qué la eligió) + adjuntos. */}
         {(o.oferta_motivo || (o.oferta_motivo_adjuntos && o.oferta_motivo_adjuntos.length > 0)) && (

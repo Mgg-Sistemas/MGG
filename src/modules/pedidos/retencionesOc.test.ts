@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { armarRetenciones, etiquetaRetencion, montoRetencion, retencionQueBajaElPago, retencionesDe, totalRetenciones } from './retencionesOc';
+import { armarRetenciones, etiquetaRetencion, impuestosEnBs, impuestosEnUsd, montoImpuestoEnBs, montoRetencion, retencionQueBajaElPago, retencionesDe, totalRetenciones } from './retencionesOc';
 
 describe('retenciones por tipo en la OC (03-11-2026)', () => {
   it('calcula por % del total o por monto fijo, a 2 decimales', () => {
@@ -21,6 +21,25 @@ describe('retenciones por tipo en la OC (03-11-2026)', () => {
     expect(retencionQueBajaElPago({ retenciones, retencion_momento: 'antes' })).toBe(12);
     expect(retencionQueBajaElPago({ retenciones, retencion_momento: 'despues' })).toBe(0);
     expect(retencionesDe({ retenciones: 'basura' })).toEqual([]);
+  });
+
+  it('guarda en qué moneda se paga cada impuesto y separa los de Bs (08-11-2026)', () => {
+    const rs = armarRetenciones({ IVA: { modo: 'pct', valor: 75, moneda_pago: 'Bs' }, ISLR: { modo: 'monto', valor: 2, moneda_pago: 'USD' } }, 100);
+    expect(rs).toEqual([
+      { tipo: 'IVA', modo: 'pct', valor: 75, monto: 75, moneda_pago: 'Bs' },
+      { tipo: 'ISLR', modo: 'monto', valor: 2, monto: 2 },
+    ]);
+    const leidas = retencionesDe({ retenciones: rs });
+    expect(impuestosEnBs(leidas).map((r) => r.tipo)).toEqual(['IVA']);
+    expect(impuestosEnUsd(leidas).map((r) => r.tipo)).toEqual(['ISLR']);
+    // Las de antes (sin dato) se pagan en $.
+    expect(impuestosEnBs(retencionesDe({ retenciones: [{ tipo: 'IVA', modo: 'pct', valor: 75, monto: 12 }] }))).toEqual([]);
+  });
+
+  it('monto del impuesto en Bs: × tasa en OC en $, tal cual en OC en Bs, null sin tasa', () => {
+    expect(montoImpuestoEnBs({ monto: 12 }, 'USD', 36.5)).toBe(438);
+    expect(montoImpuestoEnBs({ monto: 12 }, 'Bs', 36.5)).toBe(12);
+    expect(montoImpuestoEnBs({ monto: 12 }, 'USD', 0)).toBeNull();
   });
 
   it('etiqueta cada retención', () => {

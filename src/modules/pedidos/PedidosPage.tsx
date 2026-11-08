@@ -140,7 +140,7 @@ import { quienCargo, quienSolicita } from './quienSolicita';
 import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
 import { esOrdenDelFlujoNuevo, useFlujoCompras, useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
 import { etiquetaRetencionMomento, type RetencionMomento } from './retencionMomento';
-import { TIPOS_RETENCION, armarRetenciones, retencionesDe, totalRetenciones, type RetencionOc, type TipoRetencion } from './retencionesOc';
+import { TIPOS_RETENCION, armarRetenciones, retencionesDe, totalRetenciones, type MonedaImpuesto, type RetencionOc, type TipoRetencion } from './retencionesOc';
 import {
   desgloseAlmacen, etiquetaSede, fmtCant, mensajeRevisionAlmacen, mensajeSolicitudPedido, resumenRevision, SEDES_REVISION_ALMACEN,
   textoEstadoSedes, trasladosDeSolicitud,
@@ -1748,9 +1748,10 @@ function MetodoPagoModal({
       : Math.max(0, Math.round((Number(descStr) || 0) * 100) / 100);       // monto manual
   const netoAPagar = Math.round(Math.max(0, baseTotal - descNum) * 100) / 100;
   // Retenciones por tipo (03-11-2026): qué retienen y cuánto (% del total o monto fijo).
-  const [retMarc, setRetMarc] = useState<Partial<Record<TipoRetencion, { modo: 'pct' | 'monto'; valor: string }>>>({});
+  // 08-11-2026: cada impuesto dice si se paga en $ o en Bs (en Bs solo lo ve Tesorería).
+  const [retMarc, setRetMarc] = useState<Partial<Record<TipoRetencion, { modo: 'pct' | 'monto'; valor: string; moneda_pago: MonedaImpuesto }>>>({});
   const retenciones = useMemo(() => armarRetenciones(
-    Object.fromEntries(Object.entries(retMarc).map(([k, v]) => [k, { modo: v!.modo, valor: Number(String(v!.valor).replace(',', '.')) || 0 }])),
+    Object.fromEntries(Object.entries(retMarc).map(([k, v]) => [k, { modo: v!.modo, valor: Number(String(v!.valor).replace(',', '.')) || 0, moneda_pago: v!.moneda_pago }])),
     baseTotal,
   ), [retMarc, baseTotal]);
   const totalRet = totalRetenciones(retenciones);
@@ -2019,7 +2020,7 @@ function MetodoPagoModal({
                       <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', minWidth: 90 }}>
                         <input type="checkbox" checked={!!m} onChange={(e) => setRetMarc((x) => {
                           const n = { ...x };
-                          if (e.target.checked) n[tipo] = { modo: 'pct', valor: '' }; else delete n[tipo];
+                          if (e.target.checked) n[tipo] = { modo: 'pct', valor: '', moneda_pago: 'USD' }; else delete n[tipo];
                           return n;
                         })} />
                         <strong>{tipo}</strong>
@@ -2035,6 +2036,19 @@ function MetodoPagoModal({
                             placeholder={m.modo === 'pct' ? 'ej. 75' : '0,00'}
                             onChange={(e) => setRetMarc((x) => ({ ...x, [tipo]: { ...m, valor: e.target.value } }))} />
                           <span className="mono" style={{ color: 'var(--danger)' }}>− {money(calc?.monto ?? 0, monedaOrden)}</span>
+                          {/* 08-11-2026: ¿el impuesto se paga en $ o en Bs? En Bs solo lo ve Tesorería (no va al WhatsApp). */}
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25rem', marginLeft: '.25rem' }}>
+                            <span className="muted" style={{ fontSize: '.78rem' }}>Se paga en</span>
+                            {(['USD', 'Bs'] as const).map((mp) => (
+                              <button key={mp} type="button"
+                                className={m.moneda_pago === mp ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                                style={{ padding: '.1rem .5rem' }}
+                                title={mp === 'Bs' ? 'Tesorería lo paga en bolívares (tasa del día). No sale en el WhatsApp.' : 'Se paga en dólares'}
+                                onClick={() => setRetMarc((x) => ({ ...x, [tipo]: { ...m, moneda_pago: mp } }))}>
+                                {mp === 'USD' ? '$' : 'Bs'}
+                              </button>
+                            ))}
+                          </span>
                         </>
                       )}
                     </div>
@@ -2048,6 +2062,11 @@ function MetodoPagoModal({
                   {retMomento === 'antes'
                     ? <div>Total a pagar <strong className="mono" style={{ color: 'var(--success)' }}>{money(Math.max(0, netoAPagar - totalRet), monedaOrden)}</strong> <span className="muted">(Tesorería paga este monto)</span></div>
                     : <div className="muted">Tesorería paga el total completo; las retenciones quedan anotadas para Retenciones.</div>}
+                  {retenciones.some((r) => r.moneda_pago === 'Bs') && (
+                    <div className="muted" style={{ fontSize: '.8rem' }}>
+                      🏛 Se pagan en <strong>Bs</strong>: {retenciones.filter((r) => r.moneda_pago === 'Bs').map((r) => r.tipo).join(', ')} · solo los ve <strong>Tesorería</strong> (no salen en el WhatsApp).
+                    </div>
+                  )}
                 </div>
               )}
             </div>
