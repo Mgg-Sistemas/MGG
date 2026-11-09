@@ -62,6 +62,8 @@ export function textoCeldaRrhh(f: FilaReporteRrhh, clave: string): string {
       return f.estado === 'activo' ? 'Activo' : 'Inactivo';
     case 'genero':
       return f.genero === 'masculino' ? 'M' : f.genero === 'femenino' ? 'F' : '—';
+    case 'fecha_nacimiento':
+      return f.fechaNacimiento || '—';
     case 'fecha_ingreso':
       return f.fechaIngreso || '—';
     case 'antiguedad':

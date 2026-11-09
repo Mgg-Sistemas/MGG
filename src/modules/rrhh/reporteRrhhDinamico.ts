@@ -93,6 +93,7 @@ export const CAMPOS_REPORTE_RRHH: CampoColumnaRrhh[] = [
   { clave: 'departamento', etiqueta: 'Departamento', anchoExcel: 20, alineacion: 'left', formato: 'texto', ambitos: ['personal', 'historico_salarial'] },
   { clave: 'estado', etiqueta: 'Estado', anchoExcel: 12, alineacion: 'center', formato: 'texto', ambitos: ['personal'] },
   { clave: 'genero', etiqueta: 'Género', anchoExcel: 12, alineacion: 'center', formato: 'texto', ambitos: ['personal'] },
+  { clave: 'fecha_nacimiento', etiqueta: 'Fecha de Nacimiento', anchoExcel: 16, alineacion: 'center', formato: 'fecha', ambitos: ['personal'] },
   { clave: 'fecha_ingreso', etiqueta: 'Fecha Ingreso', anchoExcel: 13, alineacion: 'center', formato: 'fecha', ambitos: ['personal'] },
   { clave: 'antiguedad', etiqueta: 'Antigüedad', anchoExcel: 14, alineacion: 'left', formato: 'texto', ambitos: ['personal'] },
 
@@ -174,6 +175,7 @@ export interface FilaReporteRrhh {
   departamento: string;
   estado: 'activo' | 'inactivo';
   genero?: string;
+  fechaNacimiento?: string;
   fechaIngreso?: string;
   antiguedadAnios?: number;
   antiguedadTexto?: string;
@@ -371,6 +373,7 @@ export function normalizarPersonalRrhh(
       departamento: p.departamento?.trim() || 'General',
       estado: p.activo ? 'activo' : 'inactivo',
       genero: p.genero?.trim() || 'sin_cargar',
+      fechaNacimiento: p.fecha_nacimiento ? p.fecha_nacimiento.slice(0, 10) : undefined,
       fechaIngreso: p.fecha_ingreso ? p.fecha_ingreso.slice(0, 10) : undefined,
       antiguedadAnios: ant.anios,
       antiguedadTexto: ant.texto,

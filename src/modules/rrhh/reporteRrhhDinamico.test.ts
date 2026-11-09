@@ -13,7 +13,9 @@ import {
   obtenerMetricasFichaRrhh,
   calcularAntiguedad,
   rangoSalarialDe,
+  CAMPOS_REPORTE_RRHH,
 } from './reporteRrhhDinamico';
+import { textoCeldaRrhh } from './exportarRrhhDinamico';
 
 describe('reporteRrhhDinamico - Utilidades', () => {
   it('calcula rangos salariales correctamente', () => {
@@ -55,6 +57,7 @@ describe('reporteRrhhDinamico - Personal y Carga Familiar', () => {
       activo: true,
       empresa: 'MGG',
       genero: 'masculino',
+      fecha_nacimiento: '1990-04-12',
       fecha_ingreso: '2022-01-15',
       created_at: '2022-01-15T00:00:00Z',
     },
@@ -118,10 +121,12 @@ describe('reporteRrhhDinamico - Personal y Carga Familiar', () => {
     expect(carlos.cargaFamiliar).toBe(2);
     expect(carlos.empresaNombre).toBe('Mineral Group Guayana');
     expect(carlos.sueldoBs).toBe(450 * 42.5);
+    expect(carlos.fechaNacimiento).toBe('1990-04-12');
 
     const maria = filas.find((f) => f.id === 'p2')!;
     expect(maria.tieneHijos).toBe(false);
     expect(maria.cantidadHijos).toBe(0);
+    expect(maria.fechaNacimiento).toBeUndefined();
 
     const juan = filas.find((f) => f.id === 'p3')!;
     expect(juan.tieneHijos).toBe(false); // Tiene cónyuge pero NO hijos
@@ -150,6 +155,21 @@ describe('reporteRrhhDinamico - Personal y Carga Familiar', () => {
 
     const ambas = filtrarFilasRrhh(filas, { empresasSel: ['MGG', 'MTO'] });
     expect(ambas).toHaveLength(3);
+  });
+
+  it('incluye columna fecha_nacimiento y formatea celda en reporte', () => {
+    const colFechaNac = CAMPOS_REPORTE_RRHH.find((c) => c.clave === 'fecha_nacimiento');
+    expect(colFechaNac).toBeDefined();
+    expect(colFechaNac?.etiqueta).toBe('Fecha de Nacimiento');
+    expect(colFechaNac?.ambitos).toContain('personal');
+    expect(colFechaNac?.formato).toBe('fecha');
+
+    const filas = normalizarPersonalRrhh(personal, mapaEmpresas, tasaBcv, mapaFamilia);
+    const carlos = filas.find((f) => f.id === 'p1')!;
+    const maria = filas.find((f) => f.id === 'p2')!;
+
+    expect(textoCeldaRrhh(carlos, 'fecha_nacimiento')).toBe('1990-04-12');
+    expect(textoCeldaRrhh(maria, 'fecha_nacimiento')).toBe('—');
   });
 
   it('agrupa por carga familiar', () => {
