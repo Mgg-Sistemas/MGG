@@ -240,8 +240,8 @@ export async function sincronizarNombreProductos(
   }
 }
 
-/** Finalidad general de un pedido de reposición de mercado. */
-export const FINALIDAD_MERCADO = 'PEDIDO PARA RESTABLECER EL MERCADO';
+import { esPedidoMercado, FINALIDAD_MERCADO } from './mercadoDirecto';
+export { FINALIDAD_MERCADO };
 
 /**
  * Última compra de mercado: la SP/orden más reciente marcada como reposición de
@@ -290,8 +290,9 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     total,
     // Flujo nuevo (29-10-2026, apagado hasta que se active): la SP de productos pasa
     // primero por Almacén, que revisa qué tiene; lo que falta llega luego a Compras.
-    // La solicitud de MERCADO de cocina no pasa por Almacén: entra directo a Compras.
-    estado: (!esServicio && input.finalidad !== FINALIDAD_MERCADO && await flujoRevisionAlmacenActivo()
+    // Los pedidos de MERCADO (🛒 Solicitud de Mercado, o unidad COCINA / ALIMENTACION · 09-11-2026)
+    // no pasan por Almacén: entran directo a Compras.
+    estado: (!esServicio && !esPedidoMercado(input) && await flujoRevisionAlmacenActivo()
       ? 'revision_almacen' : 'pendiente') as EstadoOrden,
     notas: input.notas ?? null,
     motivo: input.motivo?.trim() || null,
