@@ -311,7 +311,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
         ci_solicitante: persona.trim() || null,
         urgente: true,
       });
-      notify(`Solicitud de MERCADO ${saved.codigo} · URGENTE enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });
+      notify(`Solicitud de MERCADO ${saved.codigo} · URGENTE · directo a cotización (cargar ofertas)`, 'success', { link: '#/app/pedidos', destino: 'admin' });
       toast(`Solicitud de mercado ${saved.codigo} creada`, 'success');
       onCreated();
     } catch (e) {
@@ -567,7 +567,7 @@ export function SolicitudMercadoModal({ productos, usuario, authEmail, onClose, 
       </div>
 
       <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.5rem' }}>
-        Se crea una <strong>Solicitud de Pedido</strong> (finalidad: {FINALIDAD_MERCADO}) sin monto; el precio lo fija el proveedor al cotizar. Entra al módulo de Pedidos para aprobación.
+        Se crea una <strong>Solicitud de Pedido</strong> (finalidad: {FINALIDAD_MERCADO}) sin monto; el precio lo fija el proveedor al cotizar. Va <strong>directo a cotización</strong> (Pendiente por cargar ofertas): no pasa por la revisión de almacén ni espera aprobación.
       </p>
     </Modal>
   );

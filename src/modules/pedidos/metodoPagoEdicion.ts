@@ -30,6 +30,9 @@ export function legsDesdeMetodoPago(
  * Una vez que hay plata movida (pago o abonos) el método es historia contable y no se toca.
  */
 export function motivoNoCorregible(o: Pick<Orden, 'estado' | 'pagada_en' | 'abonado_total'>): string | null {
+  // 09-11-2026: una cuenta a crédito (OC o servicio) se paga por abonos: el método de pago se
+  // indica (o se cambia) mientras siga abierta, aunque ya tenga abonos; sale en el WhatsApp.
+  if (o.estado === 'cuenta_abierta') return null;
   if (o.estado !== 'oc_aprobada') return 'Solo se corrige el método de pago de una OC en «Confirmada pagar».';
   if (o.pagada_en) return 'La OC ya se pagó: el método no se puede cambiar.';
   if ((Number(o.abonado_total) || 0) > 0) return 'La OC ya tiene abonos registrados: el método no se puede cambiar.';

@@ -241,7 +241,7 @@ describe('una orden a crédito manda el saldo, no el total', () => {
     expect(t).not.toContain('Saldo pendiente');
   });
 
-  it('en cuentas a crédito NO muestra método de pago (ni vacío ni con patas)', () => {
+  it('en cuentas a crédito sin método indicado no sale «Pago»', () => {
     const t = textoOrdenPago(CREDITO, 'DISTRIBUIDORA EL TORETE J&M, C.A');
     expect(t).not.toContain('💳');
     expect(t).not.toContain('Pago');
@@ -255,13 +255,16 @@ describe('una orden a crédito manda el saldo, no el total', () => {
     expect(tSinAbonos).not.toContain('💳');
     expect(tSinAbonos).not.toContain('(todavía sin método de pago indicado)');
 
-    // Orden con método_pago cargado previamente pero condición crédito: tampoco lo muestra
+  });
+
+  it('09-11-2026: en cuentas a crédito con método indicado, el método y sus datos SÍ salen', () => {
     const tConMetodo = textoOrdenPago({
       ...base,
       condiciones_pago: 'credito',
       estado: 'cuenta_abierta',
     } as unknown as Orden, 'MAXI SHOES');
-    expect(tConMetodo).not.toContain('💳');
+    expect(tConMetodo).toContain('💳');
+    expect(tConMetodo).not.toContain('(todavía sin método de pago indicado)');
   });
 
   it('esCuentaCredito detecta créditos por condición, estado o abonos previos', () => {

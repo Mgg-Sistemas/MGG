@@ -4951,6 +4951,8 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   const [metodoEdit, setMetodoEdit] = useState<string>('pago_movil');
   const [datosEdit, setDatosEdit] = useState<DatosPago>({});
   const [savingPago, setSavingPago] = useState(false);
+  // 09-11-2026: 💬 resumen por lote de las cuentas a crédito de Compras (¿se pagan o no?).
+  const [resumenWa, setResumenWa] = useState(false);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -5062,8 +5064,11 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
 
       {vista === 'oc' && (<>
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
+        <button className="btn btn-sm btn-ghost" onClick={() => setResumenWa(true)} disabled={loading}
+          title="Resumen por lote para WhatsApp: marca todas o una a una e indica si cada crédito se paga o no">💬 Resumen WhatsApp</button>
         <BotonReporteTesoreria ambito="creditos_cartera" />
       </div>
+      {resumenWa && <ResumenPorPagarModal creditos rows={ordenes} directos={[]} onClose={() => setResumenWa(false)} />}
       {loading && <p className="hint muted">Cargando…</p>}
       {!loading && !ordenes.length && <p className="hint muted" style={{ textAlign: 'center' }}>No hay compras a crédito con cuenta abierta. 🎉</p>}
       {!loading && ordenes.length > 0 && (
@@ -5113,6 +5118,18 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                   {provData.proveedor?.email && <div><span className="muted">Email:</span> {provData.proveedor.email}</div>}
                   {provData.proveedor?.direccion && <div style={{ gridColumn: '1 / -1' }}><span className="muted">Dirección:</span> {provData.proveedor.direccion}</div>}
                 </div>
+                {/* 09-11-2026: el método de pago que indicó Compras para este crédito. */}
+                {(o.metodo_pago ?? []).length > 0 && (
+                  <div style={{ marginTop: '.5rem', fontSize: '.84rem' }}>
+                    <span className="muted">💳 Método indicado por Compras:</span>{' '}
+                    {(o.metodo_pago ?? []).map((m, i) => (
+                      <span key={i} style={{ marginRight: '.5rem' }}>
+                        <span className="badge info">{labelMetodoPago(m.metodo)}{m.moneda ? ` · ${m.moneda}` : ''}</span>
+                        {m.datos && Object.keys(m.datos).length > 0 && <span className="muted"> {resumenDatosPago(m.metodo, m.datos as DatosPago)}</span>}
+                      </span>
+                    ))}
+                  </div>
+                )}
                 {/* Datos de pago guardados por método */}
                 {Object.keys(provData.datosPago).length > 0 ? (
                   <div style={{ marginTop: '.5rem', display: 'grid', gap: '.25rem' }}>

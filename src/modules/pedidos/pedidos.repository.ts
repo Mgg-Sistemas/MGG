@@ -263,13 +263,18 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
   const codigo = esServicio ? await nextCodigoServicio() : await nextCodigo();
   const total = input.items.reduce((a, i) => a + i.cantidad * i.precio, 0);
   const urgente = !!input.urgente;
+  // 09-11-2026: el pedido de MERCADO nace directo en cotización (aprobada · cargar ofertas):
+  // sin revisión de almacén y sin esperar la aprobación de la SP.
+  const mercado = !esServicio && esPedidoMercado(input);
+  const ahoraIso = new Date().toISOString();
   const historial: EventoHistorial[] = [
     {
-      at: new Date().toISOString(),
+      at: ahoraIso,
       evento: 'creada',
       actor: input.solicitante_email,
       ...(urgente ? { detalle: 'ORDEN URGENTE' } : {}),
     },
+    ...(mercado ? [{ at: ahoraIso, evento: 'mercado_directo', actor: input.solicitante_email, detalle: 'Pedido de mercado: directo a cotización (sin revisión de almacén ni aprobación)' }] : []),
   ];
   // El nombre del solicitante se SELLA cuando la orden nace. Si no se escribió
   // uno a mano, se toma el que la persona tiene hoy en su ficha. Sin esto la
@@ -291,9 +296,10 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     // Flujo nuevo (29-10-2026, apagado hasta que se active): la SP de productos pasa
     // primero por Almacén, que revisa qué tiene; lo que falta llega luego a Compras.
     // Los pedidos de MERCADO (🛒 Solicitud de Mercado, o unidad COCINA / ALIMENTACION · 09-11-2026)
-    // no pasan por Almacén: entran directo a Compras.
-    estado: (!esServicio && !esPedidoMercado(input) && await flujoRevisionAlmacenActivo()
-      ? 'revision_almacen' : 'pendiente') as EstadoOrden,
+    // no pasan por Almacén ni por aprobación: entran directo a cotización.
+    estado: (mercado ? 'aprobada'
+      : !esServicio && await flujoRevisionAlmacenActivo() ? 'revision_almacen' : 'pendiente') as EstadoOrden,
+    ...(mercado ? { aprobada_por: 'sistema · pedido de mercado', aprobada_en: ahoraIso } : {}),
     notas: input.notas ?? null,
     motivo: input.motivo?.trim() || null,
     finalidad: input.finalidad?.trim() || null,

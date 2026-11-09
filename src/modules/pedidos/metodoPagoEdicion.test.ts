@@ -55,6 +55,10 @@ describe('motivoNoCorregible', () => {
     expect(motivoNoCorregible(orden({ abonado_total: 30 }))).toMatch(/abonos/);
   });
 
+  it('una cuenta a crédito abierta sí (aunque tenga abonos · 09-11-2026)', () => {
+    expect(motivoNoCorregible(orden({ estado: 'cuenta_abierta', abonado_total: 30 }))).toBeNull();
+  });
+
   it('no deja corregir una OC que todavía no llegó a Confirmada pagar', () => {
     expect(motivoNoCorregible(orden({ estado: 'confirmada_metodo' }))).toMatch(/Confirmada pagar/);
   });

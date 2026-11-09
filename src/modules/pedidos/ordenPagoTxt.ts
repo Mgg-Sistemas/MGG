@@ -215,10 +215,12 @@ export function textoOrdenPago(
   if (enBs) L.push(enBs);
   // Quién entrega (04-11-2026): Delivery, Carga pesada o el proveedor a domicilio.
   if (orden.entrega_modalidad) L.push(`🚚 *Entrega:* ${etiquetaEntregaTxt(orden.entrega_modalidad)}`);
-  // En cuentas a crédito no se muestra método de pago (se paga por abonos en Tesorería;
-  // no lleva método fijo ni se muestra «todavía sin método de pago indicado»).
+  // En cuentas a crédito el método es opcional (se paga por abonos en Tesorería): sale solo
+  // si Compras lo indicó (09-11-2026), sin «todavía sin método de pago indicado».
   if (!esCuentaCredito(orden)) {
     L.push(...bloquePago(orden.metodo_pago, Number(orden.total) || 0, mon));
+  } else if ((orden.metodo_pago ?? []).length) {
+    L.push(...bloquePago(orden.metodo_pago, saldoPendiente(orden), mon));
   }
   L.push('🏢 *MINERAL GROUP GUAYANA C.A.*');
   return L.join('\n'); // saltos simples: WhatsApp los respeta

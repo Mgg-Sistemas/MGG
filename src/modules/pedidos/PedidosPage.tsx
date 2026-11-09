@@ -275,7 +275,7 @@ function eventLabel(ev: string): string {
       recibida: 'Recepción confirmada',
       finalizada: 'Pedido finalizado',
       revisada_almacen: 'Revisada por almacén',
-      mercado_directo: 'Pedido de mercado · pasa directo a Compras (sin revisión de almacén)',
+      mercado_directo: 'Pedido de mercado · directo a cotización (sin revisión de almacén ni aprobación)',
       destino_entrega: 'Destino de entrega indicado',
       pagada_sin_caja: 'Pagada sin descontar de caja (Tesorería)',
       retiro_confirmado: 'Retiro confirmado por Compras',
@@ -1328,7 +1328,9 @@ export function PedidosPage() {
               const email = usuario?.email ?? user?.email ?? 'sistema';
               const codigo = modal.orden.oc_codigo ?? modal.orden.codigo;
               await corregirMetodoPago(modal.orden, metodos, email, soporte.numeroAdministracion, soporte.entregaModalidad);
-              notify(`OC ${codigo} · método de pago corregido · Tesorería ya ve los datos nuevos`, 'success', { link: '#/app/tesoreria' });
+              notify(modal.orden.estado === 'cuenta_abierta'
+                ? `${codigo} · método de pago del crédito indicado · sale en el WhatsApp y Tesorería lo ve al abonar`
+                : `OC ${codigo} · método de pago corregido · Tesorería ya ve los datos nuevos`, 'success', { link: '#/app/tesoreria' });
               setModal({ kind: 'none' });
               await refresh();
             } catch (e) {
@@ -1839,7 +1841,7 @@ function MetodoPagoModal({
 
   return (
     <Modal
-      title={`${corrigiendo ? 'Corregir método de pago' : 'Método de pago'} · ${orden.clase === 'servicio' ? `SERVICIO ${orden.codigo}` : `OC ${orden.oc_codigo ?? orden.codigo}`}`}
+      title={`${corrigiendo ? (orden.estado === 'cuenta_abierta' ? 'Método de pago del crédito' : 'Corregir método de pago') : 'Método de pago'} · ${orden.clase === 'servicio' ? `SERVICIO ${orden.codigo}` : `OC ${orden.oc_codigo ?? orden.codigo}`}`}
       size="lg"
       onClose={onClose}
       footer={
@@ -1851,7 +1853,13 @@ function MetodoPagoModal({
         </>
       }
     >
-      {corrigiendo ? (
+      {corrigiendo && orden.estado === 'cuenta_abierta' ? (
+        <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
+          Indica <strong>cómo se le paga al proveedor</strong> esta cuenta a crédito: el método y los datos del beneficiario.
+          La cuenta <strong>no se mueve</strong>: sigue abierta y Tesorería registra los abonos. El método sale en el
+          <strong> WhatsApp para pagar</strong>, queda en la trazabilidad y los datos se guardan en la ficha del proveedor.
+        </p>
+      ) : corrigiendo ? (
         <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
           Corregí <strong>cómo se le paga al proveedor</strong>: el método y los datos del beneficiario (banco, CI/RIF, teléfono, cuenta).
           La OC <strong>no se mueve</strong>: sigue en <strong>Confirmada pagar</strong> y en la cola de Tesorería. El cambio queda
@@ -3338,7 +3346,11 @@ function OrdenDetailModal({
           {/* Una cuenta abierta se paga por abonos, y casi siempre la paga alguien
               que no entra al sistema: necesita el mismo papelito que una OC
               confirmada, pero con el SALDO en vez del total. */}
-          {botonWhatsappPago('Mandar el abono por WhatsApp con sus emojis: proveedor, total, lo ya abonado y el saldo pendiente')}
+          {botonWhatsappPago('Mandar el abono por WhatsApp con sus emojis: proveedor, total, lo ya abonado, el saldo pendiente y el método de pago')}
+          {/* 09-11-2026: el método de pago del crédito (sale en el WhatsApp y lo ve Tesorería al abonar). */}
+          <button className="btn btn-ghost" onClick={onCorregirPago} title="Indicar con qué método y a qué datos se le paga al proveedor: sale en el WhatsApp y lo ve Tesorería al abonar">
+            💳 {(o.metodo_pago ?? []).length ? 'Editar método de pago' : 'Indicar método de pago'}
+          </button>
           <button className="btn btn-ghost" onClick={onAbono} title="Ver la cuenta del crédito y el historial de abonos">
             📋 Ver crédito / historial
           </button>
@@ -5676,7 +5688,9 @@ function CrearOrdenModal({
       }
       // Con el flujo de almacén prendido la SP nace «En revisión de almacén» (lo decide la base
       // al crear): se avisa eso, no que fue a aprobación. Apagado, el aviso de siempre.
-      if (saved.estado === 'revision_almacen') {
+      if (saved.estado === 'aprobada') {
+        notify(`Pedido de mercado ${saved.codigo}${urgente ? ' · URGENTE' : ''} · directo a cotización (cargar ofertas)`, 'success', { link: '#/app/pedidos', destino: 'admin' });
+      } else if (saved.estado === 'revision_almacen') {
         notify(`${saved.codigo}${urgente ? ' · URGENTE' : ''} enviada a Almacén para revisión`, 'success', { link: '#/app/pedidos' });
       } else {
         notify(`Nueva orden de pedido ${saved.codigo}${urgente ? ' · URGENTE' : ''} enviada para aprobación`, 'success', { link: '#/app/pedidos', destino: 'admin' });

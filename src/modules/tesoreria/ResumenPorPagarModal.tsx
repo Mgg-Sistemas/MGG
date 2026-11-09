@@ -14,7 +14,7 @@ import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
 import type { DirectoFila } from '@/modules/pedidos/DirectosPorPagarModal';
 import { getTasaHoy, round2 } from './tasas.repository';
 import {
-  ETIQUETA_MOTIVO_LOTE, errorResumenPorPagar, textoResumenPorPagar, textoTesoreriaAlDia,
+  ETIQUETA_MOTIVO_LOTE, errorResumenPorPagar, textoResumenPorPagar, textoTesoreriaAlDia, textoCreditosAlDia,
   type ItemResumenPorPagar, type MotivoPagoLote,
 } from './resumenPorPagarWhatsapp';
 
@@ -22,16 +22,21 @@ interface Fila { id: string; codigo: string; proveedor: string; monto: number; m
 
 const esBs = (m: string | null | undefined) => (m ?? '').toUpperCase() === 'BS';
 
-export function ResumenPorPagarModal({ rows, directos, onClose }: {
+export function ResumenPorPagarModal({ rows, directos, onClose, creditos = false }: {
   rows: OrdenPorPagar[]; directos: DirectoFila[]; onClose: () => void;
+  /** 09-11-2026: cuentas a crédito de Compras (OC y servicios): el monto es el SALDO. */
+  creditos?: boolean;
 }) {
   const filas = useMemo<Fila[]>(() => [
     ...rows.map((r) => ({
       id: r.orden.id, codigo: r.orden.oc_codigo ?? r.orden.codigo, proveedor: r.proveedorNombre,
-      monto: Number(r.montoAPagar) || 0, moneda: r.orden.moneda ?? 'USD',
+      monto: creditos
+        ? Math.max(0, round2((Number(r.orden.total) || 0) - (Number(r.orden.abonado_total) || 0)))
+        : Number(r.montoAPagar) || 0,
+      moneda: r.orden.moneda ?? 'USD',
     })),
     ...directos.map((f) => ({ id: `dir-${f.kind}-${f.id}`, codigo: f.codigo, proveedor: f.titulo, monto: Number(f.total) || 0, moneda: f.moneda })),
-  ], [rows, directos]);
+  ], [rows, directos, creditos]);
 
   const [tasa, setTasa] = useState(0);
   useEffect(() => { getTasaHoy().then((t) => setTasa(Number(t.usd) || 0)).catch(() => setTasa(0)); }, []);
@@ -55,7 +60,7 @@ export function ResumenPorPagarModal({ rows, directos, onClose }: {
   }
   function generar() {
     // 07-11-2026: sin ninguna orden por pagar, el mensaje dice «Tesorería al día».
-    if (!filas.length) { setTexto(textoTesoreriaAlDia(new Date())); return; }
+    if (!filas.length) { setTexto(creditos ? textoCreditosAlDia(new Date()) : textoTesoreriaAlDia(new Date())); return; }
     if (hayBsSinTasa) { toast('No hay tasa BCV del día: no se pueden pasar a $ las órdenes en Bs.', 'error'); return; }
     const items: ItemResumenPorPagar[] = seleccionadas.map((f) => ({
       codigo: f.codigo, proveedor: f.proveedor, montoUsd: enUsd(f),
@@ -63,19 +68,19 @@ export function ResumenPorPagarModal({ rows, directos, onClose }: {
     }));
     const err = errorResumenPorPagar(items);
     if (err) { toast(err, 'error'); return; }
-    setTexto(textoResumenPorPagar(items, new Date()));
+    setTexto(textoResumenPorPagar(items, new Date(), { creditos }));
   }
 
   return (
-    <Modal title="💬 Resumen por WhatsApp · Órdenes por pagar" size="lg" onClose={onClose} footer={<>
+    <Modal title={creditos ? '💬 Resumen por WhatsApp · Cuentas a crédito' : '💬 Resumen por WhatsApp · Órdenes por pagar'} size="lg" onClose={onClose} footer={<>
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
       <button className="btn btn-primary" disabled={filas.length > 0 && !seleccionadas.length} onClick={generar}>
-        {filas.length ? `💬 Generar resumen (${seleccionadas.length})` : '💬 Generar «Tesorería al día»'}
+        {filas.length ? `💬 Generar resumen (${seleccionadas.length})` : creditos ? '💬 Generar «Sin créditos pendientes»' : '💬 Generar «Tesorería al día»'}
       </button>
     </>}>
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Marca todas o una a una e indica el <strong>motivo de pago</strong> de cada una. El mensaje lleva el código, el proveedor,
-        el monto a pagar en $, el total y la fecha en que se genera.
+        {creditos ? <> el <strong>saldo</strong> en $ de cada crédito</> : <> el monto a pagar en $</>}, el total y la fecha en que se genera.
       </p>
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.6rem' }}>
         <label style={{ display: 'inline-flex', gap: '.35rem', alignItems: 'center', cursor: 'pointer', fontWeight: 600 }}>
@@ -91,10 +96,10 @@ export function ResumenPorPagarModal({ rows, directos, onClose }: {
         <table className="table" style={{ fontSize: '.82rem' }}>
           <thead><tr>
             <th style={{ width: 28 }}></th><th>Código</th><th>Proveedor</th>
-            <th style={{ textAlign: 'right' }}>A pagar $</th><th>Motivo de pago</th>
+            <th style={{ textAlign: 'right' }}>{creditos ? 'Saldo $' : 'A pagar $'}</th><th>Motivo de pago</th>
           </tr></thead>
           <tbody>
-            {!filas.length && <tr><td colSpan={5} style={{ textAlign: 'center', fontWeight: 700 }}>ÓRDENES PENDIENTES POR PAGAR: 0 · <span style={{ color: 'var(--success)' }}>✅ TESORERÍA AL DÍA EN PAGOS PENDIENTES</span></td></tr>}
+            {!filas.length && <tr><td colSpan={5} style={{ textAlign: 'center', fontWeight: 700 }}>{creditos ? 'CUENTAS A CRÉDITO PENDIENTES: 0' : 'ÓRDENES PENDIENTES POR PAGAR: 0'} · <span style={{ color: 'var(--success)' }}>✅ {creditos ? 'TESORERÍA AL DÍA EN CUENTAS A CRÉDITO' : 'TESORERÍA AL DÍA EN PAGOS PENDIENTES'}</span></td></tr>}
             {filas.map((f) => {
               const m = motivos[f.id] ?? 'si';
               const marcada = marcadas.has(f.id);
@@ -132,7 +137,7 @@ export function ResumenPorPagarModal({ rows, directos, onClose }: {
         </table>
       </div>
       {hayBsSinTasa && <p className="hint" style={{ color: 'var(--danger)' }}>Falta la tasa BCV del día para pasar a $ las órdenes en Bs.</p>}
-      {texto && <MensajeWhatsappModal titulo="Resumen · Órdenes por pagar" texto={texto} onClose={() => setTexto(null)} />}
+      {texto && <MensajeWhatsappModal titulo={creditos ? 'Resumen · Cuentas a crédito' : 'Resumen · Órdenes por pagar'} texto={texto} onClose={() => setTexto(null)} />}
     </Modal>
   );
 }

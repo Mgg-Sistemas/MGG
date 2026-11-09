@@ -73,20 +73,40 @@ export function textoTesoreriaAlDia(ahora: Date): string {
   ].join('\n');
 }
 
-export function textoResumenPorPagar(items: ItemResumenPorPagar[], ahora: Date): string {
+/** 09-11-2026: no hay ninguna cuenta a crédito de Compras por pagar. */
+export function textoCreditosAlDia(ahora: Date): string {
+  return [
+    '🧾 *RESUMEN · CUENTAS A CRÉDITO POR PAGAR*',
+    `📅 *Generado:* ${fechaHoraResumen(ahora)}`,
+    '',
+    '🧾 *CUENTAS A CRÉDITO PENDIENTES: 0*',
+    '',
+    '✅ *TESORERÍA AL DÍA EN CUENTAS A CRÉDITO*',
+    '',
+    `🏢 *${identidadEmpresa().nombre}*`,
+  ].join('\n');
+}
+
+/**
+ * `creditos` (09-11-2026): el mismo resumen para las cuentas a crédito de Compras
+ * (OC y servicios): el monto de cada una es su SALDO pendiente.
+ */
+export function textoResumenPorPagar(items: ItemResumenPorPagar[], ahora: Date, opts?: { creditos?: boolean }): string {
+  const cred = !!opts?.creditos;
   const L: string[] = [];
-  L.push('🧾 *RESUMEN · ÓRDENES POR PAGAR*');
+  L.push(cred ? '🧾 *RESUMEN · CUENTAS A CRÉDITO POR PAGAR*' : '🧾 *RESUMEN · ÓRDENES POR PAGAR*');
   L.push(`📅 *Generado:* ${fechaHoraResumen(ahora)}`);
   L.push('');
   items.forEach((it, i) => {
     L.push(`${i + 1}. 🔹 *${unaLinea(it.codigo) || '—'}* · ${unaLinea(it.proveedor) || '—'}`);
-    L.push(`    💵 *A pagar:* ${usd(it.montoUsd)} · ${estadoItemResumen(it)}`);
+    L.push(`    💵 *${cred ? 'Saldo' : 'A pagar'}:* ${usd(it.montoUsd)} · ${estadoItemResumen(it)}`);
   });
   const total = items.reduce((a, it) => a + (Number(it.montoUsd) || 0), 0);
   const sePagan = items.filter((it) => it.motivo === 'si');
   const totalSi = sePagan.reduce((a, it) => a + (Number(it.montoUsd) || 0), 0);
   L.push('');
-  L.push(`💰 *Total (${items.length} ${items.length === 1 ? 'orden' : 'órdenes'}):* *${usd(total)}*`);
+  const unidad = cred ? (items.length === 1 ? 'cuenta' : 'cuentas') : (items.length === 1 ? 'orden' : 'órdenes');
+  L.push(`💰 *Total (${items.length} ${unidad}):* *${usd(total)}*`);
   // Si no todas se pagan, cuánto sí sale hoy.
   if (sePagan.length !== items.length) {
     L.push(`✅ *Se pagarán (${sePagan.length}):* *${usd(totalSi)}*`);
