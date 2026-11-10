@@ -40,22 +40,24 @@ function err(e: { message?: string } | null | unknown, porDefecto: string): Erro
 }
 
 /** Un producto con su stock EN ESTE almacén (no el global). */
-export type ProductoEnAlmacen = Producto & { stock_almacen: number };
+/** `costo_almacen` (10-11-2026): el PMP de ESE almacén (0 si no tiene); la entrada lo usa como en la PC. */
+export type ProductoEnAlmacen = Producto & { stock_almacen: number; costo_almacen?: number };
 
 /**
  * Los productos activos de un almacén con su stock ahí: los que tienen existencia en
  * ese almacén y los que tienen ese almacén como hogar aunque estén en 0.
  */
 export async function productosDeAlmacen(almacen: string): Promise<ProductoEnAlmacen[]> {
-  const exist: Array<{ producto_id: string; stock: number }> = [];
+  const exist: Array<{ producto_id: string; stock: number; costo_promedio?: number | null }> = [];
   for (let i = 0; ; i += PAGINA) {
-    const { data, error } = await supabase.from('existencias').select('producto_id, stock')
+    const { data, error } = await supabase.from('existencias').select('producto_id, stock, costo_promedio')
       .eq('almacen', almacen).order('producto_id').range(i, i + PAGINA - 1);
     if (error) throw error;
-    exist.push(...((data ?? []) as Array<{ producto_id: string; stock: number }>));
+    exist.push(...((data ?? []) as Array<{ producto_id: string; stock: number; costo_promedio?: number | null }>));
     if (!data || data.length < PAGINA) break;
   }
   const stock = new Map(exist.map((e) => [e.producto_id, Number(e.stock) || 0]));
+  const costoAlm = new Map(exist.map((e) => [e.producto_id, Number(e.costo_promedio) || 0]));
   const ids = [...stock.keys()];
   const prods = new Map<string, Producto>();
   for (let i = 0; i < ids.length; i += 200) {
@@ -67,7 +69,7 @@ export async function productosDeAlmacen(almacen: string): Promise<ProductoEnAlm
   if (hErr) throw hErr;
   for (const p of (hogar ?? []) as Producto[]) if (!prods.has(p.id)) prods.set(p.id, p);
   return [...prods.values()]
-    .map((p) => ({ ...p, stock_almacen: stock.get(p.id) ?? 0 }))
+    .map((p) => ({ ...p, stock_almacen: stock.get(p.id) ?? 0, costo_almacen: costoAlm.get(p.id) ?? 0 }))
     .sort((a, b) => (b.stock_almacen > 0 ? 1 : 0) - (a.stock_almacen > 0 ? 1 : 0) || a.nombre.localeCompare(b.nombre, 'es'));
 }
 

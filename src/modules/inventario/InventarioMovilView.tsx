@@ -979,9 +979,15 @@ function FormEntrada({ almacen, producto, actor, actorName, quien, onCancel, onH
   const [nota, setNota] = useState('');
   const [guardando, setGuardando] = useState(false);
   const cant = leerCantidad(cantidad);
-  const precio = leerCantidad(costo);
   const hay = producto.stock_almacen;
-  const costoActual = Number(producto.precio) || 0;
+  // Como en la PC: el costo de ESTE almacén y, si no tiene, el precio del producto.
+  const costoActual = Number(producto.costo_almacen) || Number(producto.precio) || 0;
+  // 10-11-2026 (pedido de la administradora): si el producto ya tiene precio, el costo no es
+  // obligatorio: vacío = entra al precio que tiene (lo mantiene). Si se escribe otro, se promedia (PMP).
+  const escrito = leerCantidad(costo);
+  const precio = escrito > 0 ? escrito : costoActual;
+  const pmpNuevo = cant > 0 && precio > 0 && hay + cant > 0
+    ? ((Math.max(0, hay) * costoActual) + cant * precio) / (Math.max(0, hay) + cant) : 0;
 
   async function guardar(e: FormEvent) {
     e.preventDefault();
@@ -1022,11 +1028,14 @@ function FormEntrada({ almacen, producto, actor, actorName, quien, onCancel, onH
         {cant > 0 && <small className="muted">Queda en {num(hay + cant)} {producto.unidad}.</small>}
       </div>
       <div className="surt-campo">
-        <label htmlFor="inv-tel-entrada-costo">Costo c/u (USD) *</label>
+        <label htmlFor="inv-tel-entrada-costo">Costo c/u (USD){costoActual > 0 ? '' : ' *'}</label>
         <input id="inv-tel-entrada-costo" className="input surt-input" inputMode="decimal" value={costo}
-          onChange={(e) => setCosto(e.target.value)} placeholder="Obligatorio" />
+          onChange={(e) => setCosto(e.target.value)}
+          placeholder={costoActual > 0 ? `Vacío = $${num(costoActual)} (mantiene el precio)` : 'Obligatorio'} />
         <small className="muted">
-          {costoActual > 0 ? `Costo promedio actual: $${num(costoActual)}. ` : ''}Lo que costó cada {producto.unidad || 'unidad'} que llegó.
+          {costoActual > 0
+            ? <>Precio actual: <strong>${num(costoActual)}</strong>. Si lo dejas vacío entra a ese precio. Si escribes otro costo, se saca el <strong>costo promedio (PMP)</strong>{escrito > 0 && cant > 0 ? <>: queda en <strong>${num(pmpNuevo)}</strong></> : ''}.</>
+            : <>Lo que costó cada {producto.unidad || 'unidad'} que llegó.</>}
         </small>
       </div>
       <div className="surt-campo">
