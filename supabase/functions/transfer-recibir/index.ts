@@ -8,6 +8,10 @@
 //   - 'transferencia' (recurso 'casiterita'): entra DIRECTO al inventario (almacén
 //     de casiterita de Los Pinos), valuada a la tasa informada (PMP). Registra la
 //     entrante en estado 'recibida' e idempotente por transf_id. Devuelve el ACK.
+//   - 'transferencia' (recurso 'material', 10/11/2026): productos del Almacén Los
+//     Pinos de GT → entrante 'por_confirmar'. El almacenista de MGG empareja cada
+//     renglón con un producto (o lo crea) y al aceptar entra al Almacén Los Pinos
+//     con el costo de GT (PMP). Idempotente por transf_id.
 //   - 'ack': marca la transferencia SALIENTE local como 'recibida' (el otro
 //     sistema confirmó la recepción).
 //
@@ -136,9 +140,11 @@ Deno.serve(async (req) => {
 
   // El recurso determina la tabla/flujo: dinero (default) · combustible · casiterita.
   const recurso = payload.recurso === 'combustible' ? 'combustible'
-    : payload.recurso === 'casiterita' ? 'casiterita' : 'dinero';
+    : payload.recurso === 'casiterita' ? 'casiterita'
+    : payload.recurso === 'material' ? 'material' : 'dinero';
   const TABLE = recurso === 'combustible' ? 'transferencias_combustible_inter'
-    : recurso === 'casiterita' ? 'transferencias_casiterita_inter' : 'transferencias_inter';
+    : recurso === 'casiterita' ? 'transferencias_casiterita_inter'
+    : recurso === 'material' ? 'transferencias_material_inter' : 'transferencias_inter';
 
   // ── ACK: el otro sistema confirmó nuestra saliente ──
   if (payload.tipo === 'ack') {
@@ -152,6 +158,43 @@ Deno.serve(async (req) => {
   // ── Idempotencia: si ya existe esta transf_id, no reprocesar ──
   const { data: existe } = await supabase.from(TABLE).select('id, estado').eq('transf_id', transfId).maybeSingle();
   if (existe) return json({ ok: true, dedup: true, estado: (existe as { estado: string }).estado });
+
+  // ── MATERIAL (10/11/2026): queda «por confirmar» para el almacenista de Los Pinos ──
+  if (recurso === 'material') {
+    const txt = (v: unknown, max: number) => (v == null ? null : String(v).trim().slice(0, max) || null);
+    const crudos = Array.isArray(payload.items) ? (payload.items as Record<string, unknown>[]) : [];
+    if (!crudos.length || crudos.length > 200) return json({ error: 'items inválidos' }, 400);
+    const items: Record<string, unknown>[] = [];
+    for (const i of crudos) {
+      const cantidad = Number(i?.cantidad);
+      const nombre = txt(i?.nombre, 300);
+      if (!nombre || !Number.isFinite(cantidad) || cantidad <= 0 || cantidad > 1e9) return json({ error: 'items inválidos' }, 400);
+      const costoRaw = i?.costo_unitario;
+      const costo = costoRaw == null || costoRaw === '' ? null : Number(costoRaw);
+      items.push({
+        sku: txt(i?.sku, 80), nombre, unidad: txt(i?.unidad, 40), categoria: txt(i?.categoria, 120),
+        cantidad: Math.round(cantidad * 10000) / 10000,
+        costo_unitario: costo != null && Number.isFinite(costo) && costo >= 0 ? Math.round(costo * 10000) / 10000 : null,
+      });
+    }
+    const totalUsd = Number(payload.total_usd);
+    const { error } = await supabase.from('transferencias_material_inter').insert({
+      transf_id: transfId, direccion: 'entrante', estado: 'por_confirmar',
+      empresa_origen: txt(payload.empresa_origen, 80) ?? 'otro sistema',
+      empresa_destino: txt(payload.empresa_destino, 80) ?? 'mgg',
+      almacen_origen: txt(payload.almacen_origen, 120),
+      almacen_destino: (Deno.env.get('INTER_MATERIAL_ALMACEN') || 'Los Pinos').trim(),
+      items, total_usd: Number.isFinite(totalUsd) ? Math.round(totalUsd * 100) / 100 : null,
+      resumen: txt(payload.resumen, 500), motivo: txt(payload.motivo, 500),
+      callback_base: txt(payload.callback_base, 300),
+      actor: txt(payload.actor, 200), actor_name: txt(payload.actor_name, 200),
+    });
+    if (error) {
+      if ((error as { code?: string }).code === '23505') return json({ ok: true, dedup: true });
+      return json({ error: error.message }, 500);
+    }
+    return json({ ok: true, recurso: 'material', por_confirmar: true });
+  }
 
   // ── CASITERITA: entra DIRECTO al inventario (Los Pinos casiterita), valuada a la tasa ──
   if (recurso === 'casiterita') {

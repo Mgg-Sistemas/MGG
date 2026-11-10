@@ -69,6 +69,7 @@ import { AlmacenKanban } from './AlmacenKanban';
 // Los generadores de PDF/Excel de almacén se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir.
 import { AlmacenForm } from './AlmacenForm';
 import { GestionAlmacenesModal } from './GestionAlmacenesModal';
+import { MaterialGtPorRecibir } from './MaterialGtPorRecibir';
 import {
   listAlmacenes,
   listExistencias,
@@ -925,6 +926,8 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen' })} title="Resumen de inventario: almacenes, productos nuevos, salidas y traslados">
             📊 Resumen
           </button>
+          {/* 10/11/2026: lo que Golden Touch envió a Los Pinos por el puente (se confirma aquí). */}
+          <MaterialGtPorRecibir actor={productoActor} actorName={actorName} canWrite={canWrite} />
           {/* Cola de valuación: solo aparece si hay algo pendiente, y desaparece al vaciarse. */}
           {sinCosto > 0 && (
             <button

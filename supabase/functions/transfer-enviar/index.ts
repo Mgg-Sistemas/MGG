@@ -29,6 +29,7 @@ const TABLA_POR_RECURSO: Record<string, string> = {
   dinero: 'transferencias_inter',
   combustible: 'transferencias_combustible_inter',
   casiterita: 'transferencias_casiterita_inter',
+  material: 'transferencias_material_inter',
 };
 
 /** Un callback válido es una URL http(s) absoluta con host. Nada de rutas relativas ni esquemas raros. */
@@ -65,6 +66,7 @@ Deno.serve(async (req) => {
     // si no, se buscan las tres.
     const recurso = payload.recurso === 'combustible' ? 'combustible'
       : payload.recurso === 'casiterita' ? 'casiterita'
+      : payload.recurso === 'material' ? 'material'
       : payload.recurso === 'dinero' ? 'dinero' : null;
     const tablas = recurso ? [TABLA_POR_RECURSO[recurso]] : Object.values(TABLA_POR_RECURSO);
 
