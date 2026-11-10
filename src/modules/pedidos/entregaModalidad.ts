@@ -43,12 +43,13 @@ export const CORTE_DELIVERY_ISO = '2026-11-03T04:00:00.000Z';
 /**
  * 06-11-2026: ¿la OC está en «Pendientes por recibir»? Pagada, sin recibir, de productos, y
  * Compras todavía no confirmó el retiro (ni quién entrega). Mientras tanto el delivery no la ve.
+ * 10-11-2026: sin el corte del 03-11 (la confirmación de Compras es la puerta): una OC pagada antes,
+ * como OC-2026-0201 (29-10), también se puede mandar al delivery. La base acepta lo confirmado.
  */
 export function pendienteRetiro(o: Pick<Orden, 'estado' | 'clase' | 'condiciones_pago' | 'oc_codigo' | 'recibida_en' | 'pagada_en' | 'retiro_confirmado_en'>): boolean {
   return o.estado === 'pagada'
     && !o.recibida_en
     && !o.retiro_confirmado_en
     && !!o.oc_codigo
-    && pideEntrega(o)
-    && !!o.pagada_en && new Date(o.pagada_en).getTime() >= new Date(CORTE_DELIVERY_ISO).getTime();
+    && pideEntrega(o);
 }

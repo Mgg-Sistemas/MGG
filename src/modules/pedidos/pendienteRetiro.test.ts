@@ -26,8 +26,8 @@ describe('pendienteRetiro (06-11-2026)', () => {
     expect(pendienteRetiro({ ...base, oc_codigo: null })).toBe(false);
     expect(pendienteRetiro({ ...base, estado: 'oc_aprobada' })).toBe(false);
   });
-  it('las pagadas antes del 03-11 (antes del delivery) no entran', () => {
-    expect(pendienteRetiro({ ...base, pagada_en: '2026-11-02T20:00:00.000Z' })).toBe(false);
+  it('10-11-2026: las pagadas antes del 03-11 también se pueden mandar al delivery', () => {
+    expect(pendienteRetiro({ ...base, pagada_en: '2026-10-29T14:43:46.703Z' })).toBe(true);
     expect(pendienteRetiro({ ...base, pagada_en: '2026-11-03T04:00:00.000Z' })).toBe(true);
   });
 });
