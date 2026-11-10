@@ -106,6 +106,7 @@ import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.reposi
 import { legsDesdeMetodoPago, motivoNoCorregible } from './metodoPagoEdicion';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
+import { CALIDAD_LABELS, calcularPuntualidadAutomatica, validarArchivoFactura } from './finalizarPedidoEvaluacion';
 import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSkuLibre, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
 import { normalizarNombre, productosSimilares, type Duplicado } from '@/modules/inventario/duplicados';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
@@ -1500,16 +1501,14 @@ function FinalizarPedidoModal({
 }) {
   const [factura, setFactura] = useState<File | null>(null);
   const [calidad, setCalidad] = useState(5);
-  const [puntualidad, setPuntualidad] = useState<'por_fecha' | 'en_fecha' | 'adelantado' | 'atrasado'>('por_fecha');
-  const [dias, setDias] = useState('1');
+  const [hoverCalidad, setHoverCalidad] = useState<number | null>(null);
   const [comentario, setComentario] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fecha prometida (de la oferta elegida) vs fecha de recibido → calcula los días.
+  // Fecha prometida (de la oferta elegida) vs fecha de recibido → calcula los días automáticamente.
   const hoyISO = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(new Date());
   const [fechaPrometida, setFechaPrometida] = useState('');
-  const [fechaRecibido, setFechaRecibido] = useState(hoyISO);
   // En una sub-OC la oferta aceptada vive en la orden madre: buscándola solo acá no
   // aparecía nunca y la fecha prometida salía vacía, así que la puntualidad del
   // proveedor se terminaba evaluando a mano en toda compra multiproveedor.
@@ -1523,32 +1522,17 @@ function FinalizarPedidoModal({
           ?? ofs.find((o) => o.fecha_entrega_prometida);
         if (elegida?.fecha_entrega_prometida) setFechaPrometida(elegida.fecha_entrega_prometida.slice(0, 10));
       })
-      .catch(() => { /* sin oferta: el usuario coloca la fecha prometida a mano */ });
+      .catch(() => { /* sin oferta o error de red */ });
   }, [ordenesOferta, orden.proveedor_id]);
-
-  // Días (firmado): + adelantado (recibido antes de lo prometido), − atrasado.
-  const diasPorFecha = (() => {
-    if (!fechaPrometida || !fechaRecibido) return null;
-    const p = new Date(`${fechaPrometida}T00:00:00`).getTime();
-    const r = new Date(`${fechaRecibido}T00:00:00`).getTime();
-    if (isNaN(p) || isNaN(r)) return null;
-    return Math.round((p - r) / 86_400_000);
-  })();
-
-  const CALIDAD_LABEL: Record<number, string> = {
-    5: '5 · Excelente', 4: '4 · Buena', 3: '3 · Aceptable', 2: '2 · Deficiente', 1: '1 · Muy mala',
-  };
 
   async function handle() {
     setError(null);
-    let puntualidadDias: number;
-    if (puntualidad === 'por_fecha') {
-      if (diasPorFecha == null) { setError('Indicá la fecha prometida y la de recibido.'); return; }
-      puntualidadDias = diasPorFecha;
-    } else {
-      const d = Math.max(0, Math.floor(Number(dias) || 0));
-      puntualidadDias = puntualidad === 'en_fecha' ? 0 : puntualidad === 'adelantado' ? d : -d;
+    const errFactura = validarArchivoFactura(factura);
+    if (errFactura) {
+      setError(errFactura);
+      return;
     }
+    const puntualidadDias = calcularPuntualidadAutomatica(fechaPrometida, hoyISO);
     setSaving(true);
     try {
       await onConfirm({ calidad, puntualidadDias, comentario: comentario.trim(), factura });
@@ -1557,6 +1541,8 @@ function FinalizarPedidoModal({
       setSaving(false);
     }
   }
+
+  const ratingVisual = hoverCalidad ?? calidad;
 
   return (
     <Modal
@@ -1581,56 +1567,48 @@ function FinalizarPedidoModal({
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
       <div className="form-row">
-        <label>Calidad a evaluar *</label>
-        <select className="select" value={calidad} onChange={(e) => setCalidad(Number(e.target.value))}>
-          {[5, 4, 3, 2, 1].map((n) => <option key={n} value={n}>{CALIDAD_LABEL[n]}</option>)}
-        </select>
-      </div>
-
-      <div className="form-grid">
-        <div className="form-row">
-          <label>Puntualidad *</label>
-          <select className="select" value={puntualidad} onChange={(e) => setPuntualidad(e.target.value as typeof puntualidad)}>
-            <option value="por_fecha">Por fecha prometida</option>
-            <option value="en_fecha">En la fecha prometida</option>
-            <option value="adelantado">Adelantado</option>
-            <option value="atrasado">Atrasado</option>
-          </select>
+        <label style={{ display: 'block', marginBottom: '.35rem', fontWeight: 600 }}>Calificación del proveedor *</label>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap' }}>
+          <div
+            role="group"
+            aria-label="Calificación de 1 a 5 estrellas"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            onMouseLeave={() => setHoverCalidad(null)}
+          >
+            {[1, 2, 3, 4, 5].map((star) => {
+              const activo = star <= ratingVisual;
+              return (
+                <button
+                  key={star}
+                  type="button"
+                  onClick={() => setCalidad(star)}
+                  onMouseEnter={() => setHoverCalidad(star)}
+                  onFocus={() => setHoverCalidad(star)}
+                  onBlur={() => setHoverCalidad(null)}
+                  title={CALIDAD_LABELS[star]}
+                  aria-label={`${star} estrella${star > 1 ? 's' : ''}`}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    padding: '6px 4px',
+                    fontSize: '2.3rem',
+                    lineHeight: 1,
+                    cursor: 'pointer',
+                    color: activo ? 'var(--warning, #f5b133)' : 'rgba(150, 150, 150, 0.35)',
+                    transform: activo ? 'scale(1.12)' : 'scale(1)',
+                    transition: 'transform 0.15s ease, color 0.15s ease',
+                  }}
+                >
+                  ★
+                </button>
+              );
+            })}
+          </div>
+          <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--text)' }}>
+            {CALIDAD_LABELS[ratingVisual]}
+          </span>
         </div>
-        {(puntualidad === 'adelantado' || puntualidad === 'atrasado') && (
-          <div className="form-row">
-            <label>Días {puntualidad === 'adelantado' ? 'de adelanto' : 'de atraso'}</label>
-            <input className="input mono" type="number" min={0} step={1} value={dias} onChange={(e) => setDias(e.target.value)} />
-          </div>
-        )}
       </div>
-
-      {/* Por fecha prometida: fecha de la oferta vs. fecha de recibido → calcula los días */}
-      {puntualidad === 'por_fecha' && (
-        <>
-          <div className="form-grid">
-            <div className="form-row">
-              <label>Fecha prometida (de la oferta)</label>
-              <input className="input" type="date" value={fechaPrometida} onChange={(e) => setFechaPrometida(e.target.value)} />
-              <small className="hint muted">{fechaPrometida ? 'Tomada de la oferta del proveedor; podés ajustarla.' : 'La oferta no tiene fecha prometida: colocala acá.'}</small>
-            </div>
-            <div className="form-row">
-              <label>Fecha de recibido</label>
-              <input className="input" type="date" value={fechaRecibido} onChange={(e) => setFechaRecibido(e.target.value)} />
-              <small className="hint muted">Por defecto, hoy.</small>
-            </div>
-          </div>
-          {diasPorFecha != null && (
-            <div className="card" style={{ margin: '.1rem 0 .6rem' }}>
-              {diasPorFecha === 0
-                ? <>✓ Recibido <strong>en la fecha prometida</strong>.</>
-                : diasPorFecha > 0
-                  ? <>✓ Recibido <strong>{diasPorFecha} día(s) antes</strong> de lo prometido (adelantado).</>
-                  : <>⚠ Recibido <strong>{Math.abs(diasPorFecha)} día(s) después</strong> de lo prometido (atrasado).</>}
-            </div>
-          )}
-        </>
-      )}
 
       {/* Cargar la factura al finalizar (queda en la calificación del proveedor). */}
       <div className="form-row">
@@ -1638,7 +1616,8 @@ function FinalizarPedidoModal({
         <input className="input" type="file" accept="application/pdf,image/*"
           onChange={(e) => {
             const f = e.target.files?.[0] ?? null;
-            if (f && f.size > 10 * 1024 * 1024) { setError('La factura no puede superar 10 MB.'); e.target.value = ''; return; }
+            const err = validarArchivoFactura(f);
+            if (err) { setError(err); e.target.value = ''; return; }
             setError(null); setFactura(f);
           }} />
         {factura
