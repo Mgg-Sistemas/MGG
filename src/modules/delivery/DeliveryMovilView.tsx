@@ -60,6 +60,8 @@ const esImagen = (f: File) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|
 const leerGps = () => { try { return localStorage.getItem(CLAVE_GPS) !== '0'; } catch { return true; } };
 const guardarGps = (v: boolean) => { try { localStorage.setItem(CLAVE_GPS, v ? '1' : '0'); } catch { /* sin almacenamiento: vuelve a encendido */ } };
 const cant = (n: number) => (Number(n) || 0).toLocaleString('es-VE', { maximumFractionDigits: 3 });
+/** 10-11-2026 (rediseño): «850 m» o «1,2 km» hasta el proveedor. */
+const distanciaTxt = (m: number) => (m < 1000 ? `${Math.round(m)} m` : `${(m / 1000).toLocaleString('es-VE', { maximumFractionDigits: 1 })} km`);
 
 const CHIPS: Array<{ key: ChipDelivery; label: string }> = [
   { key: 'por_tomar', label: '💰 Por tomar' },
@@ -203,12 +205,19 @@ function PantallaFlota({ flota }: { flota: Flota }) {
 
   return (
     <div className="surtidor">
-      <header className="surt-head">
-        <div>
-          <h1>{TITULO_FLOTA[flota]}</h1>
-          <div className="muted" style={{ fontSize: '.85rem' }}><NombreUsuario nombre={actorName} correo={actor} /></div>
+      {/* 10-11-2026 (maqueta de Delivery): cabecera con el conductor, su flota y el estado del GPS. */}
+      <header className="dlv-hero">
+        <div className="dlv-hero-fila">
+          <div className="dlv-conductor">
+            <div className="dlv-avatar" aria-hidden>{flota === 'carga_pesada' ? '🚛' : '🛵'}</div>
+            <div style={{ minWidth: 0 }}>
+              <h1><NombreUsuario nombre={actorName} correo={actor} /></h1>
+              <p>{TITULO_FLOTA[flota]}{enCurso ? ` · en curso ${ocDe(enCurso)}` : ''}</p>
+            </div>
+          </div>
+          <span className={`dlv-gps-pill${gps.yo ? ' on' : ''}`} title={gps.error ?? undefined}>{gps.yo ? '● GPS activo' : '○ Sin GPS'}</span>
         </div>
-        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+        <div className="dlv-hero-links">
           {!soloTelefono && <Link to="/app/delivery" className="btn btn-ghost">🖥 Módulo completo</Link>}
           {soloTelefono && vistasTelefono.length > 1 && <Link to={RUTA_TELEFONO} className="btn btn-ghost">📱 Mis pantallas</Link>}
         </div>
@@ -252,8 +261,8 @@ function PantallaFlota({ flota }: { flota: Flota }) {
           <div className="dlv-chips" role="tablist" aria-label="Filtrar pedidos">
             {CHIPS.map((c) => (
               <button key={c.key} type="button" role="tab" aria-selected={chip === c.key}
-                className={`chip${chip === c.key ? ' chip-active' : ''}`} onClick={() => setChip(c.key)}>
-                {c.label} <span className="dlv-chip-n">{cuenta[c.key]}</span>
+                className={`dlv-chip${chip === c.key ? ' activo' : ''}`} onClick={() => setChip(c.key)}>
+                <span>{c.label}</span> <span className="dlv-chip-n">{cuenta[c.key]}</span>
               </button>
             ))}
           </div>
@@ -286,6 +295,7 @@ function PantallaFlota({ flota }: { flota: Flota }) {
 
           {visibles.map((f) => (
             <TarjetaPedido key={claveDe(f.p)} f={f} canWrite={canWrite} ocupado={ocupado === claveDe(f.p)} bloqueado={!!ocupado}
+              metros={metrosAlPedido(gps.yo, f.p, provPts, destinos)}
               onTomar={() => void tomar(f.p)}
               onEnRuta={() => void enRuta(f.p)}
               onCancelar={() => { setListo(null); setAccion({ tipo: 'cancelar', ordenId: claveDe(f.p) }); }}
@@ -311,16 +321,19 @@ function PantallaFlota({ flota }: { flota: Flota }) {
 /* ── Una orden en el listado ── */
 
 function TarjetaPedido({
-  f, canWrite, ocupado, bloqueado, onTomar, onEnRuta, onCancelar, onNoDisponible, onEntregar, onVerMensaje, onComprobante, onFotos,
+  f, canWrite, ocupado, bloqueado, metros = null, onTomar, onEnRuta, onCancelar, onNoDisponible, onEntregar, onVerMensaje, onComprobante, onFotos,
   generandoPdf, pdfBloqueado, onPdf, onReporte,
 }: {
   f: PedidoFeed; canWrite: boolean; ocupado: boolean; bloqueado: boolean;
+  /** Metros desde mi posición hasta donde se busca (null = sin GPS o sin ubicar). */
+  metros?: number | null;
   onTomar: () => void; onEnRuta: () => void; onCancelar: () => void; onNoDisponible: () => void; onEntregar: () => void;
   onVerMensaje: () => void; onComprobante: () => void; onFotos: () => void;
   generandoPdf: boolean; pdfBloqueado: boolean; onPdf: () => void; onReporte: () => void;
 }) {
   const { p, disponible } = f;
   const estado = disponible ? ESTADO_DELIVERY.por_tomar : ESTADO_DELIVERY[p.estado];
+  const claseEstado = disponible ? 'por_tomar' : p.estado;
   const enCurso = !disponible && (p.estado === 'aceptado' || p.estado === 'en_ruta');
   const mioEnCurso = enCurso && p.es_mio;
   const mioEntregado = !disponible && p.es_mio && p.estado === 'entregado';
@@ -334,27 +347,41 @@ function TarjetaPedido({
   const [verOrden, setVerOrden] = useState(false);
 
   return (
-    <article className={`dlv-card${mioEnCurso ? ' mio' : ''}${p.urgente ? ' urgente' : ''}`}>
+    <article className={`dlv-card est-${claseEstado}${mioEnCurso ? ' mio' : ''}${p.urgente ? ' urgente' : ''}`}>
       <div className="dlv-card-cab">
         <div style={{ minWidth: 0 }}>
-          <div className="dlv-oc">{ocDe(p)}</div>
-          {p.pagada_en && <div className="dlv-sub">{esRetiro(p) ? 'Almacén revisó' : 'Pagada'} {fechaHoraVE(p.pagada_en)}</div>}
+          <div className="dlv-oc">{ocDe(p)}{p.urgente && <span className="dlv-urgente">🚨 Urgente</span>}</div>
+          {p.pagada_en && <div className="dlv-sub">{esRetiro(p) ? 'Almacén revisó' : 'Entrada'}: {fechaHoraVE(p.pagada_en)}</div>}
         </div>
-        <div className="dlv-badges">
-          {p.urgente && <span className="badge danger">🚨 Urgente</span>}
-          <span className={`badge ${estado.badge}`}>{estado.emoji} {estado.label}</span>
-        </div>
+        <span className={`dlv-pill est-${claseEstado}`}>{estado.emoji} {estado.label}</span>
       </div>
 
       <div className="dlv-prov">
-        <div className="nombre">{esRetiro(p) ? '🏬' : '🏭'} {p.proveedor_nombre ?? 'Proveedor sin nombre'}</div>
+        <div className="dlv-prov-linea">
+          <span className="nombre">{esRetiro(p) ? '🏬' : '🏭'} {p.proveedor_nombre ?? 'Proveedor sin nombre'}</span>
+          {metros != null && <span className="dlv-dist" title="Distancia desde donde estás">📍 {distanciaTxt(metros)}</span>}
+        </div>
         {esRetiro(p) && <div className="dlv-sub">Retiro en almacén: lo que Los Pinos entrega de la solicitud. Llévalo a donde se necesita.</div>}
         {p.proveedor_contacto && <div className="dlv-sub">Contacto: {p.proveedor_contacto}</div>}
         {p.proveedor_direccion && (mapa
           ? <a className="dir" href={mapa} target="_blank" rel="noopener noreferrer">📍 {p.proveedor_direccion}</a>
           : <div className="dlv-sub">📍 {p.proveedor_direccion}</div>)}
         {!p.proveedor_direccion && !esRetiro(p) && <div className="dlv-sub">Sin dirección cargada: pregúntale al analista.</div>}
+        {(p.almacen_entrega || p.almacen_destino) && (
+          <span className="dlv-destino">🏬 {p.estado === 'entregado' ? 'Entregado en' : 'Destino'}: <strong>{nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</strong></span>
+        )}
       </div>
+
+      {/* Avance del pedido: tomado → en ruta → entregado. */}
+      {!disponible && p.estado !== 'cancelado' && (
+        <ol className="dlv-pasos" aria-label="Avance del pedido">
+          <li className="hecho"><span className="punto" aria-hidden />Tomado{p.aceptado_en && <small>{fechaHoraVE(p.aceptado_en)}</small>}</li>
+          <li className={p.estado === 'entregado' || p.estado === 'en_ruta' ? (p.estado === 'entregado' ? 'hecho' : 'actual') : ''}>
+            <span className="punto" aria-hidden />En ruta{p.en_ruta_en && <small>{fechaHoraVE(p.en_ruta_en)}</small>}
+          </li>
+          <li className={p.estado === 'entregado' ? 'hecho' : ''}><span className="punto" aria-hidden />Entregado{p.entregado_en && <small>{fechaHoraVE(p.entregado_en)}</small>}</li>
+        </ol>
+      )}
 
       {mioEnCurso && (
         <div className="dlv-llamar">
@@ -367,12 +394,18 @@ function TarjetaPedido({
         </div>
       )}
 
-      {!!items.length && (
-        <div className="dlv-orden">
-          <span>📦 <strong>{items.length}</strong> {items.length === 1 ? 'producto' : 'productos'}</span>
-          <button type="button" className="btn btn-ghost btn-sm" aria-expanded={verOrden} onClick={() => setVerOrden((v) => !v)}>
-            {verOrden ? '▲ Ocultar orden' : '📋 Ver orden'}
-          </button>
+      {(!esRetiro(p) || !!items.length) && (
+        <div className="dlv-fila2">
+          {!esRetiro(p) && (
+            <button type="button" className="btn btn-ghost" onClick={onComprobante} title="Comprobante de pago que adjuntó Tesorería">
+              🧾 Comprobante<small>{montoTxt(p.total, p.moneda)}</small>
+            </button>
+          )}
+          {!!items.length && (
+            <button type="button" className="btn btn-ghost" aria-expanded={verOrden} onClick={() => setVerOrden((v) => !v)}>
+              📋 {verOrden ? 'Ocultar materiales' : 'Ver materiales'}<small>{items.length} {items.length === 1 ? 'producto' : 'productos'}</small>
+            </button>
+          )}
         </div>
       )}
       {verOrden && !!items.length && (
@@ -382,12 +415,8 @@ function TarjetaPedido({
           ))}
         </ul>
       )}
-      {!esRetiro(p) && <div className="dlv-total"><span>Total</span><span>{montoTxt(p.total, p.moneda)}</span></div>}
-      {(p.almacen_entrega || p.almacen_destino) && (
-        <div className="dlv-sub">📍 {p.estado === 'entregado' ? 'Entregado en' : 'Dirección de recepción'}: <strong>{nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</strong></div>
-      )}
-      {p.estado === 'entregado' && p.entregado_en && (
-        <div className="dlv-sub">✅ {fechaHoraVE(p.entregado_en)}{p.repartidor_nombre ? ` · ${p.repartidor_nombre}` : ''}</div>
+      {p.estado === 'entregado' && p.entregado_en && p.repartidor_nombre && (
+        <div className="dlv-sub">✅ Lo llevó {p.repartidor_nombre}</div>
       )}
       {disponible && p.estado === 'cancelado' && (
         <div className="dlv-nota-cancel">
@@ -408,15 +437,14 @@ function TarjetaPedido({
       )}
 
       <div className="dlv-acciones">
-        {!esRetiro(p) && <button type="button" className="btn btn-ghost" onClick={onComprobante}>🧾 Ver comprobante de pago</button>}
         {canWrite && disponible && (
-          <button type="button" className="btn btn-primary" disabled={bloqueado} onClick={onTomar}>
-            {ocupado ? 'Aceptando…' : '✓ Aceptar pedido'}
+          <button type="button" className="btn btn-primary dlv-btn-tomar" disabled={bloqueado} onClick={onTomar}>
+            {ocupado ? 'Aceptando…' : '✓ Aceptar pedido · En camino'}
           </button>
         )}
         {canWrite && disponible && (
-          <button type="button" className="btn btn-ghost" disabled={bloqueado} onClick={onNoDisponible} style={{ color: 'var(--danger)' }}>
-            ✕ No disponible
+          <button type="button" className="btn btn-ghost dlv-btn-peligro" disabled={bloqueado} onClick={onNoDisponible}>
+            ✕ No disponible para retirar
           </button>
         )}
         {canWrite && mioEnCurso && p.estado === 'aceptado' && (
@@ -425,10 +453,10 @@ function TarjetaPedido({
           </button>
         )}
         {canWrite && mioEnCurso && p.estado === 'en_ruta' && (
-          <button type="button" className="btn btn-success" disabled={bloqueado} onClick={onEntregar}>📦 Entregado en almacén</button>
+          <button type="button" className="btn btn-success dlv-btn-entregar" disabled={bloqueado} onClick={onEntregar}>📦 Entregado en almacén</button>
         )}
         {canWrite && mioEnCurso && (
-          <button type="button" className="btn btn-ghost" disabled={bloqueado} onClick={onCancelar} style={{ color: 'var(--danger)' }}>
+          <button type="button" className="btn btn-ghost dlv-btn-peligro" disabled={bloqueado} onClick={onCancelar}>
             ✕ No puedo buscarlo
           </button>
         )}

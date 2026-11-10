@@ -13,7 +13,7 @@
    Construido pero DESCONECTADO hasta que la administradora lo active
    (config compras.delivery): mientras tanto las listas quedan vacías.
    ============================================================ */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { MODULO_FLOTA, RUTA_TELEFONO_FLOTA, TITULO_FLOTA, type Flota } from './flota';
 import { nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
 import { Link } from 'react-router-dom';
@@ -26,11 +26,11 @@ import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import {
-  ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, MOTIVOS_CANCELACION, claveDe, esRetiro, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe,
-  type FotoDelivery, type PedidoDelivery,
+  ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, MOTIVOS_CANCELACION, UBICACION_VIEJA_MS, claveDe, esRetiro, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe,
+  type FotoDelivery, type PedidoDelivery, type UbicacionDelivery,
 } from './delivery';
 import {
-  cancelarPedido, comprobantePagoDelivery, listHistorialDelivery, listPedidosDelivery, quitarFotoDelivery, subirFotosDelivery,
+  cancelarPedido, comprobantePagoDelivery, listHistorialDelivery, listPedidosDelivery, listUbicaciones, quitarFotoDelivery, subirFotosDelivery,
   urlFotoDelivery, useDeliveryConectado, useDestinosDelivery,
   type ComprobantePagoDelivery,
 } from './delivery.repository';
@@ -44,14 +44,18 @@ import { DetalleDeliveryModal } from './DetalleDeliveryModal';
 import type { DestinosDelivery } from './deliveryRutas';
 import { pdfComprobanteDelivery, pdfHistorialDelivery, pdfListaDelivery, pdfPorDelivery } from './deliveryPdf';
 import { mensajeHistorialDelivery, mensajeListaDelivery, mensajePorDelivery, mensajeReporteDelivery } from './deliveryReporte';
+import './deliveryMovil.css';
 
-type Vista = 'tablero' | 'mapa' | 'historico' | 'por_delivery';
+// 10-11-2026 (maqueta de Delivery): «Centro de control» con el mapa en vivo adentro, y dos pestañas
+// nuevas: repartidores conectados y trazabilidad con horarios. Sin avisos ni WhatsApp automáticos.
+type Vista = 'tablero' | 'repartidores' | 'trazabilidad' | 'historico' | 'por_delivery';
 
 const TABS: { key: Vista; label: string; icon: string }[] = [
-  { key: 'tablero', label: 'Tablero', icon: '📊' },
-  { key: 'mapa', label: 'Mapa', icon: '🗺' },
+  { key: 'tablero', label: 'Centro de control', icon: '🖥' },
+  { key: 'repartidores', label: 'Repartidores conectados', icon: '🛵' },
+  { key: 'trazabilidad', label: 'Trazabilidad y horarios', icon: '🧾' },
   { key: 'historico', label: 'Histórico', icon: '📜' },
-  { key: 'por_delivery', label: 'Por delivery', icon: '🛵' },
+  { key: 'por_delivery', label: 'Por delivery', icon: '📊' },
 ];
 
 const msgError = (e: unknown, def: string) => (e instanceof Error ? e.message : def);
@@ -111,7 +115,7 @@ export function DeliveryPage() {
   }, [verCerrados, hoy, proveedores, flota]);
   useEffect(() => { void recargarTablero(); }, [recargarTablero]);
 
-  const enHistorico = vista === 'historico' || vista === 'por_delivery';
+  const enHistorico = vista === 'historico' || vista === 'por_delivery' || vista === 'trazabilidad';
   const recargarHistorial = useCallback(async () => {
     if (!desde || !hasta || desde > hasta) return;
     setCargandoHist(true);
@@ -134,23 +138,26 @@ export function DeliveryPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.8rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+      <div className="dlv-centro-head">
         <div style={{ flex: '1 1 320px' }}>
-          <h1 style={{ margin: 0 }}>{TITULO_FLOTA[flota]}</h1>
-          <p className="hint muted" style={{ margin: '.25rem 0 0' }}>
-            Órdenes pagadas por Tesorería que un motorizado toma, busca donde el proveedor y entrega en el almacén, con fotos y aviso por WhatsApp.
+          <h1>🖥 Centro de control y despacho · {TITULO_FLOTA[flota]}</h1>
+          <p>
+            Seguimiento en vivo de las órdenes que Compras confirmó para retiro: quién las toma, dónde va cada {flota === 'carga_pesada' ? 'camión' : 'motorizado'} y cuándo llegan al almacén.
           </p>
         </div>
-        {tieneTelefono && <Link to={RUTA_TELEFONO_FLOTA[flota]} className="btn btn-ghost btn-sm">📱 Vista de teléfono</Link>}
-      </div>
-
-      {flotas.length > 1 && (
-        <div className="view-toggle" role="tablist" aria-label="Flota" style={{ marginBottom: '.8rem' }}>
-          {flotas.map((f) => (
-            <button key={f} role="tab" aria-selected={flota === f} className={flota === f ? 'active' : ''} onClick={() => setFlota(f)}>{TITULO_FLOTA[f]}</button>
-          ))}
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          {flotas.length > 1 && (
+            <div className="dlv-pills" role="tablist" aria-label="Flota">
+              {flotas.map((f) => (
+                <button key={f} role="tab" aria-selected={flota === f} className={flota === f ? 'active' : ''} onClick={() => setFlota(f)}>
+                  {f === 'carga_pesada' ? '🚛' : '🛵'} {TITULO_FLOTA[f]}
+                </button>
+              ))}
+            </div>
+          )}
+          {tieneTelefono && <Link to={RUTA_TELEFONO_FLOTA[flota]} className="btn btn-ghost btn-sm">📱 Vista de teléfono</Link>}
         </div>
-      )}
+      </div>
 
       {conectado === false && (
         <div className="aviso info" style={{ marginBottom: '1rem' }}>
@@ -177,9 +184,10 @@ export function DeliveryPage() {
 
       {vista === 'tablero' && (
         <TableroTab pedidos={pedidos} deHoy={deHoy} cargando={cargando} supervisor={supervisor}
-          verCerrados={verCerrados} setVerCerrados={setVerCerrados} onCambio={() => void recargarTablero()} />
+          verCerrados={verCerrados} setVerCerrados={setVerCerrados} onCambio={() => void recargarTablero()}
+          mapa={<DeliveryMapa pedidos={pedidos} destinos={destinos} flota={flota} onUbicar={puedeUbicar ? () => setUbicar(true) : undefined} />} />
       )}
-      {vista === 'mapa' && <DeliveryMapa pedidos={pedidos} destinos={destinos} flota={flota} onUbicar={puedeUbicar ? () => setUbicar(true) : undefined} />}
+      {vista === 'repartidores' && <RepartidoresTab flota={flota} pedidos={pedidos} deHoy={deHoy} />}
       {ubicar && (
         <UbicarProveedoresModal pedidos={pedidos} destinos={destinos} onDestinos={setDestinos}
           puedeAlmacenes={supervisor} onClose={() => setUbicar(false)} />
@@ -187,6 +195,7 @@ export function DeliveryPage() {
       {enHistorico && (
         <BarraRango hoy={hoy} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} cargando={cargandoHist} />
       )}
+      {vista === 'trazabilidad' && <TrazabilidadTab filas={historial} cargando={cargandoHist} />}
       {vista === 'historico' && <HistoricoTab filas={historial} desde={desde} hasta={hasta} />}
       {vista === 'por_delivery' && <PorDeliveryTab filas={historial} desde={desde} hasta={hasta} destinos={destinos} />}
     </div>
@@ -195,14 +204,18 @@ export function DeliveryPage() {
 
 /* ───────────── Tablero ───────────── */
 
-function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerCerrados, onCambio }: {
+function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerCerrados, onCambio, mapa }: {
   pedidos: PedidoDelivery[]; deHoy: FilaHistorialDelivery[]; cargando: boolean; supervisor: boolean;
   verCerrados: boolean; setVerCerrados: (v: boolean) => void; onCambio: () => void;
+  /** El mapa en vivo (motorizados, proveedores y almacenes), debajo de las métricas. */
+  mapa?: ReactNode;
 }) {
   const c = conteoPorEstado(pedidos);
   const entregadosHoy = deHoy.filter((f) => f.estado === 'entregado').length;
   const canceladosHoy = deHoy.filter((f) => f.estado === 'cancelado').length;
   const urgentes = pedidos.filter((p) => p.estado === 'por_tomar' && p.urgente).length;
+  const minutosHoy = deHoy.filter((f) => f.estado === 'entregado' && f.minutos != null).map((f) => f.minutos as number);
+  const promedioHoy = minutosHoy.length ? Math.round(minutosHoy.reduce((a, b) => a + b, 0) / minutosHoy.length) : null;
 
   const [fotos, setFotos] = useState<PedidoDelivery | null>(null);
   const [whatsapp, setWhatsapp] = useState<{ titulo: string; texto: string } | null>(null);
@@ -219,32 +232,35 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
 
   return (
     <>
-      <div className="kpi-grid" style={{ marginBottom: '1rem' }}>
-        <div className="kpi">
-          <div className="label">Por tomar</div>
-          <div className="value">{c.por_tomar}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>{urgentes ? `${urgentes} urgente(s)` : 'OC pagadas sin delivery'}</div>
-          <div className="icon" aria-hidden="true">💰</div>
+      <div className="dlv-metricas">
+        <div className="dlv-metrica naranja">
+          <div className="ico" aria-hidden="true">💰</div>
+          <div><div className="val">{c.por_tomar}</div><div className="lbl">Por tomar</div>
+            <div className="sub">{urgentes ? `${urgentes} urgente(s)` : 'Confirmadas por Compras'}</div></div>
         </div>
-        <div className="kpi">
-          <div className="label">Aceptados</div>
-          <div className="value">{c.aceptado}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>Tomados, aún donde el proveedor</div>
-          <div className="icon" aria-hidden="true">🛵</div>
+        <div className="dlv-metrica azul">
+          <div className="ico" aria-hidden="true">🚚</div>
+          <div><div className="val">{c.aceptado + c.en_ruta}</div><div className="lbl">En tránsito</div>
+            <div className="sub">{c.aceptado} tomado(s) · {c.en_ruta} en ruta</div></div>
         </div>
-        <div className="kpi">
-          <div className="label">En camino</div>
-          <div className="value">{c.en_ruta}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>Rumbo al almacén</div>
-          <div className="icon" aria-hidden="true">🚚</div>
+        <div className="dlv-metrica verde">
+          <div className="ico" aria-hidden="true">✅</div>
+          <div><div className="val">{entregadosHoy}</div><div className="lbl">Entregados hoy</div>
+            <div className="sub">{canceladosHoy ? `${canceladosHoy} cancelado(s) hoy` : 'Sin cancelaciones hoy'}</div></div>
         </div>
-        <div className="kpi">
-          <div className="label">Entregados hoy</div>
-          <div className="value">{entregadosHoy}</div>
-          <div className="muted" style={{ fontSize: '.78rem' }}>{canceladosHoy ? `${canceladosHoy} cancelado(s) hoy` : 'Sin cancelaciones hoy'}</div>
-          <div className="icon" aria-hidden="true">✅</div>
+        <div className="dlv-metrica morado">
+          <div className="ico" aria-hidden="true">⏱</div>
+          <div><div className="val">{promedioHoy != null ? duracionTxt(promedioHoy) : '—'}</div><div className="lbl">Tiempo promedio</div>
+            <div className="sub">De tomado a entregado, hoy</div></div>
         </div>
       </div>
+
+      {mapa && (
+        <div className="card dlv-mapa-card">
+          <div className="card-title">📍 Mapa GPS en vivo · Puerto Ordaz / San Félix</div>
+          {mapa}
+        </div>
+      )}
 
       <div className="card">
         <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
@@ -703,5 +719,116 @@ function PorDeliveryTab({ filas, desde, hasta, destinos }: {
         Tiempo promedio = desde que el delivery toma el pedido hasta que lo entrega en el almacén. Cada cancelación cuenta, aunque la orden la haya retomado otro.
       </p>
     </div>
+  );
+}
+
+/* ───────────── Repartidores conectados (10-11-2026) ───────────── */
+
+/** Hace cuánto llegó la última ubicación, en palabras cortas. */
+function haceTxt(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  const min = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000));
+  if (min < 1) return 'ahora';
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  return h < 24 ? `hace ${h} h` : fechaHoraVE(iso);
+}
+
+/**
+ * Cada delivery de la flota: si su GPS está al día, qué pedido lleva y cómo le fue hoy.
+ * Sale de las ubicaciones que comparte el teléfono y de los pedidos (nada se inventa).
+ */
+function RepartidoresTab({ flota, pedidos, deHoy }: { flota: Flota; pedidos: PedidoDelivery[]; deHoy: FilaHistorialDelivery[] }) {
+  const [ubic, setUbic] = useState<UbicacionDelivery[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const cargar = useCallback(async () => {
+    try { setUbic(await listUbicaciones(flota)); } catch { /* sin ubicaciones: solo pedidos */ } finally { setCargando(false); }
+  }, [flota]);
+  useEffect(() => { void cargar(); }, [cargar]);
+  useRealtime(['delivery_ubicaciones'], () => { void cargar(); });
+  // Refresca el «hace X min» aunque no lleguen ubicaciones nuevas.
+  const [, setTic] = useState(0);
+  useEffect(() => { const t = window.setInterval(() => setTic((n) => n + 1), 30000); return () => window.clearInterval(t); }, []);
+
+  const filas = useMemo(() => {
+    const norm = (s: string | null | undefined) => (s ?? '').trim().toUpperCase();
+    const mapa = new Map<string, { nombre: string; u: UbicacionDelivery | null; enCurso: PedidoDelivery[]; entregados: number; minutos: number[] }>();
+    const fila = (nombre: string) => {
+      const k = norm(nombre) || '—';
+      if (!mapa.has(k)) mapa.set(k, { nombre: nombre || '—', u: null, enCurso: [], entregados: 0, minutos: [] });
+      return mapa.get(k)!;
+    };
+    for (const u of ubic) { const f = fila(u.repartidor_nombre ?? u.repartidor_email ?? '—'); if (!f.u || f.u.actualizado_en < u.actualizado_en) f.u = u; }
+    for (const p of pedidos) if ((p.estado === 'aceptado' || p.estado === 'en_ruta') && p.repartidor_nombre) fila(p.repartidor_nombre).enCurso.push(p);
+    for (const h of deHoy) {
+      if (h.estado !== 'entregado' || !h.repartidor || h.repartidor === '—') continue;
+      const f = fila(h.repartidor); f.entregados++; if (h.minutos != null) f.minutos.push(h.minutos);
+    }
+    return [...mapa.values()].sort((a, b) => b.enCurso.length - a.enCurso.length || String(b.u?.actualizado_en ?? '').localeCompare(String(a.u?.actualizado_en ?? '')));
+  }, [ubic, pedidos, deHoy]);
+
+  if (cargando && !filas.length) return <p className="muted">Cargando…</p>;
+  if (!filas.length) return <div className="card"><p className="muted" style={{ margin: 0 }}>Todavía no hay repartidores con ubicación ni pedidos hoy.</p></div>;
+  return (
+    <div className="dlv-repartidores">
+      {filas.map((r) => {
+        const conSenal = !!r.u && Date.now() - new Date(r.u.actualizado_en).getTime() <= UBICACION_VIEJA_MS;
+        const prom = r.minutos.length ? Math.round(r.minutos.reduce((a, b) => a + b, 0) / r.minutos.length) : null;
+        const vel = r.u?.velocidad != null && r.u.velocidad > 0 ? Math.round(r.u.velocidad * 3.6) : null;
+        return (
+          <div key={r.nombre} className="dlv-repartidor">
+            <div className="fila">
+              <div className={`dlv-avatar${conSenal ? '' : ' sin-senal'}`} aria-hidden>{flota === 'carga_pesada' ? '🚛' : '🛵'}</div>
+              <div style={{ minWidth: 0 }}>
+                <div className="nombre">{r.nombre}</div>
+                <span className={`dlv-gps-pill${conSenal ? ' on' : ''}`}>{conSenal ? '● GPS al día' : r.u ? '○ Sin señal reciente' : '○ Sin GPS compartido'}</span>
+              </div>
+            </div>
+            <div className="dato">📡 Última ubicación: <strong>{haceTxt(r.u?.actualizado_en)}</strong>{vel != null ? <> · <strong>{vel} km/h</strong></> : null}</div>
+            <div className="dato">
+              {r.enCurso.length
+                ? <>🚚 Lleva: {r.enCurso.map((p) => <strong key={claveDe(p)} style={{ marginRight: '.35rem' }}>{ocDe(p)} ({ESTADO_DELIVERY[p.estado]?.label ?? p.estado})</strong>)}</>
+                : <>✅ Libre</>}
+            </div>
+            <div className="dato">📦 Entregados hoy: <strong>{r.entregados}</strong>{prom != null ? <> · ⏱ promedio <strong>{duracionTxt(prom)}</strong></> : null}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ───────────── Trazabilidad y horarios (10-11-2026) ───────────── */
+
+/** Cada pedido del rango con sus horas: tomado → en ruta → entregado (o cancelado) y cuánto tardó. */
+function TrazabilidadTab({ filas, cargando }: { filas: FilaHistorialDelivery[]; cargando: boolean }) {
+  const lista = useMemo(() => [...filas].sort((a, b) => String(b.fecha).localeCompare(String(a.fecha))), [filas]);
+  if (cargando && !lista.length) return <p className="muted">Cargando…</p>;
+  if (!lista.length) return <div className="card"><p className="muted" style={{ margin: 0 }}>No hay pedidos en el rango elegido.</p></div>;
+  return (
+    <ul className="dlv-traza">
+      {lista.map((f) => {
+        const est = ESTADO_DELIVERY[f.estado];
+        const enRuta = f.en_ruta_en ? minutosEntre(f.fecha, f.en_ruta_en) : null;
+        return (
+          <li key={f.id}>
+            <div className="cab">
+              <div><span className="oc">{f.oc}</span> · {f.proveedor}</div>
+              <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span className="muted" style={{ fontSize: '.82rem' }}>🛵 {f.repartidor}</span>
+                <span className={`dlv-pill est-${f.estado}`}>{est?.emoji} {est?.label ?? f.estado}</span>
+              </div>
+            </div>
+            <div className="dlv-linea">
+              <span className="paso">🛵 Tomado {fechaHoraVE(f.fecha)}</span>
+              {f.en_ruta_en && <><span className="flecha">→ {duracionTxt(enRuta)} →</span><span className="paso">🚚 En ruta {fechaHoraVE(f.en_ruta_en)}</span></>}
+              {f.entregado_en && <><span className="flecha">→</span><span className="paso fin">📦 Entregado {fechaHoraVE(f.entregado_en)}{f.almacen_entrega ? ` · ${nombreAlmacenVisible(f.almacen_entrega)}` : ''}</span></>}
+              {f.cancelado_en && <><span className="flecha">→</span><span className="paso cancel">⛔ Cancelado {fechaHoraVE(f.cancelado_en)}{f.motivo_cancel ? ` · ${f.motivo_cancel}` : ''}</span></>}
+              {f.minutos != null && <span className="muted" style={{ marginLeft: 'auto' }}>⏱ Total: <strong>{duracionTxt(f.minutos)}</strong></span>}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
