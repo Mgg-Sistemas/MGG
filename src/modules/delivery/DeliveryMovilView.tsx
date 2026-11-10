@@ -209,7 +209,7 @@ function PantallaFlota({ flota }: { flota: Flota }) {
       <header className="dlv-hero">
         <div className="dlv-hero-fila">
           <div className="dlv-conductor">
-            <div className="dlv-avatar" aria-hidden>{flota === 'carga_pesada' ? '🚛' : '🛵'}</div>
+            <div className="dlv-avatar" aria-hidden>{flota === 'carga_pesada' ? '🚚' : '🛵'}</div>
             <div style={{ minWidth: 0 }}>
               <h1><NombreUsuario nombre={actorName} correo={actor} /></h1>
               <p>{TITULO_FLOTA[flota]}{enCurso ? ` · en curso ${ocDe(enCurso)}` : ''}</p>

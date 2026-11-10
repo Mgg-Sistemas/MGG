@@ -150,7 +150,7 @@ export function DeliveryPage() {
             <div className="dlv-pills" role="tablist" aria-label="Flota">
               {flotas.map((f) => (
                 <button key={f} role="tab" aria-selected={flota === f} className={flota === f ? 'active' : ''} onClick={() => setFlota(f)}>
-                  {f === 'carga_pesada' ? '🚛' : '🛵'} {TITULO_FLOTA[f]}
+                  {TITULO_FLOTA[f]}
                 </button>
               ))}
             </div>
@@ -778,7 +778,7 @@ function RepartidoresTab({ flota, pedidos, deHoy }: { flota: Flota; pedidos: Ped
         return (
           <div key={r.nombre} className="dlv-repartidor">
             <div className="fila">
-              <div className={`dlv-avatar${conSenal ? '' : ' sin-senal'}`} aria-hidden>{flota === 'carga_pesada' ? '🚛' : '🛵'}</div>
+              <div className={`dlv-avatar${conSenal ? '' : ' sin-senal'}`} aria-hidden>{flota === 'carga_pesada' ? '🚚' : '🛵'}</div>
               <div style={{ minWidth: 0 }}>
                 <div className="nombre">{r.nombre}</div>
                 <span className={`dlv-gps-pill${conSenal ? ' on' : ''}`}>{conSenal ? '● GPS al día' : r.u ? '○ Sin señal reciente' : '○ Sin GPS compartido'}</span>
