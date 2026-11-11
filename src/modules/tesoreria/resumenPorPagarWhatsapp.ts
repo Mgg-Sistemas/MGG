@@ -48,7 +48,7 @@ export function fechaHoraResumen(d: Date): string {
 export function estadoItemResumen(it: Pick<ItemResumenPorPagar, 'motivo' | 'motivoOtro'>): string {
   if (it.motivo === 'si') return '✅ *Se pagará*';
   const desc = it.motivo === 'otro' ? (unaLinea(it.motivoOtro) || 'Otro motivo') : ETIQUETA_MOTIVO_LOTE[it.motivo];
-  return `⏸ *No se pagará* · ${desc}`;
+  return `⏸ *No se pagará* · *${desc}*`;
 }
 
 /** Qué falta para armar el resumen (null si está bien). */
