@@ -6,7 +6,9 @@ import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
 import { date, money, num } from '@/shared/lib/format';
 import { textoDeError } from '@/shared/lib/errores';
-import { recibirOrdenParcial, recibirOrdenDespiezada, type RecepcionRenglon } from '@/modules/pedidos/pedidos.repository';
+import { recibirOrdenParcial, recibirOrdenDespiezada, esServicioOrden, type RecepcionRenglon } from '@/modules/pedidos/pedidos.repository';
+import { subirFacturasAlmacen } from '@/modules/pedidos/facturasOrden.repository';
+import { CargarFacturaCampo } from '@/modules/pedidos/CargarFacturaCampo';
 import { errorMarcasRecepcion, marcaCambio } from '@/modules/pedidos/marcaRecibida';
 import { esDespiezable } from './despieceRes';
 import { cantidadEnUso, textoCantidadCompra, usaUnidadCompra } from '@/modules/pedidos/unidadCompra';
@@ -404,6 +406,10 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
   const [nota, setNota] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Factura del proveedor: obligatoria al recepcionar (11-11-2026), salvo servicios.
+  const [facturas, setFacturas] = useState<File[]>([]);
+  const [facturaSubida, setFacturaSubida] = useState(false);
+  const pideFactura = !esServicioOrden(orden);
 
   // Una RES EN CANAL no entra al inventario como res: entra despiezada en
   // cortes. Si la orden trae una, la recepcion cambia de forma.
@@ -433,8 +439,11 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
       const v = despieceValido(despiece, kgRes, costoRes);
       if (!v.ok) { setError(v.motivo); return; }
     }
+    if (pideFactura && !facturaSubida && !facturas.length) { setError('Carga la factura de la compra (foto o PDF) para recepcionar.'); return; }
     setSaving(true);
     try {
+      // La factura sube primero: si falla, no se recibe.
+      if (pideFactura && facturas.length) { await subirFacturasAlmacen(orden.id, facturas, actorName || actor); setFacturas([]); setFacturaSubida(true); }
       if (itemRes) {
         const { entradas } = await recibirOrdenDespiezada(
           orden, itemRes.sku,
@@ -544,6 +553,8 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
           <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)}
             placeholder="Diferencia de cantidades, faltantes, observaciones…" />
         </div>
+        {pideFactura && facturaSubida && <p className="hint" style={{ color: 'var(--success)' }}>✓ Factura ya cargada; puedes reintentar la recepción.</p>}
+        {pideFactura && !facturaSubida && <CargarFacturaCampo id="recibir-factura" archivos={facturas} onChange={setFacturas} disabled={saving} />}
       </form>
     </Modal>
   );

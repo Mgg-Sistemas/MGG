@@ -119,7 +119,7 @@ describe('Filas del PDF', () => {
     expect(ficha['Solicitud']).toBe('SP-2026-0300');
     expect(ficha['Delivery (motorizado)']).toBe('CARLOS MENDOZA');
     expect(ficha['Analista de Compras']).toBe('JAVIER LEIVA');
-    expect(ficha['Fotos']).toBe('1 al recibir · 0 de la entrega');
+    expect(ficha['Fotos']).toBe('1 de factura · 0 de entrega en almacén');
     expect(tiemposComprobanteDelivery(p).at(-1)).toEqual(['Tiempo (tomada → entregada)', '1 h 05 min']);
     expect(itemsComprobanteDelivery(p)).toEqual([['1', 'RODAMIENTO 6205', '4', 'und']]);
   });

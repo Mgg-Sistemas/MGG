@@ -107,6 +107,7 @@ import { legsDesdeMetodoPago, motivoNoCorregible } from './metodoPagoEdicion';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { CALIDAD_LABELS, calcularPuntualidadAutomatica, validarArchivoFactura } from './finalizarPedidoEvaluacion';
+import { FacturasOrdenModal } from './FacturasOrdenModal';
 import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSkuLibre, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
 import { normalizarNombre, productosSimilares, type Duplicado } from '@/modules/inventario/duplicados';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
@@ -2996,6 +2997,8 @@ function OrdenDetailModal({
 
   const [enviarOpen, setEnviarOpen] = useState(false);
   const [comprobanteOpen, setComprobanteOpen] = useState(false);
+  // «🧾 Factura» (11-11-2026): FACTURAS DELIVERY y FACTURAS ALMACÉN de la OC recibida.
+  const [facturasOpen, setFacturasOpen] = useState(false);
 
   // Sub-OC por proveedor (si la OP se repartió entre varios proveedores).
   const [subOcs, setSubOcs] = useState<Orden[]>([]);
@@ -3386,6 +3389,12 @@ function OrdenDetailModal({
       {o.factura_path && (
         <button className="btn btn-ghost" onClick={handleComprobante} title={o.factura_nombre ?? 'Soporte adjunto'}>
           📎 {isFinalizada ? 'Ver factura / soporte' : 'Ver soporte adjunto'}
+        </button>
+      )}
+      {/* Facturas del delivery y del almacén: desde que la orden está recibida (11-11-2026). */}
+      {!!o.recibida_en && (
+        <button className="btn btn-ghost" onClick={() => setFacturasOpen(true)} title="Facturas que cargaron el delivery y el almacén (vista previa, descargar e imprimir)">
+          🧾 Factura{o.facturas_almacen?.length ? ` (${o.facturas_almacen.length})` : ''}
         </button>
       )}
       {/* OC pagada y aún no recibida (anticipado/contado): ya se puede recibir.
@@ -4202,6 +4211,7 @@ function OrdenDetailModal({
         onClose={() => setEnviarOpen(false)}
       />
     )}
+    {facturasOpen && <FacturasOrdenModal orden={o} onClose={() => setFacturasOpen(false)} />}
     {comprobanteOpen && (
       <ComprobanteOcModal
         orden={o}

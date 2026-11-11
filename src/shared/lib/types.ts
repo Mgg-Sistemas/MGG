@@ -1078,6 +1078,8 @@ export interface Orden {
   caja_mov_id?: string | null;
   factura_path?: string | null;
   factura_nombre?: string | null;
+  /** Facturas que cargó el almacenista al recepcionar (11-11-2026), bucket compras-oc. */
+  facturas_almacen?: Array<{ path: string; filename: string; at?: string | null; por?: string | null }> | null;
   factura_recepcion_path?: string | null;
   factura_recepcion_nombre?: string | null;
   retencion_aplicada?: boolean | null;

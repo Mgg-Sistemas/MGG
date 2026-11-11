@@ -15,7 +15,9 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { useQuien } from '@/shared/lib/directorioUsuarios';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import type { Orden } from '@/shared/lib/types';
-import { recibirOrdenParcial, type RecepcionRenglon } from '@/modules/pedidos/pedidos.repository';
+import { recibirOrdenParcial, esServicioOrden, type RecepcionRenglon } from '@/modules/pedidos/pedidos.repository';
+import { subirFacturasAlmacen } from '@/modules/pedidos/facturasOrden.repository';
+import { CargarFacturaCampo } from '@/modules/pedidos/CargarFacturaCampo';
 import { esDespiezable } from './despieceRes';
 import { nombreAlmacenVisible } from './sectorizacion';
 import { fechaHoraRecepcion, mensajeRecepcion, type DatosRecepcion } from './recepcionReporte';
@@ -141,6 +143,10 @@ function FormRecepcion({ fila, almacen, actor, actorName, quien, onCancel, onHec
   const [recibidas, setRecibidas] = useState<Record<string, string>>(() => Object.fromEntries(items.map((it) => [it.sku, String(it.cantidad ?? 0)])));
   const [nota, setNota] = useState('');
   const [fotos, setFotos] = useState<File[]>([]);
+  // Factura del proveedor: obligatoria al recepcionar (11-11-2026), salvo servicios.
+  const [facturas, setFacturas] = useState<File[]>([]);
+  const [facturaSubida, setFacturaSubida] = useState(false);
+  const pideFactura = !esServicioOrden(o);
   const [guardando, setGuardando] = useState(false);
   const previas = useMemo(() => fotos.map((f) => URL.createObjectURL(f)), [fotos]);
   useEffect(() => () => { previas.forEach((u) => URL.revokeObjectURL(u)); }, [previas]);
@@ -153,8 +159,11 @@ function FormRecepcion({ fila, almacen, actor, actorName, quien, onCancel, onHec
     for (const it of items) if (leer(recibidas[it.sku] ?? '') > Number(it.cantidad)) { toast(`No se puede recibir más de lo pedido en ${it.nombre}.`, 'error'); return; }
     if (items.every((it) => leer(recibidas[it.sku] ?? '') <= 0)) { toast('Indica al menos una cantidad recibida.', 'error'); return; }
     if (hayDiferencia && !nota.trim()) { toast('Llegó distinto a lo pedido: escribe una nota explicando.', 'error'); return; }
+    if (pideFactura && !facturaSubida && !facturas.length) { toast('Carga la factura de la compra (foto o PDF) para recepcionar.', 'error'); return; }
     setGuardando(true);
     try {
+      // La factura sube primero: si falla, no se recibe.
+      if (pideFactura && facturas.length) { await subirFacturasAlmacen(o.id, facturas, actorName || actor); setFacturas([]); setFacturaSubida(true); }
       const recepciones: RecepcionRenglon[] = items.map((it) => ({ sku: it.sku, cantidad_recibida: Math.max(0, leer(recibidas[it.sku] ?? '')), marca_recibida: null, nota_marca: null }));
       const notaDlv = fila.delivery?.estado === 'entregado' ? `Entregada por delivery (${fila.delivery.repartidor_nombre ?? '—'}). ` : '';
       await recibirOrdenParcial(o, recepciones, `${notaDlv}${nota.trim()}`.trim() || null, actor, actorName, almacen);
@@ -205,6 +214,9 @@ function FormRecepcion({ fila, almacen, actor, actorName, quien, onCancel, onHec
         <label htmlFor="rec-tel-nota">Nota {hayDiferencia ? '(obligatoria: llegó distinto)' : '(opcional)'}</label>
         <input id="rec-tel-nota" className="input surt-input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Faltantes, estado de la mercancía…" />
       </div>
+      {pideFactura && !facturaSubida && (
+        <CargarFacturaCampo id="rec-tel-factura" className="surt-campo" archivos={facturas} onChange={setFacturas} disabled={guardando} />
+      )}
       <div className="surt-campo">
         <label htmlFor="rec-tel-fotos">Fotos ({fotos.length}/4) · van con el WhatsApp</label>
         {fotos.length < 4 && (
@@ -222,7 +234,7 @@ function FormRecepcion({ fila, almacen, actor, actorName, quien, onCancel, onHec
           </div>
         )}
       </div>
-      <button type="button" className="btn btn-primary surt-guardar" disabled={guardando || tieneRes || sinFicha.length > 0} onClick={() => void guardar()}>
+      <button type="button" className="btn btn-primary surt-guardar" disabled={guardando || tieneRes || sinFicha.length > 0 || (pideFactura && !facturaSubida && !facturas.length)} onClick={() => void guardar()}>
         {guardando ? 'Recibiendo…' : `✓ Recepcionar en ${nombreAlmacenVisible(almacen)}`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otra orden</button>

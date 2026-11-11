@@ -497,7 +497,9 @@ function FotosPedido({ p, tipo, puedeSubir, puedeQuitar = false, onCambio }: {
     } finally { setSubiendo(false); }
   }
   const faltan = MAX_FOTOS_DELIVERY - fotos.length;
-  const titulo = tipo === 'recibo' ? '📷 Fotos al recibir' : '📷 Fotos de la entrega';
+  // 11-11-2026: dos botones con nombre propio. La factura del delivery es opcional
+  // y se ve en Compras (🧾 Factura → FACTURAS DELIVERY) cuando la orden está recibida.
+  const titulo = tipo === 'recibo' ? '🧾 CARGAR FACTURA' : '📷 CARGAR FOTO ENTREGA EN ALMACÉN';
   const id = `dlv-fotos-${tipo}-${claveDe(p)}`;
 
   async function agregar(lista: FileList | null) {
@@ -711,7 +713,7 @@ function FormEntregar({ p, quien, onCancel, onHecho }: {
           placeholder="Ej.: lo recibió el almacenista; faltó un renglón" onChange={(e) => setNota(e.target.value)} />
       </div>
       {!p.fotos_entrega.length && (
-        <div className="aviso warning sm"><span className="aviso-icono">📷</span><div>Todavía no subiste fotos de la entrega. Puedes volver y agregarlas antes de confirmar.</div></div>
+        <div className="aviso warning sm"><span className="aviso-icono">📷</span><div>Todavía no subiste la foto de la entrega en almacén. Puedes volver y cargarla antes de confirmar.</div></div>
       )}
       <div className="surt-grid2">
         <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Volver</button>

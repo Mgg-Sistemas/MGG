@@ -208,7 +208,7 @@ export function mensajeEnRuta(p: PedidoDelivery, repartidor: string, cuando?: st
     `👤 *Delivery:* ${repartidor}`,
     lineaOrigen(p),
   ];
-  if (p.fotos_recibo?.length) l.push(`📷 *Fotos al recibir:* ${p.fotos_recibo.length}`);
+  if (p.fotos_recibo?.length) l.push(`🧾 *Factura:* ${p.fotos_recibo.length} foto(s)`);
   if (p.almacen_destino) l.push(`🏬 *Va hacia:* ${p.almacen_destino}`);
   l.push(`🕒 ${fechaHoraVE(cuando ?? new Date().toISOString())}`, ...pie());
   return l.join('\n');
@@ -229,7 +229,7 @@ export function mensajeEntregado(
   ];
   const items = lineasItems(p);
   if (items.length) l.push('', `📦 *Productos (${items.length}):*`, ...items);
-  if (p.fotos_entrega?.length) l.push(`📷 *Fotos de la entrega:* ${p.fotos_entrega.length}`);
+  if (p.fotos_entrega?.length) l.push(`📷 *Foto entrega en almacén:* ${p.fotos_entrega.length}`);
   if (inventario?.trim()) l.push(`📥 *Inventario:* ${inventario.trim()}`);
   if (nota?.trim()) l.push(`📝 *Nota:* ${nota.trim()}`);
   const t = minutosEntre(p.aceptado_en, cuando ?? new Date().toISOString());

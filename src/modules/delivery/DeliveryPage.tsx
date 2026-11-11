@@ -540,8 +540,8 @@ function FotosModal({ pedido, editable = false, onCambio, onClose }: {
         </div>
       }>
       {editable && <p className="hint muted" style={{ marginTop: 0 }}>Orden entregada: puedes agregar o quitar las fotos que subió el delivery.</p>}
-      {grupo('Al recibir del proveedor', 'recibo', recibo)}
-      {grupo('Al entregar en el almacén', 'entrega', entrega)}
+      {grupo('🧾 Factura (la ve Compras)', 'recibo', recibo)}
+      {grupo('📷 Foto entrega en almacén', 'entrega', entrega)}
       {pedido.nota_entrega && <p><strong>Nota de entrega:</strong> {pedido.nota_entrega}</p>}
     </Modal>
   );

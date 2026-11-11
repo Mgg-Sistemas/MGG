@@ -40,7 +40,7 @@ describe('Delivery · mensajes de WhatsApp', () => {
   });
 
   it('en ruta y entregado', () => {
-    expect(mensajeEnRuta(base, 'CARLOS')).toContain('📷 *Fotos al recibir:* 1');
+    expect(mensajeEnRuta(base, 'CARLOS')).toContain('🧾 *Factura:* 1 foto(s)');
     const t = mensajeEntregado(base, 'CARLOS', 'Los Pinos', 'Completo', '2026-10-30T13:45:00Z');
     expect(t).toContain('✅ *PEDIDO ENTREGADO EN ALMACÉN*');
     expect(t).toContain('*Tiempo desde que lo tomó:* 45 min');
