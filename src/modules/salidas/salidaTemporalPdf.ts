@@ -52,12 +52,35 @@ export async function descargarOrdenSalidaTemporalPdf(sol: SalidaTemporal): Prom
   const LOGO = 60;
   const TX = logo ? MARGIN + LOGO + 14 : MARGIN;
   if (logo) { try { doc.addImage(logo, 'JPEG', MARGIN, y, LOGO, LOGO); } catch { /* opcional */ } }
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(19);
-  doc.text('ORDEN DE SALIDA TEMPORAL', TX, y + 20);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  doc.text(`N° ${sol.num_usuario != null ? String(sol.num_usuario).padStart(3, '0') : sol.codigo}${sol.actor_name ? ` · ${sol.actor_name}` : ''}  ·  Material a mantenimiento  ·  ${sol.codigo}`, TX, y + 38);
-  doc.text(`Emitida: ${fmt.dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 38, { align: 'right' });
-  y += Math.max(LOGO, 42) + 8;
+  doc.setFont('helvetica', 'bold'); doc.setFontSize(18); doc.setTextColor(20);
+  doc.text('ORDEN DE SALIDA TEMPORAL', TX, y + 18);
+
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(90);
+  doc.text(`Emitida: ${fmt.dateTime(new Date().toISOString())}`, PAGE_W - MARGIN, y + 18, { align: 'right' });
+
+  // Subtítulo: usa todo el ancho disponible (TX hasta margen derecho) sin colisionar con la fecha
+  const partesSub: string[] = [];
+  if (sol.num_usuario != null) {
+    partesSub.push(`N° ${String(sol.num_usuario).padStart(3, '0')}`);
+  } else if (sol.codigo) {
+    partesSub.push(`N° ${sol.codigo}`);
+  }
+  if (sol.actor_name?.trim()) {
+    partesSub.push(sol.actor_name.trim());
+  }
+  partesSub.push('Material a mantenimiento');
+  if (sol.num_usuario != null && sol.codigo) {
+    partesSub.push(sol.codigo);
+  }
+
+  const maxSubW = PAGE_W - MARGIN - TX;
+  const subTexto = partesSub.join('  ·  ');
+  const subLineas = doc.splitTextToSize(subTexto, maxSubW) as string[];
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(9.5); doc.setTextColor(60);
+  doc.text(subLineas, TX, y + 36);
+
+  const headerH = Math.max(LOGO, 36 + subLineas.length * 12);
+  y += headerH + 8;
 
   doc.setDrawColor(255, 138, 0); doc.setLineWidth(1.5);
   doc.line(MARGIN, y, PAGE_W - MARGIN, y);
