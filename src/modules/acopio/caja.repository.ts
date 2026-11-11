@@ -903,6 +903,23 @@ export function resumirCierre(caja: CajaCierre | null, movs: CajaMovimiento[]): 
   return { ...base, dias, totalGastado, porGrupo, porCosto };
 }
 
+/**
+ * Corrige (o borra) un movimiento de una caja CERRADA, con motivo obligatorio
+ * (11-11-2026). La base registra el cambio en `acopio_cajas.ediciones`,
+ * recalcula el saldo final y corrige el saldo arrastrado a la caja siguiente.
+ */
+export async function editarMovimientoCajaCerrada(
+  movId: string, accion: 'editar' | 'borrar', cambios: Partial<CajaMovimientoInput> | null, motivo: string,
+): Promise<{ saldo_antes: number; saldo_despues: number; delta: number; arrastres: Array<{ caja: string; delta: number }> }> {
+  const m = motivo.trim();
+  if (m.length < 5) throw new Error('Indica el motivo por el que se edita la caja cerrada (mínimo 5 letras).');
+  const { data, error } = await supabase.rpc('acopio_caja_cerrada_editar', {
+    p_mov_id: movId, p_accion: accion, p_cambios: cambios ?? {}, p_motivo: m,
+  });
+  if (error) throw error;
+  return data as { saldo_antes: number; saldo_despues: number; delta: number; arrastres: Array<{ caja: string; delta: number }> };
+}
+
 export async function eliminarMovimientoCaja(id: string): Promise<void> {
   const { error } = await supabase.from('acopio_caja_movimientos').delete().eq('id', id);
   if (error) throw error;

@@ -2054,6 +2054,22 @@ export interface CajaCierre {
   created_by?: string | null;
   created_at: string;
   updated_at?: string | null;
+  /** Correcciones hechas con la caja ya cerrada, cada una con su motivo (11-11-2026). */
+  ediciones?: EdicionCajaCerrada[] | null;
+}
+
+/** Una corrección a una caja cerrada de un centro de costo (RPC acopio_caja_cerrada_editar). */
+export interface EdicionCajaCerrada {
+  at: string;
+  actor?: string | null;
+  actor_name?: string | null;
+  motivo: string;
+  accion: 'editar' | 'borrar' | 'arrastre';
+  mov_id?: string | null;
+  descripcion?: string | null;
+  saldo_antes?: number | null;
+  saldo_despues?: number | null;
+  delta?: number | null;
 }
 
 /** Agregados de la caja (cabecera del Excel: D3,E3,F3,G3,H3,I3,J3,K3,M3). */

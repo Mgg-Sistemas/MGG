@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
@@ -12,7 +12,7 @@ import type { ContratoAcopio, CajaMovimiento, GrupoClasificacion } from '@/share
 // Desacoplado: el módulo de producción/contratos aún no existe en este sistema.
 // Stub local que devuelve []. Reemplazar al construir contratos. (Centro de Acopio standalone)
 import { listContratos } from './contratos.stub';
-import { listCajaMovimientos, actualizarMovimientoCaja, eliminarMovimientoCaja, GRUPOS } from './caja.repository';
+import { listCajaMovimientos, actualizarMovimientoCaja, eliminarMovimientoCaja, GRUPOS, type CajaMovimientoInput } from './caja.repository';
 // descargarMovAcopioPdf / descargarMovAcopioExcel / enviarMovAcopioPorCorreo se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir.
 
 /**
@@ -371,7 +371,12 @@ export function MovimientosAcopioView({ onResumen, visible = true, centro, cajaI
 }
 
 /* ───────────── Editar un movimiento de la caja del acopio ───────────── */
-function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimiento; onClose: () => void; onSaved: () => void }) {
+export function EditarMovimientoCajaModal({ mov, onClose, onSaved, guardar, aviso }: {
+  mov: CajaMovimiento; onClose: () => void; onSaved: () => void;
+  /** Guardado alterno (caja cerrada: va por la RPC con motivo). */
+  guardar?: (input: CajaMovimientoInput) => Promise<void>;
+  aviso?: ReactNode;
+}) {
   const [fecha, setFecha] = useState((mov.fecha ?? '').slice(0, 10));
   const [descripcion, setDescripcion] = useState(mov.descripcion ?? '');
   const [usdEntregado, setUsdEntregado] = useState(String(mov.usd_entregado ?? 0));
@@ -395,7 +400,7 @@ function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimie
     if (!fecha) { setError('Indicá la fecha.'); return; }
     setSaving(true);
     try {
-      await actualizarMovimientoCaja(mov.id, {
+      const input: CajaMovimientoInput = {
         fecha,
         descripcion: descripcion.trim() || null,
         usd_entregado: nzr(usdEntregado), kg_cerrados: nzr(kgCerrados), facturados: nzr(facturados),
@@ -407,7 +412,9 @@ function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimie
         costo_clasificacion: mov.costo_clasificacion ?? null,
         costo_subclasificacion: mov.costo_subclasificacion ?? null,
         vehiculo: mov.vehiculo ?? null,
-      });
+      };
+      if (guardar) await guardar(input);
+      else await actualizarMovimientoCaja(mov.id, input);
       toast('Movimiento actualizado', 'success');
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar.'); setSaving(false); }
@@ -424,6 +431,7 @@ function EditarMovimientoCajaModal({ mov, onClose, onSaved }: { mov: CajaMovimie
       <button type="submit" form="acopio-mov-edit" className="btn btn-primary" disabled={saving}>{saving ? 'Guardando…' : 'Guardar'}</button></>
     }>
       <form id="acopio-mov-edit" onSubmit={submit}>
+        {aviso}
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
         <div className="form-grid">
           <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} required /></div>

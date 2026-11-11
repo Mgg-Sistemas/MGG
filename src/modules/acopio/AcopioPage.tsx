@@ -7,7 +7,7 @@ import { notify } from '@/shared/lib/notify';
 import { money, num, hoyISO, date } from '@/shared/lib/format';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { MovimientosAcopioView, type ResumenAcopio } from './MovimientosAcopioView';
+import { MovimientosAcopioView, EditarMovimientoCajaModal, type ResumenAcopio } from './MovimientosAcopioView';
 // Vistas «Por aliado» y «Cuentas por cobrar»: backend listo y datos importados;
 // se ocultan del front por ahora (se mostrarán de otra manera). Los componentes
 // AliadosAcopioView / CuentasCobrarView siguen en el código para reactivarlos.
@@ -23,7 +23,7 @@ import {
   type RecepcionInput,
   type LoteInput,
 } from './acopio.repository';
-import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, listMovimientosCategoria, cerrarYAbrirCaja, listCajaMovimientos, siguienteNumeroCaja, listEntrantesAcopioPorConfirmar, aceptarEntradaEnCajaAcopio, CENTRO_ACOPIO_EXTERNO, type CajaMovimientoInput, type ResumenCajaAcopio, type MovimientoCategoria } from './caja.repository';
+import { listCajas, crearMovimientoCaja, listClasificacionesAll, resumenCajaAcopio, esClasifVehiculo, consumoPorVehiculoAcopio, listMovimientosCategoria, cerrarYAbrirCaja, listCajaMovimientos, siguienteNumeroCaja, listEntrantesAcopioPorConfirmar, aceptarEntradaEnCajaAcopio, editarMovimientoCajaCerrada, CENTRO_ACOPIO_EXTERNO, type CajaMovimientoInput, type ResumenCajaAcopio, type MovimientoCategoria } from './caja.repository';
 import type { GrupoClasificacion, CajaMovimiento, TransferenciaInter } from '@/shared/lib/types';
 import { listVehiculos } from '@/modules/combustible/combustible.repository';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
@@ -218,7 +218,7 @@ function AcopioModulo({ centro }: { centro: string }) {
 
       {resumenCaja && <ResumenCajaModal defaultEmail={user?.email ?? ''} centro={centro} cajaId={cajaActual?.id ?? null} onClose={() => setResumenCaja(false)} />}
 
-      {cierresOpen && <CierresCajaModal centro={centro} cajaActualId={cajaActual?.id ?? null} onClose={() => setCierresOpen(false)} />}
+      {cierresOpen && <CierresCajaModal centro={centro} cajaActualId={cajaActual?.id ?? null} canWrite={canWrite} onClose={() => setCierresOpen(false)} />}
 
       {cerrarCajaOpen && (
         <CerrarCajaModal
@@ -849,16 +849,54 @@ function CerrarCajaModal({ centro, cajaActual, resumen, actor, actorName, onClos
 
 /* ───────────── Historial de cierres de caja (buscable) ───────────── */
 
-function CierresCajaModal({ centro, cajaActualId, onClose }: { centro: string; cajaActualId: string | null; onClose: () => void }) {
+function CierresCajaModal({ centro, cajaActualId, canWrite, onClose }: { centro: string; cajaActualId: string | null; canWrite: boolean; onClose: () => void }) {
   const [cajas, setCajas] = useState<CajaCierre[]>([]);
   const [q, setQ] = useState('');
-  const [sel, setSel] = useState<CajaCierre | null>(null);
+  const [selId, setSelId] = useState<string | null>(null);
   const [movs, setMovs] = useState<CajaMovimiento[]>([]);
   const [cargandoMovs, setCargandoMovs] = useState(false);
+  // Edición de una caja CERRADA (11-11-2026): primero el motivo, después se habilitan ✎ / 🗑.
+  const [pidiendoMotivo, setPidiendoMotivo] = useState(false);
+  const [motivoTxt, setMotivoTxt] = useState('');
+  const [motivo, setMotivo] = useState<string | null>(null);
+  const [movEdit, setMovEdit] = useState<CajaMovimiento | null>(null);
+  const [borrando, setBorrando] = useState<string | null>(null);
+  const sel = useMemo(() => cajas.find((c) => c.id === selId) ?? null, [cajas, selId]);
+  const setSel = (c: CajaCierre | null) => {
+    setSelId(c?.id ?? null);
+    setPidiendoMotivo(false); setMotivo(null); setMotivoTxt(''); setMovEdit(null);
+  };
 
   const cargar = useCallback(() => { listCajas(centro).then(setCajas).catch(() => setCajas([])); }, [centro]);
   useEffect(() => { cargar(); }, [cargar]);
-  useRealtime(['acopio_cajas', 'acopio_caja_movimientos'], cargar);
+  const recargarMovs = useCallback(() => {
+    if (!selId) return;
+    listCajaMovimientos(selId).then(setMovs).catch(() => undefined);
+  }, [selId]);
+  useRealtime(['acopio_cajas', 'acopio_caja_movimientos'], () => { cargar(); recargarMovs(); });
+
+  function avisoSaldo(r: { saldo_antes: number; saldo_despues: number; delta: number; arrastres: Array<{ caja: string; delta: number }> }) {
+    if (!Number(r.delta)) return;
+    const arr = r.arrastres.length ? ` · se corrigió el saldo arrastrado a ${r.arrastres.map((a) => a.caja).join(', ')}` : '';
+    toast(`Saldo final: ${money(Number(r.saldo_antes))} → ${money(Number(r.saldo_despues))}${arr}`, 'success');
+  }
+  async function guardarEdicion(mov: CajaMovimiento, input: CajaMovimientoInput) {
+    if (!motivo) throw new Error('Indica el motivo antes de editar.');
+    const r = await editarMovimientoCajaCerrada(mov.id, 'editar', input, motivo);
+    avisoSaldo(r);
+  }
+  async function borrarEnCerrada(m: CajaMovimiento) {
+    if (!motivo) return;
+    if (!window.confirm(`¿Borrar el movimiento del ${date(m.fecha)}${m.descripcion ? ` · ${m.descripcion}` : ''} de la caja cerrada?\nMotivo: ${motivo}`)) return;
+    setBorrando(m.id);
+    try {
+      const r = await editarMovimientoCajaCerrada(m.id, 'borrar', null, motivo);
+      toast('Movimiento borrado de la caja cerrada', 'success');
+      avisoSaldo(r);
+      cargar(); recargarMovs();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
+    finally { setBorrando(null); }
+  }
 
   // Etiqueta «Cierre de caja de <inicio> a <fin>» (o «en curso» si sigue abierta).
   const etiqueta = (c: CajaCierre) => `${c.numero} · ${date(c.fecha_inicio)} → ${c.fecha_fin ? date(c.fecha_fin) : 'en curso'}`;
@@ -902,9 +940,35 @@ function CierresCajaModal({ centro, cajaActualId, onClose }: { centro: string; c
       ) : (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
-            <strong>{etiqueta(sel)}</strong>
-            <button className="btn btn-sm btn-ghost" onClick={() => { setSel(null); setMovs([]); }}>← Volver al listado</button>
+            <strong>{etiqueta(sel)}{sel.estado === 'cerrada' && <span className="badge" style={{ marginLeft: '.4rem', fontSize: '.62rem' }}>🔒 Cerrada</span>}</strong>
+            <span style={{ display: 'inline-flex', gap: '.4rem', flexWrap: 'wrap' }}>
+              {canWrite && sel.estado === 'cerrada' && !motivo && !pidiendoMotivo && (
+                <button className="btn btn-sm btn-primary" onClick={() => setPidiendoMotivo(true)}>✎ Editar caja cerrada</button>
+              )}
+              <button className="btn btn-sm btn-ghost" onClick={() => { setSel(null); setMovs([]); }}>← Volver al listado</button>
+            </span>
           </div>
+          {pidiendoMotivo && !motivo && (
+            <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.7rem' }}>
+              <div className="card-title"><span>✎ ¿Por qué se edita la caja {sel.numero} ya cerrada?</span></div>
+              <textarea className="input" rows={2} autoFocus value={motivoTxt} onChange={(e) => setMotivoTxt(e.target.value)}
+                placeholder="Ej.: el gasto del 05-11 se cargó dos veces / monto mal tipeado…" />
+              <p className="hint muted" style={{ fontSize: '.74rem', margin: '.35rem 0' }}>
+                El motivo queda registrado con tu nombre en cada corrección. Si cambia el saldo en $, se recalcula el saldo final y se corrige el saldo que pasó a la caja siguiente. Los Kg que ya pasaron a Recepciones no cambian.
+              </p>
+              <div style={{ display: 'flex', gap: '.4rem', justifyContent: 'flex-end' }}>
+                <button className="btn btn-sm btn-ghost" onClick={() => { setPidiendoMotivo(false); setMotivoTxt(''); }}>Cancelar</button>
+                <button className="btn btn-sm btn-primary" disabled={motivoTxt.trim().length < 5}
+                  onClick={() => { setMotivo(motivoTxt.trim()); setPidiendoMotivo(false); }}>Empezar a editar</button>
+              </div>
+            </div>
+          )}
+          {motivo && (
+            <div className="aviso warning sm" style={{ marginBottom: '.6rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <span>✎ Editando la caja cerrada · <strong>Motivo:</strong> {motivo}</span>
+              <button className="btn btn-sm btn-ghost" onClick={() => { setMotivo(null); setMotivoTxt(''); }}>Terminar edición</button>
+            </div>
+          )}
           {cargandoMovs ? (
             <p className="hint muted" style={{ margin: 0 }}>Cargando movimientos…</p>
           ) : !movs.length ? (
@@ -917,6 +981,7 @@ function CierresCajaModal({ centro, cajaActualId, onClose }: { centro: string; c
                   <th style={{ textAlign: 'right' }}>$ Entregado</th><th style={{ textAlign: 'right' }}>Kg Cerr.</th>
                   <th style={{ textAlign: 'right' }}>Gastos</th><th style={{ textAlign: 'right' }}>Kg MGG</th>
                   <th style={{ textAlign: 'right' }}>Saldo $</th><th style={{ textAlign: 'right' }}>Saldo Kg</th>
+                  {motivo && <th></th>}
                 </tr></thead>
                 <tbody>
                   {movs.map((m) => (
@@ -929,11 +994,44 @@ function CierresCajaModal({ centro, cajaActualId, onClose }: { centro: string; c
                       <td className="mono" style={{ textAlign: 'right' }}>{m.kg_recibidos ? num(m.kg_recibidos) : ''}</td>
                       <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{money(m.saldo_usd ?? 0)}</td>
                       <td className="mono" style={{ textAlign: 'right', fontWeight: 600 }}>{num(m.saldo_kg ?? 0)}</td>
+                      {motivo && (
+                        <td style={{ whiteSpace: 'nowrap' }}>
+                          <button className="btn btn-sm btn-ghost" title="Editar movimiento (caja cerrada)" onClick={() => setMovEdit(m)}>✎</button>
+                          <button className="btn btn-sm btn-ghost" title="Borrar movimiento (caja cerrada)" disabled={borrando === m.id} onClick={() => void borrarEnCerrada(m)}>🗑</button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
+          )}
+          {!!sel.ediciones?.length && (
+            <div className="card" style={{ marginTop: '.8rem' }}>
+              <div className="card-title"><span>📝 Correcciones con la caja cerrada ({sel.ediciones.length})</span></div>
+              <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '.8rem' }}>
+                {[...sel.ediciones].reverse().map((ed, k) => (
+                  <li key={`${ed.at}-${k}`} style={{ marginBottom: '.3rem' }}>
+                    <strong>{new Date(ed.at).toLocaleString('es-VE', { timeZone: 'America/Caracas' })}</strong> · {ed.actor_name || ed.actor || '—'} ·{' '}
+                    {ed.accion === 'borrar' ? '🗑 borró' : ed.accion === 'arrastre' ? '↪ arrastre de saldo' : '✎ editó'}
+                    {ed.descripcion ? <> «{ed.descripcion}»</> : null}
+                    {ed.saldo_antes != null && ed.saldo_despues != null && Number(ed.saldo_antes) !== Number(ed.saldo_despues)
+                      ? <> · saldo {money(Number(ed.saldo_antes))} → {money(Number(ed.saldo_despues))}</> : null}
+                    {ed.accion === 'arrastre' && ed.delta ? <> · {money(Number(ed.delta))}</> : null}
+                    <div className="muted">Motivo: {ed.motivo}</div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {movEdit && motivo && (
+            <EditarMovimientoCajaModal
+              mov={movEdit}
+              guardar={(input) => guardarEdicion(movEdit, input)}
+              aviso={<div className="aviso warning sm" style={{ marginBottom: '.6rem' }}>🔒 Caja cerrada {sel.numero} · <strong>Motivo:</strong> {motivo}</div>}
+              onClose={() => setMovEdit(null)}
+              onSaved={() => { setMovEdit(null); cargar(); recargarMovs(); }}
+            />
           )}
         </>
       )}
