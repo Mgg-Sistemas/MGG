@@ -51,14 +51,32 @@ describe('reporteRrhhDinamico - Personal y Carga Familiar', () => {
       nombre: 'Carlos',
       apellido: 'Perez',
       cedula: 'V-10200300',
+      rif: 'V-10200300-1',
       cargo: 'OPERADOR',
       departamento: 'Operaciones',
       sueldo_base: 450,
       activo: true,
       empresa: 'MGG',
       genero: 'masculino',
+      estado_civil: 'casado',
       fecha_nacimiento: '1990-04-12',
+      grupo_sanguineo: 'O+',
+      nacionalidad: 'VENEZOLANO',
       fecha_ingreso: '2022-01-15',
+      carnet_vence: '2027-12-31',
+      grado_instruccion: 'universitario',
+      titulo_obtenido: 'Ingeniero Industrial',
+      correo: 'carlos.perez@mgg.com',
+      direccion: 'Puerto Ordaz, Unare II',
+      contacto_emergencia: 'Laura Martinez',
+      contacto_emergencia_parentesco: 'Esposa',
+      contacto_emergencia_tlf: '0414-1234567',
+      tiene_alergias: true,
+      alergias_detalle: 'Penicilina',
+      tiene_enfermedad: false,
+      trabajo_anterior_empresa: 'Venalum',
+      trabajo_anterior_cargo: 'Técnico de Planta',
+      trabajo_anterior_duracion: '3 años',
       created_at: '2022-01-15T00:00:00Z',
     },
     {
@@ -155,6 +173,81 @@ describe('reporteRrhhDinamico - Personal y Carga Familiar', () => {
 
     const ambas = filtrarFilasRrhh(filas, { empresasSel: ['MGG', 'MTO'] });
     expect(ambas).toHaveLength(3);
+  });
+
+  it('incluye columnas del formulario (RIF, nacionalidad, estado civil, correo, emergencia, etc.) y formatea celdas', () => {
+    // Columnas registradas en el catálogo
+    const clavesEsperadas = [
+      'rif',
+      'nacionalidad',
+      'estado_civil',
+      'grupo_sanguineo',
+      'carnet_vence',
+      'grado_instruccion',
+      'titulo_obtenido',
+      'correo',
+      'direccion',
+      'contacto_emergencia',
+      'contacto_emergencia_parentesco',
+      'contacto_emergencia_tlf',
+      'alergias',
+      'enfermedades',
+      'trabajo_anterior',
+    ];
+    for (const clave of clavesEsperadas) {
+      const col = CAMPOS_REPORTE_RRHH.find((c) => c.clave === clave);
+      expect(col, `Columna ${clave} debe estar en CAMPOS_REPORTE_RRHH`).toBeDefined();
+      expect(col?.ambitos).toContain('personal');
+    }
+
+    const colRif = CAMPOS_REPORTE_RRHH.find((c) => c.clave === 'rif')!;
+    expect(colRif.ambitos).toContain('historico_salarial');
+
+    const filas = normalizarPersonalRrhh(personal, mapaEmpresas, tasaBcv, mapaFamilia);
+    const carlos = filas.find((f) => f.id === 'p1')!;
+    const maria = filas.find((f) => f.id === 'p2')!;
+
+    // Verificación de normalización
+    expect(carlos.rif).toBe('V-10200300-1');
+    expect(carlos.nacionalidad).toBe('VENEZOLANO');
+    expect(carlos.estadoCivil).toBe('casado');
+    expect(carlos.grupoSanguineo).toBe('O+');
+    expect(carlos.carnetVence).toBe('2027-12-31');
+    expect(carlos.gradoInstruccion).toBe('universitario');
+    expect(carlos.tituloObtenido).toBe('Ingeniero Industrial');
+    expect(carlos.correo).toBe('carlos.perez@mgg.com');
+    expect(carlos.direccion).toBe('Puerto Ordaz, Unare II');
+    expect(carlos.contactoEmergencia).toBe('Laura Martinez');
+    expect(carlos.contactoEmergenciaParentesco).toBe('Esposa');
+    expect(carlos.contactoEmergenciaTlf).toBe('0414-1234567');
+    expect(carlos.alergias).toBe('Sí (Penicilina)');
+    expect(carlos.enfermedades).toBe('No');
+    expect(carlos.trabajoAnterior).toBe('Venalum - Técnico de Planta (3 años)');
+
+    // Verificación de textoCeldaRrhh
+    expect(textoCeldaRrhh(carlos, 'rif')).toBe('V-10200300-1');
+    expect(textoCeldaRrhh(carlos, 'estado_civil')).toBe('Casado');
+    expect(textoCeldaRrhh(carlos, 'grado_instruccion')).toBe('Universitario');
+    expect(textoCeldaRrhh(carlos, 'correo')).toBe('carlos.perez@mgg.com');
+    expect(textoCeldaRrhh(carlos, 'alergias')).toBe('Sí (Penicilina)');
+    expect(textoCeldaRrhh(carlos, 'enfermedades')).toBe('No');
+
+    // Casos vacíos en María
+    expect(textoCeldaRrhh(maria, 'rif')).toBe('—');
+    expect(textoCeldaRrhh(maria, 'correo')).toBe('—');
+    expect(textoCeldaRrhh(maria, 'estado_civil')).toBe('—');
+  });
+
+  it('permite buscar por RIF y por correo en la búsqueda rápida', () => {
+    const filas = normalizarPersonalRrhh(personal, mapaEmpresas, tasaBcv, mapaFamilia);
+
+    const porRif = filtrarFilasRrhh(filas, { texto: '10200300-1' });
+    expect(porRif).toHaveLength(1);
+    expect(porRif[0].id).toBe('p1');
+
+    const porCorreo = filtrarFilasRrhh(filas, { texto: 'carlos.perez@mgg' });
+    expect(porCorreo).toHaveLength(1);
+    expect(porCorreo[0].id).toBe('p1');
   });
 
   it('incluye columna fecha_nacimiento y formatea celda en reporte', () => {

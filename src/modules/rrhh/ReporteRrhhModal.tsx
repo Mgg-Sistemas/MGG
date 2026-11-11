@@ -605,7 +605,7 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
             </button>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '.4rem .8rem', flexWrap: 'wrap', maxHeight: '110px', overflowY: 'auto', padding: '.4rem', border: '1px solid var(--border)', borderRadius: '6px' }}>
+        <div style={{ display: 'flex', gap: '.4rem .8rem', flexWrap: 'wrap', maxHeight: '140px', overflowY: 'auto', padding: '.4rem', border: '1px solid var(--border)', borderRadius: '6px' }}>
           {columnasDisponibles.map((col) => {
             const checked = columnasSel.includes(col.clave);
             return (

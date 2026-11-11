@@ -54,6 +54,10 @@ export function textoCeldaRrhh(f: FilaReporteRrhh, clave: string): string {
       return f.nombreCompleto || '—';
     case 'cedula':
       return f.cedula || '—';
+    case 'rif':
+      return f.rif || '—';
+    case 'nacionalidad':
+      return f.nacionalidad || '—';
     case 'cargo':
       return f.cargo || '—';
     case 'departamento':
@@ -62,12 +66,40 @@ export function textoCeldaRrhh(f: FilaReporteRrhh, clave: string): string {
       return f.estado === 'activo' ? 'Activo' : 'Inactivo';
     case 'genero':
       return f.genero === 'masculino' ? 'M' : f.genero === 'femenino' ? 'F' : '—';
+    case 'estado_civil':
+      return f.estadoCivil ? f.estadoCivil.charAt(0).toUpperCase() + f.estadoCivil.slice(1) : '—';
     case 'fecha_nacimiento':
       return f.fechaNacimiento || '—';
+    case 'grupo_sanguineo':
+      return f.grupoSanguineo || '—';
     case 'fecha_ingreso':
       return f.fechaIngreso || '—';
     case 'antiguedad':
       return f.antiguedadTexto || '—';
+    case 'carnet_vence':
+      return f.carnetVence || '—';
+    case 'grado_instruccion':
+      return f.gradoInstruccion ? f.gradoInstruccion.charAt(0).toUpperCase() + f.gradoInstruccion.slice(1) : '—';
+    case 'titulo_obtenido':
+      return f.tituloObtenido || '—';
+    case 'telefono':
+      return f.telefono || '—';
+    case 'correo':
+      return f.correo || '—';
+    case 'direccion':
+      return f.direccion || '—';
+    case 'contacto_emergencia':
+      return f.contactoEmergencia || '—';
+    case 'contacto_emergencia_parentesco':
+      return f.contactoEmergenciaParentesco || '—';
+    case 'contacto_emergencia_tlf':
+      return f.contactoEmergenciaTlf || '—';
+    case 'alergias':
+      return f.alergias || '—';
+    case 'enfermedades':
+      return f.enfermedades || '—';
+    case 'trabajo_anterior':
+      return f.trabajoAnterior || '—';
     case 'tiene_hijos':
       return f.tieneHijos ? 'Sí' : 'No';
     case 'cantidad_hijos':
@@ -76,8 +108,6 @@ export function textoCeldaRrhh(f: FilaReporteRrhh, clave: string): string {
       return String(f.hijosMenores || 0);
     case 'carga_familiar':
       return String(f.cargaFamiliar || 0);
-    case 'telefono':
-      return f.telefono || '—';
     case 'datos_pago':
       return f.datosPago || '—';
     case 'sueldo_base':
