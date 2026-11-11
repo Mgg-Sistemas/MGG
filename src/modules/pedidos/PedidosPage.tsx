@@ -1786,7 +1786,9 @@ function MetodoPagoModal({
       setError('En multipago, indicá el monto por cada método/moneda.'); return;
     }
     if (esContraEntrega && !corrigiendo && !notaEntrega) { setError('Confirmá la Nota de entrega (verificaste lo recibido) antes de enviar a pagar.'); return; }
-    if (conEntrega && !entrega) { setError('Indica quién entrega: Delivery, Carga pesada o Con entrega a domicilio.'); return; }
+    // 11-11-2026: al CORREGIR (crédito o Confirmada pagar) el selector de quién entrega no se muestra, así que
+    // no se exige: el error trababa «Método de pago del crédito» (OC-2026-0246). Se conserva el que tenga.
+    if (conEntrega && !entrega && !corrigiendo) { setError('Indica quién entrega: Delivery, Carga pesada o Con entrega a domicilio.'); return; }
     if (pideMomentoRet && retMomento && Object.keys(retMarc).length && retenciones.length < Object.keys(retMarc).length) {
       setError('Indica el % o el monto de cada retención marcada (o desmárcala).'); return;
     }
