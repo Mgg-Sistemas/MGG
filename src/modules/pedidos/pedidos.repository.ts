@@ -2276,6 +2276,60 @@ export function esServicioOrden(o: { clase?: string | null; codigo?: string | nu
 /** Lo que se confirma por renglón al recibir: cuánto llegó y con qué marca. */
 export type RecepcionRenglon = { sku: string; cantidad_recibida: number } & MarcaRecepcion;
 
+/**
+ * Aparta la orden para UNA sola recepción (11-11-2026). OC-2026-0182 la recibieron
+ * dos personas (CARLOS 08:37 y NAZARET 09:17): la pantalla de la segunda seguía
+ * mostrándola pendiente y el chequeo `o.recibida_en` miraba esa copia vieja, así
+ * que la mercancía entró dos veces. Ahora, ANTES de tocar el inventario, se marca
+ * la orden como recibida en la base solo si nadie lo hizo (update condicional):
+ * el que llega segundo recibe el aviso y no mueve stock. La base además rechaza
+ * entradas repetidas (trigger `trg_movimientos_recepcion_unica`).
+ */
+async function apartarRecepcion(o: Orden, actorEmail: string, reintento = false): Promise<string> {
+  const ts = new Date().toISOString();
+  const { data, error } = await supabase.from(TABLE)
+    .update({ recibida_en: ts, recibida_por: actorEmail })
+    .eq('id', o.id).is('recibida_en', null)
+    .select('id');
+  if (error) throw error;
+  if (!data?.length) {
+    const { data: actual } = await supabase.from(TABLE).select('recibida_por, recibida_en, historial').eq('id', o.id).maybeSingle();
+    // Mi propia recepción que se cortó a la mitad (quedó apartada pero sin el
+    // evento «recibida»): se suelta y se vuelve a apartar para retomarla.
+    const hist = Array.isArray(actual?.historial) ? (actual.historial as Array<{ evento?: string }>) : [];
+    const terminada = hist.some((h) => String(h?.evento ?? '').startsWith('recibida'));
+    if (!reintento && actual?.recibida_en && actual.recibida_por === actorEmail && !terminada) {
+      await supabase.from(TABLE).update({ recibida_en: null, recibida_por: null })
+        .eq('id', o.id).eq('recibida_en', actual.recibida_en as string);
+      return apartarRecepcion(o, actorEmail, true);
+    }
+    const quien = (actual?.recibida_por as string | null) ?? 'otro usuario';
+    const cuando = actual?.recibida_en ? new Date(actual.recibida_en as string).toLocaleString('es-VE', { timeZone: 'America/Caracas' }) : '';
+    throw new Error(`Esta orden YA fue recibida por ${quien}${cuando ? ` el ${cuando}` : ''}. No se volvió a cargar al inventario. Recarga la lista.`);
+  }
+  return ts;
+}
+
+/**
+ * Si la recepción falla después de apartar la orden y NO alcanzó a entrar nada,
+ * se libera para que cualquiera pueda reintentar. Si ya entró algo, queda
+ * apartada: quien la empezó la retoma (se saltan los productos que ya entraron).
+ */
+async function liberarRecepcion(o: Orden, ts: string): Promise<void> {
+  const ya = await productosYaRecibidos(o.id);
+  if (ya.size) return;
+  await supabase.from(TABLE).update({ recibida_en: null, recibida_por: null })
+    .eq('id', o.id).eq('recibida_en', ts);
+}
+
+/** Productos que ya tienen su entrada al inventario por esta orden (recepción cortada a la mitad). */
+async function productosYaRecibidos(ordenId: string): Promise<Set<string>> {
+  const { data, error } = await supabase.from('movimientos').select('producto_id')
+    .eq('ref_tipo', 'orden').eq('ref_id', ordenId).eq('tipo', 'entrada');
+  if (error) throw error;
+  return new Set(((data ?? []) as Array<{ producto_id: string }>).map((r) => String(r.producto_id)));
+}
+
 export async function recibirOrdenParcial(
   o: Orden,
   recepciones: RecepcionRenglon[],
@@ -2335,13 +2389,18 @@ export async function recibirOrdenParcial(
       throw new Error('Esta orden está en bolívares y no hay tasa BCV para convertirla a dólares. Cargá la tasa del día en Tesorería y volvé a recibir.');
   }
 
+  // Una sola recepción por orden: se aparta en la base antes de mover stock.
+  const apartadaEn = await apartarRecepcion(o, actorEmail);
+  try {
+  // Lo que ya entró en un intento anterior cortado no se vuelve a cargar.
+  const yaEntro = tocaInventario ? await productosYaRecibidos(o.id) : new Set<string>();
   // Entradas al inventario solo por lo recibido (>0), recalculando PMP por ítem.
   // Si la orden está marcada "sin inventario" (carga manual previa), se omite.
   if (tocaInventario) await Promise.all(o.items.map(async (it) => {
     // `rec` va en la unidad de COMPRA del renglón (lo que factura el proveedor).
     // Al inventario entra en la unidad de USO: 10 BULTO × 50 = 500 KG (05-10-2026).
     const recCompra = recMap.get(it.sku) ?? 0;
-    if (!it.productoId || recCompra <= 0) return;
+    if (!it.productoId || recCompra <= 0 || yaEntro.has(String(it.productoId))) return;
     const rec = cantidadEnUso(it, recCompra);
     const { data: prod, error: pErr } = await supabase
       .from('productos')
@@ -2447,6 +2506,10 @@ export async function recibirOrdenParcial(
       );
     if (exErr) throw exErr;
   }));
+  } catch (e) {
+    await liberarRecepcion(o, apartadaEn).catch(() => undefined);
+    throw e;
+  }
 
   // En la OC queda, por renglón, cuánto llegó y con qué marca (y la nota si cambió).
   const itemsRec = o.items.map((it) => {
@@ -2476,7 +2539,7 @@ export async function recibirOrdenParcial(
     ...(destinoFinal ? { almacen_destino: destinoFinal } : {}),
     nota_recepcion: huboDiferencia ? (nota?.trim() || 'Recepción parcial: llegó menos de lo solicitado.') : (nota?.trim() || null),
     recibida_por: actorEmail,
-    recibida_en: new Date().toISOString(),
+    recibida_en: apartadaEn,
     historial: appendHistorial(o, 'recibida', actorEmail, { recibido_total: recibidoTotal, parcial: huboDiferencia, nota: nota?.trim() || null, almacen_destino: destinoFinal, sin_inventario: omitirInventario, ...(marcasCambiadas.length ? { marcas_cambiadas: marcasCambiadas } : {}) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
@@ -2642,7 +2705,11 @@ export async function recibirOrdenDespiezada(
     entradas.push({ almacen, kg: kgAlmacen });
   }
 
-  if (movimientos.length) {
+  // Una sola recepción por orden: se aparta en la base antes de mover stock.
+  const apartadaEn = await apartarRecepcion(o, actorEmail);
+  try {
+  // Intento anterior cortado que ya cargó los cortes: no se repiten.
+  if (movimientos.length && (await productosYaRecibidos(o.id)).size === 0) {
     const { error: mErr } = await supabase.from('movimientos').insert(movimientos);
     if (mErr) throw mErr;
     const { error: exErr } = await supabase.from('existencias')
@@ -2660,6 +2727,10 @@ export async function recibirOrdenDespiezada(
   }
 
   await recordarCortes(calc.cortes.map((c) => c.nombre), actorEmail);
+  } catch (e) {
+    await liberarRecepcion(o, apartadaEn).catch(() => undefined);
+    throw e;
+  }
 
   // La orden guarda el despiece completo: es la trazabilidad de la compra.
   // La merma va acá y en ningún almacén — se pagó, pero no se puede cocinar.
@@ -2693,7 +2764,7 @@ export async function recibirOrdenDespiezada(
     almacen_destino: destino,
     nota_recepcion: nota?.trim() || `Despiece: ${resumen}${calc.mermaKg > 0 ? ` · merma ${calc.mermaKg} kg` : ''}.`,
     recibida_por: actorEmail,
-    recibida_en: new Date().toISOString(),
+    recibida_en: apartadaEn,
     historial: appendHistorial(o, 'recibida despiezada', actorEmail, {
       kg_recibidos: kgRec, cortes: resumen, merma_kg: calc.mermaKg,
       costo_por_kg: calc.costoPorKg, almacen_destino: destino, nota: nota?.trim() || null,
