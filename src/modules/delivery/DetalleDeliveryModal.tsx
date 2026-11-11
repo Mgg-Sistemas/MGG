@@ -12,6 +12,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import L from 'leaflet';
 import { Modal } from '@/shared/ui/Modal';
+import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { crearMapaBase, iconoPildora } from '@/shared/lib/mapaBase';
 import { nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
 import { ESTADO_DELIVERY, fechaHoraVE, montoTxt, type EstadoDelivery, type FotoDelivery } from './delivery';
@@ -245,13 +246,67 @@ function Miniaturas({ fotos }: { fotos: FotoDelivery[] }) {
   if (!fotos.length) return <p className="muted" style={{ margin: 0, fontSize: '.8rem' }}>Sin fotos.</p>;
   return (
     <div style={{ display: 'flex', gap: '.35rem', flexWrap: 'wrap' }}>
-      {fotos.map((f) => (
-        <a key={f.path} href={urls[f.path] || undefined} target="_blank" rel="noopener noreferrer" title={f.filename}>
-          {urls[f.path]
-            ? <img src={urls[f.path]} alt={f.filename} style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
-            : <span className="muted" style={{ display: 'grid', placeItems: 'center', width: 64, height: 64, border: '1px dashed var(--border)', borderRadius: 6 }}>📷</span>}
-        </a>
-      ))}
+      {fotos.map((f) => {
+        const url = urls[f.path];
+        const esPdf = /\.pdf$/i.test(f.filename || f.path);
+        return (
+          <button
+            key={f.path}
+            type="button"
+            disabled={!url}
+            onClick={() => url && void previewFileUrl(url, f.filename, `Foto · ${f.filename}`)}
+            title={`Ver en vista previa · ${f.filename}`}
+            style={{
+              padding: 0,
+              border: 'none',
+              background: 'transparent',
+              cursor: url ? 'pointer' : 'default',
+              borderRadius: 6,
+              overflow: 'hidden',
+            }}
+          >
+            {url ? (
+              esPdf ? (
+                <span
+                  style={{
+                    display: 'grid',
+                    placeItems: 'center',
+                    width: 64,
+                    height: 64,
+                    border: '1px solid var(--border)',
+                    borderRadius: 6,
+                    background: 'var(--surface-2, #18202c)',
+                    fontSize: '1.4rem',
+                  }}
+                  title="PDF"
+                >
+                  📄
+                </span>
+              ) : (
+                <img
+                  src={url}
+                  alt={f.filename}
+                  style={{ width: 64, height: 64, objectFit: 'cover', borderRadius: 6, display: 'block' }}
+                />
+              )
+            ) : (
+              <span
+                className="muted"
+                style={{
+                  display: 'grid',
+                  placeItems: 'center',
+                  width: 64,
+                  height: 64,
+                  border: '1px dashed var(--border)',
+                  borderRadius: 6,
+                }}
+              >
+                📷
+              </span>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }

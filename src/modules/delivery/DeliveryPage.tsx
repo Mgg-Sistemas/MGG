@@ -44,6 +44,7 @@ import { DetalleDeliveryModal } from './DetalleDeliveryModal';
 import type { DestinosDelivery } from './deliveryRutas';
 import { pdfComprobanteDelivery, pdfHistorialDelivery, pdfListaDelivery, pdfPorDelivery } from './deliveryPdf';
 import { mensajeHistorialDelivery, mensajeListaDelivery, mensajePorDelivery, mensajeReporteDelivery } from './deliveryReporte';
+import { previewFileUrl } from '@/shared/lib/reportPreview';
 import './deliveryMovil.css';
 
 // 10-11-2026 (maqueta de Delivery): «Centro de control» con el mapa en vivo adentro, y dos pestañas
@@ -397,7 +398,10 @@ function FotosModal({ pedido, editable = false, onCambio, onClose }: {
   async function agregar(tipo: 'recibo' | 'entrega', actuales: FotoDelivery[], lista: FileList | null) {
     const archivos = Array.from(lista ?? []);
     if (!archivos.length || !pedido.pedido_id) return;
-    if (archivos.some((f) => !/^image\//.test(f.type) && !/\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name))) { toast('Solo se pueden subir fotos (imágenes).', 'error'); return; }
+    if (archivos.some((f) => !/^image\//.test(f.type) && !/\.(jpe?g|png|webp|gif|heic|heif|pdf)$/i.test(f.name))) {
+      toast('Solo se pueden subir fotos o documentos (imágenes o PDF).', 'error');
+      return;
+    }
     if (actuales.length + archivos.length > MAX_FOTOS_DELIVERY) { toast(`Se pueden adjuntar hasta ${MAX_FOTOS_DELIVERY} fotos.`, 'error'); return; }
     setOcupado(true);
     try {
@@ -416,32 +420,105 @@ function FotosModal({ pedido, editable = false, onCambio, onClose }: {
         {editable && fs.length < MAX_FOTOS_DELIVERY && (
           <label className="btn btn-ghost btn-sm" style={{ cursor: ocupado ? 'wait' : 'pointer' }}>
             {ocupado ? 'Guardando…' : '+ Agregar fotos'}
-            <input type="file" accept="image/*" multiple hidden disabled={ocupado}
+            <input type="file" accept="image/*,application/pdf" multiple hidden disabled={ocupado}
               onChange={(e) => { void agregar(tipo, fs, e.target.files); e.target.value = ''; }} />
           </label>
         )}
       </div>
       {!fs.length ? <p className="muted" style={{ margin: 0 }}>Sin fotos.</p> : (
         <div style={{ display: 'grid', gap: '.6rem', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
-          {fs.map((f) => (
-            <div key={f.path} style={{ position: 'relative' }}>
-              {urls[f.path] ? (
-                <a href={urls[f.path]} target="_blank" rel="noopener noreferrer" title={f.filename}>
-                  <img src={urls[f.path]} alt={f.filename} style={{ width: '100%', height: 140, objectFit: 'cover', borderRadius: 8, display: 'block' }} />
-                </a>
-              ) : (
-                <div className="muted" style={{ height: 140, display: 'grid', placeItems: 'center', border: '1px dashed var(--border)', borderRadius: 8, fontSize: '.8rem' }}>
-                  {f.path in urls ? 'No se pudo abrir' : 'Cargando…'}
-                </div>
-              )}
-              {editable && (
-                <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => { void quitar(tipo, fs, f); }}
-                  style={{ position: 'absolute', top: 6, right: 6, background: 'var(--danger)', color: '#fff' }} aria-label={`Quitar ${f.filename}`}>
-                  ✕ Quitar
-                </button>
-              )}
-            </div>
-          ))}
+          {fs.map((f) => {
+            const url = urls[f.path];
+            const esPdf = /\.pdf$/i.test(f.filename || f.path);
+            return (
+              <div key={f.path} style={{ position: 'relative' }}>
+                {url ? (
+                  <button
+                    type="button"
+                    onClick={() => void previewFileUrl(url, f.filename, `Foto · ${ocDe(pedido)}`)}
+                    title={`Ver en vista previa: ${f.filename}`}
+                    style={{
+                      padding: 0,
+                      border: '1px solid var(--border)',
+                      borderRadius: 8,
+                      background: 'var(--surface-2, #18202c)',
+                      cursor: 'pointer',
+                      width: '100%',
+                      display: 'block',
+                      textAlign: 'left',
+                      overflow: 'hidden',
+                      position: 'relative',
+                    }}
+                  >
+                    {esPdf ? (
+                      <div
+                        style={{
+                          height: 140,
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '.35rem',
+                          padding: '.6rem',
+                          color: 'var(--text)',
+                        }}
+                      >
+                        <span style={{ fontSize: '2.4rem' }}>📄</span>
+                        <span style={{ fontSize: '.75rem', fontWeight: 600, textAlign: 'center', wordBreak: 'break-all', lineHeight: 1.2 }}>
+                          {f.filename}
+                        </span>
+                        <small className="muted" style={{ fontSize: '.68rem' }}>Toca para ver PDF</small>
+                      </div>
+                    ) : (
+                      <div style={{ position: 'relative', overflow: 'hidden' }}>
+                        <img
+                          src={url}
+                          alt={f.filename}
+                          style={{
+                            width: '100%',
+                            height: 140,
+                            objectFit: 'cover',
+                            display: 'block',
+                            transition: 'transform 0.18s ease',
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.04)'; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
+                        />
+                        <div
+                          style={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            background: 'linear-gradient(transparent, rgba(0,0,0,0.75))',
+                            padding: '4px 6px',
+                            color: '#fff',
+                            fontSize: '.72rem',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '.3rem',
+                          }}
+                        >
+                          <span>👁</span>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Vista previa</span>
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                ) : (
+                  <div className="muted" style={{ height: 140, display: 'grid', placeItems: 'center', border: '1px dashed var(--border)', borderRadius: 8, fontSize: '.8rem' }}>
+                    {f.path in urls ? 'No se pudo abrir' : 'Cargando…'}
+                  </div>
+                )}
+                {editable && (
+                  <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => { void quitar(tipo, fs, f); }}
+                    style={{ position: 'absolute', top: 6, right: 6, background: 'var(--danger)', color: '#fff', zIndex: 2 }} aria-label={`Quitar ${f.filename}`}>
+                    ✕ Quitar
+                  </button>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
@@ -449,7 +526,19 @@ function FotosModal({ pedido, editable = false, onCambio, onClose }: {
 
   return (
     <Modal title={`📷 Fotos · ${ocDe(pedido)}`} size="lg" onClose={onClose}
-      footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      footer={
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => void pdfComprobanteDelivery(pedido)}
+            title="Ver comprobante de delivery con sus datos en PDF"
+          >
+            📄 Ver Comprobante (PDF)
+          </button>
+          <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+        </div>
+      }>
       {editable && <p className="hint muted" style={{ marginTop: 0 }}>Orden entregada: puedes agregar o quitar las fotos que subió el delivery.</p>}
       {grupo('Al recibir del proveedor', 'recibo', recibo)}
       {grupo('Al entregar en el almacén', 'entrega', entrega)}
@@ -488,12 +577,22 @@ function ComprobanteModal({ pedido, onClose }: { pedido: PedidoDelivery; onClose
             {dato.pagos.length > 0 && <>Pagos: {dato.pagos.map((x) => montoTxt(x.monto, x.moneda)).join(' + ')}.</>}
           </p>
           {dato.esPdf ? (
-            // Un enlace (no window.open tras la espera): el navegador no lo bloquea como ventana emergente.
-            <a className="btn btn-primary" href={dato.url} target="_blank" rel="noopener noreferrer">📄 Abrir PDF · {dato.nombre}</a>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={() => void previewFileUrl(dato.url, dato.nombre, `Comprobante de pago · ${ocDe(pedido)}`)}
+            >
+              📄 Abrir PDF · {dato.nombre}
+            </button>
           ) : (
-            <a href={dato.url} target="_blank" rel="noopener noreferrer" title="Abrir en grande">
+            <button
+              type="button"
+              style={{ padding: 0, border: 'none', background: 'transparent', cursor: 'pointer', display: 'block', margin: '0 auto' }}
+              onClick={() => void previewFileUrl(dato.url, dato.nombre, `Comprobante de pago · ${ocDe(pedido)}`)}
+              title="Abrir en vista previa"
+            >
               <img src={dato.url} alt={dato.nombre} style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', display: 'block', margin: '0 auto', borderRadius: 8 }} />
-            </a>
+            </button>
           )}
         </>
       )}

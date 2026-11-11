@@ -131,7 +131,10 @@ export async function subirFotosDelivery(
   const nuevas = await Promise.all(archivos.map(async (original) => {
     const f = await comprimirImagen(original).catch(() => original);
     const path = `${pedidoId}/${tipo}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${seguro(f.name)}`;
-    const { error } = await supabase.storage.from(BUCKET).upload(path, f, { upsert: false, contentType: f.type || 'image/jpeg' });
+    const { error } = await supabase.storage.from(BUCKET).upload(path, f, {
+      upsert: false,
+      contentType: f.type || (/\.pdf$/i.test(f.name) ? 'application/pdf' : 'image/jpeg'),
+    });
     if (error) throw new Error(`No se pudo subir «${original.name}»: ${error.message}`);
     return { path, filename: original.name };
   }));

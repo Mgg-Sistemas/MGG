@@ -47,6 +47,7 @@ import {
 } from './deliveryMovil';
 import { pdfComprobanteDelivery, pdfListaDelivery } from './deliveryPdf';
 import { mensajeListaDelivery, mensajeReporteDelivery, pedidosDelFeed } from './deliveryReporte';
+import { previewFileUrl } from '@/shared/lib/reportPreview';
 import './deliveryMovil.css';
 
 export const RUTA_DELIVERY_TELEFONO = '/app/delivery/telefono';
@@ -545,19 +546,34 @@ function MiniaturasFotos({ fotos, onQuitar }: { fotos: FotoDelivery[]; onQuitar?
   if (!fotos.length) return null;
   return (
     <div className="rep-fotos">
-      {fotos.map((f) => (
-        <span key={f.path} style={{ position: 'relative', display: 'inline-block' }}>
-          <a className="rep-foto" href={urls[f.path] || undefined} target="_blank" rel="noopener noreferrer" aria-label={`Ver ${f.filename}`}>
-            {urls[f.path] ? <img src={urls[f.path]} alt={f.filename} /> : <span className="rep-foto-doc">📷</span>}
-          </a>
-          {onQuitar && (
-            <button type="button" className="btn btn-xs" onClick={() => onQuitar(f)} aria-label={`Quitar ${f.filename}`}
-              style={{ position: 'absolute', top: 2, right: 2, padding: '0 .35rem', background: 'var(--danger)', color: '#fff', borderRadius: 999 }}>
-              ✕
+      {fotos.map((f) => {
+        const url = urls[f.path];
+        const esPdf = /\.pdf$/i.test(f.filename || f.path);
+        return (
+          <span key={f.path} style={{ position: 'relative', display: 'inline-block' }}>
+            <button
+              type="button"
+              className="rep-foto"
+              disabled={!url}
+              onClick={() => url && void previewFileUrl(url, f.filename, 'Foto de delivery')}
+              aria-label={`Ver ${f.filename}`}
+              style={{ padding: 0, border: 'none', background: 'transparent', cursor: url ? 'pointer' : 'default' }}
+            >
+              {url ? (
+                esPdf ? <span className="rep-foto-doc">📄</span> : <img src={url} alt={f.filename} />
+              ) : (
+                <span className="rep-foto-doc">📷</span>
+              )}
             </button>
-          )}
-        </span>
-      ))}
+            {onQuitar && (
+              <button type="button" className="btn btn-xs" onClick={() => onQuitar(f)} aria-label={`Quitar ${f.filename}`}
+                style={{ position: 'absolute', top: 2, right: 2, padding: '0 .35rem', background: 'var(--danger)', color: '#fff', borderRadius: 999 }}>
+                ✕
+              </button>
+            )}
+          </span>
+        );
+      })}
     </div>
   );
 }
@@ -741,13 +757,23 @@ function ComprobantePago({ p, onClose }: { p: PedidoDelivery; onClose: () => voi
             : <div className="surt-fila"><span>Total de la OC</span><span>{montoTxt(p.total, p.moneda)}</span></div>}
         </div>
         {dato.esPdf ? (
-          <a className="btn btn-primary btn-grande" href={dato.url} target="_blank" rel="noopener noreferrer" style={{ justifyContent: 'center' }}>
+          <button
+            type="button"
+            className="btn btn-primary btn-grande"
+            onClick={() => void previewFileUrl(dato.url, dato.nombre, `Comprobante · ${ocDe(p)}`)}
+            style={{ justifyContent: 'center' }}
+          >
             📄 Abrir PDF · {dato.nombre}
-          </a>
+          </button>
         ) : (
-          <a href={dato.url} target="_blank" rel="noopener noreferrer" aria-label={`Abrir ${dato.nombre}`}>
+          <button
+            type="button"
+            style={{ padding: 0, border: 'none', background: 'transparent', cursor: 'pointer', width: '100%' }}
+            onClick={() => void previewFileUrl(dato.url, dato.nombre, `Comprobante · ${ocDe(p)}`)}
+            aria-label={`Abrir ${dato.nombre}`}
+          >
             <img src={dato.url} alt={dato.nombre} style={{ width: '100%', borderRadius: 'var(--r-md)', border: '1px solid var(--border)' }} />
-          </a>
+          </button>
         )}
         <small className="muted">El enlace dura 10 minutos; si vence, cierra y vuelve a abrir el comprobante.</small>
       </div>
