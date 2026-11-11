@@ -13,7 +13,9 @@ import {
   obtenerMetricasFichaRrhh,
   calcularAntiguedad,
   rangoSalarialDe,
+  formatearDatosPagoRrhh,
   CAMPOS_REPORTE_RRHH,
+  CAMPOS_DEFAULT_RRHH,
 } from './reporteRrhhDinamico';
 import { textoCeldaRrhh } from './exportarRrhhDinamico';
 
@@ -236,6 +238,59 @@ describe('reporteRrhhDinamico - Personal y Carga Familiar', () => {
     expect(textoCeldaRrhh(maria, 'rif')).toBe('—');
     expect(textoCeldaRrhh(maria, 'correo')).toBe('—');
     expect(textoCeldaRrhh(maria, 'estado_civil')).toBe('—');
+    expect(textoCeldaRrhh(maria, 'edad')).toBe('—');
+    expect(textoCeldaRrhh(maria, 'detalle_familiares')).toBe('—');
+    expect(textoCeldaRrhh(maria, 'datos_pago')).toBe('—');
+
+    // Edad y detalle de carga familiar en Carlos y Juan
+    expect(carlos.edad).toBeGreaterThanOrEqual(35);
+    expect(textoCeldaRrhh(carlos, 'edad')).toContain('años');
+    expect(carlos.detalleFamiliares).toContain('Carlitos (Hijo/a');
+    expect(carlos.detalleFamiliares).toContain('Carla (Hijo/a');
+    const juan = filas.find((f) => f.id === 'p3')!;
+    expect(textoCeldaRrhh(juan, 'detalle_familiares')).toContain('Ana (Esposa) (Cónyuge / pareja');
+
+    // RIF presente en preset detallado
+    expect(CAMPOS_DEFAULT_RRHH.personal.detallado).toContain('rif');
+  });
+
+  it('formatea datos_pago legibles sin imprimir {} ni JSON crudo, y traduce catálogos de instrucción y parentesco', () => {
+    expect(formatearDatosPagoRrhh(null)).toBeUndefined();
+    expect(formatearDatosPagoRrhh({})).toBeUndefined();
+    expect(formatearDatosPagoRrhh({ cuentas: [] })).toBeUndefined();
+    expect(
+      formatearDatosPagoRrhh({
+        cuentas: [
+          { id: 'c1', tipo: 'pago_movil', banco: '0102', telefono: '0414-1234567', cedula: 'V-10200300', principal: true },
+        ],
+      }),
+    ).toContain('Pago móvil (Bs):');
+
+    const [fichaTsu] = normalizarPersonalRrhh(
+      [
+        {
+          id: 'p-tsu',
+          nombre: 'Luis',
+          apellido: 'Mora',
+          sueldo_base: 400,
+          activo: true,
+          grados_instruccion: ['bachiller', 'tsu'],
+          contacto_emergencia_parentesco: 'conyuge',
+          trabajo_anterior_empresa: 'SIDOR',
+          trabajo_anterior_cargo: 'Soldador',
+          trabajo_anterior_sueldo: 350,
+          trabajo_anterior_moneda: 'USD',
+          datos_pago: {},
+          created_at: '',
+        },
+      ],
+      mapaEmpresas,
+      tasaBcv,
+    );
+    expect(textoCeldaRrhh(fichaTsu, 'grado_instruccion')).toBe('TSU');
+    expect(textoCeldaRrhh(fichaTsu, 'contacto_emergencia_parentesco')).toBe('Cónyuge / pareja');
+    expect(textoCeldaRrhh(fichaTsu, 'trabajo_anterior')).toBe('SIDOR - Soldador · $ 350');
+    expect(textoCeldaRrhh(fichaTsu, 'datos_pago')).toBe('—');
   });
 
   it('permite buscar por RIF y por correo en la búsqueda rápida', () => {

@@ -17,7 +17,8 @@ import type { Personal } from '@/shared/lib/types';
 import type { DefinicionEmpresa } from './empresa';
 import type { CambioSueldoRegistro, FamiliarPersonal } from './personal.repository';
 import type { HistorialTabulador } from './tabulador';
-import { edadEn } from './fichaPersonal';
+import { datosDeCuenta, infoTipo, leerCuentas } from './datosBancarios';
+import { edadEn, gradoMasAlto, labelParentesco } from './fichaPersonal';
 
 /** Redondeo a 2 decimales para operaciones de moneda y porcentajes. */
 export function round2(n: number): number {
@@ -97,6 +98,7 @@ export const CAMPOS_REPORTE_RRHH: CampoColumnaRrhh[] = [
   { clave: 'genero', etiqueta: 'Género', anchoExcel: 12, alineacion: 'center', formato: 'texto', ambitos: ['personal'] },
   { clave: 'estado_civil', etiqueta: 'Estado Civil', anchoExcel: 14, alineacion: 'center', formato: 'texto', ambitos: ['personal'] },
   { clave: 'fecha_nacimiento', etiqueta: 'Fecha de Nacimiento', anchoExcel: 16, alineacion: 'center', formato: 'fecha', ambitos: ['personal'] },
+  { clave: 'edad', etiqueta: 'Edad', anchoExcel: 10, alineacion: 'center', formato: 'texto', ambitos: ['personal'] },
   { clave: 'grupo_sanguineo', etiqueta: 'Grupo Sanguíneo', anchoExcel: 14, alineacion: 'center', formato: 'texto', ambitos: ['personal'] },
   { clave: 'fecha_ingreso', etiqueta: 'Fecha Ingreso', anchoExcel: 13, alineacion: 'center', formato: 'fecha', ambitos: ['personal'] },
   { clave: 'antiguedad', etiqueta: 'Antigüedad', anchoExcel: 14, alineacion: 'left', formato: 'texto', ambitos: ['personal'] },
@@ -128,8 +130,9 @@ export const CAMPOS_REPORTE_RRHH: CampoColumnaRrhh[] = [
   { clave: 'cantidad_hijos', etiqueta: 'N° Hijos', anchoExcel: 12, alineacion: 'center', formato: 'numero', ambitos: ['personal'] },
   { clave: 'hijos_menores', etiqueta: 'Hijos Menores (<18)', anchoExcel: 16, alineacion: 'center', formato: 'numero', ambitos: ['personal'] },
   { clave: 'carga_familiar', etiqueta: 'Carga Familiar Total', anchoExcel: 16, alineacion: 'center', formato: 'numero', ambitos: ['personal'] },
+  { clave: 'detalle_familiares', etiqueta: 'Detalle Carga Familiar', anchoExcel: 32, alineacion: 'left', formato: 'texto', ambitos: ['personal'] },
 
-  { clave: 'datos_pago', etiqueta: 'Método / Datos de Pago', anchoExcel: 28, alineacion: 'left', formato: 'texto', ambitos: ['personal'] },
+  { clave: 'datos_pago', etiqueta: 'Método / Datos de Pago', anchoExcel: 32, alineacion: 'left', formato: 'texto', ambitos: ['personal'] },
 
   // Económicos / Sueldos
   { clave: 'sueldo_base', etiqueta: 'Sueldo Base ($)', anchoExcel: 16, alineacion: 'right', formato: 'moneda', ambitos: ['personal'] },
@@ -160,7 +163,7 @@ export const CAMPOS_DEFAULT_RRHH: Record<AmbitoRrhh, Record<ModoAgrupacionRrhh, 
     carga_familiar: ['tiene_hijos', 'total_personas', 'cantidad_hijos', 'hijos_menores', 'masa_salarial', 'pct_total'],
     rango_sueldo: ['sueldo_base', 'total_personas', 'masa_salarial', 'pct_total'],
     mes: ['fecha_ingreso', 'total_personas', 'masa_salarial'],
-    detallado: ['ficha', 'nombre_completo', 'cedula', 'cargo', 'departamento', 'empresa', 'tiene_hijos', 'cantidad_hijos', 'sueldo_base', 'estado'],
+    detallado: ['ficha', 'nombre_completo', 'cedula', 'rif', 'cargo', 'departamento', 'empresa', 'tiene_hijos', 'cantidad_hijos', 'sueldo_base', 'estado'],
   },
   historico_salarial: {
     empresa: ['empresa', 'total_personas', 'variacion_usd', 'variacion_pct'],
@@ -204,6 +207,7 @@ export interface FilaReporteRrhh {
   genero?: string;
   estadoCivil?: string;
   fechaNacimiento?: string;
+  edad?: number;
   grupoSanguineo?: string;
   fechaIngreso?: string;
   antiguedadAnios?: number;
@@ -236,6 +240,7 @@ export interface FilaReporteRrhh {
   cantidadHijos: number;
   hijosMenores: number;
   cargaFamiliar: number;
+  detalleFamiliares?: string;
 
   datosPago?: string;
 
@@ -388,6 +393,36 @@ export function resolverEmpresa(
 
 /* ───────────── Normalizadores Puros ───────────── */
 
+/** Formatea `personal.datos_pago` en texto legible para impresión/exportación (evita `{}` o JSON crudo). */
+export function formatearDatosPagoRrhh(datosPago: unknown): string | undefined {
+  if (!datosPago) return undefined;
+  if (typeof datosPago === 'string') {
+    const limpio = datosPago.trim();
+    return limpio && limpio !== '{}' ? limpio : undefined;
+  }
+  const cuentas = leerCuentas(datosPago);
+  if (cuentas.length > 0) {
+    const ordenadas = [...cuentas].sort((a, b) => Number(!!b.principal) - Number(!!a.principal));
+    return ordenadas
+      .map((c) => {
+        const info = infoTipo(c.tipo);
+        const marca = ordenadas.length > 1 && c.principal ? ' (Principal)' : '';
+        const detalle = datosDeCuenta(c)
+          .map((d) => `${d.etiqueta}: ${d.valor}`)
+          .join(' · ');
+        return detalle ? `${info.label} (${info.moneda})${marca}: ${detalle}` : `${info.label} (${info.moneda})${marca}`;
+      })
+      .join(' | ');
+  }
+  if (typeof datosPago === 'object') {
+    const entradas = Object.entries(datosPago as Record<string, unknown>)
+      .filter(([k, v]) => k !== 'cuentas' && v != null && v !== '' && (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'))
+      .map(([k, v]) => `${k}: ${String(v).trim()}`);
+    return entradas.length > 0 ? entradas.join(' · ') : undefined;
+  }
+  return undefined;
+}
+
 /** Normaliza la lista de personal a filas de reporte, enriqueciendo con su carga familiar real. */
 export function normalizarPersonalRrhh(
   personal: Personal[],
@@ -410,6 +445,18 @@ export function normalizarPersonalRrhh(
     }).length;
     const tieneHijos = cantidadHijos > 0;
     const totalCarga = familiares.length;
+    const detalleFamiliares = familiares.length > 0
+      ? familiares
+          .map((fam) => {
+            const nom = (fam.nombre || '').trim();
+            const par = labelParentesco(fam.parentesco);
+            const ed = edadEn(fam.fechaNacimiento);
+            const sufijo = ed != null ? `${par}, ${ed}a` : par;
+            return nom ? `${nom} (${sufijo})` : sufijo;
+          })
+          .filter(Boolean)
+          .join(' · ')
+      : undefined;
 
     // Alergias
     let alergias: string | undefined;
@@ -429,9 +476,18 @@ export function normalizarPersonalRrhh(
 
     // Trabajo anterior
     const partesTrabajo = [p.trabajo_anterior_empresa?.trim(), p.trabajo_anterior_cargo?.trim()].filter(Boolean);
+    const sueldoAnt = Number(p.trabajo_anterior_sueldo);
+    let sueldoAntTxt = '';
+    if (Number.isFinite(sueldoAnt) && sueldoAnt > 0) {
+      const monedaAnt = (p.trabajo_anterior_moneda ?? 'USD').trim().toUpperCase();
+      const montoFmt = Number.isInteger(sueldoAnt) ? String(sueldoAnt) : sueldoAnt.toFixed(2).replace('.', ',');
+      sueldoAntTxt = ` · ${monedaAnt === 'BS' ? `Bs ${montoFmt}` : `$ ${montoFmt}`}`;
+    }
     const trabajoAnterior = partesTrabajo.length > 0
-      ? partesTrabajo.join(' - ') + (p.trabajo_anterior_duracion?.trim() ? ` (${p.trabajo_anterior_duracion.trim()})` : '')
-      : undefined;
+      ? partesTrabajo.join(' - ') + (p.trabajo_anterior_duracion?.trim() ? ` (${p.trabajo_anterior_duracion.trim()})` : '') + sueldoAntTxt
+      : (sueldoAntTxt ? sueldoAntTxt.slice(3) : undefined);
+
+    const edadPersona = edadEn(p.fecha_nacimiento);
 
     return {
       id: p.id,
@@ -449,13 +505,14 @@ export function normalizarPersonalRrhh(
       genero: p.genero?.trim() || 'sin_cargar',
       estadoCivil: p.estado_civil?.trim() || undefined,
       fechaNacimiento: p.fecha_nacimiento ? p.fecha_nacimiento.slice(0, 10) : undefined,
+      edad: edadPersona != null ? edadPersona : undefined,
       grupoSanguineo: p.grupo_sanguineo?.trim() || undefined,
       fechaIngreso: p.fecha_ingreso ? p.fecha_ingreso.slice(0, 10) : undefined,
       antiguedadAnios: ant.anios,
       antiguedadTexto: ant.texto,
       carnetVence: p.carnet_vence ? p.carnet_vence.slice(0, 10) : undefined,
 
-      gradoInstruccion: p.grado_instruccion?.trim() || undefined,
+      gradoInstruccion: p.grado_instruccion?.trim() || gradoMasAlto(p.grados_instruccion) || undefined,
       tituloObtenido: p.titulo_obtenido?.trim() || undefined,
 
       telefono: p.telefono?.trim() || undefined,
@@ -475,8 +532,9 @@ export function normalizarPersonalRrhh(
       cantidadHijos,
       hijosMenores,
       cargaFamiliar: totalCarga,
+      detalleFamiliares,
 
-      datosPago: p.datos_pago ? JSON.stringify(p.datos_pago) : undefined,
+      datosPago: formatearDatosPagoRrhh(p.datos_pago),
       sueldoBase: sBase,
       sueldoBs: round2(sBase * tasaBcv),
       tasaBcvAplicada: tasaBcv,

@@ -560,7 +560,7 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
           </label>
           <input
             className="input"
-            placeholder="Buscar nombre, cédula, cargo..."
+            placeholder="Buscar nombre, cédula, RIF, cargo..."
             value={textoBusqueda}
             onChange={(e) => setTextoBusqueda(e.target.value)}
             style={{ width: '100%' }}

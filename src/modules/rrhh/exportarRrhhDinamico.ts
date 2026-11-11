@@ -26,6 +26,7 @@ import {
   MODOS_AGRUPACION_RRHH,
   obtenerMetricasFichaRrhh,
 } from './reporteRrhhDinamico';
+import { GRADOS_INSTRUCCION, PARENTESCOS } from './fichaPersonal';
 
 const COLOR_NARANJA_RGB: [number, number, number] = [255, 138, 0];
 const COLOR_TINTA_RGB: [number, number, number] = [30, 41, 59];
@@ -70,6 +71,8 @@ export function textoCeldaRrhh(f: FilaReporteRrhh, clave: string): string {
       return f.estadoCivil ? f.estadoCivil.charAt(0).toUpperCase() + f.estadoCivil.slice(1) : '—';
     case 'fecha_nacimiento':
       return f.fechaNacimiento || '—';
+    case 'edad':
+      return f.edad != null ? `${f.edad} años` : '—';
     case 'grupo_sanguineo':
       return f.grupoSanguineo || '—';
     case 'fecha_ingreso':
@@ -79,7 +82,11 @@ export function textoCeldaRrhh(f: FilaReporteRrhh, clave: string): string {
     case 'carnet_vence':
       return f.carnetVence || '—';
     case 'grado_instruccion':
-      return f.gradoInstruccion ? f.gradoInstruccion.charAt(0).toUpperCase() + f.gradoInstruccion.slice(1) : '—';
+      if (!f.gradoInstruccion) return '—';
+      return (
+        GRADOS_INSTRUCCION.find((x) => x.key === f.gradoInstruccion)?.label ??
+        f.gradoInstruccion.charAt(0).toUpperCase() + f.gradoInstruccion.slice(1)
+      );
     case 'titulo_obtenido':
       return f.tituloObtenido || '—';
     case 'telefono':
@@ -91,7 +98,11 @@ export function textoCeldaRrhh(f: FilaReporteRrhh, clave: string): string {
     case 'contacto_emergencia':
       return f.contactoEmergencia || '—';
     case 'contacto_emergencia_parentesco':
-      return f.contactoEmergenciaParentesco || '—';
+      if (!f.contactoEmergenciaParentesco) return '—';
+      return (
+        PARENTESCOS.find((x) => x.key === f.contactoEmergenciaParentesco)?.label ??
+        f.contactoEmergenciaParentesco
+      );
     case 'contacto_emergencia_tlf':
       return f.contactoEmergenciaTlf || '—';
     case 'alergias':
@@ -108,6 +119,8 @@ export function textoCeldaRrhh(f: FilaReporteRrhh, clave: string): string {
       return String(f.hijosMenores || 0);
     case 'carga_familiar':
       return String(f.cargaFamiliar || 0);
+    case 'detalle_familiares':
+      return f.detalleFamiliares || '—';
     case 'datos_pago':
       return f.datosPago || '—';
     case 'sueldo_base':
@@ -171,7 +184,7 @@ export async function descargarRrhhExcel(op: OpcionesExportacionRrhh): Promise<v
     i + 1,
     ...columnas.map((c) => {
       const txt = textoCeldaRrhh(f, c.clave);
-      if (c.formato === 'numero') return Number(txt) || 0;
+      if (c.formato === 'numero') return txt === '—' ? '—' : Number(txt) || 0;
       return txt;
     }),
   ]);
@@ -292,22 +305,28 @@ export async function descargarRrhhPdf(op: OpcionesExportacionRrhh): Promise<voi
     columnStyles[idx + 1] = { halign: c.alineacion };
   });
 
+  const muchasCols = columnas.length > 14;
+  const mediaCols = columnas.length > 10;
+  const idxNombre = columnas.findIndex((c) => c.clave === 'nombre_completo');
+
   autoTable(doc, {
     startY: y,
     head: [head],
     body,
     theme: 'grid',
+    horizontalPageBreak: muchasCols,
+    horizontalPageBreakRepeat: muchasCols ? (idxNombre >= 0 ? [0, idxNombre + 1] : 0) : undefined,
     headStyles: {
       fillColor: COLOR_NARANJA_RGB,
       textColor: 255,
       fontStyle: 'bold',
-      fontSize: 8,
+      fontSize: muchasCols ? 6.8 : mediaCols ? 7.2 : 8,
       halign: 'center',
       valign: 'middle',
     },
     styles: {
-      fontSize: 7.5,
-      cellPadding: 3.5,
+      fontSize: muchasCols ? 6.5 : mediaCols ? 7 : 7.5,
+      cellPadding: muchasCols ? 2.5 : mediaCols ? 3 : 3.5,
       overflow: 'linebreak',
       valign: 'middle',
       textColor: COLOR_TINTA_RGB,
