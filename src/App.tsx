@@ -52,6 +52,7 @@ const ChoferesPage = lazyReload(() => import('./modules/choferes/ChoferesPage').
 const VentasPage = lazyReload(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
 const TesoreriaPage = lazyReload(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
 const RetencionesPage = lazyReload(() => import('./modules/retenciones/RetencionesPage').then((m) => ({ default: m.RetencionesPage })));
+const ConciliacionPage = lazyReload(() => import('./modules/conciliacion/ConciliacionPage').then((m) => ({ default: m.ConciliacionPage })));
 const RetencionesMovilView = lazyReload(() => import('./modules/retenciones/RetencionesMovilView').then((m) => ({ default: m.RetencionesMovilView })));
 const RecepcionesPage = lazyReload(() => import('./modules/recepciones/RecepcionesPage').then((m) => ({ default: m.RecepcionesPage })));
 const RrhhPage = lazyReload(() => import('./modules/rrhh/RrhhPage').then((m) => ({ default: m.RrhhPage })));
@@ -198,6 +199,7 @@ export function App() {
           <Route path="retenciones" element={<RequireModule module="retenciones"><Suspense fallback={<PageLoader />}><RetencionesPage /></Suspense></RequireModule>} />
           <Route path="retenciones/telefono" element={<RequireVistaTelefono vista="retenciones"><Suspense fallback={<PageLoader />}><RetencionesMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="retenciones/nueva" element={<Navigate to="/app/retenciones" replace />} />
+          <Route path="conciliacion" element={<RequireModule module="conciliacion"><Suspense fallback={<PageLoader />}><ConciliacionPage /></Suspense></RequireModule>} />
           <Route path="recepciones" element={<RequireModule module="recepciones"><Suspense fallback={<PageLoader />}><RecepcionesPage /></Suspense></RequireModule>} />
           <Route path="rrhh" element={<RequireModule module="rrhh"><Suspense fallback={<PageLoader />}><RrhhPage /></Suspense></RequireModule>} />
           <Route path="asignaciones" element={<RequireModule module="asignaciones"><Suspense fallback={<PageLoader />}><AsignacionesPage /></Suspense></RequireModule>} />

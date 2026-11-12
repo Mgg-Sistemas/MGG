@@ -26,6 +26,7 @@ export type ModuleKey =
   | 'ventas'
   | 'tesoreria'
   | 'retenciones'
+  | 'conciliacion'
   | 'recepciones'
   | 'rrhh'
   | 'asignaciones'
@@ -77,6 +78,7 @@ export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'ventas',      label: 'Ventas' },
   { key: 'tesoreria',   label: 'Tesorería' },
   { key: 'retenciones', label: 'Retenciones' },
+  { key: 'conciliacion', label: 'Conciliación' },
   { key: 'recepciones', label: 'Recepciones' },
   { key: 'rrhh',        label: 'RRHH / Nómina' },
   { key: 'asignaciones',label: 'Asignaciones al Personal' },
@@ -171,6 +173,7 @@ export function defaultsFor(role: RoleKey): RolePermisos {
     });
     all.usuarios = { lectura: true, escritura: false, full: false };
     all.tesoreria = { lectura: true, escritura: false, full: false };
+    all.conciliacion = { lectura: true, escritura: false, full: false };
     all.retenciones = { lectura: true, escritura: true, full: false };
     all.recepciones = { lectura: true, escritura: true, full: false };
     all.rrhh = { lectura: true, escritura: true, full: false };
