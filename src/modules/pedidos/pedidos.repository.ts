@@ -60,6 +60,7 @@ import { flujoRevisionAlmacenActivo } from './revisionAlmacen.repository';
 import { patchRetencionMomento, type RetencionMomento } from './retencionMomento';
 import { retencionQueBajaElPago, type RetencionOc } from './retencionesOc';
 import { etiquetaEntrega, type EntregaModalidad } from './entregaModalidad';
+import { textoReferencia } from '@/modules/tesoreria/referenciaPago';
 
 async function assertAdmin(accion: string): Promise<void> {
   const { data: auth } = await supabase.auth.getUser();
@@ -1947,10 +1948,14 @@ export interface PagarOcInput {
   orden: Orden;
   cajaId: string;
   monto: number;
+  /** Moneda de la caja (para saber qué referencia va en el concepto). */
+  monedaCaja?: string | null;
   factura?: File | null;
   retencion?: File | null;
   motivoPago?: string | null;
   seriales?: string[] | null;   // seriales de billetes (USD físico)
+  /** Últimos 4 dígitos de la referencia del pago en Bs y/o del ID de la orden de Binance (12-11-2026). */
+  referencias?: ReferenciasPago | null;
   /** Lo pagado de más, EN LA MONEDA DE LA CAJA: sale como otro movimiento («REEMBOLSO DE ORDEN DE COMPRA»). */
   reembolso?: number | null;
   /** Retención indicada al pagar (moneda de la orden). `monto` ya viene con ella restada. */
@@ -1968,6 +1973,15 @@ export interface PagarOcInput {
   actorName?: string | null;
 }
 
+/** Referencias del pago para la traza de la OC (solo las que se cargaron). */
+export interface ReferenciasPago { bs?: string | null; binance?: string | null }
+function trazaReferencias(r?: ReferenciasPago | null) {
+  return {
+    ...(r?.bs ? { referencia_bs: r.bs } : {}),
+    ...(r?.binance ? { binance_orden: r.binance } : {}),
+  };
+}
+
 /** Normaliza la lista de seriales: recorta, descarta vacíos y duplicados. */
 function limpiarSeriales(seriales?: string[] | null): string[] {
   const out: string[] = [];
@@ -1979,11 +1993,13 @@ function limpiarSeriales(seriales?: string[] | null): string[] {
 }
 
 /** Concepto del egreso de una OC: incluye el motivo de la OP y el del pago. */
-function conceptoPagoOc(o: Orden, motivoPago?: string | null, sufijo?: string, seriales?: string[] | null): string {
+function conceptoPagoOc(o: Orden, motivoPago?: string | null, sufijo?: string, seriales?: string[] | null, referencia?: string | null): string {
   const ser = limpiarSeriales(seriales);
   const extra = [
     o.notas?.trim() ? `motivo OP: ${o.notas.trim()}` : '',
     motivoPago?.trim() ? `pago: ${motivoPago.trim()}` : '',
+    // 12-11-2026: últimos 4 dígitos de la referencia (Bs) o del ID de Binance.
+    referencia?.trim() ? referencia.trim() : '',
     ser.length ? `billetes: ${ser.join(', ')}` : '',
   ].filter(Boolean).join(' · ');
   return `Pago OC ${o.oc_codigo ?? o.codigo}${extra ? ` · ${extra}` : ''}${sufijo ? ` · ${sufijo}` : ''}`;
@@ -2043,7 +2059,7 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
   // 1) Egreso en Tesorería (valida saldo) casado con la orden → aparece en Libro Mayor.
   const mov = await pagarOrden({
     cajaId: input.cajaId, ordenId: o.id, monto,
-    concepto: conceptoPagoOc(o, input.motivoPago, undefined, seriales),
+    concepto: conceptoPagoOc(o, input.motivoPago, undefined, seriales, textoReferencia(input.monedaCaja, input.referencias)),
     gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
     actor: input.actorEmail, actorName: input.actorName ?? null,
   });
@@ -2080,7 +2096,7 @@ export async function pagarOrdenCompra(input: PagarOcInput): Promise<Orden> {
     ...(seriales.length ? { seriales_billetes: seriales } : {}),
     // Si la OC es por Factura, al pagar se marca automáticamente en Retenciones.
     ...(o.comprobante_tipo === 'factura' ? { retencion_pagada: true, retencion_pagada_en: new Date().toISOString() } : {}),
-    historial: appendHistorial(o, 'pagada', input.actorEmail, { oc_codigo: o.oc_codigo, monto, ...(facturaPath ? { comprobante_path: facturaPath, comprobante_nombre: facturaNombre } : {}), ...camposRetencionReembolso(o, input.retencionMonto, input.reembolsoOrden, input.retencionDetalle),...(comMonto > 0 ? { comision: comMonto, comision_moneda: input.comision?.moneda } : {}), ...(seriales.length ? { seriales } : {}) }),
+    historial: appendHistorial(o, 'pagada', input.actorEmail, { oc_codigo: o.oc_codigo, monto, ...(facturaPath ? { comprobante_path: facturaPath, comprobante_nombre: facturaNombre } : {}), ...camposRetencionReembolso(o, input.retencionMonto, input.reembolsoOrden, input.retencionDetalle),...(comMonto > 0 ? { comision: comMonto, comision_moneda: input.comision?.moneda } : {}), ...(seriales.length ? { seriales } : {}), ...trazaReferencias(input.referencias) }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
   if (error) throw error;
@@ -2103,6 +2119,8 @@ export interface PagarOcMultiInput {
   factura?: File | null;
   motivoPago?: string | null;
   seriales?: string[] | null;   // seriales de billetes (pata USD físico)
+  /** Últimos 4 dígitos de la referencia del pago en Bs y/o del ID de la orden de Binance (12-11-2026). */
+  referencias?: ReferenciasPago | null;
   /** Patas de lo pagado de más: cada una sale como otro movimiento («REEMBOLSO DE ORDEN DE COMPRA»). */
   reembolsoLegs?: PagarOcMultiLeg[] | null;
   /** Retención indicada al pagar (moneda de la orden). Las `legs` ya vienen con ella restada. */
@@ -2143,7 +2161,7 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
     const serLeg = leg.moneda === 'USD' ? seriales : null;
     const mov = await egresarDivisa({
       cajaId: leg.cajaId || input.cajaId, cuenta: leg.cuenta, moneda: leg.moneda, monto: leg.monto,
-      concepto: conceptoPagoOc(o, input.motivoPago, leg.moneda, serLeg), categoria: 'pago_oc', refOrdenId: o.id,
+      concepto: conceptoPagoOc(o, input.motivoPago, leg.moneda, serLeg, textoReferencia(leg.moneda, input.referencias)), categoria: 'pago_oc', refOrdenId: o.id,
       gastoCategoria: input.gastoCategoria ?? null, gastoSubcategoria: input.gastoSubcategoria ?? null,
       actor: input.actorEmail, actorName: input.actorName ?? null,
     });
@@ -2182,6 +2200,7 @@ export async function pagarOrdenCompraMulti(input: PagarOcMultiInput): Promise<O
       ...camposRetencionReembolso(o, input.retencionMonto, input.reembolsoOrden, input.retencionDetalle),
       ...(comMonto > 0 ? { comision: comMonto, comision_moneda: input.comision?.moneda } : {}),
       ...(seriales.length ? { seriales } : {}),
+      ...trazaReferencias(input.referencias),
     }),
   };
   const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();

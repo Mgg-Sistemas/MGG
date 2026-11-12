@@ -24,6 +24,7 @@ import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacene
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { filtrarRenglonesNomina, armarLote, pendientesDelLote, alternarSeleccion, seleccionarVisibles, podarSeleccion } from './nominaLote';
 import { TasasView } from './TasasView';
+import { errorReferencia, referenciasRequeridas, soloDigitos } from './referenciaPago';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, crearBilleteraEnCero, listConversiones } from './cajaSaldos.repository';
 import type { ConversionFila } from './cajaSaldos.repository';
@@ -6686,6 +6687,22 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
     ? saldosCaja.some((s) => s.moneda === 'USD' && (Number(legMontos[s.id]) || 0) > 0)
     : moneda === 'USD' && montoNum > 0;
 
+  // Referencia del pago (12-11-2026): en Bs (transferencia / pago móvil) los últimos 4 dígitos
+  // de la referencia; por Binance, los últimos 4 del ID de la orden.
+  const [refBs, setRefBs] = useState('');
+  const [refBinance, setRefBinance] = useState('');
+  const monedasPagadas = esMultimoneda
+    ? [
+        ...saldosCaja.filter((s) => (Number(legMontos[s.id]) || 0) > 0).map((s) => s.moneda),
+        ...extraLegs.filter((l) => (Number(l.monto) || 0) > 0).map((l) => extraSaldoDe(l.saldoId)?.moneda ?? ''),
+      ]
+    : (montoNum > 0 ? [moneda] : []);
+  const pideRef = referenciasRequeridas(o.metodo_pago, {
+    bs: monedasPagadas.includes('Bs'),
+    usdt: monedasPagadas.includes('USDT'),
+    noBs: monedasPagadas.some((m) => m && m !== 'Bs'),
+  });
+
   function agregarSerial() {
     const v = serialInput.trim();
     if (!v) return;
@@ -6725,6 +6742,12 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
     if (conRetencion && retencionMonto <= 0) { setError('Indicá el monto de la retención, o desmarcá «Tiene retención».'); return; }
     if (conRetencion && retencionMonto >= baseFactura) { setError(`La retención (${monto(retencionMonto, monedaOrden)}) no puede ser igual o mayor que la factura (${monto(baseFactura, monedaOrden)}).`); return; }
     if (!comprobanteOpcional && !factura) { setError('Adjuntá el comprobante (PDF o imagen).'); return; }
+    if (pideRef.bs) { const e = errorReferencia(refBs, 'bs'); if (e) { setError(e); return; } }
+    if (pideRef.binance) { const e = errorReferencia(refBinance, 'binance'); if (e) { setError(e); return; } }
+    const referencias = {
+      bs: pideRef.bs ? soloDigitos(refBs) : null,
+      binance: pideRef.binance ? soloDigitos(refBinance) : null,
+    };
     if (factura && factura.type && factura.type !== 'application/pdf' && !factura.type.startsWith('image/')) {
       setError('El comprobante debe ser un PDF o una imagen.'); return;
     }
@@ -6751,7 +6774,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
         // Excedente: se separa de las últimas cuentas y sale como reembolso (con confirmación).
         const { pago: legsPago, reembolso: legsReembolso } = separarReembolso(legs, excesoUsdMulti);
         if (legsReembolso.length && !confirmarReembolso(monto(enMonedaOrden(sumUsdMulti), monedaOrden))) { setSaving(false); return; }
-        await pagarOrdenCompraMulti({ orden: o, cajaId, legs: legsPago, reembolsoLegs: legsReembolso, retencionMonto, retencionDetalle, reembolsoOrden, factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName });
+        await pagarOrdenCompraMulti({ orden: o, cajaId, legs: legsPago, reembolsoLegs: legsReembolso, retencionMonto, retencionDetalle, reembolsoOrden, factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, referencias, gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName });
         notify(`OC ${codigoOc} pagada · multipago ${monto(enMonedaOrden(round2(sumUsdMulti - excesoUsdMulti)), monedaOrden)}${reembolsoOrden > 0 ? ` · reembolso ${monto(reembolsoOrden, monedaOrden)}` : ''}`, 'success', { link: '#/app/tesoreria' });
         abrirWaPagada();
         return;
@@ -6760,7 +6783,7 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
       const montoFactura = excesoSimple > 0 ? round2(montoNum - excesoSimple) : montoNum;
       await pagarOrdenCompra({
         orden: o, cajaId, monto: montoFactura, reembolso: excesoSimple, retencionMonto, retencionDetalle, reembolsoOrden,
-        factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null,
+        factura, motivoPago: motivoPago || null, seriales: pagaUsdEfectivo ? seriales : null, referencias, monedaCaja: moneda,
         gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre, comision, actorEmail: actor, actorName,
       });
       notify(`OC ${codigoOc} pagada · ${monto(montoFactura, moneda)}${excesoSimple > 0 ? ` · reembolso ${monto(excesoSimple, moneda)}` : ''}`, 'success', { link: '#/app/tesoreria' });
@@ -7455,6 +7478,28 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
             <small className="hint muted">Se suma al motivo de la OP en el registro de movimientos.</small>
           </div>
         </div>
+
+        {/* Referencia del pago (12-11-2026): obligatoria en Bs (transferencia / pago móvil) y por Binance. */}
+        {(pideRef.bs || pideRef.binance) && (
+          <div className="form-grid">
+            {pideRef.bs && (
+              <div className="form-row">
+                <label>Referencia del pago en Bs * <span className="muted" style={{ fontWeight: 400 }}>(transferencia / pago móvil)</span></label>
+                <input className="input mono" inputMode="numeric" maxLength={4} value={refBs} placeholder="Últimos 4 dígitos"
+                  onChange={(e) => setRefBs(soloDigitos(e.target.value).slice(0, 4))} style={{ maxWidth: 180, letterSpacing: '.2em' }} />
+                <small className="hint muted">Los <strong>últimos 4 dígitos</strong> de la referencia bancaria.</small>
+              </div>
+            )}
+            {pideRef.binance && (
+              <div className="form-row">
+                <label>ID de la orden de Binance *</label>
+                <input className="input mono" inputMode="numeric" maxLength={4} value={refBinance} placeholder="Últimos 4 dígitos"
+                  onChange={(e) => setRefBinance(soloDigitos(e.target.value).slice(0, 4))} style={{ maxWidth: 180, letterSpacing: '.2em' }} />
+                <small className="hint muted">Los <strong>últimos 4 dígitos</strong> del número de orden en Binance.</small>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Comisión bancaria (opcional): egreso extra de la caja, NO suma a la factura. */}
         {saldosCaja.length > 0 && (
