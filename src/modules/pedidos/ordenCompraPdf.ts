@@ -17,6 +17,7 @@ import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from 
 import { descuentoEfectivo } from './ofertas.repository';
 import { lineasDeTotal } from './totalesOc';
 import type { OfertaDetalle, OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
+import { skuOGuion } from './renglonVisible';
 
 interface OcData {
   ordenes: Orden[];      // 1+ OPs que comparten la misma OC
@@ -403,7 +404,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
         const det = (it.detalle_items ?? []).filter((d) => (d.descripcion ?? '').trim());
         const detTxt = det.length ? `\n` + det.map((d) => `  • ${d.descripcion}${d.cantidad != null ? ` · ${num(Number(d.cantidad))}` : ''}${d.precio != null ? ` · ${money(Number(d.precio))}` : ''}`).join('\n') : '';
         return [
-        it.sku,
+        skuOGuion(it),
         it.nombre + detTxt,
         // Si llegó otra marca, el papel lo dice: «Pedida: SHELL / Recibida: CASTROL».
         marcaCambio(it.marca, it.marca_recibida)

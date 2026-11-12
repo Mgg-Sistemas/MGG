@@ -7,6 +7,7 @@
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { Orden } from '@/shared/lib/types';
+import { skuOGuion } from './renglonVisible';
 
 function money(n: number | null | undefined): string {
   return `$ ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -70,7 +71,7 @@ export async function descargarDetallePedidoPdf(orden: Orden, proveedorNombre?: 
   const items = orden.items ?? [];
   const body = items.map((it, i) => [
     String(i + 1),
-    it.sku ?? '—',
+    skuOGuion(it),
     it.nombre ?? '—',
     `${num(it.cantidad)}${it.unidad ? ` ${it.unidad}` : ''}`,
     money(it.precio),

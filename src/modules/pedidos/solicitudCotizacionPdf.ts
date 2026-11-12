@@ -9,6 +9,7 @@
 import type { Orden } from '@/shared/lib/types';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import { quienSolicitaConRespaldo } from './quienSolicita';
+import { skuOGuion } from './renglonVisible';
 
 export interface FilaSolicitud {
   n: string;
@@ -35,7 +36,7 @@ export function filasSolicitud(orden: Pick<Orden, 'items'>): FilaSolicitud[] {
     .filter((it) => it.comprar !== false)
     .map((it, i) => ({
       n: String(i + 1),
-      sku: texto(it.sku) || '—',
+      sku: skuOGuion(it),
       nombre: texto(it.nombre) || '(sin nombre)',
       medida: texto(it.unidad) || '—',
       cantidad: cantidadTexto(it.cantidad),

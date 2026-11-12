@@ -12,6 +12,7 @@ import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { MaterialesDemandaModal } from './MaterialesDemandaModal';
+import { skuOGuion } from './renglonVisible';
 // descargarDetallePedidoPdf / descargarOrdenCompraPdf se importan dinámicamente (al generar) para no cargar jsPDF al abrir.
 
 type FechaCampo = 'created_at' | 'aprobada_en' | 'oc_emitida_en' | 'finalizada_en';
@@ -456,7 +457,7 @@ function PedidoDetalleModal({ orden, proveedorNombre, onClose }: {
             {!items.length && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Sin items</td></tr>}
             {items.map((it, i) => (
               <tr key={`${it.sku}-${i}`}>
-                <td className="mono" style={{ fontSize: '.78rem' }}>{it.sku ?? '—'}</td>
+                <td className="mono" style={{ fontSize: '.78rem' }}>{skuOGuion(it)}</td>
                 <td>{it.nombre ?? '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{num(it.cantidad)}{it.unidad ? ` ${it.unidad}` : ''}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{money(it.precio)}</td>

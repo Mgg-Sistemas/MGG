@@ -23,6 +23,7 @@
    no cambia: oferta ↔ orden se casan por SKU.
    ============================================================ */
 import type { ItemOrden, Producto } from '@/shared/lib/types';
+import { productosSimilares, type Duplicado, type ProductoComparable } from '@/modules/inventario/duplicados';
 
 export type ModoNombreInventario = 'como_viene' | 'existente' | 'nuevo';
 
@@ -168,7 +169,14 @@ export function planFichas(
 
 /** Liga el renglón a la ficha: productoId, nombre y unidad de la ficha; el SKU NO cambia. */
 export function aplicarFicha<T extends ItemOrden>(it: T, ficha: FichaMin): T {
-  return { ...it, productoId: ficha.id, nombre: ficha.nombre, unidad: ficha.unidad || it.unidad };
+  // 12-11-2026: también el SKU REAL (lo que se muestra en pantallas y PDF en vez del GEN-…)
+  // y el nombre con que se pidió, si era otro.
+  const pedido = it.nombre_solicitado ?? (nombreFicha(it.nombre) !== nombreFicha(ficha.nombre) ? it.nombre : null);
+  return {
+    ...it, productoId: ficha.id, nombre: ficha.nombre, unidad: ficha.unidad || it.unidad,
+    sku_inventario: ficha.sku || null,
+    ...(pedido ? { nombre_solicitado: pedido } : {}),
+  };
 }
 
 /* ───────── Recepción: ningún renglón entra sin ficha ───────── */
@@ -188,4 +196,24 @@ export function errorRenglonesSinFicha(
   if (!sin.length) return null;
   const nombres = sin.map((it) => `"${(it.nombre ?? '').trim() || it.sku}"`).join(', ');
   return `${nombres} no ${sin.length === 1 ? 'tiene' : 'tienen'} ficha de inventario: fijá con qué nombre se guarda (en la cotización o editando la OC) antes de recibir.`;
+}
+
+/* ───────── «¿Es este?» (12-11-2026): parecidos antes de crear una ficha nueva ───────── */
+
+/**
+ * Para cada renglón que va a CREAR una ficha nueva, los productos del inventario que se
+ * le parecen (mismo detector que el alta de Inventario). Así el analista ve «¿Es este?»
+ * y no crea un duplicado sin darse cuenta («TALONARIO DE RECIBO GRANDE» vs «TALONARIO
+ * RECIBO GRANDE»). Clave = índice del renglón; solo los que tienen algún parecido.
+ */
+export function parecidosAntesDeCrear<T extends ProductoComparable>(
+  plan: Pick<PlanFichas, 'destinos'>, fichas: T[], limite = 3,
+): Map<number, Duplicado<T>[]> {
+  const out = new Map<number, Duplicado<T>[]>();
+  plan.destinos.forEach((d, i) => {
+    if (d.tipo !== 'crear') return;
+    const p = productosSimilares(d.nombre, fichas, { limite });
+    if (p.length) out.set(i, p);
+  });
+  return out;
 }

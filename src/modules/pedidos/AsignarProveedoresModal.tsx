@@ -14,6 +14,7 @@ import {
   ajusteInicial, cambiarModo, cotizaEnOtraUnidad, faltaFactor, precioUsoDe, renglonReparto, textoConversion,
   unidadCotizadaDe, unidadUsoDe, type AjusteRenglon, type ModoUnidad, type RenglonReparto,
 } from './repartoRenglon';
+import { skuOGuion } from './renglonVisible';
 
 /**
  * Asignador de proveedores POR PRODUCTO (OC multi-proveedor). Para una OP aprobada:
@@ -389,7 +390,7 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
                         <input type="checkbox" checked={checked} disabled={!!disabled}
                           onChange={() => toggle(it.sku, selProv)} title={!precio ? 'Este proveedor no cotizó el producto' : undefined} />
                       </td>
-                      <td>{it.nombre}<span className="muted"> · {it.sku}</span></td>
+                      <td>{it.nombre}{skuOGuion(it) !== '—' && <span className="muted"> · {skuOGuion(it)}</span>}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>
                         {queda}
                         {conversion && <div className="muted" style={{ fontSize: '.7rem' }}>{conversion}</div>}

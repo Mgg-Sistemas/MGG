@@ -12,6 +12,7 @@ import type {
   Proveedor,
 } from '@/shared/lib/types';
 import { resolvedorNombresUsuarios } from '@/shared/lib/useNombreUsuario';
+import { skuOGuion } from './renglonVisible';
 
 interface TrazabilidadData {
   orden: Orden;
@@ -176,7 +177,7 @@ async function buildTrazabilidadPdf(ordenId: string): Promise<BuildResult> {
     startY: y,
     head: [['SKU', 'Producto', 'Categoría', 'Subcategoría', 'Cantidad', 'Precio unit.', 'Subtotal']],
     body: orden.items.map((it) => [
-      it.sku,
+      skuOGuion(it),
       it.nombre,
       it.servicio_categoria?.trim() || '—',
       it.servicio_tipo?.trim() || '—',

@@ -958,6 +958,11 @@ export interface ItemOrden {
   /** Renglón con NOMBRE GENERAL (sin ficha de inventario todavía): el nombre con el
    *  que se guarda en inventario se fija al cargar la cotización. */
   general?: boolean | null;
+  /** SKU REAL del producto al que se ligó un renglón de nombre general (su `sku` sigue
+   *  siendo el provisional GEN-… por dentro). Es el que se muestra (renglonVisible.ts). */
+  sku_inventario?: string | null;
+  /** Nombre con el que se pidió en la SP (si al ligarlo tomó el del producto real). */
+  nombre_solicitado?: string | null;
 }
 
 /** Sub-ítem de detalle de un renglón de servicio (pieza/reparación/trabajo). */

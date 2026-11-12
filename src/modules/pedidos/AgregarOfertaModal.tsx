@@ -14,7 +14,9 @@ import { crearOferta, actualizarOferta, revisarCambioProveedorOferta, subirAdjun
 import { resincronizarOcDesdeOferta, listSubOcs, listProductosActivos } from './pedidos.repository';
 import { errorMotivoProveedorOferta } from './proveedorOfertaAceptada';
 import { useOrdenEnFlujoNuevo } from './revisionAlmacen.repository';
-import { planFichas, type DestinoRenglon, type EleccionNombreInventario, type ModoNombreInventario } from './nombreInventario';
+import { parecidosAntesDeCrear, planFichas, type DestinoRenglon, type EleccionNombreInventario, type ModoNombreInventario } from './nombreInventario';
+import type { Duplicado } from '@/modules/inventario/duplicados';
+import { skuOGuion } from './renglonVisible';
 import { getCategorias, getUnidades } from '@/modules/inventario/inventario.repository';
 import { opcionesCategoria } from '@/modules/inventario/opcionesCategoria';
 import { fijarActividadTextoProveedor } from '@/modules/proveedores/actividades.repository';
@@ -80,11 +82,13 @@ const parseDecimal = (s: string) => Math.max(0, parseMontoEs(s));
  * escribir otro nombre. Si hace falta ficha nueva, pide categoría y unidad.
  */
 function CeldaNombreInventario({
-  item, destino, fichaActual, opcionesProductos, opcionesCategorias, unidades, onChange,
+  item, destino, fichaActual, parecidos, opcionesProductos, opcionesCategorias, unidades, onChange,
 }: {
   item: ItemOrden & { _inv?: EleccionNombreInventario };
   destino: DestinoRenglon | undefined;
   fichaActual: Producto | undefined;
+  /** «¿Es este?»: productos del inventario parecidos al nombre de la ficha nueva. */
+  parecidos?: Duplicado<Producto>[];
   opcionesProductos: { value: string; label: string; hint?: string }[];
   opcionesCategorias: { value: string; label: string; hint?: string; keywords?: string[] }[];
   unidades: string[];
@@ -126,6 +130,19 @@ function CeldaNombreInventario({
       )}
       {destino?.tipo === 'crear' && (
         <>
+          {!!parecidos?.length && (
+            <div style={{ border: '1px solid var(--warning)', borderRadius: 6, padding: '.3rem .4rem', background: 'var(--bg-1)' }}>
+              <div style={{ ...chico, fontWeight: 700, color: 'var(--warning)' }}>🔎 ¿Es este? Ya hay {parecidos.length === 1 ? 'uno parecido' : `${parecidos.length} parecidos`} en el inventario</div>
+              {parecidos.map(({ producto: p }) => (
+                <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '.3rem', marginTop: '.2rem' }}>
+                  <span style={{ ...chico, flex: 1 }}>{p.nombre} <span className="mono muted">{p.sku}</span>{p.unidad ? <span className="muted"> · {p.unidad}</span> : null}</span>
+                  <button type="button" className="btn btn-xs btn-primary" title="Guardar este renglón con ese producto del inventario (no crea uno nuevo)"
+                    onClick={() => onChange({ modo: 'existente', productoId: p.id })}>Es este</button>
+                </div>
+              ))}
+              <small className="muted" style={{ fontSize: '.7rem' }}>Si es otro material, sigue abajo y se crea la ficha nueva.</small>
+            </div>
+          )}
           <small style={chico}>＋ Ficha nueva: <strong>{destino.nombre}</strong></small>
           <SearchSelect allowCreate value={e?.categoria ?? ''} onChange={(v) => onChange({ categoria: v.toUpperCase() })}
             options={opcionesCategorias} placeholder="Categoría * (define el código)" emptyText="Ninguna categoría coincide" />
@@ -299,6 +316,14 @@ export function AgregarOfertaModal({
     () => (conNombreInv ? planFichas(items.map((it) => ({ item: it, eleccion: it._inv })), catalogo) : null),
     [conNombreInv, items, catalogo],
   );
+  // «¿Es este?»: por renglón que va a crear ficha nueva, los parecidos del inventario.
+  const parecidosInv = useMemo(
+    () => (planInv ? parecidosAntesDeCrear(planInv, catalogo) : new Map<number, Duplicado<Producto>[]>()),
+    [planInv, catalogo],
+  );
+  // Guardar con fichas nuevas que tienen parecidos: el primer clic avisa, el segundo guarda.
+  const [nuevasConfirmadas, setNuevasConfirmadas] = useState('');
+  const firmaNuevas = [...parecidosInv.keys()].map((i) => `${i}:${planInv?.destinos[i]?.tipo === 'crear' ? (planInv.destinos[i] as { nombre: string }).nombre : ''}`).join('|');
   function updateInv(idx: number, patch: Partial<EleccionNombreInventario>) {
     setItems((prev) => prev.map((it, k) => (k === idx
       ? { ...it, _inv: { modo: 'como_viene' as ModoNombreInventario, unidad: it.unidad ?? null, ...(it._inv ?? {}), ...patch } }
@@ -536,6 +561,13 @@ export function AgregarOfertaModal({
     // Cada renglón tiene que saber con qué ficha entra al inventario (categoría de la ficha nueva, etc.).
     if (planInv?.error) {
       toast(`Se guarda en inventario como · ${planInv.error}`, 'error');
+      return;
+    }
+    // Fichas nuevas que se parecen a productos del inventario: avisar antes de duplicar.
+    if (parecidosInv.size && nuevasConfirmadas !== firmaNuevas) {
+      setNuevasConfirmadas(firmaNuevas);
+      const nombres = [...parecidosInv.keys()].map((i) => `«${items[i]?.nombre ?? ''}»`).join(', ');
+      toast(`${nombres}: se ${parecidosInv.size === 1 ? 'va' : 'van'} a crear como producto nuevo, pero hay parecidos en el inventario. Revisa «¿Es este?». Si de verdad ${parecidosInv.size === 1 ? 'es nuevo' : 'son nuevos'}, toca Guardar otra vez.`, 'warning');
       return;
     }
     // Antes de escribir nada: el cambio de proveedor de una oferta aceptada pide su motivo.
@@ -979,7 +1011,7 @@ export function AgregarOfertaModal({
                 const pct = it.precio > 0 ? ((it.precio - (it.precio_usd || 0)) / it.precio) * 100 : 0;
                 return (
                   <tr key={it._rid}>
-                    <td className="mono">{it._variante ? <span className="muted" title="Variante del mismo producto">↳</span> : it.sku}</td>
+                    <td className="mono">{it._variante ? <span className="muted" title="Variante del mismo producto">↳</span> : skuOGuion(it)}</td>
                     <td>{it._variante ? <span className="muted">{it.nombre}</span> : it.nombre}</td>
                     {conNombreInv && (
                       <td style={{ minWidth: 240 }}>
@@ -987,6 +1019,7 @@ export function AgregarOfertaModal({
                           item={it}
                           destino={planInv?.destinos[idx]}
                           fichaActual={it.productoId ? catalogoPorId.get(it.productoId) : undefined}
+                          parecidos={parecidosInv.get(idx)}
                           opcionesProductos={opcionesProductosInv}
                           opcionesCategorias={opcionesCatInv}
                           unidades={unidadesInv}

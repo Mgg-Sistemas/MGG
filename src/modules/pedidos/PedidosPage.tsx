@@ -27,6 +27,7 @@ import { opcionesRecepcion, destinoRecepcionPorUsuario } from '@/modules/inventa
 import { esDespiezable } from '@/modules/inventario/despieceRes';
 import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece } from '@/modules/inventario/DespieceResForm';
 import { obtenerInfoModalidadPago } from './modalidadPago';
+import { esGeneralPendiente, skuOGuion } from './renglonVisible';
 import { ComprasFijasModal } from './ComprasFijasModal';
 import { cantidadesPrevias, estadoFija, renglonesDePlantilla, textoEstadoFija, type CompraFija } from './comprasFijas';
 import { listComprasFijas, marcarCompraFijaGenerada, ultimosItemsDe } from './comprasFijas.repository';
@@ -791,7 +792,7 @@ export function PedidosPage() {
                 </button>
               ) : (
                 <>
-                  {scope === 'pedidos' && canManageProcurement && (
+                  {(scope === 'pedidos' || scope === 'oc') && canManageProcurement && (
                     <button className="btn btn-ghost" onClick={() => setComprasFijasOpen(true)}
                       title="Compras que se repiten (Mercado y las que configure Compras): se generan con las cantidades de la última vez">
                       🔁 Compras fijas{fijasQueTocan.length ? ` · ${fijasQueTocan.length}` : ''}
@@ -821,7 +822,7 @@ export function PedidosPage() {
       </div>
 
       {/* Compras fijas que tocan hoy o están vencidas (12-11-2026). */}
-      {canManageProcurement && scope === 'pedidos' && !soloSolicitud && fijasQueTocan.length > 0 && (
+      {canManageProcurement && (scope === 'pedidos' || scope === 'oc') && !soloSolicitud && fijasQueTocan.length > 0 && (
         <div className="card" style={{ padding: '.8rem 1rem', marginBottom: '.7rem', borderLeft: '4px solid var(--warning)', display: 'flex', gap: '.8rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ flex: 1, minWidth: 220 }}>
             <div style={{ fontWeight: 800 }}>🔁 Compras fijas que tocan</div>
@@ -2422,7 +2423,7 @@ function RecepcionParcialModal({
               const cambioMarca = marcaCambio(it.marca, marcas[it.sku]);
               return (
                 <tr key={it.sku}>
-                  <td className="mono">{it.sku}</td>
+                  <td className="mono">{skuOGuion(it)}</td>
                   <td>
                     {it.nombre}
                     {it.marca && <div className="muted" style={{ fontSize: '.74rem' }}>🏷️ Pedido: {it.marca}</div>}
@@ -4063,10 +4064,13 @@ function OrdenDetailModal({
             const marcado = skusAEliminar.has(it.sku);
             return (
             <tr key={`${it.sku}-${idx}`} style={{ opacity: marcado ? 0.45 : (!conPrecio && it.comprar === false ? 0.5 : 1) }}>
-              <td className="mono">{it.sku}</td>
+              <td className="mono">{skuOGuion(it)}</td>
               <td style={marcado ? { textDecoration: 'line-through' } : undefined}>
                 {it.nombre}
-                {it.general && (
+                {it.nombre_solicitado && it.nombre_solicitado !== it.nombre && (
+                  <div className="muted" style={{ fontSize: '.72rem' }} title="Así lo pidió la solicitud (nombre general)">pedido como: {it.nombre_solicitado}</div>
+                )}
+                {esGeneralPendiente(it) && (
                   <span className="badge warning" style={{ marginLeft: '.35rem', fontSize: '.62rem', padding: '.05rem .35rem' }}
                     title="Nombre general: no es un producto del inventario. Compras fija el nombre de inventario al cotizar.">
                     nombre general
@@ -4744,7 +4748,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
                 <td>
                   <input className="input" value={it.nombre} onChange={(e) => upd(idx, { nombre: e.target.value.toUpperCase() })}
                     title="Editar nombre (se sincroniza con el inventario al guardar)" />
-                  <span className="muted mono" style={{ fontSize: '.72rem' }}>{it.sku}{it.unidad ? ` · ${it.unidad}` : ''}</span>
+                  <span className="muted mono" style={{ fontSize: '.72rem' }}>{skuOGuion(it)}{it.unidad ? ` · ${it.unidad}` : ''}</span>
                   {puedeTodo && (
                     <div style={{ display: 'flex', gap: '.3rem', marginTop: '.25rem' }}>
                       <input className="input" style={{ flex: 1, fontSize: '.78rem' }} value={it.marca ?? ''} placeholder="Marca" title="Marca ofertada para este renglón"
@@ -5555,9 +5559,12 @@ function CrearOrdenModal({
   /* Productos del inventario que se parecen al nombre que se está escribiendo.
      El mismo detector que usa el alta de Inventario: acá hacía más falta todavía,
      porque quien carga una solicitud no está mirando el catálogo. */
+  // 12-11-2026: también con NOMBRE GENERAL («¿Es este?»): quien pide ve los parecidos del
+  // inventario y, si es el mismo, lo pide con el nombre EXACTO de la ficha; así Compras lo
+  // liga solo al cotizar y no se crea un duplicado.
   const nuevoSimilares = useMemo<Duplicado<Producto>[]>(
-    () => (nuevoOpen && !soloNombreGeneral ? productosSimilares(nuevoNombre, allProductos) : []),
-    [nuevoOpen, soloNombreGeneral, nuevoNombre, allProductos],
+    () => (nuevoOpen ? productosSimilares(nuevoNombre, allProductos) : []),
+    [nuevoOpen, nuevoNombre, allProductos],
   );
 
   /** Mete en la solicitud un producto que YA existe, en vez de crear uno nuevo. */
@@ -5571,9 +5578,15 @@ function CrearOrdenModal({
     setNuevoOpen(false);
   }
 
+  /** «¿Es este?» con nombre general: el renglón va con el nombre y la unidad EXACTOS de la
+   *  ficha del inventario (sigue siendo nombre general; Compras lo liga solo al cotizar). */
+  function usarNombreDelInventario(p: Producto) {
+    agregarNombreGeneral(p.nombre, p.unidad || undefined);
+  }
+
   /** Flujo de almacén: agrega un renglón con NOMBRE GENERAL, sin crear producto en inventario. */
-  function agregarNombreGeneral() {
-    const nombre = nuevoNombre.toUpperCase().trim();
+  function agregarNombreGeneral(nombreFijo?: string, unidadFija?: string) {
+    const nombre = (nombreFijo ?? nuevoNombre).toUpperCase().trim();
     if (!nombre) { toast('Escribí el nombre general de lo que se pide', 'error'); return; }
     const cantidad = Number(generalCant.replace(',', '.'));
     if (!Number.isFinite(cantidad) || cantidad <= 0) { toast('Indicá una cantidad mayor que 0', 'error'); return; }
@@ -5581,7 +5594,7 @@ function CrearOrdenModal({
       toast(`"${nombre}" ya está en la solicitud: cambiá su cantidad en la lista.`, 'warning');
       return;
     }
-    const unidad = nuevoUnidad.trim() || 'UNIDAD';
+    const unidad = (unidadFija ?? nuevoUnidad).trim() || 'UNIDAD';
     setItems((prev) => [...prev, {
       sku: `GEN-${Date.now().toString(36).toUpperCase()}-${prev.length}`,
       nombre,
@@ -6056,13 +6069,13 @@ function CrearOrdenModal({
               {nuevoSimilares.length > 0 && (
                 <div className="card" style={{ padding: '.6rem .8rem', borderColor: 'var(--warning)', background: 'var(--bg-1)' }}>
                   <div style={{ fontSize: '.86rem', fontWeight: 600, marginBottom: '.15rem' }}>
-                    ⚠️ {nuevoSimilares.length === 1 ? 'Ya existe un producto parecido' : `Ya existen ${nuevoSimilares.length} productos parecidos`}
+                    🔎 ¿Es este? {nuevoSimilares.length === 1 ? 'Ya existe un producto parecido en el inventario' : `Ya existen ${nuevoSimilares.length} productos parecidos en el inventario`}
                   </div>
                   {flujoAlmacen ? (
                     <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.45rem' }}>
-                      Fijate si es alguno de estos: si es el mismo, usá <strong>«Usar este»</strong> y va
-                      directo a la solicitud con su ficha del inventario (almacén lo revisa por su stock).
-                      Si es otro material, seguí con el nombre general.
+                      Si es el mismo, tocá <strong>«Es este»</strong>: se pide con el nombre exacto del inventario
+                      y Compras lo liga a esa ficha al cotizar (no se crea un duplicado). Si es otro material,
+                      seguí con tu nombre general.
                     </div>
                   ) : (
                   <div className="muted" style={{ fontSize: '.76rem', marginBottom: '.45rem' }}>
@@ -6098,9 +6111,9 @@ function CrearOrdenModal({
                               {/* Una ficha dada de baja no se puede pedir: hay que reactivarla
                                   primero desde Inventario, así que acá no se ofrece el atajo. */}
                               {sp.estado === 'activo' ? (
-                                <button type="button" className="btn btn-sm" onClick={() => usarExistente(sp)}
-                                  title="Agregar este producto a la solicitud en vez de crear uno nuevo">
-                                  Usar este
+                                <button type="button" className="btn btn-sm" onClick={() => (soloNombreGeneral ? usarNombreDelInventario(sp) : usarExistente(sp))}
+                                  title={soloNombreGeneral ? 'Pedirlo con el nombre exacto de este producto del inventario' : 'Agregar este producto a la solicitud en vez de crear uno nuevo'}>
+                                  {soloNombreGeneral ? 'Es este' : 'Usar este'}
                                 </button>
                               ) : (
                                 <span className="dim" style={{ fontSize: '.72rem' }} title="Reactivalo desde Inventario y después pedilo">
@@ -6128,7 +6141,7 @@ function CrearOrdenModal({
                     </select>
                   </div>
                   <div>
-                    <button type="button" className="btn btn-sm btn-primary" onClick={agregarNombreGeneral}
+                    <button type="button" className="btn btn-sm btn-primary" onClick={() => agregarNombreGeneral()}
                       disabled={!nuevoNombre.trim()}>
                       Añadir a la solicitud con nombre general
                     </button>

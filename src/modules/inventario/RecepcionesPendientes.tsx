@@ -18,6 +18,7 @@ import { costoUnitarioUsd, esCompraEnBs, fmtTasa, fmtUsd4 } from '@/modules/pedi
 import { destinoRecepcionPorUsuario, opcionesRecepcion } from './sectorizacion';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { Almacen, Orden } from '@/shared/lib/types';
+import { skuOGuion } from '@/modules/pedidos/renglonVisible';
 
 /** Sede a la que pertenece un almacén (por su nombre). Si no se encuentra, devuelve
  *  el propio nombre como respaldo. Se usa para mostrar la SEDE en vez del almacén. */
@@ -503,7 +504,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
               {items.map((it) => (
                 <tr key={it.sku}>
                   <td>
-                    {it.nombre ?? it.sku}<span className="muted"> · {it.sku}</span>
+                    {it.nombre ?? skuOGuion(it)}{skuOGuion(it) !== '—' && <span className="muted"> · {skuOGuion(it)}</span>}
                     {it.marca && <div className="muted" style={{ fontSize: '.74rem' }}>🏷️ Pedido: {it.marca}</div>}
                   </td>
                   {/* Con qué marca llegó. Si no es la pedida, se avisa y se pide una nota corta. */}

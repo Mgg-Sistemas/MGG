@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   aplicarFicha, categoriaValida, destinoRenglon, errorRenglonesSinFicha, fichaPorNombre,
-  nombreFicha, nombreQueViene, planFichas, renglonesSinFicha, type FichaMin,
+  nombreFicha, nombreQueViene, parecidosAntesDeCrear, planFichas, renglonesSinFicha, type FichaMin,
 } from './nombreInventario';
 import type { ItemOrden } from '@/shared/lib/types';
 
@@ -106,5 +106,27 @@ describe('recepción: nada entra sin ficha', () => {
   it('el mensaje nombra el renglón', () => {
     expect(errorRenglonesSinFicha(items, new Map([['GEN-1', 2]]))).toBe('"MANGUERA" no tiene ficha de inventario: fijá con qué nombre se guarda (en la cotización o editando la OC) antes de recibir.');
     expect(errorRenglonesSinFicha(items, new Map([['GEN-1', 2], ['GEN-2', 1]]))).toMatch(/^"MANGUERA", "CODO" no tienen ficha/);
+  });
+});
+
+describe('«¿Es este?» y el código real (12-11-2026)', () => {
+  const fichas = [
+    { id: 'p1', sku: 'PAP-010', nombre: 'TALONARIO RECIBO GRANDE', unidad: 'UND', estado: 'activo' },
+    { id: 'p2', sku: 'MAN-002', nombre: 'CURVAS 1/2', unidad: 'UND', estado: 'activo' },
+  ];
+  it('una ficha nueva parecida a una existente avisa «¿Es este?»', () => {
+    const plan = planFichas([{ item: { nombre: 'TALONARIO DE RECIBO GRANDE', productoId: undefined, unidad: 'UND' } }], fichas);
+    expect(plan.destinos[0].tipo).toBe('crear');
+    const par = parecidosAntesDeCrear(plan, fichas);
+    expect(par.get(0)?.[0].producto.sku).toBe('PAP-010');
+  });
+  it('con el nombre exacto se liga sola y no pregunta', () => {
+    const plan = planFichas([{ item: { nombre: 'curvas  1/2', productoId: undefined, unidad: 'UND' } }], fichas);
+    expect(plan.destinos[0]).toMatchObject({ tipo: 'ficha' });
+    expect(parecidosAntesDeCrear(plan, fichas).size).toBe(0);
+  });
+  it('al ligar guarda el SKU real y el nombre con que se pidió', () => {
+    const r = aplicarFicha({ sku: 'GEN-X-1', nombre: 'MINA DE 5.5', cantidad: 1, precio: 0, general: true }, fichas[1]);
+    expect(r).toMatchObject({ productoId: 'p2', nombre: 'CURVAS 1/2', sku: 'GEN-X-1', sku_inventario: 'MAN-002', nombre_solicitado: 'MINA DE 5.5' });
   });
 });
