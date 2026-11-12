@@ -89,3 +89,13 @@ describe('retiro en Los Pinos (02-11-2026)', () => {
     expect(mensajeAceptado(base, 'CARLOS')).toContain('🏭 *Proveedor:*');
   });
 });
+
+describe('motivo completo de la cancelación (12-11-2026)', () => {
+  it('«Otro motivo» muestra lo que escribió el delivery; los demás, categoría · detalle', async () => {
+    const { textoCancelacion } = await import('./delivery');
+    expect(textoCancelacion({ motivo_cancel: 'Otro motivo', detalle_cancel: 'EL PROVEEDOR LO LLEVA' })).toBe('EL PROVEEDOR LO LLEVA');
+    expect(textoCancelacion({ motivo_cancel: 'Proveedor cerrado', detalle_cancel: 'volver mañana' })).toBe('Proveedor cerrado · volver mañana');
+    expect(textoCancelacion({ motivo_cancel: 'Proveedor cerrado', detalle_cancel: null })).toBe('Proveedor cerrado');
+    expect(textoCancelacion({})).toBe('');
+  });
+});

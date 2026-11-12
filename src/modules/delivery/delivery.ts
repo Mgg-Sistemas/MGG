@@ -104,6 +104,18 @@ export const UBICACION_VIEJA_MS = 10 * 60 * 1000;
 
 export const MAX_FOTOS_DELIVERY = 6;
 
+/**
+ * El motivo COMPLETO de una cancelación (12-11-2026): la categoría y lo que escribió el
+ * delivery. Antes la pantalla solo decía «Otro motivo» y el detalle («EL PROVEEDOR LO
+ * LLEVA») quedaba escondido.
+ */
+export function textoCancelacion(p: { motivo_cancel?: string | null; detalle_cancel?: string | null }): string {
+  const m = (p.motivo_cancel ?? '').trim();
+  const d = (p.detalle_cancel ?? '').trim();
+  if (m && d) return /^otro/i.test(m) ? d : `${m} · ${d}`;
+  return m || d;
+}
+
 export function esRetiro(p: Pick<PedidoDelivery, 'tipo'>): boolean {
   return p.tipo === 'retiro_almacen';
 }

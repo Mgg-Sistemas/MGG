@@ -189,11 +189,11 @@ export async function listUbicaciones(flota: Flota = 'delivery'): Promise<Ubicac
 export async function listHistorialDelivery(desde: string, hasta: string, flota: Flota = 'delivery'): Promise<Array<{
   id: string; orden_id: string; tipo?: string | null; estado: string; repartidor_nombre: string | null; repartidor_email: string | null;
   aceptado_en: string; en_ruta_en: string | null; entregado_en: string | null; cancelado_en: string | null;
-  motivo_cancel: string | null; almacen_entrega: string | null;
+  motivo_cancel: string | null; detalle_cancel?: string | null; almacen_entrega: string | null;
   orden: { oc_codigo: string | null; codigo: string; total: number; moneda: string | null; proveedor_id: string | null } | null;
 }>> {
   const { data, error } = await supabase.from('delivery_pedidos')
-    .select('id, orden_id, tipo, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, orden:ordenes(oc_codigo, codigo, total, moneda, proveedor_id)')
+    .select('id, orden_id, tipo, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, detalle_cancel, almacen_entrega, orden:ordenes(oc_codigo, codigo, total, moneda, proveedor_id)')
     .eq('flota', flota)
     .gte('aceptado_en', `${desde}T00:00:00-04:00`).lte('aceptado_en', `${hasta}T23:59:59-04:00`)
     .order('aceptado_en', { ascending: false });

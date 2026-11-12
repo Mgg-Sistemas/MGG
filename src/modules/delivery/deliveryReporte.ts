@@ -13,7 +13,7 @@
    Emojis sin el selector U+FE0F (ver mensajeMovimiento.ts).
    ============================================================ */
 import {
-  ESTADO_DELIVERY, fechaHoraVE, lineasItems, minutosEntre, montoTxt, ocDe, type EstadoDelivery, type PedidoDelivery,
+  ESTADO_DELIVERY, textoCancelacion, fechaHoraVE, lineasItems, minutosEntre, montoTxt, ocDe, type EstadoDelivery, type PedidoDelivery,
 } from './delivery';
 import { duracionTxt, totalesResumen, type FilaHistorialDelivery, type ResumenDelivery } from './deliveryPanel';
 
@@ -178,7 +178,7 @@ export function filasListaDelivery(pedidos: PedidoDelivery[], ver: VerAlmacen = 
       fechaHoraVE(p.en_ruta_en) || '—',
       fechaHoraVE(fin(p)) || '—',
       p.estado === 'entregado' ? duracionTxt(minutosEntre(p.aceptado_en, p.entregado_en)) : '—',
-      (p.estado === 'cancelado' ? limpio(p.motivo_cancel) : almacen ? ver(almacen) : '') || '—',
+      (p.estado === 'cancelado' ? limpio(textoCancelacion(p)) : almacen ? ver(almacen) : '') || '—',
       montoTxt(p.total, p.moneda),
     ];
   });
@@ -233,7 +233,7 @@ export function mensajeHistorialDelivery(data: {
       if (!limpio(data.repartidor)) partes.push(`🛵 ${f.repartidor}`);
       partes.push(`${emojiEstado(f.estado)} ${estadoTxt(f.estado)}`);
       if (f.estado === 'entregado' && f.minutos != null) partes.push(`⏳ ${duracionTxt(f.minutos)}`);
-      if (f.estado === 'cancelado' && limpio(f.motivo_cancel)) partes.push(limpio(f.motivo_cancel));
+      if (f.estado === 'cancelado' && limpio(textoCancelacion(f))) partes.push(limpio(textoCancelacion(f)));
       partes.push(montoTxt(f.total, f.moneda));
       l.push(partes.join(' · '));
     }

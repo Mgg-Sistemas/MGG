@@ -26,7 +26,7 @@ import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import {
-  ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, MOTIVOS_CANCELACION, UBICACION_VIEJA_MS, claveDe, esRetiro, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe,
+  ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, MOTIVOS_CANCELACION, UBICACION_VIEJA_MS, claveDe, esRetiro, textoCancelacion, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe,
   type FotoDelivery, type PedidoDelivery, type UbicacionDelivery,
 } from './delivery';
 import {
@@ -310,7 +310,13 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
                       <td>{p.repartidor_nombre ?? <span className="muted">—</span>}</td>
                       <td>
                         <span className={`badge ${est?.badge ?? ''}`}>{est?.emoji} {est?.label ?? p.estado}</span>
-                        {p.estado === 'cancelado' && p.motivo_cancel && <div className="muted" style={{ fontSize: '.75rem' }}>{p.motivo_cancel}</div>}
+                        {p.estado === 'cancelado' && (
+                          <div className="muted" style={{ fontSize: '.75rem', maxWidth: 220, whiteSpace: 'normal' }}
+                            title="El delivery que la tomó la soltó: vuelve a estar disponible para otro.">
+                            {textoCancelacion(p) ? <>Motivo: <strong>{textoCancelacion(p)}</strong></> : 'Sin motivo'}
+                            <div>↩ Disponible otra vez</div>
+                          </div>
+                        )}
                       </td>
                       <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
                         {p.pagada_en && <div>{esRetiro(p) ? '🏬 Almacén revisó' : '💰 Pagada'} {fechaHoraVE(p.pagada_en)}</div>}
@@ -732,7 +738,7 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
                     <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.en_ruta_en) || '—'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.estado === 'cancelado' ? f.cancelado_en : f.entregado_en) || '—'}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{duracionTxt(f.minutos)}</td>
-                    <td>{(f.estado === 'cancelado' ? f.motivo_cancel : f.almacen_entrega) || '—'}</td>
+                    <td>{(f.estado === 'cancelado' ? textoCancelacion(f) : f.almacen_entrega) || '—'}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{montoTxt(f.total, f.moneda)}</td>
                   </tr>
                 );
@@ -922,7 +928,7 @@ function TrazabilidadTab({ filas, cargando }: { filas: FilaHistorialDelivery[]; 
               <span className="paso">🛵 Tomado {fechaHoraVE(f.fecha)}</span>
               {f.en_ruta_en && <><span className="flecha">→ {duracionTxt(enRuta)} →</span><span className="paso">🚚 En ruta {fechaHoraVE(f.en_ruta_en)}</span></>}
               {f.entregado_en && <><span className="flecha">→</span><span className="paso fin">📦 Entregado {fechaHoraVE(f.entregado_en)}{f.almacen_entrega ? ` · ${nombreAlmacenVisible(f.almacen_entrega)}` : ''}</span></>}
-              {f.cancelado_en && <><span className="flecha">→</span><span className="paso cancel">⛔ Cancelado {fechaHoraVE(f.cancelado_en)}{f.motivo_cancel ? ` · ${f.motivo_cancel}` : ''}</span></>}
+              {f.cancelado_en && <><span className="flecha">→</span><span className="paso cancel">⛔ Cancelado {fechaHoraVE(f.cancelado_en)}{textoCancelacion(f) ? ` · ${textoCancelacion(f)}` : ''}</span></>}
               {f.minutos != null && <span className="muted" style={{ marginLeft: 'auto' }}>⏱ Total: <strong>{duracionTxt(f.minutos)}</strong></span>}
             </div>
           </li>
