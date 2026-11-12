@@ -271,6 +271,10 @@ export interface CrearCompraInput {
   /** Proveedor de la compra (opcional). Si es nuevo, ya viene creado en `proveedores`. */
   proveedorId?: string | null;
   proveedorNombre?: string | null;
+  /** Nota de la compra (opcional). */
+  nota?: string | null;
+  /** Compra fija de la que sale (12-11-2026). Solo se manda si viene. */
+  compraFijaId?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -323,6 +327,8 @@ export async function crearCompraDirecta(
       almacen,
       cantidad: totalCantidad,
       items,
+      ...(input.nota?.trim() ? { nota: input.nota.trim() } : {}),
+      ...(input.compraFijaId ? { compra_fija_id: input.compraFijaId } : {}),
       estado: 'en_proceso',
       actor: input.actor,
       actor_name: input.actorName ?? null,

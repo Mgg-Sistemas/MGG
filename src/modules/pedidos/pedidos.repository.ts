@@ -216,6 +216,8 @@ export interface CrearOrdenInput {
   moneda?: string;
   /** Flujo de almacén (30-10-2026): sede donde se NECESITA lo pedido (LOS PINOS / MATANZAS). */
   sede_destino?: string | null;
+  /** Compra fija de la que sale (12-11-2026). Solo se manda si viene. */
+  compra_fija_id?: string | null;
 }
 
 /**
@@ -310,6 +312,7 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     urgente,
     historial,
     ...(input.sede_destino?.trim() ? { sede_destino: input.sede_destino.trim() } : {}),
+    ...(input.compra_fija_id ? { compra_fija_id: input.compra_fija_id } : {}),
   };
   const { data, error } = await supabase.from(TABLE).insert(row).select('*').single();
   if (error) throw error;
