@@ -76,7 +76,8 @@ declare
   v_ult text;
   v_fecha date := case when tg_op = 'DELETE' then old.fecha else new.fecha end;
 begin
-  select max(mes) into v_ult from public.casiterita_cierres_pmp;
+  -- Lee el último cierre con bloqueo compartido: si un cierre está en curso, espera a que termine.
+  select max(mes) into v_ult from (select mes from public.casiterita_cierres_pmp for share) c;
   if v_ult is not null and to_char(v_fecha, 'YYYY-MM') <= v_ult then
     raise exception 'El libro está cerrado hasta % (%): no se cargan ni se borran movimientos de esa fecha.',
       v_ult, to_char(v_fecha, 'DD-MM-YYYY');
@@ -105,6 +106,9 @@ begin
   if v_ap is null then raise exception 'El libro no tiene saldo inicial.'; end if;
   if p_mes < to_char(v_ap, 'YYYY-MM') then raise exception 'Ese mes es anterior a la apertura del libro.'; end if;
   perform pg_advisory_xact_lock(hashtext('casiterita_lotes'));
+  -- Serializa el cierre con las cargas y borrados del libro: espera a los que están
+  -- en curso y bloquea los nuevos hasta terminar, así nada entra a un mes que se está cerrando.
+  lock table public.casiterita_libro in share row exclusive mode;
   select max(mes) into v_ult from public.casiterita_cierres_pmp;
   if v_ult is not null and p_mes <= v_ult then raise exception 'Ese mes ya está cerrado.'; end if;
   -- En orden: no puede quedar abierto un mes anterior con movimientos.
