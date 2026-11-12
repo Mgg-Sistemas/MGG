@@ -255,7 +255,8 @@ grant execute on function public.casiterita_despachar_lote(uuid, date) to authen
 grant execute on function public.casiterita_deshacer_lote(uuid) to authenticated;
 grant execute on function public.casiterita_sgs_lote(uuid, numeric, text, text) to authenticated;
 grant execute on function public.casiterita_fundicion_coladas(uuid[], date, numeric, text) to authenticated;
-grant execute on function public.casiterita_saldo_global() to authenticated;
+-- casiterita_saldo_global y casiterita_nombre_actor son internas (las usan las funciones de arriba): sin EXECUTE para la app.
+revoke execute on function public.casiterita_saldo_global() from authenticated;
 
 -- ── Seguridad: solo lectura directa; se escribe por las funciones de arriba ──
 alter table public.casiterita_exportaciones enable row level security;
