@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AvisoReloj } from './AvisoReloj';
 import { signOut, useSession } from '@/modules/auth/authStore';
@@ -26,11 +26,18 @@ import { asegurarEmpresas } from '@/modules/rrhh/empresas.repository';
 import { intentarSalir, registrarModulo, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { AvisoSalidaModulo } from '@/shared/ui/AvisoSalidaModulo';
 import { DockMinimizadas } from '@/shared/ui/DockMinimizadas';
+import { coincideMenu } from '@/shared/ui/menuBusqueda';
 import { useFlujoRevisionAlmacen } from '@/modules/pedidos/revisionAlmacen.repository';
 import { sedesQuePuedeResponder } from '@/modules/pedidos/revisionAlmacen';
 import { sedesDeUsuario } from '@/modules/inventario/sectorizacion';
 
 const SIDEBAR_KEY = 'mgg.sidebar.collapsed';
+
+/* Buscador del menú lateral (12-11-2026): se escribe el nombre del módulo y el menú
+   deja solo lo que coincide (sin importar acentos ni mayúsculas); los grupos se abren
+   solos. Enter abre el primero. */
+const BusquedaMenu = createContext('');
+
 
 /** Vistas que se capturan en vivo para ilustrar el manual (key → ruta → permiso). */
 const CAPTURA_RUTAS: Array<{ key: string; ruta: string; permiso: ModuleKey }> = [
@@ -96,6 +103,19 @@ export function AppShell() {
     else toggleSidebar();
   }
   const closeDrawer = () => setDrawerOpen(false);
+  const [busquedaMenu, setBusquedaMenu] = useState('');
+  const [sinResultadosMenu, setSinResultadosMenu] = useState(false);
+  const asideRef = useRef<HTMLElement>(null);
+  // Al cambiar de módulo o colapsar el menú, el buscador se limpia.
+  useEffect(() => { setBusquedaMenu(''); }, [location.pathname, collapsed]);
+  useLayoutEffect(() => {
+    const n = asideRef.current?.querySelectorAll('.nav a:not(.nav-group-head)').length ?? 0;
+    setSinResultadosMenu(!!busquedaMenu.trim() && n === 0);
+  }, [busquedaMenu]);
+  const abrirPrimeroMenu = () => {
+    const a = asideRef.current?.querySelector<HTMLAnchorElement>('.nav a[href^="/"]:not(.nav-group-head)');
+    a?.click();
+  };
   // Cierra el drawer al cambiar de ruta (navegar desde el menú en móvil).
   useEffect(() => { setDrawerOpen(false); }, [location.pathname]);
 
@@ -328,7 +348,8 @@ export function AppShell() {
   return (
     <div className={`app${collapsed ? ' sidebar-collapsed' : ''}${drawerOpen ? ' drawer-open' : ''}`}>
       <div className="sidebar-overlay" onClick={closeDrawer} aria-hidden="true" />
-      <aside className="sidebar">
+      <aside className={`sidebar${busquedaMenu.trim() ? ' buscando' : ''}`} ref={asideRef}>
+       <BusquedaMenu.Provider value={busquedaMenu}>
         <div className="sidebar-brand">
           <NavLink to="/app" className="brand" onClick={(e) => { if (!intentarSalir('/app')) e.preventDefault(); }}>
             <img src="/image.jpeg" alt="MGG" />
@@ -337,6 +358,21 @@ export function AppShell() {
               <small>BIENVENIDO</small>
             </div>
           </NavLink>
+        </div>
+        <div className="sidebar-search">
+          <input
+            type="search"
+            className="input"
+            placeholder="🔍 Buscar módulo…"
+            aria-label="Buscar un módulo en el menú"
+            value={busquedaMenu}
+            onChange={(e) => setBusquedaMenu(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setBusquedaMenu('');
+              if (e.key === 'Enter') { e.preventDefault(); abrirPrimeroMenu(); }
+            }}
+          />
+          {sinResultadosMenu && <div className="sidebar-search-vacio">Ningún módulo con «{busquedaMenu.trim()}»</div>}
         </div>
 
         {/* Pantallas de teléfono dadas en Roles y Permisos (13-10): sección propia; para un rol
@@ -433,15 +469,15 @@ export function AppShell() {
           )}
           {can('auditoria') && <NavItem to="/app/auditoria" icon="🕵" label="Auditoría de Usuarios" />}
           {can('ajustes') && <NavItem to="/app/ajustes" icon="⚙" label="Ajustes" />}
-          <a
+          {coincideMenu('Menú del Sistema manual', busquedaMenu) && <a
             href={manualSistemaUrl}
             target="_blank"
             rel="noopener noreferrer"
             title="Abrir el manual del sistema"
           >
             <span className="icn">📘</span> <span>Menú del Sistema</span>
-          </a>
-          {mostrarRespaldo && (
+          </a>}
+          {mostrarRespaldo && coincideMenu('Respaldo de Data', busquedaMenu) && (
             <a
               href="#"
               onClick={(e) => { e.preventDefault(); setRespaldoOpen(true); }}
@@ -451,7 +487,7 @@ export function AppShell() {
               <span>Respaldo de Data</span>
             </a>
           )}
-          {MOSTRAR_MANUAL && (
+          {MOSTRAR_MANUAL && coincideMenu('Manual de Sistema', busquedaMenu) && (
             <a
               href="#"
               onClick={(e) => { e.preventDefault(); void handleManual(); }}
@@ -482,6 +518,7 @@ export function AppShell() {
             </button>
           </div>
         </div>
+      </BusquedaMenu.Provider>
       </aside>
 
       <header className="topbar">
@@ -673,21 +710,28 @@ function NavGroup({
   children: ReactNode;
 }) {
   const [open, setOpen] = useState(defaultOpen ?? false);
+  const q = useContext(BusquedaMenu);
+  const buscando = !!q.trim();
+  // Buscando: el grupo se abre solo. Si el nombre del grupo coincide, se ven todos sus
+  // módulos; si no, solo los que coinciden (y sin ninguno, el grupo se oculta por CSS).
+  const abierto = buscando || open;
+  const grupoCoincide = buscando && coincideMenu(label, q);
   return (
-    <div>
+    <div className="nav-group">
       <a
         href="#"
+        className="nav-group-head"
         onClick={(e) => { e.preventDefault(); setOpen((o) => !o); }}
-        aria-expanded={open}
+        aria-expanded={abierto}
         title={label}
       >
         <span className="icn">{icon}</span>
         <span style={{ flex: 1 }}>{label}</span>
-        <span style={{ fontSize: '.7rem', opacity: .7, transition: 'transform .15s', transform: open ? 'rotate(90deg)' : 'none' }}>▸</span>
+        <span style={{ fontSize: '.7rem', opacity: .7, transition: 'transform .15s', transform: abierto ? 'rotate(90deg)' : 'none' }}>▸</span>
       </a>
-      {open && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingLeft: '.7rem', marginLeft: '.3rem', borderLeft: '1px solid var(--border)' }}>
-          {children}
+      {abierto && (
+        <div className="nav-group-items" style={{ display: 'flex', flexDirection: 'column', gap: 2, paddingLeft: '.7rem', marginLeft: '.3rem', borderLeft: '1px solid var(--border)' }}>
+          {grupoCoincide ? <BusquedaMenu.Provider value="">{children}</BusquedaMenu.Provider> : children}
         </div>
       )}
     </div>
@@ -710,6 +754,11 @@ function NavItem({
   /** false: la entrada queda marcada también en sus subrutas (p. ej. /app/maquinaria/ordenes). */
   exact?: boolean;
 }) {
+  const q = useContext(BusquedaMenu);
+  if (!coincideMenu(label, q)) {
+    if (!disabled) registrarModulo(to, label);
+    return null;
+  }
   if (disabled) {
     return (
       <a href="#" onClick={(e) => e.preventDefault()} style={{ opacity: 0.4, cursor: 'not-allowed' }} title={soon ? 'Próximamente' : undefined}>

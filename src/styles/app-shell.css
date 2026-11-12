@@ -40,6 +40,15 @@
   padding: 1rem 1.25rem;
   border-bottom: 1px solid var(--border);
 }
+/* Buscador del menú (12-11-2026). */
+.sidebar-search { padding: .6rem .6rem 0; }
+.sidebar-search .input { width: 100%; font-size: .85rem; padding: .45rem .65rem; }
+.sidebar-search-vacio { font-size: .78rem; color: var(--text-dim); padding: .5rem .25rem 0; }
+.app.sidebar-collapsed .sidebar-search { display: none; }
+/* Buscando: sin títulos de sección, y fuera los grupos que se quedaron sin módulos. */
+.sidebar.buscando .sidebar-section { display: none !important; }
+.sidebar.buscando .nav-group:not(:has(.nav-group-items a)) { display: none; }
+.sidebar.buscando .nav:not(:has(a)) { display: none; }
 .sidebar-section {
   padding: 1rem .75rem .25rem;
   font-size: .7rem; text-transform: uppercase; letter-spacing: .1em;
@@ -887,6 +896,7 @@ tr.row-selectable:active { transform: scale(0.998); }
   .nav a,
   .app.sidebar-collapsed .nav a { justify-content: flex-start; padding: .65rem .85rem; }
   .app.sidebar-collapsed .user-chip { justify-content: flex-start; padding: .6rem; }
+  .app.sidebar-collapsed .sidebar-search { display: block; }
 
   .search-box { display: none; }
   .main { padding: 1rem; }
