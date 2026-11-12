@@ -188,9 +188,16 @@ export interface FiltrosConciliacion {
   retencion?: '' | 'si' | 'no';
   referencia?: '' | 'con' | 'sin';
   pago?: '' | 'pagadas' | 'sin_pagar';
-  /** Por fecha de la OC (AAAA-MM-DD). */
+  /** Rango AAAA-MM-DD (día de Venezuela) sobre la fecha que diga `fechaBase`. */
   desde?: string;
   hasta?: string;
+  /** 'oc' (por defecto): fecha de creación de la OC · 'pago': fecha en que Tesorería la pagó. */
+  fechaBase?: 'oc' | 'pago';
+}
+
+/** Día AAAA-MM-DD en hora de Venezuela. */
+export function diaCaracas(iso: string | Date): string {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
 }
 
 const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
@@ -206,9 +213,15 @@ export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): Fila
     if (f.referencia === 'sin' && tieneRef) return false;
     if (f.pago === 'pagadas' && !x.pagado) return false;
     if (f.pago === 'sin_pagar' && x.pagado) return false;
-    const dia = (x.fechaOc ?? '').slice(0, 10);
-    if (f.desde && dia && dia < f.desde) return false;
-    if (f.hasta && dia && dia > f.hasta) return false;
+    if (f.desde || f.hasta) {
+      const iso = f.fechaBase === 'pago' ? x.pagadaEn : x.fechaOc;
+      if (!iso) { if (f.fechaBase === 'pago') return false; } // sin pagar no entra en un rango por fecha de pago
+      else {
+        const dia = diaCaracas(iso);
+        if (f.desde && dia < f.desde) return false;
+        if (f.hasta && dia > f.hasta) return false;
+      }
+    }
     if (q) {
       const hay = sinAcentos([x.codigo, x.sp, x.proveedor, x.estado.label, textoReferenciaPago(x.referencia),
         x.retencion.tipos.join(' '), x.retencion.codigos.join(' ')].join(' '));

@@ -16,10 +16,11 @@ import { FacturasOrdenModal } from '@/modules/pedidos/FacturasOrdenModal';
 import type { Orden } from '@/shared/lib/types';
 import { cargarConciliacion, type DatosConciliacion } from './conciliacion.repository';
 import {
-  COLUMNAS_CONCILIACION, bsTxt, filtrar, tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, usdTxt,
+  COLUMNAS_CONCILIACION, bsTxt, diaCaracas, filtrar, tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, usdTxt,
   type ColumnaConciliacion, type FilaConciliacion, type FiltrosConciliacion, type GrupoEstado,
 } from './conciliacion';
 import { vistaPreviaConciliacionPdf } from './conciliacionPdf';
+import { vistaPreviaConciliacionExcel } from './conciliacionExcel';
 
 type Tarjeta = 'total' | 'pagado' | 'retencion';
 
@@ -34,7 +35,31 @@ const GRUPOS: { value: GrupoEstado | ''; label: string }[] = [
 ];
 
 const fechaCorta = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('es-VE', { timeZone: 'America/Caracas' }) : '—');
-const POR_PAGINA = 100;
+const TAMANOS_PAGINA = [10, 25, 50, 100];
+
+/** Números de página a mostrar: primera, última y vecinas de la actual (null = «…»). */
+function paginasVisibles(actual: number, total: number): Array<number | null> {
+  const set = new Set([1, total, actual - 1, actual, actual + 1].filter((n) => n >= 1 && n <= total));
+  const nums = [...set].sort((a, b) => a - b);
+  const out: Array<number | null> = [];
+  nums.forEach((n, i) => { if (i > 0 && n - nums[i - 1] > 1) out.push(null); out.push(n); });
+  return out;
+}
+
+const fechaDia = (d?: string) => (d ? d.split('-').reverse().join('/') : '…');
+
+/** Rangos rápidos para el reporte (días de Venezuela). */
+function rangoRapido(r: 'hoy' | '7d' | 'mes' | 'mes_ant'): { desde: string; hasta: string } {
+  const hoy = diaCaracas(new Date());
+  const [y, m] = hoy.split('-').map(Number);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  if (r === 'hoy') return { desde: hoy, hasta: hoy };
+  if (r === '7d') { const d = new Date(`${hoy}T12:00:00Z`); d.setUTCDate(d.getUTCDate() - 6); return { desde: d.toISOString().slice(0, 10), hasta: hoy }; }
+  if (r === 'mes') return { desde: `${y}-${pad(m)}-01`, hasta: hoy };
+  const ya = m === 1 ? y - 1 : y, ma = m === 1 ? 12 : m - 1;
+  const fin = new Date(Date.UTC(ya, ma, 0)).getUTCDate();
+  return { desde: `${ya}-${pad(ma)}-01`, hasta: `${ya}-${pad(ma)}-${pad(fin)}` };
+}
 
 /** Resumen legible de los filtros activos (para el PDF y el WhatsApp). */
 function textoFiltros(f: FiltrosConciliacion): string {
@@ -43,7 +68,7 @@ function textoFiltros(f: FiltrosConciliacion): string {
   if (f.pago === 'pagadas') p.push('Solo pagadas'); else if (f.pago === 'sin_pagar') p.push('Sin pagar');
   if (f.retencion === 'si') p.push('Con retención'); else if (f.retencion === 'no') p.push('Sin retención');
   if (f.referencia === 'con') p.push('Con referencia'); else if (f.referencia === 'sin') p.push('Sin referencia');
-  if (f.desde || f.hasta) p.push(`OC del ${f.desde || '…'} al ${f.hasta || '…'}`);
+  if (f.desde || f.hasta) p.push(`${f.fechaBase === 'pago' ? 'Pagadas' : 'OC'} del ${fechaDia(f.desde)} al ${fechaDia(f.hasta)}`);
   if (f.texto?.trim()) p.push(`Búsqueda: «${f.texto.trim()}»`);
   return p.join(' · ');
 }
@@ -57,7 +82,8 @@ export function ConciliacionPage() {
   const [tarjeta, setTarjeta] = useState<Tarjeta | null>(null);
   const [verFacturas, setVerFacturas] = useState<Orden | null>(null);
   const [reporte, setReporte] = useState(false);
-  const [limite, setLimite] = useState(POR_PAGINA);
+  const [porPagina, setPorPagina] = useState(10);
+  const [pagina, setPagina] = useState(1);
 
   const cargar = useCallback(async () => {
     setCargando(true); setError(null);
@@ -69,7 +95,13 @@ export function ConciliacionPage() {
 
   const filas = useMemo(() => filtrar(datos?.filas ?? [], filtros), [datos, filtros]);
   const t = useMemo(() => tarjetas(filas), [filas]);
-  useEffect(() => { setLimite(POR_PAGINA); }, [filtros]);
+  // El reporte trae su propio rango de fechas: parte de los demás filtros de la pantalla.
+  const baseReporte = useMemo(() => filtrar(datos?.filas ?? [], { ...filtros, desde: '', hasta: '' }), [datos, filtros]);
+  useEffect(() => { setPagina(1); }, [filtros, porPagina]);
+  const totalPaginas = Math.max(1, Math.ceil(filas.length / porPagina));
+  const paginaActual = Math.min(pagina, totalPaginas);
+  const desde = (paginaActual - 1) * porPagina;
+  const filasPagina = filas.slice(desde, desde + porPagina);
 
   const setF = (patch: Partial<FiltrosConciliacion>) => setFiltros((f) => ({ ...f, ...patch }));
   const hayFiltros = Object.values(filtros).some((v) => !!v);
@@ -185,7 +217,7 @@ export function ConciliacionPage() {
                 </tr>
               </thead>
               <tbody>
-                {filas.slice(0, limite).map((f) => (
+                {filasPagina.map((f) => (
                   <tr key={f.id}>
                     <td className="mono muted" style={{ textAlign: 'center' }}>{f.item}</td>
                     <td>
@@ -225,45 +257,98 @@ export function ConciliacionPage() {
             </table>
           </div>
         )}
-        {filas.length > limite && (
-          <div style={{ textAlign: 'center', marginTop: '.75rem' }}>
-            <button className="btn btn-ghost" onClick={() => setLimite((l) => l + POR_PAGINA)}>Mostrar {Math.min(POR_PAGINA, filas.length - limite)} más ({limite} de {filas.length})</button>
+        {filas.length > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '.6rem', marginTop: '.75rem' }}>
+            <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '.4rem', fontSize: '.82rem' }}>
+              Mostrar
+              <select className="select" style={{ width: 'auto' }} value={porPagina} onChange={(e) => setPorPagina(Number(e.target.value))}>
+                {TAMANOS_PAGINA.map((n) => <option key={n} value={n}>{n}</option>)}
+              </select>
+              por página
+            </label>
+            <span className="muted" style={{ fontSize: '.82rem' }}>{desde + 1}–{desde + filasPagina.length} de {filas.length} OC</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.25rem' }}>
+              <button type="button" className="btn btn-sm btn-ghost" disabled={paginaActual <= 1} onClick={() => setPagina(1)} title="Primera página">«</button>
+              <button type="button" className="btn btn-sm btn-ghost" disabled={paginaActual <= 1} onClick={() => setPagina(paginaActual - 1)}>‹ Anterior</button>
+              {paginasVisibles(paginaActual, totalPaginas).map((n, i) => n === null
+                ? <span key={`s${i}`} className="muted" style={{ padding: '0 .2rem' }}>…</span>
+                : <button key={n} type="button" className={`btn btn-sm ${n === paginaActual ? 'btn-primary' : 'btn-ghost'}`} style={{ minWidth: 32 }} onClick={() => setPagina(n)}>{n}</button>)}
+              <button type="button" className="btn btn-sm btn-ghost" disabled={paginaActual >= totalPaginas} onClick={() => setPagina(paginaActual + 1)}>Siguiente ›</button>
+              <button type="button" className="btn btn-sm btn-ghost" disabled={paginaActual >= totalPaginas} onClick={() => setPagina(totalPaginas)} title="Última página">»</button>
+            </div>
           </div>
         )}
       </div>
 
       {verFacturas && <FacturasOrdenModal orden={verFacturas} onClose={() => setVerFacturas(null)} />}
-      {reporte && <ReporteConciliacionModal filas={filas} filtroTexto={textoFiltros(filtros)} onClose={() => setReporte(false)} />}
+      {reporte && <ReporteConciliacionModal base={baseReporte} filtros={filtros} onClose={() => setReporte(false)} />}
     </div>
   );
 }
 
 /* ───────── Reporte dinámico: columnas, vista previa PDF y WhatsApp ───────── */
-function ReporteConciliacionModal({ filas, filtroTexto, onClose }: { filas: FilaConciliacion[]; filtroTexto: string; onClose: () => void }) {
+function ReporteConciliacionModal({ base, filtros, onClose }: { base: FilaConciliacion[]; filtros: FiltrosConciliacion; onClose: () => void }) {
+  const [desde, setDesde] = useState(filtros.desde ?? '');
+  const [hasta, setHasta] = useState(filtros.hasta ?? '');
+  const [fechaBase, setFechaBase] = useState<'oc' | 'pago'>(filtros.fechaBase ?? 'oc');
+  const filas = useMemo(() => filtrar(base, { desde, hasta, fechaBase }), [base, desde, hasta, fechaBase]);
+  const filtroTexto = textoFiltros({ ...filtros, desde, hasta, fechaBase });
+  const rangoInvalido = !!(desde && hasta && desde > hasta);
+  const aplicarRango = (r: Parameters<typeof rangoRapido>[0]) => { const x = rangoRapido(r); setDesde(x.desde); setHasta(x.hasta); };
   const [cols, setCols] = useState<ColumnaConciliacion[]>(COLUMNAS_CONCILIACION.filter((c) => c.porDefecto).map((c) => c.clave));
   const [conTarjetas, setConTarjetas] = useState(true);
   const [orientacion, setOrientacion] = useState<'auto' | 'portrait' | 'landscape'>('auto');
-  const [generando, setGenerando] = useState(false);
+  const [generando, setGenerando] = useState<null | 'pdf' | 'excel'>(null);
   const toggle = (c: ColumnaConciliacion) => setCols((xs) => (xs.includes(c) ? xs.filter((x) => x !== c) : [...xs, c]));
   const fecha = new Date().toLocaleDateString('es-VE', { timeZone: 'America/Caracas' });
   const texto = useMemo(() => textoWhatsappConciliacion(filas, { columnas: cols, filtroTexto, fecha }), [filas, cols, filtroTexto, fecha]);
 
-  async function vistaPrevia() {
-    setGenerando(true);
-    try { await vistaPreviaConciliacionPdf(filas, { columnas: cols, filtroTexto, conTarjetas, orientacion }); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'); }
-    finally { setGenerando(false); }
+  async function vistaPrevia(tipo: 'pdf' | 'excel') {
+    setGenerando(tipo);
+    try {
+      if (tipo === 'pdf') await vistaPreviaConciliacionPdf(filas, { columnas: cols, filtroTexto, conTarjetas, orientacion });
+      else await vistaPreviaConciliacionExcel(filas, { columnas: cols, filtroTexto, conTarjetas });
+    } catch (e) { toast(e instanceof Error ? e.message : `No se pudo generar el ${tipo === 'pdf' ? 'PDF' : 'Excel'}`, 'error'); }
+    finally { setGenerando(null); }
   }
+  const sinGenerar = !!generando || !cols.length || !filas.length || rangoInvalido;
 
   return (
     <Modal title="📊 Reporte dinámico · Conciliación" size="lg" onClose={onClose}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
-        <button className="btn btn-primary" onClick={() => void vistaPrevia()} disabled={generando || !cols.length}>{generando ? 'Generando…' : '👁 Vista previa PDF'}</button>
+        <button className="btn btn-ghost" onClick={() => void vistaPrevia('excel')} disabled={sinGenerar}>{generando === 'excel' ? 'Generando…' : '📗 Vista previa Excel'}</button>
+        <button className="btn btn-primary" onClick={() => void vistaPrevia('pdf')} disabled={sinGenerar}>{generando === 'pdf' ? 'Generando…' : '👁 Vista previa PDF'}</button>
       </>}>
-      <p className="hint muted" style={{ marginTop: 0 }}>
-        Sale con <strong>las {filas.length} OC que se ven en la tabla</strong>{filtroTexto ? <> ({filtroTexto})</> : ' (sin filtros)'}. Para cambiar el alcance, ajusta los filtros de la pantalla.
-      </p>
+      <div className="card" style={{ margin: '0 0 .75rem' }}>
+        <div className="card-title" style={{ marginBottom: '.45rem' }}>📅 Rango de fechas</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem .8rem', alignItems: 'flex-end' }}>
+          <label className="muted" style={{ fontSize: '.8rem', display: 'grid', gap: '.2rem' }}>
+            Según
+            <select className="select" style={{ width: 'auto' }} value={fechaBase} onChange={(e) => setFechaBase(e.target.value as 'oc' | 'pago')}>
+              <option value="oc">Fecha de la OC</option><option value="pago">Fecha de pago</option>
+            </select>
+          </label>
+          <label className="muted" style={{ fontSize: '.8rem', display: 'grid', gap: '.2rem' }}>
+            Desde<input type="date" className="input" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} />
+          </label>
+          <label className="muted" style={{ fontSize: '.8rem', display: 'grid', gap: '.2rem' }}>
+            Hasta<input type="date" className="input" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} />
+          </label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem' }}>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarRango('hoy')}>Hoy</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarRango('7d')}>Últimos 7 días</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarRango('mes')}>Este mes</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarRango('mes_ant')}>Mes pasado</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setDesde(''); setHasta(''); }} disabled={!desde && !hasta}>Todas</button>
+          </div>
+        </div>
+        {rangoInvalido && <p className="hint" style={{ color: 'var(--danger, #dc2626)', margin: '.45rem 0 0' }}>La fecha «desde» es posterior a «hasta».</p>}
+        <p className="hint muted" style={{ margin: '.5rem 0 0' }}>
+          Sale con <strong>{filas.length} OC</strong>{filtroTexto ? <> ({filtroTexto})</> : ' (sin filtros)'}.
+          {fechaBase === 'pago' && (desde || hasta) ? ' Por fecha de pago solo entran las OC ya pagadas.' : ''}
+        </p>
+      </div>
       <div className="card" style={{ margin: '0 0 .75rem' }}>
         <div className="card-title" style={{ marginBottom: '.45rem' }}>Columnas</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem .9rem' }}>

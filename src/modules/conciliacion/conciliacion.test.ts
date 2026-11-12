@@ -79,3 +79,19 @@ describe('conciliación · montos, tarjetas y filtros', () => {
     expect(t).not.toMatch(/️/);
   });
 });
+
+describe('conciliación · rango de fechas del reporte', () => {
+  const filas = [
+    armarFila({ orden: oc({ id: 'a', oc_creada_en: '2026-10-05T15:00:00Z', pagada_en: '2026-11-03T15:00:00Z' }), proveedor: 'A', tasaPago: 40, tasaHoy: 45 }, 1),
+    armarFila({ orden: oc({ id: 'b', oc_creada_en: '2026-11-02T15:00:00Z', estado: 'oc_aprobada' }), proveedor: 'B', tasaPago: null, tasaHoy: 45 }, 2),
+  ];
+  it('por fecha de la OC (día de Venezuela)', () => {
+    expect(filtrar(filas, { desde: '2026-11-01', hasta: '2026-11-30' }).map((f) => f.id)).toEqual(['b']);
+    // 01:00Z del 1-nov aún es 31-oct en Caracas
+    const tarde = armarFila({ orden: oc({ id: 'c', oc_creada_en: '2026-11-01T01:00:00Z' }), proveedor: 'C', tasaPago: null, tasaHoy: 45 }, 1);
+    expect(filtrar([tarde], { desde: '2026-11-01' })).toHaveLength(0);
+  });
+  it('por fecha de pago: solo las pagadas dentro del rango', () => {
+    expect(filtrar(filas, { desde: '2026-11-01', hasta: '2026-11-30', fechaBase: 'pago' }).map((f) => f.id)).toEqual(['a']);
+  });
+});

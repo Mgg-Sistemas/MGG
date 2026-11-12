@@ -19,6 +19,18 @@ export interface OpcionesPdfConciliacion {
   orientacion?: 'auto' | 'portrait' | 'landscape';
 }
 
+/** Fila de totales: «TOTAL» ocupa todas las columnas antes del primer monto (así no se corta en la columna Ítem). */
+function pieTotales(cols: Array<{ clave: ColumnaConciliacion }>, filas: FilaConciliacion[]) {
+  const valor = (c: ColumnaConciliacion) => (c === 'monto_usd' ? usdTxt(filas.reduce((a, f) => a + f.montoUsd, 0))
+    : c === 'monto_bs' ? bsTxt(filas.reduce((a, f) => a + (f.montoBs ?? 0), 0)) : '');
+  const primerMonto = cols.findIndex((c) => c.clave === 'monto_usd' || c.clave === 'monto_bs');
+  const span = primerMonto > 0 ? primerMonto : primerMonto === 0 ? 0 : cols.length;
+  const celdas: Array<string | { content: string; colSpan: number; styles: { halign: 'center' } }> = [];
+  if (span > 0) celdas.push({ content: 'TOTAL', colSpan: span, styles: { halign: 'center' } });
+  for (let i = span; i < cols.length; i++) celdas.push(valor(cols[i].clave));
+  return celdas;
+}
+
 export async function vistaPreviaConciliacionPdf(filas: FilaConciliacion[], op: OpcionesPdfConciliacion): Promise<void> {
   const cols = COLUMNAS_CONCILIACION.filter((c) => op.columnas.includes(c.clave));
   if (!cols.length) throw new Error('Selecciona al menos una columna.');
@@ -77,16 +89,14 @@ export async function vistaPreviaConciliacionPdf(filas: FilaConciliacion[], op: 
     margin: { left: M, right: M },
     head: [cols.map((c) => pdfSafe(c.label.toUpperCase()))],
     body: filas.map((f) => cols.map((c) => pdfSafe(celda(f, c.clave)))),
-    foot: [cols.map((c, i) => {
-      if (c.clave === 'monto_usd') return usdTxt(filas.reduce((a, f) => a + f.montoUsd, 0));
-      if (c.clave === 'monto_bs') return bsTxt(filas.reduce((a, f) => a + (f.montoBs ?? 0), 0));
-      return i === 0 ? 'TOTAL' : '';
-    })],
+    foot: [pieTotales(cols, filas)],
     styles: { fontSize: 7.5, cellPadding: 3, lineColor: BORDE, lineWidth: 0.3, textColor: [30, 30, 30] },
-    headStyles: { fillColor: NARANJA, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7 },
+    headStyles: { fillColor: NARANJA, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 7, halign: 'center', valign: 'middle' },
     footStyles: { fillColor: [241, 245, 249], textColor: [30, 30, 30], fontStyle: 'bold' },
     alternateRowStyles: { fillColor: [248, 250, 252] },
-    columnStyles: Object.fromEntries(cols.map((c, i) => [i, derecha.has(c.clave) ? { halign: 'right' } : c.clave === 'item' ? { halign: 'center', cellWidth: 26 } : {}])),
+    columnStyles: Object.fromEntries(cols.map((c, i) => [i, derecha.has(c.clave) ? { halign: 'right' }
+      : c.clave === 'proveedor' ? { halign: 'left' }
+      : c.clave === 'item' ? { halign: 'center', cellWidth: 26 } : { halign: 'center' }])),
     didDrawPage: () => {
       const H = doc.internal.pageSize.getHeight();
       doc.setFontSize(7); doc.setTextColor(140, 140, 140);
