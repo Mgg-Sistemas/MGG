@@ -546,8 +546,8 @@ export async function actualizarCantidadesOrden(
   // seguiría cobrando impuestos de algo que ya no se compra.
   const { data: ofs } = await supabase.from('ofertas_proveedor')
     .select('id, items, iva, igtf, descuento').eq('orden_id', o.id).eq('estado', 'pendiente');
-  for (const of of (ofs ?? []) as { id: string; items: ItemOrden[]; iva: number | null; igtf: number | null; descuento: number | null }[]) {
-    const itemsPrev = of.items ?? [];
+  for (const oferta of (ofs ?? []) as { id: string; items: ItemOrden[]; iva: number | null; igtf: number | null; descuento: number | null }[]) {
+    const itemsPrev = oferta.items ?? [];
     const items = aplicar(itemsPrev);
     const gross = (xs: ItemOrden[]) => xs.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
     const brutoPrev = gross(itemsPrev);
@@ -563,8 +563,8 @@ export async function actualizarCantidadesOrden(
     const precio_efectivo = usdTotal > 0 ? Math.round(usdTotal * 100) / 100 : null;
     await supabase.from('ofertas_proveedor').update({
       items, precio_total, precio_efectivo,
-      ...(fuera.size ? { iva: escalar(of.iva), igtf: escalar(of.igtf), descuento: escalar(of.descuento) } : {}),
-    }).eq('id', of.id);
+      ...(fuera.size ? { iva: escalar(oferta.iva), igtf: escalar(oferta.igtf), descuento: escalar(oferta.descuento) } : {}),
+    }).eq('id', oferta.id);
   }
   return data as Orden;
 }
@@ -1905,21 +1905,28 @@ function mapPorPagar(orden: Orden, pm: Map<string, string>): OrdenPorPagar {
   };
 }
 
-/** Lista las OC pendientes de pago en Tesorería. Incluye:
- *   · `confirmada_metodo`: aprobada por el Gerente, AÚN sin método de pago (Tesorería ya
- *     ve el monto a pagar; el analista de compras debe indicar el método para poder pagar).
- *   · `oc_aprobada`: con método indicado → lista para pagar (anticipado, o contra entrega
- *     tras recibir). Las de crédito NO aparecen: se saldan por abonos.
+import { tieneMetodoPagoCargado } from './ordenPagoUtils';
+export { tieneMetodoPagoCargado };
+
+/** Lista las OC pendientes de pago.
+ *  · En Tesorería (opts?.soloConMetodo = true): SOLO muestra las OC que tengan método de pago
+ *    cargado desde Compras (`oc_aprobada` con `metodo_pago` asignado).
+ *  · Sin filtro (Compras / reportes globales): incluye también `confirmada_metodo` (esperando método).
  *  01-11-2026: la retención (antes/después) NO frena el pago: se listan todas, la haya
  *  hecho Retenciones o no. */
-export async function listOrdenesPorPagar(): Promise<OrdenPorPagar[]> {
+export async function listOrdenesPorPagar(opts?: { soloConMetodo?: boolean }): Promise<OrdenPorPagar[]> {
+  const estados = opts?.soloConMetodo ? ['oc_aprobada'] : ['confirmada_metodo', 'oc_aprobada'];
   const [{ data: os, error }, { data: provs }] = await Promise.all([
-    supabase.from(TABLE).select('*').in('estado', ['confirmada_metodo', 'oc_aprobada']).order('oc_aprobada_en', { ascending: true }),
+    supabase.from(TABLE).select('*').in('estado', estados).order('oc_aprobada_en', { ascending: true }),
     supabase.from('proveedores').select('id, razon_social'),
   ]);
   if (error) throw error;
   const pm = new Map((provs ?? []).map((p) => [p.id as string, p.razon_social as string]));
-  return (os ?? []).map((r) => mapPorPagar(r as Orden, pm));
+  const res = (os ?? []).map((r) => mapPorPagar(r as Orden, pm));
+  if (opts?.soloConMetodo) {
+    return res.filter(tieneMetodoPagoCargado);
+  }
+  return res;
 }
 
 /** Lista las OC a crédito con cuenta abierta (para la vista de crédito + abonos). */

@@ -48,12 +48,21 @@ export function soloDigitos(v: string): string {
   return String(v ?? '').replace(/\D/g, '');
 }
 
+/** Limpia la referencia según el tipo: para Bs solo dígitos; para Binance letras y números (alfanumérico en mayúsculas). */
+export function limpiarReferencia(v: string, que: 'bs' | 'binance'): string {
+  if (que === 'binance') {
+    return String(v ?? '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+  }
+  return soloDigitos(v);
+}
+
 /** null si está bien; si no, el mensaje de error. */
 export function errorReferencia(v: string | null | undefined, que: 'bs' | 'binance'): string | null {
-  const d = soloDigitos(v ?? '');
+  const d = limpiarReferencia(v ?? '', que);
   const nombre = que === 'bs' ? 'la referencia del pago en Bs (transferencia / pago móvil)' : 'el ID de la orden de Binance';
-  if (!d) return `Indicá ${nombre}: los últimos 4 dígitos.`;
-  if (d.length !== 4) return `En ${nombre} van exactamente los últimos 4 dígitos (cargaste ${d.length}).`;
+  const unidad = que === 'bs' ? 'dígitos' : 'caracteres';
+  if (!d) return `Indicá ${nombre}: los últimos 4 ${unidad}.`;
+  if (d.length !== 4) return `En ${nombre} van exactamente los últimos 4 ${unidad} (cargaste ${d.length}).`;
   return null;
 }
 

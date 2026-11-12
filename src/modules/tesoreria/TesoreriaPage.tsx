@@ -24,7 +24,7 @@ import { listAlmacenes, nombreCortoAlmacen } from '@/modules/inventario/almacene
 import { HistorialTasasModal } from './HistorialTasasModal';
 import { filtrarRenglonesNomina, armarLote, pendientesDelLote, alternarSeleccion, seleccionarVisibles, podarSeleccion } from './nominaLote';
 import { TasasView } from './TasasView';
-import { errorReferencia, referenciasRequeridas, soloDigitos } from './referenciaPago';
+import { errorReferencia, limpiarReferencia, referenciasRequeridas, soloDigitos } from './referenciaPago';
 import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, crearBilleteraEnCero, listConversiones } from './cajaSaldos.repository';
 import type { ConversionFila } from './cajaSaldos.repository';
@@ -70,7 +70,7 @@ import {
   type CuentaPorCobrar, type AbonoCxC,
 } from './cuentasPorCobrar.repository';
 import {
-  listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMulti, labelMetodoPago, pagoSinComprobante, type OrdenPorPagar,
+  listOrdenesPorPagar, pagarOrdenCompra, pagarOrdenCompraMulti, labelMetodoPago, pagoSinComprobante, tieneMetodoPagoCargado, type OrdenPorPagar,
   listOrdenesEnCredito, registrarAbonoMulti, listAbonos, type AbonoLeg,
   getOrdenById, urlAdjuntoOc,
   getProveedorConDatosPago, guardarDatosPagoProveedor,
@@ -242,7 +242,7 @@ export function TesoreriaPage() {
       listLibroMayor({ moneda: fMoneda || undefined, tipo: fTipo || undefined, desde: fDesde || undefined, hasta: fHasta || undefined }),
       // Libro Mayor: TODOS los movimientos activos (sin los filtros del registro), tope alto.
       listLibroMayor({ limite: 10000 }).catch(() => [] as MovimientoCaja[]),
-      listOrdenesPorPagar().catch(() => [] as OrdenPorPagar[]),
+      listOrdenesPorPagar({ soloConMetodo: true }).catch(() => [] as OrdenPorPagar[]),
       listOrdenesEnCredito().catch(() => [] as OrdenPorPagar[]),
       listCuentasPorPagar(true).catch(() => [] as CuentaPorPagar[]),
       listTransferenciasInter().catch(() => [] as TransferenciaInter[]),
@@ -254,8 +254,9 @@ export function TesoreriaPage() {
       cargarDirectosPorPagar().catch(() => [] as DirectoFila[]),
     ]);
     const crPendientes = cr.filter((x) => (Number(x.orden.total) - (Number(x.orden.abonado_total) || 0)) > 0.01);
+    const ppConMetodo = pp.filter(tieneMetodoPagoCargado);
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
-    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setLmMovs(lm); setPorPagarCount(pp.length + dir.length); setCreditosCount(crPendientes.length + cxp.length); setTransfers(tr); setNominaCount(nc); setCobrarCount(cxc.length); setRetencionListas(ret);
+    setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setLmMovs(lm); setPorPagarCount(ppConMetodo.length + dir.length); setCreditosCount(crPendientes.length + cxp.length); setTransfers(tr); setNominaCount(nc); setCobrarCount(cxc.length); setRetencionListas(ret);
     setCxpList(cxp); setCxcList(cxc); setDirectos(dir);
   }, [fMoneda, fTipo, fDesde, fHasta]);
 
@@ -4516,7 +4517,10 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
 
   const reload = useCallback(async () => {
     setLoading(true);
-    try { setRows(await listOrdenesPorPagar()); }
+    try {
+      const all = await listOrdenesPorPagar({ soloConMetodo: true });
+      setRows(all.filter(tieneMetodoPagoCargado));
+    }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar', 'error'); }
     finally { setLoading(false); }
   }, []);
@@ -4556,9 +4560,8 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
       <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
     }>
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
-        Órdenes de compra aprobadas por el Gerente. Marcá varias del <strong>mismo proveedor</strong> para pagarlas juntas
-        (un egreso por OC). Se pueden incluir las que están <strong>⏳ Esperando método de pago</strong>: Tesorería las paga
-        directo eligiendo la caja, aunque el analista todavía no haya indicado el método.
+        Órdenes de compra aprobadas por el Gerente con método de pago cargado desde Compras. Marcá varias del <strong>mismo proveedor</strong> para pagarlas juntas
+        (un egreso por OC).
       </p>
 
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
@@ -4786,7 +4789,7 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
     if (!fondos) { setError(`Saldo insuficiente en ${monedaW}${wallet.cuenta !== 'general' ? ` (${cuentaLabel(wallet.cuenta)})` : ''}. Necesitás ${monto(totalWallet, monedaW)} y hay ${monto(saldoW, monedaW)}.`); return; }
     if (requiereComprobante && !factura) { setError('Adjuntá el comprobante (se aplica a todas las OC del lote).'); return; }
     if (tipoRefLote) { const e = errorReferencia(refLote, tipoRefLote); if (e) { setError(e); return; } }
-    const referencias = tipoRefLote === 'bs' ? { bs: soloDigitos(refLote) } : tipoRefLote === 'binance' ? { binance: soloDigitos(refLote) } : null;
+    const referencias = tipoRefLote === 'bs' ? { bs: limpiarReferencia(refLote, 'bs') } : tipoRefLote === 'binance' ? { binance: limpiarReferencia(refLote, 'binance') } : null;
     setSaving(true);
     let ok = 0;
     try {
@@ -4914,9 +4917,9 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
         {tipoRefLote && (
           <div className="form-row">
             <label>{tipoRefLote === 'bs' ? 'Referencia del pago en Bs * (transferencia / pago móvil)' : 'ID de la orden de Binance *'}</label>
-            <input className="input mono" inputMode="numeric" maxLength={4} value={refLote} placeholder="Últimos 4 dígitos"
-              onChange={(e) => setRefLote(soloDigitos(e.target.value).slice(0, 4))} style={{ maxWidth: 180, letterSpacing: '.2em' }} />
-            <small className="hint muted">Los <strong>últimos 4 dígitos</strong>. Es una sola y vale para <strong>todas las OC del lote</strong>.</small>
+            <input className="input mono" inputMode={tipoRefLote === 'bs' ? 'numeric' : 'text'} maxLength={4} value={refLote} placeholder={tipoRefLote === 'bs' ? 'Últimos 4 dígitos' : 'Últimos 4 caracteres'}
+              onChange={(e) => setRefLote(limpiarReferencia(e.target.value, tipoRefLote).slice(0, 4))} style={{ maxWidth: 180, letterSpacing: '.2em' }} />
+            <small className="hint muted">Los <strong>{tipoRefLote === 'bs' ? 'últimos 4 dígitos' : 'últimos 4 caracteres'}</strong>{tipoRefLote === 'binance' ? ' (números y/o letras)' : ''}. Es una sola y vale para <strong>todas las OC del lote</strong>.</small>
           </div>
         )}
 
@@ -6764,8 +6767,8 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
     if (pideRef.bs) { const e = errorReferencia(refBs, 'bs'); if (e) { setError(e); return; } }
     if (pideRef.binance) { const e = errorReferencia(refBinance, 'binance'); if (e) { setError(e); return; } }
     const referencias = {
-      bs: pideRef.bs ? soloDigitos(refBs) : null,
-      binance: pideRef.binance ? soloDigitos(refBinance) : null,
+      bs: pideRef.bs ? limpiarReferencia(refBs, 'bs') : null,
+      binance: pideRef.binance ? limpiarReferencia(refBinance, 'binance') : null,
     };
     if (factura && factura.type && factura.type !== 'application/pdf' && !factura.type.startsWith('image/')) {
       setError('El comprobante debe ser un PDF o una imagen.'); return;
@@ -7512,9 +7515,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
             {pideRef.binance && (
               <div className="form-row">
                 <label>ID de la orden de Binance *</label>
-                <input className="input mono" inputMode="numeric" maxLength={4} value={refBinance} placeholder="Últimos 4 dígitos"
-                  onChange={(e) => setRefBinance(soloDigitos(e.target.value).slice(0, 4))} style={{ maxWidth: 180, letterSpacing: '.2em' }} />
-                <small className="hint muted">Los <strong>últimos 4 dígitos</strong> del número de orden en Binance.</small>
+                <input className="input mono" inputMode="text" maxLength={4} value={refBinance} placeholder="Últimos 4 caracteres"
+                  onChange={(e) => setRefBinance(limpiarReferencia(e.target.value, 'binance').slice(0, 4))} style={{ maxWidth: 180, letterSpacing: '.2em' }} />
+                <small className="hint muted">Los <strong>últimos 4 caracteres</strong> (números y/o letras) del número de orden en Binance.</small>
               </div>
             )}
           </div>

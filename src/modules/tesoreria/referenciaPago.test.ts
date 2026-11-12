@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { errorReferencia, referenciasRequeridas, soloDigitos, textoReferencia } from './referenciaPago';
+import { errorReferencia, limpiarReferencia, referenciasRequeridas, soloDigitos, textoReferencia } from './referenciaPago';
+import { tieneMetodoPagoCargado } from '@/modules/pedidos/pedidos.repository';
 import type { PagoMetodo } from '@/shared/lib/types';
 
 const m = (...ms: string[]) => ms.map((metodo) => ({ metodo, moneda: '', monto: 0 })) as PagoMetodo[];
@@ -31,12 +32,19 @@ describe('referencia del pago de una OC (12-11-2026)', () => {
     expect(referenciasRequeridas(m('pago_movil', 'binance_usdt'), { bs: true, usdt: true, noBs: true })).toEqual({ bs: true, binance: true });
   });
 
-  it('exige exactamente 4 dígitos', () => {
+  it('exige exactamente 4 dígitos en Bs y 4 caracteres alfanuméricos en Binance (permite letras)', () => {
     expect(errorReferencia('1234', 'bs')).toBeNull();
     expect(errorReferencia(' 12-34 ', 'binance')).toBeNull();
+    // Binance admite letras y números (se normalizan en mayúsculas sin espacios/guiones)
+    expect(errorReferencia('ab12', 'binance')).toBeNull();
+    expect(errorReferencia('3F9a', 'binance')).toBeNull();
+    expect(limpiarReferencia('3f-9a', 'binance')).toBe('3F9A');
+    // Bs solo admite dígitos (ignora letras)
+    expect(limpiarReferencia('ab9-8 7x6', 'bs')).toBe('9876');
     expect(errorReferencia('', 'bs')).toMatch(/últimos 4 dígitos/);
     expect(errorReferencia('123', 'binance')).toMatch(/cargaste 3/);
     expect(errorReferencia('12345', 'bs')).toMatch(/cargaste 5/);
+    expect(errorReferencia('ABCDE', 'binance')).toMatch(/cargaste 5/);
     expect(soloDigitos('ab9-8 7x6')).toBe('9876');
   });
 
@@ -46,5 +54,24 @@ describe('referencia del pago de una OC (12-11-2026)', () => {
     expect(textoReferencia('USDT', refs)).toBe('Binance orden …7730');
     expect(textoReferencia('USD', { bs: '4821' })).toBe('');
     expect(textoReferencia('Bs', null)).toBe('');
+  });
+
+  it('tieneMetodoPagoCargado solo aprueba OC con estado distinto a confirmada_metodo y con método de pago cargado', () => {
+    // 1. En confirmada_metodo aún Compras no cargó el método
+    expect(tieneMetodoPagoCargado({ orden: { estado: 'confirmada_metodo', metodo_pago: [] }, esperandoMetodo: true })).toBe(false);
+    expect(tieneMetodoPagoCargado({ orden: { estado: 'confirmada_metodo', metodo_pago: [{ metodo: 'binance_usdt', moneda: 'USDT', monto: 100 }] }, esperandoMetodo: false })).toBe(false);
+
+    // 2. Con esperandoMetodo = true
+    expect(tieneMetodoPagoCargado({ orden: { estado: 'oc_aprobada', metodo_pago: [] }, esperandoMetodo: true })).toBe(false);
+
+    // 3. Sin método de pago cargado
+    expect(tieneMetodoPagoCargado({ orden: { estado: 'oc_aprobada', metodo_pago: [] }, esperandoMetodo: false })).toBe(false);
+    expect(tieneMetodoPagoCargado({ orden: { estado: 'oc_aprobada', metodo_pago: null }, esperandoMetodo: false })).toBe(false);
+
+    // 4. Con método de pago cargado desde compras y aprobada para pagar
+    expect(tieneMetodoPagoCargado({
+      orden: { estado: 'oc_aprobada', metodo_pago: [{ metodo: 'binance_usdt', moneda: 'USDT', monto: 100 }] },
+      esperandoMetodo: false,
+    })).toBe(true);
   });
 });

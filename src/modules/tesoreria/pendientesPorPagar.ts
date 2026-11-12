@@ -556,9 +556,9 @@ export function armarPendientesPorPagar(e: EntradaPendientes): DatosPendientesPo
   };
 }
 
-/** Lee las OC por pagar y a crédito (lo que ve Compras) y arma el reporte. */
-export async function cargarPendientesPorPagar(): Promise<DatosPendientesPorPagar> {
-  const [rows, creditos] = await Promise.all([listOrdenesPorPagar(), listOrdenesEnCredito()]);
+/** Lee las OC por pagar (solo las que ya tienen método de pago cargado) y a crédito para armar el reporte de Tesorería. */
+export async function cargarPendientesPorPagar(opts?: { soloConMetodo?: boolean }): Promise<DatosPendientesPorPagar> {
+  const [rows, creditos] = await Promise.all([listOrdenesPorPagar({ soloConMetodo: opts?.soloConMetodo ?? true }), listOrdenesEnCredito()]);
   return cargarConLecturas(rows, creditos);
 }
 
