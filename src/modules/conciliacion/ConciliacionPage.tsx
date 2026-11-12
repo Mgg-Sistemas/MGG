@@ -9,7 +9,7 @@
    comprobante de pago, se carga ahí mismo (12-11-2026).
    Reporte dinámico con vista previa en PDF y mensaje de WhatsApp.
    ============================================================ */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -25,7 +25,7 @@ import {
   type DatosConciliacion,
 } from './conciliacion.repository';
 import {
-  COLUMNAS_CONCILIACION, bsTxt, desgloseTipos, diaCaracas, filtrar, tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, usdTxt,
+  COLUMNAS_CONCILIACION, bsTxt, desgloseTipos, diaCaracas, filtrar, hayFiltrosActivos, tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, usdTxt,
   type ColumnaConciliacion, type FilaConciliacion, type FiltrosConciliacion, type GrupoEstado,
 } from './conciliacion';
 import { vistaPreviaConciliacionPdf } from './conciliacionPdf';
@@ -33,8 +33,7 @@ import { vistaPreviaConciliacionExcel } from './conciliacionExcel';
 
 type Tarjeta = 'total' | 'pagado' | 'retencion';
 
-const GRUPOS: { value: GrupoEstado | ''; label: string }[] = [
-  { value: '', label: 'Todos los status' },
+const GRUPOS: { value: GrupoEstado; label: string }[] = [
   { value: 'por_aprobar', label: 'Por aprobar' },
   { value: 'esperando_pago', label: 'Esperando pago' },
   { value: 'credito', label: 'Crédito · por pagar' },
@@ -70,14 +69,70 @@ function rangoRapido(r: 'hoy' | '7d' | 'mes' | 'mes_ant'): { desde: string; hast
   return { desde: `${ya}-${pad(ma)}-01`, hasta: `${ya}-${pad(ma)}-${pad(fin)}` };
 }
 
+/* Opciones de los filtros de casillas. */
+const OPC_TIPO: { value: 'oc' | 'servicio'; label: string }[] = [{ value: 'oc', label: 'OC' }, { value: 'servicio', label: 'Servicios' }];
+const OPC_PAGO: { value: 'pagadas' | 'sin_pagar'; label: string }[] = [{ value: 'pagadas', label: 'Pagadas' }, { value: 'sin_pagar', label: 'Sin pagar' }];
+const OPC_RET: { value: 'si' | 'no'; label: string }[] = [{ value: 'si', label: 'Con retención' }, { value: 'no', label: 'Sin retención' }];
+const OPC_REF: { value: 'con' | 'sin'; label: string }[] = [{ value: 'con', label: 'Con referencia' }, { value: 'sin', label: 'Sin referencia' }];
+
+/** Las etiquetas marcadas de un filtro de casillas («A o B»). */
+function etiquetas<T extends string>(marcadas: T[] | undefined, opciones: { value: T; label: string }[]): string {
+  return opciones.filter((o) => marcadas?.includes(o.value)).map((o) => o.label).join(' o ');
+}
+
+/** Lista desplegable con casillas: se marcan varias opciones; ninguna = todas. */
+function FiltroChecks<T extends string>({ titulo, todas, opciones, marcadas, onChange }: {
+  titulo: string; todas: string; opciones: { value: T; label: string }[]; marcadas: T[] | undefined; onChange: (v: T[]) => void;
+}) {
+  const [abierto, setAbierto] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!abierto) return;
+    const fuera = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setAbierto(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setAbierto(false); };
+    document.addEventListener('mousedown', fuera);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', fuera); document.removeEventListener('keydown', esc); };
+  }, [abierto]);
+  const sel = marcadas ?? [];
+  const resumen = !sel.length || sel.length === opciones.length ? todas
+    : sel.length === 1 ? opciones.find((o) => o.value === sel[0])?.label ?? todas : `${titulo}: ${sel.length}`;
+  const toggle = (v: T) => onChange(sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v]);
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button type="button" className="select" aria-haspopup="true" aria-expanded={abierto} title={titulo}
+        onClick={() => setAbierto((a) => !a)}
+        style={{ width: 'auto', textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: sel.length && sel.length < opciones.length ? 700 : undefined }}>
+        {resumen} ▾
+      </button>
+      {abierto && (
+        <div className="card" role="group" aria-label={titulo}
+          style={{ position: 'absolute', zIndex: 30, top: 'calc(100% + 4px)', left: 0, minWidth: 200, margin: 0, padding: '.45rem .55rem', background: 'var(--bg-1)', boxShadow: '0 8px 24px rgba(0,0,0,.25)' }}>
+          <div className="muted" style={{ fontSize: '.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: '.25rem' }}>{titulo}</div>
+          {opciones.map((o) => (
+            <label key={o.value} style={{ display: 'flex', alignItems: 'center', gap: '.45rem', padding: '.22rem .1rem', cursor: 'pointer', fontSize: '.85rem' }}>
+              <input type="checkbox" checked={sel.includes(o.value)} onChange={() => toggle(o.value)} /> {o.label}
+            </label>
+          ))}
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.4rem', marginTop: '.3rem', borderTop: '1px solid var(--border)', paddingTop: '.3rem' }}>
+            <button type="button" className="btn btn-xs btn-ghost" onClick={() => onChange(opciones.map((o) => o.value))}>Todas</button>
+            <button type="button" className="btn btn-xs btn-ghost" onClick={() => onChange([])} disabled={!sel.length}>Limpiar</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** Resumen legible de los filtros activos (para el PDF y el WhatsApp). */
 function textoFiltros(f: FiltrosConciliacion): string {
   const p: string[] = [];
-  if (f.tipo) p.push(f.tipo === 'servicio' ? 'Solo servicios' : 'Solo OC');
-  if (f.grupo) p.push(`Status: ${GRUPOS.find((g) => g.value === f.grupo)?.label}`);
-  if (f.pago === 'pagadas') p.push('Solo pagadas'); else if (f.pago === 'sin_pagar') p.push('Sin pagar');
-  if (f.retencion === 'si') p.push('Con retención'); else if (f.retencion === 'no') p.push('Sin retención');
-  if (f.referencia === 'con') p.push('Con referencia'); else if (f.referencia === 'sin') p.push('Sin referencia');
+  const parte = (txt: string, marcadas: unknown[] | undefined, total: number) => { if (marcadas?.length && marcadas.length < total && txt) p.push(txt); };
+  parte(etiquetas(f.tipo, OPC_TIPO), f.tipo, OPC_TIPO.length);
+  parte(f.grupo?.length ? `Status: ${etiquetas(f.grupo, GRUPOS)}` : '', f.grupo, GRUPOS.length);
+  parte(etiquetas(f.pago, OPC_PAGO), f.pago, OPC_PAGO.length);
+  parte(etiquetas(f.retencion, OPC_RET), f.retencion, OPC_RET.length);
+  parte(etiquetas(f.referencia, OPC_REF), f.referencia, OPC_REF.length);
   if (f.desde || f.hasta) p.push(`${f.fechaBase === 'pago' ? 'Pagadas' : 'OC'} del ${fechaDia(f.desde)} al ${fechaDia(f.hasta)}`);
   if (f.texto?.trim()) p.push(`Búsqueda: «${f.texto.trim()}»`);
   return p.join(' · ');
@@ -151,7 +206,7 @@ export function ConciliacionPage() {
   const filasPagina = filas.slice(desde, desde + porPagina);
 
   const setF = (patch: Partial<FiltrosConciliacion>) => setFiltros((f) => ({ ...f, ...patch }));
-  const hayFiltros = Object.values(filtros).some((v) => !!v);
+  const hayFiltros = hayFiltrosActivos(filtros);
   const abrirOc = (id: string) => navigate(`/app/pedidos?detalle=${encodeURIComponent(id)}`);
 
   const detalle: FilaConciliacion[] = useMemo(() => {
@@ -235,21 +290,11 @@ export function ConciliacionPage() {
       {/* Filtros */}
       <div className="card" style={{ marginBottom: '1rem', display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
         <input className="input" style={{ flex: '1 1 220px' }} placeholder="🔎 Código OC / SV, proveedor, referencia, N° de retención…" value={filtros.texto ?? ''} onChange={(e) => setF({ texto: e.target.value })} />
-        <select className="select" style={{ width: 'auto' }} value={filtros.tipo ?? ''} onChange={(e) => setF({ tipo: e.target.value as FiltrosConciliacion['tipo'] })}>
-          <option value="">OC y servicios</option><option value="oc">Solo OC</option><option value="servicio">Solo servicios</option>
-        </select>
-        <select className="select" style={{ width: 'auto' }} value={filtros.grupo ?? ''} onChange={(e) => setF({ grupo: e.target.value as GrupoEstado | '' })}>
-          {GRUPOS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
-        </select>
-        <select className="select" style={{ width: 'auto' }} value={filtros.pago ?? ''} onChange={(e) => setF({ pago: e.target.value as FiltrosConciliacion['pago'] })}>
-          <option value="">Pagadas y sin pagar</option><option value="pagadas">Solo pagadas</option><option value="sin_pagar">Sin pagar</option>
-        </select>
-        <select className="select" style={{ width: 'auto' }} value={filtros.retencion ?? ''} onChange={(e) => setF({ retencion: e.target.value as FiltrosConciliacion['retencion'] })}>
-          <option value="">Con y sin retención</option><option value="si">Con retención</option><option value="no">Sin retención</option>
-        </select>
-        <select className="select" style={{ width: 'auto' }} value={filtros.referencia ?? ''} onChange={(e) => setF({ referencia: e.target.value as FiltrosConciliacion['referencia'] })}>
-          <option value="">Con y sin referencia</option><option value="con">Con referencia</option><option value="sin">Sin referencia</option>
-        </select>
+        <FiltroChecks titulo="Tipo" todas="OC y servicios" opciones={OPC_TIPO} marcadas={filtros.tipo} onChange={(v) => setF({ tipo: v })} />
+        <FiltroChecks titulo="Status" todas="Todos los status" opciones={GRUPOS} marcadas={filtros.grupo} onChange={(v) => setF({ grupo: v })} />
+        <FiltroChecks titulo="Pago" todas="Pagadas y sin pagar" opciones={OPC_PAGO} marcadas={filtros.pago} onChange={(v) => setF({ pago: v })} />
+        <FiltroChecks titulo="Retención" todas="Con y sin retención" opciones={OPC_RET} marcadas={filtros.retencion} onChange={(v) => setF({ retencion: v })} />
+        <FiltroChecks titulo="Referencia" todas="Con y sin referencia" opciones={OPC_REF} marcadas={filtros.referencia} onChange={(v) => setF({ referencia: v })} />
         <label className="muted" style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.3rem' }}>Desde <input className="input" type="date" value={filtros.desde ?? ''} onChange={(e) => setF({ desde: e.target.value })} /></label>
         <label className="muted" style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.3rem' }}>Hasta <input className="input" type="date" value={filtros.hasta ?? ''} onChange={(e) => setF({ hasta: e.target.value })} /></label>
         {hayFiltros && <button className="btn btn-sm btn-ghost" onClick={() => setFiltros({})}>✕ Limpiar</button>}

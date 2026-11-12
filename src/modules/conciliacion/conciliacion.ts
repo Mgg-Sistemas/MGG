@@ -249,14 +249,19 @@ export function tarjetas(filas: FilaConciliacion[]): Tarjetas {
 }
 
 /* ───────── Filtros ───────── */
+/* Los filtros de lista son de casillas (12-11-2026): se marcan varias opciones;
+   ninguna marcada = todas. */
+export type FiltroPago = 'pagadas' | 'sin_pagar';
+export type FiltroRetencion = 'si' | 'no';
+export type FiltroReferencia = 'con' | 'sin';
 export interface FiltrosConciliacion {
   texto?: string;
-  /** '' = OC y servicios. */
-  tipo?: '' | TipoOrdenConciliacion;
-  grupo?: GrupoEstado | '';
-  retencion?: '' | 'si' | 'no';
-  referencia?: '' | 'con' | 'sin';
-  pago?: '' | 'pagadas' | 'sin_pagar';
+  /** Vacío = OC y servicios. */
+  tipo?: TipoOrdenConciliacion[];
+  grupo?: GrupoEstado[];
+  retencion?: FiltroRetencion[];
+  referencia?: FiltroReferencia[];
+  pago?: FiltroPago[];
   /** Rango AAAA-MM-DD (día de Venezuela) sobre la fecha que diga `fechaBase`. */
   desde?: string;
   hasta?: string;
@@ -271,18 +276,21 @@ export function diaCaracas(iso: string | Date): string {
 
 const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
+/** ¿Pasa un filtro de casillas? (ninguna marcada = pasan todas). */
+const pasa = <T,>(marcadas: T[] | undefined, valor: T) => !marcadas?.length || marcadas.includes(valor);
+
+/** ¿Hay algún filtro puesto? (las listas vacías no cuentan). */
+export const hayFiltrosActivos = (f: FiltrosConciliacion) =>
+  Object.values(f).some((v) => (Array.isArray(v) ? v.length > 0 : !!v));
+
 export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): FilaConciliacion[] {
   const q = sinAcentos((f.texto ?? '').trim());
   return filas.filter((x) => {
-    if (f.tipo && x.tipo !== f.tipo) return false;
-    if (f.grupo && x.estado.grupo !== f.grupo) return false;
-    if (f.retencion === 'si' && !x.retencion.lleva) return false;
-    if (f.retencion === 'no' && x.retencion.lleva) return false;
-    const tieneRef = tieneReferencia(x.referencia);
-    if (f.referencia === 'con' && !tieneRef) return false;
-    if (f.referencia === 'sin' && tieneRef) return false;
-    if (f.pago === 'pagadas' && !x.pagado) return false;
-    if (f.pago === 'sin_pagar' && x.pagado) return false;
+    if (!pasa(f.tipo, x.tipo)) return false;
+    if (!pasa(f.grupo, x.estado.grupo)) return false;
+    if (!pasa<FiltroRetencion>(f.retencion, x.retencion.lleva ? 'si' : 'no')) return false;
+    if (!pasa<FiltroReferencia>(f.referencia, tieneReferencia(x.referencia) ? 'con' : 'sin')) return false;
+    if (!pasa<FiltroPago>(f.pago, x.pagado ? 'pagadas' : 'sin_pagar')) return false;
     if (f.desde || f.hasta) {
       const iso = f.fechaBase === 'pago' ? x.pagadaEn : x.fechaOc;
       if (!iso) { if (f.fechaBase === 'pago') return false; } // sin pagar no entra en un rango por fecha de pago

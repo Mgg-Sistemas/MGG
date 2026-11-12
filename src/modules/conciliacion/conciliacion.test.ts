@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Orden } from '@/shared/lib/types';
 import {
-  armarFila, celda, comprobanteDePago, datosConciliacion, estadoConciliacion, filtrar, ordenesConciliables, referenciaDePago, retencionDeOrden,
+  armarFila, celda, comprobanteDePago, hayFiltrosActivos, datosConciliacion, estadoConciliacion, filtrar, ordenesConciliables, referenciaDePago, retencionDeOrden,
   tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, tieneReferencia,
 } from './conciliacion';
 
@@ -86,8 +86,13 @@ describe('conciliación · montos, tarjetas y filtros', () => {
     expect(t.totalOc).toMatchObject({ cantidad: 2, usd: 200 });
     expect(t.pagado).toMatchObject({ cantidad: 1, usd: 100, bs: 4000, ids: ['a'] });
     expect(t.conRetencion.ids).toEqual(['b']);
-    expect(filtrar(filas, { referencia: 'con' }).map((f) => f.id)).toEqual(['a']);
-    expect(filtrar(filas, { grupo: 'esperando_pago' })[0]).toMatchObject({ id: 'b', item: 1 });
+    expect(filtrar(filas, { referencia: ['con'] }).map((f) => f.id)).toEqual(['a']);
+    expect(filtrar(filas, { grupo: ['esperando_pago'] })[0]).toMatchObject({ id: 'b', item: 1 });
+    // Casillas: varias marcadas suman; ninguna = todas.
+    expect(filtrar(filas, { referencia: ['con', 'sin'] })).toHaveLength(filas.length);
+    expect(filtrar(filas, { grupo: [] })).toHaveLength(filas.length);
+    expect(hayFiltrosActivos({ grupo: [], texto: '' })).toBe(false);
+    expect(hayFiltrosActivos({ pago: ['pagadas'] })).toBe(true);
     expect(filtrar(filas, { texto: 'proveedor b' }).length).toBe(0);
     expect(filtrar(filas, { texto: '1111' }).map((f) => f.id)).toEqual(['a']);
   });
@@ -135,8 +140,8 @@ describe('conciliación · órdenes de servicio', () => {
     ];
     expect(filas[0]).toMatchObject({ tipo: 'servicio', codigo: 'SV-2026-0039' });
     expect(celda(filas[0], 'tipo')).toBe('Servicio');
-    expect(filtrar(filas, { tipo: 'servicio' }).map((f) => f.id)).toEqual(['s1']);
-    expect(filtrar(filas, { tipo: 'oc' }).map((f) => f.id)).toEqual(['o1']);
+    expect(filtrar(filas, { tipo: ['servicio'] }).map((f) => f.id)).toEqual(['s1']);
+    expect(filtrar(filas, { tipo: ['oc'] }).map((f) => f.id)).toEqual(['o1']);
     expect(tarjetas(filas).totalOc).toMatchObject({ cantidad: 2, oc: 1, servicios: 1 });
     const w = textoWhatsappConciliacion(filas);
     expect(w).toContain('(1 OC · 1 servicio)');
