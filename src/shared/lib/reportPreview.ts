@@ -255,6 +255,27 @@ export function imprimirPdfDoc(doc: DocPdf): void {
   imprimirPdfGenerado(doc, url);
 }
 
+/** Tipo real por los primeros bytes: PDF o imagen ráster. null = no se muestra (HTML, SVG, otro). */
+export async function tipoArchivoSeguro(blob: Blob): Promise<string | null> {
+  const b = new Uint8Array(await blob.slice(0, 16).arrayBuffer());
+  const asc = (i: number, n: number) => String.fromCharCode(...b.slice(i, i + n));
+  if (asc(0, 5) === '%PDF-') return 'application/pdf';
+  if (b[0] === 0x89 && asc(1, 3) === 'PNG') return 'image/png';
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg';
+  if (asc(0, 4) === 'GIF8') return 'image/gif';
+  if (asc(0, 4) === 'RIFF' && asc(8, 4) === 'WEBP') return 'image/webp';
+  if (asc(0, 2) === 'BM') return 'image/bmp';
+  return null;
+}
+
+function descargarBlob(blob: Blob, filename: string): void {
+  const u = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = u; a.download = filename || 'archivo'; a.rel = 'noopener';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(u), 10_000);
+}
+
 /**
  * Muestra en el visor un archivo YA SUBIDO (factura/comprobante) desde su URL firmada.
  * Soporta PDF (iframe) e imagen (img). Trae el blob para el botón Descargar; si el
@@ -270,8 +291,17 @@ export async function previewFileUrl(url: string, filename: string, titulo = 'Fa
     window.open(url, '_blank', 'noopener');
     return;
   }
+  // Solo se MUESTRA lo que de verdad es PDF o imagen ráster (por sus primeros bytes, no por
+  // el nombre ni el tipo que diga el archivo): un HTML/SVG subido como «comprobante» se
+  // ejecutaría en el origen del sistema. Lo demás se descarga, nunca se renderiza (12-11-2026).
+  const tipoReal = await tipoArchivoSeguro(blob);
+  if (!tipoReal) {
+    descargarBlob(new Blob([blob], { type: 'application/octet-stream' }), filename);
+    return;
+  }
+  blob = new Blob([blob], { type: tipoReal });
   const objUrl = URL.createObjectURL(blob);
-  const esImagen = blob.type.startsWith('image/') || /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(filename);
+  const esImagen = tipoReal.startsWith('image/');
   let cuerpo: HTMLElement;
   let imprimir: () => void;
   if (esImagen) {
