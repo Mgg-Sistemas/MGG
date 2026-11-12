@@ -4,7 +4,9 @@
    Tarjetas (clickeables) → detalle → la OC se abre en Compras.
    Tabla: ítem, código OC, proveedor, monto ($ y Bs a la tasa con que
    se pagó), referencia de pago (Tesorería), retención (Retenciones),
-   factura (delivery / almacén, con vista previa) y status (Compras).
+   factura (delivery / almacén / Compras al finalizar, con vista previa) y status (Compras).
+   La referencia de pago se coloca con el lápiz (✎) y, si Tesorería no dejó el
+   comprobante de pago, se carga ahí mismo (12-11-2026).
    Reporte dinámico con vista previa en PDF y mensaje de WhatsApp.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -13,8 +15,15 @@ import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { FacturasOrdenModal } from '@/modules/pedidos/FacturasOrdenModal';
+import { comprobantePagoTesoreria, urlAdjuntoOc } from '@/modules/pedidos/pedidos.repository';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { useSession } from '@/modules/auth/authStore';
+import { previewFileUrl } from '@/shared/lib/reportPreview';
 import type { Orden } from '@/shared/lib/types';
-import { cargarConciliacion, type DatosConciliacion } from './conciliacion.repository';
+import {
+  cargarConciliacion, errorComprobantePago, facturasComprasPorResolver, filaConReferencia, guardarReferenciaConciliacion,
+  type DatosConciliacion,
+} from './conciliacion.repository';
 import {
   COLUMNAS_CONCILIACION, bsTxt, desgloseTipos, diaCaracas, filtrar, tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, usdTxt,
   type ColumnaConciliacion, type FilaConciliacion, type FiltrosConciliacion, type GrupoEstado,
@@ -74,8 +83,21 @@ function textoFiltros(f: FiltrosConciliacion): string {
   return p.join(' · ');
 }
 
+/** Abre el comprobante de pago: el conocido o, si no, el que Tesorería dejó en la carpeta de la OC. */
+async function verComprobantePago(f: FilaConciliacion, o: Orden | undefined) {
+  try {
+    let ref: { path: string; nombre: string } | null = f.comprobantePago;
+    if (!ref && o) ref = await comprobantePagoTesoreria(o);
+    if (!ref) { toast('Esta OC no tiene comprobante de pago. Cárgalo con el lápiz ✎.', 'info'); return; }
+    await previewFileUrl(await urlAdjuntoOc(ref.path), ref.nombre, 'Comprobante de pago');
+  } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante', 'error'); }
+}
+
 export function ConciliacionPage() {
   const navigate = useNavigate();
+  const { can } = usePermissions();
+  const puedeEditar = can('conciliacion', 'escritura');
+  const [editRef, setEditRef] = useState<FilaConciliacion | null>(null);
   const [datos, setDatos] = useState<DatosConciliacion | null>(null);
   const [cargando, setCargando] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +115,30 @@ export function ConciliacionPage() {
     finally { setCargando(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
+
+  // OC viejas: la factura que cargó Compras al finalizar se distingue del comprobante de
+  // Tesorería por la hora de subida (storage). Se resuelve después de mostrar la tabla.
+  useEffect(() => {
+    if (!datos?.porResolver.length) return;
+    const base = datos;
+    let vivo = true;
+    facturasComprasPorResolver(base).then((ids) => {
+      if (!vivo) return;
+      setDatos((d) => (d && d.ordenes === base.ordenes
+        ? { ...d, porResolver: [], filas: d.filas.map((f) => (ids.has(f.id) ? { ...f, facturas: f.facturas + 1 } : f)) }
+        : d));
+    }).catch(() => { /* sin storage: quedan las que se saben por el historial */ });
+    return () => { vivo = false; };
+  }, [datos]);
+
+  const alGuardarReferencia = (o: Orden) => {
+    setDatos((d) => {
+      if (!d) return d;
+      const ordenes = new Map(d.ordenes); ordenes.set(o.id, o);
+      return { ...d, ordenes, filas: d.filas.map((f) => (f.id === o.id ? filaConReferencia(f, o) : f)) };
+    });
+    setEditRef(null);
+  };
 
   const filas = useMemo(() => filtrar(datos?.filas ?? [], filtros), [datos, filtros]);
   const t = useMemo(() => tarjetas(filas), [filas]);
@@ -131,7 +177,8 @@ export function ConciliacionPage() {
         <div>
           <h1 style={{ margin: 0 }}>🧮 Conciliación</h1>
           <p className="hint muted" style={{ margin: '.25rem 0 0' }}>
-            Solo lectura: cada OC y orden de servicio con su pago (Tesorería), su retención (Retenciones), su factura (delivery / almacén) y su status (Compras).
+            Cada OC y orden de servicio con su pago (Tesorería), su retención (Retenciones), su factura (delivery / almacén / Compras) y su status (Compras).
+            {puedeEditar && ' La referencia de pago y su comprobante se colocan con el lápiz ✎.'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
@@ -240,9 +287,25 @@ export function ConciliacionPage() {
                       </div>
                     </td>
                     <td className="mono">
-                      {f.referencia.bs && <div>Bs …{f.referencia.bs}</div>}
-                      {f.referencia.binance && <div>Binance …{f.referencia.binance}</div>}
-                      {!f.referencia.bs && !f.referencia.binance && <span className="muted">{f.pagado ? 'sin referencia' : '—'}</span>}
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.3rem' }}>
+                        <div style={{ flex: 1 }}>
+                          {f.referencia.bs && <div>Bs …{f.referencia.bs}</div>}
+                          {f.referencia.binance && <div>Binance …{f.referencia.binance}</div>}
+                          {f.referencia.manual && <div title="Colocada en Conciliación">Ref. {f.referencia.manual}</div>}
+                          {!f.referencia.bs && !f.referencia.binance && !f.referencia.manual && <span className="muted">{f.pagado ? 'sin referencia' : '—'}</span>}
+                          {(f.pagado || f.comprobantePago) && (
+                            <button type="button" className="btn btn-xs btn-ghost" style={{ padding: '0 .3rem', fontFamily: 'inherit', display: 'block' }}
+                              onClick={() => void verComprobantePago(f, datos?.ordenes.get(f.id))}
+                              title={f.comprobantePago ? `${f.comprobantePago.fuente === 'tesoreria' ? 'Comprobante de Tesorería' : 'Comprobante cargado en Conciliación'} · ${f.comprobantePago.nombre}` : 'Buscar el comprobante que dejó Tesorería'}>
+                              📎 Comprobante
+                            </button>
+                          )}
+                        </div>
+                        {puedeEditar && (
+                          <button type="button" className="btn btn-xs btn-ghost" style={{ padding: '0 .3rem' }} onClick={() => setEditRef(f)}
+                            title="Agregar o editar la referencia y el comprobante de pago" aria-label={`Editar la referencia de pago de ${f.codigo}`}>✎</button>
+                        )}
+                      </div>
                     </td>
                     <td style={{ whiteSpace: 'normal', minWidth: 130 }}>
                       {f.retencion.lleva ? (
@@ -289,8 +352,97 @@ export function ConciliacionPage() {
       </div>
 
       {verFacturas && <FacturasOrdenModal orden={verFacturas} onClose={() => setVerFacturas(null)} />}
+      {editRef && datos?.ordenes.get(editRef.id) && (
+        <ReferenciaPagoModal fila={editRef} orden={datos.ordenes.get(editRef.id) as Orden} onClose={() => setEditRef(null)} onSaved={alGuardarReferencia} />
+      )}
       {reporte && <ReporteConciliacionModal base={baseReporte} filtros={filtros} onClose={() => setReporte(false)} />}
     </div>
+  );
+}
+
+/* ───────── ✎ Referencia y comprobante de pago ───────── */
+function ReferenciaPagoModal({ fila, orden, onClose, onSaved }: {
+  fila: FilaConciliacion; orden: Orden; onClose: () => void; onSaved: (o: Orden) => void;
+}) {
+  const { user } = useSession();
+  const [referencia, setReferencia] = useState(fila.referencia.manual ?? '');
+  const [archivo, setArchivo] = useState<File | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [guardando, setGuardando] = useState(false);
+  const [deTesoreria, setDeTesoreria] = useState<{ path: string; nombre: string } | null | undefined>(
+    fila.comprobantePago?.fuente === 'tesoreria' ? fila.comprobantePago : undefined,
+  );
+  const deConciliacion = fila.comprobantePago?.fuente === 'conciliacion' ? fila.comprobantePago : null;
+  const refTesoreria = textoReferenciaPago({ bs: fila.referencia.bs, binance: fila.referencia.binance });
+
+  useEffect(() => {
+    if (deTesoreria !== undefined) return;
+    let vivo = true;
+    comprobantePagoTesoreria(orden).then((r) => { if (vivo) setDeTesoreria(r); }).catch(() => { if (vivo) setDeTesoreria(null); });
+    return () => { vivo = false; };
+  }, [orden, deTesoreria]);
+
+  const ver = async (ref: { path: string; nombre: string }, titulo: string) => {
+    try { await previewFileUrl(await urlAdjuntoOc(ref.path), ref.nombre, titulo); }
+    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante', 'error'); }
+  };
+
+  const elegir = (f: File | null) => {
+    setError(null);
+    if (f) { const e = errorComprobantePago(f); if (e) { setError(e); setArchivo(null); return; } }
+    setArchivo(f);
+  };
+
+  const sinCambios = referencia.trim() === (fila.referencia.manual ?? '') && !archivo;
+
+  async function guardar() {
+    setGuardando(true); setError(null);
+    try {
+      const o = await guardarReferenciaConciliacion(orden.id, { referencia, archivo }, user?.email ?? 'conciliacion');
+      toast('Referencia de pago guardada', 'success');
+      onSaved(o);
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo guardar'); setGuardando(false); }
+  }
+
+  return (
+    <Modal title={`✎ Referencia de pago · ${fila.codigo}`} size="md" onClose={onClose} footer={<>
+      <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
+      <button className="btn btn-primary" onClick={() => void guardar()} disabled={guardando || sinCambios}>{guardando ? 'Guardando…' : 'Guardar'}</button>
+    </>}>
+      <p className="hint muted" style={{ marginTop: 0 }}>{fila.proveedor} · {usdTxt(fila.montoUsd)}</p>
+      <div className="field" style={{ marginBottom: '.8rem' }}>
+        <label>Referencia que cargó Tesorería</label>
+        <div className="mono">{refTesoreria || <span className="muted">Tesorería no cargó referencia</span>}</div>
+      </div>
+      <div className="field" style={{ marginBottom: '.9rem' }}>
+        <label htmlFor="ref-conc">Referencia de pago</label>
+        <input id="ref-conc" className="input mono" value={referencia} maxLength={80} autoFocus
+          placeholder="N° de referencia, transferencia, Binance…" onChange={(e) => setReferencia(e.target.value)} />
+        <small className="muted">Queda en el historial de la OC; lo de Tesorería no se modifica. Déjala vacía para quitarla.</small>
+      </div>
+      <div className="field">
+        <label>Comprobante de pago</label>
+        {deTesoreria === undefined && <div className="muted" style={{ fontSize: '.82rem' }}>Buscando el comprobante de Tesorería…</div>}
+        {deTesoreria && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.4rem' }}>
+            <span>💳 De Tesorería: <strong>{deTesoreria.nombre}</strong></span>
+            <button type="button" className="btn btn-xs btn-ghost" onClick={() => void ver(deTesoreria, 'Comprobante de pago (Tesorería)')}>👁 Ver</button>
+          </div>
+        )}
+        {deTesoreria === null && <div className="muted" style={{ fontSize: '.82rem', marginBottom: '.4rem' }}>Tesorería no dejó comprobante de pago.</div>}
+        {deConciliacion && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.4rem' }}>
+            <span>📎 Cargado en Conciliación: <strong>{deConciliacion.nombre}</strong></span>
+            <button type="button" className="btn btn-xs btn-ghost" onClick={() => void ver(deConciliacion, 'Comprobante de pago')}>👁 Ver</button>
+          </div>
+        )}
+        <input type="file" accept="application/pdf,image/*" onChange={(e) => elegir(e.target.files?.[0] ?? null)} />
+        <small className="muted" style={{ display: 'block' }}>
+          {deTesoreria ? 'Ya está el de Tesorería: carga otro solo si hace falta. ' : ''}PDF o imagen, hasta 10 MB{deConciliacion ? ' (reemplaza el cargado en Conciliación)' : ''}.
+        </small>
+      </div>
+      {error && <div className="aviso danger sm" style={{ marginTop: '.6rem' }}>{error}</div>}
+    </Modal>
   );
 }
 

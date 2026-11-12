@@ -12,6 +12,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 import type { Orden } from '@/shared/lib/types';
+import { archivoDeFactura, origenFactura, type OrigenFactura } from './facturaCompras';
 
 const BUCKET_OC = 'compras-oc';
 const BUCKET_DELIVERY = 'delivery-fotos';
@@ -31,8 +32,10 @@ export interface ArchivoFactura {
 export interface FacturasDeOrden {
   delivery: ArchivoFactura[];
   almacen: ArchivoFactura[];
-  /** La factura que se adjuntó al finalizar la OC (si hay). */
-  alFinalizar: ArchivoFactura | null;
+  /** La factura que cargó COMPRAS al finalizar la OC (o con «Reemplazar factura / nota»). */
+  compras: ArchivoFactura | null;
+  /** Lo que queda en `factura_path` cuando es el comprobante de pago de Tesorería (no es factura). */
+  soportePago: ArchivoFactura | null;
 }
 
 const seguro = (n: string) => n.normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^\w.-]+/g, '_').slice(-80);
@@ -77,15 +80,52 @@ async function firmar(bucket: string, path: string): Promise<string> {
   return data.signedUrl;
 }
 
-/** Las facturas de una orden: las que subió el delivery y las del almacén. */
-/** Cuántos archivos de factura tiene la orden (delivery + almacén), para el botón. */
-export function cantidadFacturas(o: Pick<Orden, 'facturas_almacen' | 'facturas_delivery'>): number {
+type OrdenConFacturas = Pick<Orden, 'facturas_almacen' | 'facturas_delivery' | 'factura_path' | 'historial' | 'pagada_en'>;
+
+/**
+ * Cuántos archivos de factura tiene la orden (delivery + almacén + la de Compras al
+ * finalizar), para el botón. `origen` permite pasar lo ya resuelto mirando el storage.
+ */
+export function cantidadFacturas(o: OrdenConFacturas, origen: OrigenFactura = origenFactura(o)): number {
   const alm = Array.isArray(o.facturas_almacen) ? o.facturas_almacen.length : 0;
   const dlv = Array.isArray(o.facturas_delivery) ? o.facturas_delivery.filter((f) => f.tipo === 'factura').length : 0;
-  return alm + dlv;
+  return alm + dlv + (origen === 'compras' ? 1 : 0);
 }
 
-export async function facturasDeOrden(o: Pick<Orden, 'id' | 'facturas_almacen' | 'facturas_delivery' | 'factura_path' | 'factura_nombre'>): Promise<FacturasDeOrden> {
+/** Lista la carpeta de la OC en el storage (para ver cuándo se subió `factura_path`). */
+async function archivosDeOc(ordenId: string) {
+  const { data, error } = await supabase.storage.from(BUCKET_OC).list(ordenId, { limit: 200 });
+  if (error) throw error;
+  return data ?? [];
+}
+
+/** Origen de `factura_path`, mirando la hora de subida en el storage si hace falta (OC viejas). */
+export async function origenFacturaOrden(o: Pick<Orden, 'id' | 'factura_path' | 'historial' | 'pagada_en'>): Promise<OrigenFactura> {
+  const rapido = origenFactura(o);
+  if (rapido !== 'desconocido') return rapido;
+  try { return origenFactura(o, archivoDeFactura(o, await archivosDeOc(o.id))); }
+  catch { return 'desconocido'; }
+}
+
+/** Resuelve en lote (de a pocas a la vez) las órdenes cuyo origen no se sabe sin el storage. */
+export async function resolverOrigenFacturas(
+  ordenes: Array<Pick<Orden, 'id' | 'factura_path' | 'historial' | 'pagada_en'>>, simultaneas = 6,
+): Promise<Map<string, OrigenFactura>> {
+  const out = new Map<string, OrigenFactura>();
+  const cola = ordenes.filter((o) => origenFactura(o) === 'desconocido');
+  let i = 0;
+  const trabajador = async () => {
+    while (i < cola.length) {
+      const o = cola[i++];
+      out.set(o.id, await origenFacturaOrden(o));
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(simultaneas, cola.length) }, trabajador));
+  return out;
+}
+
+/** Las facturas de una orden: delivery, almacén y la que cargó Compras al finalizar. */
+export async function facturasDeOrden(o: Pick<Orden, 'id' | 'facturas_almacen' | 'facturas_delivery' | 'factura_path' | 'factura_nombre' | 'historial' | 'pagada_en'>): Promise<FacturasDeOrden> {
   // Las fotos del delivery vienen copiadas en la orden (trigger, 12-11-2026). Si la
   // orden en pantalla es de antes de la copia, se leen de la base.
   let copia = Array.isArray(o.facturas_delivery) ? o.facturas_delivery : null;
@@ -99,7 +139,7 @@ export async function facturasDeOrden(o: Pick<Orden, 'id' | 'facturas_almacen' |
     esPdf: esPdf(f.filename || ''), detalle: f.quien ? `Delivery: ${f.quien}` : null,
   })));
   const almacen = Array.isArray(o.facturas_almacen) ? o.facturas_almacen : [];
-  const [delivery, alm, fin] = await Promise.all([
+  const [delivery, alm, fin, origen] = await Promise.all([
     firmarDelivery('factura'),
     Promise.all(almacen.map(async (f) => ({
       path: f.path, filename: f.filename || 'factura', url: await firmar(BUCKET_OC, f.path),
@@ -108,12 +148,18 @@ export async function facturasDeOrden(o: Pick<Orden, 'id' | 'facturas_almacen' |
     o.factura_path
       ? firmar(BUCKET_OC, o.factura_path).then((url) => ({
         path: o.factura_path as string, filename: o.factura_nombre || 'factura', url,
-        esPdf: esPdf(o.factura_nombre || o.factura_path || ''), detalle: 'Cargada al finalizar la OC',
+        esPdf: esPdf(o.factura_nombre || o.factura_path || ''), detalle: null as string | null,
       }))
       : Promise.resolve(null),
+    origenFacturaOrden(o),
   ]);
+  const archivo = fin && fin.url ? fin : null;
+  // Si no se pudo saber de quién es, se muestra como factura de Compras (mejor verla que perderla).
+  const esCompras = !!archivo && origen !== 'tesoreria';
   return {
     delivery: delivery.filter((f) => f.url),
-    almacen: alm.filter((f) => f.url), alFinalizar: fin && fin.url ? fin : null,
+    almacen: alm.filter((f) => f.url),
+    compras: esCompras ? { ...archivo, detalle: 'Cargada por Compras al finalizar la OC' } : null,
+    soportePago: archivo && !esCompras ? { ...archivo, detalle: 'Comprobante de pago de Tesorería' } : null,
   };
 }

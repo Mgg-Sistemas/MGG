@@ -6,8 +6,10 @@
      · Tesorería   → referencia del pago (últimos 4 dígitos: Bs o Binance)
                      y la tasa: la BCV del DÍA EN QUE SE PAGÓ (sin pagar: la de hoy).
      · Retenciones → qué se retiene (IVA, IGTF, ISLR, ISAE) y el N° de comprobante.
-     · Delivery / almacén → la factura cargada (vista previa).
-   Nada se edita aquí: tocar una OC la abre en su módulo.
+     · Delivery / almacén / Compras → la factura cargada (vista previa).
+   Lo único que se edita aquí (12-11-2026): la REFERENCIA de pago (✎) y el
+   COMPROBANTE de pago, si Tesorería no lo dejó. Queda en el historial de la OC
+   (evento «referencia_conciliacion»); lo de Tesorería no se toca.
    ============================================================ */
 import type { EstadoOrden, Orden } from '@/shared/lib/types';
 import { statusBadge } from '@/shared/lib/format';
@@ -35,23 +37,72 @@ export function estadoConciliacion(estado: EstadoOrden | string | null | undefin
   }
 }
 
-export interface ReferenciaPago { bs: string | null; binance: string | null }
+export interface ReferenciaPago {
+  bs: string | null;
+  binance: string | null;
+  /** La que se colocó en Conciliación con el lápiz (✎). */
+  manual?: string | null;
+}
 
-/** La referencia que Tesorería cargó al pagar (traza «pagada»). La última manda. */
+/** Evento del historial con lo que se cargó en Conciliación. */
+export const EVENTO_REF_CONCILIACION = 'referencia_conciliacion';
+
+const evsDe = (historial: unknown) => (Array.isArray(historial) ? historial as Array<Record<string, unknown>> : []);
+const txt = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+/** Lo último que se guardó en Conciliación (referencia y comprobante). */
+export function datosConciliacion(historial: unknown): { referencia: string | null; comprobante: { path: string; nombre: string } | null } | null {
+  const evs = evsDe(historial);
+  for (let i = evs.length - 1; i >= 0; i--) {
+    const e = evs[i];
+    if (e?.evento !== EVENTO_REF_CONCILIACION) continue;
+    const path = txt(e.comprobante_path);
+    return { referencia: txt(e.referencia), comprobante: path ? { path, nombre: txt(e.comprobante_nombre) ?? 'comprobante' } : null };
+  }
+  return null;
+}
+
+/** La referencia que Tesorería cargó al pagar (traza «pagada»; la última manda) + la de Conciliación. */
 export function referenciaDePago(historial: unknown): ReferenciaPago {
-  const evs = Array.isArray(historial) ? historial as Array<Record<string, unknown>> : [];
+  const evs = evsDe(historial);
+  const manual = datosConciliacion(historial)?.referencia ?? null;
   for (let i = evs.length - 1; i >= 0; i--) {
     const e = evs[i];
     if (e?.evento !== 'pagada') continue;
-    const bs = typeof e.referencia_bs === 'string' && e.referencia_bs ? e.referencia_bs : null;
-    const binance = typeof e.binance_orden === 'string' && e.binance_orden ? e.binance_orden : null;
-    if (bs || binance) return { bs, binance };
+    const bs = txt(e.referencia_bs);
+    const binance = txt(e.binance_orden);
+    if (bs || binance) return { bs, binance, manual };
   }
-  return { bs: null, binance: null };
+  return { bs: null, binance: null, manual };
 }
 
+export const tieneReferencia = (r: ReferenciaPago) => !!(r.bs || r.binance || r.manual);
+
 export function textoReferenciaPago(r: ReferenciaPago): string {
-  return [r.bs ? `Bs …${r.bs}` : '', r.binance ? `Binance …${r.binance}` : ''].filter(Boolean).join(' · ');
+  return [r.bs ? `Bs …${r.bs}` : '', r.binance ? `Binance …${r.binance}` : '', r.manual ? `Ref. ${r.manual}` : ''].filter(Boolean).join(' · ');
+}
+
+export interface ComprobantePagoConciliacion {
+  path: string;
+  nombre: string;
+  /** De dónde salió: lo cargó Tesorería al pagar o se cargó en Conciliación. */
+  fuente: 'tesoreria' | 'conciliacion';
+}
+
+/**
+ * El comprobante de pago que se conoce sin mirar el storage: el de Tesorería anotado en
+ * el pago (manda) o, si no, el que se cargó en Conciliación.
+ */
+export function comprobanteDePago(historial: unknown): ComprobantePagoConciliacion | null {
+  const evs = evsDe(historial);
+  for (let i = evs.length - 1; i >= 0; i--) {
+    const e = evs[i];
+    if (e?.evento !== 'pagada' && e?.evento !== 'pagada_sin_caja') continue;
+    const path = txt(e.comprobante_path);
+    if (path) return { path, nombre: txt(e.comprobante_nombre) ?? 'comprobante', fuente: 'tesoreria' };
+  }
+  const c = datosConciliacion(historial)?.comprobante;
+  return c ? { ...c, fuente: 'conciliacion' } : null;
 }
 
 /** Comprobante de retención del libro fiscal (módulo Retenciones). */
@@ -108,6 +159,7 @@ export interface FilaConciliacion {
   /** Lo pagado en $ (la OC completa si se pagó; en un crédito, lo abonado). */
   pagadoUsd: number;
   referencia: ReferenciaPago;
+  comprobantePago: ComprobantePagoConciliacion | null;
   retencion: RetencionConciliacion;
   facturas: number;
   estado: ReturnType<typeof estadoConciliacion>;
@@ -153,6 +205,7 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
     pagado: pagado || pagadoUsd > 0,
     pagadoUsd,
     referencia: referenciaDePago(o.historial),
+    comprobantePago: comprobanteDePago(o.historial),
     retencion: retencionDeOrden(o, e.fiscales ?? []),
     facturas: e.facturas ?? 0,
     estado: estadoConciliacion(o.estado),
@@ -225,7 +278,7 @@ export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): Fila
     if (f.grupo && x.estado.grupo !== f.grupo) return false;
     if (f.retencion === 'si' && !x.retencion.lleva) return false;
     if (f.retencion === 'no' && x.retencion.lleva) return false;
-    const tieneRef = !!(x.referencia.bs || x.referencia.binance);
+    const tieneRef = tieneReferencia(x.referencia);
     if (f.referencia === 'con' && !tieneRef) return false;
     if (f.referencia === 'sin' && tieneRef) return false;
     if (f.pago === 'pagadas' && !x.pagado) return false;

@@ -284,6 +284,8 @@ function eventLabel(ev: string): string {
       delivery_tomado: 'Pedido tomado para retirar',
       delivery_entregado: 'Pedido entregado en el almacén',
       delivery_no_disponible: 'No disponible para retirarlo',
+      factura_cargada: 'Factura / nota de entrega cargada (Compras)',
+      referencia_conciliacion: 'Referencia / comprobante de pago colocado en Conciliación',
     } as Record<string, string>
   )[ev] ?? ev;
 }
@@ -4230,6 +4232,7 @@ function OrdenDetailModal({
 function ComprobanteOcModal({ orden, onClose, onSaved }: {
   orden: Orden; onClose: () => void; onSaved: () => Promise<void> | void;
 }) {
+  const { user } = useSession();
   const [tipo, setTipo] = useState<'factura' | 'nota_entrega'>((orden.comprobante_tipo as 'factura' | 'nota_entrega') ?? 'factura');
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -4239,7 +4242,7 @@ function ComprobanteOcModal({ orden, onClose, onSaved }: {
     if (!file) { setError('Elegí el archivo (PDF o imagen).'); return; }
     setSaving(true); setError(null);
     try {
-      await adjuntarComprobanteOc(orden.id, file, tipo);
+      await adjuntarComprobanteOc(orden.id, file, tipo, user?.email ?? undefined);
       toast(`${tipo === 'factura' ? 'Factura' : 'Nota de entrega'} cargada · la OC entró a Retenciones`, 'success');
       await onSaved();
     } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo subir el comprobante'); setSaving(false); }

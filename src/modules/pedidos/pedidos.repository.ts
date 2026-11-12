@@ -1808,15 +1808,21 @@ export async function descargarAdjuntoOc(path: string, nombre: string): Promise<
  * Retenciones. Acepta PDF o imagen (máx. 10 MB).
  */
 export async function adjuntarComprobanteOc(
-  ordenId: string, file: File, tipo: 'factura' | 'nota_entrega',
+  ordenId: string, file: File, tipo: 'factura' | 'nota_entrega', actorEmail?: string,
 ): Promise<{ path: string; nombre: string }> {
   if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) {
     throw new Error('El comprobante debe ser PDF o imagen.');
   }
   if (file.size > 10 * 1024 * 1024) throw new Error('El archivo supera los 10 MB.');
   const path = await subirAdjuntoOc(ordenId, file, 'factura');
+  // Se anota en el historial (Conciliación distingue así la factura de Compras del pago de Tesorería).
+  const { data: actual } = await supabase.from(TABLE).select('historial').eq('id', ordenId).maybeSingle();
+  const historial = actual
+    ? appendHistorial(actual as Orden, 'factura_cargada', actorEmail ?? 'compras', { factura_path: path, factura_nombre: file.name, comprobante_tipo: tipo })
+    : undefined;
   const { error } = await supabase.from(TABLE).update({
     factura_path: path, factura_nombre: file.name, comprobante_tipo: tipo,
+    ...(historial ? { historial } : {}),
   }).eq('id', ordenId);
   if (error) throw error;
   return { path, nombre: file.name };
@@ -2253,7 +2259,9 @@ export async function finalizarPedido(o: Orden, actorEmail: string, factura?: Fi
     estado: 'finalizada' as EstadoOrden,
     finalizada_por: actorEmail,
     finalizada_en: new Date().toISOString(),
-    historial: appendHistorial(o, 'finalizada', actorEmail),
+    // La ruta queda en el historial: así Conciliación sabe que esa es la factura de Compras
+    // (factura_path también lo usa Tesorería para su comprobante de pago).
+    historial: appendHistorial(o, 'finalizada', actorEmail, facturaPatch.factura_path ? { ...facturaPatch } : {}),
     ...facturaPatch,
   };
   const { data, error } = await supabase

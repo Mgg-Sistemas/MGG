@@ -2,7 +2,8 @@
    MGG · Compras · «🧾 Factura» de una OC recibida (11-11-2026)
 
    Dos bloques: FACTURAS DELIVERY (las que subió el delivery con «CARGAR
-   FACTURA») y FACTURAS ALMACÉN (las que cargó el almacenista al recepcionar).
+   FACTURA») y FACTURAS ALMACÉN (las que cargó el almacenista al recepcionar),
+   más la FACTURA COMPRAS (la que adjuntó Compras al finalizar; 12-11-2026).
    Cada archivo se ve en miniatura; al tocarlo se abre la vista previa con
    descargar e imprimir. También se puede descargar o imprimir directo.
    ============================================================ */
@@ -105,8 +106,10 @@ export function FacturasOrdenModal({ orden, onClose }: { orden: Orden; onClose: 
             vacio="El delivery no cargó factura (es opcional)." />
           <Bloque titulo="🏬 FACTURAS ALMACÉN" archivos={data.almacen} oc={oc}
             vacio="El almacén no cargó factura en la recepción (las recepciones anteriores al 11-11-2026 no la pedían)." />
-          {data.alFinalizar && (
-            <Bloque titulo="📎 Soporte adjunto a la OC" archivos={[data.alFinalizar]} oc={oc} vacio="" />
+          <Bloque titulo="🛒 FACTURA COMPRAS" archivos={data.compras ? [data.compras] : []} oc={oc}
+            vacio="Compras no cargó factura al finalizar la OC." />
+          {data.soportePago && (
+            <Bloque titulo="💳 Comprobante de pago (Tesorería)" archivos={[data.soportePago]} oc={oc} vacio="" />
           )}
           <p className="hint muted" style={{ margin: 0, fontSize: '.76rem' }}>Toca una miniatura para verla en grande; desde ahí también se descarga o imprime.</p>
         </>

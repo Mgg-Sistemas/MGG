@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Orden } from '@/shared/lib/types';
 import {
-  armarFila, celda, estadoConciliacion, filtrar, ordenesConciliables, referenciaDePago, retencionDeOrden,
-  tarjetas, textoRetencion, textoWhatsappConciliacion,
+  armarFila, celda, comprobanteDePago, datosConciliacion, estadoConciliacion, filtrar, ordenesConciliables, referenciaDePago, retencionDeOrden,
+  tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, tieneReferencia,
 } from './conciliacion';
 
 // Record suelto: la traza real trae claves extra (referencia_bs, binance_orden) que el tipo no lista.
@@ -31,9 +31,30 @@ describe('conciliación · estado de Compras', () => {
 
 describe('conciliación · referencia y retención', () => {
   it('toma la referencia que Tesorería cargó al pagar', () => {
-    expect(referenciaDePago([{ evento: 'pagada', referencia_bs: '4821' }])).toEqual({ bs: '4821', binance: null });
-    expect(referenciaDePago([{ evento: 'metodo_pago' }])).toEqual({ bs: null, binance: null });
-    expect(referenciaDePago(null)).toEqual({ bs: null, binance: null });
+    expect(referenciaDePago([{ evento: 'pagada', referencia_bs: '4821' }])).toEqual({ bs: '4821', binance: null, manual: null });
+    expect(referenciaDePago([{ evento: 'metodo_pago' }])).toEqual({ bs: null, binance: null, manual: null });
+    expect(referenciaDePago(null)).toEqual({ bs: null, binance: null, manual: null });
+  });
+  it('la referencia colocada con el lápiz en Conciliación se suma a la de Tesorería (la última manda)', () => {
+    const h = [
+      { evento: 'pagada', referencia_bs: '4821' },
+      { evento: 'referencia_conciliacion', referencia: '000111' },
+      { evento: 'referencia_conciliacion', referencia: ' 000222 ' },
+    ];
+    const r = referenciaDePago(h);
+    expect(r).toEqual({ bs: '4821', binance: null, manual: '000222' });
+    expect(textoReferenciaPago(r)).toBe('Bs …4821 · Ref. 000222');
+    expect(tieneReferencia(referenciaDePago([{ evento: 'referencia_conciliacion', referencia: '9' }]))).toBe(true);
+    // Vaciarla la quita.
+    expect(referenciaDePago([...h, { evento: 'referencia_conciliacion', referencia: null }]).manual).toBeNull();
+  });
+  it('comprobante de pago: manda el de Tesorería; si no, el cargado en Conciliación', () => {
+    const conc = { evento: 'referencia_conciliacion', referencia: '1', comprobante_path: 'o1/conciliacion-pago-1-a.pdf', comprobante_nombre: 'a.pdf' };
+    expect(comprobanteDePago([conc])).toEqual({ path: 'o1/conciliacion-pago-1-a.pdf', nombre: 'a.pdf', fuente: 'conciliacion' });
+    expect(comprobanteDePago([{ evento: 'pagada', comprobante_path: 'o1/pago-t.pdf', comprobante_nombre: 't.pdf' }, conc]))
+      .toEqual({ path: 'o1/pago-t.pdf', nombre: 't.pdf', fuente: 'tesoreria' });
+    expect(comprobanteDePago([{ evento: 'pagada' }])).toBeNull();
+    expect(datosConciliacion([conc, { evento: 'referencia_conciliacion', referencia: '2' }])?.comprobante).toBeNull();
   });
   it('junta los tipos de Compras y del libro fiscal con el N° de comprobante', () => {
     const r = retencionDeOrden(oc({ retenciones: [{ tipo: 'IVA', modo: 'pct', valor: 75, monto: 12 }] as unknown }), [{ tipo: 'islr', numero: '20261100000012' }]);
