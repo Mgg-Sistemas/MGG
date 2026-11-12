@@ -547,6 +547,17 @@ export function PedidosPage() {
     const hoy = hoyVenezuelaFijas();
     return comprasFijas.filter((c) => !c.sugerida && ['vencida', 'hoy'].includes(estadoFija(c, hoy)));
   }, [comprasFijas]);
+  // La compra fija MERCADO (activa y configurada). Si existe, reemplaza al botón
+  // «🛒 Solicitud de Mercado» y la alerta de la cocina se monta con ella.
+  const plantillaMercado = useMemo(
+    () => comprasFijas.find((c) => c.activa && !c.sugerida && c.finalidad === FINALIDAD_MERCADO_FIJA) ?? null,
+    [comprasFijas],
+  );
+  /** Montar el mercado: con la compra fija si existe; si no (SQL sin aplicar), el modal de siempre. */
+  const montarMercado = () => {
+    if (plantillaMercado) setModal({ kind: 'create', compraFija: plantillaMercado });
+    else setModal({ kind: 'mercado' });
+  };
   function generarSolicitudFija(c: CompraFija) {
     setComprasFijasOpen(false);
     setModal({ kind: 'create', compraFija: c });
@@ -785,7 +796,8 @@ export function PedidosPage() {
                       🔁 Compras fijas{fijasQueTocan.length ? ` · ${fijasQueTocan.length}` : ''}
                     </button>
                   )}
-                  {scope === 'pedidos' && (
+                  {/* 12-11-2026: con la compra fija Mercado, este botón sobra (se genera desde 🔁 Compras fijas). */}
+                  {scope === 'pedidos' && !plantillaMercado && (
                     <button
                       className="btn btn-ghost"
                       onClick={() => setModal({ kind: 'mercado' })}
@@ -823,7 +835,7 @@ export function PedidosPage() {
       {/* Alerta de Cocina: hay que restablecer el mercado. El analista monta el pedido MERCADO. */}
       {alertasMercado.length > 0 && scope === 'pedidos' && !soloSolicitud && (
         <div className="card" style={{ borderColor: 'var(--warning)', background: 'var(--bg-1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', marginBottom: '.7rem', cursor: 'pointer' }}
-          onClick={() => setModal({ kind: 'mercado' })} title="Montar la Solicitud de Mercado para reponer los víveres">
+          onClick={montarMercado} title="Montar la Solicitud de Mercado para reponer los víveres">
           <div>
             <strong>🛒 La cocina solicitó restablecer el mercado</strong>
             <div className="muted" style={{ fontSize: '.8rem' }}>
@@ -832,7 +844,7 @@ export function PedidosPage() {
           </div>
           <div style={{ display: 'flex', gap: '.4rem' }}>
             <button className="btn btn-ghost btn-sm" onClick={async (e) => { e.stopPropagation(); await marcarTodasAtendidas(user?.email).catch(() => {}); await loadAlertas(); }}>✓ Descartar</button>
-            <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); setModal({ kind: 'mercado' }); }}>🛒 Solicitud de Mercado</button>
+            <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); montarMercado(); }}>🛒 {plantillaMercado ? 'Generar Mercado' : 'Solicitud de Mercado'}</button>
           </div>
         </div>
       )}
@@ -1077,6 +1089,8 @@ export function PedidosPage() {
           onCreated={async () => {
             setModal({ kind: 'none' });
             await refresh();
+            // El Mercado de compras fijas atiende las alertas de la cocina, igual que la Solicitud de Mercado.
+            if (modal.compraFija?.finalidad === FINALIDAD_MERCADO_FIJA) await marcarTodasAtendidas(user?.email).catch(() => {});
             await loadAlertas();
             if (modal.compraFija) void refreshComprasFijas();
           }}
