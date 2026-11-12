@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { notify } from '@/shared/lib/notify';
 import { money, num } from '@/shared/lib/format';
@@ -10,6 +10,10 @@ import { scoreOfertas } from './score';
 import { asignarProveedoresAOrden, listSubOcs, type AsignacionProveedor } from './pedidos.repository';
 import { itemHijaDesdeOferta, itemsAgregadosPorOferta, recortarOfertaAHija } from './subOc';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
+import {
+  ajusteInicial, cambiarModo, cotizaEnOtraUnidad, faltaFactor, precioUsoDe, renglonReparto, textoConversion,
+  unidadCotizadaDe, unidadUsoDe, type AjusteRenglon, type ModoUnidad, type RenglonReparto,
+} from './repartoRenglon';
 
 /**
  * Asignador de proveedores POR PRODUCTO (OC multi-proveedor). Para una OP aprobada:
@@ -38,6 +42,10 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
   const [monedaSel, setMonedaSel] = useState<Record<string, 'bcv' | 'usd'>>({});
   // Cargar una oferta nueva SIN salir del asignador (para cubrir lo que ningún proveedor cotizó).
   const [agregando, setAgregando] = useState(false);
+  // Cambios de unidad/cantidad que hace Compras al asignar, por (sku, proveedor): al cambiar
+  // de proveedor se arranca otra vez de lo que cotizó ese proveedor (12-11-2026, de GT).
+  const [ajustes, setAjustes] = useState<Record<string, AjusteRenglon>>({});
+  const [editando, setEditando] = useState<string | null>(null);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -88,6 +96,23 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
     return val > 0 ? val : null;
   }, [ofertaDe]);
   const precioDe = (provId: string, sku: string): number | null => precioEnMoneda(provId, sku, monedaDe(provId));
+  // Lo que ESE proveedor cotizó para el ítem (cantidad, unidad de compra y factor).
+  const ofertadoDe = useCallback((provId: string, sku: string) => ofertaDe.get(provId)?.items?.find((x) => x.sku === sku), [ofertaDe]);
+  const claveAj = (provId: string, sku: string) => `${sku}|${provId}`;
+  const ajusteDe = useCallback((provId: string, it: ItemOrden): AjusteRenglon =>
+    ajustes[`${it.sku}|${provId}`] ?? ajusteInicial(it, ofertadoDe(provId, it.sku)), [ajustes, ofertadoDe]);
+  const ajustar = (provId: string, sku: string, aj: AjusteRenglon | null) => setAjustes((p) => {
+    const n = { ...p };
+    if (aj) n[claveAj(provId, sku)] = aj; else delete n[claveAj(provId, sku)];
+    return n;
+  });
+  // El renglón tal como irá a la sub-OC: por defecto lo que cotizó el proveedor (2 PAILA × $230),
+  // no la cantidad/unidad de la solicitud con el precio de la oferta.
+  const renglonDe = useCallback((provId: string, it: ItemOrden): RenglonReparto | null => {
+    const precio = precioEnMoneda(provId, it.sku, monedaDe(provId));
+    if (precio == null) return null;
+    return renglonReparto(it, ofertadoDe(provId, it.sku), ajusteDe(provId, it), precio);
+  }, [precioEnMoneda, monedaDe, ofertadoDe, ajusteDe]);
   // El prorrateo de IVA/IGTF/descuento/efectivo por la fracción que compra cada hija vive
   // en recortarOfertaAHija (subOc.ts): una sola regla para el preview, la creación de la
   // sub-OC y su re-sincronización.
@@ -121,12 +146,11 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
     for (const it of opItems) {
       const prov = asignado[it.sku];
       if (!prov) continue;
-      const precio = precioDe(prov, it.sku) ?? 0;
+      const ren = renglonDe(prov, it);
       const cur = m.get(prov) ?? { items: 0, total: 0, iva: 0, igtf: 0, ajuste: 0 };
       cur.items += 1;
-      // Con la cantidad COTIZADA (misma regla que al crear la sub-OC).
-      const cantOf = Number(ofertaDe.get(prov)?.items?.find((x) => x.sku === it.sku)?.cantidad) || 0;
-      cur.total += (cantOf > 0 ? cantOf : Number(it.cantidad) || 0) * precio;
+      // El renglón que irá a la sub-OC (cantidad y unidad cotizadas, o las que ajustó Compras).
+      cur.total += ren ? ren.cantidad * ren.precio : 0;
       m.set(prov, cur);
     }
     // Más lo que el proveedor agregó en su cotización (entra a su sub-OC).
@@ -170,7 +194,7 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
     }
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [asignado, opItems, ofertaDe, monedaDe, monedaSel]);
+  }, [asignado, opItems, ofertaDe, monedaDe, monedaSel, ajustes]);
 
   const sinAsignar = opItems.filter((it) => !asignado[it.sku] && !bloqueado.has(it.sku));
   const nuevos = Object.keys(asignado).length;
@@ -185,9 +209,24 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
       if (!prov) continue;
       const precio = precioDe(prov, it.sku);
       if (precio == null) { setError(`El proveedor no cotizó «${it.nombre}».`); return; }
+      const aj = ajusteDe(prov, it);
+      const uso = unidadUsoDe(it, ofertadoDe(prov, it.sku));
+      if (faltaFactor(aj)) { setError(`«${it.nombre}»: indica cuántos ${uso || 'unidades'} trae 1 ${aj.modo === 'otra' ? (aj.otraUnidad || 'unidad') : unidadCotizadaDe(it, ofertadoDe(prov, it.sku))} (✎ Unidad).`); return; }
+      const ren = renglonReparto(it, ofertadoDe(prov, it.sku), aj, precio);
+      if (!(ren.cantidad > 0)) { setError(`Indica la cantidad de «${it.nombre}».`); return; }
       const arr = porProv.get(prov) ?? [];
-      // La cantidad (y la unidad de compra) salen de la COTIZACIÓN, no de la solicitud (14-10-2026).
-      arr.push(itemHijaDesdeOferta(it, ofertaDe.get(prov)?.items?.find((x) => x.sku === it.sku), precio));
+      // La cantidad y la unidad salen de la COTIZACIÓN (14-10-2026) o de lo que Compras ajustó
+      // aquí (12-11-2026): la sub-OC lleva exactamente lo que muestra la fila.
+      const base = itemHijaDesdeOferta(it, ofertadoDe(prov, it.sku), precio);
+      const pUsd = Number(base.precio_usd) || 0;
+      arr.push({
+        ...base,
+        cantidad: ren.cantidad,
+        precio: ren.precio,
+        ...(pUsd > 0 ? { precio_usd: Math.round(pUsd * ren.escala * 10000) / 10000 } : {}),
+        unidad_compra: ren.unidad_compra,
+        factor_compra: ren.factor_compra,
+      });
       porProv.set(prov, arr);
     }
     // Lo que el proveedor agregó en su cotización y la solicitud no pedía va a SU sub-OC.
@@ -325,7 +364,17 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
               </tr></thead>
               <tbody>
                 {opItems.map((it) => {
-                  const precio = precioDe(selProv, it.sku);
+                  const precioCot = precioDe(selProv, it.sku);
+                  const ren = renglonDe(selProv, it);
+                  const precio = ren?.precio ?? null;
+                  const ofertado = ofertadoDe(selProv, it.sku);
+                  const aj = ajusteDe(selProv, it);
+                  const uso = unidadUsoDe(it, ofertado);
+                  const cot = unidadCotizadaDe(it, ofertado);
+                  const abierto = editando === it.sku && !!ren;
+                  const pedido = `${num(Number(it.cantidad) || 0)}${it.unidad ? ` ${it.unidad}` : ''}`;
+                  const queda = ren ? `${num(ren.cantidad)}${ren.unidadMostrada ? ` ${ren.unidadMostrada}` : ''}` : pedido;
+                  const conversion = ren ? textoConversion(ren, uso) : '';
                   // Precio en la OTRA moneda, como referencia visual.
                   const otra = monedaDe(selProv) === 'usd' ? 'bcv' : 'usd';
                   const precioOtra = precioEnMoneda(selProv, it.sku, otra);
@@ -333,26 +382,47 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
                   const asignProv = asignado[it.sku];
                   const checked = asignProv === selProv;
                   const disabled = !!lockProv || !precio || (asignProv && asignProv !== selProv);
-                  const cant = Number(it.cantidad) || 0;
                   return (
-                    <tr key={it.sku} style={lockProv ? { opacity: .6 } : undefined}>
+                    <Fragment key={it.sku}>
+                    <tr style={lockProv ? { opacity: .6 } : undefined}>
                       <td style={{ textAlign: 'center' }}>
                         <input type="checkbox" checked={checked} disabled={!!disabled}
                           onChange={() => toggle(it.sku, selProv)} title={!precio ? 'Este proveedor no cotizó el producto' : undefined} />
                       </td>
                       <td>{it.nombre}<span className="muted"> · {it.sku}</span></td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{num(cant)} {it.unidad ?? ''}</td>
                       <td className="mono" style={{ textAlign: 'right' }}>
-                        {precio != null ? money(precio) : <span className="muted">no cotizó</span>}
+                        {queda}
+                        {conversion && <div className="muted" style={{ fontSize: '.7rem' }}>{conversion}</div>}
+                        {ren && queda !== pedido && <div className="muted" style={{ fontSize: '.7rem' }}>pedido: {pedido}</div>}
+                        {ren && faltaFactor(aj) && <div style={{ fontSize: '.7rem', color: 'var(--warning, #f59e0b)' }}>⚠ ¿cuántos {uso || 'unid.'} trae 1 {aj.modo === 'otra' ? (aj.otraUnidad || 'unidad') : cot}?</div>}
+                        {ren && !lockProv && (
+                          <button type="button" className="btn btn-ghost btn-sm" style={{ fontSize: '.72rem', padding: '.1rem .4rem', marginTop: '.15rem' }}
+                            onClick={() => setEditando(abierto ? null : it.sku)}>{abierto ? 'Listo' : '✎ Unidad'}</button>
+                        )}
+                      </td>
+                      <td className="mono" style={{ textAlign: 'right' }}>
+                        {precio != null ? <>{money(precio)}{ren?.unidadMostrada ? <span className="muted" style={{ fontWeight: 400 }}> / {ren.unidadMostrada}</span> : null}</> : <span className="muted">no cotizó</span>}
+                        {ren && precioCot != null && ren.unidadMostrada !== uso && uso && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>{money(precioUsoDe(aj, precioCot))} / {uso}</div>}
                         {precioOtra != null && <div className="muted" style={{ fontSize: '.7rem', fontWeight: 400 }}>{money(precioOtra)} · {otra === 'usd' ? 'divisa' : 'BCV'}</div>}
                       </td>
-                      <td className="mono" style={{ textAlign: 'right' }}>{precio != null ? money(cant * precio) : '—'}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{ren ? money(ren.cantidad * ren.precio) : '—'}</td>
                       <td style={{ fontSize: '.8rem' }}>
                         {lockProv ? <span className="badge success">🔒 {provName(lockProv)} (OC creada)</span>
                           : asignProv ? <span className="badge primary">{provName(asignProv)}</span>
                           : <span className="muted">sin asignar</span>}
                       </td>
                     </tr>
+                    {abierto && ren && precioCot != null && (
+                      <tr>
+                        <td colSpan={6} style={{ background: 'var(--surface-2)' }}>
+                          <EditorUnidad aj={aj} uso={uso} cot={cot}
+                            cotizaOtra={cotizaEnOtraUnidad(it, ofertado)}
+                            precio={ren.precio} unidad={ren.unidadMostrada} precioUso={precioUsoDe(aj, precioCot)}
+                            onChange={(n) => ajustar(selProv, it.sku, n)} onReset={() => ajustar(selProv, it.sku, null)} />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
                   );
                 })}
               </tbody>
@@ -393,5 +463,68 @@ export function AsignarProveedoresModal({ orden, proveedorMap, actorEmail, onClo
         />
       )}
     </Modal>
+  );
+}
+
+/** Cambiar la unidad del renglón al asignar: la cotizada, la del inventario u otra. */
+function EditorUnidad({ aj, uso, cot, cotizaOtra, precio, unidad, precioUso, onChange, onReset }: {
+  aj: AjusteRenglon; uso: string; cot: string; cotizaOtra: boolean;
+  precio: number; unidad: string; precioUso: number;
+  onChange: (aj: AjusteRenglon) => void; onReset: () => void;
+}) {
+  const leer = (v: string) => (v === '' ? 0 : Number(v.replace(',', '.')) || 0);
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.6rem', alignItems: 'flex-end', fontSize: '.8rem' }}>
+      <label style={{ display: 'grid', gap: '.2rem' }}>
+        <span className="muted">Unidad</span>
+        <select className="select" value={aj.modo} onChange={(e) => onChange(cambiarModo(aj, e.target.value as ModoUnidad))}>
+          {cotizaOtra && <option value="cotizada">{cot || 'Cotizada'} (como cotizó)</option>}
+          <option value="uso">{uso || 'Unidad'} (inventario)</option>
+          <option value="otra">Otra…</option>
+        </select>
+      </label>
+      {aj.modo === 'cotizada' && cotizaOtra && (
+        <label style={{ display: 'grid', gap: '.2rem' }}>
+          <span className="muted">1 {cot} =</span>
+          <span style={{ display: 'flex', gap: '.3rem', alignItems: 'center' }}>
+            <input className="input" type="number" min={0} step="any" style={{ width: '6rem' }}
+              value={aj.factorCotizada || ''} onChange={(e) => onChange({ ...aj, factorCotizada: leer(e.target.value) })} />
+            {uso}
+          </span>
+        </label>
+      )}
+      {aj.modo === 'otra' && (
+        <>
+          <label style={{ display: 'grid', gap: '.2rem' }}>
+            <span className="muted">Nombre</span>
+            <input className="input" style={{ width: '7rem' }} placeholder="CAJA, TAMBOR…"
+              value={aj.otraUnidad} onChange={(e) => onChange({ ...aj, otraUnidad: e.target.value.toUpperCase() })} />
+          </label>
+          <label style={{ display: 'grid', gap: '.2rem' }}>
+            <span className="muted">1 {aj.otraUnidad || 'unidad'} =</span>
+            <span style={{ display: 'flex', gap: '.3rem', alignItems: 'center' }}>
+              <input className="input" type="number" min={0} step="any" style={{ width: '6rem' }}
+                value={aj.otraFactor || ''} onChange={(e) => {
+                  // Al definir el factor, la cantidad se mantiene en unidades de uso.
+                  const cantUso = (Number(aj.cantidad) || 0) * (aj.otraFactor > 0 ? aj.otraFactor : 1);
+                  const f = leer(e.target.value);
+                  onChange({ ...aj, otraFactor: f, cantidad: f > 0 ? Math.round((cantUso / f) * 1000) / 1000 : aj.cantidad });
+                }} />
+              {uso}
+            </span>
+          </label>
+        </>
+      )}
+      <label style={{ display: 'grid', gap: '.2rem' }}>
+        <span className="muted">Cantidad</span>
+        <input className="input" type="number" min={0} step="any" style={{ width: '6rem' }}
+          value={aj.cantidad || ''} onChange={(e) => onChange({ ...aj, cantidad: leer(e.target.value) })} />
+      </label>
+      <div className="mono" style={{ paddingBottom: '.35rem' }}>
+        {money(precio)}{unidad ? ` / ${unidad}` : ''}
+        {unidad && uso && unidad !== uso && <span className="muted"> · {money(precioUso)} / {uso}</span>}
+      </div>
+      <button type="button" className="btn btn-ghost btn-sm" onClick={onReset}>↺ Como cotizó</button>
+    </div>
   );
 }
