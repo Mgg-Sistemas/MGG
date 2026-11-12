@@ -80,7 +80,6 @@ import {
   listAbonos,
   urlAdjuntoOc,
   comprobantePagoTesoreria,
-  descargarAdjuntoOc,
   adjuntarComprobanteOc,
   indicarMetodoPago,
   corregirMetodoPago,
@@ -3191,10 +3190,10 @@ function OrdenDetailModal({
         toast('Tesorería no adjuntó comprobante en este pago', 'info');
         return;
       }
-      await descargarAdjuntoOc(adj.path, adj.nombre);
-      toast('Descargando comprobante de Tesorería...', 'success');
+      // Vista previa (desde ahí se descarga o imprime), no descarga directa (12-11-2026).
+      await previewFileUrl(await urlAdjuntoOc(adj.path), adj.nombre, 'Comprobante de Tesorería');
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo descargar el comprobante', 'error');
+      toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante', 'error');
     }
   }
 
@@ -3375,8 +3374,8 @@ function OrdenDetailModal({
       )}
       {/* Comprobante de pago que adjuntó Tesorería: disponible desde que la OC se pagó y al finalizar */}
       {(o.pagada_en || isFinalizada || (Number(o.abonado_total) || 0) > 0) && (
-        <button className="btn btn-ghost" onClick={handleDescargarComprobanteTesoreria} title="Descargar el comprobante de pago adjuntado por Tesorería">
-          📥 Comprobante de Tesorería
+        <button className="btn btn-ghost" onClick={handleDescargarComprobanteTesoreria} title="Ver el comprobante de pago adjuntado por Tesorería (vista previa)">
+          👁 Comprobante de Tesorería
         </button>
       )}
       {/* Comprobante de pago GENERADO (voucher, vista previa): desde que la OC tiene pago

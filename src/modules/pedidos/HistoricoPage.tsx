@@ -7,7 +7,7 @@ import { toast } from '@/shared/ui/Toast';
 import { dateTime, money, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { AbonoCredito, EstadoOrden, Orden, Proveedor, Usuario } from '@/shared/lib/types';
-import { comprobantePagoTesoreria, descargarAdjuntoOc, labelMetodoPago, listAbonos, listOrdenes, listProveedoresActivos, urlAdjuntoOc } from './pedidos.repository';
+import { comprobantePagoTesoreria, labelMetodoPago, listAbonos, listOrdenes, listProveedoresActivos, urlAdjuntoOc } from './pedidos.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
@@ -383,15 +383,14 @@ function PedidoDetalleModal({ orden, proveedorNombre, onClose }: {
                     toast('Tesorería no adjuntó comprobante en este pago', 'info');
                     return;
                   }
-                  await descargarAdjuntoOc(adj.path, adj.nombre);
-                  toast('Descargando comprobante de Tesorería...', 'success');
+                  await previewFileUrl(await urlAdjuntoOc(adj.path), adj.nombre, 'Comprobante de Tesorería');
                 } catch (e) {
-                  toast(e instanceof Error ? e.message : 'No se pudo descargar el comprobante', 'error');
+                  toast(e instanceof Error ? e.message : 'No se pudo abrir el comprobante', 'error');
                 }
               }}
-              title="Descargar el comprobante de pago que adjuntó Tesorería"
+              title="Ver el comprobante de pago que adjuntó Tesorería (vista previa)"
             >
-              📥 Comprobante de Tesorería
+              👁 Comprobante de Tesorería
             </button>
           )}
           {/* Comprobante de pago (voucher, vista previa): solo si la OC tiene pago
