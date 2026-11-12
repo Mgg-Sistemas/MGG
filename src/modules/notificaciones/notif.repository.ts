@@ -1,5 +1,4 @@
 import { supabase } from '@/shared/lib/supabase';
-import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Notificacion, NotifKind } from '@/shared/lib/types';
 
 export async function listLatest(
@@ -33,12 +32,17 @@ export async function pruneOld(keep = 100): Promise<number> {
     .maybeSingle();
   if (selErr) throw selErr;
   if (!cut?.at) return 0; // hay <= keep notificaciones: nada que borrar
-  const { error, count } = await supabase
-    .from('notificaciones')
-    .delete({ count: 'exact' })
-    .lt('at', cut.at);
-  if (error) throw error;
-  return count ?? 0;
+  // 12-11-2026: las alertas de stock SIN LEER no se borran (son una por producto,
+  // las mantiene notif_escanear_stock); borrarlas hacía que se volvieran a crear.
+  const viejas = () => supabase.from('notificaciones').delete({ count: 'exact' }).lt('at', cut.at);
+  const res = await Promise.all([
+    viejas().is('dedup_key', null),
+    viejas().not('dedup_key', 'like', 'restock:%'),
+    viejas().like('dedup_key', 'restock:%').eq('read', true),
+  ]);
+  const err = res.find((r) => r.error)?.error;
+  if (err) throw err;
+  return res.reduce((t, r) => t + (r.count ?? 0), 0);
 }
 
 export async function unreadCount(filtroPermiso?: (n: Notificacion) => boolean): Promise<number> {
@@ -118,65 +122,16 @@ export async function push(args: PushArgs): Promise<Notificacion | null> {
 }
 
 /**
- * Escanea stock crítico y crea notificaciones para admin.
- * Port del `Restock.notifyPending` del demo, con dedup_key por producto + severidad.
- *
- * Optimización vs versión naïve:
- *   - 1 query para traer productos activos.
- *   - 1 query para traer todos los dedup_key de notifs `restock:*` no leídas.
- *   - Los inserts faltantes se mandan en paralelo con Promise.all.
- *   En vez de O(N) queries secuenciales (~2N round-trips) → 2 + 1 paralelo.
+ * Escanea stock crítico y crea las alertas para admin (una por producto).
+ * Desde el 12-11-2026 lo hace la BASE (RPC notif_escanear_stock): antes cada
+ * navegador bajaba `productos` entero y, como la RLS no le deja ver a un
+ * no-admin las alertas 'admin', no veía las existentes y las duplicaba (~11
+ * copias por producto, cada una un evento de Realtime para todos). La RPC
+ * inserta las que faltan sin duplicar y marca leídas las de productos que ya
+ * se reabastecieron. Devuelve cuántas alertas nuevas creó.
  */
 export async function scanStockAndNotify(): Promise<number> {
-  // Productos POR PÁGINAS: ya hay más de 1.000 activos y una sola respuesta de
-  // Supabase se corta en 1.000; los últimos nunca avisaban su stock crítico.
-  const [productos, { data: existing }] = await Promise.all([
-    todasLasFilas<{ id: string; sku: string; nombre: string; stock: number; stock_min: number; estado: string }>((d, h) =>
-      supabase.from('productos').select('id, sku, nombre, stock, stock_min, estado')
-        .eq('estado', 'activo').order('id', { ascending: true }).range(d, h), PAGINA_SUPABASE, 2).catch(() => null),
-    supabase
-      .from('notificaciones')
-      .select('dedup_key')
-      .like('dedup_key', 'restock:%')
-      .eq('read', false),
-  ]);
-  if (!productos) return 0;
-
-  const existingKeys = new Set((existing ?? []).map((r) => r.dedup_key).filter(Boolean) as string[]);
-
-  const toInsert: Array<{
-    destino: string;
-    kind: NotifKind;
-    title: string;
-    message: string;
-    link: string;
-    dedup_key: string;
-  }> = [];
-
-  for (const p of productos) {
-    const stockMin = Number(p.stock_min ?? 0);
-    const stock = Number(p.stock ?? 0);
-    if (stockMin <= 0) continue;
-    const critical = stock < stockMin;
-    const needsRestock = stock <= stockMin;
-    if (!needsRestock && !critical) continue;
-
-    const dedup = `restock:${critical ? 'crit' : 'warn'}:${p.id}`;
-    if (existingKeys.has(dedup)) continue;
-
-    toInsert.push({
-      destino: 'admin',
-      kind: critical ? 'error' : 'warning',
-      title: critical ? '⚠ Stock crítico' : 'Reabastecimiento requerido',
-      message: critical
-        ? `${p.sku} · ${p.nombre}: stock ${stock} POR DEBAJO del mínimo (${stockMin})`
-        : `${p.sku} · ${p.nombre}: stock ${stock} ≤ mínimo ${stockMin}`,
-      link: '#/app/inventario',
-      dedup_key: dedup,
-    });
-  }
-
-  if (!toInsert.length) return 0;
-  const { error } = await supabase.from('notificaciones').insert(toInsert);
-  return error ? 0 : toInsert.length;
+  const { data, error } = await supabase.rpc('notif_escanear_stock');
+  if (error) return 0;
+  return Number(data ?? 0);
 }

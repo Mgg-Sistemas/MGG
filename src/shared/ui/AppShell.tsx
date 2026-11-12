@@ -120,7 +120,9 @@ export function AppShell() {
      compitiendo por la conexión justo mientras la primera página pedía sus
      datos. Deja pasar primero a la página y, desde el 14-10-2026, corre a lo
      sumo una vez cada 30 minutos por navegador (ver escaneoStock.ts): medido,
-     era una de las consultas más repetidas de la base. */
+     era una de las consultas más repetidas de la base. Desde el 12-11-2026 el
+     escaneo lo hace la base (RPC notif_escanear_stock): ya no baja `productos`
+     ni duplica alertas. */
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
