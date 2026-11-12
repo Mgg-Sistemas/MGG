@@ -10,7 +10,8 @@
 -- (git-ignored). Correr primero este archivo y después la semilla.
 --
 -- Permisos: lee quien tiene Inventario (lectura); carga y borra quien tiene
--- Inventario (escritura). Lo sembrado del Excel no se puede borrar.
+-- Inventario (escritura) y responde por Los Pinos (o no tiene sedes asignadas).
+-- El autor de cada movimiento lo pone la base. Lo sembrado del Excel no se borra.
 -- Idempotente.
 -- ============================================================
 
@@ -71,6 +72,16 @@ create unique index if not exists casiterita_libro_una_apertura on public.casite
 -- Un cierre de recepción entra una sola vez por procedencia.
 create unique index if not exists casiterita_libro_cierre_proc on public.casiterita_libro (cierre_id, procedencia) where cierre_id is not null;
 
+-- ── Quién escribe: Inventario (escritura) y Los Pinos entre sus sedes (o sin sedes asignadas) ──
+create or replace function public.casiterita_puede_escribir()
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.puede_modulo('inventario', 'escritura') and exists (
+    select 1 from public.usuarios u
+     where u.id = auth.uid() and u.estado = 'activo'
+       and (u.role = 'admin' or coalesce(cardinality(u.sedes_asignadas), 0) = 0 or 'LOS PINOS' = any(u.sedes_asignadas))
+  );
+$$;
+
 -- ── Reglas que no dependen de la pantalla ──
 create or replace function public.casiterita_libro_guardia()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -83,6 +94,11 @@ begin
     end if;
     if old.tipo = 'apertura' then
       raise exception 'El saldo inicial no se borra.';
+    end if;
+    -- Lo de un lote o una colada se borra desde su lote / colada (que avisa la marca).
+    if (old.lote_id is not null or old.colada_id is not null)
+       and coalesce(current_setting('mgg.casiterita_desde_lote', true), '') <> 'si' then
+      raise exception 'Este movimiento es de un lote o de una colada: se deshace desde ahí.';
     end if;
     return old;
   end if;
@@ -99,8 +115,11 @@ begin
   if new.tipo <> 'apertura' and v_apertura is not null and new.fecha < v_apertura then
     raise exception 'El libro abre el %: no se cargan movimientos anteriores.', to_char(v_apertura, 'DD-MM-YYYY');
   end if;
-  if new.actor_name is null then
+  -- El autor lo pone la base (no se acepta el que mande el cliente), salvo la carga inicial.
+  if new.origen <> 'excel' then
+    new.actor := auth.uid();
     select coalesce(nullif(trim(concat_ws(' ', nombre, apellido)), ''), email) into new.actor_name from public.usuarios where id = auth.uid();
+    new.created_at := now();
   end if;
   return new;
 end $$;
@@ -124,8 +143,19 @@ drop trigger if exists casiterita_libro_guardia on public.casiterita_libro;
 create trigger casiterita_libro_guardia before insert or update or delete on public.casiterita_libro
   for each row execute function public.casiterita_libro_guardia();
 drop trigger if exists casiterita_libro_saldo_ok on public.casiterita_libro;
-create trigger casiterita_libro_saldo_ok after insert on public.casiterita_libro
+create trigger casiterita_libro_saldo_ok after insert or delete on public.casiterita_libro
   for each statement execute function public.casiterita_libro_saldo_ok();
+
+create or replace function public.casiterita_proc_autor()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  new.updated_at := now();
+  select coalesce(nullif(trim(concat_ws(' ', nombre, apellido)), ''), email) into new.updated_by_name from public.usuarios where id = auth.uid();
+  return new;
+end $$;
+drop trigger if exists casiterita_proc_autor on public.casiterita_procedencias_pmp;
+create trigger casiterita_proc_autor before insert or update on public.casiterita_procedencias_pmp
+  for each row execute function public.casiterita_proc_autor();
 
 -- ── Seguridad ──
 alter table public.casiterita_procedencias_pmp enable row level security;
@@ -136,21 +166,21 @@ create policy "casi pmp proc read" on public.casiterita_procedencias_pmp for sel
   using ((select public.puede_modulo('inventario', 'lectura')));
 drop policy if exists "casi pmp proc write" on public.casiterita_procedencias_pmp;
 create policy "casi pmp proc write" on public.casiterita_procedencias_pmp for update
-  using ((select public.puede_modulo('inventario', 'escritura')))
-  with check ((select public.puede_modulo('inventario', 'escritura')));
+  using ((select public.casiterita_puede_escribir()))
+  with check ((select public.casiterita_puede_escribir()));
 drop policy if exists "casi pmp proc insert" on public.casiterita_procedencias_pmp;
 create policy "casi pmp proc insert" on public.casiterita_procedencias_pmp for insert
-  with check ((select public.puede_modulo('inventario', 'escritura')));
+  with check ((select public.casiterita_puede_escribir()));
 
 drop policy if exists "casi libro read" on public.casiterita_libro;
 create policy "casi libro read" on public.casiterita_libro for select
   using ((select public.puede_modulo('inventario', 'lectura')));
 drop policy if exists "casi libro insert" on public.casiterita_libro;
 create policy "casi libro insert" on public.casiterita_libro for insert
-  with check ((select public.puede_modulo('inventario', 'escritura')));
+  with check ((select public.casiterita_puede_escribir()));
 drop policy if exists "casi libro delete" on public.casiterita_libro;
 create policy "casi libro delete" on public.casiterita_libro for delete
-  using ((select public.puede_modulo('inventario', 'escritura')));
+  using ((select public.casiterita_puede_escribir()));
 
 grant select, insert, delete on public.casiterita_libro to authenticated;
 grant select, insert, update on public.casiterita_procedencias_pmp to authenticated;
