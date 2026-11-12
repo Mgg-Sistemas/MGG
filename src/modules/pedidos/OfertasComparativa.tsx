@@ -10,7 +10,7 @@ import type {
   Proveedor,
 } from '@/shared/lib/types';
 import { listOfertasDeOrdenes, aceptarOferta as aceptarOfertaRepo, revertirAceptacion, actualizarOferta, getPdfOfertaSignedUrl, descuentoEfectivo, eliminarOferta, comparativaPorProducto, adjuntosDeOferta, subirAdjuntosOferta } from './ofertas.repository';
-import { urlAdjuntoOc, listSubOcs, getOrdenById } from './pedidos.repository';
+import { listSubOcs, getOrdenById } from './pedidos.repository';
 import { getStatsForProveedores, type ProveedorStats } from './evaluaciones.repository';
 import { scoreOfertas, montoFinalOferta, type ScoredOferta } from './score';
 import { ivaContraOferta } from './cuadreOc';
@@ -20,6 +20,7 @@ import { skusSinCotizar, recortarOfertaAHija } from './subOc';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { ordenDeOfertas, ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
 import { AceptarOfertaModal } from './AceptarOfertaModal';
+import { ImagenesSolicitud } from './ImagenesSolicitud';
 import type { ItemOrden } from '@/shared/lib/types';
 
 interface Props {
@@ -225,16 +226,8 @@ export function OfertasComparativa({
       toast(e instanceof Error ? e.message : 'No se pudo abrir el PDF', 'error');
     }
   }
-  // Imagen de referencia de la SOLICITUD (SP): convive con las fotos de las ofertas, no se borra.
-  async function abrirImagenSp() {
-    if (!orden.imagen_path) return;
-    try {
-      const url = await urlAdjuntoOc(orden.imagen_path);
-      window.open(url, '_blank', 'noopener');
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo abrir la imagen', 'error');
-    }
-  }
+  // Imágenes de referencia de la SOLICITUD (SP): conviven con las fotos de las ofertas, no se borran.
+  const imagenesSp = orden.imagenes?.length ? orden.imagenes : (orden.imagen_path ? [{ path: orden.imagen_path, filename: 'imagen.jpg' }] : []);
 
   /**
    * Confirma la oferta con la(s) marca(s) elegida(s) en el modal: si un producto
@@ -445,10 +438,10 @@ export function OfertasComparativa({
           )}
         </div>
       )}
-      {orden.imagen_path && (
+      {imagenesSp.length > 0 && (
         <div className="card" style={{ margin: '0 0 .6rem', padding: '.45rem .7rem', background: 'var(--bg-1)', display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 600 }}>📷 Imagen de referencia de la solicitud (SP)</span>
-          <button className="btn btn-sm btn-ghost" onClick={abrirImagenSp}>Ver imagen</button>
+          <span style={{ fontWeight: 600 }}>📷 Imágenes de referencia de la solicitud (SP)</span>
+          <ImagenesSolicitud imagenes={imagenesSp} />
           <span className="muted" style={{ fontSize: '.74rem' }}>Convive con las fotos de cada oferta (columna PDF/foto) — no se reemplaza.</span>
         </div>
       )}

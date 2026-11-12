@@ -114,6 +114,7 @@ import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { CALIDAD_LABELS, calcularPuntualidadAutomatica, validarArchivoFactura } from './finalizarPedidoEvaluacion';
 import { FacturasOrdenModal } from './FacturasOrdenModal';
+import { ImagenesSolicitud, ImagenesPorSubir } from './ImagenesSolicitud';
 import { cantidadFacturas } from './facturasOrden.repository';
 import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSkuLibre, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
 import { normalizarNombre, productosSimilares, type Duplicado } from '@/modules/inventario/duplicados';
@@ -3604,13 +3605,9 @@ function OrdenDetailModal({
         return (
           <div className="detail-row">
             <div className="k">Imágenes de referencia</div>
-            <div className="v" style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem' }}>
-              {imgs.map((a, i) => (
-                <button key={a.path} className="btn btn-sm btn-ghost" onClick={async () => {
-                  try { const url = await urlAdjuntoOc(a.path); window.open(url, '_blank', 'noopener'); }
-                  catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir la imagen', 'error'); }
-                }}>📷 Ver imagen{imgs.length > 1 ? ` ${i + 1}` : ''}</button>
-              ))}
+            <div className="v">
+              <ImagenesSolicitud imagenes={imgs} />
+              <small className="muted" style={{ fontSize: '.72rem' }}>Toca una imagen para verla en grande (descargar o imprimir).</small>
             </div>
           </div>
         );
@@ -6198,18 +6195,13 @@ function CrearOrdenModal({
         <label>Imágenes de referencia <span className="muted" style={{ fontWeight: 400 }}>(hasta {MAX_IMAGENES_OP} · opcional)</span></label>
         <input type="file" accept="image/*" multiple className="input" disabled={totalImg >= MAX_IMAGENES_OP} onChange={(e) => { agregarImagenes(e.target.files); e.target.value = ''; }} />
         {/* Imágenes que ya tenía la OP (en edición): se pueden quitar. */}
-        {imagenesExist.filter((a) => !imagenesQuitar.includes(a.path)).map((a) => (
-          <div key={a.path} className="muted" style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.4rem', marginTop: '.2rem' }}>
-            📎 {a.filename || 'imagen'}
-            <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', color: 'var(--danger)' }} onClick={() => setImagenesQuitar((p) => [...p, a.path])} title="Quitar">✕</button>
+        {totalImg > 0 && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.45rem', marginTop: '.45rem' }}>
+            <ImagenesSolicitud imagenes={imagenesExist.filter((a) => !imagenesQuitar.includes(a.path))}
+              quitar={(path) => setImagenesQuitar((p) => [...p, path])} />
+            <ImagenesPorSubir archivos={imagenes} quitar={(i) => setImagenes((prev) => prev.filter((_, k) => k !== i))} />
           </div>
-        ))}
-        {imagenes.map((f, i) => (
-          <div key={`${f.name}-${i}`} className="muted" style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.4rem', marginTop: '.2rem' }}>
-            ✓ {f.name} ({(f.size / 1024 / 1024).toFixed(2)} MB)
-            <button type="button" className="btn btn-sm btn-ghost" style={{ padding: '0 .35rem', color: 'var(--danger)' }} onClick={() => setImagenes((prev) => prev.filter((_, k) => k !== i))} title="Quitar">✕</button>
-          </div>
-        ))}
+        )}
         <small className="hint muted">Fotos del repuesto/modelo a comprar (máx. {MAX_IMAGENES_OP}). Se adjuntan a la orden y quedan en su trazabilidad.</small>
       </div>
 
