@@ -55,6 +55,9 @@ import {
   type SalidaResumenRow, type SalidaResumenGrupo, type ResumenSalidasMeta,
 } from './resumenSalidasReporte';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
+import { DevolucionesMaquinaria } from '@/modules/maquinaria/DevolucionesMaquinaria';
+import { crearEntregaPc, entregaDeSolicitud } from '@/modules/maquinaria/entregasAlmacen.repository';
+import type { EntregaAlmacen } from '@/modules/maquinaria/entregasAlmacen';
 
 type Scope = 'salidas' | 'traslados' | 'temporales';
 type Tipo = 'material' | 'dinero';
@@ -71,6 +74,18 @@ type Modal =
   | { kind: 'detalle-solicitud'; sol: SolicitudSalida }
   | { kind: 'cajas' }
   | { kind: 'choferes-vehiculos' };
+
+/** 12-11-2026: si la salida era para el mantenimiento de una máquina, le llega a Maquinaria.
+ *  Si falla, la salida igual quedó ejecutada: se avisa y se reintenta con «🔧 Enviar a Maquinaria». */
+async function entregaSiEsMantenimiento(sol: SolicitudSalida): Promise<void> {
+  if (!sol.equipo_mant_id || sol.scope !== 'salida' || sol.tipo !== 'material') return;
+  try {
+    const e = await crearEntregaPc({ solicitudSalidaId: sol.id });
+    toast(`Entrega ${e.codigo} enviada a Maquinaria (${e.equipo_nombre}).`, 'success');
+  } catch (err) {
+    toast(`La salida se ejecutó, pero no se pudo avisar a Maquinaria: ${err instanceof Error ? err.message : 'error'}. Reintenta con «🔧 Enviar a Maquinaria» en la solicitud.`, 'warning');
+  }
+}
 
 // Las columnas del tablero viven en columnasSalida.ts: las comparten esta página
 // y el histórico, y con una sola definición no pueden decir cosas distintas.
@@ -221,6 +236,9 @@ export function SalidasPage() {
           {canWrite && scope === 'temporales' && <button className="btn btn-primary" onClick={() => setTemporalNuevoNonce((n) => n + 1)}>+ Nueva salida temporal</button>}
         </div>
       </div>
+
+      {/* 12-11-2026: lo que Maquinaria rechazó vuelve aquí; el almacenista le da entrada. */}
+      <DevolucionesMaquinaria puedeDarEntrada={canWrite} />
 
       {/* Switch principal: Salidas / Traslados (solo material; el dinero va por Tesorería) */}
       <div className="view-toggle" role="tablist" aria-label="Tipo de operación" style={{ marginBottom: '1rem' }}>
@@ -732,6 +750,16 @@ function SolicitudDetalleModal({
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
+  // 12-11-2026: la entrega a Maquinaria de una salida para mantenimiento (undefined = sin consultar).
+  const [entregaMaq, setEntregaMaq] = useState<EntregaAlmacen | null | undefined>(undefined);
+  useEffect(() => {
+    if (!sol.equipo_mant_id || sol.estado !== 'ejecutada') return;
+    let vivo = true;
+    entregaDeSolicitud(sol.id).then((e) => { if (vivo) setEntregaMaq(e); }).catch(() => { if (vivo) setEntregaMaq(undefined); });
+    return () => { vivo = false; };
+  }, [sol.id, sol.equipo_mant_id, sol.estado]);
+  const maquinaMant = entregaMaq?.equipo_nombre
+    ?? (sol.items ?? []).find((it) => it.equipo_id === sol.equipo_mant_id)?.equipo_nombre ?? null;
   // Sectorización: ejecutar es el ÚNICO momento en que el stock se mueve de verdad.
   // La solicitud la puede pedir cualquiera desde cualquier sede (para eso existe), pero
   // sacar el material del almacén lo hace quien responde por ese almacén. Sin esto la
@@ -1095,6 +1123,15 @@ function SolicitudDetalleModal({
           ✎ Editar nota
         </button>
       )}
+      {sol.estado === 'ejecutada' && sol.equipo_mant_id && entregaMaq === null && puedeEjecutar && (
+        <button className="btn btn-ghost" disabled={busy} title="Si al ejecutar no se pudo avisar a Maquinaria, envíala desde aquí"
+          onClick={() => run(async () => {
+            const e = await crearEntregaPc({ solicitudSalidaId: sol.id });
+            toast(`Entrega ${e.codigo} enviada a Maquinaria (${e.equipo_nombre}).`, 'success');
+          }, 'Entrega enviada a Maquinaria')}>
+          🔧 Enviar a Maquinaria
+        </button>
+      )}
       {puedeAprobar && sol.estado === 'por_aprobar' && (
         <button className="btn btn-primary" disabled={busy}
           onClick={() => run(() => aprobarSolicitudSalida(sol, actor), `Solicitud ${sol.codigo} aprobada`)}>
@@ -1104,7 +1141,10 @@ function SolicitudDetalleModal({
       {puedeEjecutar && sol.estado === 'aprobada' && (
         <button className="btn btn-primary" disabled={busy || !!bloqueoEjecutar}
           title={bloqueoEjecutar ?? undefined}
-          onClick={() => run(() => ejecutarSolicitudSalida(sol, actor, actorName), `Solicitud ${sol.codigo} ejecutada`)}>
+          onClick={() => run(async () => {
+            await ejecutarSolicitudSalida(sol, actor, actorName);
+            await entregaSiEsMantenimiento(sol);
+          }, `Solicitud ${sol.codigo} ejecutada`)}>
           {busy ? 'Ejecutando…' : ejecutarLabel}
         </button>
       )}
@@ -1451,6 +1491,16 @@ function SolicitudDetalleModal({
           <tr><td className="muted">Tipo</td><td>{sol.scope === 'traslado' ? 'Traslado' : 'Salida'} de {sol.tipo === 'dinero' ? 'dinero' : 'material'}</td></tr>
           <tr><td className="muted">Estado</td><td><span className={`badge ${colDe(sol)?.badge ?? 'info'}`}>{etiquetaDe(sol)}</span></td></tr>
           <tr><td className="muted">Solicitante</td><td>{sol.solicitante}</td></tr>
+          {sol.equipo_mant_id && (
+            <tr><td className="muted">🔧 Mantenimiento</td><td>
+              {maquinaMant ? <>Para <strong>{maquinaMant}</strong></> : 'Para el mantenimiento de una máquina'}
+              {entregaMaq
+                ? <> · entrega <strong className="mono">{entregaMaq.codigo}</strong> ({entregaMaq.estado === 'pendiente' ? 'por registrar en Maquinaria' : entregaMaq.estado === 'registrada' ? 'registrada en la bitácora' : entregaMaq.devolucion_estado === 'recibida' ? 'rechazada · ya volvió al inventario' : 'rechazada · devolución por recibir'})</>
+                : sol.estado === 'ejecutada'
+                  ? (entregaMaq === null ? <span style={{ color: 'var(--warning)' }}> · todavía no se avisó a Maquinaria</span> : null)
+                  : <span className="muted"> · al ejecutarse le llega a Maquinaria</span>}
+            </td></tr>
+          )}
           {sol.tipo === 'material' ? (
             <>
               {/* Siempre la tabla, aunque haya UN solo material (05-10-2026): antes, con

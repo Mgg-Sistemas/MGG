@@ -14,6 +14,7 @@ export const TIPOS_MANTENIMIENTO: ReadonlyArray<{ value: string; label: string; 
   { value: 'cambio_aceite', label: 'Cambio de aceite', icon: '🛢' },
   { value: 'cambio_filtro', label: 'Cambio de filtro', icon: '🧯' },
   { value: 'cambio_caucho', label: 'Cambio de cauchos / neumáticos', icon: '🛞' },
+  { value: 'cambio_manguera', label: 'Cambio de mangueras', icon: '🪢' },
   { value: 'repuestos', label: 'Repuestos', icon: '🔩' },
   { value: 'cambio_pieza', label: 'Cambio de pieza', icon: '⚙' },
   { value: 'pintura', label: 'Pintura / latonería', icon: '🎨' },
@@ -61,6 +62,13 @@ export interface MantenimientoMaquinaria {
   created_by: string | null;
   actor_name: string | null;
   created_at: string;
+  /** 12-11-2026: varios tipos en un mismo registro (el primero también va en `tipo`).
+   *  Columnas de supabase/sql/maquinaria-entregas-almacen-2026-11-12.sql: sin ella no vienen. */
+  tipos?: string[] | null;
+  /** 12-11-2026: fotos del mantenimiento (bucket maquinaria-os-fotos, carpeta bitacora/). */
+  fotos?: { path: string; filename: string }[] | null;
+  /** 12-11-2026: la entrega del almacén de la que salió este registro. */
+  entrega_id?: string | null;
 }
 
 /** Registro con los campos derivados (horas trabajadas + consumo Lts/h). */
@@ -117,6 +125,10 @@ function sanitize(input: MantenimientoInput): Record<string, unknown> {
     gasoil_lts: num(input.gasoil_lts),
     trabajo: v(input.trabajo), consumibles: v(input.consumibles),
     mecanico: v(input.mecanico), ubicacion: v(input.ubicacion), observacion: v(input.observacion),
+    // Columnas nuevas (12-11-2026): solo se mandan si vienen, así la bitácora sigue
+    // funcionando aunque la migración de entregas del almacén no esté aplicada.
+    ...(input.tipos !== undefined ? { tipos: input.tipos?.length ? input.tipos : null } : {}),
+    ...(input.fotos !== undefined ? { fotos: input.fotos ?? [] } : {}),
   };
 }
 

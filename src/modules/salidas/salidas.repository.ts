@@ -357,6 +357,10 @@ export interface CrearSolicitudSalidaInput {
   cxcMoneda?: string | null;
   /** Marca que la salida/traslado es para consumo interno de la empresa. */
   consumoInterno?: boolean | null;
+  /** 12-11-2026: máquina a cuyo mantenimiento va el material (al ejecutarse crea la entrega a Maquinaria). */
+  equipoMantId?: string | null;
+  equipoMantNota?: string | null;
+  equipoMantTipo?: string | null;
   /**
    * SOLO el reparto de víveres entre cocinas (Distribución de Alimentación).
    * Nace ya «aprobada» y sin autorizante: el módulo de cocina la ejecuta acto
@@ -499,6 +503,12 @@ export async function crearSolicitudSalida(input: CrearSolicitudSalidaInput): Pr
       cxc_monto: input.cxcMonto != null ? Number(input.cxcMonto) : null,
       cxc_moneda: input.cxcMoneda ?? null,
       consumo_interno: input.consumoInterno ?? false,
+      // Solo si se marcó: las columnas son de la migración de entregas del almacén (12-11-2026).
+      ...(input.equipoMantId ? {
+        equipo_mant_id: input.equipoMantId,
+        equipo_mant_nota: input.equipoMantNota?.trim() || null,
+        equipo_mant_tipo: input.equipoMantTipo?.trim() || null,
+      } : {}),
       historial,
       actor: input.actor,
       actor_name: input.actorName ?? null,

@@ -59,6 +59,10 @@ import {
   numeroDeSolicitud, numeroTraslado, ordenDeSalidaTelefonoLote, ordenDeTrasladoTelefono, ordenDeTrasladoTelefonoLote, trasladoDeMovimiento,
   vistaFilaSalida, vistaFilaTraslado, type FilaSalida, type FilaTraslado,
 } from './historicosTelefono';
+import { DevolucionesMaquinaria } from '@/modules/maquinaria/DevolucionesMaquinaria';
+import { errorEntregaMantenimiento, motivoConMaquina } from '@/modules/maquinaria/entregasAlmacen';
+import { useEntregasDisponibles } from '@/modules/maquinaria/EntregasAlmacenPanel';
+import { AvisoEnvioMaquinaria, CampoParaMantenimiento, enviarSalidaAMaquinaria, type EnvioMaquinaria } from './EntregaMaquinariaTelefono';
 
 export const RUTA_INVENTARIO_TELEFONO = '/app/inventario/telefono';
 /** Cuántos productos se listan sin buscar: en el teléfono no se recorre el almacén entero. */
@@ -108,6 +112,8 @@ export function InventarioMovilView() {
   const [listo, setListo] = useState<{ titulo: string; texto: string; pdf?: ComprobanteMaterial; abrirPdf?: () => Promise<void> } | null>(null);
   // Una salida puede llevar varios materiales (04-11-2026): todas sus filas, mismo N° SAT.
   const [salidaHecha, setSalidaHecha] = useState<SalidaTelefono[] | null>(null);
+  // 12-11-2026: si la salida fue para el mantenimiento de una máquina, cómo terminó el aviso a Maquinaria.
+  const [envioMaq, setEnvioMaq] = useState<EnvioMaquinaria | null>(null);
 
   const cargarAlmacenes = useCallback(async () => {
     const as = await listAlmacenes('principal');
@@ -182,7 +188,7 @@ export function InventarioMovilView() {
     setSel(n); guardarAlmacen(n);
     setPaso('inicio'); setElegido(null); setBusca('');
   }
-  function volver() { setPaso('inicio'); setElegido(null); setListo(null); setSalidaHecha(null); }
+  function volver() { setPaso('inicio'); setElegido(null); setListo(null); setSalidaHecha(null); setEnvioMaq(null); }
   function hecho(titulo: string, texto: string, pdf?: ComprobanteMaterial, abrirPdf?: () => Promise<void>) {
     setListo({ titulo, texto, pdf, abrirPdf }); setPaso('listo'); setElegido(null);
     void reload().catch(() => {});
@@ -238,6 +244,11 @@ export function InventarioMovilView() {
           <span className="aviso-icono">🔒</span>
           <div>{motivoAjeno ?? `No puedes mover inventario en ${nombreAlm}.`} Puedes ver su stock y sacar el reporte.</div>
         </div>
+      )}
+
+      {/* 12-11-2026: lo que Maquinaria rechazó vuelve a este almacén; aquí se le da entrada. */}
+      {!loading && paso === 'inicio' && almacen && (
+        <DevolucionesMaquinaria origen="telefono" almacen={almacen} puedeDarEntrada={puedeMoverAqui} compacto />
       )}
 
       {!loading && paso === 'inicio' && puedeMoverAqui && (
@@ -311,7 +322,8 @@ export function InventarioMovilView() {
       {paso === 'listo' && listo && <Listo titulo={listo.titulo} texto={listo.texto} pdf={listo.pdf} abrirPdf={listo.abrirPdf} onVolver={volver} />}
 
       {paso === 'listoSalida' && salidaHecha && (
-        <ListoSalida salidas={salidaHecha} quien={quien} onCambio={setSalidaHecha} onVolver={volver} />
+        <ListoSalida salidas={salidaHecha} quien={quien} onCambio={setSalidaHecha} onVolver={volver}
+          envioMaq={envioMaq} onEnvioMaq={setEnvioMaq} />
       )}
 
       {paso === 'reporte' && (
@@ -331,7 +343,7 @@ export function InventarioMovilView() {
       {paso === 'salida' && prodActual && (
         <FormSalida almacen={almacen} producto={prodActual} productos={productos} actor={actor} actorName={actorName}
           onCancel={() => setElegido(null)}
-          onHecho={(s) => { setSalidaHecha(s); setPaso('listoSalida'); setElegido(null); void reload().catch(() => {}); }} />
+          onHecho={(s, envio) => { setSalidaHecha(s); setEnvioMaq(envio); setPaso('listoSalida'); setElegido(null); void reload().catch(() => {}); }} />
       )}
 
       {paso === 'traslado' && prodActual && (
@@ -339,6 +351,9 @@ export function InventarioMovilView() {
           onCancel={() => setElegido(null)} onHecho={hecho} />
       )}
 
+      {paso === 'retornos' && almacen && (
+        <DevolucionesMaquinaria origen="telefono" almacen={almacen} puedeDarEntrada={puedeMoverAqui} />
+      )}
       {paso === 'retornos' && (
         <PorRetornar salidas={porRetornar} almacen={almacen} canWrite={puedeMoverAqui} actor={actor} actorName={actorName} quien={quien}
           onVolver={volver} onHecho={hecho} />
@@ -437,8 +452,9 @@ async function verOrdenSalidaTelefono(ss: SalidaTelefono[], quien: string): Prom
 }
 
 /** La salida ya guardada: se le pueden sumar fotos (hasta 4) y el aviso se rehace con ellas. */
-function ListoSalida({ salidas, quien, onCambio, onVolver }: {
+function ListoSalida({ salidas, quien, onCambio, onVolver, envioMaq, onEnvioMaq }: {
   salidas: SalidaTelefono[]; quien: string; onCambio: (ss: SalidaTelefono[]) => void; onVolver: () => void;
+  envioMaq: EnvioMaquinaria | null; onEnvioMaq: (e: EnvioMaquinaria) => void;
 }) {
   const salida = salidas[0];
   const [subiendo, setSubiendo] = useState(false);
@@ -462,6 +478,7 @@ function ListoSalida({ salidas, quien, onCambio, onVolver }: {
   return (
     <Listo titulo={`Salida ${salida.codigo} registrada${salidas.length > 1 ? ` · ${salidas.length} materiales` : ''}`} texto={mensajeSalidaLote(salidas, quien)} fotos={fotosWhatsapp} onVolver={onVolver}
       abrirPdf={() => verOrdenSalidaTelefono(salidas, quien)}>
+      {envioMaq && <AvisoEnvioMaquinaria envio={envioMaq} salidas={salidas} onCambio={onEnvioMaq} />}
       {/* Las fotos se ven debajo del aviso de WhatsApp, que es con lo que se mandan (02-11-2026). */}
       <div className="surt-campo">
         <label htmlFor="inv-tel-salida-fotos-mas">Fotos ({salida.fotos.length}/{MAX_FOTOS_SALIDA})</label>
@@ -1141,12 +1158,20 @@ function errorLineas(lineas: LineaMaterial[], productos: ProductoEnAlmacen[]): s
 
 function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, onHecho }: {
   almacen: string; producto: ProductoEnAlmacen; productos: ProductoEnAlmacen[]; actor: string; actorName: string | null;
-  onCancel: () => void; onHecho: (ss: SalidaTelefono[]) => void;
+  onCancel: () => void; onHecho: (ss: SalidaTelefono[], envio: EnvioMaquinaria | null) => void;
 }) {
   const [lineas, setLineas] = useState<LineaMaterial[]>([{ producto, cantidad: '' }]);
   const [motivo, setMotivo] = useState('');
   const [autorizado, setAutorizado] = useState('');
   const [retorna, setRetorna] = useState<boolean | null>(null);
+  // 12-11-2026: ¿el material va al mantenimiento de una máquina? → entrega a Maquinaria.
+  // Si la base todavía no tiene las entregas, la pregunta no se hace (y sale el aviso).
+  const entregasOk = useEntregasDisponibles();
+  const [paraMant, setParaMant] = useState<boolean | null>(null);
+  const [equipoMant, setEquipoMant] = useState<{ id: string; nombre: string }>({ id: '', nombre: '' });
+  const [tipoMant, setTipoMant] = useState('');
+  const preguntaMant = entregasOk !== false;
+  const conMaquina = preguntaMant && paraMant === true && !!equipoMant.id;
   const [fotos, setFotos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
   const malLineas = errorLineas(lineas, productos);
@@ -1174,23 +1199,34 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
   async function guardar(e: FormEvent) {
     e.preventDefault();
     if (malLineas) return toast(malLineas, 'error');
+    if (preguntaMant && paraMant === null) return toast('Indica si el material es para el mantenimiento de una máquina.', 'error');
+    const errMant = preguntaMant ? errorEntregaMantenimiento(!!paraMant, equipoMant.id) : null;
+    if (errMant) return toast(errMant, 'error');
+    // El motivo lleva la máquina: así queda en el kardex y en el PDF de la salida.
+    const motivoFinal = conMaquina ? motivoConMaquina(motivo, equipoMant.nombre) : motivo;
     for (const l of lineas) {
       const pr = productos.find((x) => x.id === l.producto.id) ?? l.producto;
-      const problema = errorSalida({ productoId: pr.id, cantidad: leerCantidad(l.cantidad), stock: pr.stock_almacen, motivo, autorizado, retorna });
+      const problema = errorSalida({ productoId: pr.id, cantidad: leerCantidad(l.cantidad), stock: pr.stock_almacen, motivo: motivoFinal, autorizado, retorna });
       if (problema) return toast(problema, 'error');
     }
     setGuardando(true);
     try {
       let ss = await registrarSalidaTelefonoLote({
         lineas: lineas.map((l) => ({ producto: l.producto, cantidad: leerCantidad(l.cantidad) })),
-        almacen, motivo, autorizadoPor: autorizado, retorna: !!retorna, actor, actorName,
+        almacen, motivo: motivoFinal, autorizadoPor: autorizado, retorna: !!retorna, actor, actorName,
+        equipo: conMaquina ? equipoMant : null,
       });
       if (fotos.length) {
         try { ss = await subirFotosSalidaLote(ss, fotos); }
         catch (err) { toast(`La salida quedó registrada, pero las fotos no subieron: ${errMsg(err, 'error')}. Puedes volver a agregarlas.`, 'warning'); }
       }
       toast(ss.length > 1 ? `Salida ${ss[0].codigo}: ${ss.length} materiales` : `Salida ${ss[0].codigo}: −${num(ss[0].cantidad)} ${producto.unidad} de ${producto.nombre}`, 'success');
-      onHecho(ss);
+      // Después de las fotos, para que Maquinaria las vea con la entrega. Si falla, se reintenta en «Salida registrada».
+      const envio = conMaquina
+        ? await enviarSalidaAMaquinaria(ss, { equipoId: equipoMant.id, equipoNombre: equipoMant.nombre, tipo: tipoMant || null, nota: motivo.trim() || null, codigo: null, error: null })
+        : null;
+      if (envio?.codigo) toast(`Entrega ${envio.codigo} enviada a Maquinaria (${envio.equipoNombre}).`, 'success');
+      onHecho(ss, envio);
     } catch (err) {
       toast(errMsg(err, 'No se pudo registrar la salida'), 'error');
     } finally { setGuardando(false); }
@@ -1227,6 +1263,8 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
         </div>
         {retorna && <small className="muted">Queda en «Por retornar» y desde ahí se le da retorno al inventario (todo o una parte).</small>}
       </div>
+      <CampoParaMantenimiento disponible={entregasOk} paraMant={paraMant} onParaMant={setParaMant}
+        equipoId={equipoMant.id} onEquipo={(id, nombre) => setEquipoMant({ id, nombre })} tipo={tipoMant} onTipo={setTipoMant} />
       <div className="surt-campo">
         <label htmlFor="inv-tel-salida-fotos">Fotos ({fotos.length}/{MAX_FOTOS_SALIDA}) · opcional</label>
         {fotos.length < MAX_FOTOS_SALIDA && (
@@ -1245,7 +1283,8 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
         )}
       </div>
       <button type="submit" className="btn btn-primary surt-guardar"
-        disabled={guardando || !!malLineas || retorna === null || !autorizado.trim()}>
+        disabled={guardando || !!malLineas || retorna === null || !autorizado.trim()
+          || (preguntaMant && (paraMant === null || (paraMant && !equipoMant.id)))}>
         {guardando ? 'Guardando…' : lineas.length > 1 ? `✓ Guardar salida (${lineas.length} materiales)` : '✓ Guardar salida'}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otro material</button>

@@ -55,6 +55,7 @@ import {
   type AvisoServicio,
 } from './flota';
 import { AlertasMantenimientoBanner, type EquipoConAviso } from './AlertasMantenimiento';
+import { EntregasAlmacenAviso } from './EntregasAlmacenPanel';
 import { TABLAS_ALERTAS_MANT } from './alertasMantenimiento.repository';
 import { listRepuestosEquipo } from './repuestosEquipo.repository';
 import { sistemaDe, type RepuestoEquipo } from './repuestosEquipo';
@@ -536,6 +537,7 @@ export function MaquinariaMovilView() {
 
       {/* ── Alertas de mantenimiento (como el «Dinero por entrar» de Acopio): equipos con servicio
           próximo o vencido; al tocarlo se ven y se responden (26/10/2026). Arriba de todo. ── */}
+      <EntregasAlmacenAviso compacto canWrite={canWrite} />
       <AlertasMantenimientoBanner compacto items={alertasMant} actor={actor} actorName={actorName} canWrite={canWrite} onChanged={() => void cargarDatos()} />
 
       {/* ── Modal flotante de WhatsApp: aparece al instante centrado en pantalla ── */}

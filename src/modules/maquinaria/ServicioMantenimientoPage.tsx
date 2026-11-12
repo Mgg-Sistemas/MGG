@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -17,6 +17,7 @@ import { solicitudesServicioPorEquipo, type SolicitudServicioEquipo } from './ma
 import { ordenesAbiertasPorEquipo, lecturasVigentesPorEquipo, type LecturaVigente } from './flota.repository';
 import { ESTADOS_EQUIPO, estadoEfectivo, type AvisoServicio } from './flota';
 import { coincideTexto } from './flotaListados';
+import { EntregasAlmacenAviso } from './EntregasAlmacenPanel';
 import {
   SIN_GRUPO, ESTADOS_SERVICIO, REGLA_PROXIMO, grupoDeEquipo, infoServicio, compararUrgencia, resumenServicio,
   type EstadoServicio, type InfoServicio,
@@ -77,6 +78,8 @@ export function ServicioMantenimientoPage() {
   const { can, appUser } = usePermissions();
   const { user } = useSession();
   const canWrite = can('maquinaria', 'escritura');
+  const [params] = useSearchParams();
+  const abrirEntregas = params.get('entregas') === '1';
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
@@ -197,6 +200,10 @@ export function ServicioMantenimientoPage() {
           <button className="btn btn-primary" onClick={() => setResumenOpen(true)}>📊 Resumen de {grupoLabel}</button>
         </div>
       </div>
+
+      {/* 12-11-2026: lo que el almacén entregó para mantenimiento y falta registrar en la bitácora.
+          El aviso de la campana trae ?entregas=1 y abre la lista sola. */}
+      <EntregasAlmacenAviso canWrite={canWrite} abrirAlCargar={abrirEntregas} />
 
       {/* Grupos de flota: cada uno con su número de equipos */}
       <div className="flo-fleet flo-grupos" role="tablist" aria-label="Grupo de flota">

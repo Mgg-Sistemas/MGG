@@ -22,6 +22,9 @@ import { puedeMoverEnSede, nombreAlmacenVisible } from '@/modules/inventario/sec
 import { useSectorizacion } from '@/modules/inventario/useSectorizacion';
 import { esMaterialDeFundicion } from '@/modules/produccion/materialFundicion';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
+import { TIPOS_MANTENIMIENTO } from '@/modules/maquinaria/maquinariaMant.repository';
+import { errorEntregaMantenimiento, motivoConMaquina } from '@/modules/maquinaria/entregasAlmacen';
+import { AvisoFaltaMigracion, opcionesMaquinas, useEntregasDisponibles } from '@/modules/maquinaria/EntregasAlmacenPanel';
 
 interface LineaUI {
   id: number; productoId: string; cantidad: string; precio: string; almacen: string;
@@ -138,6 +141,12 @@ export function SalidaMaterialForm({
   const [chofer, setChofer] = useState<Chofer | null>(null);
   const [vehiculo, setVehiculo] = useState<Vehiculo | null>(null);
   const [consumoInterno, setConsumoInterno] = useState(false);
+  // 12-11-2026: ¿el material es para el mantenimiento de una máquina? Al EJECUTARSE la
+  // solicitud se crea la entrega (EMA-…) que les llega a los de Maquinaria.
+  const entregasOk = useEntregasDisponibles();
+  const [paraMant, setParaMant] = useState(false);
+  const [equipoMantId, setEquipoMantId] = useState('');
+  const [tipoMant, setTipoMant] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -267,6 +276,15 @@ export function SalidaMaterialForm({
         });
       }
     }
+    const errMant = errorEntregaMantenimiento(paraMant, equipoMantId);
+    if (errMant) { setError(errMant); return; }
+    const equipoMant = paraMant ? equipoDe(equipoMantId) : null;
+    // La máquina del mantenimiento también queda en el kardex de cada renglón que no diga otra.
+    if (equipoMant) {
+      for (const it of items) {
+        if (!it.equipo_id) { it.equipo_id = equipoMant.id; it.equipo_nombre = equipoMant.equipo; }
+      }
+    }
     // Guarda de seguridad: bajo restricción, ningún ítem puede salir de una sede no permitida.
     if (sedesPermitidas) {
       const invalido = items.find((it) => !puedeMoverEnSede(sedePorAlmacen.get(it.almacen ?? '') ?? null, sedesPermitidas));
@@ -280,7 +298,10 @@ export function SalidaMaterialForm({
       const creada = await crearSolicitudSalida({
         scope: 'salida', tipo: 'material',
         items,
-        destino: unidad.trim(), motivo: motivo.trim() || null,
+        destino: unidad.trim(), motivo: (equipoMant ? motivoConMaquina(motivo, equipoMant.equipo) : motivo.trim()) || null,
+        equipoMantId: equipoMant?.id ?? null,
+        equipoMantNota: equipoMant ? motivo.trim() || null : null,
+        equipoMantTipo: equipoMant ? tipoMant || null : null,
         fechaEntrega: fechaEntrega || null,
         chofer: chofer?.nombre ?? null, choferCedula: chofer?.cedula ?? null,
         vehiculo: vehiculo?.nombre ?? null, vehiculoPlaca: vehiculo?.placa ?? null,
@@ -487,6 +508,33 @@ export function SalidaMaterialForm({
             Consumo interno
           </label>
           <small className="hint muted">Marcalo si el material se queda dentro de la empresa (no es venta ni entrega a terceros). Se ve en la trazabilidad y en el detalle.</small>
+        </div>
+
+        {/* 3b) 12-11-2026: para el mantenimiento de una máquina → al ejecutarse le llega a Maquinaria. */}
+        <div className="form-row" style={{ marginTop: '.45rem' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.45rem', cursor: entregasOk === false ? 'not-allowed' : 'pointer' }}>
+            <input type="checkbox" checked={paraMant} disabled={entregasOk === false}
+              onChange={(e) => { setParaMant(e.target.checked); if (e.target.checked) setConsumoInterno(true); }} />
+            🔧 Es para el mantenimiento de una máquina
+          </label>
+          {entregasOk === false && <AvisoFaltaMigracion compacto />}
+          {paraMant && (
+            <div className="form-grid" style={{ marginTop: '.4rem' }}>
+              <div className="form-row">
+                <label htmlFor="salida-mant-maquina">Máquina *</label>
+                <SearchSelect id="salida-mant-maquina" value={equipoMantId} onChange={setEquipoMantId} placeholder="🔍 Busca la máquina…"
+                  options={opcionesMaquinas(equipos)} emptyText="Ninguna máquina coincide" sinPreseleccion />
+              </div>
+              <div className="form-row">
+                <label htmlFor="salida-mant-tipo">Para qué mantenimiento · opcional</label>
+                <select id="salida-mant-tipo" className="select" value={tipoMant} onChange={(e) => setTipoMant(e.target.value)}>
+                  <option value="">— Lo indica Maquinaria —</option>
+                  {TIPOS_MANTENIMIENTO.filter((t) => t.value !== 'lectura').map((t) => <option key={t.value} value={t.value}>{t.icon} {t.label}</option>)}
+                </select>
+              </div>
+              <small className="hint muted" style={{ gridColumn: '1 / -1' }}>Al ejecutarse la salida, Maquinaria recibe la entrega, registra el trabajo con el horómetro y queda en la bitácora de la máquina.</small>
+            </div>
+          )}
         </div>
 
         {/* 4) Motivo y fecha */}

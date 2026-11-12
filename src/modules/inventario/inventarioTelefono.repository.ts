@@ -178,6 +178,8 @@ export const reservarCodigoSalida = () => reservarCodigoTelefono('salida');
 export async function registrarSalidaTelefonoLote(d: {
   lineas: { producto: Producto; cantidad: number }[]; almacen: string; motivo: string; autorizadoPor: string;
   retorna: boolean; actor: string; actorName: string | null;
+  /** 12-11-2026: máquina a cuyo mantenimiento va el material (queda en el kardex). */
+  equipo?: { id: string; nombre: string } | null;
 }): Promise<SalidaTelefono[]> {
   const codigo = await reservarCodigoSalida();
   const hechas: SalidaTelefono[] = [];
@@ -212,6 +214,8 @@ export async function registrarSalidaTelefono(d: {
   retorna: boolean; actor: string; actorName: string | null;
   /** N° ya reservado (salida con varios materiales); si no, se reserva uno. */
   codigo?: string;
+  /** 12-11-2026: máquina a cuyo mantenimiento va el material (queda en el kardex). */
+  equipo?: { id: string; nombre: string } | null;
 }): Promise<SalidaTelefono> {
   const codigo = d.codigo ?? await reservarCodigoSalida();
   const id = crypto.randomUUID();
@@ -221,6 +225,7 @@ export async function registrarSalidaTelefono(d: {
     actor: d.actor, actor_name: d.actorName,
     ref_tipo: 'salida_telefono', ref_id: id, ref_codigo: String(codigo),
     solicitante: d.autorizadoPor.trim(), detalle,
+    equipo_id: d.equipo?.id ?? null, equipo_nombre: d.equipo?.nombre ?? null,
   });
   const { data, error } = await supabase.rpc('inv_tel_registrar_salida', {
     p: {

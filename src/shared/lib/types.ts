@@ -620,6 +620,10 @@ export interface SolicitudSalida {
   cxc_id?: string | null;
   /** Marca que la salida/traslado es para consumo interno de la empresa. */
   consumo_interno?: boolean | null;
+  /** 12-11-2026: el material va al mantenimiento de esta máquina (al ejecutarse le llega a Maquinaria). */
+  equipo_mant_id?: string | null;
+  equipo_mant_nota?: string | null;
+  equipo_mant_tipo?: string | null;
   /**
    * Reparto de víveres entre cocinas hecho DESDE Distribución de Alimentación:
    * no lleva autorización de Leydis/Jesús, se ejecuta al crearse y queda el
