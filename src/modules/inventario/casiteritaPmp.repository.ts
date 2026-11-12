@@ -4,7 +4,7 @@
    (supabase/sql/casiterita-pmp-fase1-libro.sql).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { MovPmp, NuevoMovPmp, ProcedenciaPmp } from './casiteritaPmp';
+import type { CierreRecepcionPmp, MovPmp, NuevoMovPmp, ProcedenciaPmp } from './casiteritaPmp';
 import { calcularEntrada } from './casiteritaPmp';
 
 /** true si el error dice que la tabla todavía no existe (falta correr el SQL de la fase). */
@@ -96,4 +96,21 @@ export async function crearMovsPmp(movs: Array<{ m: NuevoMovPmp; extra?: ExtraMo
 export async function borrarMovPmp(id: string): Promise<void> {
   const { error } = await supabase.from('casiterita_libro').delete().eq('id', id);
   if (error) throw error;
+}
+
+/* ───────── Fase 2 · cierres de recepción con casiterita ───────── */
+
+export async function listCierresCasiteritaPmp(): Promise<CierreRecepcionPmp[]> {
+  const { data, error } = await supabase.from('recepcion_cierres')
+    .select('id, numero, grupo_nombre, fecha, neto_seco, tasa_final, almacen_neto')
+    .ilike('almacen_neto', '%CASITERITA%').gt('neto_seco', 0)
+    .order('fecha', { ascending: false }).limit(300);
+  if (error) throw error;
+  return (data ?? []).map((r) => {
+    const x = r as Record<string, unknown>;
+    return {
+      id: String(x.id), numero: Number(x.numero) || 0, grupo_nombre: (x.grupo_nombre as string) ?? null, fecha: String(x.fecha),
+      neto_seco: num(x.neto_seco), tasa_final: num(x.tasa_final), almacen_neto: (x.almacen_neto as string) ?? null,
+    };
+  });
 }

@@ -9,11 +9,11 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
   BADGE_TIPO, ETIQUETA_TIPO, calcularEntrada, calcularLibro, errorNuevoMov, fechaTxt, hoyVE, kgTxt, leerNumero, mesDe,
-  nombreMes, pctTxt, pmpTxt, resumenPorMes, saldoFinal, usdTxt, numTxt,
-  type FilaLibro, type MovPmp, type NuevoMovPmp, type ProcedenciaPmp, type TipoMovPmp,
+  nombreMes, pctTxt, pmpTxt, resumenPorMes, saldoFinal, usdTxt, numTxt, cierresPorPasar, movDePropuesta,
+  type CierreRecepcionPmp, type FilaLibro, type MovPmp, type NuevoMovPmp, type ProcedenciaPmp, type PropuestaEntrada, type TipoMovPmp,
 } from './casiteritaPmp';
 import {
-  borrarMovPmp, crearMovPmp, faltaTabla, guardarProcedenciaPmp, listLibroPmp, listProcedenciasPmp,
+  borrarMovPmp, crearMovPmp, crearMovsPmp, faltaTabla, guardarProcedenciaPmp, listCierresCasiteritaPmp, listLibroPmp, listProcedenciasPmp,
 } from './casiteritaPmp.repository';
 
 type Pestana = 'tablero' | 'libro' | 'procedencias';
@@ -32,21 +32,24 @@ export function CasiteritaPmpView({ actorName, canWrite, onClose }: Props) {
   const [sinTablas, setSinTablas] = useState(false);
   const [tab, setTab] = useState<Pestana>('tablero');
   const [nuevo, setNuevo] = useState(false);
+  const [cierres, setCierres] = useState<CierreRecepcionPmp[]>([]);
+  const [desdeRecep, setDesdeRecep] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
-      const [m, p] = await Promise.all([listLibroPmp(), listProcedenciasPmp()]);
-      setMovs(m); setProcs(p); setError(null); setSinTablas(false);
+      const [m, p, c] = await Promise.all([listLibroPmp(), listProcedenciasPmp(), listCierresCasiteritaPmp().catch(() => [] as CierreRecepcionPmp[])]);
+      setMovs(m); setProcs(p); setCierres(c); setError(null); setSinTablas(false);
     } catch (e) {
       if (faltaTabla(e)) setSinTablas(true);
       else setError(e instanceof Error ? e.message : 'No se pudo leer el libro.');
     } finally { setCargando(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['casiterita_libro', 'casiterita_procedencias_pmp'], () => { void cargar(); }, { enabled: !sinTablas });
+  useRealtime(['casiterita_libro', 'casiterita_procedencias_pmp', 'recepcion_cierres'], () => { void cargar(); }, { enabled: !sinTablas });
 
   const filas = useMemo(() => calcularLibro(movs), [movs]);
   const saldo = useMemo(() => saldoFinal(filas), [filas]);
+  const porPasar = useMemo(() => cierresPorPasar(cierres, movs, procs), [cierres, movs, procs]);
 
   return (
     <div>
@@ -72,6 +75,13 @@ export function CasiteritaPmpView({ actorName, canWrite, onClose }: Props) {
       ) : (
         <>
           <KpisSaldo filas={filas} />
+          {porPasar.length > 0 && (
+            <div className="card" style={{ borderLeft: '3px solid var(--warning)', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+              <span>📥 <strong>{porPasar.length} cierre(s) de recepción</strong> entraron casiterita al almacén y todavía no están en el libro
+                <span className="muted"> ({porPasar.map((p) => `#${p.cierre.numero}`).join(', ')} · {kgTxt(porPasar.reduce((a, p) => a + p.kg, 0))})</span>.</span>
+              {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setDesdeRecep(true)}>Pasarlos al libro</button>}
+            </div>
+          )}
           <div className="view-toggle" role="tablist" style={{ margin: '0 0 1rem' }}>
             <button className={tab === 'tablero' ? 'active' : ''} onClick={() => setTab('tablero')}>📊 Tablero</button>
             <button className={tab === 'libro' ? 'active' : ''} onClick={() => setTab('libro')}>📒 Libro</button>
@@ -83,10 +93,33 @@ export function CasiteritaPmpView({ actorName, canWrite, onClose }: Props) {
         </>
       )}
 
+      {desdeRecep && (
+        <DesdeRecepcionesModal propuestas={porPasar} procs={procs} filas={filas} actorName={actorName}
+          onClose={() => setDesdeRecep(false)} onGuardado={() => { setDesdeRecep(false); void cargar(); }} />
+      )}
       {nuevo && (
         <NuevoMovModal filas={filas} procs={procs} actorName={actorName} saldoGlobal={saldo.global}
           onClose={() => setNuevo(false)} onGuardado={() => { setNuevo(false); void cargar(); }} />
       )}
+    </div>
+  );
+}
+
+/* ───────── Aviso en ⛏ Casiterita: cierres de recepción que faltan en el libro ───────── */
+export function AvisoCierresPorPasar({ onAbrir }: { onAbrir: () => void }) {
+  const [n, setN] = useState<{ cant: number; kg: number } | null>(null);
+  const cargar = useCallback(() => {
+    Promise.all([listLibroPmp(), listProcedenciasPmp(), listCierresCasiteritaPmp()])
+      .then(([m, p, c]) => { const r = cierresPorPasar(c, m, p); setN({ cant: r.length, kg: r.reduce((a, x) => a + x.kg, 0) }); })
+      .catch(() => setN(null)); // sin la tabla o sin permiso: no avisa
+  }, []);
+  useEffect(() => { cargar(); }, [cargar]);
+  useRealtime(['casiterita_libro', 'recepcion_cierres'], cargar);
+  if (!n || !n.cant) return null;
+  return (
+    <div className="card" style={{ borderLeft: '3px solid var(--warning)', marginBottom: '.8rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap', fontSize: '.86rem' }}>
+      <span>📥 <strong>{n.cant} cierre(s) de recepción</strong> ({kgTxt(n.kg)}) entraron casiterita y faltan en el <strong>libro de promedios</strong>.</span>
+      <button className="btn btn-sm btn-primary" onClick={onAbrir}>Abrir el libro</button>
     </div>
   );
 }
@@ -356,6 +389,88 @@ function NuevoMovModal({ filas, procs, actorName, saldoGlobal, onClose, onGuarda
             <div><div className="muted">PMP queda</div><strong className="mono">{pmpTxt(despues.fin.pmp)}</strong></div>
           </div>
         )}
+      </div>
+    </Modal>
+  );
+}
+
+/* ───────── Fase 2 · Entradas desde los cierres de recepción ───────── */
+interface Edicion { usar: boolean; proc: string; pct: string; tasa: string }
+
+function DesdeRecepcionesModal({ propuestas, procs, filas, actorName, onClose, onGuardado }: {
+  propuestas: PropuestaEntrada[]; procs: ProcedenciaPmp[]; filas: FilaLibro[]; actorName: string | null; onClose: () => void; onGuardado: () => void;
+}) {
+  const [ed, setEd] = useState<Record<string, Edicion>>(() => Object.fromEntries(propuestas.map((p) => [p.cierre.id, {
+    usar: true, proc: p.procedencia?.clave ?? '', pct: String(p.pct).replace('.', ','), tasa: p.tasa ? String(p.tasa).replace('.', ',') : '',
+  }])));
+  const [guardando, setGuardando] = useState(false);
+  const set = (id: string, patch: Partial<Edicion>) => setEd((x) => ({ ...x, [id]: { ...x[id], ...patch } }));
+
+  const lineas = propuestas.map((p) => {
+    const e = ed[p.cierre.id] ?? { usar: false, proc: '', pct: '100', tasa: '' };
+    const proc = procs.find((x) => x.clave === e.proc) ?? null;
+    const pct = leerNumero(e.pct) ?? 0;
+    const tasa = leerNumero(e.tasa) ?? 0;
+    const mov = movDePropuesta(p, proc, pct, tasa);
+    const err = !e.usar ? null : !proc ? 'Elige la procedencia.' : errorNuevoMov(mov, filas);
+    const { kgMgg, costo } = calcularEntrada(p.kg, pct, tasa);
+    return { p, e, mov, err, kgMgg, costo };
+  });
+  const elegidas = lineas.filter((l) => l.e.usar);
+  const hayError = elegidas.some((l) => l.err);
+
+  async function guardar() {
+    if (!elegidas.length || hayError) return;
+    setGuardando(true);
+    try {
+      await crearMovsPmp(elegidas.map((l) => ({ m: l.mov, extra: { cierre_id: l.p.cierre.id, recepcion_numero: l.p.cierre.numero } })), actorName);
+      toast(`${elegidas.length} entrada(s) pasadas al libro.`, 'success');
+      onGuardado();
+    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
+    finally { setGuardando(false); }
+  }
+
+  return (
+    <Modal title="📥 Entradas desde los cierres de recepción" size="xl" onClose={onClose}
+      footer={<><button className="btn btn-ghost" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-primary" disabled={!elegidas.length || hayError || guardando} onClick={() => void guardar()}>{guardando ? 'Guardando…' : `💾 Pasar ${elegidas.length} al libro`}</button></>}>
+      <p className="hint muted" style={{ marginTop: 0 }}>
+        Cada cierre trae los kg que entraron al almacén de casiterita y su tasa final. La procedencia se reconoce por el nombre del grupo de recepción y de ahí sale el % MGG:
+        la parte MGG entra con costo (kg MGG × tasa) y el resto queda como resguardo. Revisa y ajusta antes de pasarlas: un cierre entra una sola vez.
+      </p>
+      <div className="table-wrap">
+        <table className="table" style={{ fontSize: '.8rem' }}>
+          <thead><tr>
+            <th /><th>Cierre</th><th>Fecha</th><th>Grupo de recepción</th><th style={{ textAlign: 'right' }}>Kg</th>
+            <th>Procedencia</th><th style={{ textAlign: 'right' }}>% MGG</th><th style={{ textAlign: 'right' }}>Tasa</th>
+            <th style={{ textAlign: 'right' }}>Kg MGG</th><th style={{ textAlign: 'right' }}>Resguardo</th><th style={{ textAlign: 'right' }}>Costo</th>
+          </tr></thead>
+          <tbody>
+            {lineas.map(({ p, e, err, kgMgg, costo }) => (
+              <tr key={p.cierre.id} style={{ opacity: e.usar ? 1 : 0.5 }}>
+                <td><input type="checkbox" checked={e.usar} onChange={(ev) => set(p.cierre.id, { usar: ev.target.checked })} /></td>
+                <td className="mono" style={{ fontWeight: 700 }}>#{p.cierre.numero}</td>
+                <td className="mono">{fechaTxt(p.fecha)}</td>
+                <td style={{ whiteSpace: 'normal' }}>{p.cierre.grupo_nombre ?? '—'}{err && <div style={{ color: 'var(--warning)', fontSize: '.72rem' }}>⚠ {err}</div>}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{numTxt(p.kg)}</td>
+                <td>
+                  <select className="select" style={{ width: 'auto', fontSize: '.78rem' }} value={e.proc} onChange={(ev) => {
+                    const pr = procs.find((x) => x.clave === ev.target.value);
+                    set(p.cierre.id, { proc: ev.target.value, ...(pr ? { pct: String(pr.pct_mgg).replace('.', ',') } : {}) });
+                  }}>
+                    <option value="">— Elegir —</option>
+                    {procs.filter((x) => x.activo).map((x) => <option key={x.clave} value={x.clave}>{x.clave} · {x.nombre}</option>)}
+                  </select>
+                </td>
+                <td><input className="input mono" style={{ width: 64, textAlign: 'right' }} value={e.pct} onChange={(ev) => set(p.cierre.id, { pct: ev.target.value })} /></td>
+                <td><input className="input mono" style={{ width: 80, textAlign: 'right' }} value={e.tasa} onChange={(ev) => set(p.cierre.id, { tasa: ev.target.value })} placeholder="tasa" /></td>
+                <td className="mono" style={{ textAlign: 'right' }}>{numTxt(kgMgg)}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{numTxt(p.kg - kgMgg)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{usdTxt(costo)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </Modal>
   );

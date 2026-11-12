@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
-  calcularLibro, calcularEntrada, errorNuevoMov, leerNumero, procedenciaDeGrupo, resumenPorMes, saldoAl, saldoFinal,
-  type MovPmp, type ProcedenciaPmp, type TipoMovPmp,
+  calcularLibro, calcularEntrada, cierresPorPasar, errorNuevoMov, leerNumero, movDePropuesta, procedenciaDeGrupo, resumenPorMes, saldoAl, saldoFinal,
+  type CierreRecepcionPmp, type MovPmp, type ProcedenciaPmp, type TipoMovPmp,
 } from './casiteritaPmp';
 
 /* Cifras inventadas (las reales del Excel se validan aparte, fuera del repositorio). */
@@ -87,5 +87,28 @@ describe('libro de promedios · entradas y validaciones', () => {
     expect(leerNumero('28000')).toBe(28000);
     expect(leerNumero('15,75')).toBe(15.75);
     expect(leerNumero('')).toBeNull();
+  });
+});
+
+describe('libro de promedios · fase 2 · cierres de recepción por pasar', () => {
+  const procs: ProcedenciaPmp[] = [{ clave: 'P-A', nombre: 'Aliado', pct_mgg: 50, patron: 'NAVIL', nota: null, activo: true }];
+  const cierre = (id: string, p: Partial<CierreRecepcionPmp>): CierreRecepcionPmp => ({
+    id, numero: 80, grupo_nombre: 'EL BURRO NAVIL', fecha: '2026-03-05T15:00:00Z', neto_seco: 1000, tasa_final: 12, almacen_neto: 'SNO₂ CASITERITA ALMACEN', ...p,
+  });
+  it('propone los cierres con casiterita, desde la apertura y que no estén ya en el libro', () => {
+    const movs = [...MOVS, mov(['2026-03-01', 'entrada', 'ya pasada', { kg_global: 500, kg_mgg: 500, costo: 1, cierre_id: 'ya' }], 50)];
+    const r = cierresPorPasar([
+      cierre('nuevo', {}),
+      cierre('ya', {}),
+      cierre('viejo', { fecha: '2025-12-20T12:00:00Z' }),
+      cierre('otro-almacen', { almacen_neto: 'GENERAL' }),
+      cierre('vacio', { neto_seco: 0 }),
+    ], movs, procs);
+    expect(r.map((x) => x.cierre.id)).toEqual(['nuevo']);
+    expect(r[0]).toMatchObject({ fecha: '2026-03-05', kg: 1000, pct: 50, tasa: 12, kgMgg: 500, costo: 6000 });
+    expect(r[0].procedencia?.clave).toBe('P-A');
+    const m = movDePropuesta(r[0], r[0].procedencia, 50, 12);
+    expect(m).toMatchObject({ tipo: 'entrada', kg_global: 1000, pct_mgg: 50, tasa: 12, procedencia: 'P-A' });
+    expect(m.descripcion).toBe('Recepción #80 · P-A Aliado');
   });
 });

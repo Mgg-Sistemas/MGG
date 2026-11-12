@@ -48,7 +48,7 @@ import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
 import { RecepcionesHistorialModal } from './RecepcionesHistorial';
 import { CasiteritaResumen, CasiteritaDetalleView } from './CasiteritaDetalleView';
-import { CasiteritaPmpView } from './CasiteritaPmpView';
+import { CasiteritaPmpView, AvisoCierresPorPasar } from './CasiteritaPmpView';
 import { ExportInventarioModal } from './ExportInventarioModal';
 import { ReporteInventarioMatanzasModal } from './ReporteInventarioMatanzasModal';
 import type { AmbitoInventarioMatanzas } from './reporteInventarioMatanzasDinamico';
@@ -1042,6 +1042,9 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       )}
 
       {/* ⛏ Casiterita: banner valorizado (Peso Casiterita × Tasa por centro/aliado) + botón al detalle. */}
+      {subVista === 'casiterita' && !casDetalleOpen && !casPmpOpen && sedeScope === 'LOS PINOS' && (
+        <AvisoCierresPorPasar onAbrir={() => setCasPmpOpen(true)} />
+      )}
       {subVista === 'casiterita' && !casDetalleOpen && !casPmpOpen && sedeScope && (
         <CasiteritaResumen onOpenDetalle={() => setCasDetalleOpen(true)}
           onOpenPmp={sedeScope === 'LOS PINOS' ? () => setCasPmpOpen(true) : undefined} />

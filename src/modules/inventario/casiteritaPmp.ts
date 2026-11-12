@@ -259,3 +259,59 @@ export const fechaTxt = (iso: string | null | undefined) => (iso ? `${iso.slice(
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 export const nombreMes = (ym: string) => { const [y, m] = ym.split('-'); return `${MESES[Number(m) - 1] ?? ym} ${y}`.replace(/^./, (c) => c.toUpperCase()); };
 export { fmt as numTxt };
+
+/* ───────── Fase 2 · Entradas desde los cierres de recepción ───────── */
+
+/** Lo que hace falta de un cierre de recepción (recepcion_cierres). */
+export interface CierreRecepcionPmp {
+  id: string;
+  numero: number;
+  grupo_nombre: string | null;
+  fecha: string;            // timestamp del cierre
+  neto_seco: number | null; // kg que entraron al almacén de casiterita
+  tasa_final: number | null;
+  almacen_neto: string | null;
+}
+
+export interface PropuestaEntrada {
+  cierre: CierreRecepcionPmp;
+  fecha: string;            // día del cierre (Venezuela)
+  procedencia: ProcedenciaPmp | null;
+  kg: number;
+  pct: number;
+  tasa: number;
+  kgMgg: number;
+  costo: number;
+}
+
+const diaVE = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Caracas' });
+
+/**
+ * Cierres de recepción que entraron casiterita al almacén y todavía no están en el
+ * libro: desde la apertura del libro, con kg, y sin un movimiento que los nombre.
+ */
+export function cierresPorPasar(cierres: CierreRecepcionPmp[], movs: MovPmp[], procs: ProcedenciaPmp[]): PropuestaEntrada[] {
+  const apertura = movs.find((m) => m.tipo === 'apertura')?.fecha ?? null;
+  const yaEnLibro = new Set(movs.map((m) => m.cierre_id).filter(Boolean) as string[]);
+  return cierres
+    .filter((c) => (Number(c.neto_seco) || 0) > 0 && /CASITERITA/i.test(c.almacen_neto ?? '') && !yaEnLibro.has(c.id))
+    .map((c) => {
+      const fecha = diaVE(c.fecha);
+      const p = procedenciaDeGrupo(c.grupo_nombre, procs);
+      const kg = Number(c.neto_seco) || 0;
+      const pct = p?.pct_mgg ?? 100;
+      const tasa = Number(c.tasa_final) || 0;
+      const { kgMgg, costo } = calcularEntrada(kg, pct, tasa);
+      return { cierre: c, fecha, procedencia: p, kg, pct, tasa, kgMgg, costo };
+    })
+    .filter((x) => !apertura || x.fecha >= apertura)
+    .sort((a, b) => (a.fecha < b.fecha ? -1 : a.fecha > b.fecha ? 1 : a.cierre.numero - b.cierre.numero));
+}
+
+/** El movimiento de entrada que propone un cierre. */
+export function movDePropuesta(p: PropuestaEntrada, procedencia: ProcedenciaPmp | null, pct: number, tasa: number): NuevoMovPmp {
+  return {
+    fecha: p.fecha, tipo: 'entrada', kg_global: p.kg, pct_mgg: pct, tasa, procedencia: procedencia?.clave ?? null,
+    descripcion: `Recepción #${p.cierre.numero} · ${procedencia ? `${procedencia.clave} ${procedencia.nombre}` : (p.cierre.grupo_nombre ?? 'sin procedencia')}`,
+  };
+}
