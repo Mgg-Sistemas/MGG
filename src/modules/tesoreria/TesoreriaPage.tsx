@@ -4770,6 +4770,13 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
   // Solo se exige comprobante si alguna OC tiene método indicado que lo requiera.
   // Las que están "esperando método" (sin método) se pagan directo, sin comprobante.
   const requiereComprobante = rows.some((r) => (r.orden.metodo_pago?.length ?? 0) > 0 && !pagoSinComprobante(r.orden.metodo_pago));
+  // Referencia del pago (12-11-2026): el lote sale de UNA billetera, así que se pide UNA sola
+  // (Bs → referencia bancaria · Binance → ID de la orden), y vale para todas las OC del lote.
+  const [refLote, setRefLote] = useState('');
+  const pideRefLote = referenciasRequeridas(rows.flatMap((r) => r.orden.metodo_pago ?? []), {
+    bs: monedaW === 'Bs', usdt: monedaW === 'USDT', noBs: monedaW !== 'Bs',
+  });
+  const tipoRefLote: 'bs' | 'binance' | null = pideRefLote.bs ? 'bs' : pideRefLote.binance ? 'binance' : null;
   const cuentaLabel = (c: string) => c === 'general' ? 'General' : c === 'juridica' ? 'Jurídica' : c === 'personal' ? 'Personal' : c;
 
   async function submit(e: FormEvent) {
@@ -4778,6 +4785,8 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
     if (faltaTasa) { setError('No hay tasa BCV para convertir a Bs.'); return; }
     if (!fondos) { setError(`Saldo insuficiente en ${monedaW}${wallet.cuenta !== 'general' ? ` (${cuentaLabel(wallet.cuenta)})` : ''}. Necesitás ${monto(totalWallet, monedaW)} y hay ${monto(saldoW, monedaW)}.`); return; }
     if (requiereComprobante && !factura) { setError('Adjuntá el comprobante (se aplica a todas las OC del lote).'); return; }
+    if (tipoRefLote) { const e = errorReferencia(refLote, tipoRefLote); if (e) { setError(e); return; } }
+    const referencias = tipoRefLote === 'bs' ? { bs: soloDigitos(refLote) } : tipoRefLote === 'binance' ? { binance: soloDigitos(refLote) } : null;
     setSaving(true);
     let ok = 0;
     try {
@@ -4790,6 +4799,7 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
           legs: [{ cuenta: wallet.cuenta as CuentaCaja, moneda: monedaW, monto: montoW, montoUsd: Number(r.montoAPagar) || 0 }],
           factura: requiereComprobante ? factura : null,
           motivoPago: `Pago en lote · ${rows.length} OC a ${proveedor}`,
+          referencias,
           gastoCategoria: gCatNombre, gastoSubcategoria: gSubNombre,
           actorEmail: actor, actorName,
         });
@@ -4898,6 +4908,15 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
           <div className="form-row">
             <label>Comprobante (se aplica a todas las OC del lote)</label>
             <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setFactura(e.target.files?.[0] ?? null)} />
+          </div>
+        )}
+
+        {tipoRefLote && (
+          <div className="form-row">
+            <label>{tipoRefLote === 'bs' ? 'Referencia del pago en Bs * (transferencia / pago móvil)' : 'ID de la orden de Binance *'}</label>
+            <input className="input mono" inputMode="numeric" maxLength={4} value={refLote} placeholder="Últimos 4 dígitos"
+              onChange={(e) => setRefLote(soloDigitos(e.target.value).slice(0, 4))} style={{ maxWidth: 180, letterSpacing: '.2em' }} />
+            <small className="hint muted">Los <strong>últimos 4 dígitos</strong>. Es una sola y vale para <strong>todas las OC del lote</strong>.</small>
           </div>
         )}
 
