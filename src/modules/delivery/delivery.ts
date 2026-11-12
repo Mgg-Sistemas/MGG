@@ -229,7 +229,7 @@ export function mensajeEntregado(
   ];
   const items = lineasItems(p);
   if (items.length) l.push('', `📦 *Productos (${items.length}):*`, ...items);
-  if (p.fotos_entrega?.length) l.push(`📷 *Foto entrega en almacén:* ${p.fotos_entrega.length}`);
+  if (p.fotos_entrega?.length) l.push(`📷 *Foto del producto:* ${p.fotos_entrega.length}`);
   if (inventario?.trim()) l.push(`📥 *Inventario:* ${inventario.trim()}`);
   if (nota?.trim()) l.push(`📝 *Nota:* ${nota.trim()}`);
   const t = minutosEntre(p.aceptado_en, cuando ?? new Date().toISOString());

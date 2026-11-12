@@ -346,6 +346,8 @@ function TarjetaPedido({
   const puedeVerMensaje = p.es_mio;
   // 02-11-2026: la tarjeta muestra cuántos productos son; la lista se abre con «Ver orden».
   const [verOrden, setVerOrden] = useState(false);
+  // 12-11-2026: las fotos van por segmentos (Factura / Foto del producto), una a la vez.
+  const [segFoto, setSegFoto] = useState<'recibo' | 'entrega'>('recibo');
 
   return (
     <article className={`dlv-card est-${claseEstado}${mioEnCurso ? ' mio' : ''}${p.urgente ? ' urgente' : ''}`}>
@@ -428,13 +430,22 @@ function TarjetaPedido({
 
       {/* Aceptar deja el pedido «en camino» (02-11-2026): las fotos al recibir se suben en camino.
           03-11: ya entregado, el delivery que lo llevó puede corregir sus fotos (agregar o quitar). */}
-      {(p.fotos_recibo.length > 0 || mioEnCurso || mioEntregado) && (
-        <FotosPedido p={p} tipo="recibo" puedeSubir={canWrite && (mioEnCurso || mioEntregado)}
-          puedeQuitar={canWrite && (mioEnCurso || mioEntregado)} onCambio={onFotos} />
-      )}
-      {(p.fotos_entrega.length > 0 || (mioEnCurso && p.estado === 'en_ruta') || mioEntregado) && (
-        <FotosPedido p={p} tipo="entrega" puedeSubir={canWrite && ((mioEnCurso && p.estado === 'en_ruta') || mioEntregado)}
-          puedeQuitar={canWrite && (mioEnCurso || mioEntregado)} onCambio={onFotos} />
+      {(p.fotos_recibo.length > 0 || p.fotos_entrega.length > 0 || mioEnCurso || mioEntregado) && (
+        <div className="dlv-fotos-seg">
+          <div className="dlv-chips" role="tablist" aria-label="Fotos del pedido">
+            {([['recibo', '🧾 Cargar factura', p.fotos_recibo.length], ['entrega', '📷 Cargar foto del producto', p.fotos_entrega.length]] as const).map(([k, label, n]) => (
+              <button key={k} type="button" role="tab" aria-selected={segFoto === k}
+                className={`dlv-chip${segFoto === k ? ' activo' : ''}`} onClick={() => setSegFoto(k)}>
+                <span>{label}</span> <span className="dlv-chip-n">{n}</span>
+              </button>
+            ))}
+          </div>
+          <FotosPedido key={segFoto} p={p} tipo={segFoto} puedeSubir={canWrite && (mioEnCurso || mioEntregado)}
+            puedeQuitar={canWrite && (mioEnCurso || mioEntregado)} onCambio={onFotos} />
+          <small className="muted">{segFoto === 'recibo'
+            ? 'La foto de la factura le llega a Compras (opcional).'
+            : 'La foto del producto queda en el pedido de delivery; no va a Compras.'}</small>
+        </div>
       )}
 
       <div className="dlv-acciones">
@@ -499,7 +510,7 @@ function FotosPedido({ p, tipo, puedeSubir, puedeQuitar = false, onCambio }: {
   const faltan = MAX_FOTOS_DELIVERY - fotos.length;
   // 11-11-2026: dos botones con nombre propio. La factura del delivery es opcional
   // y se ve en Compras (🧾 Factura → FACTURAS DELIVERY) cuando la orden está recibida.
-  const titulo = tipo === 'recibo' ? '🧾 CARGAR FACTURA' : '📷 CARGAR FOTO ENTREGA EN ALMACÉN';
+  const titulo = tipo === 'recibo' ? '🧾 CARGAR FACTURA' : '📷 CARGAR FOTO DEL PRODUCTO';
   const id = `dlv-fotos-${tipo}-${claveDe(p)}`;
 
   async function agregar(lista: FileList | null) {
@@ -713,7 +724,7 @@ function FormEntregar({ p, quien, onCancel, onHecho }: {
           placeholder="Ej.: lo recibió el almacenista; faltó un renglón" onChange={(e) => setNota(e.target.value)} />
       </div>
       {!p.fotos_entrega.length && (
-        <div className="aviso warning sm"><span className="aviso-icono">📷</span><div>Todavía no subiste la foto de la entrega en almacén. Puedes volver y cargarla antes de confirmar.</div></div>
+        <div className="aviso warning sm"><span className="aviso-icono">📷</span><div>Todavía no subiste la foto del producto. Puedes volver y cargarla en «📷 Cargar foto del producto» antes de confirmar.</div></div>
       )}
       <div className="surt-grid2">
         <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Volver</button>

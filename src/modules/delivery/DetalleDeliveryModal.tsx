@@ -193,7 +193,7 @@ export function DetalleDeliveryModal({ repartidor, filas, desde, hasta, destinos
                             <div>
                               <div className="card-title" style={{ fontSize: '.85rem' }}>🧾 Factura ({d.fotos_recibo.length})</div>
                               <Miniaturas fotos={d.fotos_recibo} />
-                              <div className="card-title" style={{ fontSize: '.85rem', marginTop: '.5rem' }}>📷 Entrega en almacén ({d.fotos_entrega.length})</div>
+                              <div className="card-title" style={{ fontSize: '.85rem', marginTop: '.5rem' }}>📷 Foto del producto ({d.fotos_entrega.length})</div>
                               <Miniaturas fotos={d.fotos_entrega} />
                             </div>
                             <div>

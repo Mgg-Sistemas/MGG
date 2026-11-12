@@ -103,9 +103,6 @@ export function FacturasOrdenModal({ orden, onClose }: { orden: Orden; onClose: 
         <>
           <Bloque titulo="🛵 FACTURAS DELIVERY" archivos={data.delivery} oc={oc}
             vacio="El delivery no cargó factura (es opcional)." />
-          {data.entregaDelivery.length > 0 && (
-            <Bloque titulo="📷 FOTOS ENTREGA EN ALMACÉN (delivery)" archivos={data.entregaDelivery} oc={oc} vacio="" />
-          )}
           <Bloque titulo="🏬 FACTURAS ALMACÉN" archivos={data.almacen} oc={oc}
             vacio="El almacén no cargó factura en la recepción (las recepciones anteriores al 11-11-2026 no la pedían)." />
           {data.alFinalizar && (

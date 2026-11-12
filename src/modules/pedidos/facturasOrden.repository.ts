@@ -30,8 +30,6 @@ export interface ArchivoFactura {
 
 export interface FacturasDeOrden {
   delivery: ArchivoFactura[];
-  /** Fotos de la entrega en almacén que subió el delivery (12-11-2026). */
-  entregaDelivery: ArchivoFactura[];
   almacen: ArchivoFactura[];
   /** La factura que se adjuntó al finalizar la OC (si hay). */
   alFinalizar: ArchivoFactura | null;
@@ -95,14 +93,14 @@ export async function facturasDeOrden(o: Pick<Orden, 'id' | 'facturas_almacen' |
     const { data } = await supabase.from('ordenes').select('facturas_delivery').eq('id', o.id).maybeSingle();
     copia = Array.isArray(data?.facturas_delivery) ? (data.facturas_delivery as NonNullable<Orden['facturas_delivery']>) : [];
   }
-  const firmarDelivery = (tipo: 'factura' | 'entrega') => Promise.all(copia!.filter((f) => f.tipo === tipo).map(async (f) => ({
+  // A Compras solo le llega la FACTURA del delivery (12-11-2026); la foto del producto se queda en Delivery.
+  const firmarDelivery = (tipo: 'factura') => Promise.all(copia!.filter((f) => f.tipo === tipo).map(async (f) => ({
     path: f.path, filename: f.filename || 'foto.jpg', url: await firmar(BUCKET_DELIVERY, f.path),
     esPdf: esPdf(f.filename || ''), detalle: f.quien ? `Delivery: ${f.quien}` : null,
   })));
   const almacen = Array.isArray(o.facturas_almacen) ? o.facturas_almacen : [];
-  const [delivery, entregaDelivery, alm, fin] = await Promise.all([
+  const [delivery, alm, fin] = await Promise.all([
     firmarDelivery('factura'),
-    firmarDelivery('entrega'),
     Promise.all(almacen.map(async (f) => ({
       path: f.path, filename: f.filename || 'factura', url: await firmar(BUCKET_OC, f.path),
       esPdf: esPdf(f.filename || f.path), detalle: f.por ? `Almacén: ${f.por}` : null,
@@ -115,7 +113,7 @@ export async function facturasDeOrden(o: Pick<Orden, 'id' | 'facturas_almacen' |
       : Promise.resolve(null),
   ]);
   return {
-    delivery: delivery.filter((f) => f.url), entregaDelivery: entregaDelivery.filter((f) => f.url),
+    delivery: delivery.filter((f) => f.url),
     almacen: alm.filter((f) => f.url), alFinalizar: fin && fin.url ? fin : null,
   };
 }

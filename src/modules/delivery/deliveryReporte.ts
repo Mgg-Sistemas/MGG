@@ -78,7 +78,7 @@ export function fichaComprobanteDelivery(p: PedidoDelivery, ver: VerAlmacen = ta
     if (limpio(p.detalle_cancel)) f.push(['Detalle', limpio(p.detalle_cancel)]);
   }
   if (limpio(p.nota_entrega)) f.push(['Nota de entrega', limpio(p.nota_entrega)]);
-  f.push(['Fotos', `${p.fotos_recibo?.length ?? 0} de factura · ${p.fotos_entrega?.length ?? 0} de entrega en almacén`]);
+  f.push(['Fotos', `${p.fotos_recibo?.length ?? 0} de factura · ${p.fotos_entrega?.length ?? 0} del producto`]);
   return f;
 }
 

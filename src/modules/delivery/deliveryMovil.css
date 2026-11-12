@@ -244,3 +244,7 @@
 .dlv-linea .paso.fin { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); font-weight: 700; }
 .dlv-linea .paso.cancel { background: color-mix(in srgb, var(--danger) 13%, transparent); color: var(--danger); font-weight: 700; }
 .dlv-linea .flecha { color: var(--text-muted); font-size: .75rem; }
+
+/* 12-11-2026 · Fotos del pedido por segmentos (Factura / Foto del producto) */
+.dlv-fotos-seg { display: grid; gap: .35rem; margin: .4rem 0; }
+.dlv-fotos-seg .dlv-chips { margin-bottom: 0; }

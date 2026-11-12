@@ -1080,8 +1080,8 @@ export interface Orden {
   factura_nombre?: string | null;
   /** Facturas que cargó el almacenista al recepcionar (11-11-2026), bucket compras-oc. */
   facturas_almacen?: Array<{ path: string; filename: string; at?: string | null; por?: string | null }> | null;
-  /** Copia de las fotos del delivery (12-11-2026, trigger desde delivery_pedidos), bucket delivery-fotos. */
-  facturas_delivery?: Array<{ path: string; filename: string; tipo: 'factura' | 'entrega'; quien?: string | null }> | null;
+  /** Copia de las FACTURAS que subió el delivery (12-11-2026, trigger desde delivery_pedidos.fotos_recibo), bucket delivery-fotos. */
+  facturas_delivery?: Array<{ path: string; filename: string; tipo: 'factura'; quien?: string | null }> | null;
   factura_recepcion_path?: string | null;
   factura_recepcion_nombre?: string | null;
   retencion_aplicada?: boolean | null;
