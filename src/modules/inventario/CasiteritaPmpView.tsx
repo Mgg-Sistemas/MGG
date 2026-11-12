@@ -9,24 +9,27 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
   BADGE_TIPO, ETIQUETA_TIPO, calcularEntrada, calcularLibro, errorNuevoMov, fechaTxt, hoyVE, kgTxt, leerNumero, mesDe,
-  nombreMes, pctTxt, pmpTxt, resumenPorMes, saldoFinal, usdTxt, numTxt, cierresPorPasar, movDePropuesta, coladasPorPasar,
-  type CierreRecepcionPmp, type ColadaCas, type FilaLibro, type MovPmp, type NuevoMovPmp, type ProcedenciaPmp, type PropuestaEntrada, type TipoMovPmp,
+  nombreMes, pctTxt, pmpTxt, resumenPorMes, saldoFinal, usdTxt, numTxt, cierresPorPasar, movDePropuesta, coladasPorPasar, cerradoHasta,
+  type CierreMesPmp, type CierreRecepcionPmp, type ColadaCas, type FilaLibro, type MovPmp, type NuevoMovPmp, type ProcedenciaPmp, type PropuestaEntrada, type TipoMovPmp,
 } from './casiteritaPmp';
 import {
   borrarMovPmp, crearMovPmp, crearMovsPmp, faltaTabla, guardarProcedenciaPmp, listCierresCasiteritaPmp, listLibroPmp, listProcedenciasPmp,
-  listColadasCasiterita, listColadasCubiertas,
+  listColadasCasiterita, listColadasCubiertas, listCierresPmp,
 } from './casiteritaPmp.repository';
 import { ExportacionesCasiterita, FundicionColadasModal } from './CasiteritaExportaciones';
+import { CierresCasiterita, ConteoCasiterita, SimuladorCasiterita } from './CasiteritaCierres';
 
-type Pestana = 'tablero' | 'libro' | 'exportaciones' | 'procedencias';
+type Pestana = 'tablero' | 'libro' | 'exportaciones' | 'cierres' | 'conteo' | 'simulador' | 'procedencias';
 
 interface Props {
   actorName: string | null;
   canWrite: boolean;
+  /** Reabrir un mes cerrado: solo administrador (la base lo vuelve a validar). */
+  esAdmin?: boolean;
   onClose: () => void;
 }
 
-export function CasiteritaPmpView({ actorName, canWrite, onClose }: Props) {
+export function CasiteritaPmpView({ actorName, canWrite, esAdmin = false, onClose }: Props) {
   const [movs, setMovs] = useState<MovPmp[]>([]);
   const [procs, setProcs] = useState<ProcedenciaPmp[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -39,6 +42,8 @@ export function CasiteritaPmpView({ actorName, canWrite, onClose }: Props) {
   const [coladas, setColadas] = useState<ColadaCas[]>([]);
   const [cubiertas, setCubiertas] = useState<Set<string> | null>(null);
   const [fundicion, setFundicion] = useState(false);
+  const [cierresMes, setCierresMes] = useState<CierreMesPmp[]>([]);
+  const [sinCierres, setSinCierres] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
@@ -47,17 +52,21 @@ export function CasiteritaPmpView({ actorName, canWrite, onClose }: Props) {
       // Fase 3: coladas que quemaron casiterita y qué salidas a fundición las cubren (sin la tabla: no avisa).
       const [co, cu] = await Promise.all([listColadasCasiterita().catch(() => [] as ColadaCas[]), listColadasCubiertas().catch(() => null)]);
       setColadas(co); setCubiertas(cu ? new Set(cu.keys()) : null);
+      // Fase 4: meses cerrados (sin la tabla: el libro funciona sin cierres).
+      try { setCierresMes(await listCierresPmp()); setSinCierres(false); }
+      catch (e) { setCierresMes([]); setSinCierres(faltaTabla(e)); }
     } catch (e) {
       if (faltaTabla(e)) setSinTablas(true);
       else setError(e instanceof Error ? e.message : 'No se pudo leer el libro.');
     } finally { setCargando(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['casiterita_libro', 'casiterita_procedencias_pmp', 'recepcion_cierres', 'casiterita_fundicion_coladas', 'produccion_colada'], () => { void cargar(); }, { enabled: !sinTablas });
+  useRealtime(['casiterita_libro', 'casiterita_procedencias_pmp', 'recepcion_cierres', 'casiterita_fundicion_coladas', 'produccion_colada', 'casiterita_cierres_pmp'], () => { void cargar(); }, { enabled: !sinTablas });
 
   const filas = useMemo(() => calcularLibro(movs), [movs]);
   const saldo = useMemo(() => saldoFinal(filas), [filas]);
   const porPasar = useMemo(() => cierresPorPasar(cierres, movs, procs), [cierres, movs, procs]);
+  const hasta = useMemo(() => cerradoHasta(cierresMes), [cierresMes]);
   const coladasPend = useMemo(() => (cubiertas ? coladasPorPasar(coladas, cubiertas, filas) : []), [coladas, cubiertas, filas]);
 
   return (
@@ -102,25 +111,31 @@ export function CasiteritaPmpView({ actorName, canWrite, onClose }: Props) {
             <button className={tab === 'tablero' ? 'active' : ''} onClick={() => setTab('tablero')}>📊 Tablero</button>
             <button className={tab === 'libro' ? 'active' : ''} onClick={() => setTab('libro')}>📒 Libro</button>
             <button className={tab === 'exportaciones' ? 'active' : ''} onClick={() => setTab('exportaciones')}>🚢 Exportaciones</button>
+            <button className={tab === 'cierres' ? 'active' : ''} onClick={() => setTab('cierres')}>🗓 Cierres y reportes</button>
+            <button className={tab === 'conteo' ? 'active' : ''} onClick={() => setTab('conteo')}>⚖ Conteo físico</button>
+            <button className={tab === 'simulador' ? 'active' : ''} onClick={() => setTab('simulador')}>🧮 Simulador</button>
             <button className={tab === 'procedencias' ? 'active' : ''} onClick={() => setTab('procedencias')}>⚙ % MGG por procedencia</button>
           </div>
           {tab === 'tablero' && <Tablero filas={filas} />}
-          {tab === 'libro' && <Libro filas={filas} canWrite={canWrite} onCambio={cargar} />}
-          {tab === 'exportaciones' && <ExportacionesCasiterita filas={filas} canWrite={canWrite} onCambioLibro={() => { void cargar(); }} />}
+          {tab === 'libro' && <Libro filas={filas} canWrite={canWrite} hasta={hasta} onCambio={cargar} />}
+          {tab === 'exportaciones' && <ExportacionesCasiterita filas={filas} canWrite={canWrite} hasta={hasta} onCambioLibro={() => { void cargar(); }} />}
+          {tab === 'cierres' && <CierresCasiterita filas={filas} cierres={cierresMes} canWrite={canWrite} esAdmin={esAdmin} sinTablas={sinCierres} onCambio={() => { void cargar(); }} />}
+          {tab === 'conteo' && <ConteoCasiterita filas={filas} cierres={cierresMes} canWrite={canWrite} onCambio={() => { void cargar(); }} />}
+          {tab === 'simulador' && <SimuladorCasiterita filas={filas} />}
           {tab === 'procedencias' && <Procedencias procs={procs} canWrite={canWrite} actorName={actorName} onCambio={cargar} />}
         </>
       )}
 
       {fundicion && (
-        <FundicionColadasModal coladas={coladasPend} filas={filas}
+        <FundicionColadasModal coladas={coladasPend} filas={filas} hasta={hasta}
           onClose={() => setFundicion(false)} onGuardado={() => { setFundicion(false); void cargar(); }} />
       )}
       {desdeRecep && (
-        <DesdeRecepcionesModal propuestas={porPasar} procs={procs} filas={filas} actorName={actorName}
+        <DesdeRecepcionesModal propuestas={porPasar} procs={procs} filas={filas} hasta={hasta} actorName={actorName}
           onClose={() => setDesdeRecep(false)} onGuardado={() => { setDesdeRecep(false); void cargar(); }} />
       )}
       {nuevo && (
-        <NuevoMovModal filas={filas} procs={procs} actorName={actorName} saldoGlobal={saldo.global}
+        <NuevoMovModal filas={filas} procs={procs} hasta={hasta} actorName={actorName} saldoGlobal={saldo.global}
           onClose={() => setNuevo(false)} onGuardado={() => { setNuevo(false); void cargar(); }} />
       )}
     </div>
@@ -214,7 +229,7 @@ function Tablero({ filas }: { filas: FilaLibro[] }) {
 }
 
 /* ───────── Libro ───────── */
-function Libro({ filas, canWrite, onCambio }: { filas: FilaLibro[]; canWrite: boolean; onCambio: () => void }) {
+function Libro({ filas, canWrite, hasta, onCambio }: { filas: FilaLibro[]; canWrite: boolean; hasta: string | null; onCambio: () => void }) {
   const meses = useMemo(() => [...new Set(filas.map((f) => mesDe(f.fecha)))].reverse(), [filas]);
   const [mes, setMes] = useState<string>('');
   const [tipo, setTipo] = useState<TipoMovPmp | ''>('');
@@ -240,7 +255,7 @@ function Libro({ filas, canWrite, onCambio }: { filas: FilaLibro[]; canWrite: bo
         </select>
         <span className="muted" style={{ fontSize: '.8rem' }}>{vis.length} movimiento(s)</span>
       </div>
-      <TablaLibro filas={vis} onBorrar={canWrite ? setBorrar : undefined} />
+      <TablaLibro filas={vis} hasta={hasta} onBorrar={canWrite ? setBorrar : undefined} />
       {borrar && (
         <ConfirmDialog title="Borrar movimiento" danger confirmText="Borrar"
           message={`¿Borrar «${borrar.descripcion}» del ${fechaTxt(borrar.fecha)}? Los saldos y el PMP de lo que viene después se recalculan.`}
@@ -252,7 +267,7 @@ function Libro({ filas, canWrite, onCambio }: { filas: FilaLibro[]; canWrite: bo
 
 const signo = (v: number, d = 2) => (Math.abs(v) < 0.0005 ? '—' : `${v > 0 ? '+' : '−'}${numTxt(Math.abs(v), d)}`);
 
-export function TablaLibro({ filas, onBorrar }: { filas: FilaLibro[]; onBorrar?: (f: FilaLibro) => void }) {
+export function TablaLibro({ filas, onBorrar, hasta = null }: { filas: FilaLibro[]; onBorrar?: (f: FilaLibro) => void; hasta?: string | null }) {
   return (
     <div className="table-wrap">
       <table className="table" style={{ fontSize: '.8rem' }}>
@@ -285,7 +300,7 @@ export function TablaLibro({ filas, onBorrar }: { filas: FilaLibro[]; onBorrar?:
               <td className="mono" style={{ textAlign: 'right' }}>{usdTxt(f.C)}</td>
               <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{pmpTxt(f.pmp)}</td>
               {onBorrar && (
-                <td>{f.origen === 'sistema' && f.tipo !== 'apertura' && !f.lote_id
+                <td>{f.origen === 'sistema' && f.tipo !== 'apertura' && !f.lote_id && !(hasta && mesDe(f.fecha) <= hasta)
                   ? <button className="btn btn-sm btn-ghost" title="Borrar" onClick={() => onBorrar(f)}>🗑</button> : null}</td>
               )}
             </tr>
@@ -308,8 +323,8 @@ const TIPOS_MANUALES: { t: TipoManual; label: string; ayuda: string }[] = [
   { t: 'ajuste', label: '⚖ Ajuste', ayuda: 'Diferencia por repesaje o conteo físico: faltante (sale) o sobrante (entra) al PMP.' },
 ];
 
-function NuevoMovModal({ filas, procs, actorName, saldoGlobal, onClose, onGuardado }: {
-  filas: FilaLibro[]; procs: ProcedenciaPmp[]; actorName: string | null; saldoGlobal: number; onClose: () => void; onGuardado: () => void;
+function NuevoMovModal({ filas, procs, hasta, actorName, saldoGlobal, onClose, onGuardado }: {
+  filas: FilaLibro[]; procs: ProcedenciaPmp[]; hasta: string | null; actorName: string | null; saldoGlobal: number; onClose: () => void; onGuardado: () => void;
 }) {
   const [tipo, setTipo] = useState<TipoManual>('entrada');
   const [fecha, setFecha] = useState(hoyVE());
@@ -329,7 +344,7 @@ function NuevoMovModal({ filas, procs, actorName, saldoGlobal, onClose, onGuarda
   const mov: NuevoMovPmp = tipo === 'entrada'
     ? { fecha, tipo, descripcion: desc || (p ? `Entrada · ${p.clave} ${p.nombre}` : ''), kg_global: kgN, pct_mgg: leerNumero(pct), tasa: leerNumero(tasa), procedencia: proc || null }
     : { fecha, tipo, descripcion: desc, kg: tipo === 'ajuste' && sobra ? -kgN : kgN, afecta_mgg: tipo === 'merma' ? afecta : true };
-  const err = errorNuevoMov(mov, filas);
+  const err = errorNuevoMov(mov, filas, hasta);
 
   // Cómo queda el libro con este movimiento.
   const despues = useMemo(() => {
@@ -419,8 +434,8 @@ function NuevoMovModal({ filas, procs, actorName, saldoGlobal, onClose, onGuarda
 /* ───────── Fase 2 · Entradas desde los cierres de recepción ───────── */
 interface Edicion { usar: boolean; proc: string; pct: string; tasa: string }
 
-function DesdeRecepcionesModal({ propuestas, procs, filas, actorName, onClose, onGuardado }: {
-  propuestas: PropuestaEntrada[]; procs: ProcedenciaPmp[]; filas: FilaLibro[]; actorName: string | null; onClose: () => void; onGuardado: () => void;
+function DesdeRecepcionesModal({ propuestas, procs, filas, hasta, actorName, onClose, onGuardado }: {
+  propuestas: PropuestaEntrada[]; procs: ProcedenciaPmp[]; filas: FilaLibro[]; hasta: string | null; actorName: string | null; onClose: () => void; onGuardado: () => void;
 }) {
   const [ed, setEd] = useState<Record<string, Edicion>>(() => Object.fromEntries(propuestas.map((p) => [p.cierre.id, {
     usar: true, proc: p.procedencia?.clave ?? '', pct: String(p.pct).replace('.', ','), tasa: p.tasa ? String(p.tasa).replace('.', ',') : '',
@@ -434,7 +449,7 @@ function DesdeRecepcionesModal({ propuestas, procs, filas, actorName, onClose, o
     const pct = leerNumero(e.pct) ?? 0;
     const tasa = leerNumero(e.tasa) ?? 0;
     const mov = movDePropuesta(p, proc, pct, tasa);
-    const err = !e.usar ? null : !proc ? 'Elige la procedencia.' : errorNuevoMov(mov, filas);
+    const err = !e.usar ? null : !proc ? 'Elige la procedencia.' : errorNuevoMov(mov, filas, hasta);
     const { kgMgg, costo } = calcularEntrada(p.kg, pct, tasa);
     return { p, e, mov, err, kgMgg, costo };
   });

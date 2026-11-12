@@ -154,6 +154,8 @@ export function resumenPorMes(filas: FilaLibro[]): ResumenMes[] {
       actual = { mes, apertura: previo, cierre: previo, entradasKg: 0, entradasCosto: 0, salidasKg: 0, salidasCosto: 0, exportadoKg: 0, movimientos: 0 };
     }
     actual.movimientos += 1;
+    // El mes de la apertura «abre» con el saldo inicial, no con cero.
+    if (f.tipo === 'apertura') actual.apertura = saldoDe(f);
     if (f.tipo !== 'apertura') {
       if (f.dG >= 0) { actual.entradasKg += f.dG; actual.entradasCosto += f.dC; }
       else { actual.salidasKg += -f.dG; actual.salidasCosto += -f.dC; }
@@ -210,8 +212,10 @@ export interface NuevoMovPmp {
   procedencia?: string | null;
 }
 
-export function errorNuevoMov(m: NuevoMovPmp, filas: FilaLibro[]): string | null {
+export function errorNuevoMov(m: NuevoMovPmp, filas: FilaLibro[], cerradoHastaMes: string | null = null): string | null {
   if (!m.fecha) return 'Indica la fecha.';
+  const cerrado = errorMesCerrado(m.fecha, cerradoHastaMes);
+  if (cerrado) return cerrado;
   const ap = filas.find((f) => f.tipo === 'apertura');
   if (ap && m.fecha < ap.fecha) return `El libro abre el ${fechaTxt(ap.fecha)}: no se cargan movimientos anteriores.`;
   if (!m.descripcion?.trim()) return 'Escribe una descripción.';
@@ -241,8 +245,11 @@ export function errorNuevoMov(m: NuevoMovPmp, filas: FilaLibro[]): string | null
 export function leerNumero(v: string | number | null | undefined): number | null {
   const t = String(v ?? '').trim().replace(/\s/g, '');
   if (!t) return null;
-  if (/^-?\d+([.,]\d+)?$/.test(t)) return Number(t.replace(',', '.'));
-  const x = Number(t.replace(/\./g, '').replace(',', '.'));
+  // Con coma: la coma es el decimal y los puntos, miles («1.431,5»).
+  // Sin coma: puntos en grupos de tres son miles («11.500» = 11500); si no, punto decimal («15.75»).
+  const x = t.includes(',') ? Number(t.replace(/\./g, '').replace(',', '.'))
+    : /^-?\d{1,3}(\.\d{3})+$/.test(t) ? Number(t.replace(/\./g, ''))
+      : Number(t);
   return Number.isFinite(x) ? x : null;
 }
 
@@ -406,8 +413,10 @@ export function simularLote(n: NuevoLote, filas: FilaLibro[]): { lote: FilaLibro
   return lote ? { lote, fin: saldoFinal(f) } : null;
 }
 
-export function errorNuevoLote(n: NuevoLote, filas: FilaLibro[]): string | null {
+export function errorNuevoLote(n: NuevoLote, filas: FilaLibro[], cerradoHastaMes: string | null = null): string | null {
   if (!n.fecha) return 'Indica la fecha.';
+  const cerrado = errorMesCerrado(n.fecha, cerradoHastaMes);
+  if (cerrado) return cerrado;
   const ap = filas.find((f) => f.tipo === 'apertura');
   if (ap && n.fecha < ap.fecha) return `El libro abre el ${fechaTxt(ap.fecha)}.`;
   if (!(n.kg > 0)) return 'Indica los kg del lote.';
@@ -442,4 +451,165 @@ export function coladasPorPasar(coladas: ColadaCas[], cubiertas: Set<string>, fi
   return coladas
     .filter((c) => c.kg > 0 && !cubiertas.has(c.id) && (!ap || !c.fecha || c.fecha >= ap))
     .sort((a, b) => a.colada_num - b.colada_num);
+}
+
+/* ───────── Fase 4 · Cierres, conteo, reportes y simulador ───────── */
+
+export interface CierreMesPmp {
+  mes: string;
+  kg_global: number;
+  kg_mgg: number;
+  costo: number;
+  pmp: number;
+  resguardo: number;
+  movimientos: number;
+  cerrado_por_name: string | null;
+  cerrado_en: string;
+}
+
+export interface ConteoPmp {
+  id: string;
+  fecha: string;
+  renglones: Array<{ descripcion: string; kg: number }>;
+  kg_fisico: number;
+  kg_libro: number;
+  diferencia: number;
+  ajuste_id: string | null;
+  nota: string | null;
+  actor_name: string | null;
+  created_at: string;
+}
+
+/** Último mes cerrado (AAAA-MM) o null. */
+export const cerradoHasta = (cierres: Pick<CierreMesPmp, 'mes'>[]): string | null =>
+  cierres.reduce<string | null>((m, c) => (!m || c.mes > m ? c.mes : m), null);
+
+/** Error si la fecha cae en un mes cerrado (o antes). */
+export function errorMesCerrado(fecha: string, hasta: string | null): string | null {
+  if (hasta && fecha && mesDe(fecha) <= hasta) return `El libro está cerrado hasta ${nombreMes(hasta)}: usa una fecha posterior.`;
+  return null;
+}
+
+/** Meses del libro que se pueden cerrar: terminados, después del último cierre, en orden. */
+export function mesesPorCerrar(filas: FilaLibro[], cierres: Pick<CierreMesPmp, 'mes'>[], hoy: string): string[] {
+  const hasta = cerradoHasta(cierres);
+  const actual = mesDe(hoy);
+  const ap = filas.find((f) => f.tipo === 'apertura');
+  if (!ap) return [];
+  const out: string[] = [];
+  let [y, m] = mesDe(ap.fecha).split('-').map(Number);
+  for (;;) {
+    const ym = `${y}-${String(m).padStart(2, '0')}`;
+    if (ym >= actual) break;
+    if (!hasta || ym > hasta) out.push(ym);
+    m += 1; if (m > 12) { m = 1; y += 1; }
+  }
+  return out;
+}
+
+/** Último día (AAAA-MM-DD) de un mes AAAA-MM. */
+export function finDeMes(ym: string): string {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${ym}-${String(d).padStart(2, '0')}`;
+}
+
+/** Mes anterior de AAAA-MM. */
+export function mesAnterior(ym: string): string {
+  let [y, m] = ym.split('-').map(Number);
+  m -= 1; if (m < 1) { m = 12; y -= 1; }
+  return `${y}-${String(m).padStart(2, '0')}`;
+}
+
+/** Un renglón del reporte «Cierre de promedios» (mismo orden de columnas que el Excel). */
+export interface FilaCierreRep {
+  clase: 'saldo' | 'mov' | 'promedio';
+  fecha: string | null;
+  recepcion: number | null;
+  descripcion: string;
+  global: number;           // mov: Δ global · saldo/promedio: saldo global
+  pctExportado: number | null;
+  mgg: number;              // mov: Δ MGG · saldo/promedio: inventario MGG
+  costoProm: number | null; // mov: tasa (entrada) o PMP aplicado · saldo/promedio: PMP
+  costoTotal: number;       // mov: Δ costo · saldo/promedio: costo MGG
+  resguardo: number;        // mov: Δ resguardo · saldo/promedio: resguardo
+  tipo: TipoMovPmp | null;
+}
+
+export function filasCierrePromedio(filas: FilaLibro[], mes: string): FilaCierreRep[] {
+  const out: FilaCierreRep[] = [];
+  const del = filas.filter((f) => mesDe(f.fecha) === mes);
+  const previo = saldoAl(filas, `${mesAnterior(mes)}-31`);
+  const tieneApertura = del.some((f) => f.tipo === 'apertura');
+  if (!tieneApertura) {
+    out.push({
+      clase: 'saldo', fecha: `${mes}-01`, recepcion: null, descripcion: `Saldos ${nombreMes(mesAnterior(mes))}`,
+      global: previo.global, pctExportado: null, mgg: previo.mgg, costoProm: previo.pmp, costoTotal: previo.costo, resguardo: previo.resguardo, tipo: null,
+    });
+  }
+  let i = 0;
+  while (i < del.length) {
+    const dia = del[i].fecha;
+    while (i < del.length && del[i].fecha === dia) {
+      const f = del[i];
+      const entrada = f.tipo === 'apertura' || f.tipo === 'entrada';
+      out.push({
+        clase: f.tipo === 'apertura' ? 'saldo' : 'mov', fecha: f.fecha, recepcion: f.recepcion_numero, descripcion: f.descripcion,
+        global: f.dG, pctExportado: f.tipo === 'exportacion' ? f.pct : null, mgg: f.dM,
+        costoProm: entrada ? (f.dM > 0 ? f.dC / f.dM : null) : f.tipo === 'recuperacion' ? 0 : f.pmpAntes,
+        costoTotal: f.dC, resguardo: f.dResg, tipo: f.tipo,
+      });
+      i += 1;
+    }
+    const u = del[i - 1];
+    out.push({
+      clase: 'promedio', fecha: null, recepcion: null, descripcion: 'PROMEDIO', global: u.G, pctExportado: null, mgg: u.M,
+      costoProm: u.pmp, costoTotal: u.C, resguardo: u.resguardo, tipo: null,
+    });
+  }
+  return out;
+}
+
+/* Simulador: qué deja un lote vendido con la ley y el precio del día. */
+export interface EntradaSimulador {
+  kg: number;
+  ley: number;            // % Sn (SGS)
+  precioTonSn: number;    // $ por tonelada de estaño contenido
+  deduccionPct: number;   // TC/RC, fletes, etc.
+}
+
+export interface ResultadoSimulador {
+  alcanza: boolean;
+  pct: number;
+  snKg: number;
+  bruto: number;
+  neto: number;
+  kgMgg: number;
+  kgResguardo: number;
+  costoMgg: number;
+  ingresoMgg: number;
+  valorResguardo: number;
+  margenMgg: number;
+  margenPct: number | null;
+  /** Precio por tonelada de Sn con el que MGG no gana ni pierde. */
+  precioEquilibrio: number | null;
+}
+
+export function simularVenta(e: EntradaSimulador, s: Saldo): ResultadoSimulador {
+  const kg = Math.max(0, n(e.kg));
+  const pct = s.global > 0 ? Math.min(1, kg / s.global) : 0;
+  const snKg = (kg * n(e.ley)) / 100;
+  const bruto = (snKg / 1000) * n(e.precioTonSn);
+  const neto = bruto * (1 - n(e.deduccionPct) / 100);
+  const kgMgg = s.mgg * pct;
+  const costoMgg = kgMgg * s.pmp;
+  const parte = kg > 0 ? kgMgg / kg : 0;
+  const ingresoMgg = neto * parte;
+  const margenMgg = ingresoMgg - costoMgg;
+  const factor = (snKg / 1000) * (1 - n(e.deduccionPct) / 100) * parte;
+  return {
+    alcanza: kg <= s.global + 0.001, pct, snKg, bruto, neto, kgMgg, kgResguardo: kg - kgMgg, costoMgg, ingresoMgg,
+    valorResguardo: neto - ingresoMgg, margenMgg, margenPct: ingresoMgg > 0 ? margenMgg / ingresoMgg : null,
+    precioEquilibrio: factor > 0 ? costoMgg / factor : null,
+  };
 }

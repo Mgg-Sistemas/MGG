@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   calcularLibro, calcularEntrada, calcularLotes, cierresPorPasar, coladasPorPasar, errorNuevoLote, errorNuevoMov, leerNumero, movDePropuesta,
-  procedenciaDeGrupo, resumenPorMes, saldoAl, saldoFinal, simularLote,
+  procedenciaDeGrupo, resumenPorMes, saldoAl, saldoFinal, simularLote, mesesPorCerrar, finDeMes, errorMesCerrado, filasCierrePromedio, simularVenta,
   type CierreRecepcionPmp, type ColadaCas, type LoteCas, type MovPmp, type ProcedenciaPmp, type TipoMovPmp,
 } from './casiteritaPmp';
+import { construirExcelLibro } from './casiteritaPmpReportes';
 
 /* Cifras inventadas (las reales del Excel se validan aparte, fuera del repositorio). */
 type S = [string, TipoMovPmp, string, Partial<MovPmp>];
@@ -87,6 +88,13 @@ describe('libro de promedios · entradas y validaciones', () => {
     expect(leerNumero('1.431,5')).toBe(1431.5);
     expect(leerNumero('28000')).toBe(28000);
     expect(leerNumero('15,75')).toBe(15.75);
+    expect(leerNumero('11.500')).toBe(11500);
+    expect(leerNumero('28.000')).toBe(28000);
+    expect(leerNumero('1.234.567,8')).toBe(1234567.8);
+    expect(leerNumero('15.75')).toBe(15.75);
+    expect(leerNumero('66,4')).toBe(66.4);
+    expect(leerNumero('-3')).toBe(-3);
+    expect(leerNumero('abc')).toBeNull();
     expect(leerNumero('')).toBeNull();
   });
 });
@@ -152,5 +160,55 @@ describe('libro de promedios · fase 3 · lotes y fundición', () => {
     const c = (id: string, n: number, fecha: string | null, kg: number): ColadaCas => ({ id, colada_num: n, fecha, kg, bags: 1 });
     const r = coladasPorPasar([c('a', 3, '2026-02-01', 500), c('b', 1, '2026-02-01', 400), c('c', 2, '2025-12-01', 300), c('d', 4, '2026-02-01', 0), c('e', 5, '2026-02-02', 100)], new Set(['e']), filas);
     expect(r.map((x) => x.colada_num)).toEqual([1, 3]);
+  });
+});
+
+describe('libro de promedios · fase 4 · cierres, reporte y simulador', () => {
+  it('meses por cerrar: en orden, terminados y después del último cierre', () => {
+    expect(mesesPorCerrar(filas, [], '2026-04-15')).toEqual(['2026-01', '2026-02', '2026-03']);
+    expect(mesesPorCerrar(filas, [{ mes: '2026-01' }], '2026-04-15')).toEqual(['2026-02', '2026-03']);
+    expect(mesesPorCerrar(filas, [{ mes: '2026-01' }], '2026-02-10')).toEqual([]);
+    expect(finDeMes('2026-02')).toBe('2026-02-28');
+    expect(errorMesCerrado('2026-01-31', '2026-01')).toMatch(/cerrado/);
+    expect(errorMesCerrado('2026-02-01', '2026-01')).toBeNull();
+    expect(errorNuevoMov({ fecha: '2026-01-20', tipo: 'muestra', descripcion: 'x', kg: 1 }, filas, '2026-01')).toMatch(/cerrado/);
+  });
+  it('el reporte «Cierre de promedios» abre con el saldo anterior y pone PROMEDIO después de cada día', () => {
+    const r = filasCierrePromedio(filas, '2026-02');
+    expect(r[0]).toMatchObject({ clase: 'saldo', descripcion: 'Saldos Enero 2026' });
+    expect(r[0].global).toBeCloseTo(saldoAl(filas, '2026-01-31').global, 6);
+    expect(r.map((x) => x.clase)).toEqual(['saldo', 'mov', 'promedio', 'mov', 'promedio']);
+    expect(r[2].global).toBeCloseTo(saldoAl(filas, '2026-02-02').global, 6);
+    const ene = filasCierrePromedio(filas, '2026-01');
+    expect(ene[0]).toMatchObject({ clase: 'saldo', descripcion: 'Saldo inicial' });
+    const lote = ene.find((x) => x.descripcion === 'Lote A')!;
+    expect(lote.pctExportado).toBeCloseTo(0.5, 10);
+    expect(lote.costoProm).toBeCloseTo(11.25, 10);
+  });
+  it('simulador: solo la parte MGG tiene costo; el resto es valor del resguardo', () => {
+    const s = { fecha: null, global: 20000, mgg: 10000, costo: 150000, pmp: 15, resguardo: 10000 };
+    const r = simularVenta({ kg: 10000, ley: 60, precioTonSn: 30000, deduccionPct: 10 }, s);
+    expect(r.pct).toBe(0.5);
+    expect(r.kgMgg).toBe(5000);
+    expect(r.costoMgg).toBe(75000);
+    expect(r.snKg).toBe(6000);
+    expect(r.bruto).toBe(180000);
+    expect(r.neto).toBeCloseTo(162000, 6);
+    expect(r.ingresoMgg).toBeCloseTo(81000, 6);
+    expect(r.valorResguardo).toBeCloseTo(81000, 6);
+    expect(r.margenMgg).toBeCloseTo(6000, 6);
+    expect(r.precioEquilibrio).toBeCloseTo(75000 / (6 * 0.9 * 0.5), 6);
+    expect(simularVenta({ kg: 30000, ley: 60, precioTonSn: 1, deduccionPct: 0 }, s).alcanza).toBe(false);
+  });
+  it('arma el Excel con una hoja por mes, el resumen y el libro', async () => {
+    const ExcelJS = (await import('exceljs')).default;
+    const bytes = await construirExcelLibro(filas, ['2026-01'], []);
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(bytes);
+    expect(wb.worksheets.map((w) => w.name)).toEqual(['Cierre Promedio Enero-26', 'Resumen por mes', 'Libro']);
+    const ws = wb.worksheets[0];
+    expect(String(ws.getCell(1, 1).value)).toContain('CIERRE DE PROMEDIOS');
+    expect(ws.getCell(3, 4).value).toBe('Peso Global (kg)');
+    expect(wb.getWorksheet('Libro')!.rowCount).toBe(filas.length + 1);
   });
 });

@@ -8,7 +8,7 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
-  CONTENEDOR_KG, calcularLotes, errorNuevoLote, fechaTxt, hoyVE, kgTxt, leerNumero, numTxt, pctTxt, pmpTxt, saldoFinal, simularLote, usdTxt,
+  CONTENEDOR_KG, calcularLotes, errorMesCerrado, errorNuevoLote, fechaTxt, hoyVE, kgTxt, leerNumero, numTxt, pctTxt, pmpTxt, saldoFinal, simularLote, usdTxt,
   type ColadaCas, type ExportacionCas, type FilaLibro, type LoteCalculado, type LoteCas,
 } from './casiteritaPmp';
 import {
@@ -19,10 +19,12 @@ import {
 interface Props {
   filas: FilaLibro[];
   canWrite: boolean;
+  /** Último mes cerrado (AAAA-MM): no se arman ni se deshacen lotes con esas fechas. */
+  hasta?: string | null;
   onCambioLibro: () => void;
 }
 
-export function ExportacionesCasiterita({ filas, canWrite, onCambioLibro }: Props) {
+export function ExportacionesCasiterita({ filas, canWrite, hasta = null, onCambioLibro }: Props) {
   const [expos, setExpos] = useState<ExportacionCas[]>([]);
   const [lotes, setLotes] = useState<LoteCas[]>([]);
   const [sinTablas, setSinTablas] = useState(false);
@@ -138,7 +140,7 @@ export function ExportacionesCasiterita({ filas, canWrite, onCambioLibro }: Prop
                       <td style={{ whiteSpace: 'nowrap' }}>
                         {canWrite && l.estado === 'galpon' && <button className="btn btn-sm btn-primary" onClick={() => setDespachar(l)}>🚢 Despachar</button>}
                         {canWrite && <button className="btn btn-sm btn-ghost" title="Ley SGS, informe y precintos" onClick={() => setSgs(l)}>🧪</button>}
-                        {canWrite && l.estado === 'galpon' && !l.delExcel && <button className="btn btn-sm btn-ghost" title="Deshacer el lote (armado por error)" onClick={() => setDeshacer(l)}>↩</button>}
+                        {canWrite && l.estado === 'galpon' && !l.delExcel && !errorMesCerrado(l.fecha, hasta) && <button className="btn btn-sm btn-ghost" title="Deshacer el lote (armado por error)" onClick={() => setDeshacer(l)}>↩</button>}
                       </td>
                     </tr>
                   ))}
@@ -150,7 +152,7 @@ export function ExportacionesCasiterita({ filas, canWrite, onCambioLibro }: Prop
       })}
       {!exposAnio.length && <div className="card muted" style={{ textAlign: 'center' }}>No hay exportaciones {anio ? `en ${anio}` : ''}.</div>}
 
-      {armar && <ArmarLoteModal filas={filas} expos={expos} lotes={calc} onClose={() => setArmar(false)} onGuardado={() => { setArmar(false); void cargar(); onCambioLibro(); }} />}
+      {armar && <ArmarLoteModal filas={filas} expos={expos} lotes={calc} hasta={hasta} onClose={() => setArmar(false)} onGuardado={() => { setArmar(false); void cargar(); onCambioLibro(); }} />}
       {despachar && <DespacharModal lote={despachar} onClose={() => setDespachar(null)} onGuardado={() => { setDespachar(null); void cargar(); }} />}
       {sgs && <SgsModal lote={sgs} onClose={() => setSgs(null)} onGuardado={() => { setSgs(null); void cargar(); }} />}
       {deshacer && (
@@ -163,8 +165,8 @@ export function ExportacionesCasiterita({ filas, canWrite, onCambioLibro }: Prop
 }
 
 /* ───────── Armar lote ───────── */
-function ArmarLoteModal({ filas, expos, lotes, onClose, onGuardado }: {
-  filas: FilaLibro[]; expos: ExportacionCas[]; lotes: LoteCalculado[]; onClose: () => void; onGuardado: () => void;
+function ArmarLoteModal({ filas, expos, lotes, hasta, onClose, onGuardado }: {
+  filas: FilaLibro[]; expos: ExportacionCas[]; lotes: LoteCalculado[]; hasta: string | null; onClose: () => void; onGuardado: () => void;
 }) {
   const saldo = saldoFinal(filas);
   // Exportaciones que todavía tienen lotes en el galpón: a esas se les puede sumar otro contenedor.
@@ -185,7 +187,7 @@ function ArmarLoteModal({ filas, expos, lotes, onClose, onGuardado }: {
   const [guardando, setGuardando] = useState(false);
 
   const n = { fecha, kg: leerNumero(kg) ?? 0, muestras: leerNumero(muestras) ?? 0, merma: leerNumero(merma) ?? 0, motivo };
-  const err = errorNuevoLote(n, filas);
+  const err = errorNuevoLote(n, filas, hasta);
   const sim = err ? null : simularLote(n, filas);
   const leyN = leerNumero(ley);
   const errLey = leyN != null && (leyN <= 0 || leyN > 100) ? 'La ley SGS va entre 0 y 100 %.' : null;
@@ -315,8 +317,8 @@ function SgsModal({ lote, onClose, onGuardado }: { lote: LoteCalculado; onClose:
 }
 
 /* ───────── Fundición desde las coladas ───────── */
-export function FundicionColadasModal({ coladas, filas, onClose, onGuardado }: {
-  coladas: ColadaCas[]; filas: FilaLibro[]; onClose: () => void; onGuardado: () => void;
+export function FundicionColadasModal({ coladas, filas, hasta = null, onClose, onGuardado }: {
+  coladas: ColadaCas[]; filas: FilaLibro[]; hasta?: string | null; onClose: () => void; onGuardado: () => void;
 }) {
   const [sel, setSel] = useState<Set<string>>(() => new Set(coladas.map((c) => c.id)));
   const elegidas = coladas.filter((c) => sel.has(c.id));
@@ -331,7 +333,7 @@ export function FundicionColadasModal({ coladas, filas, onClose, onGuardado }: {
   const [guardando, setGuardando] = useState(false);
   const kgN = leerNumero(kg) ?? 0;
   const s = saldoFinal(filas);
-  const err = !elegidas.length ? 'Elige al menos una colada.' : !(kgN > 0) ? 'Indica los kg.' : kgN > Math.min(s.global, s.mgg) + 0.001 ? `No hay tanto: saldo global ${kgTxt(s.global)}, inventario MGG ${kgTxt(s.mgg)}.` : !fecha ? 'Indica la fecha.' : null;
+  const err = errorMesCerrado(fecha, hasta) ?? (!elegidas.length ? 'Elige al menos una colada.' : !(kgN > 0) ? 'Indica los kg.' : kgN > Math.min(s.global, s.mgg) + 0.001 ? `No hay tanto: saldo global ${kgTxt(s.global)}, inventario MGG ${kgTxt(s.mgg)}.` : !fecha ? 'Indica la fecha.' : null);
   const descFinal = desc.trim() || `Material para fundición Matanzas · colada${nums.length > 1 ? 's' : ''} ${nums.join(', ')}`;
 
   async function guardar() {

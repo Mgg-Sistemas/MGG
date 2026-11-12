@@ -4,7 +4,7 @@
    (supabase/sql/casiterita-pmp-fase1-libro.sql).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { CierreRecepcionPmp, ColadaCas, ExportacionCas, LoteCas, MovPmp, NuevoMovPmp, ProcedenciaPmp } from './casiteritaPmp';
+import type { CierreMesPmp, CierreRecepcionPmp, ColadaCas, ConteoPmp, ExportacionCas, LoteCas, MovPmp, NuevoMovPmp, ProcedenciaPmp } from './casiteritaPmp';
 import { calcularEntrada } from './casiteritaPmp';
 
 /** true si el error dice que la tabla todavía no existe (falta correr el SQL de la fase). */
@@ -227,5 +227,48 @@ export async function listColadasCubiertas(): Promise<Map<string, string>> {
 
 export async function fundicionDesdeColadas(coladas: string[], fecha: string, kg: number, descripcion: string): Promise<void> {
   const { error } = await supabase.rpc('casiterita_fundicion_coladas', { p_coladas: coladas, p_fecha: fecha, p_kg: kg, p_descripcion: descripcion });
+  if (error) throw error;
+}
+
+/* ───────── Fase 4 · cierres y conteos ───────── */
+export async function listCierresPmp(): Promise<CierreMesPmp[]> {
+  const { data, error } = await supabase.from('casiterita_cierres_pmp').select('*').order('mes', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => {
+    const x = r as Record<string, unknown>;
+    return {
+      mes: String(x.mes), kg_global: Number(x.kg_global) || 0, kg_mgg: Number(x.kg_mgg) || 0, costo: Number(x.costo) || 0,
+      pmp: Number(x.pmp) || 0, resguardo: Number(x.resguardo) || 0, movimientos: Number(x.movimientos) || 0,
+      cerrado_por_name: (x.cerrado_por_name as string) ?? null, cerrado_en: String(x.cerrado_en ?? ''),
+    };
+  });
+}
+
+export async function cerrarMesPmp(mes: string): Promise<void> {
+  const { error } = await supabase.rpc('casiterita_cerrar_mes', { p_mes: mes });
+  if (error) throw error;
+}
+
+export async function reabrirMesPmp(mes: string): Promise<void> {
+  const { error } = await supabase.rpc('casiterita_reabrir_mes', { p_mes: mes });
+  if (error) throw error;
+}
+
+export async function listConteosPmp(): Promise<ConteoPmp[]> {
+  const { data, error } = await supabase.from('casiterita_conteos').select('*').order('fecha', { ascending: false }).order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map((r) => {
+    const x = r as Record<string, unknown>;
+    const ren = Array.isArray(x.renglones) ? (x.renglones as Array<{ descripcion?: string; kg?: number | string }>) : [];
+    return {
+      id: String(x.id), fecha: String(x.fecha).slice(0, 10), renglones: ren.map((y) => ({ descripcion: String(y.descripcion ?? ''), kg: Number(y.kg) || 0 })),
+      kg_fisico: Number(x.kg_fisico) || 0, kg_libro: Number(x.kg_libro) || 0, diferencia: Number(x.diferencia) || 0,
+      ajuste_id: (x.ajuste_id as string) ?? null, nota: (x.nota as string) ?? null, actor_name: (x.actor_name as string) ?? null, created_at: String(x.created_at ?? ''),
+    };
+  });
+}
+
+export async function registrarConteoPmp(fecha: string, renglones: Array<{ descripcion: string; kg: number }>, nota: string | null, ajustar: boolean): Promise<void> {
+  const { error } = await supabase.rpc('casiterita_registrar_conteo', { p_fecha: fecha, p_renglones: renglones, p_nota: nota, p_ajustar: ajustar });
   if (error) throw error;
 }

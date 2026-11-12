@@ -1051,7 +1051,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       )}
 
       {(subVista === 'casiterita' && casPmpOpen) ? (
-        <CasiteritaPmpView actorName={actorName} canWrite={canWrite} onClose={() => setCasPmpOpen(false)} />
+        <CasiteritaPmpView actorName={actorName} canWrite={canWrite} esAdmin={appUser?.role === 'admin'} onClose={() => setCasPmpOpen(false)} />
       ) : (subVista === 'casiterita' && casDetalleOpen) ? (
         <CasiteritaDetalleView actor={productoActor} actorName={actorName} canWrite={canWrite} onClose={() => setCasDetalleOpen(false)} />
       ) : ui.view === 'recepciones' ? (
