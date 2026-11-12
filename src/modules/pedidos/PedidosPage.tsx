@@ -108,6 +108,7 @@ import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
 import { crearEvaluacion } from './evaluaciones.repository';
 import { CALIDAD_LABELS, calcularPuntualidadAutomatica, validarArchivoFactura } from './finalizarPedidoEvaluacion';
 import { FacturasOrdenModal } from './FacturasOrdenModal';
+import { cantidadFacturas } from './facturasOrden.repository';
 import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSkuLibre, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
 import { normalizarNombre, productosSimilares, type Duplicado } from '@/modules/inventario/duplicados';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
@@ -3394,7 +3395,7 @@ function OrdenDetailModal({
       {/* Facturas del delivery y del almacén: desde que la orden está recibida (11-11-2026). */}
       {!!o.recibida_en && (
         <button className="btn btn-ghost" onClick={() => setFacturasOpen(true)} title="Facturas que cargaron el delivery y el almacén (vista previa, descargar e imprimir)">
-          🧾 Factura{o.facturas_almacen?.length ? ` (${o.facturas_almacen.length})` : ''}
+          🧾 Factura{cantidadFacturas(o) ? ` (${cantidadFacturas(o)})` : ''}
         </button>
       )}
       {/* OC pagada y aún no recibida (anticipado/contado): ya se puede recibir.

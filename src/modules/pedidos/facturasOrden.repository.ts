@@ -30,6 +30,8 @@ export interface ArchivoFactura {
 
 export interface FacturasDeOrden {
   delivery: ArchivoFactura[];
+  /** Fotos de la entrega en almacén que subió el delivery (12-11-2026). */
+  entregaDelivery: ArchivoFactura[];
   almacen: ArchivoFactura[];
   /** La factura que se adjuntó al finalizar la OC (si hay). */
   alFinalizar: ArchivoFactura | null;
@@ -78,22 +80,29 @@ async function firmar(bucket: string, path: string): Promise<string> {
 }
 
 /** Las facturas de una orden: las que subió el delivery y las del almacén. */
-export async function facturasDeOrden(o: Pick<Orden, 'id' | 'facturas_almacen' | 'factura_path' | 'factura_nombre'>): Promise<FacturasDeOrden> {
-  const { data: peds } = await supabase.from('delivery_pedidos')
-    .select('fotos_recibo, repartidor_nombre, estado, aceptado_en')
-    .eq('orden_id', o.id)
-    .order('aceptado_en', { ascending: true });
-  const fotosDelivery: Array<{ path: string; filename: string; quien: string | null }> = [];
-  for (const p of (peds ?? []) as Array<{ fotos_recibo: unknown; repartidor_nombre: string | null }>) {
-    const fs = Array.isArray(p.fotos_recibo) ? (p.fotos_recibo as Array<{ path: string; filename: string }>) : [];
-    for (const f of fs) fotosDelivery.push({ ...f, quien: p.repartidor_nombre });
+/** Cuántos archivos de factura tiene la orden (delivery + almacén), para el botón. */
+export function cantidadFacturas(o: Pick<Orden, 'facturas_almacen' | 'facturas_delivery'>): number {
+  const alm = Array.isArray(o.facturas_almacen) ? o.facturas_almacen.length : 0;
+  const dlv = Array.isArray(o.facturas_delivery) ? o.facturas_delivery.filter((f) => f.tipo === 'factura').length : 0;
+  return alm + dlv;
+}
+
+export async function facturasDeOrden(o: Pick<Orden, 'id' | 'facturas_almacen' | 'facturas_delivery' | 'factura_path' | 'factura_nombre'>): Promise<FacturasDeOrden> {
+  // Las fotos del delivery vienen copiadas en la orden (trigger, 12-11-2026). Si la
+  // orden en pantalla es de antes de la copia, se leen de la base.
+  let copia = Array.isArray(o.facturas_delivery) ? o.facturas_delivery : null;
+  if (!copia) {
+    const { data } = await supabase.from('ordenes').select('facturas_delivery').eq('id', o.id).maybeSingle();
+    copia = Array.isArray(data?.facturas_delivery) ? (data.facturas_delivery as NonNullable<Orden['facturas_delivery']>) : [];
   }
+  const firmarDelivery = (tipo: 'factura' | 'entrega') => Promise.all(copia!.filter((f) => f.tipo === tipo).map(async (f) => ({
+    path: f.path, filename: f.filename || 'foto.jpg', url: await firmar(BUCKET_DELIVERY, f.path),
+    esPdf: esPdf(f.filename || ''), detalle: f.quien ? `Delivery: ${f.quien}` : null,
+  })));
   const almacen = Array.isArray(o.facturas_almacen) ? o.facturas_almacen : [];
-  const [delivery, alm, fin] = await Promise.all([
-    Promise.all(fotosDelivery.map(async (f) => ({
-      path: f.path, filename: f.filename || 'factura.jpg', url: await firmar(BUCKET_DELIVERY, f.path),
-      esPdf: esPdf(f.filename || ''), detalle: f.quien ? `Delivery: ${f.quien}` : null,
-    }))),
+  const [delivery, entregaDelivery, alm, fin] = await Promise.all([
+    firmarDelivery('factura'),
+    firmarDelivery('entrega'),
     Promise.all(almacen.map(async (f) => ({
       path: f.path, filename: f.filename || 'factura', url: await firmar(BUCKET_OC, f.path),
       esPdf: esPdf(f.filename || f.path), detalle: f.por ? `Almacén: ${f.por}` : null,
@@ -105,5 +114,8 @@ export async function facturasDeOrden(o: Pick<Orden, 'id' | 'facturas_almacen' |
       }))
       : Promise.resolve(null),
   ]);
-  return { delivery: delivery.filter((f) => f.url), almacen: alm.filter((f) => f.url), alFinalizar: fin && fin.url ? fin : null };
+  return {
+    delivery: delivery.filter((f) => f.url), entregaDelivery: entregaDelivery.filter((f) => f.url),
+    almacen: alm.filter((f) => f.url), alFinalizar: fin && fin.url ? fin : null,
+  };
 }

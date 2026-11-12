@@ -93,7 +93,7 @@ export function FacturasOrdenModal({ orden, onClose }: { orden: Orden; onClose: 
       .catch((e) => { if (vivo) setError(e instanceof Error ? e.message : 'No se pudieron cargar las facturas'); });
     return () => { vivo = false; };
   }, [orden, tick]);
-  useRealtime(['delivery_pedidos'], () => setTick((t) => t + 1));
+  useRealtime(['delivery_pedidos', 'ordenes'], () => setTick((t) => t + 1));
 
   return (
     <Modal title={`🧾 Factura · ${oc}`} size="lg" onClose={onClose}
@@ -103,6 +103,9 @@ export function FacturasOrdenModal({ orden, onClose }: { orden: Orden; onClose: 
         <>
           <Bloque titulo="🛵 FACTURAS DELIVERY" archivos={data.delivery} oc={oc}
             vacio="El delivery no cargó factura (es opcional)." />
+          {data.entregaDelivery.length > 0 && (
+            <Bloque titulo="📷 FOTOS ENTREGA EN ALMACÉN (delivery)" archivos={data.entregaDelivery} oc={oc} vacio="" />
+          )}
           <Bloque titulo="🏬 FACTURAS ALMACÉN" archivos={data.almacen} oc={oc}
             vacio="El almacén no cargó factura en la recepción (las recepciones anteriores al 11-11-2026 no la pedían)." />
           {data.alFinalizar && (
