@@ -6,7 +6,7 @@ import { previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { identidadEmpresa } from '@/shared/lib/empresa';
 import { loadLogoPdfEmpresa, dibujarLogoPdf, anchoLogoPdf } from '@/shared/lib/pdfLogo';
-import { COLUMNAS_CONCILIACION, bsTxt, celda, tarjetas, usdTxt, type ColumnaConciliacion, type FilaConciliacion } from './conciliacion';
+import { COLUMNAS_CONCILIACION, TITULO_CONCILIACION, bsTxt, celda, desgloseTipos, tarjetas, usdTxt, type ColumnaConciliacion, type FilaConciliacion } from './conciliacion';
 
 const NARANJA: [number, number, number] = [255, 138, 0];
 const BORDE: [number, number, number] = [203, 213, 225];
@@ -49,10 +49,10 @@ export async function vistaPreviaConciliacionPdf(filas: FilaConciliacion[], op: 
   if (logo) dibujarLogoPdf(doc, logo, M, y, caja);
   const tx = logo ? M + anchoLogoPdf(caja) + 12 : M;
   doc.setFont('helvetica', 'bold'); doc.setFontSize(14); doc.setTextColor(...NARANJA);
-  doc.text(pdfSafe('CONCILIACIÓN DE ÓRDENES DE COMPRA'), tx, y + 14);
+  doc.text(pdfSafe(TITULO_CONCILIACION), tx, y + 14);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5); doc.setTextColor(80, 80, 80);
   const sub = doc.splitTextToSize(pdfSafe(
-    `${idEmp.nombre} · RIF ${idEmp.rif} · ${filas.length} OC · Generado: ${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}${op.filtroTexto ? ` · ${op.filtroTexto}` : ''}`,
+    `${idEmp.nombre} · RIF ${idEmp.rif} · ${filas.length} órdenes · Generado: ${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}${op.filtroTexto ? ` · ${op.filtroTexto}` : ''}`,
   ), W - M - tx) as string[];
   doc.text(sub, tx, y + 28);
   y = Math.max(y + caja + 6, y + 28 + sub.length * 10 + 4);
@@ -63,9 +63,9 @@ export async function vistaPreviaConciliacionPdf(filas: FilaConciliacion[], op: 
   if (op.conTarjetas !== false) {
     const t = tarjetas(filas);
     const datos: Array<[string, string, string]> = [
-      ['TOTAL DE OC', `${t.totalOc.cantidad} OC`, `${usdTxt(t.totalOc.usd)} · ${bsTxt(t.totalOc.bs)}`],
-      ['TOTAL PAGADO', `${t.pagado.cantidad} OC`, `${usdTxt(t.pagado.usd)} · ${bsTxt(t.pagado.bs)}`],
-      ['OC CON RETENCIÓN', `${t.conRetencion.cantidad} OC`, usdTxt(t.conRetencion.usd)],
+      ['TOTAL DE ÓRDENES', desgloseTipos(t), `${usdTxt(t.totalOc.usd)} · ${bsTxt(t.totalOc.bs)}`],
+      ['TOTAL PAGADO', `${t.pagado.cantidad} pagadas`, `${usdTxt(t.pagado.usd)} · ${bsTxt(t.pagado.bs)}`],
+      ['CON RETENCIÓN', `${t.conRetencion.cantidad} con retención`, usdTxt(t.conRetencion.usd)],
     ];
     const gap = 10, w = (UW - gap * 2) / 3, h = 46;
     datos.forEach(([tit, val, sub2], i) => {

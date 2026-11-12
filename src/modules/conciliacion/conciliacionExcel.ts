@@ -4,7 +4,7 @@
    (previewExcelArchivo) y se descarga solo si el usuario lo pide.
    ============================================================ */
 import { previewExcelArchivo } from '@/shared/lib/reportePreview';
-import { COLUMNAS_CONCILIACION, celda, tarjetas, usdTxt, bsTxt, type ColumnaConciliacion, type FilaConciliacion } from './conciliacion';
+import { COLUMNAS_CONCILIACION, TITULO_CONCILIACION, celda, desgloseTipos, tarjetas, usdTxt, bsTxt, type ColumnaConciliacion, type FilaConciliacion } from './conciliacion';
 
 const NARANJA = 'FFFF8A00';
 const BORDE = 'FFCBD5E1';
@@ -15,7 +15,7 @@ const FMT_BS = '"Bs" #,##0.00';
 const FMT_TASA = '#,##0.0000';
 
 const ANCHO: Record<ColumnaConciliacion, number> = {
-  item: 7, codigo: 18, proveedor: 34, monto_usd: 15, monto_bs: 19, tasa: 13,
+  item: 7, codigo: 18, tipo: 11, proveedor: 34, monto_usd: 15, monto_bs: 19, tasa: 13,
   referencia: 22, retencion: 28, factura: 14, estado: 18,
 };
 
@@ -57,8 +57,8 @@ export async function construirConciliacionExcel(filas: FilaConciliacion[], op: 
     r.getCell(1).alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
     if (alto) r.height = alto;
   };
-  linea('CONCILIACIÓN DE ÓRDENES DE COMPRA', { size: 14, bold: true, color: { argb: NARANJA } }, 24);
-  linea(`${emp.nombre} · RIF ${emp.rif} · ${filas.length} OC · Generado: ${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}`,
+  linea(TITULO_CONCILIACION, { size: 14, bold: true, color: { argb: NARANJA } }, 24);
+  linea(`${emp.nombre} · RIF ${emp.rif} · ${filas.length} órdenes · Generado: ${new Date().toLocaleString('es-VE', { timeZone: 'America/Caracas' })}`,
     { size: 9, color: { argb: 'FF5C6673' } });
   if (op.filtroTexto) linea(op.filtroTexto, { size: 9, italic: true, color: { argb: 'FF5C6673' } });
 
@@ -67,9 +67,9 @@ export async function construirConciliacionExcel(filas: FilaConciliacion[], op: 
     const t = tarjetas(filas);
     ws.addRow([]);
     for (const [tit, val] of [
-      ['TOTAL DE OC', `${t.totalOc.cantidad} OC · ${usdTxt(t.totalOc.usd)} · ${bsTxt(t.totalOc.bs)}`],
-      ['TOTAL PAGADO', `${t.pagado.cantidad} OC · ${usdTxt(t.pagado.usd)} · ${bsTxt(t.pagado.bs)}`],
-      ['OC CON RETENCIÓN', `${t.conRetencion.cantidad} OC · ${usdTxt(t.conRetencion.usd)}`],
+      ['TOTAL DE ÓRDENES', `${t.totalOc.cantidad} (${desgloseTipos(t)}) · ${usdTxt(t.totalOc.usd)} · ${bsTxt(t.totalOc.bs)}`],
+      ['TOTAL PAGADO', `${t.pagado.cantidad} · ${usdTxt(t.pagado.usd)} · ${bsTxt(t.pagado.bs)}`],
+      ['CON RETENCIÓN', `${t.conRetencion.cantidad} · ${usdTxt(t.conRetencion.usd)}`],
     ] as const) {
       const r = ws.addRow([`${tit}: ${val}`]);
       ws.mergeCells(r.number, 1, r.number, N);

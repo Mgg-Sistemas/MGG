@@ -84,9 +84,16 @@ export function retencionDeOrden(o: Partial<Orden>, fiscales: RetencionFiscalOc[
   return { lleva, tipos: [...tipos].sort((a, b) => pos(a) - pos(b) || a.localeCompare(b)), codigos, hecha };
 }
 
+export type TipoOrdenConciliacion = 'oc' | 'servicio';
+
+/** Orden de servicio (Control de Servicio, código SV-…): misma tabla `ordenes`, clase 'servicio'. */
+export const esServicio = (o: Pick<Orden, 'clase'>) => o.clase === 'servicio';
+
 export interface FilaConciliacion {
   id: string;
   item: number;
+  /** OC de compra o orden de servicio. */
+  tipo: TipoOrdenConciliacion;
   codigo: string;
   sp: string;
   proveedor: string;
@@ -133,6 +140,7 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
   return {
     id: o.id,
     item,
+    tipo: esServicio(o) ? 'servicio' : 'oc',
     codigo: o.oc_codigo ?? o.codigo,
     sp: o.codigo,
     proveedor: e.proveedor || '—',
@@ -151,15 +159,20 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
   };
 }
 
-/** Las OC que entran: tienen código de OC y no están canceladas/anuladas. Las más nuevas primero. */
+/**
+ * Las que entran: las OC (con código de OC) y las órdenes de servicio que ya pasaron a
+ * Control de Servicio (oc_creada_en; casi nunca llevan código de OC, se ven con su SV-…).
+ * Sin canceladas/anuladas. Las más nuevas primero.
+ */
 export function ordenesConciliables(ordenes: Orden[]): Orden[] {
   return ordenes
-    .filter((o) => !!o.oc_codigo && !ESTADOS_FUERA.includes(o.estado))
+    .filter((o) => (!!o.oc_codigo || (esServicio(o) && !!o.oc_creada_en)) && !ESTADOS_FUERA.includes(o.estado))
     .sort((a, b) => String(b.oc_creada_en ?? b.created_at ?? '').localeCompare(String(a.oc_creada_en ?? a.created_at ?? '')));
 }
 
 export interface Tarjetas {
-  totalOc: { cantidad: number; usd: number; bs: number; ids: string[] };
+  /** Todas las órdenes (OC + servicios); `oc` y `servicios` desglosan la cantidad. */
+  totalOc: { cantidad: number; oc: number; servicios: number; usd: number; bs: number; ids: string[] };
   pagado: { cantidad: number; usd: number; bs: number; ids: string[] };
   conRetencion: { cantidad: number; usd: number; ids: string[] };
 }
@@ -170,7 +183,8 @@ export function tarjetas(filas: FilaConciliacion[]): Tarjetas {
   const bsDe = (f: FilaConciliacion, usd: number) => (f.tasa && f.tasa > 0 ? usd * f.tasa : 0);
   return {
     totalOc: {
-      cantidad: filas.length, usd: r2(filas.reduce((a, f) => a + f.montoUsd, 0)),
+      cantidad: filas.length, oc: filas.filter((f) => f.tipo === 'oc').length, servicios: filas.filter((f) => f.tipo === 'servicio').length,
+      usd: r2(filas.reduce((a, f) => a + f.montoUsd, 0)),
       bs: r2(filas.reduce((a, f) => a + (f.montoBs ?? 0), 0)), ids: filas.map((f) => f.id),
     },
     pagado: {
@@ -184,6 +198,8 @@ export function tarjetas(filas: FilaConciliacion[]): Tarjetas {
 /* ───────── Filtros ───────── */
 export interface FiltrosConciliacion {
   texto?: string;
+  /** '' = OC y servicios. */
+  tipo?: '' | TipoOrdenConciliacion;
   grupo?: GrupoEstado | '';
   retencion?: '' | 'si' | 'no';
   referencia?: '' | 'con' | 'sin';
@@ -205,6 +221,7 @@ const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toL
 export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): FilaConciliacion[] {
   const q = sinAcentos((f.texto ?? '').trim());
   return filas.filter((x) => {
+    if (f.tipo && x.tipo !== f.tipo) return false;
     if (f.grupo && x.estado.grupo !== f.grupo) return false;
     if (f.retencion === 'si' && !x.retencion.lleva) return false;
     if (f.retencion === 'no' && x.retencion.lleva) return false;
@@ -223,7 +240,7 @@ export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): Fila
       }
     }
     if (q) {
-      const hay = sinAcentos([x.codigo, x.sp, x.proveedor, x.estado.label, textoReferenciaPago(x.referencia),
+      const hay = sinAcentos([x.codigo, x.sp, x.proveedor, x.estado.label, x.tipo === 'servicio' ? 'servicio' : 'compra', textoReferenciaPago(x.referencia),
         x.retencion.tipos.join(' '), x.retencion.codigos.join(' ')].join(' '));
       if (!hay.includes(q)) return false;
     }
@@ -232,11 +249,12 @@ export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): Fila
 }
 
 /* ───────── Reporte dinámico: columnas ───────── */
-export type ColumnaConciliacion = 'item' | 'codigo' | 'proveedor' | 'monto_usd' | 'monto_bs' | 'tasa' | 'referencia' | 'retencion' | 'factura' | 'estado';
+export type ColumnaConciliacion = 'item' | 'codigo' | 'tipo' | 'proveedor' | 'monto_usd' | 'monto_bs' | 'tasa' | 'referencia' | 'retencion' | 'factura' | 'estado';
 
 export const COLUMNAS_CONCILIACION: { clave: ColumnaConciliacion; label: string; porDefecto: boolean }[] = [
   { clave: 'item', label: 'Ítem', porDefecto: true },
-  { clave: 'codigo', label: 'Código OC', porDefecto: true },
+  { clave: 'codigo', label: 'Código', porDefecto: true },
+  { clave: 'tipo', label: 'Tipo', porDefecto: true },
   { clave: 'proveedor', label: 'Proveedor', porDefecto: true },
   { clave: 'monto_usd', label: 'Monto $', porDefecto: true },
   { clave: 'monto_bs', label: 'Monto Bs', porDefecto: true },
@@ -262,6 +280,7 @@ export function celda(f: FilaConciliacion, c: ColumnaConciliacion): string {
   switch (c) {
     case 'item': return String(f.item);
     case 'codigo': return f.codigo;
+    case 'tipo': return f.tipo === 'servicio' ? 'Servicio' : 'OC';
     case 'proveedor': return f.proveedor;
     case 'monto_usd': return usdTxt(f.montoUsd);
     case 'monto_bs': return f.montoBs != null ? bsTxt(f.montoBs) : '—';
@@ -273,22 +292,33 @@ export function celda(f: FilaConciliacion, c: ColumnaConciliacion): string {
   }
 }
 
+export const TITULO_CONCILIACION = 'CONCILIACIÓN DE ÓRDENES DE COMPRA Y DE SERVICIO';
+
+/** «12 OC · 3 servicios» (solo lo que haya). */
+export function desgloseTipos(t: Tarjetas): string {
+  const p: string[] = [];
+  if (t.totalOc.oc || !t.totalOc.servicios) p.push(`${t.totalOc.oc} OC`);
+  if (t.totalOc.servicios) p.push(`${t.totalOc.servicios} servicio${t.totalOc.servicios === 1 ? '' : 's'}`);
+  return p.join(' · ');
+}
+
 /* ───────── WhatsApp (sin selector U+FE0F en los emojis) ───────── */
 export function textoWhatsappConciliacion(filas: FilaConciliacion[], opts: { titulo?: string; filtroTexto?: string; columnas?: ColumnaConciliacion[]; fecha?: string } = {}): string {
   const cols = new Set(opts.columnas ?? COLUMNAS_CONCILIACION.filter((c) => c.porDefecto).map((c) => c.clave));
   const t = tarjetas(filas);
   const L: string[] = [];
-  L.push(`📊 *${opts.titulo ?? 'CONCILIACIÓN DE ÓRDENES DE COMPRA'}*`);
+  L.push(`📊 *${opts.titulo ?? TITULO_CONCILIACION}*`);
   if (opts.fecha) L.push(`📅 ${opts.fecha}`);
   if (opts.filtroTexto) L.push(`🔎 ${opts.filtroTexto}`);
   L.push('');
-  L.push(`🧾 *Total de OC:* ${t.totalOc.cantidad} · ${usdTxt(t.totalOc.usd)}`);
-  L.push(`💵 *Total pagado:* ${t.pagado.cantidad} OC · ${usdTxt(t.pagado.usd)} · ${bsTxt(t.pagado.bs)}`);
-  L.push(`🏛 *OC con retención:* ${t.conRetencion.cantidad}`);
+  L.push(`🧾 *Total de órdenes:* ${t.totalOc.cantidad} (${desgloseTipos(t)}) · ${usdTxt(t.totalOc.usd)}`);
+  L.push(`💵 *Total pagado:* ${t.pagado.cantidad} · ${usdTxt(t.pagado.usd)} · ${bsTxt(t.pagado.bs)}`);
+  L.push(`🏛 *Con retención:* ${t.conRetencion.cantidad}`);
   if (!filas.length) { L.push(''); L.push('Sin órdenes para los filtros elegidos.'); }
   for (const f of filas) {
     L.push('');
-    const cab = [cols.has('item') ? `${f.item}.` : '', cols.has('codigo') ? `*${f.codigo}*` : '', cols.has('proveedor') ? f.proveedor : ''].filter(Boolean).join(' ');
+    const cab = [cols.has('item') ? `${f.item}.` : '', cols.has('tipo') && f.tipo === 'servicio' ? '🔧' : '', cols.has('codigo') ? `*${f.codigo}*` : '',
+      cols.has('tipo') && f.tipo === 'servicio' ? '(servicio)' : '', cols.has('proveedor') ? f.proveedor : ''].filter(Boolean).join(' ');
     if (cab) L.push(cab);
     const monto = [cols.has('monto_usd') ? usdTxt(f.montoUsd) : '', cols.has('monto_bs') && f.montoBs != null ? bsTxt(f.montoBs) : '', cols.has('tasa') && f.tasa ? `tasa ${fmt(f.tasa, 2)}${f.tasaEsDeHoy ? ' (hoy)' : ''}` : ''].filter(Boolean).join(' · ');
     if (monto) L.push(`   💰 ${monto}`);

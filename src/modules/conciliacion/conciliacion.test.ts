@@ -73,7 +73,7 @@ describe('conciliación · montos, tarjetas y filtros', () => {
   it('el WhatsApp trae el resumen y cada OC', () => {
     const filas = [armarFila({ orden: oc({ pagada_en: '2026-11-10T15:00:00Z', historial: [{ evento: 'pagada', binance_orden: '7730' }] }), proveedor: 'ACME', tasaPago: 40, tasaHoy: 45 }, 1)];
     const t = textoWhatsappConciliacion(filas);
-    expect(t).toContain('*Total de OC:* 1 · $100,00');
+    expect(t).toContain('*Total de órdenes:* 1 (1 OC) · $100,00');
     expect(t).toContain('1. *OC-2026-0001* ACME');
     expect(t).toContain('Ref.: Binance …7730');
     expect(t).not.toMatch(/️/);
@@ -93,5 +93,32 @@ describe('conciliación · rango de fechas del reporte', () => {
   });
   it('por fecha de pago: solo las pagadas dentro del rango', () => {
     expect(filtrar(filas, { desde: '2026-11-01', hasta: '2026-11-30', fechaBase: 'pago' }).map((f) => f.id)).toEqual(['a']);
+  });
+});
+
+describe('conciliación · órdenes de servicio', () => {
+  const sv = (p: Record<string, unknown>) => oc({ clase: 'servicio', codigo: 'SV-2026-0039', oc_codigo: null, ...p });
+  it('entran las de servicio ya en control (sin código de OC); no las que siguen en solicitud', () => {
+    const r = ordenesConciliables([
+      sv({ id: 's1', oc_creada_en: '2026-11-12T12:00:00Z' }),
+      sv({ id: 's2', oc_creada_en: null, estado: 'pendiente' }),
+      sv({ id: 's3', estado: 'cancelada' }),
+      oc({ id: 'p1', clase: 'producto', oc_codigo: null }),
+    ]);
+    expect(r.map((o) => o.id)).toEqual(['s1']);
+  });
+  it('se marcan como servicio, se filtran por tipo y el total las desglosa', () => {
+    const filas = [
+      armarFila({ orden: sv({ id: 's1' }), proveedor: 'TALLER', tasaPago: null, tasaHoy: 45 }, 1),
+      armarFila({ orden: oc({ id: 'o1' }), proveedor: 'ACME', tasaPago: null, tasaHoy: 45 }, 2),
+    ];
+    expect(filas[0]).toMatchObject({ tipo: 'servicio', codigo: 'SV-2026-0039' });
+    expect(celda(filas[0], 'tipo')).toBe('Servicio');
+    expect(filtrar(filas, { tipo: 'servicio' }).map((f) => f.id)).toEqual(['s1']);
+    expect(filtrar(filas, { tipo: 'oc' }).map((f) => f.id)).toEqual(['o1']);
+    expect(tarjetas(filas).totalOc).toMatchObject({ cantidad: 2, oc: 1, servicios: 1 });
+    const w = textoWhatsappConciliacion(filas);
+    expect(w).toContain('(1 OC · 1 servicio)');
+    expect(w).toContain('🔧 *SV-2026-0039* (servicio) TALLER');
   });
 });

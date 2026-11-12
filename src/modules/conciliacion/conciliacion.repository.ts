@@ -48,7 +48,9 @@ async function retencionesFiscalesPorOrden(): Promise<Map<string, RetencionFisca
 
 export async function cargarConciliacion(): Promise<DatosConciliacion> {
   const [ordenesRaw, hoy, fiscales] = await Promise.all([
-    todasLasFilas<Orden>((d, h) => supabase.from('ordenes').select('*').not('oc_codigo', 'is', null)
+    // OC (con código) y órdenes de servicio ya en Control de Servicio (sin código de OC).
+    todasLasFilas<Orden>((d, h) => supabase.from('ordenes').select('*')
+      .or('oc_codigo.not.is.null,and(clase.eq.servicio,oc_creada_en.not.is.null)')
       .order('oc_creada_en', { ascending: false, nullsFirst: false }).order('id').range(d, h)),
     getTasaHoy().catch(() => null),
     retencionesFiscalesPorOrden(),

@@ -16,7 +16,7 @@ import { FacturasOrdenModal } from '@/modules/pedidos/FacturasOrdenModal';
 import type { Orden } from '@/shared/lib/types';
 import { cargarConciliacion, type DatosConciliacion } from './conciliacion.repository';
 import {
-  COLUMNAS_CONCILIACION, bsTxt, diaCaracas, filtrar, tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, usdTxt,
+  COLUMNAS_CONCILIACION, bsTxt, desgloseTipos, diaCaracas, filtrar, tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, usdTxt,
   type ColumnaConciliacion, type FilaConciliacion, type FiltrosConciliacion, type GrupoEstado,
 } from './conciliacion';
 import { vistaPreviaConciliacionPdf } from './conciliacionPdf';
@@ -64,6 +64,7 @@ function rangoRapido(r: 'hoy' | '7d' | 'mes' | 'mes_ant'): { desde: string; hast
 /** Resumen legible de los filtros activos (para el PDF y el WhatsApp). */
 function textoFiltros(f: FiltrosConciliacion): string {
   const p: string[] = [];
+  if (f.tipo) p.push(f.tipo === 'servicio' ? 'Solo servicios' : 'Solo OC');
   if (f.grupo) p.push(`Status: ${GRUPOS.find((g) => g.value === f.grupo)?.label}`);
   if (f.pago === 'pagadas') p.push('Solo pagadas'); else if (f.pago === 'sin_pagar') p.push('Sin pagar');
   if (f.retencion === 'si') p.push('Con retención'); else if (f.retencion === 'no') p.push('Sin retención');
@@ -130,7 +131,7 @@ export function ConciliacionPage() {
         <div>
           <h1 style={{ margin: 0 }}>🧮 Conciliación</h1>
           <p className="hint muted" style={{ margin: '.25rem 0 0' }}>
-            Solo lectura: cada OC con su pago (Tesorería), su retención (Retenciones), su factura (delivery / almacén) y su status (Compras).
+            Solo lectura: cada OC y orden de servicio con su pago (Tesorería), su retención (Retenciones), su factura (delivery / almacén) y su status (Compras).
           </p>
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
@@ -148,29 +149,29 @@ export function ConciliacionPage() {
 
       {/* Tarjetas */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
-        {card('total', '🧾', 'Total de OC', `${t.totalOc.cantidad}`, `${usdTxt(t.totalOc.usd)} · ${bsTxt(t.totalOc.bs)}`, 'var(--primary, #ff8a00)')}
-        {card('pagado', '💵', 'Total pagado', usdTxt(t.pagado.usd), `${bsTxt(t.pagado.bs)} · ${t.pagado.cantidad} OC (Bs a la tasa con que se pagó)`, 'var(--success, #29c081)')}
-        {card('retencion', '🏛', 'OC con retención', `${t.conRetencion.cantidad}`, `${usdTxt(t.conRetencion.usd)} en esas OC`, 'var(--info, #4aa8ff)')}
+        {card('total', '🧾', 'Total de órdenes', `${t.totalOc.cantidad}`, `${desgloseTipos(t)} · ${usdTxt(t.totalOc.usd)} · ${bsTxt(t.totalOc.bs)}`, 'var(--primary, #ff8a00)')}
+        {card('pagado', '💵', 'Total pagado', usdTxt(t.pagado.usd), `${bsTxt(t.pagado.bs)} · ${t.pagado.cantidad} órdenes (Bs a la tasa con que se pagó)`, 'var(--success, #29c081)')}
+        {card('retencion', '🏛', 'Con retención', `${t.conRetencion.cantidad}`, `${usdTxt(t.conRetencion.usd)} en esas órdenes`, 'var(--info, #4aa8ff)')}
       </div>
 
       {/* Detalle de la tarjeta */}
       {tarjeta && (
         <div className="card" style={{ marginBottom: '1rem' }}>
           <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap' }}>
-            <span>{tarjeta === 'total' ? '🧾 Todas las OC' : tarjeta === 'pagado' ? '💵 OC pagadas' : '🏛 OC con retención'} · {detalle.length}</span>
-            <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>Toca una OC para abrirla en Compras</span>
+            <span>{tarjeta === 'total' ? '🧾 Todas las órdenes' : tarjeta === 'pagado' ? '💵 Órdenes pagadas' : '🏛 Órdenes con retención'} · {detalle.length}</span>
+            <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>Toca una orden para abrirla en Compras</span>
           </div>
           <div style={{ display: 'grid', gap: '.4rem', maxHeight: 360, overflowY: 'auto' }}>
             {detalle.map((f) => (
               <button key={f.id} type="button" onClick={() => abrirOc(f.id)} className="card"
                 style={{ margin: 0, padding: '.55rem .75rem', display: 'grid', gridTemplateColumns: 'minmax(120px,auto) 1fr auto', gap: '.25rem .9rem', alignItems: 'center', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit' }}>
-                <strong className="mono">{f.codigo}</strong>
+                <strong className="mono">{f.tipo === 'servicio' && '🔧 '}{f.codigo}</strong>
                 <span style={{ fontSize: '.84rem' }}>
                   {f.proveedor}
                   <span className="muted" style={{ display: 'block', fontSize: '.74rem' }}>
                     {tarjeta === 'pagado' ? `Pagada ${fechaCorta(f.pagadaEn)} · ref. ${textoReferenciaPago(f.referencia) || '—'}`
                       : tarjeta === 'retencion' ? `Retención: ${textoRetencion(f.retencion)}`
-                        : `OC ${fechaCorta(f.fechaOc)}`}
+                        : `${f.tipo === 'servicio' ? 'Servicio' : 'OC'} ${fechaCorta(f.fechaOc)}`}
                   </span>
                 </span>
                 <span style={{ textAlign: 'right' }}>
@@ -179,14 +180,17 @@ export function ConciliacionPage() {
                 </span>
               </button>
             ))}
-            {!detalle.length && <div className="muted" style={{ padding: '.75rem' }}>No hay OC en esta tarjeta con los filtros actuales.</div>}
+            {!detalle.length && <div className="muted" style={{ padding: '.75rem' }}>No hay órdenes en esta tarjeta con los filtros actuales.</div>}
           </div>
         </div>
       )}
 
       {/* Filtros */}
       <div className="card" style={{ marginBottom: '1rem', display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-        <input className="input" style={{ flex: '1 1 220px' }} placeholder="🔎 Código OC, proveedor, referencia, N° de retención…" value={filtros.texto ?? ''} onChange={(e) => setF({ texto: e.target.value })} />
+        <input className="input" style={{ flex: '1 1 220px' }} placeholder="🔎 Código OC / SV, proveedor, referencia, N° de retención…" value={filtros.texto ?? ''} onChange={(e) => setF({ texto: e.target.value })} />
+        <select className="select" style={{ width: 'auto' }} value={filtros.tipo ?? ''} onChange={(e) => setF({ tipo: e.target.value as FiltrosConciliacion['tipo'] })}>
+          <option value="">OC y servicios</option><option value="oc">Solo OC</option><option value="servicio">Solo servicios</option>
+        </select>
         <select className="select" style={{ width: 'auto' }} value={filtros.grupo ?? ''} onChange={(e) => setF({ grupo: e.target.value as GrupoEstado | '' })}>
           {GRUPOS.map((g) => <option key={g.value} value={g.value}>{g.label}</option>)}
         </select>
@@ -212,7 +216,7 @@ export function ConciliacionPage() {
             <table className="table" style={{ fontSize: '.82rem' }}>
               <thead>
                 <tr>
-                  <th style={{ textAlign: 'center' }}>Ítem</th><th>Código OC</th><th>Proveedor</th>
+                  <th style={{ textAlign: 'center' }}>Ítem</th><th>Código</th><th>Proveedor</th>
                   <th style={{ textAlign: 'right' }}>Monto de la OC</th><th>Referencia de pago</th><th>Retención</th><th>Factura</th><th>Status</th>
                 </tr>
               </thead>
@@ -221,8 +225,12 @@ export function ConciliacionPage() {
                   <tr key={f.id}>
                     <td className="mono muted" style={{ textAlign: 'center' }}>{f.item}</td>
                     <td>
-                      <button type="button" className="btn btn-sm btn-ghost mono" style={{ padding: '.1rem .35rem', fontWeight: 700 }} onClick={() => abrirOc(f.id)} title="Abrir la OC en Compras">{f.codigo}</button>
-                      <div className="muted mono" style={{ fontSize: '.7rem' }}>{f.sp} · {fechaCorta(f.fechaOc)}</div>
+                      <button type="button" className="btn btn-sm btn-ghost mono" style={{ padding: '.1rem .35rem', fontWeight: 700 }} onClick={() => abrirOc(f.id)} title={f.tipo === 'servicio' ? 'Abrir la orden de servicio en Compras' : 'Abrir la OC en Compras'}>{f.codigo}</button>
+                      <div className="muted mono" style={{ fontSize: '.7rem' }}>
+                        {f.tipo === 'servicio'
+                          ? <><span className="badge warning" style={{ fontSize: '.62rem', fontFamily: 'inherit' }}>🔧 Servicio</span>{f.sp !== f.codigo ? ` ${f.sp}` : ''}</>
+                          : f.sp} · {fechaCorta(f.fechaOc)}
+                      </div>
                     </td>
                     <td style={{ whiteSpace: 'normal', minWidth: 160 }}>{f.proveedor}</td>
                     <td style={{ textAlign: 'right' }}>
@@ -252,7 +260,7 @@ export function ConciliacionPage() {
                     <td><span className={`badge ${f.estado.className}`}>{f.estado.label}</span></td>
                   </tr>
                 ))}
-                {!filas.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>No hay OC con esos filtros.</td></tr>}
+                {!filas.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>No hay órdenes con esos filtros.</td></tr>}
               </tbody>
             </table>
           </div>
