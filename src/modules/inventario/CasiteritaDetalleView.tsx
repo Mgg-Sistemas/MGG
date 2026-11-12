@@ -101,7 +101,7 @@ function AlertaDescuadreCasiterita({ detallado, usado, recepcionado }: { detalla
 }
 
 /* ───────────── Banner resumen (dentro de ⛏ Casiterita) ───────────── */
-export function CasiteritaResumen({ onOpenDetalle }: { onOpenDetalle: () => void }) {
+export function CasiteritaResumen({ onOpenDetalle, onOpenPmp }: { onOpenDetalle: () => void; onOpenPmp?: () => void }) {
   const [rows, setRows] = useState<CasiteritaDetalle[]>([]);
   const cargar = useCallback(() => { listCasiteritaDetalle().then(setRows).catch(() => setRows([])); }, []);
   useEffect(() => { cargar(); }, [cargar]);
@@ -130,7 +130,10 @@ export function CasiteritaResumen({ onOpenDetalle }: { onOpenDetalle: () => void
     <div className="card" style={{ marginBottom: '.8rem' }}>
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: '.6rem', marginBottom: grupos.length ? '.6rem' : 0 }}>
         <div className="card-title" style={{ margin: 0 }}>⛏ Casiterita valorizada <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>(Peso Casiterita × Tasa, por centro/aliado)</span></div>
-        <button className="btn btn-sm btn-primary" onClick={onOpenDetalle}>🔎 Inventario Detallado (SnO₂)</button>
+        <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          {onOpenPmp && <button className="btn btn-sm btn-ghost" onClick={onOpenPmp} title="Saldo global, inventario MGG, resguardo, PMP, lotes y exportaciones">📒 Libro de promedios y exportaciones</button>}
+          <button className="btn btn-sm btn-primary" onClick={onOpenDetalle}>🔎 Inventario Detallado (SnO₂)</button>
+        </div>
       </div>
       {grupos.length === 0 ? (
         <p className="hint muted" style={{ fontSize: '.82rem', margin: 0 }}>Sin registros. Entrá a <strong>Inventario Detallado (SnO₂)</strong> para cargar la mercancía o traerla desde una recepción.</p>

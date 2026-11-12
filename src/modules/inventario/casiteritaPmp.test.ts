@@ -1,0 +1,91 @@
+import { describe, expect, it } from 'vitest';
+import {
+  calcularLibro, calcularEntrada, errorNuevoMov, leerNumero, procedenciaDeGrupo, resumenPorMes, saldoAl, saldoFinal,
+  type MovPmp, type ProcedenciaPmp, type TipoMovPmp,
+} from './casiteritaPmp';
+
+/* Cifras inventadas (las reales del Excel se validan aparte, fuera del repositorio). */
+type S = [string, TipoMovPmp, string, Partial<MovPmp>];
+const SEMILLA: S[] = [
+  ['2026-01-01', 'apertura', 'Saldo inicial', { kg_global: 10000, kg_mgg: 6000, costo: 60000 }],      // PMP 10
+  ['2026-01-05', 'entrada', 'Aliado 50 %', { kg_global: 4000, kg_mgg: 2000, costo: 30000 }],           // MGG 8000 · costo 90000
+  ['2026-01-10', 'exportacion', 'Lote A', { kg: 7000 }],                                                // 50 % del galpón
+  ['2026-01-10', 'muestra', 'Muestras lote A', { kg: 10 }],
+  ['2026-01-20', 'merma', 'Merma que no toca MGG', { kg: 5, afecta_mgg: false }],
+  ['2026-02-02', 'recuperacion', 'Sacudida de bolsas', { kg: 90 }],
+  ['2026-02-03', 'ajuste', 'Sobrante del conteo', { kg: -15 }],
+];
+const mov = ([fecha, tipo, descripcion, p]: S, i: number): MovPmp => ({
+  id: `m${i}`, fecha, tipo, descripcion, kg: null, kg_global: null, kg_mgg: null, costo: null, afecta_mgg: true,
+  procedencia: null, pct_mgg: null, tasa: null, recepcion_numero: null, cierre_id: null, lote_id: null, colada_id: null,
+  origen: 'sistema', orden: i + 1, nota: null, actor_name: null, created_at: '', ...p,
+});
+const MOVS = SEMILLA.map(mov);
+const filas = calcularLibro(MOVS);
+const fila = (d: string) => filas.find((f) => f.descripcion === d)!;
+
+describe('libro de promedios · reglas', () => {
+  it('una entrada suma global, MGG y costo; el resto es resguardo', () => {
+    const s = saldoAl(filas, '2026-01-05');
+    expect(s).toMatchObject({ global: 14000, mgg: 8000, costo: 90000, resguardo: 6000 });
+    expect(s.pmp).toBeCloseTo(11.25, 10);
+  });
+  it('un lote se lleva de MGG la misma proporción que del galpón, al PMP', () => {
+    const l = fila('Lote A');
+    expect(l.pct).toBeCloseTo(0.5, 10);
+    expect(l.dM).toBeCloseTo(-4000, 8);
+    expect(l.dC).toBeCloseTo(-45000, 6);
+    expect(l.dResg).toBeCloseTo(-3000, 8);
+    expect(l.pmp).toBeCloseTo(11.25, 10); // salir al PMP no cambia el PMP
+  });
+  it('muestra sale entera de MGG; la merma marcada no toca MGG', () => {
+    expect(fila('Muestras lote A')).toMatchObject({ dG: -10, dM: -10 });
+    expect(fila('Merma que no toca MGG')).toMatchObject({ dG: -5, dM: 0, dC: 0, dResg: -5 });
+  });
+  it('la recuperación entra a costo 0 y baja el PMP; un ajuste negativo entra al PMP', () => {
+    const r = fila('Sacudida de bolsas');
+    expect(r).toMatchObject({ dG: 90, dM: 90, dC: 0 });
+    expect(r.pmp).toBeLessThan(r.pmpAntes);
+    const a = fila('Sobrante del conteo');
+    expect(a.dG).toBe(15);
+    expect(a.pmp).toBeCloseTo(a.pmpAntes, 10);
+  });
+  it('resumen por mes: abre con el cierre del anterior', () => {
+    const r = resumenPorMes(filas);
+    expect(r.map((x) => x.mes)).toEqual(['2026-01', '2026-02']);
+    expect(r[1].apertura).toEqual(r[0].cierre);
+    expect(r[0].exportadoKg).toBe(7000);
+    expect(r[1].entradasKg).toBe(105);
+    expect(saldoFinal(filas).global).toBeCloseTo(14000 - 7000 - 10 - 5 + 90 + 15, 6);
+  });
+});
+
+describe('libro de promedios · entradas y validaciones', () => {
+  it('entrada: kg MGG = kg × %, costo = kg MGG × tasa', () => {
+    expect(calcularEntrada(16400.5, 50, 14)).toEqual({ kgMgg: 8200.25, costo: 114803.5 });
+    expect(calcularEntrada(1000, 100, 15.5)).toEqual({ kgMgg: 1000, costo: 15500 });
+  });
+  it('reconoce la procedencia por el grupo de recepción', () => {
+    const procs: ProcedenciaPmp[] = [
+      { clave: 'P-A', nombre: 'Aliado', pct_mgg: 50, patron: 'NAVIL|VENTUARI', nota: null, activo: true },
+      { clave: 'P-B', nombre: 'Propia', pct_mgg: 100, patron: 'ESPERANZA', nota: null, activo: true },
+    ];
+    expect(procedenciaDeGrupo('EL BURRO NAVIL', procs)?.clave).toBe('P-A');
+    expect(procedenciaDeGrupo('RECEPCIÓN LA ESPERANZA', procs)?.pct_mgg).toBe(100);
+    expect(procedenciaDeGrupo('OTRA', procs)).toBeNull();
+  });
+  it('no deja sacar más de lo que hay ni cargar antes de la apertura', () => {
+    expect(errorNuevoMov({ fecha: '2026-03-01', tipo: 'muestra', descripcion: 'x', kg: 99999 }, filas)).toMatch(/No hay tanto/);
+    expect(errorNuevoMov({ fecha: '2026-03-01', tipo: 'fundicion', descripcion: 'x', kg: 5000 }, filas)).toMatch(/inventario MGG/);
+    expect(errorNuevoMov({ fecha: '2025-12-31', tipo: 'muestra', descripcion: 'x', kg: 1 }, filas)).toMatch(/abre el/);
+    expect(errorNuevoMov({ fecha: '2026-03-01', tipo: 'merma', descripcion: 'x', kg: 5 }, filas)).toBeNull();
+    expect(errorNuevoMov({ fecha: '2026-03-01', tipo: 'ajuste', descripcion: 'sobrante', kg: -3 }, filas)).toBeNull();
+    expect(errorNuevoMov({ fecha: '2026-03-01', tipo: 'entrada', descripcion: 'x', kg_global: 10, pct_mgg: 100 }, filas)).toMatch(/tasa/);
+  });
+  it('lee números a la venezolana', () => {
+    expect(leerNumero('1.431,5')).toBe(1431.5);
+    expect(leerNumero('28000')).toBe(28000);
+    expect(leerNumero('15,75')).toBe(15.75);
+    expect(leerNumero('')).toBeNull();
+  });
+});

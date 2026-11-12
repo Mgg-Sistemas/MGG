@@ -48,6 +48,7 @@ import { AlertasStock } from './AlertasStock';
 import { RecepcionesPendientes } from './RecepcionesPendientes';
 import { RecepcionesHistorialModal } from './RecepcionesHistorial';
 import { CasiteritaResumen, CasiteritaDetalleView } from './CasiteritaDetalleView';
+import { CasiteritaPmpView } from './CasiteritaPmpView';
 import { ExportInventarioModal } from './ExportInventarioModal';
 import { ReporteInventarioMatanzasModal } from './ReporteInventarioMatanzasModal';
 import type { AmbitoInventarioMatanzas } from './reporteInventarioMatanzasDinamico';
@@ -206,6 +207,8 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   const [subVista, setSubVista] = useState<'general' | 'casiterita' | 'bruto' | 'refinado'>('general');
   // ⛏ Casiterita → vista «Inventario Detallado (SnO₂)» (reemplaza el listado mientras está abierta).
   const [casDetalleOpen, setCasDetalleOpen] = useState(false);
+  // 📒 Libro de promedios (PMP) y exportaciones de casiterita: solo Los Pinos.
+  const [casPmpOpen, setCasPmpOpen] = useState(false);
   // Almacén padre cuyo nivel de subalmacenes estamos viendo (drill-down dentro de la sede).
   const [almacenNavId, setAlmacenNavId] = useState<string | null>(null);
   const [consumoAlmacen, setConsumoAlmacen] = useState<string | null>(null);
@@ -975,22 +978,22 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       )}
 
       {/* KPIs y alertas: en el inventario general, en cada centro y en Subalmacenes (Matanza). */}
-      {modoInventario && !(subVista === 'casiterita' && casDetalleOpen) && (
+      {modoInventario && !(subVista === 'casiterita' && (casDetalleOpen || casPmpOpen)) && (
       <>
       {sedeScope && (
         <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', marginBottom: '.85rem', flexWrap: 'wrap' }}>
           <h2 style={{ margin: 0 }}>📍 {tituloInventario}</h2>
           {almacenesDeScope && (almacenesDeScope.cas.length > 0 || almacenesDeScope.bruto.length > 0 || almacenesDeScope.refinado.length > 0) && (
             <div className="view-toggle" role="tablist" aria-label="Vista de inventario" style={{ marginLeft: '.25rem' }}>
-              <button className={subVista === 'general' ? 'active' : ''} onClick={() => { setSubVista('general'); setCasDetalleOpen(false); }}>📦 General</button>
+              <button className={subVista === 'general' ? 'active' : ''} onClick={() => { setSubVista('general'); setCasDetalleOpen(false); setCasPmpOpen(false); }}>📦 General</button>
               {almacenesDeScope.cas.length > 0 && (
                 <button className={subVista === 'casiterita' ? 'active' : ''} onClick={() => setSubVista('casiterita')}>⛏ Casiterita</button>
               )}
               {almacenesDeScope.bruto.length > 0 && (
-                <button className={subVista === 'bruto' ? 'active' : ''} onClick={() => { setSubVista('bruto'); setCasDetalleOpen(false); }}>🔩 Estaño en bruto</button>
+                <button className={subVista === 'bruto' ? 'active' : ''} onClick={() => { setSubVista('bruto'); setCasDetalleOpen(false); setCasPmpOpen(false); }}>🔩 Estaño en bruto</button>
               )}
               {almacenesDeScope.refinado.length > 0 && (
-                <button className={subVista === 'refinado' ? 'active' : ''} onClick={() => { setSubVista('refinado'); setCasDetalleOpen(false); }}>✨ Estaño refinado</button>
+                <button className={subVista === 'refinado' ? 'active' : ''} onClick={() => { setSubVista('refinado'); setCasDetalleOpen(false); setCasPmpOpen(false); }}>✨ Estaño refinado</button>
               )}
             </div>
           )}
@@ -1039,11 +1042,14 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
       )}
 
       {/* ⛏ Casiterita: banner valorizado (Peso Casiterita × Tasa por centro/aliado) + botón al detalle. */}
-      {subVista === 'casiterita' && !casDetalleOpen && sedeScope && (
-        <CasiteritaResumen onOpenDetalle={() => setCasDetalleOpen(true)} />
+      {subVista === 'casiterita' && !casDetalleOpen && !casPmpOpen && sedeScope && (
+        <CasiteritaResumen onOpenDetalle={() => setCasDetalleOpen(true)}
+          onOpenPmp={sedeScope === 'LOS PINOS' ? () => setCasPmpOpen(true) : undefined} />
       )}
 
-      {(subVista === 'casiterita' && casDetalleOpen) ? (
+      {(subVista === 'casiterita' && casPmpOpen) ? (
+        <CasiteritaPmpView actorName={actorName} canWrite={canWrite} onClose={() => setCasPmpOpen(false)} />
+      ) : (subVista === 'casiterita' && casDetalleOpen) ? (
         <CasiteritaDetalleView actor={productoActor} actorName={actorName} canWrite={canWrite} onClose={() => setCasDetalleOpen(false)} />
       ) : ui.view === 'recepciones' ? (
         <>
