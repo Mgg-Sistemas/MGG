@@ -63,6 +63,9 @@ export interface SalidaMaterialInput {
   /** Equipo de maquinaria al que va este material (opcional). Viaja al kardex. */
   equipoId?: string | null;
   equipoNombre?: string | null;
+  /** La solicitud que se ejecuta (queda en el kardex: así Maquinaria sabe qué salió de verdad). */
+  refId?: string | null;
+  refCodigo?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -83,6 +86,8 @@ export async function salidaMaterial(input: SalidaMaterialInput): Promise<Movimi
     actor: input.actor,
     actor_name: input.actorName ?? null,
     ref_tipo: 'salida_modulo',
+    ref_id: input.refId ?? null,
+    ref_codigo: input.refCodigo ?? null,
     destino: input.destino || null,
     fecha_entrega: input.fechaEntrega || null,
     detalle: input.motivo || null,
@@ -822,7 +827,8 @@ export async function ejecutarSolicitudSalida(s: SolicitudSalida, actor: string,
       productoId: it.producto_id, almacen: it.almacen!, cantidad: Number(it.cantidad) || 0,
       destino: s.destino || '', motivo: s.motivo, precioUnit: it.precio_unit ?? null,
       equipoId: it.equipo_id ?? null, equipoNombre: it.equipo_nombre ?? null,
-      fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante, actor, actorName,
+      fechaEntrega: s.fecha_entrega, consumoInterno: s.consumo_interno ?? false, solicitante: s.solicitante,
+      refId: s.id, refCodigo: s.codigo, actor, actorName,
     }));
     const movCocina = cocinaDestino
       ? await ejecutarPorProductoEnTandas(tramosCocina, (it) => trasladoMaterial({

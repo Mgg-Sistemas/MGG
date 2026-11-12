@@ -22,6 +22,11 @@
 --     RPC no reciben el nombre del cliente.
 --   · La devolución entra al MISMO almacén del que salió el material (en MGG
 --     el stock vive por almacén en existencias), con registrar_movimiento_stock.
+--   · Lo que se entrega (y lo que puede volver) sale del KARDEX, no de la salida
+--     editable: teléfono → el movimiento de la salida (movimiento_id); PC → los
+--     movimientos «salida_modulo» de la solicitud (ref_id, desde el 12-11-2026).
+--   · Dar entrada respeta la sectorización: un usuario con sedes asignadas solo
+--     devuelve a almacenes de sus sedes.
 --
 -- Qué crea:
 --   1. Tabla maquinaria_entregas_almacen (solo lectura directa; RLS).
@@ -181,13 +186,19 @@ begin
     end if;
     select * into v_equipo from public.maquinaria_equipos where id = nullif(p->>'equipo_id', '')::uuid;
     if v_equipo.id is null then raise exception 'Elige la máquina a la que va el material.' using errcode = '23514'; end if;
-    -- Solo lo que todavía no retornó: si parte ya volvió por «Por retornar», eso no se entrega ni se devuelve.
-    select coalesce(jsonb_agg(jsonb_build_object('producto_id', s.producto_id, 'producto_nombre', s.producto_nombre,
-             'unidad', s.unidad, 'cantidad', s.cantidad - s.retornado, 'almacen', s.almacen, 'salida_id', s.id) order by s.producto_nombre)
-             filter (where s.cantidad - s.retornado > 0), '[]'::jsonb),
-           min(s.almacen), string_agg(distinct s.codigo, ', ')
+    -- Producto, almacén y cantidad salen del movimiento del KARDEX de cada salida (no de la
+    -- fila de la salida, que se puede editar). Solo lo que todavía no retornó: si parte ya
+    -- volvió por «Por retornar», eso no se entrega ni se devuelve.
+    select coalesce(jsonb_agg(jsonb_build_object('producto_id', m.producto_id, 'producto_nombre', coalesce(pr.nombre, s.producto_nombre),
+             'unidad', coalesce(pr.unidad, s.unidad), 'cantidad', least(-m.delta, s.cantidad - s.retornado),
+             'almacen', m.almacen, 'salida_id', s.id) order by coalesce(pr.nombre, s.producto_nombre))
+             filter (where least(-m.delta, s.cantidad - s.retornado) > 0), '[]'::jsonb),
+           min(m.almacen), string_agg(distinct s.codigo, ', ')
       into v_items, v_almacen, v_ref
-      from public.inventario_salidas_telefono s where s.id = any (v_ids);
+      from public.inventario_salidas_telefono s
+      join public.movimientos m on m.id = s.movimiento_id and m.delta < 0
+      left join public.productos pr on pr.id = m.producto_id
+     where s.id = any (v_ids);
     -- Las fotos van una sola vez aunque estén repetidas en cada fila del lote.
     select coalesce(jsonb_agg(distinct jsonb_build_object('path', f->>'path', 'filename', f->>'filename', 'bucket', 'inventario-salidas')), '[]'::jsonb)
       into v_fotos
@@ -212,22 +223,20 @@ begin
     end if;
     select * into v_equipo from public.maquinaria_equipos where id = v_sol.equipo_mant_id;
     if v_equipo.id is null then raise exception 'No se encontró la máquina de la salida.' using errcode = '23503'; end if;
-    if jsonb_typeof(v_sol.items) = 'array' and jsonb_array_length(v_sol.items) > 0 then
-      -- Fuera la comida que fue vale de cocina o viajó a otra cocina: esa no salió para la máquina.
-      select coalesce(jsonb_agg(jsonb_build_object('producto_id', i->>'producto_id', 'producto_nombre', coalesce(i->>'producto_nombre', pr.nombre),
-               'unidad', coalesce(nullif(i->>'unidad', ''), pr.unidad), 'cantidad', (i->>'cantidad')::numeric,
-               'almacen', coalesce(nullif(i->>'almacen', ''), v_sol.almacen_origen))), '[]'::jsonb)
-        into v_items
-        from jsonb_array_elements(v_sol.items) i
-        left join public.productos pr on pr.id::text = i->>'producto_id'
-       where not coalesce((i->>'descuenta_cocina')::boolean, false)
-         and coalesce(i->>'traslado_cocina', '') = ''
-         and coalesce((i->>'cantidad')::numeric, 0) > 0;
-    elsif v_sol.producto_id is not null and coalesce(v_sol.cantidad, 0) > 0 then
-      select jsonb_build_array(jsonb_build_object('producto_id', v_sol.producto_id, 'producto_nombre', coalesce(v_sol.producto_nombre, pr.nombre),
-               'unidad', pr.unidad, 'cantidad', v_sol.cantidad, 'almacen', v_sol.almacen_origen))
-        into v_items
-        from public.productos pr where pr.id = v_sol.producto_id;
+    -- Lo que de verdad salió: los movimientos «salida_modulo» que dejó la ejecución de esta
+    -- solicitud en el KARDEX (no los renglones de la solicitud, que se pueden editar). Los
+    -- vales de cocina y los traslados a otra cocina no son «salida_modulo»: quedan fuera solos.
+    select coalesce(jsonb_agg(jsonb_build_object('producto_id', x.producto_id, 'producto_nombre', pr.nombre,
+             'unidad', pr.unidad, 'cantidad', x.cantidad, 'almacen', x.almacen) order by pr.nombre), '[]'::jsonb)
+      into v_items
+      from (select m.producto_id, m.almacen, sum(-m.delta) as cantidad
+              from public.movimientos m
+             where m.ref_tipo = 'salida_modulo' and m.ref_id = v_sol.id::text and m.delta < 0
+             group by m.producto_id, m.almacen) x
+      join public.productos pr on pr.id = x.producto_id
+     where x.cantidad > 0;
+    if jsonb_array_length(coalesce(v_items, '[]'::jsonb)) = 0 then
+      raise exception 'Esa salida no descontó material en el kardex (¿se cerró sin descontar?): no hay qué enviar a Maquinaria.' using errcode = '23514';
     end if;
     v_almacen := coalesce(v_items->0->>'almacen', v_sol.almacen_origen);
     v_ref := v_sol.codigo;
@@ -390,8 +399,15 @@ declare
   v_alm text;
   v_cant numeric;
   v_pend numeric;
+  v_sedes text[];
+  v_sede text;
 begin
   if v_email is null or auth.uid() is null then raise exception 'Sesión no válida.' using errcode = '42501'; end if;
+  -- Sectorización (como puedeMoverEnSede en el cliente): con sedes asignadas, solo en esas sedes.
+  if not public.is_admin() then
+    select array(select btrim(x) from unnest(coalesce(u.sedes_asignadas, '{}')) x where btrim(x) <> '')
+      into v_sedes from public.usuarios u where u.id = auth.uid();
+  end if;
   if not (public.is_admin() or public.inv_tel_puede_escribir()
           or public.puede_modulo('salidas', 'escritura') or public.puede_aprobar('salidas')) then
     raise exception 'No tienes permiso para darle entrada al inventario.' using errcode = '42501';
@@ -407,6 +423,12 @@ begin
     v_alm := coalesce(nullif(btrim(coalesce(i->>'almacen', '')), ''), v_e.almacen);
     if v_alm is null then
       raise exception 'No se sabe de qué almacén salió %: la devolución se hace a mano.', i->>'producto_nombre' using errcode = '23514';
+    end if;
+    if coalesce(array_length(v_sedes, 1), 0) > 0 then
+      select coalesce(nullif(btrim(a.sede), ''), 'Sin sede') into v_sede from public.almacenes a where a.nombre = v_alm limit 1;
+      if v_sede is null or not (v_sede = any (v_sedes)) then
+        raise exception 'El almacén % no es de tus sedes: la devolución la recibe alguien de esa sede.', v_alm using errcode = '42501';
+      end if;
     end if;
     if not exists (select 1 from public.productos where id = (i->>'producto_id')::uuid) then
       raise exception 'No se encontró el producto %.', i->>'producto_nombre' using errcode = '23503';
