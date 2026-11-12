@@ -8,6 +8,9 @@
    La referencia de pago se coloca con el lápiz (✎) y, si Tesorería no dejó el
    comprobante de pago, se carga ahí mismo (12-11-2026).
    Reporte dinámico con vista previa en PDF y mensaje de WhatsApp.
+   DRIVE (12-11-2026): se carga un Excel/CSV (código OC, referencia, monto Bs),
+   validado como en Inventario, y cada OC queda CUADRA / NO CUADRA. Los chips
+   «pagos · cuadra · no cuadra · sin cotejar» filtran la tabla (varios a la vez).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -26,10 +29,12 @@ import {
 } from './conciliacion.repository';
 import {
   COLUMNAS_CONCILIACION, bsTxt, desgloseTipos, diaCaracas, filtrar, hayFiltrosActivos, tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, usdTxt,
-  type ColumnaConciliacion, type FilaConciliacion, type FiltrosConciliacion, type GrupoEstado,
+  valorFiltroDrive, type ColumnaConciliacion, type FilaConciliacion, type FiltroDrive, type FiltrosConciliacion, type GrupoEstado,
 } from './conciliacion';
 import { vistaPreviaConciliacionPdf } from './conciliacionPdf';
 import { vistaPreviaConciliacionExcel } from './conciliacionExcel';
+import { analizarTablaDrive, descargarPlantillaDrive, errorArchivoDrive, leerTablaArchivo, type AnalisisDrive } from './conciliacionDrive';
+import { CargarDriveModal } from './CargarDriveModal';
 
 type Tarjeta = 'total' | 'pagado' | 'retencion';
 
@@ -74,6 +79,7 @@ const OPC_TIPO: { value: 'oc' | 'servicio'; label: string }[] = [{ value: 'oc', 
 const OPC_PAGO: { value: 'pagadas' | 'sin_pagar'; label: string }[] = [{ value: 'pagadas', label: 'Pagadas' }, { value: 'sin_pagar', label: 'Sin pagar' }];
 const OPC_RET: { value: 'si' | 'no'; label: string }[] = [{ value: 'si', label: 'Con retención' }, { value: 'no', label: 'Sin retención' }];
 const OPC_REF: { value: 'con' | 'sin'; label: string }[] = [{ value: 'con', label: 'Con referencia' }, { value: 'sin', label: 'Sin referencia' }];
+const OPC_DRIVE: { value: FiltroDrive; label: string }[] = [{ value: 'cuadra', label: 'Cuadra' }, { value: 'no_cuadra', label: 'No cuadra' }, { value: 'sin', label: 'Sin cotejar' }];
 
 /** Las etiquetas marcadas de un filtro de casillas («A o B»). */
 function etiquetas<T extends string>(marcadas: T[] | undefined, opciones: { value: T; label: string }[]): string {
@@ -124,6 +130,30 @@ function FiltroChecks<T extends string>({ titulo, todas, opciones, marcadas, onC
   );
 }
 
+const TONOS = {
+  gris: { fg: 'var(--text-muted)', bg: 'rgba(148,163,184,.14)', bd: 'rgba(148,163,184,.55)' },
+  verde: { fg: 'var(--success, #29c081)', bg: 'rgba(41,192,129,.14)', bd: 'rgba(41,192,129,.7)' },
+  rojo: { fg: 'var(--danger, #ef4f5e)', bg: 'rgba(239,79,94,.14)', bd: 'rgba(239,79,94,.7)' },
+  amarillo: { fg: 'var(--warning, #f5b400)', bg: 'rgba(245,180,0,.16)', bd: 'rgba(245,180,0,.75)' },
+} as const;
+
+/** Chip del Drive (como «119 cuadra»): al tocarlo filtra la tabla; se marcan varios. */
+function ChipDrive({ tono, activo, onClick, title, children }: {
+  tono: keyof typeof TONOS; activo: boolean; onClick: () => void; title: string; children: React.ReactNode;
+}) {
+  const t = TONOS[tono];
+  return (
+    <button type="button" onClick={onClick} title={title} aria-pressed={activo}
+      style={{
+        font: 'inherit', fontSize: '.84rem', fontWeight: 700, padding: '.32rem .85rem', borderRadius: 999, cursor: 'pointer',
+        color: t.fg, background: t.bg, border: `1.5px solid ${activo ? t.bd : 'transparent'}`,
+        boxShadow: activo ? `0 0 0 2px ${t.bg}` : 'none', whiteSpace: 'nowrap',
+      }}>
+      {activo ? '✓ ' : ''}{children}
+    </button>
+  );
+}
+
 /** Resumen legible de los filtros activos (para el PDF y el WhatsApp). */
 function textoFiltros(f: FiltrosConciliacion): string {
   const p: string[] = [];
@@ -133,6 +163,7 @@ function textoFiltros(f: FiltrosConciliacion): string {
   parte(etiquetas(f.pago, OPC_PAGO), f.pago, OPC_PAGO.length);
   parte(etiquetas(f.retencion, OPC_RET), f.retencion, OPC_RET.length);
   parte(etiquetas(f.referencia, OPC_REF), f.referencia, OPC_REF.length);
+  parte(f.drive?.length ? `DRIVE/BANCO: ${etiquetas(f.drive, OPC_DRIVE)}` : '', f.drive, OPC_DRIVE.length);
   if (f.desde || f.hasta) p.push(`${f.fechaBase === 'pago' ? 'Pagadas' : 'OC'} del ${fechaDia(f.desde)} al ${fechaDia(f.hasta)}`);
   if (f.texto?.trim()) p.push(`Búsqueda: «${f.texto.trim()}»`);
   return p.join(' · ');
@@ -161,6 +192,33 @@ export function ConciliacionPage() {
   const [verFacturas, setVerFacturas] = useState<Orden | null>(null);
   const [reporte, setReporte] = useState(false);
   const [porPagina, setPorPagina] = useState(10);
+  const [drive, setDrive] = useState<AnalisisDrive | null>(null);
+  const [leyendoDrive, setLeyendoDrive] = useState(false);
+  const driveInput = useRef<HTMLInputElement>(null);
+
+  async function elegirDrive(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (driveInput.current) driveInput.current.value = '';
+    if (!file || !datos) return;
+    const err = errorArchivoDrive(file);
+    if (err) { toast(err, 'error'); return; }
+    setLeyendoDrive(true);
+    try {
+      const tabla = await leerTablaArchivo(file);
+      setDrive(analizarTablaDrive(tabla, file.name, datos.filas.map((f) => ({ id: f.id, codigo: f.codigo, sp: f.sp }))));
+    } catch (er) { toast(er instanceof Error ? er.message : 'No se pudo leer el archivo', 'error'); }
+    finally { setLeyendoDrive(false); }
+  }
+
+  const alGuardarDrive = (os: Orden[]) => {
+    setDatos((d) => {
+      if (!d) return d;
+      const ordenes = new Map(d.ordenes);
+      for (const o of os) ordenes.set(o.id, o);
+      const porId = new Map(os.map((o) => [o.id, o]));
+      return { ...d, ordenes, filas: d.filas.map((f) => { const o = porId.get(f.id); return o ? filaConReferencia(f, o) : f; }) };
+    });
+  };
   const [pagina, setPagina] = useState(1);
 
   const cargar = useCallback(async () => {
@@ -196,6 +254,12 @@ export function ConciliacionPage() {
   };
 
   const filas = useMemo(() => filtrar(datos?.filas ?? [], filtros), [datos, filtros]);
+  // Chips del DRIVE: cuentan las órdenes PAGADAS con los demás filtros (sin el de pago ni el de drive).
+  const chips = useMemo(() => {
+    const pagadas = filtrar(datos?.filas ?? [], { ...filtros, drive: [], pago: [] }).filter((f) => f.pagado);
+    const n = (v: FiltroDrive) => pagadas.filter((f) => valorFiltroDrive(f) === v).length;
+    return { pagos: pagadas.length, cuadra: n('cuadra'), no_cuadra: n('no_cuadra'), sin: n('sin') };
+  }, [datos, filtros]);
   const t = useMemo(() => tarjetas(filas), [filas]);
   // El reporte trae su propio rango de fechas: parte de los demás filtros de la pantalla.
   const baseReporte = useMemo(() => filtrar(datos?.filas ?? [], { ...filtros, desde: '', hasta: '' }), [datos, filtros]);
@@ -206,6 +270,14 @@ export function ConciliacionPage() {
   const filasPagina = filas.slice(desde, desde + porPagina);
 
   const setF = (patch: Partial<FiltrosConciliacion>) => setFiltros((f) => ({ ...f, ...patch }));
+  /** Chip «pagos»: solo las pagadas (quita lo del drive). Chips del drive: se marcan varios. */
+  const soloPagos = !!filtros.pago?.length && filtros.pago.length === 1 && filtros.pago[0] === 'pagadas';
+  const tocarChipPagos = () => setFiltros((f) => (soloPagos && !f.drive?.length ? { ...f, pago: [] } : { ...f, pago: ['pagadas'], drive: [] }));
+  const tocarChipDrive = (v: FiltroDrive) => setFiltros((f) => {
+    const sel = f.drive ?? [];
+    const drive = sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v];
+    return { ...f, drive, pago: drive.length ? ['pagadas'] : f.pago };
+  });
   const hayFiltros = hayFiltrosActivos(filtros);
   const abrirOc = (id: string) => navigate(`/app/pedidos?detalle=${encodeURIComponent(id)}`);
 
@@ -238,6 +310,17 @@ export function ConciliacionPage() {
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
           <button className="btn btn-ghost" onClick={() => void cargar()} disabled={cargando}>{cargando ? 'Cargando…' : '↻ Actualizar'}</button>
+          {puedeEditar && (
+            <>
+              <button className="btn btn-ghost" onClick={() => void descargarPlantillaDrive().catch(() => toast('No se pudo generar la plantilla', 'error'))}
+                title="Plantilla del archivo: Código OC, Referencia y Monto Bs">⬇ Plantilla Drive/Banco</button>
+              <button className="btn btn-ghost" onClick={() => driveInput.current?.click()} disabled={!datos || leyendoDrive}
+                title="Cargar el archivo del Drive (Excel o CSV) y cruzarlo por código de OC, referencia y monto en Bs">
+                {leyendoDrive ? 'Leyendo…' : '📥 Cargar Drive/Banco'}
+              </button>
+              <input ref={driveInput} type="file" accept=".xlsx,.xls,.csv" style={{ display: 'none' }} onChange={(e) => void elegirDrive(e)} />
+            </>
+          )}
           <button className="btn btn-primary" onClick={() => setReporte(true)} disabled={!datos}>📊 Reporte dinámico</button>
         </div>
       </div>
@@ -295,6 +378,7 @@ export function ConciliacionPage() {
         <FiltroChecks titulo="Pago" todas="Pagadas y sin pagar" opciones={OPC_PAGO} marcadas={filtros.pago} onChange={(v) => setF({ pago: v })} />
         <FiltroChecks titulo="Retención" todas="Con y sin retención" opciones={OPC_RET} marcadas={filtros.retencion} onChange={(v) => setF({ retencion: v })} />
         <FiltroChecks titulo="Referencia" todas="Con y sin referencia" opciones={OPC_REF} marcadas={filtros.referencia} onChange={(v) => setF({ referencia: v })} />
+        <FiltroChecks titulo="DRIVE/BANCO" todas="DRIVE/BANCO: todos" opciones={OPC_DRIVE} marcadas={filtros.drive} onChange={(v) => setF({ drive: v })} />
         <label className="muted" style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.3rem' }}>Desde <input className="input" type="date" value={filtros.desde ?? ''} onChange={(e) => setF({ desde: e.target.value })} /></label>
         <label className="muted" style={{ fontSize: '.78rem', display: 'flex', alignItems: 'center', gap: '.3rem' }}>Hasta <input className="input" type="date" value={filtros.hasta ?? ''} onChange={(e) => setF({ hasta: e.target.value })} /></label>
         {hayFiltros && <button className="btn btn-sm btn-ghost" onClick={() => setFiltros({})}>✕ Limpiar</button>}
@@ -303,13 +387,25 @@ export function ConciliacionPage() {
       {/* Tabla */}
       <div className="card">
         <div className="card-title">Órdenes de compra · {filas.length}{datos && filas.length !== datos.filas.length ? ` de ${datos.filas.length}` : ''}</div>
+        {datos && (
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.45rem', marginBottom: '.75rem' }} role="group" aria-label="Filtrar por DRIVE/BANCO">
+            <ChipDrive tono="gris" activo={soloPagos && !filtros.drive?.length} onClick={tocarChipPagos}
+              title="Solo las órdenes pagadas">{chips.pagos} pagos</ChipDrive>
+            <ChipDrive tono="verde" activo={!!filtros.drive?.includes('cuadra')} onClick={() => tocarChipDrive('cuadra')}
+              title="Pagadas cuyo Drive CUADRA (referencia y monto en Bs coinciden)">{chips.cuadra} cuadra</ChipDrive>
+            <ChipDrive tono="rojo" activo={!!filtros.drive?.includes('no_cuadra')} onClick={() => tocarChipDrive('no_cuadra')}
+              title="Pagadas cuyo Drive NO CUADRA">{chips.no_cuadra} no cuadra</ChipDrive>
+            <ChipDrive tono="amarillo" activo={!!filtros.drive?.includes('sin')} onClick={() => tocarChipDrive('sin')}
+              title="Pagadas que todavía no están en ningún archivo del Drive">{chips.sin} sin cotejar</ChipDrive>
+          </div>
+        )}
         {cargando && !datos ? <div className="muted" style={{ padding: '1rem' }}>Cargando…</div> : (
           <div className="table-wrap">
             <table className="table" style={{ fontSize: '.82rem' }}>
               <thead>
                 <tr>
                   <th style={{ textAlign: 'center' }}>Ítem</th><th>Código</th><th>Proveedor</th>
-                  <th style={{ textAlign: 'right' }}>Monto de la OC</th><th>Referencia de pago</th><th>Retención</th><th>Factura</th><th>Status</th>
+                  <th style={{ textAlign: 'right' }}>Monto de la OC</th><th>Referencia de pago</th><th>DRIVE/BANCO</th><th>Retención</th><th>Factura</th><th>Status</th>
                 </tr>
               </thead>
               <tbody>
@@ -352,6 +448,17 @@ export function ConciliacionPage() {
                         )}
                       </div>
                     </td>
+                    <td style={{ whiteSpace: 'normal', minWidth: 110 }}>
+                      {f.drive ? (
+                        <>
+                          <span className={`badge ${f.drive.estado === 'CUADRA' ? 'success' : 'danger'}`} title={f.drive.motivo}>{f.drive.estado}</span>
+                          {f.drive.estado === 'NO CUADRA' && <div className="muted" style={{ fontSize: '.7rem', maxWidth: 200 }}>{f.drive.motivo}</div>}
+                          <div className="muted mono" style={{ fontSize: '.66rem' }} title={`Archivo: ${f.drive.datos.archivo}`}>
+                            {bsTxt(f.drive.datos.montoBs)} · ref. {f.drive.datos.referencias.join(', ')}
+                          </div>
+                        </>
+                      ) : <span className="muted" style={{ fontSize: '.78rem' }}>—</span>}
+                    </td>
                     <td style={{ whiteSpace: 'normal', minWidth: 130 }}>
                       {f.retencion.lleva ? (
                         <>
@@ -368,7 +475,7 @@ export function ConciliacionPage() {
                     <td><span className={`badge ${f.estado.className}`}>{f.estado.label}</span></td>
                   </tr>
                 ))}
-                {!filas.length && <tr><td colSpan={8} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>No hay órdenes con esos filtros.</td></tr>}
+                {!filas.length && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>No hay órdenes con esos filtros.</td></tr>}
               </tbody>
             </table>
           </div>
@@ -399,6 +506,9 @@ export function ConciliacionPage() {
       {verFacturas && <FacturasOrdenModal orden={verFacturas} onClose={() => setVerFacturas(null)} />}
       {editRef && datos?.ordenes.get(editRef.id) && (
         <ReferenciaPagoModal fila={editRef} orden={datos.ordenes.get(editRef.id) as Orden} onClose={() => setEditRef(null)} onSaved={alGuardarReferencia} />
+      )}
+      {drive && datos && (
+        <CargarDriveModal analisis={drive} filas={datos.filas} ordenes={datos.ordenes} onClose={() => setDrive(null)} onGuardado={alGuardarDrive} />
       )}
       {reporte && <ReporteConciliacionModal base={baseReporte} filtros={filtros} onClose={() => setReporte(false)} />}
     </div>

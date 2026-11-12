@@ -14,6 +14,7 @@
 import type { EstadoOrden, Orden } from '@/shared/lib/types';
 import { statusBadge } from '@/shared/lib/format';
 import { retencionesDe } from '@/modules/pedidos/retencionesOc';
+import { cruzarDrive, driveDe, pagadoBsTesoreria, type ResultadoDrive } from './conciliacionDrive';
 
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -163,6 +164,14 @@ export interface FilaConciliacion {
   retencion: RetencionConciliacion;
   facturas: number;
   estado: ReturnType<typeof estadoConciliacion>;
+  /** Cruce con el archivo del Drive (null = la OC no se ha cotejado). */
+  drive: ResultadoDrive | null;
+}
+
+/** Recalcula el DRIVE de la fila con su referencia y monto actuales. */
+export function conDrive<T extends Omit<FilaConciliacion, 'drive'>>(f: T, historial: unknown): T & { drive: ResultadoDrive | null } {
+  const datos = driveDe(historial);
+  return { ...f, drive: datos ? cruzarDrive(f, datos, pagadoBsTesoreria(historial)) : null };
 }
 
 export interface EntradaFila {
@@ -189,7 +198,7 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
   const usd = totalUsd(o, tasa);
   const abonado = Number(o.abonado_total) || 0;
   const pagadoUsd = pagado ? usd : r2(Math.min(abonado, usd));
-  return {
+  return conDrive({
     id: o.id,
     item,
     tipo: esServicio(o) ? 'servicio' : 'oc',
@@ -209,7 +218,7 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
     retencion: retencionDeOrden(o, e.fiscales ?? []),
     facturas: e.facturas ?? 0,
     estado: estadoConciliacion(o.estado),
-  };
+  }, o.historial);
 }
 
 /**
@@ -254,6 +263,9 @@ export function tarjetas(filas: FilaConciliacion[]): Tarjetas {
 export type FiltroPago = 'pagadas' | 'sin_pagar';
 export type FiltroRetencion = 'si' | 'no';
 export type FiltroReferencia = 'con' | 'sin';
+export type FiltroDrive = 'cuadra' | 'no_cuadra' | 'sin';
+export const valorFiltroDrive = (f: Pick<FilaConciliacion, 'drive'>): FiltroDrive =>
+  (!f.drive ? 'sin' : f.drive.estado === 'CUADRA' ? 'cuadra' : 'no_cuadra');
 export interface FiltrosConciliacion {
   texto?: string;
   /** Vacío = OC y servicios. */
@@ -262,6 +274,8 @@ export interface FiltrosConciliacion {
   retencion?: FiltroRetencion[];
   referencia?: FiltroReferencia[];
   pago?: FiltroPago[];
+  /** DRIVE: cuadra / no cuadra / sin cotejar. */
+  drive?: FiltroDrive[];
   /** Rango AAAA-MM-DD (día de Venezuela) sobre la fecha que diga `fechaBase`. */
   desde?: string;
   hasta?: string;
@@ -291,6 +305,7 @@ export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): Fila
     if (!pasa<FiltroRetencion>(f.retencion, x.retencion.lleva ? 'si' : 'no')) return false;
     if (!pasa<FiltroReferencia>(f.referencia, tieneReferencia(x.referencia) ? 'con' : 'sin')) return false;
     if (!pasa<FiltroPago>(f.pago, x.pagado ? 'pagadas' : 'sin_pagar')) return false;
+    if (!pasa<FiltroDrive>(f.drive, valorFiltroDrive(x))) return false;
     if (f.desde || f.hasta) {
       const iso = f.fechaBase === 'pago' ? x.pagadaEn : x.fechaOc;
       if (!iso) { if (f.fechaBase === 'pago') return false; } // sin pagar no entra en un rango por fecha de pago
@@ -302,7 +317,7 @@ export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): Fila
     }
     if (q) {
       const hay = sinAcentos([x.codigo, x.sp, x.proveedor, x.estado.label, x.tipo === 'servicio' ? 'servicio' : 'compra', textoReferenciaPago(x.referencia),
-        x.retencion.tipos.join(' '), x.retencion.codigos.join(' ')].join(' '));
+        x.retencion.tipos.join(' '), x.retencion.codigos.join(' '), x.drive?.estado ?? ''].join(' '));
       if (!hay.includes(q)) return false;
     }
     return true;
@@ -310,7 +325,7 @@ export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): Fila
 }
 
 /* ───────── Reporte dinámico: columnas ───────── */
-export type ColumnaConciliacion = 'item' | 'codigo' | 'tipo' | 'proveedor' | 'monto_usd' | 'monto_bs' | 'tasa' | 'referencia' | 'retencion' | 'factura' | 'estado';
+export type ColumnaConciliacion = 'item' | 'codigo' | 'tipo' | 'proveedor' | 'monto_usd' | 'monto_bs' | 'tasa' | 'referencia' | 'drive' | 'retencion' | 'factura' | 'estado';
 
 export const COLUMNAS_CONCILIACION: { clave: ColumnaConciliacion; label: string; porDefecto: boolean }[] = [
   { clave: 'item', label: 'Ítem', porDefecto: true },
@@ -321,6 +336,7 @@ export const COLUMNAS_CONCILIACION: { clave: ColumnaConciliacion; label: string;
   { clave: 'monto_bs', label: 'Monto Bs', porDefecto: true },
   { clave: 'tasa', label: 'Tasa', porDefecto: false },
   { clave: 'referencia', label: 'Referencia de pago', porDefecto: true },
+  { clave: 'drive', label: 'DRIVE/BANCO', porDefecto: true },
   { clave: 'retencion', label: 'Retención', porDefecto: true },
   { clave: 'factura', label: 'Factura', porDefecto: true },
   { clave: 'estado', label: 'Status', porDefecto: true },
@@ -347,6 +363,7 @@ export function celda(f: FilaConciliacion, c: ColumnaConciliacion): string {
     case 'monto_bs': return f.montoBs != null ? bsTxt(f.montoBs) : '—';
     case 'tasa': return f.tasa ? `${fmt(f.tasa, 4)}${f.tasaEsDeHoy ? ' (hoy)' : ''}` : '—';
     case 'referencia': return textoReferenciaPago(f.referencia) || '—';
+    case 'drive': return f.drive?.estado ?? '—';
     case 'retencion': return textoRetencion(f.retencion);
     case 'factura': return f.facturas ? `${f.facturas} archivo(s)` : 'Sin factura';
     case 'estado': return f.estado.label;
@@ -384,6 +401,7 @@ export function textoWhatsappConciliacion(filas: FilaConciliacion[], opts: { tit
     const monto = [cols.has('monto_usd') ? usdTxt(f.montoUsd) : '', cols.has('monto_bs') && f.montoBs != null ? bsTxt(f.montoBs) : '', cols.has('tasa') && f.tasa ? `tasa ${fmt(f.tasa, 2)}${f.tasaEsDeHoy ? ' (hoy)' : ''}` : ''].filter(Boolean).join(' · ');
     if (monto) L.push(`   💰 ${monto}`);
     if (cols.has('referencia')) L.push(`   🔢 Ref.: ${textoReferenciaPago(f.referencia) || '—'}`);
+    if (cols.has('drive') && f.drive) L.push(`   ${f.drive.estado === 'CUADRA' ? '✅' : '❌'} DRIVE/BANCO: ${f.drive.estado}`);
     if (cols.has('retencion')) L.push(`   🏛 Retención: ${textoRetencion(f.retencion)}`);
     if (cols.has('factura')) L.push(`   🧾 Factura: ${f.facturas ? 'cargada' : 'sin cargar'}`);
     if (cols.has('estado')) L.push(`   📌 ${f.estado.label}`);

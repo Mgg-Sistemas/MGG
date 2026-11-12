@@ -14,9 +14,10 @@ import { cantidadFacturas, resolverOrigenFacturas } from '@/modules/pedidos/fact
 import { origenFactura } from '@/modules/pedidos/facturaCompras';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 import {
-  EVENTO_REF_CONCILIACION, armarFila, comprobanteDePago, datosConciliacion, ordenesConciliables, referenciaDePago,
+  EVENTO_REF_CONCILIACION, armarFila, comprobanteDePago, conDrive, datosConciliacion, ordenesConciliables, referenciaDePago,
   type FilaConciliacion, type RetencionFiscalOc,
 } from './conciliacion';
+import { EVENTO_DRIVE, type DatosDrive } from './conciliacionDrive';
 
 export interface DatosConciliacion {
   filas: FilaConciliacion[];
@@ -147,5 +148,49 @@ export async function guardarReferenciaConciliacion(
 
 /** Lo que muestra la fila tras guardar (sin recargar toda la conciliación). */
 export function filaConReferencia(fila: FilaConciliacion, o: Orden): FilaConciliacion {
-  return { ...fila, referencia: referenciaDePago(o.historial), comprobantePago: comprobanteDePago(o.historial) };
+  return conDrive({ ...fila, referencia: referenciaDePago(o.historial), comprobantePago: comprobanteDePago(o.historial) }, o.historial);
+}
+
+/**
+ * Anota en el historial de la OC lo que trajo el archivo del Drive (evento «drive_conciliacion»).
+ * Mismo cuidado que la referencia: se relee y se escribe solo si nadie la cambió entretanto.
+ */
+async function anotarDrive(ordenId: string, d: DatosDrive, actorEmail: string): Promise<Orden> {
+  for (let intento = 0; intento < 3; intento++) {
+    const { data: actual, error: e0 } = await supabase.from('ordenes').select('id, historial, updated_at').eq('id', ordenId).maybeSingle();
+    if (e0) throw e0;
+    if (!actual) throw new Error('La OC ya no existe.');
+    const historial = Array.isArray(actual.historial) ? actual.historial : [];
+    const evento = {
+      at: new Date().toISOString(), evento: EVENTO_DRIVE, actor: actorEmail,
+      referencias: d.referencias, monto_bs: d.montoBs, archivo: d.archivo.slice(0, 120), filas: d.filas,
+    };
+    let q = supabase.from('ordenes').update({ historial: [...historial, evento] }).eq('id', ordenId);
+    q = actual.updated_at ? q.eq('updated_at', actual.updated_at) : q;
+    const { data, error } = await q.select('*').maybeSingle();
+    if (error) throw error;
+    if (data) return data as Orden;
+  }
+  throw new Error('La OC se estaba modificando en este momento.');
+}
+
+export interface ResultadoCargaDrive {
+  guardadas: Orden[];
+  fallidas: Array<{ ordenId: string; motivo: string }>;
+}
+
+/** Guarda el cruce del Drive en cada OC del archivo (de a 4 a la vez). */
+export async function guardarDrive(porOrden: Map<string, DatosDrive>, actorEmail: string): Promise<ResultadoCargaDrive> {
+  const tareas = [...porOrden.entries()];
+  const out: ResultadoCargaDrive = { guardadas: [], fallidas: [] };
+  let i = 0;
+  const trabajador = async () => {
+    while (i < tareas.length) {
+      const [id, d] = tareas[i++];
+      try { out.guardadas.push(await anotarDrive(id, d, actorEmail)); }
+      catch (e) { out.fallidas.push({ ordenId: id, motivo: e instanceof Error ? e.message : 'No se pudo guardar' }); }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(4, tareas.length) }, trabajador));
+  return out;
 }
