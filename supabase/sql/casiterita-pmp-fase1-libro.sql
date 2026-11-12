@@ -50,7 +50,7 @@ create table if not exists public.casiterita_libro (
   recepcion_numero int,
   cierre_id        uuid references public.recepcion_cierres(id) on delete set null,
   lote_id          uuid,
-  colada_id        uuid,
+  colada_id        uuid references public.produccion_colada(id) on delete set null,
   origen           text not null default 'sistema' check (origen in ('excel','sistema')),
   orden            bigint generated always as identity,
   nota             text,
@@ -87,6 +87,8 @@ create or replace function public.casiterita_libro_guardia()
 returns trigger language plpgsql security definer set search_path = public as $$
 declare
   v_apertura date;
+  v_neto numeric;
+  v_almacen text;
 begin
   if tg_op = 'DELETE' then
     if old.origen = 'excel' then
@@ -104,12 +106,37 @@ begin
   end if;
 
   if tg_op = 'UPDATE' then
+    -- Nadie edita (no hay política de UPDATE); solo se deja pasar que una llave
+    -- foránea suelte su vínculo (on delete set null) sin tocar nada más.
+    if row(new.fecha, new.tipo, new.descripcion, new.kg, new.kg_global, new.kg_mgg, new.costo, new.afecta_mgg, new.procedencia, new.origen)
+         is not distinct from row(old.fecha, old.tipo, old.descripcion, old.kg, old.kg_global, old.kg_mgg, old.costo, old.afecta_mgg, old.procedencia, old.origen)
+       and (new.cierre_id is null or new.cierre_id = old.cierre_id)
+       and (new.colada_id is null or new.colada_id = old.colada_id)
+       and (new.lote_id is null or new.lote_id = old.lote_id) then
+      return new;
+    end if;
     raise exception 'Un movimiento del libro no se edita: bórralo y cárgalo de nuevo.';
   end if;
 
   -- INSERT
   if new.origen = 'excel' and coalesce(current_setting('mgg.casiterita_semilla', true), '') <> 'si' then
     raise exception 'Solo la carga inicial marca movimientos como del Excel.';
+  end if;
+  -- Los vínculos no los pone el cliente a su gusto:
+  -- · lote / colada: solo el flujo del lote (función del servidor que marca la transacción);
+  -- · cierre de recepción: solo una entrada con los mismos kg que ese cierre metió al almacén de casiterita.
+  if (new.lote_id is not null or new.colada_id is not null)
+     and coalesce(current_setting('mgg.casiterita_desde_lote', true), '') <> 'si' then
+    raise exception 'Los movimientos de un lote o de una colada los crea su propio flujo.';
+  end if;
+  if new.cierre_id is not null then
+    if new.tipo <> 'entrada' then
+      raise exception 'Solo una entrada puede venir de un cierre de recepción.';
+    end if;
+    select neto_seco, almacen_neto into v_neto, v_almacen from public.recepcion_cierres where id = new.cierre_id;
+    if not found or coalesce(v_almacen, '') not ilike '%CASITERITA%' or abs(coalesce(v_neto, 0) - new.kg_global) > 0.001 then
+      raise exception 'La entrada no coincide con lo que ese cierre de recepción metió al almacén de casiterita.';
+    end if;
   end if;
   select fecha into v_apertura from public.casiterita_libro where tipo = 'apertura';
   if new.tipo <> 'apertura' and v_apertura is not null and new.fecha < v_apertura then
