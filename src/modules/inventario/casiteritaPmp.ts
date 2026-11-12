@@ -315,3 +315,131 @@ export function movDePropuesta(p: PropuestaEntrada, procedencia: ProcedenciaPmp 
     descripcion: `Recepción #${p.cierre.numero} · ${procedencia ? `${procedencia.clave} ${procedencia.nombre}` : (p.cierre.grupo_nombre ?? 'sin procedencia')}`,
   };
 }
+
+/* ───────── Fase 3 · Lotes y exportaciones ───────── */
+
+export const CONTENEDOR_KG = 28000;
+
+export interface ExportacionCas {
+  id: string;
+  numero: number;
+  fecha: string;
+  comprador: string | null;
+  destino: string | null;
+  nota: string | null;
+  historico: boolean;
+}
+
+export interface LoteCas {
+  id: string;
+  codigo: string;
+  exportacion_id: string;
+  fecha: string;
+  kg: number;
+  muestras_kg: number;
+  merma_kg: number;
+  ley_sgs: number | null;
+  informe_sgs_path: string | null;
+  precintos: string | null;
+  motivo: string | null;
+  estado: 'galpon' | 'despachado';
+  despachado_en: string | null;
+  despachado_por_name: string | null;
+  historico: boolean;
+  kg_mgg_hist: number | null;
+  costo_hist: number | null;
+  actor_name: string | null;
+}
+
+export interface LoteCalculado extends LoteCas {
+  /** kg MGG que se llevó el lote y su costo (al PMP de ese momento). */
+  kgMgg: number | null;
+  costo: number | null;
+  pmp: number | null;
+  resguardoKg: number | null;
+  /** Proporción del galpón que se llevó (solo lotes del libro). */
+  pct: number | null;
+  /** Ley SGS × kg ÷ 100 (estaño contenido). */
+  snKg: number | null;
+  /** true si sus movimientos son del Excel (no se deshace). */
+  delExcel: boolean;
+}
+
+/** Cada lote con lo que se llevó de MGG y a qué costo, leído del libro (o del Excel si es anterior). */
+export function calcularLotes(lotes: LoteCas[], filas: FilaLibro[]): LoteCalculado[] {
+  return lotes.map((l) => {
+    const mov = filas.find((f) => f.lote_id === l.id && f.tipo === 'exportacion');
+    const snKg = l.ley_sgs ? (l.kg * l.ley_sgs) / 100 : null;
+    if (mov) {
+      const kgMgg = -mov.dM;
+      return { ...l, kgMgg, costo: -mov.dC, pmp: mov.pmpAntes, resguardoKg: l.kg - kgMgg, pct: mov.pct, snKg, delExcel: mov.origen === 'excel' };
+    }
+    if (l.historico && l.kg_mgg_hist != null) {
+      const kgMgg = Number(l.kg_mgg_hist);
+      const costo = Number(l.costo_hist ?? 0);
+      return { ...l, kgMgg, costo, pmp: kgMgg > 0 ? costo / kgMgg : null, resguardoKg: l.kg - kgMgg, pct: null, snKg, delExcel: true };
+    }
+    return { ...l, kgMgg: null, costo: null, pmp: null, resguardoKg: null, pct: null, snKg, delExcel: l.historico };
+  });
+}
+
+export interface NuevoLote {
+  fecha: string;
+  kg: number;
+  muestras: number;
+  merma: number;
+  motivo?: string | null;
+}
+
+/** Lo que dejaría el lote en el libro (para la vista previa y la validación). */
+export function simularLote(n: NuevoLote, filas: FilaLibro[]): { lote: FilaLibro; fin: Saldo } | null {
+  const base: Omit<MovPmp, 'id' | 'tipo' | 'descripcion' | 'kg' | 'orden'> = {
+    fecha: n.fecha, kg_global: null, kg_mgg: null, costo: null, afecta_mgg: true, procedencia: null, pct_mgg: null, tasa: null,
+    recepcion_numero: null, cierre_id: null, lote_id: 'nuevo', colada_id: null, origen: 'sistema', nota: null, actor_name: null, created_at: '',
+  };
+  const tope = Number.MAX_SAFE_INTEGER - 10;
+  const extra: MovPmp[] = [{ ...base, id: 'l', tipo: 'exportacion', descripcion: 'Lote', kg: n.kg, orden: tope }];
+  if (n.muestras > 0) extra.push({ ...base, id: 'm', tipo: 'muestra', descripcion: 'Muestras', kg: n.muestras, orden: tope + 1 });
+  if (n.merma > 0) extra.push({ ...base, id: 'e', tipo: 'merma', descripcion: 'Merma', kg: n.merma, orden: tope + 2 });
+  const f = calcularLibro([...filas, ...extra]);
+  const lote = f.find((x) => x.id === 'l');
+  return lote ? { lote, fin: saldoFinal(f) } : null;
+}
+
+export function errorNuevoLote(n: NuevoLote, filas: FilaLibro[]): string | null {
+  if (!n.fecha) return 'Indica la fecha.';
+  const ap = filas.find((f) => f.tipo === 'apertura');
+  if (ap && n.fecha < ap.fecha) return `El libro abre el ${fechaTxt(ap.fecha)}.`;
+  if (!(n.kg > 0)) return 'Indica los kg del lote.';
+  if (n.muestras < 0 || n.merma < 0) return 'Muestras y merma no pueden ser negativas.';
+  if (Math.abs(n.kg - CONTENEDOR_KG) > 0.001 && !n.motivo?.trim()) return `El lote no es de ${numTxtEntero(CONTENEDOR_KG)} kg: indica el motivo.`;
+  const fin = saldoFinal(filas);
+  const al = saldoAl(filas, n.fecha);
+  const disp = Math.min(fin.global, al.global);
+  const total = n.kg + n.muestras + n.merma;
+  if (total > disp + 0.001) return `No hay tanto en el galpón: hay ${kgTxt(disp)} y el lote con muestras y merma suma ${kgTxt(total)}.`;
+  const sim = simularLote(n, filas);
+  if (sim && sim.fin.mgg < -0.001) return 'Las muestras y la merma superan lo que queda del inventario MGG.';
+  return null;
+}
+
+const numTxtEntero = (v: number) => v.toLocaleString('es-VE', { maximumFractionDigits: 0 });
+
+/* ───────── Fase 3 · Fundición desde las coladas ───────── */
+
+export interface ColadaCas {
+  id: string;
+  colada_num: number;
+  fecha: string | null;
+  /** kg de casiterita (big bags del inventario detallado) que consumió. */
+  kg: number;
+  bags: number;
+}
+
+/** Coladas que quemaron casiterita, desde la apertura, y que ninguna salida a fundición cubre todavía. */
+export function coladasPorPasar(coladas: ColadaCas[], cubiertas: Set<string>, filas: FilaLibro[]): ColadaCas[] {
+  const ap = filas.find((f) => f.tipo === 'apertura')?.fecha ?? null;
+  return coladas
+    .filter((c) => c.kg > 0 && !cubiertas.has(c.id) && (!ap || !c.fecha || c.fecha >= ap))
+    .sort((a, b) => a.colada_num - b.colada_num);
+}

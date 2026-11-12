@@ -9,14 +9,16 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
   BADGE_TIPO, ETIQUETA_TIPO, calcularEntrada, calcularLibro, errorNuevoMov, fechaTxt, hoyVE, kgTxt, leerNumero, mesDe,
-  nombreMes, pctTxt, pmpTxt, resumenPorMes, saldoFinal, usdTxt, numTxt, cierresPorPasar, movDePropuesta,
-  type CierreRecepcionPmp, type FilaLibro, type MovPmp, type NuevoMovPmp, type ProcedenciaPmp, type PropuestaEntrada, type TipoMovPmp,
+  nombreMes, pctTxt, pmpTxt, resumenPorMes, saldoFinal, usdTxt, numTxt, cierresPorPasar, movDePropuesta, coladasPorPasar,
+  type CierreRecepcionPmp, type ColadaCas, type FilaLibro, type MovPmp, type NuevoMovPmp, type ProcedenciaPmp, type PropuestaEntrada, type TipoMovPmp,
 } from './casiteritaPmp';
 import {
   borrarMovPmp, crearMovPmp, crearMovsPmp, faltaTabla, guardarProcedenciaPmp, listCierresCasiteritaPmp, listLibroPmp, listProcedenciasPmp,
+  listColadasCasiterita, listColadasCubiertas,
 } from './casiteritaPmp.repository';
+import { ExportacionesCasiterita, FundicionColadasModal } from './CasiteritaExportaciones';
 
-type Pestana = 'tablero' | 'libro' | 'procedencias';
+type Pestana = 'tablero' | 'libro' | 'exportaciones' | 'procedencias';
 
 interface Props {
   actorName: string | null;
@@ -34,22 +36,29 @@ export function CasiteritaPmpView({ actorName, canWrite, onClose }: Props) {
   const [nuevo, setNuevo] = useState(false);
   const [cierres, setCierres] = useState<CierreRecepcionPmp[]>([]);
   const [desdeRecep, setDesdeRecep] = useState(false);
+  const [coladas, setColadas] = useState<ColadaCas[]>([]);
+  const [cubiertas, setCubiertas] = useState<Set<string> | null>(null);
+  const [fundicion, setFundicion] = useState(false);
 
   const cargar = useCallback(async () => {
     try {
       const [m, p, c] = await Promise.all([listLibroPmp(), listProcedenciasPmp(), listCierresCasiteritaPmp().catch(() => [] as CierreRecepcionPmp[])]);
       setMovs(m); setProcs(p); setCierres(c); setError(null); setSinTablas(false);
+      // Fase 3: coladas que quemaron casiterita y qué salidas a fundición las cubren (sin la tabla: no avisa).
+      const [co, cu] = await Promise.all([listColadasCasiterita().catch(() => [] as ColadaCas[]), listColadasCubiertas().catch(() => null)]);
+      setColadas(co); setCubiertas(cu ? new Set(cu.keys()) : null);
     } catch (e) {
       if (faltaTabla(e)) setSinTablas(true);
       else setError(e instanceof Error ? e.message : 'No se pudo leer el libro.');
     } finally { setCargando(false); }
   }, []);
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['casiterita_libro', 'casiterita_procedencias_pmp', 'recepcion_cierres'], () => { void cargar(); }, { enabled: !sinTablas });
+  useRealtime(['casiterita_libro', 'casiterita_procedencias_pmp', 'recepcion_cierres', 'casiterita_fundicion_coladas', 'produccion_colada'], () => { void cargar(); }, { enabled: !sinTablas });
 
   const filas = useMemo(() => calcularLibro(movs), [movs]);
   const saldo = useMemo(() => saldoFinal(filas), [filas]);
   const porPasar = useMemo(() => cierresPorPasar(cierres, movs, procs), [cierres, movs, procs]);
+  const coladasPend = useMemo(() => (cubiertas ? coladasPorPasar(coladas, cubiertas, filas) : []), [coladas, cubiertas, filas]);
 
   return (
     <div>
@@ -59,7 +68,7 @@ export function CasiteritaPmpView({ actorName, canWrite, onClose }: Props) {
           <h2 style={{ margin: 0 }}>📒 Casiterita · Libro de promedios</h2>
           <span className="muted" style={{ fontSize: '.8rem' }}>Los Pinos · costo promedio ponderado (PMP)</span>
         </div>
-        {canWrite && !sinTablas && tab !== 'procedencias' && (
+        {canWrite && !sinTablas && (tab === 'tablero' || tab === 'libro') && (
           <button className="btn btn-primary" onClick={() => setNuevo(true)}>＋ Movimiento</button>
         )}
       </div>
@@ -82,17 +91,30 @@ export function CasiteritaPmpView({ actorName, canWrite, onClose }: Props) {
               {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setDesdeRecep(true)}>Pasarlos al libro</button>}
             </div>
           )}
+          {coladasPend.length > 0 && (
+            <div className="card" style={{ borderLeft: '3px solid var(--danger)', marginBottom: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+              <span>🔥 <strong>{coladasPend.length} colada(s)</strong> quemaron casiterita del inventario detallado y no hay salida a fundición en el libro que las cubra
+                <span className="muted"> ({coladasPend.map((c) => `#${c.colada_num}`).join(', ')} · {kgTxt(coladasPend.reduce((a, c) => a + c.kg, 0))})</span>.</span>
+              {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setFundicion(true)}>Cargar la salida a fundición</button>}
+            </div>
+          )}
           <div className="view-toggle" role="tablist" style={{ margin: '0 0 1rem' }}>
             <button className={tab === 'tablero' ? 'active' : ''} onClick={() => setTab('tablero')}>📊 Tablero</button>
             <button className={tab === 'libro' ? 'active' : ''} onClick={() => setTab('libro')}>📒 Libro</button>
+            <button className={tab === 'exportaciones' ? 'active' : ''} onClick={() => setTab('exportaciones')}>🚢 Exportaciones</button>
             <button className={tab === 'procedencias' ? 'active' : ''} onClick={() => setTab('procedencias')}>⚙ % MGG por procedencia</button>
           </div>
           {tab === 'tablero' && <Tablero filas={filas} />}
           {tab === 'libro' && <Libro filas={filas} canWrite={canWrite} onCambio={cargar} />}
+          {tab === 'exportaciones' && <ExportacionesCasiterita filas={filas} canWrite={canWrite} onCambioLibro={() => { void cargar(); }} />}
           {tab === 'procedencias' && <Procedencias procs={procs} canWrite={canWrite} actorName={actorName} onCambio={cargar} />}
         </>
       )}
 
+      {fundicion && (
+        <FundicionColadasModal coladas={coladasPend} filas={filas}
+          onClose={() => setFundicion(false)} onGuardado={() => { setFundicion(false); void cargar(); }} />
+      )}
       {desdeRecep && (
         <DesdeRecepcionesModal propuestas={porPasar} procs={procs} filas={filas} actorName={actorName}
           onClose={() => setDesdeRecep(false)} onGuardado={() => { setDesdeRecep(false); void cargar(); }} />

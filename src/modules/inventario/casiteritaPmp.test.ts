@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  calcularLibro, calcularEntrada, cierresPorPasar, errorNuevoMov, leerNumero, movDePropuesta, procedenciaDeGrupo, resumenPorMes, saldoAl, saldoFinal,
-  type CierreRecepcionPmp, type MovPmp, type ProcedenciaPmp, type TipoMovPmp,
+  calcularLibro, calcularEntrada, calcularLotes, cierresPorPasar, coladasPorPasar, errorNuevoLote, errorNuevoMov, leerNumero, movDePropuesta,
+  procedenciaDeGrupo, resumenPorMes, saldoAl, saldoFinal, simularLote,
+  type CierreRecepcionPmp, type ColadaCas, type LoteCas, type MovPmp, type ProcedenciaPmp, type TipoMovPmp,
 } from './casiteritaPmp';
 
 /* Cifras inventadas (las reales del Excel se validan aparte, fuera del repositorio). */
@@ -110,5 +111,46 @@ describe('libro de promedios · fase 2 · cierres de recepción por pasar', () =
     const m = movDePropuesta(r[0], r[0].procedencia, 50, 12);
     expect(m).toMatchObject({ tipo: 'entrada', kg_global: 1000, pct_mgg: 50, tasa: 12, procedencia: 'P-A' });
     expect(m.descripcion).toBe('Recepción #80 · P-A Aliado');
+  });
+});
+
+describe('libro de promedios · fase 3 · lotes y fundición', () => {
+  const lote = (id: string, p: Partial<LoteCas>): LoteCas => ({
+    id, codigo: id, exportacion_id: 'e1', fecha: '2026-01-10', kg: 7000, muestras_kg: 10, merma_kg: 0, ley_sgs: 66.5, informe_sgs_path: null,
+    precintos: null, motivo: null, estado: 'galpon', despachado_en: null, despachado_por_name: null, historico: false, kg_mgg_hist: null, costo_hist: null, actor_name: null, ...p,
+  });
+  it('el lote del libro toma su kg MGG y costo del movimiento; el histórico, del Excel', () => {
+    const movs = MOVS.map((m) => (m.descripcion === 'Lote A' ? { ...m, lote_id: 'L1' } : m));
+    const [a, h, s] = calcularLotes([
+      lote('L1', {}),
+      lote('H1', { historico: true, kg: 28000, kg_mgg_hist: 20000, costo_hist: 300000, ley_sgs: null }),
+      lote('S1', {}),
+    ], calcularLibro(movs));
+    expect(a).toMatchObject({ kgMgg: 4000, costo: 45000, pmp: 11.25, resguardoKg: 3000, delExcel: false });
+    expect(a.pct).toBeCloseTo(0.5, 10);
+    expect(a.snKg).toBeCloseTo(4655, 6);
+    expect(h).toMatchObject({ kgMgg: 20000, costo: 300000, pmp: 15, resguardoKg: 8000, delExcel: true });
+    expect(s.kgMgg).toBeNull();
+  });
+  it('no deja armar un lote más grande que el galpón; pide motivo si no es de 28.000 kg', () => {
+    const disp = saldoFinal(filas).global;
+    expect(errorNuevoLote({ fecha: '2026-03-01', kg: 28000, muestras: 0, merma: 0 }, filas)).toMatch(/No hay tanto/);
+    expect(errorNuevoLote({ fecha: '2026-03-01', kg: 5000, muestras: 0, merma: 0 }, filas)).toMatch(/motivo/);
+    expect(errorNuevoLote({ fecha: '2026-03-01', kg: disp / 2, muestras: 10, merma: 10, motivo: 'medio galpón' }, filas)).toBeNull();
+    // Si el lote se lleva casi todo, casi no queda MGG para las muestras y la merma (salen enteras de MGG).
+    expect(errorNuevoLote({ fecha: '2026-03-01', kg: disp - 20, muestras: 10, merma: 10, motivo: 'lo que queda' }, filas)).toMatch(/inventario MGG/);
+    expect(errorNuevoLote({ fecha: '2026-03-01', kg: disp - 20, muestras: 10, merma: 11, motivo: 'x' }, filas)).toMatch(/No hay tanto/);
+  });
+  it('la vista previa del lote sale con la proporción del galpón', () => {
+    const s0 = saldoFinal(filas);
+    const sim = simularLote({ fecha: '2026-03-01', kg: s0.global / 2, muestras: 0, merma: 0 }, filas)!;
+    expect(sim.lote.pct).toBeCloseTo(0.5, 10);
+    expect(sim.fin.mgg).toBeCloseTo(s0.mgg / 2, 6);
+    expect(sim.fin.pmp).toBeCloseTo(s0.pmp, 8);
+  });
+  it('propone las coladas con casiterita, desde la apertura y no cubiertas', () => {
+    const c = (id: string, n: number, fecha: string | null, kg: number): ColadaCas => ({ id, colada_num: n, fecha, kg, bags: 1 });
+    const r = coladasPorPasar([c('a', 3, '2026-02-01', 500), c('b', 1, '2026-02-01', 400), c('c', 2, '2025-12-01', 300), c('d', 4, '2026-02-01', 0), c('e', 5, '2026-02-02', 100)], new Set(['e']), filas);
+    expect(r.map((x) => x.colada_num)).toEqual([1, 3]);
   });
 });
