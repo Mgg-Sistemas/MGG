@@ -1,1291 +1,1512 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
-import { SearchSelect } from '@/shared/ui/SearchSelect';
-import { RankedBarChart } from '@/shared/ui/Chart';
+/* ============================================================
+   MGG · (traído de Golden Touch 11-11-2026) · Ventas · Pantalla principal (cuatro pestañas)
+
+   Ventas · Permutas · Por cobrar · Reportes.
+
+   El tablero agrupa por ESTADO porque el estado es lo que manda qué se puede
+   hacer con el documento, y en este módulo cada transición mueve algo real:
+
+     · borrador      → no movió nada. Se edita, se envía a autorizar o se borra.
+     · por_autorizar → espera a LEYDIS RENGEL o JESUS LOZADA. Se edita o se cancela.
+     · autorizada    → ya la aprobaron. Se confirma (o, si se edita, vuelve a
+                       borrador y hay que pedir otra autorización).
+     · confirmada → YA MOVIÓ Dinero (caja o cuenta por cobrar). Falta entregar.
+     · entregada  → YA MOVIÓ MATERIAL (kardex). El documento está cumplido.
+     · anulada    → se deshizo. Queda con su motivo, no se borra nunca.
+
+   TRES COSAS QUE NO SE TOCAN
+   ──────────────────────────
+   1. La GANANCIA se muestra aquí (es un tablero interno) y NUNCA en el
+      comprobante del cliente. Los PDF ya la excluyen: lo único que hay que
+      cuidar desde aquí es no pasarles datos de más.
+
+   2. ANULAR una venta confirmada o entregada es solo del administrador: ya
+      movió dinero o material y devolver eso no es un botón más de la fila. Una
+      venta por autorizar o autorizada todavía no movió nada: la puede CANCELAR
+      (con motivo) quien tiene escritura en Ventas.
+
+   3. El cobro de una cuenta por cobrar NO se escribe aquí. Se llama a
+      `registrarCobro` de Tesorería, que es el único camino por el que la
+      dinero entra a una caja. Dos caminos = dos verdades sobre el mismo saldo.
+
+   Los números de los reportes en pantalla salen de los MISMOS agrupadores
+   puros que usan los PDF (`agruparGananciaPor*`, `filasCuentasPorCobrar`): si
+   la pantalla y el PDF no coinciden, no hay forma de saber cuál miente.
+   ============================================================ */
+import { Quien } from '@/shared/ui/Quien';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
-import { money, num, date, dateTime } from '@/shared/lib/format';
+import { date, dateTime, montoMoneda, num } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { listProductos } from '@/modules/inventario/inventario.repository';
-import { listAlmacenes, listExistencias } from '@/modules/inventario/almacenes.repository';
-import type { Almacen, Producto, Existencia } from '@/shared/lib/types';
-import { almacenVentaInicial, almacenesDeVenta, existenciaEn, productosVendibles } from './almacenVenta';
+import { listCajas, listCajasActivas } from '@/modules/salidas/cajas.repository';
 import {
-  listVentas, crearVenta, actualizarVenta, emitirVenta, marcarPagada, anularVenta, eliminarVenta,
-  resumenVentas, esVentaACredito, esIntercambio, sincronizarCredito, saldoPorCobrar, efectosAnulacion,
-  enviarAAutorizar, autorizarVenta, devolverVenta, puedeAutorizarVentas, nombreAutorizante, yaEmitida,
-  type Venta, type VentaInput, type EstadoVenta,
+  listCuentasPorCobrar, registrarCobro,
+  type CuentaPorCobrar,
+} from '@/modules/tesoreria/cuentasPorCobrar.repository';
+import type { Caja, CuentaCaja } from '@/shared/lib/types';
+import { round2 } from './ventasCalculos';
+import {
+  anularVenta, borrarBorrador, confirmarVenta, entregarVenta, enviarVentaAAutorizar, getVenta,
+  listMovimientosCajaDeVenta, listRenglonesDeVentas, listVentas, resolverAutorizacionVenta,
+  DOCUMENTO_LABEL, ESTADOS_EDITABLES,
+  type EstadoVenta, type EventoVenta, type MovimientoCajaDeVenta, type Venta, type VentaCompleta,
 } from './ventas.repository';
+import { AUTORIZADORES_VENTAS_TEXTO, puedeAutorizarVentas } from './ventasAutorizadores';
+import { useAutorizados } from '@/modules/usuarios/autorizados.repository';
+import { TableroVentas } from './TableroVentas';
+import { VentaForm } from './VentaForm';
+import { PermutaForm } from './PermutaForm';
+import { descargarComprobanteVentaPdf } from './comprobanteVentaPdf';
+import { descargarComprobantePermutaPdf } from './comprobantePermutaPdf';
 import {
-  calcItem, calcVenta, impuestosAplicados, valorMaterial, costoUnitMaterial, errorIntercambio,
-  diferenciasStock, cambiosVenta, nombreDocumento, nombreCondicion, r2,
-  IVA_PCT_DEFECTO, IGTF_PCT_DEFECTO,
-  type VentaItem, type PagoMaterial, type TipoDocumentoVenta, type CondicionPagoVenta, type EventoVenta,
-} from './ventasLogica';
-import { listCajasActivas } from '@/modules/salidas/cajas.repository';
-import { listSaldos } from '@/modules/tesoreria/cajaSaldos.repository';
-import type { Caja, CajaSaldo, CuentaCaja } from '@/shared/lib/types';
-import type { CuentaPorCobrar } from '@/modules/tesoreria/cuentasPorCobrar.repository';
-import { listClientes, crearCliente, actualizarCliente, eliminarCliente, type Cliente, type ClienteInput } from './clientes.repository';
-import { NombreUsuario } from '@/shared/ui/NombreUsuario';
-// Los PDF se importan al generar (dinámico) para no cargar jsPDF al abrir la página.
+  agruparGananciaPorCategoria, agruparGananciaPorCliente, agruparGananciaPorProducto,
+  descargarCuentasPorCobrarPdf, descargarGananciaPorClientePdf,
+  descargarGananciaPorProductoPdf, descargarVentasDelPeriodoPdf,
+  filasCuentasPorCobrar,
+  type FilaCuentaPorCobrar, type FilaGananciaCategoria,
+  type FilaGananciaCliente, type FilaGananciaProducto,
+} from './ventasReportes';
 
-const ESTADO: Record<EstadoVenta, { label: string; color: string }> = {
-  borrador: { label: '● Borrador', color: 'var(--muted)' },
-  por_aprobar: { label: '⏳ Por autorizar', color: 'var(--warning)' },
-  aprobada: { label: '✔ Autorizada', color: 'var(--primary)' },
-  emitida: { label: '✔ Emitida', color: 'var(--primary-3)' },
-  pagada: { label: '✓ Pagada', color: 'var(--success, #45c08a)' },
-  anulada: { label: '✖ Anulada', color: 'var(--danger)' },
-};
+/* ─────────────────────────── Constantes de pantalla ─────────────────────────── */
 
-// Columnas tipo kanban (igual que Compras): una por estado, en orden de flujo.
-const COLS_VENTAS: { key: EstadoVenta; label: string; accent: string }[] = [
-  { key: 'borrador', label: 'Borrador', accent: 'var(--muted)' },
-  { key: 'por_aprobar', label: 'Por autorizar', accent: 'var(--warning)' },
-  { key: 'aprobada', label: 'Autorizada', accent: 'var(--primary)' },
-  { key: 'emitida', label: 'Emitida', accent: 'var(--primary-3)' },
-  { key: 'pagada', label: 'Pagada', accent: 'var(--success, #45c08a)' },
-  { key: 'anulada', label: 'Anulada', accent: 'var(--danger)' },
+type Vista = 'ventas' | 'permutas' | 'cobrar' | 'reportes';
+
+/** Orden del tablero: el trabajo pendiente primero, lo cerrado al final. */
+const COLUMNAS: { estado: EstadoVenta; label: string; ayuda: string }[] = [
+  { estado: 'por_autorizar', label: 'Por autorizar', ayuda: `Esperan a ${AUTORIZADORES_VENTAS_TEXTO}. No movieron nada.` },
+  { estado: 'autorizada', label: 'Autorizadas', ayuda: 'Aprobadas. Falta confirmar: ahí se mueve el dinero.' },
+  { estado: 'borrador', label: 'Borradores', ayuda: 'Todavía no se enviaron a autorizar.' },
+  { estado: 'confirmada', label: 'Confirmadas', ayuda: 'Ya se cobró (o quedó a crédito). Falta entregar el material.' },
+  { estado: 'entregada', label: 'Entregadas', ayuda: 'Material entregado. El documento está cumplido.' },
+  { estado: 'anulada', label: 'Anuladas', ayuda: 'Se deshicieron. Quedan con su motivo.' },
 ];
 
-const pdf = () => import('./ventasPdf');
-const errMsg = (e: unknown, def: string) => (e instanceof Error ? e.message : def);
+const ESTADO_BADGE: Record<EstadoVenta, { label: string; clase: string }> = {
+  borrador: { label: 'Borrador', clase: 'badge' },
+  por_autorizar: { label: 'Por autorizar', clase: 'badge warning' },
+  autorizada: { label: 'Autorizada', clase: 'badge info' },
+  confirmada: { label: 'Confirmada', clase: 'badge info' },
+  entregada: { label: 'Entregada', clase: 'badge success' },
+  anulada: { label: 'Anulada', clase: 'badge danger' },
+};
 
-/** Chip corto del documento (FAC / NE) para tarjetas y lista. */
-function ChipDoc({ v }: { v: Pick<Venta, 'tipo_documento'> }) {
-  const ne = v.tipo_documento === 'nota_entrega';
+function EstadoBadge({ estado }: { estado: EstadoVenta }) {
+  const b = ESTADO_BADGE[estado];
+  return <span className={b?.clase ?? 'badge'}>{b?.label ?? estado}</span>;
+}
+
+function DocumentoBadge({ venta }: { venta: Venta }) {
+  const factura = venta.documento === 'factura';
   return (
-    <span className="badge" title={nombreDocumento(v.tipo_documento)}
-      style={{ fontSize: '.62rem', borderColor: ne ? 'var(--muted)' : 'var(--primary)', color: ne ? 'var(--muted)' : 'var(--primary-3)' }}>
-      {ne ? 'Nota de entrega' : 'Factura'}
+    <span className={factura ? 'badge info' : 'badge'} title={factura && venta.numero_factura ? `Factura Nº ${venta.numero_factura}` : undefined}>
+      {factura ? '🧾 Factura' : '📋 Nota de entrega'}
     </span>
   );
 }
 
+/** Todavía no movió dinero ni material: se cancela sin reversar nada. */
+const SIN_MOVIMIENTO: EstadoVenta[] = ['por_autorizar', 'autorizada'];
+
+/** Texto de cada evento del historial, en el idioma de quien lo lee. */
+const EVENTO_LABEL: Record<string, { icono: string; texto: string }> = {
+  creada: { icono: '🆕', texto: 'Creada' },
+  editada: { icono: '✏️', texto: 'Editada' },
+  enviada_a_autorizar: { icono: '📤', texto: 'Enviada a autorizar · despacho pedido' },
+  autorizada: { icono: '✅', texto: 'Autorizada · despacho aprobado' },
+  rechazada: { icono: '✖', texto: 'Rechazada' },
+  devuelta_a_borrador: { icono: '↩', texto: 'Vuelve a borrador' },
+  confirmada: { icono: '💵', texto: 'Confirmada (se movió el dinero)' },
+  entregada: { icono: '📦', texto: 'Entregada (salió el material)' },
+  anulada: { icono: '⊘', texto: 'Anulada / cancelada' },
+};
+
+/** El texto que hace visible el signo de la ganancia sin leer el número. */
+function colorGanancia(n: number): string | undefined {
+  if (n > 0) return 'var(--success)';
+  if (n < 0) return 'var(--danger)';
+  return undefined;
+}
+
+/* ─────────────────────────── Página ─────────────────────────── */
+
+type ModalKind =
+  | { kind: 'none' }
+  | { kind: 'nueva'; tipo: 'venta' | 'permuta' }
+  | { kind: 'editar'; datos: VentaCompleta }
+  | { kind: 'detalle'; datos: VentaCompleta }
+  | { kind: 'enviar'; venta: Venta }
+  | { kind: 'autorizar'; venta: Venta }
+  | { kind: 'rechazar'; venta: Venta }
+  | { kind: 'confirmar'; venta: Venta }
+  | { kind: 'entregar'; venta: Venta }
+  | { kind: 'anular'; venta: Venta }
+  | { kind: 'borrar'; venta: Venta };
+
 export function VentasPage() {
   const { user } = useSession();
-  const { can, appUser } = usePermissions();
-  const canWrite = can('ventas', 'escritura');
-  // Autorizan SOLO Leydis Rengel y Jesús Lozada (por correo, no por rol).
-  const autoriza = puedeAutorizarVentas(user?.email);
+  const { can, isAdmin, appUser } = usePermissions();
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre?.trim() || user?.email || null;
 
+  // Escribir el módulo: admin o quien tenga `escritura` sobre Ventas.
+  const puedeEscribir = isAdmin || can('ventas', 'escritura');
+  const fullVentas = isAdmin || can('ventas', 'full');
+  // Anular lo que ya movió dinero o material: solo el administrador. Cancelar lo
+  // que todavía no movió nada (por autorizar / autorizada): quien escribe Ventas.
+  const puedeAnular = useCallback(
+    (v: Venta) => v.estado !== 'anulada' && v.estado !== 'borrador'
+      && (fullVentas || (puedeEscribir && SIN_MOVIMIENTO.includes(v.estado))),
+    [fullVentas, puedeEscribir],
+  );
+  // 10/11/2026: aprueban despachos (y autorizan permutas) los administradores y la
+  // lista «Usuarios autorizados › Aprobar despachos de ventas». La base lo vuelve a comprobar.
+  const autorizados = useAutorizados();
+  const puedeAutorizar = puedeAutorizarVentas(user?.email, isAdmin, autorizados);
+
+  const [vista, setVista] = useState<Vista>('ventas');
   const [ventas, setVentas] = useState<Venta[]>([]);
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [productos, setProductos] = useState<Producto[]>([]);
-  const [existencias, setExistencias] = useState<Existencia[]>([]);
-  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
   const [cajas, setCajas] = useState<Caja[]>([]);
-  const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
-  // Estado en vivo de la cuenta por cobrar de cada venta a crédito.
-  const [cxc, setCxc] = useState<Map<string, CuentaPorCobrar>>(new Map());
+  const [cajasActivas, setCajasActivas] = useState<Caja[]>([]);
   const [loading, setLoading] = useState(true);
-  const [modal, setModal] = useState<'nueva' | 'clientes' | 'reporte' | null>(null);
-  const [editar, setEditar] = useState<Venta | null>(null);
-  const [detalle, setDetalle] = useState<Venta | null>(null);
-  const [cobrar, setCobrar] = useState<Venta | null>(null);
-  const [anular, setAnular] = useState<Venta | null>(null);
-  const [emitirConf, setEmitirConf] = useState<Venta | null>(null);
-  const [eliminarConf, setEliminarConf] = useState<Venta | null>(null);
-  const [enviarConf, setEnviarConf] = useState<Venta | null>(null);
-  const [autorizarConf, setAutorizarConf] = useState<Venta | null>(null);
-  const [devolver, setDevolver] = useState<Venta | null>(null);
-  const [vista, setVista] = useState<'tarjetas' | 'lista'>('tarjetas');
-  const [busca, setBusca] = useState('');
-  const [filtroDoc, setFiltroDoc] = useState<'todos' | TipoDocumentoVenta>('todos');
+  const [error, setError] = useState<string | null>(null);
+  const [modal, setModal] = useState<ModalKind>({ kind: 'none' });
+  const [trabajando, setTrabajando] = useState(false);
 
-  const cargar = useCallback(async () => {
+  const [texto, setTexto] = useState('');
+  const [fEstado, setFEstado] = useState<EstadoVenta | ''>('');
+
+  /* ── Carga ── */
+  const refresh = useCallback(async () => {
     try {
-      const [vs, cs, ps, ex, als, cjs, sds] = await Promise.all([
-        listVentas(), listClientes(), listProductos(), listExistencias(), listAlmacenes(),
-        listCajasActivas(), listSaldos(),
+      setError(null);
+      const [vs, cs, ca] = await Promise.all([
+        listVentas(),
+        listCajas().catch(() => [] as Caja[]),
+        listCajasActivas().catch(() => [] as Caja[]),
       ]);
-      setClientes(cs); setProductos(ps); setExistencias(ex); setAlmacenes(als);
-      setCajas(cjs); setSaldos(sds);
-      // Las ventas a crédito se cobran en Tesorería: acá se leen sus cuentas y
-      // la que ya quedó saldada pasa sola a «pagada».
-      const cuentas = await sincronizarCredito(vs).catch(() => new Map<string, CuentaPorCobrar>());
-      setCxc(cuentas);
-      setVentas(vs.map((v) => {
-        const c = v.cxc_id ? cuentas.get(v.cxc_id) : null;
-        return c && v.estado === 'emitida' && c.estado === 'saldada' && Number(c.monto) > 0
-          ? { ...v, estado: 'pagada' as EstadoVenta } : v;
-      }));
-    } finally { setLoading(false); }
+      setVentas(vs);
+      setCajas(cs);
+      setCajasActivas(ca);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudieron cargar las ventas.');
+    }
   }, []);
-  useEffect(() => { cargar().catch((e) => toast(errMsg(e, 'Error al cargar'), 'error')); }, [cargar]);
-  useRealtime(
-    ['ventas', 'clientes', 'existencias', 'productos', 'almacenes',
-     'cuentas_por_cobrar', 'cuentas_por_cobrar_abonos', 'caja_saldos'],
-    cargar,
-  );
-  // El detalle abierto sigue a la venta en vivo (otro usuario la edita o la cobra).
+
   useEffect(() => {
-    if (detalle) { const v = ventas.find((x) => x.id === detalle.id); if (v && v.updated_at !== detalle.updated_at) setDetalle(v); }
-  }, [ventas, detalle]);
+    setLoading(true);
+    refresh().finally(() => setLoading(false));
+  }, [refresh]);
 
-  const visibles = useMemo(() => {
-    const q = busca.trim().toLowerCase();
-    return ventas.filter((v) =>
-      (filtroDoc === 'todos' || (v.tipo_documento ?? 'factura') === filtroDoc)
-      && (!q || `${v.numero} ${v.cliente_nombre ?? ''} ${(v.items ?? []).map((i) => i.producto_nombre).join(' ')}`.toLowerCase().includes(q)));
-  }, [ventas, busca, filtroDoc]);
-  const resumen = useMemo(() => resumenVentas(visibles), [visibles]);
-  const porEstado = useMemo(() => {
-    const m = new Map<EstadoVenta, Venta[]>();
-    COLS_VENTAS.forEach((c) => m.set(c.key, []));
-    visibles.forEach((v) => m.get(v.estado)?.push(v));
-    return m;
-  }, [visibles]);
+  // Realtime multiusuario sobre las tres tablas del módulo. El hook central ya
+  // difiere el refresh mientras alguien teclea, así que un cambio de otro
+  // usuario no le borra lo escrito a nadie a mitad de un formulario.
+  useRealtime(['ventas', 'ventas_renglones', 'ventas_recibidos'], () => { void refresh(); });
 
-  async function confirmarEmitir(v: Venta) {
-    try {
-      const r = await emitirVenta(v, actor, actorName);
-      notify(`${nombreDocumento(v.tipo_documento)} ${v.numero} emitida · inventario actualizado`, 'success', { link: '#/app/ventas' });
-      setEmitirConf(null);
-      if (r.estado === 'pagada') toast('El material cubrió el total: la venta quedó pagada', 'success');
-      await cargar();
-    } catch (e) { toast(errMsg(e, 'No se pudo emitir'), 'error'); }
-  }
-  async function confirmarEnviar(v: Venta) {
-    try {
-      await enviarAAutorizar(v, actor, actorName);
-      notify(`${nombreDocumento(v.tipo_documento)} ${v.numero} por autorizar · Leydis Rengel / Jesús Lozada`, 'info', { link: '#/app/ventas' });
-      setEnviarConf(null); await cargar();
-    } catch (e) { toast(errMsg(e, 'No se pudo enviar'), 'error'); }
-  }
-  async function confirmarAutorizar(v: Venta) {
-    try {
-      await autorizarVenta(v, actor, actorName);
-      notify(`${nombreDocumento(v.tipo_documento)} ${v.numero} autorizada · ya se puede emitir`, 'success', { link: '#/app/ventas' });
-      setAutorizarConf(null); await cargar();
-    } catch (e) { toast(errMsg(e, 'No se pudo autorizar'), 'error'); }
-  }
-  async function confirmarEliminar(v: Venta) {
-    try { await eliminarVenta(v.id); toast('Borrador eliminado', 'success'); setEliminarConf(null); await cargar(); }
-    catch (e) { toast(errMsg(e, 'No se pudo eliminar'), 'error'); }
-  }
-
-  const Kpi = ({ t, v, c, destacar }: { t: string; v: string; c?: string; destacar?: boolean }) => (
-    <div className="card" style={destacar ? { borderColor: 'var(--primary)', background: 'linear-gradient(135deg, var(--surface-2), var(--surface))' } : undefined}>
-      <div className="card-title"><span>{t}</span></div>
-      <div className="mono" style={{ fontSize: '1.35rem', fontWeight: 800, color: c }}>{v}</div>
-    </div>
+  /**
+   * Nombre de cada caja por id. Las patas de pago guardan el uuid; sin este
+   * mapa el comprobante imprime el uuid en vez de «Caja Bs». Se arma con TODAS
+   * las cajas (incluidas las deshabilitadas): una venta vieja puede haberse
+   * cobrado en una caja que hoy ya no se usa.
+   */
+  const nombresDeCaja = useMemo<Record<string, string>>(
+    () => Object.fromEntries(cajas.map((c) => [c.id, c.nombre])),
+    [cajas],
   );
 
-  // Botones de acción de una venta (compartidos por tarjeta y lista).
-  const Acciones = ({ v }: { v: Venta }) => {
-    const falta = saldoPorCobrar(v);
-    return (
-      <>
-        <button className="btn btn-sm btn-ghost" title="Detalle y trazabilidad" onClick={() => setDetalle(v)}>👁</button>
-        <button className="btn btn-sm btn-ghost" title={`${nombreDocumento(v.tipo_documento)} en PDF (vista previa)`}
-          onClick={() => void pdf().then((m) => m.verDocumentoVentaPdf(v)).catch((e) => toast(errMsg(e, 'Error PDF'), 'error'))}>↓ PDF</button>
-        {canWrite && v.estado !== 'anulada' && <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => setEditar(v)}>✎</button>}
-        {canWrite && v.estado === 'borrador' && <button className="btn btn-sm btn-primary" title="Enviar a Leydis Rengel / Jesús Lozada" onClick={() => setEnviarConf(v)}>Enviar a autorizar</button>}
-        {canWrite && v.estado === 'borrador' && <button className="btn btn-sm btn-ghost" title="Eliminar borrador" onClick={() => setEliminarConf(v)}>🗑</button>}
-        {v.estado === 'por_aprobar' && (autoriza
-          ? <button className="btn btn-sm btn-success" title="Autorizar la venta" onClick={() => setAutorizarConf(v)}>✔ Autorizar</button>
-          : <span className="badge" style={{ fontSize: '.66rem', borderColor: 'var(--warning)', color: 'var(--warning)' }} title="La autorizan Leydis Rengel o Jesús Lozada">esperando autorización</span>)}
-        {autoriza && (v.estado === 'por_aprobar' || v.estado === 'aprobada') && (
-          <button className="btn btn-sm btn-ghost" title="Devolver a borrador para corregir" onClick={() => setDevolver(v)}>↩ Devolver</button>
-        )}
-        {canWrite && v.estado === 'aprobada' && <button className="btn btn-sm btn-primary" title="Emitir (mueve el inventario)" onClick={() => setEmitirConf(v)}>Emitir</button>}
-        {/* A crédito no se cobra acá: el dinero (o el material) entra por Tesorería. */}
-        {canWrite && v.estado === 'emitida' && !esVentaACredito(v) && falta > 0 && (
-          <button className="btn btn-sm btn-primary" title="Registrar cobro (entra a caja)" onClick={() => setCobrar(v)}>
-            {esIntercambio(v) ? 'Cobrar diferencia' : 'Cobrar'}
-          </button>
-        )}
-        {v.estado === 'emitida' && esVentaACredito(v) && (
-          <a className="btn btn-sm btn-ghost" href="#/app/tesoreria"
-            title="Se cobra en Tesorería → Cuentas por cobrar, en dinero o en material">→ Cobrar en Tesorería</a>
-        )}
-        {canWrite && v.estado !== 'anulada' && v.estado !== 'borrador' && (
-          <button className="btn btn-sm btn-danger" title="Anular (revierte inventario y dinero)" onClick={() => setAnular(v)}>Anular</button>
-        )}
-      </>
-    );
-  };
+  /* ── Filtro del tablero ── */
+  const tipoVista = vista === 'permutas' ? 'permuta' : 'venta';
+  const filtradas = useMemo(() => {
+    const q = texto.trim().toLowerCase();
+    return ventas.filter((v) => {
+      if (v.tipo !== tipoVista) return false;
+      if (fEstado && v.estado !== fEstado) return false;
+      if (!q) return true;
+      return `${v.codigo} ${v.cliente_nombre ?? ''} ${v.nota ?? ''}`.toLowerCase().includes(q);
+    });
+  }, [ventas, tipoVista, fEstado, texto]);
+
+  const porEstado = useMemo(() => {
+    const mapa: Record<EstadoVenta, Venta[]> = {
+      borrador: [], por_autorizar: [], autorizada: [], confirmada: [], entregada: [], anulada: [],
+    };
+    for (const v of filtradas) mapa[v.estado]?.push(v);
+    return mapa;
+  }, [filtradas]);
+
+  /* ── Acciones ── */
+
+  const abrirDetalle = useCallback(async (v: Venta) => {
+    try {
+      const datos = await getVenta(v.id);
+      if (!datos) { toast('Esa venta ya no existe.', 'error'); await refresh(); return; }
+      setModal({ kind: 'detalle', datos });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo abrir la venta.', 'error');
+    }
+  }, [refresh]);
+
+  /** Editar SIEMPRE con el documento completo: `PermutaForm` necesita `recibidos`. */
+  const abrirEditar = useCallback(async (v: Venta) => {
+    try {
+      const datos = await getVenta(v.id);
+      if (!datos) { toast('Esa venta ya no existe.', 'error'); await refresh(); return; }
+      setModal({ kind: 'editar', datos });
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo abrir la venta para editarla.', 'error');
+    }
+  }, [refresh]);
+
+  /** El comprobante necesita el documento completo y el mapa de cajas. */
+  const abrirComprobante = useCallback(async (v: Venta) => {
+    try {
+      const datos = await getVenta(v.id);
+      if (!datos) { toast('Esa venta ya no existe.', 'error'); return; }
+      const opciones = { cajas: nombresDeCaja };
+      if (datos.venta.tipo === 'permuta') await descargarComprobantePermutaPdf(datos, opciones);
+      else await descargarComprobanteVentaPdf(datos, opciones);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante.', 'error');
+    }
+  }, [nombresDeCaja]);
+
+  async function ejecutar(accion: () => Promise<string>) {
+    setTrabajando(true);
+    try {
+      const mensaje = await accion();
+      setModal({ kind: 'none' });
+      notify(mensaje, 'success', { link: '#/app/ventas' });
+      await refresh();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo completar la operación.', 'error');
+    } finally {
+      setTrabajando(false);
+    }
+  }
+
+  const cerrarForm = useCallback(() => setModal({ kind: 'none' }), []);
+  const trasGuardar = useCallback(async (guardada: VentaCompleta) => {
+    setModal({ kind: 'none' });
+    await refresh();
+    // Una permuta recién guardada se sigue trabajando en su detalle. Una venta
+    // vuelve al tablero: su tarjeta ya está en la columna que le toca.
+    if (guardada.venta.tipo === 'permuta') setModal({ kind: 'detalle', datos: guardada });
+  }, [refresh]);
+
+  /* ─────────────────────────── Render ─────────────────────────── */
 
   return (
     <div>
-      <div className="page-head">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div>
-          <h1>🧾 Ventas</h1>
-          <p className="hint muted">Factura (con IVA e IGTF opcionales) o nota de entrega. Se cobra de contado, a crédito o con material (intercambio). Al emitir sale lo vendido del inventario y, si pagan con material, ese material entra.</p>
+          <h1 style={{ margin: 0 }}>🧾 Ventas</h1>
+          <p className="muted hint" style={{ margin: '.25rem 0 0' }}>
+            {vista === 'permutas'
+              ? <>Al <strong>confirmar</strong> se mueve el dinero; al <strong>entregar</strong>, el material.</>
+              : <>Cotización → despacho por aprobar → despachada → facturada → cobrada.</>}
+          </p>
+        </div>
+        <div className="view-toggle" role="tablist" aria-label="Vista de ventas">
+          <button className={vista === 'ventas' ? 'active' : ''} onClick={() => setVista('ventas')}>🧾 Ventas</button>
+          <button className={vista === 'permutas' ? 'active' : ''} onClick={() => setVista('permutas')}>🔁 Permutas</button>
+          <button className={vista === 'cobrar' ? 'active' : ''} onClick={() => setVista('cobrar')}>💰 Por cobrar</button>
+          <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>📊 Reportes</button>
         </div>
       </div>
 
-      <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
-        <button className="btn btn-ghost" onClick={() => setModal('clientes')}>👤 Clientes</button>
-        <button className="btn btn-ghost" onClick={() => setModal('reporte')}>📊 Reporte</button>
-        {canWrite && <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setModal('nueva')}>+ Nueva venta</button>}
-      </div>
-
-      {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
-        <Kpi t="💰 Total vendido" v={money(resumen.totalVendido)} c="var(--primary-3)" destacar />
-        <Kpi t="📈 Ganancia" v={money(resumen.ganancia)} c="var(--success, #45c08a)" />
-        <Kpi t="% Ganancia" v={`${num(resumen.gananciaPct)}%`} />
-        <Kpi t="🧾 Documentos" v={String(resumen.facturas)} />
-        <Kpi t="⏳ Por cobrar" v={money(resumen.porCobrar)} c={resumen.porCobrar > 0 ? 'var(--danger)' : undefined} />
-        <Kpi t="🧾 A crédito" v={money(resumen.aCredito)} c={resumen.aCredito > 0 ? 'var(--primary-3)' : undefined} />
-        <Kpi t="✓ Cobrado" v={money(resumen.cobrado)} c="var(--success, #45c08a)" />
-        <Kpi t="🏛 IVA + IGTF" v={money(resumen.impuestos)} />
-        <Kpi t="⛏ Material recibido" v={money(resumen.materialRecibido)} />
-      </div>
-
-      {/* Filtros + toggle */}
-      <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', marginBottom: '.8rem', flexWrap: 'wrap' }}>
-        <div className="view-toggle" role="tablist" aria-label="Modo de vista">
-          <button className={vista === 'tarjetas' ? 'active' : ''} onClick={() => setVista('tarjetas')} title="Vista tarjetas">▦ Tarjetas</button>
-          <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')} title="Vista lista">☰ Lista</button>
+      {error && (
+        <div className="card" style={{ borderColor: 'var(--danger)' }}>
+          <strong>Error:</strong> {error}
         </div>
-        <div className="view-toggle" role="tablist" aria-label="Tipo de documento">
-          {([['todos', 'Todos'], ['factura', 'Facturas'], ['nota_entrega', 'Notas de entrega']] as const).map(([k, l]) => (
-            <button key={k} className={filtroDoc === k ? 'active' : ''} onClick={() => setFiltroDoc(k)}>{l}</button>
-          ))}
-        </div>
-        <input className="input" style={{ maxWidth: 260 }} value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="🔎 N°, cliente o producto…" />
-        <span className="muted" style={{ fontSize: '.8rem' }}>{visibles.length} de {ventas.length}</span>
-      </div>
+      )}
 
-      {loading ? <EmptyState message="Cargando…" icon="◔" /> : !visibles.length ? (
-        <EmptyState message={ventas.length ? 'Ninguna venta coincide con el filtro.' : 'Sin ventas. Creá una con + Nueva venta.'} icon="🧾" />
-      ) : vista === 'tarjetas' ? (
-        <div className="kanban">
-          {COLS_VENTAS.map((col) => {
-            const items = porEstado.get(col.key) ?? [];
-            return (
-              <div className="kanban-col" data-state={col.key} key={col.key} style={{ '--col-accent': col.accent } as React.CSSProperties}>
-                <div className="kanban-col-head">
-                  <span className="title">{col.label}</span>
-                  <span className="count">{items.length}</span>
-                </div>
-                <div className="kanban-col-body">
-                  {items.length === 0 ? (
-                    <div className="kanban-empty">Sin ventas</div>
-                  ) : items.map((v) => (
-                    <div className="kanban-card" key={v.id} style={{ cursor: 'default' }}>
-                      <div className="code" style={{ display: 'flex', gap: '.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                        {v.numero} <ChipDoc v={v} />
-                      </div>
-                      <div className="prov">{v.cliente_nombre || 'Cliente ocasional'}</div>
-                      <div className="meta">
-                        <span>{date(v.fecha)}</span>
-                        <span>{nombreCondicion(v.condicion_pago)}</span>
-                      </div>
-                      <EstadoCredito venta={v} cuenta={v.cxc_id ? cxc.get(v.cxc_id) : undefined} />
-                      <EstadoIntercambio venta={v} />
-                      <div className="foot">
-                        <span className="total">{money(v.total, v.moneda)}</span>
-                        <span className="when" style={{ color: v.ganancia < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>
-                          {money(v.ganancia, v.moneda)} · {num(v.ganancia_pct)}%
-                        </span>
-                      </div>
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.25rem', marginTop: '.5rem' }}>
-                        <Acciones v={v} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      {loading ? (
+        <p className="muted">Cargando…</p>
+      ) : vista === 'cobrar' ? (
+        <PorCobrarPanel cajas={cajasActivas} actor={actor} actorName={actorName} puedeEscribir={puedeEscribir} />
+      ) : vista === 'reportes' ? (
+        <ReportesPanel ventas={ventas} />
+      ) : vista === 'ventas' ? (
+        <TableroVentas
+          ventas={ventas.filter((v) => v.tipo === 'venta')}
+          actor={actor}
+          actorName={actorName}
+          puedeEscribir={puedeEscribir}
+          puedeAprobar={puedeAutorizar}
+          puedeAnular={puedeAnular}
+          cajas={cajasActivas}
+          onNueva={() => setModal({ kind: 'nueva', tipo: 'venta' })}
+          onEditar={(v) => void abrirEditar(v)}
+          onBorrar={(v) => setModal({ kind: 'borrar', venta: v })}
+          onAnular={(v) => setModal({ kind: 'anular', venta: v })}
+          onComprobante={(v) => void abrirComprobante(v)}
+          onFicha={(v) => void abrirDetalle(v)}
+          onCambio={refresh}
+        />
       ) : (
-        <div className="table-wrap">
-          <table className="table" style={{ fontSize: '.82rem' }}>
-            <thead>
-              <tr>
-                <th>N°</th><th>Documento</th><th>Fecha</th><th>Cliente</th><th>Pago</th>
-                <th style={{ textAlign: 'right' }}>Total</th>
-                <th style={{ textAlign: 'right' }}>Ganancia</th>
-                <th>Estado</th><th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {visibles.map((v) => (
-                <tr key={v.id}>
-                  <td className="mono">{v.numero}</td>
-                  <td><ChipDoc v={v} /></td>
-                  <td className="mono" style={{ whiteSpace: 'nowrap' }}>{date(v.fecha)}</td>
-                  <td>{v.cliente_nombre || '—'}</td>
-                  <td style={{ whiteSpace: 'nowrap' }}>{nombreCondicion(v.condicion_pago)}</td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(v.total, v.moneda)}</td>
-                  <td className="mono" style={{ textAlign: 'right', color: 'var(--success, #45c08a)' }}>{money(v.ganancia, v.moneda)} · {num(v.ganancia_pct)}%</td>
-                  <td style={{ whiteSpace: 'nowrap', color: ESTADO[v.estado].color, fontWeight: 600 }}>{ESTADO[v.estado].label}</td>
-                  <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}><Acciones v={v} /></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <>
+          <div className="filterbar">
+            <input
+              className="input search"
+              placeholder={`🔍 Buscar por código, cliente o nota…`}
+              value={texto}
+              onChange={(e) => setTexto(e.target.value)}
+            />
+            <select className="select" value={fEstado} onChange={(e) => setFEstado(e.target.value as EstadoVenta | '')}>
+              <option value="">Todos los estados</option>
+              {COLUMNAS.map((c) => <option key={c.estado} value={c.estado}>{c.label}</option>)}
+            </select>
+            {puedeEscribir && (
+              <button className="btn btn-primary" onClick={() => setModal({ kind: 'nueva', tipo: tipoVista })}>
+                ＋ {tipoVista === 'permuta' ? 'Nueva permuta' : 'Nueva venta'}
+              </button>
+            )}
+          </div>
+
+          {!filtradas.length ? (
+            <EmptyState message={
+              texto || fEstado
+                ? 'Ningún documento coincide con el filtro.'
+                : tipoVista === 'permuta'
+                  ? 'Todavía no hay permutas. Una permuta es una venta que se paga (en parte o del todo) con material.'
+                  : 'Todavía no hay ventas cargadas.'
+            } />
+          ) : (
+            COLUMNAS.map((col) => {
+              const filas = porEstado[col.estado];
+              if (!filas.length) return null;
+              return (
+                <TableroEstado
+                  key={col.estado}
+                  titulo={col.label}
+                  ayuda={col.ayuda}
+                  ventas={filas}
+                  puedeEscribir={puedeEscribir}
+                  puedeAnular={puedeAnular}
+                  puedeAutorizar={puedeAutorizar}
+                  onDetalle={(v) => void abrirDetalle(v)}
+                  onEditar={(v) => void abrirEditar(v)}
+                  onComprobante={(v) => void abrirComprobante(v)}
+                  onEnviar={(v) => setModal({ kind: 'enviar', venta: v })}
+                  onAutorizar={(v) => setModal({ kind: 'autorizar', venta: v })}
+                  onRechazar={(v) => setModal({ kind: 'rechazar', venta: v })}
+                  onConfirmar={(v) => setModal({ kind: 'confirmar', venta: v })}
+                  onEntregar={(v) => setModal({ kind: 'entregar', venta: v })}
+                  onAnular={(v) => setModal({ kind: 'anular', venta: v })}
+                  onBorrar={(v) => setModal({ kind: 'borrar', venta: v })}
+                />
+              );
+            })
+          )}
+        </>
       )}
 
-      {(modal === 'nueva' || editar) && (
-        <VentaModal venta={editar} clientes={clientes} productos={productos} existencias={existencias} almacenes={almacenes}
-          vendedorDefault={actorName ?? ''} actor={actor} actorName={actorName} autoriza={autoriza}
-          onClose={() => { setModal(null); setEditar(null); }}
-          onSaved={async () => { setModal(null); setEditar(null); await cargar(); }} />
+      {/* ── Alta / edición ──
+          VentaForm y PermutaForm YA SON ventanas (traen su propio <Modal> con pie de
+          botones). Envolverlas en otro <Modal> dejaba DOS ventanas a pantalla completa:
+          la de afuera se dibujaba encima y tapaba el formulario («Nueva venta» en blanco). */}
+      {modal.kind === 'nueva' && (
+        modal.tipo === 'permuta'
+          ? <PermutaForm onSaved={(v) => void trasGuardar(v)} onCancel={cerrarForm} />
+          : <VentaForm onSaved={(v) => void trasGuardar(v)} onCancel={cerrarForm} />
       )}
-      {modal === 'clientes' && <ClientesModal canWrite={canWrite} actor={actor} actorName={actorName} onClose={() => setModal(null)} onChanged={cargar} />}
-      {modal === 'reporte' && <ReporteModal ventas={ventas} onClose={() => setModal(null)} />}
-      {detalle && <DetalleVentaModal venta={detalle} cuenta={detalle.cxc_id ? cxc.get(detalle.cxc_id) : undefined} onClose={() => setDetalle(null)} />}
 
-      {cobrar && <CobrarModal venta={cobrar} cajas={cajas} saldos={saldos} actor={actor} actorName={actorName}
-        onClose={() => setCobrar(null)} onSaved={async () => { setCobrar(null); await cargar(); }} />}
-      {anular && <AnularModal venta={anular} actor={actor} actorName={actorName}
-        onClose={() => setAnular(null)} onDone={async () => { setAnular(null); await cargar(); }} />}
-      {emitirConf && (
-        <ConfirmDialog title={`Emitir ${emitirConf.numero}`} message={resumenEmision(emitirConf)} confirmText="Emitir"
-          onConfirm={() => void confirmarEmitir(emitirConf)} onCancel={() => setEmitirConf(null)} />
+      {modal.kind === 'editar' && (
+        modal.datos.venta.tipo === 'permuta'
+          ? <PermutaForm venta={modal.datos} onSaved={(v) => void trasGuardar(v)} onCancel={cerrarForm} />
+          : <VentaForm venta={modal.datos} onSaved={(v) => void trasGuardar(v)} onCancel={cerrarForm} />
       )}
-      {enviarConf && (
-        <ConfirmDialog title={`Enviar ${enviarConf.numero} a autorizar`} confirmText="Enviar a autorizar"
-          message={`La ${nombreDocumento(enviarConf.tipo_documento).toLowerCase()} ${enviarConf.numero} de ${enviarConf.cliente_nombre || 'cliente ocasional'} por ${money(enviarConf.total, enviarConf.moneda)} queda esperando la autorización de Leydis Rengel o Jesús Lozada.\n\nTodavía no mueve inventario ni dinero: eso pasa al emitirla, después de autorizada.`}
-          onConfirm={() => void confirmarEnviar(enviarConf)} onCancel={() => setEnviarConf(null)} />
+
+      {/* ── Detalle ── */}
+      {modal.kind === 'detalle' && (
+        <DetalleVentaModal
+          datos={modal.datos}
+          nombresDeCaja={nombresDeCaja}
+          puedeEscribir={puedeEscribir}
+          puedeAnular={puedeAnular}
+          puedeAutorizar={puedeAutorizar}
+          onClose={cerrarForm}
+          onEditar={(v) => void abrirEditar(v)}
+          onComprobante={(v) => void abrirComprobante(v)}
+          onEnviar={(v) => setModal({ kind: 'enviar', venta: v })}
+          onAutorizar={(v) => setModal({ kind: 'autorizar', venta: v })}
+          onRechazar={(v) => setModal({ kind: 'rechazar', venta: v })}
+          onConfirmar={(v) => setModal({ kind: 'confirmar', venta: v })}
+          onEntregar={(v) => setModal({ kind: 'entregar', venta: v })}
+          onAnular={(v) => setModal({ kind: 'anular', venta: v })}
+        />
       )}
-      {autorizarConf && (
-        <ConfirmDialog title={`Autorizar ${autorizarConf.numero}`} confirmText="Autorizar" success
-          message={`¿Autorizás la ${nombreDocumento(autorizarConf.tipo_documento).toLowerCase()} ${autorizarConf.numero}?\n\n${resumenEmision(autorizarConf)}\n\nQueda autorizada a tu nombre (${nombreAutorizante(actor)}). Después se emite y recién ahí se mueve el inventario.`}
-          onConfirm={() => void confirmarAutorizar(autorizarConf)} onCancel={() => setAutorizarConf(null)} />
+
+      {/* ── Transiciones ── */}
+      {modal.kind === 'enviar' && (
+        <ConfirmDialog
+          title={`Enviar ${modal.venta.codigo} a autorizar`}
+          message={`${DOCUMENTO_LABEL[modal.venta.documento]} por ${montoMoneda(modal.venta.total, modal.venta.moneda)}${modal.venta.cliente_nombre ? ` a ${modal.venta.cliente_nombre}` : ''}. Le llega un aviso a ${AUTORIZADORES_VENTAS_TEXTO}. No se mueve dinero ni material hasta que la autoricen y se confirme.`}
+          confirmText={trabajando ? 'Enviando…' : 'Sí, enviar'}
+          onCancel={cerrarForm}
+          onConfirm={() => void ejecutar(async () => {
+            const v = await enviarVentaAAutorizar(modal.venta.id, actor, actorName ?? actor);
+            return `${v.codigo} enviada a autorizar`;
+          })}
+        />
       )}
-      {devolver && <DevolverModal venta={devolver} actor={actor} actorName={actorName}
-        onClose={() => setDevolver(null)} onDone={async () => { setDevolver(null); await cargar(); }} />}
-      {eliminarConf && (
-        <ConfirmDialog title={`Eliminar ${eliminarConf.numero}`} danger confirmText="Eliminar borrador"
-          message={`¿Eliminar el borrador ${eliminarConf.numero}? No movió inventario ni dinero, así que no hay nada que revertir.`}
-          onConfirm={() => void confirmarEliminar(eliminarConf)} onCancel={() => setEliminarConf(null)} />
+
+      {modal.kind === 'autorizar' && (
+        <ConfirmDialog
+          title={`Autorizar ${modal.venta.codigo}`}
+          message={`${DOCUMENTO_LABEL[modal.venta.documento]} por ${montoMoneda(modal.venta.total, modal.venta.moneda)}${modal.venta.cliente_nombre ? ` a ${modal.venta.cliente_nombre}` : ''}${modal.venta.condicion === 'credito' ? ' · A CRÉDITO' : ''}. Con tu autorización ya se puede confirmar; tu nombre queda en el historial.`}
+          confirmText={trabajando ? 'Autorizando…' : '✅ Sí, autorizar'}
+          onCancel={cerrarForm}
+          onConfirm={() => void ejecutar(async () => {
+            const v = await resolverAutorizacionVenta(modal.venta.id, true, actor, actorName ?? actor);
+            return `${v.codigo} autorizada`;
+          })}
+        />
+      )}
+
+      {modal.kind === 'rechazar' && (
+        <MotivoModal
+          titulo={`✖ Rechazar ${modal.venta.codigo}`}
+          explicacion="La venta vuelve a borrador para que la corrijan. El motivo le llega a quien la cargó y queda en el historial."
+          etiqueta="Motivo del rechazo"
+          boton="Rechazar la venta"
+          trabajando={trabajando}
+          onCancel={cerrarForm}
+          onAceptar={(motivo) => void ejecutar(async () => {
+            const v = await resolverAutorizacionVenta(modal.venta.id, false, actor, actorName ?? actor, motivo);
+            return `${v.codigo} rechazada: vuelve a borrador`;
+          })}
+        />
+      )}
+
+      {modal.kind === 'confirmar' && (
+        <ConfirmDialog
+          title={`Confirmar ${modal.venta.codigo} (autorizada${modal.venta.autorizada_por ? ` por ${modal.venta.autorizada_por}` : ''})`}
+          message={
+            modal.venta.condicion === 'credito'
+              ? `Se le va a cargar ${montoMoneda(modal.venta.diferencia, modal.venta.moneda)} a la cuenta corriente de ${modal.venta.cliente_nombre || 'el cliente'}. El material NO sale todavía: eso pasa al entregar.`
+              : `Va a ENTRAR ${montoMoneda(modal.venta.diferencia, modal.venta.moneda)} a las cajas indicadas en el documento. El material NO sale todavía: eso pasa al entregar.`
+          }
+          confirmText={trabajando ? 'Confirmando…' : 'Sí, confirmar'}
+          onCancel={cerrarForm}
+          onConfirm={() => void ejecutar(async () => {
+            const v = await confirmarVenta(modal.venta.id, actor, actorName ?? actor);
+            return `${v.codigo} confirmada · ${montoMoneda(v.diferencia, v.moneda)}`;
+          })}
+        />
+      )}
+
+      {modal.kind === 'entregar' && (
+        <ConfirmDialog
+          title={`Entregar ${modal.venta.codigo}`}
+          message="Va a SALIR del inventario todo el material del documento (y, si es permuta, va a entrar el material recibido). Si falta stock, no se entrega nada."
+          confirmText={trabajando ? 'Entregando…' : 'Sí, entregar'}
+          onCancel={cerrarForm}
+          onConfirm={() => void ejecutar(async () => {
+            const v = await entregarVenta(modal.venta.id, actor, actorName ?? actor);
+            return `${v.codigo} entregada · material descargado del inventario`;
+          })}
+        />
+      )}
+
+      {modal.kind === 'borrar' && (
+        <ConfirmDialog
+          title={`Borrar el borrador ${modal.venta.codigo}`}
+          message="Un borrador no movió dinero ni material, así que se borra de verdad. Una venta ya enviada a autorizar se CANCELA (queda con su motivo) y una confirmada o entregada se ANULA."
+          confirmText={trabajando ? 'Borrando…' : 'Sí, borrar'}
+          danger
+          onCancel={cerrarForm}
+          onConfirm={() => void ejecutar(async () => {
+            await borrarBorrador(modal.venta.id);
+            return `Borrador ${modal.venta.codigo} eliminado`;
+          })}
+        />
+      )}
+
+      {modal.kind === 'anular' && (
+        <AnularModal
+          venta={modal.venta}
+          trabajando={trabajando}
+          onCancel={cerrarForm}
+          onAnular={(motivo) => void ejecutar(async () => {
+            const cancelar = SIN_MOVIMIENTO.includes(modal.venta.estado);
+            const v = await anularVenta(modal.venta.id, actor, actorName ?? actor, motivo);
+            return cancelar ? `${v.codigo} cancelada` : `${v.codigo} anulada`;
+          })}
+        />
       )}
     </div>
   );
 }
 
-/** Texto de la confirmación de emitir: qué sale, qué entra y qué pasa con el cobro. */
-function resumenEmision(v: Pick<Venta, 'tipo_documento' | 'items' | 'condicion_pago' | 'pago_material' | 'total' | 'moneda' | 'cliente_nombre' | 'valor_material'>): string {
-  const lineas: string[] = [`Se emite la ${nombreDocumento(v.tipo_documento).toLowerCase()} por ${money(v.total, v.moneda)}.`];
-  const items = (v.items ?? []).filter((i) => i.producto_id && Number(i.cantidad) > 0);
-  if (items.length) lineas.push(`\nSale del inventario:\n${items.map((i) => `• ${num(i.cantidad)} ${i.unidad ?? ''} ${i.producto_nombre} (${i.almacen})`.replace(/\s+\(/, ' (')).join('\n')}`);
-  if (v.condicion_pago === 'intercambio') {
-    const mat = (v.pago_material ?? []).filter((p) => Number(p.cantidad) > 0);
-    lineas.push(`\nEntra al inventario como pago:\n${mat.map((p) => `• ${num(p.cantidad)} ${p.unidad ?? ''} ${p.producto_nombre}${p.producto_id ? '' : ' (ficha nueva)'} → ${p.almacen} · ${money(p.valor, v.moneda)}`).join('\n')}`);
-    const dif = r2(Number(v.total) - valorMaterial(mat));
-    lineas.push(dif > 0 ? `\nQueda por cobrar en dinero: ${money(dif, v.moneda)}.` : '\nEl material cubre el total: la venta queda pagada.');
-  } else if (v.condicion_pago === 'credito') {
-    lineas.push(`\nSe crea la cuenta por cobrar a ${v.cliente_nombre ?? 'el cliente'} por ${money(v.total, v.moneda)}.`);
-  } else {
-    lineas.push('\nDespués se cobra con «Cobrar» y el dinero entra a la caja que elijas.');
-  }
-  return lineas.join('\n');
+/* ─────────────────────────── Tablero por estado ─────────────────────────── */
+
+interface TableroProps {
+  titulo: string;
+  ayuda: string;
+  ventas: Venta[];
+  puedeEscribir: boolean;
+  puedeAnular: (v: Venta) => boolean;
+  puedeAutorizar: boolean;
+  onDetalle: (v: Venta) => void;
+  onEditar: (v: Venta) => void;
+  onComprobante: (v: Venta) => void;
+  onEnviar: (v: Venta) => void;
+  onAutorizar: (v: Venta) => void;
+  onRechazar: (v: Venta) => void;
+  onConfirmar: (v: Venta) => void;
+  onEntregar: (v: Venta) => void;
+  onAnular: (v: Venta) => void;
+  onBorrar: (v: Venta) => void;
 }
 
-/* ───────────── Modal Nueva / Editar venta ───────────── */
-
-interface FilaItem extends VentaItem { _k: number }
-interface FilaMaterial extends PagoMaterial { _k: number; nuevo: boolean }
-
-function VentaModal({ venta, clientes, productos, existencias, almacenes, vendedorDefault, actor, actorName, autoriza, onClose, onSaved }: {
-  venta: Venta | null; clientes: Cliente[]; productos: Producto[]; existencias: Existencia[]; almacenes: Almacen[];
-  vendedorDefault: string; actor: string; actorName: string | null; autoriza: boolean; onClose: () => void; onSaved: () => void;
-}) {
-  const editando = !!venta;
-  // «emitida» = ya movió inventario o dinero (emitida o pagada): ahí se edita con motivo.
-  const emitida = !!venta && yaEmitida(venta);
-  // En autorización (por autorizar / autorizada): se edita libre, pero si estaba
-  // autorizada vuelve a autorización.
-  const enAutorizacion = !!venta && (venta.estado === 'por_aprobar' || venta.estado === 'aprobada');
-  const [tipo, setTipo] = useState<TipoDocumentoVenta>(venta?.tipo_documento ?? 'factura');
-  const [fecha, setFecha] = useState(venta?.fecha ?? new Date().toISOString().slice(0, 10));
-  // La venta sale de UN almacén: por defecto el padre de Matanza.
-  const [almacen, setAlmacen] = useState(() => venta?.items?.[0]?.almacen || almacenVentaInicial(almacenes));
-  const [clienteId, setClienteId] = useState(venta?.cliente_id ?? '');
-  const [clienteNombre, setClienteNombre] = useState(venta?.cliente_nombre ?? '');
-  const [moneda, setMoneda] = useState(venta?.moneda ?? 'USD');
-  const [condicion, setCondicion] = useState<CondicionPagoVenta>(venta?.condicion_pago ?? 'contado');
-  const [descuento, setDescuento] = useState(String(venta?.descuento ?? 0));
-  const [aplicaIva, setAplicaIva] = useState(venta ? !!venta.aplica_iva || Number(venta.iva_pct) > 0 : false);
-  const [ivaPct, setIvaPct] = useState(String(Number(venta?.iva_pct) || IVA_PCT_DEFECTO));
-  const [aplicaIgtf, setAplicaIgtf] = useState(venta ? !!venta.aplica_igtf || Number(venta.igtf_pct) > 0 : false);
-  const [igtfPct, setIgtfPct] = useState(String(Number(venta?.igtf_pct) || IGTF_PCT_DEFECTO));
-  const [vendedor, setVendedor] = useState(venta?.vendedor ?? vendedorDefault);
-  const [nota, setNota] = useState(venta?.nota ?? '');
-  const [motivo, setMotivo] = useState('');
-  const [filas, setFilas] = useState<FilaItem[]>(() =>
-    (venta?.items ?? []).length ? venta!.items.map((it, i) => ({ ...calcItem(it), _k: i })) : [{ ...calcItem({}), _k: 0 }]);
-  const [material, setMaterial] = useState<FilaMaterial[]>(() =>
-    (venta?.pago_material ?? []).map((p, i) => ({ ...p, _k: i, nuevo: !p.producto_id })));
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmar, setConfirmar] = useState<'enviar' | 'autorizar' | 'guardar' | null>(null);
-
-  const gruposAlmacen = useMemo(() => almacenesDeVenta(almacenes), [almacenes]);
-  // Solo se ofrece lo que se puede despachar: ficha activa y con stock en ese almacén.
-  // Al editar una emitida, lo ya vendido cuenta como disponible (vuelve si se quita).
-  const vendibles = useMemo(() => {
-    const base = productosVendibles(productos, existencias, almacen);
-    if (!emitida) return base;
-    const ya = new Set((venta?.items ?? []).map((i) => i.producto_id));
-    return [...base, ...productos.filter((p) => ya.has(p.id) && !base.some((b) => b.id === p.id))];
-  }, [productos, existencias, almacen, emitida, venta]);
-  const productosActivos = useMemo(() => productos.filter((p) => p.estado !== 'inactivo'), [productos]);
-  const almacenFueraDeLista = !!almacen && !gruposAlmacen.some(([, ds]) => ds.some((d) => d.nombre === almacen));
-
-  const items = useMemo(() => filas.map((f) => calcItem(f)), [filas]);
-  const imp = impuestosAplicados({ tipo, aplicaIva, ivaPct: Number(ivaPct) || 0, aplicaIgtf, igtfPct: Number(igtfPct) || 0 });
-  const totales = useMemo(() => calcVenta(items, Number(descuento) || 0, imp.iva_pct, imp.igtf_pct), [items, descuento, imp.iva_pct, imp.igtf_pct]);
-  const valorMat = valorMaterial(material);
-  const errInter = condicion === 'intercambio' ? errorIntercambio(totales.total, material) : null;
-
-  function setFila(k: number, patch: Partial<VentaItem>) {
-    setFilas((prev) => prev.map((f) => (f._k === k ? { ...calcItem({ ...f, ...patch }), _k: k } : f)));
-  }
-  function addFila() { setFilas((prev) => [...prev, { ...calcItem({ almacen }), _k: (prev.at(-1)?._k ?? 0) + 1 }]); }
-  function delFila(k: number) { setFilas((prev) => prev.filter((f) => f._k !== k)); }
-
-  function setMat(k: number, patch: Partial<FilaMaterial>) {
-    setMaterial((prev) => prev.map((m) => (m._k === k ? { ...m, ...patch } : m)));
-  }
-  function addMat() {
-    setMaterial((prev) => [...prev, {
-      _k: (prev.at(-1)?._k ?? 0) + 1, nuevo: false, producto_id: null, producto_nombre: '', unidad: null,
-      almacen: almacen || almacenVentaInicial(almacenes), cantidad: 0, valor: 0,
-    }]);
-  }
-
-  // Al elegir producto precarga unidad y costo (PMP) DEL ALMACÉN de la venta.
-  function elegirProducto(k: number, productoId: string) {
-    const p = productos.find((x) => x.id === productoId);
-    const ex = existenciaEn(existencias, productoId, almacen);
-    setFila(k, { producto_id: productoId, producto_nombre: p?.nombre ?? '', unidad: p?.unidad ?? null, almacen, costo_unit: ex.costo });
-  }
-
-  /** Cambiar de almacén re-apunta los renglones y les recalcula el costo de ahí. */
-  function cambiarAlmacen(nuevo: string) {
-    setAlmacen(nuevo);
-    setFilas((prev) => prev.map((f) => ({
-      ...calcItem({ ...f, almacen: nuevo, costo_unit: f.producto_id ? existenciaEn(existencias, f.producto_id, nuevo).costo : f.costo_unit }),
-      _k: f._k,
-    })));
-  }
-
-  function input(): VentaInput {
-    return {
-      fecha, tipo_documento: tipo,
-      cliente_id: clienteId || null, cliente_nombre: clienteNombre || (clientes.find((c) => c.id === clienteId)?.nombre ?? null),
-      moneda, items, descuento: Number(descuento) || 0,
-      aplica_iva: aplicaIva, iva_pct: Number(ivaPct) || 0, aplica_igtf: aplicaIgtf, igtf_pct: Number(igtfPct) || 0,
-      condicion_pago: condicion,
-      pago_material: material.map(({ _k: _omit, nuevo, ...p }) => ({ ...p, producto_id: nuevo ? null : p.producto_id })),
-      vendedor, nota,
-      // Lo escribe el cobro, no este formulario. Sin conservarlo, editar un
-      // precio de una venta ya cobrada borraba con qué se había cobrado.
-      metodo_pago: venta?.metodo_pago ?? null,
-    };
-  }
-
-  function validar(): string | null {
-    if (!clienteId && !clienteNombre.trim()) return 'Elegí o escribí el cliente.';
-    if (!items.some((i) => i.cantidad > 0 && i.precio_unit > 0)) return 'Agregá al menos una línea con cantidad y precio.';
-    if (items.some((i) => i.cantidad > 0 && !i.producto_id)) return 'Cada línea tiene que tener un producto.';
-    if (errInter) return errInter;
-    if (emitida && motivo.trim().length < 4) return 'Escribí el motivo del cambio: la venta ya está emitida y queda en la trazabilidad.';
-    return null;
-  }
-
-  function pedir(accion: 'enviar' | 'autorizar' | 'guardar') {
-    setError(null);
-    const e = validar();
-    if (e) { setError(e); return; }
-    // Guardar un borrador o una venta en autorización no mueve nada: sin confirmación.
-    if (accion === 'guardar' && !emitida && !(enAutorizacion && venta?.estado === 'aprobada')) { void guardar('guardar'); return; }
-    setConfirmar(accion);
-  }
-
-  /**
-   * guardar = solo guarda · enviar = guarda y la manda a autorizar ·
-   * autorizar = (solo Leydis / Jesús) guarda, autoriza y emite en un paso.
-   */
-  async function guardar(accion: 'enviar' | 'autorizar' | 'guardar') {
-    setSaving(true); setConfirmar(null);
-    try {
-      let v: Venta;
-      if (editando) v = await actualizarVenta(venta!, input(), actor, actorName, motivo);
-      else v = await crearVenta(input(), actor, actorName);
-      if (accion === 'enviar' || accion === 'autorizar') {
-        if (v.estado === 'borrador') v = await enviarAAutorizar(v, actor, actorName);
-      }
-      if (accion === 'autorizar') {
-        if (v.estado === 'por_aprobar') v = await autorizarVenta(v, actor, actorName);
-        const r = await emitirVenta(v, actor, actorName);
-        notify(`${nombreDocumento(v.tipo_documento)} ${v.numero} autorizada y emitida · inventario actualizado`, 'success', { link: '#/app/ventas' });
-        if (r.estado === 'pagada') toast('El material cubrió el total: la venta quedó pagada', 'success');
-      } else if (accion === 'enviar') {
-        notify(`${nombreDocumento(v.tipo_documento)} ${v.numero} por autorizar · Leydis Rengel / Jesús Lozada`, 'info', { link: '#/app/ventas' });
-      } else {
-        notify(emitida ? `${v.numero} editada · inventario ajustado por la diferencia`
-          : v.estado === 'por_aprobar' && venta?.estado === 'aprobada' ? `${v.numero} editada · vuelve a autorización`
-          : `${nombreDocumento(v.tipo_documento)} ${v.numero} guardada`, 'success', { link: '#/app/ventas' });
-      }
-      onSaved();
-    } catch (e) { setError(errMsg(e, 'No se pudo guardar.')); setSaving(false); }
-  }
-
-  // Lo que se va a mover al guardar una emitida (para la confirmación).
-  const resumenEdicion = useMemo(() => {
-    if (!emitida || !venta) return '';
-    const inp = input();
-    const vend = diferenciasStock(venta.items ?? [], items);
-    const mat = condicion === 'intercambio' ? diferenciasStock(venta.pago_material ?? [], (inp.pago_material ?? []).filter((p) => p.producto_id)) : [];
-    const nuevos = condicion === 'intercambio' ? (inp.pago_material ?? []).filter((p) => !p.producto_id && Number(p.cantidad) > 0) : [];
-    const cambios = cambiosVenta(venta, { ...inp, total: totales.total, iva_pct: imp.iva_pct, igtf_pct: imp.igtf_pct });
-    const l: string[] = [];
-    l.push(cambios.length ? `Cambios:\n${cambios.map((c) => `• ${c}`).join('\n')}` : 'No hay cambios.');
-    const mov = [
-      ...vend.map((d) => `• ${d.delta > 0 ? 'Sale' : 'Vuelve'} ${num(Math.abs(d.delta))} ${d.producto_nombre} (${d.almacen})`),
-      ...mat.map((d) => `• Material: ${d.delta > 0 ? 'entra' : 'sale'} ${num(Math.abs(d.delta))} ${d.producto_nombre} (${d.almacen})`),
-      ...nuevos.map((p) => `• Material nuevo: entra ${num(p.cantidad)} ${p.producto_nombre} (${p.almacen})`),
-    ];
-    l.push(mov.length ? `\nInventario (solo la diferencia):\n${mov.join('\n')}` : '\nEl inventario no cambia.');
-    if (r2(totales.total) !== r2(venta.total)) {
-      if (condicion === 'credito') l.push(`\nLa cuenta por cobrar pasa de ${money(venta.total, moneda)} a ${money(totales.total, moneda)}.`);
-      else if (venta.caja_id && venta.estado === 'pagada') l.push('\nLa diferencia de dinero entra o sale de la caja donde se cobró.');
-    }
-    l.push(`\nMotivo: ${motivo.trim()}`);
-    return l.join('\n');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emitida, venta, items, material, condicion, totales.total, motivo, imp.iva_pct, imp.igtf_pct]);
-
-  const cellNum: React.CSSProperties = { width: 84, textAlign: 'right' };
-  const footer = (
-    <>
-      <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      {emitida || enAutorizacion ? (
-        <button className="btn btn-primary" onClick={() => pedir('guardar')} disabled={saving}>{saving ? '…' : 'Guardar cambios'}</button>
-      ) : (
-        <>
-          <button className="btn btn-ghost" onClick={() => pedir('guardar')} disabled={saving}>{saving ? '…' : 'Guardar borrador'}</button>
-          <button className="btn btn-primary" onClick={() => pedir('enviar')} disabled={saving}
-            title="La autorizan Leydis Rengel o Jesús Lozada">{saving ? '…' : 'Enviar a autorizar'}</button>
-          {autoriza && (
-            <button className="btn btn-success" onClick={() => pedir('autorizar')} disabled={saving}
-              title="Solo Leydis Rengel / Jesús Lozada: autoriza y emite en un paso">{saving ? '…' : 'Autorizar y emitir'}</button>
-          )}
-        </>
-      )}
-    </>
-  );
-
+function TableroEstado({
+  titulo, ayuda, ventas, puedeEscribir, puedeAnular, puedeAutorizar,
+  onDetalle, onEditar, onComprobante, onEnviar, onAutorizar, onRechazar, onConfirmar, onEntregar, onAnular, onBorrar,
+}: TableroProps) {
   return (
-    <Modal title={editando ? `Editar ${venta!.numero}` : 'Nueva venta'} size="xl" onClose={onClose} footer={footer}>
-      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      {enAutorizacion && (
-        <div className="card" style={{ borderLeft: '3px solid var(--warning)', padding: '.55rem .8rem', marginBottom: '.75rem', fontSize: '.84rem' }}>
-          {venta!.estado === 'aprobada'
-            ? <>Esta venta ya está <strong>autorizada</strong> por {nombreAutorizante(venta!.aprobada_por)}. Si la cambiás, <strong>vuelve a autorización</strong>.</>
-            : <>Esta venta está <strong>esperando autorización</strong>. Podés corregirla: la autorización se hace sobre lo último que guardes.</>}
-        </div>
-      )}
-      {emitida && (
-        <div className="card" style={{ borderLeft: '3px solid var(--warning)', padding: '.55rem .8rem', marginBottom: '.75rem', fontSize: '.84rem' }}>
-          Esta venta ya está <strong>{venta!.estado}</strong>. Al guardar, el inventario se mueve <strong>solo por la diferencia</strong>
-          {condicion === 'credito' ? ', la cuenta por cobrar se ajusta al nuevo total' : venta!.caja_id ? ' y la diferencia de dinero entra o sale de la caja donde se cobró' : ''}.
-          El documento y la forma de pago no se cambian: para eso se anula y se hace otra.
-        </div>
-      )}
-
-      {/* Documento */}
-      <div className="form-row">
-        <label>Tipo de documento</label>
-        <div className="view-toggle" role="tablist" aria-label="Tipo de documento" style={{ width: 'fit-content' }}>
-          <button type="button" className={tipo === 'factura' ? 'active' : ''} disabled={emitida || enAutorizacion} onClick={() => setTipo('factura')}>🧾 Factura</button>
-          <button type="button" className={tipo === 'nota_entrega' ? 'active' : ''} disabled={emitida || enAutorizacion} onClick={() => setTipo('nota_entrega')}>📄 Nota de entrega</button>
-        </div>
-        <small className="hint muted">{tipo === 'nota_entrega' ? 'Sin impuestos. Correlativo NE-AAAA-NNNN.' : 'IVA e IGTF opcionales con su casilla. Correlativo FAC-AAAA-NNNN.'}</small>
+    <div className="card" style={{ marginBottom: '1rem' }}>
+      <div className="card-title" style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem', flexWrap: 'wrap' }}>
+        <span>{titulo}</span>
+        <span className="badge">{ventas.length}</span>
+        <span className="muted" style={{ fontSize: '.78rem', fontWeight: 400 }}>{ayuda}</span>
       </div>
-
-      <div className="form-grid" style={{ gap: '.6rem 1rem' }}>
-        <div className="form-row">
-          <label>Cliente</label>
-          <SearchSelect value={clienteId} onChange={(id) => { setClienteId(id); setClienteNombre(clientes.find((c) => c.id === id)?.nombre ?? ''); }}
-            options={clientes.filter((c) => c.activo).map((c) => ({ value: c.id, label: c.nombre }))}
-            placeholder="🔎 Elegí el cliente…" emptyText="Sin clientes. Agregalos en 👤 Clientes." />
-          <input className="input" style={{ marginTop: '.3rem' }} value={clienteNombre} onChange={(e) => { setClienteNombre(e.target.value); setClienteId(''); }} placeholder="…o escribí un cliente ocasional" />
-        </div>
-        <div className="form-row"><label>Fecha</label><input className="input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} /></div>
-        <div className="form-row">
-          <label>Almacén (de dónde sale)</label>
-          <select className="select" value={almacen} onChange={(e) => cambiarAlmacen(e.target.value)}>
-            {almacenFueraDeLista && <optgroup label="Almacén actual"><option value={almacen}>{almacen}</option></optgroup>}
-            {gruposAlmacen.map(([sede, destinos]) => (
-              <optgroup key={sede} label={sede}>
-                {destinos.map((d) => <option key={d.nombre} value={d.nombre}>{d.label}</option>)}
-              </optgroup>
-            ))}
-          </select>
-          <small className="hint muted">Solo se listan los productos con stock acá.</small>
-        </div>
-        <div className="form-row"><label>Moneda</label>
-          <select className="select" value={moneda} onChange={(e) => setMoneda(e.target.value)}>
-            <option value="USD">USD</option><option value="Bs">Bs</option><option value="USDT">USDT</option><option value="COP">COP</option>
-          </select>
-        </div>
-        <div className="form-row">
-          <label>Forma de pago</label>
-          <select className="select" value={condicion} disabled={emitida} onChange={(e) => setCondicion(e.target.value as CondicionPagoVenta)}>
-            <option value="contado">Contado — se cobra y entra a caja</option>
-            <option value="credito">Crédito — queda como cuenta por cobrar</option>
-            <option value="intercambio">Intercambio — paga con material</option>
-          </select>
-          <small className="hint muted">
-            {condicion === 'credito' ? 'Al emitir se crea la cuenta por cobrar. Se cobra en Tesorería, en dinero o en material.'
-              : condicion === 'intercambio' ? 'Al emitir sale lo vendido y ENTRA el material que entrega el cliente. Si no cubre el total, la diferencia se cobra en caja.'
-              : 'Al cobrarla elegís la caja donde entra el dinero.'}
-          </small>
-        </div>
-        <div className="form-row"><label>Vendedor</label><input className="input" value={vendedor} onChange={(e) => setVendedor(e.target.value)} /></div>
-      </div>
-
-      {/* Productos vendidos */}
-      <div className="card-title" style={{ marginTop: '.8rem' }}><span>📦 Productos vendidos (salen del inventario)</span></div>
       <div className="table-wrap">
-        <table className="table" style={{ fontSize: '.78rem' }}>
+        <table className="table">
           <thead>
             <tr>
-              <th style={{ minWidth: 220 }}>Producto</th>
-              <th style={{ textAlign: 'right' }}>Cantidad</th>
-              <th style={{ textAlign: 'right' }} title="Ley / tenor del mineral">Tenor %</th>
-              <th style={{ textAlign: 'right' }}>Precio</th>
-              <th style={{ textAlign: 'right' }} title="Costo unitario (PMP)">Costo</th>
-              <th style={{ textAlign: 'right' }}>Subtotal</th>
-              <th style={{ textAlign: 'right' }} title="Subtotal − Costo">Ganancia</th>
-              <th></th>
+              <th>Código</th>
+              <th>Cliente</th>
+              <th>Documento</th>
+              <th>Fecha</th>
+              <th style={{ textAlign: 'right' }}>Total</th>
+              <th style={{ textAlign: 'right' }}>Ganancia</th>
+              <th>Estado</th>
+              <th style={{ textAlign: 'right' }}>Acciones</th>
             </tr>
           </thead>
           <tbody>
-            {filas.map((f) => {
-              const stockAqui = existenciaEn(existencias, f.producto_id, almacen).stock;
-              return (
-                <tr key={f._k}>
-                  <td>
-                    <SearchSelect value={f.producto_id ?? ''} onChange={(id) => elegirProducto(f._k, id)}
-                      options={vendibles.map((p) => ({ value: p.id, label: `${p.nombre}${p.sku ? ` (${p.sku})` : ''}` }))}
-                      placeholder="🔎 Producto…" emptyText={`Sin productos con stock en ${almacen || 'este almacén'}.`} />
-                    {f.producto_id && (
-                      <small className="hint muted" style={{ display: 'block', marginTop: '.2rem' }}>
-                        {stockAqui > 0 ? <>📦 {almacen} · stock {num(stockAqui)}</> : <span style={{ color: 'var(--danger)' }}>Sin stock en {almacen || 'el almacén elegido'}</span>}
-                      </small>
-                    )}
-                  </td>
-                  <td><input className="input mono" style={cellNum} type="number" min={0} step="any" value={f.cantidad || ''} onChange={(e) => setFila(f._k, { cantidad: Number(e.target.value) || 0 })} placeholder="0" /></td>
-                  <td><input className="input mono" style={cellNum} type="number" min={0} step="any" value={f.tenor_pct || ''} onChange={(e) => setFila(f._k, { tenor_pct: Number(e.target.value) || 0 })} placeholder="0" /></td>
-                  <td><input className="input mono" style={cellNum} type="number" min={0} step="any" value={f.precio_unit || ''} onChange={(e) => setFila(f._k, { precio_unit: Number(e.target.value) || 0 })} placeholder="0.00" /></td>
-                  <td><input className="input mono" style={cellNum} type="number" min={0} step="any" value={f.costo_unit || ''} onChange={(e) => setFila(f._k, { costo_unit: Number(e.target.value) || 0 })} placeholder="0.00" /></td>
-                  <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{money(f.subtotal, moneda)}</td>
-                  <td className="mono" style={{ textAlign: 'right', color: f.ganancia < 0 ? 'var(--danger)' : 'var(--success, #45c08a)' }}>{money(f.ganancia, moneda)}</td>
-                  <td><button type="button" className="btn btn-sm btn-ghost" onClick={() => delFila(f._k)} title="Quitar">✕</button></td>
-                </tr>
-              );
-            })}
+            {ventas.map((v) => (
+              <tr key={v.id}>
+                <td>
+                  <button className="btn btn-sm btn-ghost mono" title="Ver el detalle" onClick={() => onDetalle(v)}>
+                    {v.codigo}
+                  </button>
+                  {v.condicion === 'credito' && <span className="badge warning" style={{ marginLeft: '.3rem' }}>Crédito</span>}
+                </td>
+                <td>{v.cliente_nombre || <span className="muted">—</span>}</td>
+                <td><DocumentoBadge venta={v} /></td>
+                <td className="muted">{date(v.created_at)}</td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{montoMoneda(v.total, v.moneda)}</td>
+                <td className="mono" style={{ textAlign: 'right', color: colorGanancia(v.ganancia_total) }}>
+                  {montoMoneda(v.ganancia_total, v.moneda)}
+                </td>
+                <td><EstadoBadge estado={v.estado} /></td>
+                <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {ESTADOS_EDITABLES.includes(v.estado) && puedeEscribir && (
+                    <button className="btn btn-sm btn-ghost" title={v.estado === 'borrador' ? 'Editar' : 'Editar: vuelve a borrador y hay que pedir otra autorización'} onClick={() => onEditar(v)}>✏️ Editar</button>
+                  )}
+                  {v.estado === 'borrador' && puedeEscribir && (
+                    <>
+                      <button className="btn btn-sm btn-primary" title={`Enviar a ${AUTORIZADORES_VENTAS_TEXTO}`} onClick={() => onEnviar(v)}>📤 Enviar a autorizar</button>
+                      <button className="btn btn-sm btn-danger" title="Borrar el borrador" onClick={() => onBorrar(v)}>🗑</button>
+                    </>
+                  )}
+                  {v.estado === 'por_autorizar' && puedeAutorizar && (
+                    <>
+                      <button className="btn btn-sm btn-primary" title="Autorizar la venta" onClick={() => onAutorizar(v)}>✅ Autorizar</button>
+                      <button className="btn btn-sm btn-danger" title="Rechazar: vuelve a borrador con el motivo" onClick={() => onRechazar(v)}>✖ Rechazar</button>
+                    </>
+                  )}
+                  {v.estado === 'autorizada' && puedeEscribir && (
+                    <button className="btn btn-sm btn-primary" title="Confirmar: mueve el dinero" onClick={() => onConfirmar(v)}>✔ Confirmar</button>
+                  )}
+                  {v.estado === 'confirmada' && puedeEscribir && (
+                    <button className="btn btn-sm btn-primary" title="Entregar: mueve el material" onClick={() => onEntregar(v)}>📦 Entregar</button>
+                  )}
+                  {v.estado !== 'borrador' && (
+                    <button className="btn btn-sm btn-ghost" title="Comprobante en PDF (vista previa)" onClick={() => onComprobante(v)}>📄</button>
+                  )}
+                  {puedeAnular(v) && (
+                    SIN_MOVIMIENTO.includes(v.estado)
+                      ? <button className="btn btn-sm btn-danger" title="Cancelar: todavía no movió dinero ni material" onClick={() => onAnular(v)}>⊘ Cancelar</button>
+                      : <button className="btn btn-sm btn-danger" title="Anular (solo administradores)" onClick={() => onAnular(v)}>⊘ Anular</button>
+                  )}
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
-      <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.4rem' }} onClick={addFila}>+ Agregar línea</button>
+    </div>
+  );
+}
 
-      {/* Material recibido como pago */}
-      {condicion === 'intercambio' && (
-        <div className="card" style={{ marginTop: '1rem', padding: '.7rem .85rem', borderLeft: '3px solid var(--primary)' }}>
-          <div className="card-title" style={{ marginBottom: '.4rem' }}><span>⛏ Material que entrega el cliente (entra al inventario)</span></div>
-          <div className="table-wrap">
-            <table className="table" style={{ fontSize: '.78rem' }}>
+/* ─────────────────────────── Detalle ─────────────────────────── */
+
+interface DetalleProps {
+  datos: VentaCompleta;
+  nombresDeCaja: Record<string, string>;
+  puedeEscribir: boolean;
+  puedeAnular: (v: Venta) => boolean;
+  puedeAutorizar: boolean;
+  onClose: () => void;
+  onEditar: (v: Venta) => void;
+  onComprobante: (v: Venta) => void;
+  onEnviar: (v: Venta) => void;
+  onAutorizar: (v: Venta) => void;
+  onRechazar: (v: Venta) => void;
+  onConfirmar: (v: Venta) => void;
+  onEntregar: (v: Venta) => void;
+  onAnular: (v: Venta) => void;
+}
+
+function DetalleVentaModal({
+  datos, nombresDeCaja, puedeEscribir, puedeAnular, puedeAutorizar,
+  onClose, onEditar, onComprobante, onEnviar, onAutorizar, onRechazar, onConfirmar, onEntregar, onAnular,
+}: DetalleProps) {
+  const { venta, renglones, recibidos } = datos;
+  const [movs, setMovs] = useState<MovimientoCajaDeVenta[]>([]);
+  const [cargandoMovs, setCargandoMovs] = useState(true);
+
+  // A qué cajas fue el dinero de esta venta: el otro lado del vínculo con
+  // Tesorería. Incluye la reversa si la venta se anuló.
+  useEffect(() => {
+    let vivo = true;
+    setCargandoMovs(true);
+    listMovimientosCajaDeVenta(venta.id)
+      .then((r) => { if (vivo) setMovs(r); })
+      .catch(() => { if (vivo) setMovs([]); })
+      .finally(() => { if (vivo) setCargandoMovs(false); });
+    return () => { vivo = false; };
+  }, [venta.id]);
+
+  const esPermuta = venta.tipo === 'permuta';
+
+  return (
+    <Modal
+      title={`${esPermuta ? '🔁' : '🧾'} ${venta.codigo}`}
+      size="xl"
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+          {venta.estado !== 'borrador' && (
+            <button className="btn btn-ghost" onClick={() => onComprobante(venta)}>📄 Comprobante</button>
+          )}
+          {ESTADOS_EDITABLES.includes(venta.estado) && puedeEscribir && (
+            <button className="btn btn-ghost" onClick={() => onEditar(venta)}>✏️ Editar</button>
+          )}
+          {/* Las ventas se piden y se aprueban desde el tablero («¿Se despacha?»);
+              aquí quedan esos botones solo para las permutas. */}
+          {venta.estado === 'borrador' && puedeEscribir && esPermuta && (
+            <button className="btn btn-primary" onClick={() => onEnviar(venta)}>📤 Enviar a autorizar</button>
+          )}
+          {venta.estado === 'por_autorizar' && puedeAutorizar && esPermuta && (
+            <>
+              <button className="btn btn-danger" onClick={() => onRechazar(venta)}>✖ Rechazar</button>
+              <button className="btn btn-primary" onClick={() => onAutorizar(venta)}>✅ Autorizar</button>
+            </>
+          )}
+          {venta.estado === 'autorizada' && puedeEscribir && (
+            <button className="btn btn-primary" onClick={() => onConfirmar(venta)}>✔ Confirmar</button>
+          )}
+          {venta.estado === 'confirmada' && puedeEscribir && (
+            <button className="btn btn-primary" onClick={() => onEntregar(venta)}>📦 Entregar</button>
+          )}
+          {puedeAnular(venta) && (
+            <button className="btn btn-danger" onClick={() => onAnular(venta)}>
+              {SIN_MOVIMIENTO.includes(venta.estado) ? '⊘ Cancelar' : '⊘ Anular'}
+            </button>
+          )}
+        </>
+      }
+    >
+      {/* ── Cabecera ── */}
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '.7rem' }}>
+        <EstadoBadge estado={venta.estado} />
+        <DocumentoBadge venta={venta} />
+        {venta.documento === 'factura' && (venta.numero_factura || venta.numero_control) && (
+          <span className="mono muted" style={{ fontSize: '.8rem' }}>
+            {venta.numero_factura ? `Nº ${venta.numero_factura}` : ''}{venta.numero_control ? ` · Control ${venta.numero_control}` : ''}
+          </span>
+        )}
+        <span className={venta.condicion === 'credito' ? 'badge warning' : 'badge info'}>
+          {venta.condicion === 'credito' ? 'A crédito' : 'De contado'}
+        </span>
+        <span className="muted">{dateTime(venta.created_at)}</span>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.6rem', marginBottom: '.9rem' }}>
+        <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+          <div className="muted" style={{ fontSize: '.7rem' }}>CLIENTE</div>
+          <div style={{ fontWeight: 700 }}>{venta.cliente_nombre || '—'}</div>
+          {venta.cliente_rif && <div className="mono muted" style={{ fontSize: '.78rem' }}>{venta.cliente_rif}</div>}
+        </div>
+        <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+          <div className="muted" style={{ fontSize: '.7rem' }}>TOTAL</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{montoMoneda(venta.total, venta.moneda)}</div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>
+            Base {montoMoneda(round2(venta.subtotal - venta.descuento), venta.moneda)}
+            {venta.iva_pct > 0 ? ` · IVA ${venta.iva_pct}% ${montoMoneda(venta.iva_monto, venta.moneda)}` : ' · sin IVA'}
+            {venta.igtf_pct > 0 ? ` · IGTF ${venta.igtf_pct}% ${montoMoneda(venta.igtf_monto, venta.moneda)}` : ''}
+          </div>
+        </div>
+        <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+          <div className="muted" style={{ fontSize: '.7rem' }}>GANANCIA (INTERNA)</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: colorGanancia(venta.ganancia_total) }}>
+            {montoMoneda(venta.ganancia_total, venta.moneda)}
+          </div>
+          <div className="muted" style={{ fontSize: '.72rem' }}>No aparece en el comprobante del cliente.</div>
+        </div>
+        <div className="card" style={{ margin: 0, padding: '.6rem .85rem' }}>
+          <div className="muted" style={{ fontSize: '.7rem' }}>{esPermuta ? 'DIFERENCIA A COBRAR' : 'A COBRAR'}</div>
+          <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700 }}>{montoMoneda(venta.diferencia, venta.moneda)}</div>
+          {esPermuta && (
+            <div className="muted" style={{ fontSize: '.72rem' }}>
+              Material recibido {montoMoneda(venta.valor_recibido, venta.moneda)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {venta.estado === 'borrador' && venta.rechazo_motivo && (
+        <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.8rem' }}>
+          <strong>Rechazada</strong>{venta.rechazada_por ? <> por <Quien correo={venta.rechazada_por} /></> : ''}{venta.rechazada_at ? ` el ${dateTime(venta.rechazada_at)}` : ''}.
+          <div className="muted" style={{ marginTop: '.25rem' }}>Motivo: {venta.rechazo_motivo}. Corrígela y vuelve a enviarla a autorizar.</div>
+        </div>
+      )}
+      {venta.estado === 'por_autorizar' && (
+        <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.8rem' }}>
+          <strong>Esperando autorización</strong> de {AUTORIZADORES_VENTAS_TEXTO}
+          {venta.enviada_por ? ` · la envió ${venta.enviada_por}` : ''}{venta.enviada_at ? ` el ${dateTime(venta.enviada_at)}` : ''}.
+        </div>
+      )}
+      {venta.autorizada_por && venta.estado !== 'borrador' && (
+        <p className="muted" style={{ margin: '0 0 .8rem' }}>
+          ✅ Autorizada por <strong>{venta.autorizada_por}</strong>{venta.autorizada_at ? ` el ${dateTime(venta.autorizada_at)}` : ''}.
+        </p>
+      )}
+
+      {venta.estado === 'anulada' && (
+        <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.8rem' }}>
+          <strong>Anulada</strong> {venta.anulada_at ? `el ${dateTime(venta.anulada_at)}` : ''}
+          {venta.anulada_por ? ` por ${venta.anulada_por}` : ''}.
+          <div className="muted" style={{ marginTop: '.25rem' }}>Motivo: {venta.motivo_anulacion || '—'}</div>
+        </div>
+      )}
+
+      {/* ── Lo que sale ── */}
+      <strong style={{ fontSize: '.84rem' }}>{esPermuta ? 'Material que entrego' : 'Renglones'}</strong>
+      <div className="table-wrap" style={{ marginTop: '.3rem', marginBottom: '.8rem' }}>
+        <table className="table" style={{ fontSize: '.82rem' }}>
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th style={{ textAlign: 'right' }}>Cantidad</th>
+              <th style={{ textAlign: 'right' }}>Precio</th>
+              <th style={{ textAlign: 'right' }}>Costo</th>
+              <th style={{ textAlign: 'right' }}>Subtotal</th>
+              <th style={{ textAlign: 'right' }}>Ganancia</th>
+            </tr>
+          </thead>
+          <tbody>
+            {!renglones.length && <tr><td colSpan={6} className="muted" style={{ textAlign: 'center' }}>Sin renglones.</td></tr>}
+            {renglones.map((r) => (
+              <tr key={r.id}>
+                <td>
+                  <span className="mono muted">{r.producto_sku ?? '—'}</span> {r.producto_nombre ?? '—'}
+                  {r.costo_unit <= 0 && (
+                    <span className="badge warning" style={{ marginLeft: '.35rem' }}>sin costo: la ganancia no es real</span>
+                  )}
+                </td>
+                <td className="mono" style={{ textAlign: 'right' }}>{num(r.cantidad)} {r.unidad ?? ''}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(r.precio_unit, venta.moneda)}</td>
+                <td className="mono muted" style={{ textAlign: 'right' }}>{montoMoneda(r.costo_unit, venta.moneda)}</td>
+                <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(r.subtotal, venta.moneda)}</td>
+                <td className="mono" style={{ textAlign: 'right', color: colorGanancia(r.ganancia) }}>{montoMoneda(r.ganancia, venta.moneda)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Lo que entra (permuta) ── */}
+      {esPermuta && (
+        <>
+          <strong style={{ fontSize: '.84rem' }}>Material que recibo</strong>
+          <div className="table-wrap" style={{ marginTop: '.3rem', marginBottom: '.8rem' }}>
+            <table className="table" style={{ fontSize: '.82rem' }}>
               <thead>
                 <tr>
-                  <th style={{ minWidth: 230 }}>Material</th>
-                  <th>Almacén donde entra</th>
+                  <th>Producto</th>
                   <th style={{ textAlign: 'right' }}>Cantidad</th>
-                  <th style={{ textAlign: 'right' }} title="Valor total que se le reconoce al cliente">Valor ({moneda})</th>
-                  <th style={{ textAlign: 'right' }} title="Valor ÷ cantidad: costo con que entra">Valor/u</th>
-                  <th></th>
+                  <th style={{ textAlign: 'right' }}>Valor por unidad</th>
+                  <th style={{ textAlign: 'right' }}>Subtotal</th>
                 </tr>
               </thead>
               <tbody>
-                {!material.length && <tr><td colSpan={6} className="muted" style={{ textAlign: 'center', padding: '.7rem' }}>Agregá el material con «+ Agregar material».</td></tr>}
-                {material.map((m) => (
-                  <tr key={m._k}>
-                    <td>
-                      <label style={{ display: 'flex', gap: '.35rem', alignItems: 'center', fontSize: '.72rem', marginBottom: '.25rem', cursor: 'pointer' }}>
-                        <input type="checkbox" checked={m.nuevo} disabled={emitida && !!m.producto_id && (venta?.pago_material ?? []).some((x) => x.producto_id === m.producto_id)}
-                          onChange={(e) => setMat(m._k, { nuevo: e.target.checked, producto_id: null, producto_nombre: '' })} /> Material nuevo (crear ficha)
-                      </label>
-                      {m.nuevo ? (
-                        <div style={{ display: 'flex', gap: '.3rem' }}>
-                          <input className="input" value={m.producto_nombre} onChange={(e) => setMat(m._k, { producto_nombre: e.target.value })} placeholder="Nombre del material" />
-                          <select className="select" style={{ width: 80 }} value={m.unidad ?? 'KG'} onChange={(e) => setMat(m._k, { unidad: e.target.value })}>
-                            {['KG', 'TON', 'UND', 'LT', 'GR'].map((u) => <option key={u}>{u}</option>)}
-                          </select>
-                        </div>
-                      ) : (
-                        <SearchSelect value={m.producto_id ?? ''} onChange={(id) => { const p = productos.find((x) => x.id === id); setMat(m._k, { producto_id: id, producto_nombre: p?.nombre ?? '', unidad: p?.unidad ?? null }); }}
-                          options={productosActivos.map((p) => ({ value: p.id, label: `${p.nombre}${p.sku ? ` (${p.sku})` : ''}` }))}
-                          placeholder="🔎 Producto del inventario…" emptyText="Sin productos." />
-                      )}
-                    </td>
-                    <td>
-                      <select className="select" value={m.almacen} onChange={(e) => setMat(m._k, { almacen: e.target.value })}>
-                        {m.almacen && !gruposAlmacen.some(([, ds]) => ds.some((d) => d.nombre === m.almacen)) && <option value={m.almacen}>{m.almacen}</option>}
-                        {gruposAlmacen.map(([sede, destinos]) => (
-                          <optgroup key={sede} label={sede}>{destinos.map((d) => <option key={d.nombre} value={d.nombre}>{d.label}</option>)}</optgroup>
-                        ))}
-                      </select>
-                    </td>
-                    <td><input className="input mono" style={cellNum} type="number" min={0} step="any" value={m.cantidad || ''} onChange={(e) => setMat(m._k, { cantidad: Number(e.target.value) || 0 })} placeholder="0" /></td>
-                    <td><input className="input mono" style={{ ...cellNum, width: 100 }} type="number" min={0} step="any" value={m.valor || ''} onChange={(e) => setMat(m._k, { valor: Number(e.target.value) || 0 })} placeholder="0.00" /></td>
-                    <td className="mono" style={{ textAlign: 'right' }}>{money(costoUnitMaterial(m), moneda)}</td>
-                    <td><button type="button" className="btn btn-sm btn-ghost" onClick={() => setMaterial((prev) => prev.filter((x) => x._k !== m._k))} title="Quitar">✕</button></td>
+                {!recibidos.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center' }}>Sin material recibido.</td></tr>}
+                {recibidos.map((r) => (
+                  <tr key={r.id}>
+                    <td><span className="mono muted">{r.producto_sku ?? '—'}</span> {r.producto_nombre ?? '—'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{num(r.cantidad)} {r.unidad ?? ''}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(r.valor_unit, venta.moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(r.subtotal, venta.moneda)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: '.4rem' }} onClick={addMat}>+ Agregar material</button>
-          <div className="mono" style={{ fontSize: '.84rem', marginTop: '.5rem' }}>
-            Material: <strong>{money(valorMat, moneda)}</strong> de {money(totales.total, moneda)}
-            {' · '}{r2(totales.total - valorMat) > 0
-              ? <>queda por cobrar en dinero <strong style={{ color: 'var(--primary-3)' }}>{money(r2(totales.total - valorMat), moneda)}</strong></>
-              : r2(totales.total - valorMat) === 0 ? <strong style={{ color: 'var(--success, #45c08a)' }}>cubre el total</strong> : null}
-          </div>
-          {errInter && material.length > 0 && <small style={{ color: 'var(--danger)', display: 'block', marginTop: '.25rem' }}>{errInter}</small>}
-        </div>
+        </>
       )}
 
-      {/* Totales */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
-        <div style={{ minWidth: 300, display: 'grid', gap: '.35rem' }}>
-          <Row l="Subtotal" v={money(totales.subtotal, moneda)} />
-          <Row l="Descuento" v={<input className="input mono" type="number" min={0} step="any" value={descuento} onChange={(e) => setDescuento(e.target.value)} style={{ width: 110, textAlign: 'right' }} />} />
-          {tipo === 'factura' && (
-            <>
-              <Row l={<label style={{ display: 'flex', gap: '.35rem', alignItems: 'center', cursor: 'pointer' }}><input type="checkbox" checked={aplicaIva} onChange={(e) => setAplicaIva(e.target.checked)} /> IVA</label>}
-                v={<span style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
-                  <input className="input mono" type="number" min={0} step="any" value={ivaPct} disabled={!aplicaIva} onChange={(e) => setIvaPct(e.target.value)} style={{ width: 64, textAlign: 'right' }} />%
-                  <span style={{ minWidth: 90, textAlign: 'right' }}>{money(totales.iva_monto, moneda)}</span>
-                </span>} />
-              <Row l={<label style={{ display: 'flex', gap: '.35rem', alignItems: 'center', cursor: 'pointer' }} title="Impuesto a las Grandes Transacciones Financieras: sobre lo que se paga (base + IVA)"><input type="checkbox" checked={aplicaIgtf} onChange={(e) => setAplicaIgtf(e.target.checked)} /> IGTF</label>}
-                v={<span style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
-                  <input className="input mono" type="number" min={0} step="any" value={igtfPct} disabled={!aplicaIgtf} onChange={(e) => setIgtfPct(e.target.value)} style={{ width: 64, textAlign: 'right' }} />%
-                  <span style={{ minWidth: 90, textAlign: 'right' }}>{money(totales.igtf_monto, moneda)}</span>
-                </span>} />
-            </>
-          )}
-          <Row l="TOTAL" v={<strong>{money(totales.total, moneda)}</strong>} big />
-          <Row l="Costo" v={money(totales.costo_total, moneda)} muted />
-          <Row l="Ganancia (sin impuestos)" v={<span style={{ color: totales.ganancia < 0 ? 'var(--danger)' : 'var(--success, #45c08a)', fontWeight: 700 }}>{money(totales.ganancia, moneda)} ({num(totales.ganancia_pct)}%)</span>} />
-        </div>
-      </div>
-
-      <div className="form-row" style={{ marginTop: '.6rem' }}>
-        <label>Nota</label>
-        <textarea className="input" rows={2} value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Opcional" />
-      </div>
-      {emitida && (
-        <div className="form-row">
-          <label>Motivo del cambio <span style={{ color: 'var(--danger)' }}>*</span></label>
-          <textarea className="input" rows={2} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: el cliente pidió 2 lingotes más; se corrigió el precio acordado" />
-          <small className="hint muted">Obligatorio. Queda en la trazabilidad de la venta y en el kardex de cada producto que se mueva.</small>
-        </div>
-      )}
-
-      {confirmar === 'enviar' && (
-        <ConfirmDialog title="Enviar a autorizar" confirmText="Enviar a autorizar"
-          message={`La ${nombreDocumento(tipo).toLowerCase()} de ${clienteNombre || 'cliente ocasional'} por ${money(totales.total, moneda)} queda esperando la autorización de Leydis Rengel o Jesús Lozada.\n\nTodavía no mueve inventario ni dinero: eso pasa al emitirla, después de autorizada.`}
-          onConfirm={() => void guardar('enviar')} onCancel={() => setConfirmar(null)} />
-      )}
-      {confirmar === 'autorizar' && (
-        <ConfirmDialog title={`Autorizar y emitir ${nombreDocumento(tipo).toLowerCase()}`} confirmText="Autorizar y emitir" success
-          message={`${resumenEmision({ ...input(), items, total: totales.total, moneda, pago_material: input().pago_material ?? [], valor_material: valorMat } as Venta)}\n\nQueda autorizada a tu nombre (${nombreAutorizante(actor)}).`}
-          onConfirm={() => void guardar('autorizar')} onCancel={() => setConfirmar(null)} />
-      )}
-      {confirmar === 'guardar' && (
-        <ConfirmDialog title={`Guardar cambios en ${venta!.numero}`} confirmText="Guardar cambios"
-          message={emitida ? resumenEdicion : 'Esta venta está autorizada. Si guardás los cambios, vuelve a autorización (Leydis Rengel / Jesús Lozada) antes de poder emitirse.'}
-          onConfirm={() => void guardar('guardar')} onCancel={() => setConfirmar(null)} />
-      )}
-    </Modal>
-  );
-}
-
-/** Chip de la venta a crédito con lo que ya se cobró contra su cuenta. */
-function EstadoCredito({ venta, cuenta }: { venta: Venta; cuenta?: CuentaPorCobrar }) {
-  if (!esVentaACredito(venta) || venta.estado === 'anulada') return null;
-  const total = Number(cuenta?.monto) || Number(venta.total) || 0;
-  const abonado = Number(cuenta?.abonado) || 0;
-  const saldo = Math.max(0, Math.round((total - abonado) * 100) / 100);
-  return (
-    <div style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
-      <span className="badge" style={{ borderColor: 'var(--primary-3)', color: 'var(--primary-3)' }}>A crédito</span>
-      {cuenta ? (
-        <span className="muted" style={{ marginLeft: '.35rem' }}>
-          {saldo > 0 ? <>abonado {money(abonado)} de {money(total)} · falta <strong>{money(saldo)}</strong></> : <>cobrada por completo</>}
-        </span>
-      ) : <span className="muted" style={{ marginLeft: '.35rem' }}>sin cuenta por cobrar</span>}
-    </div>
-  );
-}
-
-/** Chip del intercambio: cuánto pagó en material y cuánto falta en dinero. */
-function EstadoIntercambio({ venta }: { venta: Venta }) {
-  if (!esIntercambio(venta) || venta.estado === 'anulada') return null;
-  const falta = saldoPorCobrar(venta);
-  return (
-    <div style={{ fontSize: '.72rem', marginTop: '.25rem' }}>
-      <span className="badge" style={{ borderColor: 'var(--primary)', color: 'var(--primary)' }}>⛏ Intercambio</span>
-      <span className="muted" style={{ marginLeft: '.35rem' }}>
-        material {money(Number(venta.valor_material) || 0, venta.moneda)}{falta > 0 ? <> · falta <strong>{money(falta, venta.moneda)}</strong></> : null}
-      </span>
-    </div>
-  );
-}
-
-function Row({ l, v, big, muted }: { l: ReactNode; v: ReactNode; big?: boolean; muted?: boolean }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', fontSize: big ? '1.05rem' : '.85rem' }}>
-      <span className={muted ? 'muted' : undefined} style={{ fontWeight: big ? 800 : 600 }}>{l}</span>
-      <span className="mono">{v}</span>
-    </div>
-  );
-}
-
-/* ───────────── Detalle + trazabilidad ───────────── */
-
-const ACCION_UI: Record<EventoVenta['accion'], { icon: string; label: string; color: string }> = {
-  creada: { icon: '➕', label: 'Creada', color: 'var(--muted)' },
-  enviada: { icon: '📨', label: 'Enviada a autorizar', color: 'var(--warning)' },
-  autorizada: { icon: '✔', label: 'Autorizada', color: 'var(--primary)' },
-  devuelta: { icon: '↩', label: 'Devuelta a borrador', color: 'var(--warning)' },
-  editada: { icon: '✎', label: 'Editada', color: 'var(--warning)' },
-  emitida: { icon: '✔', label: 'Emitida', color: 'var(--primary-3)' },
-  cobrada: { icon: '💵', label: 'Cobrada', color: 'var(--success, #45c08a)' },
-  anulada: { icon: '✖', label: 'Anulada', color: 'var(--danger)' },
-};
-
-function DetalleVentaModal({ venta: v, cuenta, onClose }: { venta: Venta; cuenta?: CuentaPorCobrar; onClose: () => void }) {
-  const hist = [...(v.historial ?? [])].sort((a, b) => b.at.localeCompare(a.at));
-  const falta = saldoPorCobrar(v);
-  const ver = (f: 'doc' | 'traza') => void pdf()
-    .then((m) => (f === 'doc' ? m.verDocumentoVentaPdf(v) : m.verTrazabilidadVentaPdf(v)))
-    .catch((e) => toast(errMsg(e, 'Error PDF'), 'error'));
-  const dato = (k: string, val: ReactNode) => (
-    <div><div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.05em' }}>{k}</div><div style={{ fontWeight: 600 }}>{val}</div></div>
-  );
-  return (
-    <Modal title={`${nombreDocumento(v.tipo_documento)} ${v.numero}`} size="lg" onClose={onClose} footer={
-      <>
-        <button className="btn btn-ghost" onClick={() => ver('traza')}>↓ PDF trazabilidad</button>
-        <button className="btn btn-ghost" onClick={() => ver('doc')}>↓ PDF {nombreDocumento(v.tipo_documento).toLowerCase()}</button>
-        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
-      </>
-    }>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '.7rem', marginBottom: '.9rem' }}>
-        {dato('Estado', <span style={{ color: ESTADO[v.estado].color }}>{ESTADO[v.estado].label}</span>)}
-        {dato('Cliente', v.cliente_nombre || 'Cliente ocasional')}
-        {dato('Fecha', date(v.fecha))}
-        {dato('Forma de pago', nombreCondicion(v.condicion_pago))}
-        {dato('Autorizada por', v.aprobada_por
-          ? <>{nombreAutorizante(v.aprobada_por)}{v.aprobada_en ? <span className="muted" style={{ fontWeight: 400 }}> · {dateTime(v.aprobada_en)}</span> : null}</>
-          : <span style={{ color: 'var(--warning)' }}>{v.estado === 'por_aprobar' ? 'esperando a Leydis / Jesús' : 'sin autorizar'}</span>)}
-        {dato('Total', <span className="mono">{money(v.total, v.moneda)}</span>)}
-        {dato('Cobrado', <span className="mono">{money(v.pagado_monto, v.moneda)}{falta > 0 ? <span style={{ color: 'var(--danger)' }}> · falta {money(falta, v.moneda)}</span> : null}</span>)}
-        {esVentaACredito(v) && dato('Cuenta por cobrar', cuenta ? `${money(cuenta.abonado, v.moneda)} de ${money(cuenta.monto, v.moneda)}` : '—')}
-        {Number(v.iva_monto) + Number(v.igtf_monto) > 0 && dato('IVA + IGTF', <span className="mono">{money(Number(v.iva_monto) + Number(v.igtf_monto), v.moneda)}</span>)}
-        {dato('Ganancia', <span className="mono">{money(v.ganancia, v.moneda)} · {num(v.ganancia_pct)}%</span>)}
-      </div>
-
-      {v.estado === 'anulada' && (
-        <div className="card" style={{ borderLeft: '3px solid var(--danger)', padding: '.55rem .8rem', marginBottom: '.8rem', fontSize: '.85rem' }}>
-          <strong>Anulada</strong> {v.anulada_en ? `el ${dateTime(v.anulada_en)}` : ''} · {v.motivo_anulacion || 'sin motivo'}
-        </div>
-      )}
-
-      <div className="table-wrap" style={{ marginBottom: '.8rem' }}>
-        <table className="table" style={{ fontSize: '.8rem', margin: 0 }}>
-          <thead><tr><th>Producto vendido</th><th>Almacén</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Precio</th><th style={{ textAlign: 'right' }}>Subtotal</th></tr></thead>
+      {/* ── A qué cajas fue el dinero ── */}
+      <strong style={{ fontSize: '.84rem' }}>A qué cajas fue el dinero</strong>
+      <div className="table-wrap" style={{ marginTop: '.3rem' }}>
+        <table className="table" style={{ fontSize: '.82rem' }}>
+          <thead>
+            <tr>
+              <th>Fecha</th>
+              <th>Caja</th>
+              <th>Cuenta</th>
+              <th>Concepto</th>
+              <th style={{ textAlign: 'right' }}>Monto</th>
+            </tr>
+          </thead>
           <tbody>
-            {(v.items ?? []).map((i, k) => (
-              <tr key={k}><td>{i.producto_nombre}</td><td className="muted">{i.almacen}</td><td className="mono" style={{ textAlign: 'right' }}>{num(i.cantidad)}</td>
-                <td className="mono" style={{ textAlign: 'right' }}>{money(i.precio_unit, v.moneda)}</td><td className="mono" style={{ textAlign: 'right' }}>{money(i.subtotal, v.moneda)}</td></tr>
+            {cargandoMovs && <tr><td colSpan={5} className="muted" style={{ textAlign: 'center' }}>Cargando…</td></tr>}
+            {!cargandoMovs && !movs.length && (
+              <tr>
+                <td colSpan={5} className="muted" style={{ textAlign: 'center' }}>
+                  {venta.condicion === 'credito'
+                    ? 'A crédito: el dinero no entró a caja todavía. Se cobra desde «Por cobrar».'
+                    : 'Sin movimientos de caja: todavía no se confirmó.'}
+                </td>
+              </tr>
+            )}
+            {movs.map((m) => (
+              <tr key={m.movimiento_id}>
+                <td className="muted">{dateTime(m.at)}</td>
+                <td>{m.caja_nombre || nombresDeCaja[m.caja_id ?? ''] || <span className="muted">—</span>}</td>
+                <td className="muted">{m.cuenta || '—'}</td>
+                <td>
+                  {m.categoria === 'reverso_venta'
+                    ? <span className="badge danger">Reverso de anulación</span>
+                    : <span className="badge success">Cobro de venta</span>}
+                  <div className="muted" style={{ fontSize: '.75rem' }}>{m.motivo || ''}</div>
+                </td>
+                <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{montoMoneda(m.monto, m.moneda)}</td>
+              </tr>
             ))}
           </tbody>
         </table>
       </div>
-      {esIntercambio(v) && (v.pago_material ?? []).length > 0 && (
-        <div className="table-wrap" style={{ marginBottom: '.8rem' }}>
-          <table className="table" style={{ fontSize: '.8rem', margin: 0 }}>
-            <thead><tr><th>Material recibido</th><th>Almacén</th><th style={{ textAlign: 'right' }}>Cant.</th><th style={{ textAlign: 'right' }}>Valor</th></tr></thead>
-            <tbody>
-              {(v.pago_material ?? []).map((p, k) => (
-                <tr key={k}><td>{p.producto_nombre}</td><td className="muted">{p.almacen}</td><td className="mono" style={{ textAlign: 'right' }}>{num(p.cantidad)} {p.unidad ?? ''}</td>
-                  <td className="mono" style={{ textAlign: 'right' }}>{money(p.valor, v.moneda)}</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+
+      {venta.nota && (
+        <p className="muted" style={{ marginTop: '.8rem', marginBottom: 0 }}><strong>Nota:</strong> {venta.nota}</p>
       )}
 
-      <div className="card-title"><span>🧭 Trazabilidad</span></div>
-      {!hist.length ? <EmptyState message="Sin historial registrado." icon="🧭" /> : (
-        <ol style={{ listStyle: 'none', margin: 0, padding: 0, display: 'grid', gap: '.5rem' }}>
-          {hist.map((e, i) => {
-            const a = ACCION_UI[e.accion] ?? { icon: '•', label: e.accion, color: 'var(--muted)' };
-            return (
-              <li key={i} style={{ borderLeft: `3px solid ${a.color}`, padding: '.35rem .7rem', background: 'var(--surface-2)', borderRadius: 6 }}>
-                <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
-                  <strong style={{ color: a.color }}>{a.icon} {a.label}</strong>
-                  <span className="muted" style={{ fontSize: '.78rem' }}>{dateTime(e.at)} · <NombreUsuario nombre={e.actor_name} correo={e.actor} /></span>
-                </div>
-                {e.detalle && <div style={{ fontSize: '.82rem' }}>{e.detalle}</div>}
-                {!!e.cambios?.length && <ul style={{ margin: '.2rem 0 0', paddingLeft: '1.1rem', fontSize: '.8rem' }}>{e.cambios.map((c, j) => <li key={j}>{c}</li>)}</ul>}
-                {e.motivo && <div style={{ fontSize: '.8rem', marginTop: '.15rem' }}><span className="muted">Motivo:</span> {e.motivo}</div>}
-              </li>
-            );
-          })}
-        </ol>
-      )}
+      <HistorialVenta historial={venta.historial} moneda={venta.moneda} />
     </Modal>
   );
 }
 
-/* ───────────── Devolver (autorizantes) ───────────── */
+/* ─────────────────────────── Trazabilidad ─────────────────────────── */
 
-function DevolverModal({ venta, actor, actorName, onClose, onDone }: {
-  venta: Venta; actor: string; actorName: string | null; onClose: () => void; onDone: () => void;
+/** El rastro que escribe la base (trigger), del paso más nuevo al más viejo. */
+function HistorialVenta({ historial, moneda }: { historial: EventoVenta[]; moneda: string }) {
+  const eventos = [...(historial ?? [])].reverse();
+  return (
+    <div style={{ marginTop: '1rem' }}>
+      <strong style={{ fontSize: '.84rem' }}>🕓 Trazabilidad</strong>
+      {!eventos.length ? (
+        <p className="muted" style={{ margin: '.3rem 0 0', fontSize: '.8rem' }}>Sin eventos registrados.</p>
+      ) : (
+        <div className="table-wrap" style={{ marginTop: '.3rem' }}>
+          <table className="table" style={{ fontSize: '.8rem' }}>
+            <thead>
+              <tr>
+                <th>Fecha</th>
+                <th>Paso</th>
+                <th>Quién</th>
+                <th>Detalle</th>
+              </tr>
+            </thead>
+            <tbody>
+              {eventos.map((e, i) => {
+                const l = EVENTO_LABEL[e.evento] ?? { icono: '•', texto: e.evento };
+                return (
+                  <tr key={`${e.at}-${i}`}>
+                    <td className="muted" style={{ whiteSpace: 'nowrap' }}>{dateTime(e.at)}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{l.icono} {l.texto}</td>
+                    <td><Quien nombre={e.actor_name} correo={e.actor} vacio="—" /></td>
+                    <td className="muted">
+                      {e.motivo ? <>Motivo: {e.motivo}</> : null}
+                      {e.total_antes != null && e.total != null && e.total_antes !== e.total
+                        ? <>{e.motivo ? ' · ' : ''}Total {montoMoneda(e.total_antes, moneda)} → {montoMoneda(e.total, moneda)}</>
+                        : null}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─────────────────────────── Motivo (rechazo) ─────────────────────────── */
+
+function MotivoModal({
+  titulo, explicacion, etiqueta, boton, trabajando, onCancel, onAceptar,
+}: {
+  titulo: string; explicacion: string; etiqueta: string; boton: string;
+  trabajando: boolean; onCancel: () => void; onAceptar: (motivo: string) => void;
 }) {
   const [motivo, setMotivo] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  async function confirmar() {
-    setError(null); setSaving(true);
-    try {
-      await devolverVenta(venta, actor, actorName, motivo);
-      notify(`${venta.numero} devuelta a borrador: ${motivo.trim()}`, 'info', { link: '#/app/ventas' });
-      onDone();
-    } catch (e) { setError(errMsg(e, 'No se pudo devolver')); setSaving(false); }
-  }
+  const listo = motivo.trim().length >= 4;
   return (
-    <Modal title={`Devolver ${venta.numero}`} size="md" onClose={() => !saving && onClose()} footer={
-      <>
-        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        <button className="btn btn-primary" onClick={() => void confirmar()} disabled={saving || motivo.trim().length < 4}>{saving ? '…' : 'Devolver a borrador'}</button>
-      </>
-    }>
-      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      <p style={{ marginTop: 0 }}>La venta vuelve a <strong>borrador</strong> para que la corrijan y la envíen de nuevo. No se movió nada todavía.</p>
+    <Modal
+      title={titulo}
+      compact
+      onClose={onCancel}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onCancel} disabled={trabajando}>Cancelar</button>
+          <button className="btn btn-danger" disabled={!listo || trabajando} onClick={() => onAceptar(motivo.trim())}>
+            {trabajando ? 'Guardando…' : boton}
+          </button>
+        </>
+      }
+    >
+      <p style={{ marginTop: 0 }}>{explicacion}</p>
       <div className="form-row">
-        <label>Qué hay que corregir <span style={{ color: 'var(--danger)' }}>*</span></label>
-        <textarea className="input" rows={2} value={motivo} autoFocus onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: revisar el precio del estaño; falta el RIF del cliente" />
-        <small className="hint muted">Queda en la trazabilidad de la venta.</small>
+        <label>{etiqueta} <span className="muted">(obligatorio)</span></label>
+        <textarea className="input" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} autoFocus />
+        {!listo && motivo.length > 0 && <small className="muted">Escribe un motivo un poco más claro (al menos 4 caracteres).</small>}
       </div>
     </Modal>
   );
 }
 
-/* ───────────── Anular ───────────── */
+/* ─────────────────────────── Anular ─────────────────────────── */
 
-function AnularModal({ venta, actor, actorName, onClose, onDone }: {
-  venta: Venta; actor: string; actorName: string | null; onClose: () => void; onDone: () => void;
-}) {
+function AnularModal({
+  venta, trabajando, onCancel, onAnular,
+}: { venta: Venta; trabajando: boolean; onCancel: () => void; onAnular: (motivo: string) => void }) {
   const [motivo, setMotivo] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const efectos = efectosAnulacion(venta);
-  async function confirmar() {
-    setError(null); setSaving(true);
-    try {
-      await anularVenta(venta, actor, actorName, motivo);
-      notify(`${nombreDocumento(venta.tipo_documento)} ${venta.numero} anulada`, 'info', { link: '#/app/ventas' });
-      onDone();
-    } catch (e) { setError(errMsg(e, 'No se pudo anular')); setSaving(false); }
-  }
+  const listo = motivo.trim().length >= 4;
+  const cancelar = SIN_MOVIMIENTO.includes(venta.estado);
   return (
-    <Modal title={`Anular ${venta.numero}`} size="md" onClose={() => !saving && onClose()} footer={
-      <>
-        <button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-        <button className="btn btn-danger" onClick={() => void confirmar()} disabled={saving || motivo.trim().length < 4}>{saving ? 'Anulando…' : 'Anular venta'}</button>
-      </>
-    }>
-      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+    <Modal
+      title={`⊘ ${cancelar ? 'Cancelar' : 'Anular'} ${venta.codigo}`}
+      compact
+      onClose={onCancel}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onCancel} disabled={trabajando}>Cancelar</button>
+          <button className="btn btn-danger" disabled={!listo || trabajando} onClick={() => onAnular(motivo.trim())}>
+            {trabajando ? (cancelar ? 'Cancelando…' : 'Anulando…') : (cancelar ? 'Cancelar la venta' : 'Anular la venta')}
+          </button>
+        </>
+      }
+    >
       <p style={{ marginTop: 0 }}>
-        ¿Anular la {nombreDocumento(venta.tipo_documento).toLowerCase()} <strong>{venta.numero}</strong> de {venta.cliente_nombre || 'cliente ocasional'} por <strong>{money(venta.total, venta.moneda)}</strong>? Esto no se puede deshacer.
+        {cancelar
+          ? 'Esta venta todavía no movió dinero ni material: se cancela sin reversar nada. Queda en «Anuladas» con su motivo y su historial.'
+          : venta.estado === 'entregada'
+            ? 'El material va a VOLVER al inventario y el dinero cobrado se va a reversar en las cajas.'
+            : 'El dinero cobrado se va a reversar en las cajas.'}
+        {!cancelar && venta.condicion === 'credito' && ' Si la venta quedó a crédito, se le resta a la cuenta corriente del cliente; si esa cuenta ya tiene cobros, la anulación se rechaza y primero hay que devolver ese dinero.'}
+        {!cancelar && venta.tipo === 'permuta' && venta.estado === 'entregada' && ' El material que entregó el cliente sale del inventario.'}
       </p>
-      <div className="card" style={{ borderLeft: '3px solid var(--danger)', padding: '.55rem .8rem', marginBottom: '.7rem' }}>
-        <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '.25rem' }}>Qué se revierte</div>
-        <ul style={{ margin: 0, paddingLeft: '1.1rem', fontSize: '.84rem' }}>{efectos.map((e, i) => <li key={i}>{e}</li>)}</ul>
-      </div>
       <div className="form-row">
-        <label>Motivo de la anulación <span style={{ color: 'var(--danger)' }}>*</span></label>
-        <textarea className="input" rows={2} value={motivo} autoFocus onChange={(e) => setMotivo(e.target.value)} placeholder="Ej.: el cliente devolvió el material; se facturó al cliente equivocado" />
-        <small className="hint muted">Obligatorio. Queda en la trazabilidad, en el kardex y en la caja si se devuelve dinero.</small>
+        <label>Motivo {cancelar ? 'de la cancelación' : 'de la anulación'} <span className="muted">(obligatorio)</span></label>
+        <textarea
+          className="input"
+          rows={3}
+          value={motivo}
+          onChange={(e) => setMotivo(e.target.value)}
+          placeholder="Por qué se anula este documento…"
+        />
+        {!listo && motivo.length > 0 && <small className="muted">Escribe un motivo un poco más claro (al menos 4 caracteres).</small>}
       </div>
     </Modal>
   );
 }
 
-/* ───────────── Cobrar ───────────── */
+/* ─────────────────────────── Por cobrar ─────────────────────────── */
 
-function CobrarModal({ venta, cajas, saldos, actor, actorName, onClose, onSaved }: {
-  venta: Venta; cajas: Caja[]; saldos: CajaSaldo[]; actor: string; actorName: string | null;
-  onClose: () => void; onSaved: () => void;
-}) {
-  const falta = saldoPorCobrar(venta);
-  const [metodo, setMetodo] = useState('Efectivo');
-  const [monto, setMonto] = useState(String(falta));
-  const [cajaId, setCajaId] = useState(cajas[0]?.id ?? '');
+/**
+ * El dinero entra por UN solo camino: `registrarCobro` de Tesorería. Aquí no se
+ * escribe lógica de cobro nueva —ni el movimiento de caja, ni el saldo, ni el
+ * estado de la cuenta—, solo se llama a esa función. La cuenta por cobrar es
+ * CORRIENTE por cliente: acumula varias ventas, así que el saldo que se ve no
+ * es el de una venta sino el del cliente entero.
+ */
+function PorCobrarPanel({
+  cajas, actor, actorName, puedeEscribir,
+}: { cajas: Caja[]; actor: string; actorName: string | null; puedeEscribir: boolean }) {
+  const [cuentas, setCuentas] = useState<CuentaPorCobrar[]>([]);
+  const [soloAbiertas, setSoloAbiertas] = useState(true);
+  const [selId, setSelId] = useState('');
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [errorCobro, setErrorCobro] = useState<string | null>(null);
+
+  const [cajaId, setCajaId] = useState('');
   const [cuentaCaja, setCuentaCaja] = useState<CuentaCaja>('general');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [confirmar, setConfirmar] = useState(false);
+  const [montoStr, setMontoStr] = useState('');
+  const [tasaStr, setTasaStr] = useState('');
+  const [nota, setNota] = useState('');
 
-  // Las cuentas de esa caja EN LA MONEDA de la venta: en Bs una caja se parte
-  // en jurídica y personal, y el dinero tiene que entrar a la correcta.
-  const cuentasMoneda = useMemo(
-    () => saldos.filter((s) => s.caja_id === cajaId && s.moneda === (venta.moneda || 'USD')),
-    [saldos, cajaId, venta.moneda],
-  );
-  useEffect(() => {
-    if (cuentasMoneda.length && !cuentasMoneda.some((c) => c.cuenta === cuentaCaja)) setCuentaCaja(cuentasMoneda[0].cuenta as CuentaCaja);
-  }, [cuentasMoneda, cuentaCaja]);
-
-  const caja = cajas.find((c) => c.id === cajaId);
-  function submit(e: FormEvent) {
-    e.preventDefault(); setError(null);
-    if (!(Number(monto) > 0)) { setError('Indicá el monto cobrado.'); return; }
-    setConfirmar(true);
-  }
-  async function registrar() {
-    setConfirmar(false); setSaving(true);
+  const cargar = useCallback(async () => {
+    setCargando(true);
     try {
-      await marcarPagada({ venta, metodo, monto: Number(monto) || falta, cajaId, cuentaCaja, actor, actorName });
-      toast('Cobro registrado · entró a caja', 'success');
-      onSaved();
-    } catch (err) { setError(errMsg(err, 'No se pudo registrar')); setSaving(false); }
+      const cs = await listCuentasPorCobrar(soloAbiertas);
+      setCuentas(cs);
+      setSelId((prev) => (prev && cs.some((c) => c.id === prev)) ? prev : (cs[0]?.id ?? ''));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudieron cargar las cuentas por cobrar.', 'error');
+    } finally { setCargando(false); }
+  }, [soloAbiertas]);
+
+  useEffect(() => { void cargar(); }, [cargar]);
+  useRealtime(
+    ['cuentas_por_cobrar', 'cuentas_por_cobrar_cargos', 'cuentas_por_cobrar_abonos'],
+    () => { void cargar(); },
+  );
+
+  useEffect(() => { if (!cajaId && cajas.length) setCajaId(cajas[0].id); }, [cajas, cajaId]);
+
+  const sel = cuentas.find((c) => c.id === selId) ?? null;
+  // Bs entra a jurídica/personal; el resto de las monedas a general (mismo
+  // criterio que usa Tesorería para no ensuciar las cuentas en Bs).
+  useEffect(() => { if (sel) setCuentaCaja(sel.moneda === 'Bs' ? 'juridica' : 'general'); }, [sel]);
+
+  const filas = useMemo<FilaCuentaPorCobrar[]>(() => filasCuentasPorCobrar(cuentas), [cuentas]);
+  const saldo = sel ? round2(Number(sel.monto) - (Number(sel.abonado) || 0)) : 0;
+  const esBs = sel?.moneda === 'Bs';
+
+  async function cobrar() {
+    if (!sel) return;
+    setErrorCobro(null);
+    const monto = Number(montoStr) || 0;
+    if (monto <= 0) { setErrorCobro('Indica el monto a cobrar.'); return; }
+    if (!cajaId) { setErrorCobro('Elige la caja que recibe el dinero.'); return; }
+    if (!esBs && (Number(tasaStr) || 0) <= 0) { setErrorCobro(`Indica la tasa (Bs por ${sel.moneda}).`); return; }
+    setGuardando(true);
+    try {
+      const r = await registrarCobro({
+        cuenta: sel, cajaId, cuentaCaja, monto,
+        tasaBs: esBs ? 1 : (Number(tasaStr) || 0),
+        nota: nota.trim() || null, actor, actorName,
+      });
+      notify(
+        r.cuenta.estado === 'saldada'
+          ? `Cuenta saldada · ${sel.contraparte}`
+          : `Cobro ${montoMoneda(monto, sel.moneda)} · ${sel.contraparte}`,
+        'success', { link: '#/app/ventas' },
+      );
+      setMontoStr(''); setNota('');
+      await cargar();
+    } catch (e) {
+      setErrorCobro(e instanceof Error ? e.message : 'No se pudo registrar el cobro.');
+    } finally { setGuardando(false); }
   }
+
   return (
-    <Modal title={`${esIntercambio(venta) ? 'Cobrar diferencia de' : 'Cobrar'} ${venta.numero}`} size="md" onClose={onClose} footer={
-      <><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cobrar-f" className="btn btn-primary" disabled={saving || !cajaId}>{saving ? '…' : 'Registrar cobro (entra a caja)'}</button></>
-    }>
-      <form id="cobrar-f" onSubmit={submit}>
-        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-        {esIntercambio(venta) && (
-          <p className="hint muted" style={{ marginTop: 0 }}>El material cubrió {money(Number(venta.valor_material) || 0, venta.moneda)} de {money(venta.total, venta.moneda)}: se cobra la diferencia.</p>
-        )}
-        <div className="form-row"><label>Método de pago</label>
-          <select className="select" value={metodo} onChange={(e) => setMetodo(e.target.value)}>
-            <option>Efectivo</option><option>Transferencia</option><option>Pago móvil</option><option>USDT</option><option>Otro</option>
-          </select>
-        </div>
-        <div className="form-row"><label>Monto cobrado ({venta.moneda})</label>
-          <input className="input mono" type="number" min={0} step="any" value={monto} onChange={(e) => setMonto(e.target.value)} /></div>
-        <div className="form-row">
-          <label>Caja donde entra el dinero</label>
-          {cajas.length ? (
-            <>
-              <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
-                {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
-              {cuentasMoneda.length > 1 && (
-                <select className="select" style={{ marginTop: '.35rem' }} value={cuentaCaja} onChange={(e) => setCuentaCaja(e.target.value as CuentaCaja)}>
-                  {cuentasMoneda.map((r) => (
-                    <option key={r.cuenta} value={r.cuenta}>
-                      Entra en {r.cuenta === 'general' ? 'general' : r.cuenta === 'juridica' ? 'Jurídica' : r.cuenta === 'personal' ? 'Personal' : r.cuenta}{' · '}{money(Number(r.saldo))}
-                    </option>
+    <>
+      <div className="filterbar">
+        <label className="muted" style={{ display: 'flex', alignItems: 'center', gap: '.35rem' }}>
+          <input type="checkbox" checked={soloAbiertas} onChange={(e) => setSoloAbiertas(e.target.checked)} />
+          Solo cuentas abiertas
+        </label>
+        <button
+          className="btn btn-ghost"
+          title="Reporte de cuentas por cobrar en PDF (vista previa)"
+          onClick={() => { void descargarCuentasPorCobrarPdf({ soloAbiertas }).catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error')); }}
+        >📄 Reporte PDF</button>
+      </div>
+
+      <p className="muted hint" style={{ marginTop: 0 }}>
+        La cuenta por cobrar es <strong>corriente por cliente</strong>: acumula todas sus ventas a crédito.
+        El cobro entra a la caja por el mismo camino que usa Tesorería.
+      </p>
+
+      {cargando ? <p className="muted">Cargando…</p> : !filas.length ? (
+        <EmptyState message="No hay cuentas por cobrar." icon="💰" />
+      ) : (
+        <>
+          <div className="card">
+            <div className="card-title"><span>Cuentas ({filas.length})</span></div>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Cliente / Proveedor</th>
+                    <th>Tipo</th>
+                    <th style={{ textAlign: 'right' }}>Monto</th>
+                    <th style={{ textAlign: 'right' }}>Cobrado</th>
+                    <th style={{ textAlign: 'right' }}>Saldo</th>
+                    <th style={{ textAlign: 'right' }}>Antigüedad</th>
+                    <th>Desde</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filas.map((f) => (
+                    <tr
+                      key={f.id}
+                      onClick={() => setSelId(f.id)}
+                      style={{ cursor: 'pointer', outline: f.id === selId ? '2px solid var(--primary)' : undefined }}
+                    >
+                      <td>{f.contraparte}</td>
+                      <td className="muted">{f.tipo}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(f.monto, f.moneda)}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(f.cobrado, f.moneda)}</td>
+                      <td className="mono" style={{ textAlign: 'right', fontWeight: 700, color: f.saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                        {montoMoneda(f.saldo, f.moneda)}
+                      </td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{f.antiguedadDias} d</td>
+                      <td className="muted">{date(f.desde)}</td>
+                    </tr>
                   ))}
-                </select>
-              )}
-              <small className="hint muted">Queda como ingreso en el Libro Mayor de esa caja, en <strong>{venta.moneda}</strong>.</small>
-            </>
-          ) : <small style={{ color: 'var(--danger)' }}>No hay cajas activas: creá una en Tesorería para poder cobrar.</small>}
-        </div>
-      </form>
-      {confirmar && (
-        <ConfirmDialog title="Confirmar cobro" confirmText="Registrar cobro" success
-          message={`Entran ${money(Number(monto) || 0, venta.moneda)} a ${caja?.nombre ?? 'la caja'} por ${venta.numero}${venta.cliente_nombre ? ` (${venta.cliente_nombre})` : ''}.\nMétodo: ${metodo}.`}
-          onConfirm={() => void registrar()} onCancel={() => setConfirmar(false)} />
-      )}
-    </Modal>
-  );
-}
-
-/* ───────────── Clientes ───────────── */
-
-function ClientesModal({ canWrite, actor, actorName, onClose, onChanged }: {
-  canWrite: boolean; actor: string; actorName: string | null; onClose: () => void; onChanged: () => void;
-}) {
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [edit, setEdit] = useState<Cliente | 'nuevo' | null>(null);
-  const [borrarConf, setBorrarConf] = useState<Cliente | null>(null);
-  const cargar = useCallback(() => { listClientes().then(setClientes).catch(() => setClientes([])); }, []);
-  useEffect(() => { cargar(); }, [cargar]);
-  useRealtime(['clientes'], cargar);
-
-  async function borrar(c: Cliente) {
-    try { await eliminarCliente(c.id); toast('Cliente eliminado', 'success'); setBorrarConf(null); cargar(); onChanged(); }
-    catch (e) { toast(errMsg(e, 'No se pudo eliminar'), 'error'); }
-  }
-
-  return (
-    <Modal title="👤 Clientes" size="lg" onClose={onClose} footer={
-      <><button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
-      {canWrite && <button className="btn btn-primary" onClick={() => setEdit('nuevo')}>+ Nuevo cliente</button>}</>
-    }>
-      {!clientes.length ? <EmptyState message="Sin clientes." icon="👤" /> : (
-        <div className="table-wrap">
-          <table className="table" style={{ fontSize: '.82rem' }}>
-            <thead><tr><th>Nombre</th><th>RIF/CI</th><th>Teléfono</th><th>Email</th><th></th></tr></thead>
-            <tbody>
-              {clientes.map((c) => (
-                <tr key={c.id}>
-                  <td style={{ fontWeight: 600 }}>{c.nombre} {!c.activo && <span className="badge" style={{ fontSize: '.62rem' }}>inactivo</span>}</td>
-                  <td className="mono">{c.rif || '—'}</td><td>{c.telefono || '—'}</td><td>{c.email || '—'}</td>
-                  <td style={{ whiteSpace: 'nowrap', textAlign: 'right' }}>
-                    {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setEdit(c)}>✎</button>}
-                    {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setBorrarConf(c)}>🗑</button>}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {edit && <ClienteForm cliente={edit === 'nuevo' ? null : edit} actor={actor} actorName={actorName}
-        onClose={() => setEdit(null)} onSaved={() => { setEdit(null); cargar(); onChanged(); }} />}
-      {borrarConf && (
-        <ConfirmDialog title={`Eliminar ${borrarConf.nombre}`} danger confirmText="Eliminar cliente"
-          message={`¿Eliminar el cliente ${borrarConf.nombre}? Sus ventas se conservan con el nombre escrito en cada una.`}
-          onConfirm={() => void borrar(borrarConf)} onCancel={() => setBorrarConf(null)} />
-      )}
-    </Modal>
-  );
-}
-
-function ClienteForm({ cliente, actor, actorName, onClose, onSaved }: {
-  cliente: Cliente | null; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
-}) {
-  const [f, setF] = useState<ClienteInput>({
-    nombre: cliente?.nombre ?? '', rif: cliente?.rif ?? '', telefono: cliente?.telefono ?? '',
-    email: cliente?.email ?? '', direccion: cliente?.direccion ?? '', activo: cliente?.activo ?? true, nota: cliente?.nota ?? '',
-  });
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const set = (p: Partial<ClienteInput>) => setF((prev) => ({ ...prev, ...p }));
-  async function submit(e: FormEvent) {
-    e.preventDefault(); setError(null); setSaving(true);
-    try {
-      if (cliente) await actualizarCliente(cliente.id, f);
-      else await crearCliente(f, actor, actorName);
-      toast('Cliente guardado', 'success'); onSaved();
-    } catch (err) { setError(errMsg(err, 'No se pudo guardar')); setSaving(false); }
-  }
-  return (
-    <Modal title={cliente ? `Editar ${cliente.nombre}` : 'Nuevo cliente'} size="md" onClose={onClose} footer={
-      <><button className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="cliente-f" className="btn btn-primary" disabled={saving}>{saving ? '…' : 'Guardar'}</button></>
-    }>
-      <form id="cliente-f" onSubmit={submit}>
-        {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-        <div className="form-row"><label>Nombre / Razón social</label><input className="input" value={f.nombre} onChange={(e) => set({ nombre: e.target.value })} autoFocus required /></div>
-        <div className="form-grid">
-          <div className="form-row"><label>RIF / C.I.</label><input className="input" value={f.rif ?? ''} onChange={(e) => set({ rif: e.target.value })} /></div>
-          <div className="form-row"><label>Teléfono</label><input className="input" value={f.telefono ?? ''} onChange={(e) => set({ telefono: e.target.value })} /></div>
-          <div className="form-row"><label>Email</label><input className="input" type="email" value={f.email ?? ''} onChange={(e) => set({ email: e.target.value })} /></div>
-          <div className="form-row"><label>Dirección</label><input className="input" value={f.direccion ?? ''} onChange={(e) => set({ direccion: e.target.value })} /></div>
-        </div>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.85rem' }}>
-          <input type="checkbox" checked={f.activo ?? true} onChange={(e) => set({ activo: e.target.checked })} /> Cliente activo
-        </label>
-      </form>
-    </Modal>
-  );
-}
-
-/* ───────────── Reporte ───────────── */
-
-function ReporteModal({ ventas, onClose }: { ventas: Venta[]; onClose: () => void }) {
-  const hoy = new Date().toLocaleDateString('en-CA');
-  const [desde, setDesde] = useState(() => `${hoy.slice(0, 8)}01`);
-  const [hasta, setHasta] = useState(hoy);
-  const [doc, setDoc] = useState<'todos' | TipoDocumentoVenta>('todos');
-  const [pago, setPago] = useState<'todos' | CondicionPagoVenta>('todos');
-  const [anuladas, setAnuladas] = useState(false);
-
-  const filtradas = useMemo(() => ventas.filter((v) =>
-    v.fecha >= desde && v.fecha <= hasta
-    // Solo lo emitido es venta: un borrador o una venta por autorizar todavía no.
-    && (yaEmitida(v) || (anuladas && v.estado === 'anulada'))
-    && (doc === 'todos' || (v.tipo_documento ?? 'factura') === doc)
-    && (pago === 'todos' || (v.condicion_pago ?? 'contado') === pago)), [ventas, desde, hasta, doc, pago, anuladas]);
-  const vivas = filtradas.filter(yaEmitida);
-  const r = resumenVentas(vivas);
-  const porCliente = useMemo(() => {
-    const m = new Map<string, number>();
-    vivas.forEach((v) => m.set(v.cliente_nombre || '—', (m.get(v.cliente_nombre || '—') || 0) + (Number(v.total) || 0)));
-    return [...m.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
-  }, [vivas]);
-  const porProducto = useMemo(() => {
-    const m = new Map<string, number>();
-    vivas.forEach((v) => (v.items ?? []).forEach((it) => m.set(it.producto_nombre || '—', (m.get(it.producto_nombre || '—') || 0) + (Number(it.subtotal) || 0))));
-    return [...m.entries()].map(([label, value]) => ({ label, value })).sort((a, b) => b.value - a.value);
-  }, [vivas]);
-
-  const filtroTxt = [
-    doc === 'todos' ? 'Todos los documentos' : nombreDocumento(doc),
-    pago === 'todos' ? 'toda forma de pago' : nombreCondicion(pago),
-    anuladas ? 'incluye anuladas' : null,
-  ].filter(Boolean).join(' · ');
-
-  return (
-    <Modal title="📊 Reporte de ventas" size="lg" onClose={onClose} footer={
-      <>
-        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
-        <button className="btn btn-primary" disabled={!filtradas.length}
-          onClick={() => void pdf().then((m) => m.verReporteVentasPdf({ ventas: filtradas, desde, hasta, filtro: filtroTxt })).catch((e) => toast(errMsg(e, 'Error PDF'), 'error'))}>
-          ↓ PDF (vista previa)
-        </button>
-      </>
-    }>
-      <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '.9rem' }}>
-        <div className="form-row" style={{ margin: 0 }}><label>Desde</label><input className="input" type="date" value={desde} max={hasta} onChange={(e) => setDesde(e.target.value)} /></div>
-        <div className="form-row" style={{ margin: 0 }}><label>Hasta</label><input className="input" type="date" value={hasta} min={desde} onChange={(e) => setHasta(e.target.value)} /></div>
-        <div className="form-row" style={{ margin: 0 }}><label>Documento</label>
-          <select className="select" value={doc} onChange={(e) => setDoc(e.target.value as typeof doc)}>
-            <option value="todos">Todos</option><option value="factura">Facturas</option><option value="nota_entrega">Notas de entrega</option>
-          </select></div>
-        <div className="form-row" style={{ margin: 0 }}><label>Forma de pago</label>
-          <select className="select" value={pago} onChange={(e) => setPago(e.target.value as typeof pago)}>
-            <option value="todos">Todas</option><option value="contado">Contado</option><option value="credito">Crédito</option><option value="intercambio">Intercambio</option>
-          </select></div>
-        <label style={{ display: 'flex', gap: '.35rem', alignItems: 'center', fontSize: '.84rem', cursor: 'pointer' }}>
-          <input type="checkbox" checked={anuladas} onChange={(e) => setAnuladas(e.target.checked)} /> Incluir anuladas
-        </label>
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '.6rem', marginBottom: '1rem' }}>
-        {[['Vendido', money(r.totalVendido)], ['Ganancia', `${money(r.ganancia)} · ${num(r.gananciaPct)}%`], ['IVA + IGTF', money(r.impuestos)],
-          ['Material recibido', money(r.materialRecibido)], ['Documentos', String(r.facturas)]].map(([k, val]) => (
-          <div key={k} className="card" style={{ padding: '.5rem .7rem' }}>
-            <div className="muted" style={{ fontSize: '.7rem', textTransform: 'uppercase', letterSpacing: '.05em' }}>{k}</div>
-            <div className="mono" style={{ fontWeight: 800 }}>{val}</div>
+                </tbody>
+              </table>
+            </div>
           </div>
-        ))}
+
+          {puedeEscribir && sel && saldo > 0.01 && (
+            <div className="card">
+              <div className="card-title"><span>Registrar cobro de «{sel.contraparte}» (entra a caja)</span></div>
+              {errorCobro && (
+                <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.5rem' }}>
+                  <strong>Error:</strong> {errorCobro}
+                </div>
+              )}
+              <div className="form-row" style={{ marginBottom: '.6rem' }}>
+                <label>Cuenta a cobrar</label>
+                <SearchSelect
+                  value={selId}
+                  onChange={setSelId}
+                  placeholder="🔍 Buscar cuenta…"
+                  options={cuentas.map((c) => ({
+                    value: c.id,
+                    label: `${c.tipo === 'proveedor' ? '🏭' : '👤'} ${c.contraparte} · saldo ${montoMoneda(round2(Number(c.monto) - (Number(c.abonado) || 0)), c.moneda)}`,
+                  }))}
+                />
+              </div>
+              <div className="form-grid">
+                <div className="form-row">
+                  <label>Caja que recibe</label>
+                  <select className="select" value={cajaId} onChange={(e) => setCajaId(e.target.value)}>
+                    {cajas.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                </div>
+                {esBs ? (
+                  <div className="form-row">
+                    <label>Cuenta (Bs)</label>
+                    <select className="select" value={cuentaCaja} onChange={(e) => setCuentaCaja(e.target.value as CuentaCaja)}>
+                      <option value="juridica">Jurídica</option>
+                      <option value="personal">Personal</option>
+                    </select>
+                  </div>
+                ) : (
+                  <div className="form-row">
+                    <label>Tasa (Bs por {sel.moneda})</label>
+                    <input className="input mono" type="number" min={0} step="any" value={tasaStr}
+                      onChange={(e) => setTasaStr(e.target.value)} placeholder="0.00" />
+                  </div>
+                )}
+                <div className="form-row">
+                  <label>Monto a cobrar ({sel.moneda})</label>
+                  <input className="input mono" type="number" min={0} step="any" value={montoStr}
+                    onChange={(e) => setMontoStr(e.target.value)} placeholder="0.00" />
+                  <small className="muted">Máx. {montoMoneda(saldo, sel.moneda)}</small>
+                </div>
+                <div className="form-row">
+                  <label>Nota <span className="muted">(opcional)</span></label>
+                  <input className="input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Nota del cobro" />
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '.5rem' }}>
+                <button className="btn btn-primary" disabled={guardando} onClick={() => void cobrar()}>
+                  {guardando ? 'Registrando…' : '＋ Registrar cobro'}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+/* ─────────────────────────── Reportes ─────────────────────────── */
+
+/**
+ * Los cuatro reportes, con vista previa en pantalla ANTES del PDF. Los números
+ * de la pantalla salen de los mismos agrupadores puros que usan los PDF
+ * (`agruparGananciaPor*`, `filasCuentasPorCobrar`): la cuenta está escrita una
+ * sola vez y no puede divergir.
+ *
+ * La ganancia de los reportes es la GUARDADA en cada renglón (congelada al
+ * confirmar), nunca una cuenta nueva contra el costo de hoy.
+ */
+function ReportesPanel({ ventas }: { ventas: Venta[] }) {
+  const [desde, setDesde] = useState('');
+  const [hasta, setHasta] = useState('');
+  const [cargando, setCargando] = useState(false);
+  const [porProducto, setPorProducto] = useState<FilaGananciaProducto[]>([]);
+  const [porCategoria, setPorCategoria] = useState<FilaGananciaCategoria[]>([]);
+  const [porCliente, setPorCliente] = useState<FilaGananciaCliente[]>([]);
+  const [cuentas, setCuentas] = useState<CuentaPorCobrar[]>([]);
+
+  // El mismo rango que reciben los PDF, para que pantalla y papel filtren igual.
+  const rango = useMemo(() => ({
+    desde: desde ? `${desde}T00:00:00.000Z` : null,
+    hasta: hasta ? `${hasta}T23:59:59.999Z` : null,
+  }), [desde, hasta]);
+
+  const enRango = useCallback((iso: string) => (
+    (!rango.desde || iso >= rango.desde) && (!rango.hasta || iso <= rango.hasta)
+  ), [rango]);
+
+  /** Ventas del período: confirmadas y entregadas, igual que el PDF por defecto. */
+  const delPeriodo = useMemo(
+    () => ventas.filter((v) => (v.estado === 'confirmada' || v.estado === 'entregada') && enRango(v.created_at)),
+    [ventas, enRango],
+  );
+
+  /** Solo las ENTREGADAS alimentan la ganancia: es material que ya salió. */
+  const entregadas = useMemo(
+    () => ventas.filter((v) => v.estado === 'entregada' && enRango(v.created_at)),
+    [ventas, enRango],
+  );
+  const claveEntregadas = useMemo(() => entregadas.map((v) => v.id).join(','), [entregadas]);
+
+  useEffect(() => {
+    let vivo = true;
+    setCargando(true);
+    (async () => {
+      const ids = claveEntregadas ? claveEntregadas.split(',') : [];
+      const [renglones, productos, cxc] = await Promise.all([
+        listRenglonesDeVentas(ids).catch(() => []),
+        listProductos().catch(() => []),
+        listCuentasPorCobrar(true).catch(() => [] as CuentaPorCobrar[]),
+      ]);
+      if (!vivo) return;
+      const catPorProducto = new Map(productos.map((p) => [p.id, (p.categoria ?? '').trim()]));
+      const filasProd = agruparGananciaPorProducto(
+        renglones, (id) => catPorProducto.get(id)?.trim() || '(sin categoría)',
+      );
+      setPorProducto(filasProd);
+      setPorCategoria(agruparGananciaPorCategoria(filasProd));
+      setPorCliente(agruparGananciaPorCliente(entregadas, renglones));
+      setCuentas(cxc);
+    })()
+      .catch((e) => { if (vivo) toast(e instanceof Error ? e.message : 'No se pudo armar el reporte.', 'error'); })
+      .finally(() => { if (vivo) setCargando(false); });
+    return () => { vivo = false; };
+    // `entregadas` se resume en `claveEntregadas`: dependemos de los ids, no del
+    // array nuevo que crea cada refresh de realtime.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claveEntregadas]);
+
+  const filasCxC = useMemo<FilaCuentaPorCobrar[]>(() => filasCuentasPorCobrar(cuentas), [cuentas]);
+
+  const bajar = (fn: () => Promise<void>) => {
+    void fn().catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'));
+  };
+
+  const pct = (n: number | null) => (n == null ? '—' : `${num(n)} %`);
+
+  return (
+    <>
+      <div className="filterbar">
+        <label className="muted">Desde</label>
+        <input className="input" type="date" value={desde} onChange={(e) => setDesde(e.target.value)} />
+        <label className="muted">Hasta</label>
+        <input className="input" type="date" value={hasta} onChange={(e) => setHasta(e.target.value)} />
+        {(desde || hasta) && (
+          <button className="btn btn-ghost btn-sm" onClick={() => { setDesde(''); setHasta(''); }}>Limpiar</button>
+        )}
       </div>
-      <div className="card-title"><span>Ventas por cliente</span></div>
-      <RankedBarChart data={porCliente} valueFormatter={(v) => money(v)} emptyMessage="Sin ventas en el período." />
-      <div className="card-title" style={{ marginTop: '1rem' }}><span>Ventas por producto</span></div>
-      <RankedBarChart data={porProducto} valueFormatter={(v) => money(v)} emptyMessage="Sin ventas en el período." />
-    </Modal>
+
+      {/* 1 · Ventas del período */}
+      <div className="card">
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap' }}>
+          <span>1 · Ventas del período <span className="muted" style={{ fontWeight: 400 }}>(confirmadas y entregadas)</span></span>
+          <button className="btn btn-sm btn-ghost" onClick={() => bajar(() => descargarVentasDelPeriodoPdf({ desde: rango.desde, hasta: rango.hasta }))}>📄 Ver PDF</button>
+        </div>
+        {!delPeriodo.length ? <p className="muted">No hay ventas en el período elegido.</p> : (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.84rem' }}>
+              <thead>
+                <tr>
+                  <th>Código</th><th>Fecha</th><th>Cliente</th><th>Condición</th>
+                  <th style={{ textAlign: 'right' }}>Total</th>
+                  <th style={{ textAlign: 'right' }}>Ganancia</th>
+                </tr>
+              </thead>
+              <tbody>
+                {delPeriodo.slice(0, 20).map((v) => (
+                  <tr key={v.id}>
+                    <td className="mono">{v.codigo}</td>
+                    <td className="muted">{date(v.created_at)}</td>
+                    <td>{v.cliente_nombre || '—'}</td>
+                    <td className="muted">{v.condicion === 'credito' ? 'Crédito' : 'Contado'}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(v.total, v.moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right', color: colorGanancia(v.ganancia_total) }}>{montoMoneda(v.ganancia_total, v.moneda)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {delPeriodo.length > 20 && <p className="muted" style={{ marginBottom: 0 }}>…y {delPeriodo.length - 20} más. El PDF las trae todas, con los totales por moneda.</p>}
+      </div>
+
+      {/* 2 · Ganancia por producto y categoría */}
+      <div className="card">
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap' }}>
+          <span>2 · Ganancia por producto y categoría <span className="muted" style={{ fontWeight: 400 }}>(ventas entregadas, importes sin IVA)</span></span>
+          <button className="btn btn-sm btn-ghost" onClick={() => bajar(() => descargarGananciaPorProductoPdf(rango))}>📄 Ver PDF</button>
+        </div>
+        {cargando ? <p className="muted">Calculando…</p> : !porProducto.length ? (
+          <p className="muted">No hay ventas entregadas con renglones en el período elegido.</p>
+        ) : (
+          <>
+            <div className="table-wrap" style={{ marginBottom: '.7rem' }}>
+              <table className="table" style={{ fontSize: '.84rem' }}>
+                <thead>
+                  <tr>
+                    <th>Categoría</th><th style={{ textAlign: 'right' }}>Productos</th>
+                    <th style={{ textAlign: 'right' }}>Venta</th><th style={{ textAlign: 'right' }}>Costo</th>
+                    <th style={{ textAlign: 'right' }}>Ganancia</th><th style={{ textAlign: 'right' }}>Margen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {porCategoria.map((c) => (
+                    <tr key={c.categoria}>
+                      <td>{c.categoria}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{c.productos}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(c.venta, 'USD')}</td>
+                      <td className="mono muted" style={{ textAlign: 'right' }}>{montoMoneda(c.costo, 'USD')}</td>
+                      <td className="mono" style={{ textAlign: 'right', color: colorGanancia(c.ganancia) }}>{montoMoneda(c.ganancia, 'USD')}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{pct(c.margenPct)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.84rem' }}>
+                <thead>
+                  <tr>
+                    <th>Producto</th><th style={{ textAlign: 'right' }}>Cantidad</th>
+                    <th style={{ textAlign: 'right' }}>Venta</th><th style={{ textAlign: 'right' }}>Costo</th>
+                    <th style={{ textAlign: 'right' }}>Ganancia</th><th style={{ textAlign: 'right' }}>Margen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {porProducto.slice(0, 15).map((f) => (
+                    <tr key={f.producto_id}>
+                      <td><span className="mono muted">{f.sku}</span> {f.nombre}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{num(f.cantidad)}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(f.venta, 'USD')}</td>
+                      <td className="mono muted" style={{ textAlign: 'right' }}>{montoMoneda(f.costo, 'USD')}</td>
+                      <td className="mono" style={{ textAlign: 'right', color: colorGanancia(f.ganancia) }}>{montoMoneda(f.ganancia, 'USD')}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{pct(f.margenPct)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {porProducto.length > 15 && <p className="muted" style={{ marginBottom: 0 }}>…y {porProducto.length - 15} productos más en el PDF.</p>}
+          </>
+        )}
+      </div>
+
+      {/* 3 · Ganancia por cliente */}
+      <div className="card">
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap' }}>
+          <span>3 · Ganancia por cliente <span className="muted" style={{ fontWeight: 400 }}>(ventas entregadas, importes sin IVA)</span></span>
+          <button className="btn btn-sm btn-ghost" onClick={() => bajar(() => descargarGananciaPorClientePdf(rango))}>📄 Ver PDF</button>
+        </div>
+        {cargando ? <p className="muted">Calculando…</p> : !porCliente.length ? (
+          <p className="muted">No hay ventas entregadas en el período elegido.</p>
+        ) : (
+          <>
+            <div className="table-wrap">
+              <table className="table" style={{ fontSize: '.84rem' }}>
+                <thead>
+                  <tr>
+                    <th>Cliente</th><th style={{ textAlign: 'right' }}>Documentos</th>
+                    <th style={{ textAlign: 'right' }}>Venta</th><th style={{ textAlign: 'right' }}>Costo</th>
+                    <th style={{ textAlign: 'right' }}>Ganancia</th><th style={{ textAlign: 'right' }}>Margen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {porCliente.slice(0, 15).map((f) => (
+                    <tr key={f.clienteKey}>
+                      <td>{f.cliente}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{f.documentos}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(f.venta, 'USD')}</td>
+                      <td className="mono muted" style={{ textAlign: 'right' }}>{montoMoneda(f.costo, 'USD')}</td>
+                      <td className="mono" style={{ textAlign: 'right', color: colorGanancia(f.ganancia) }}>{montoMoneda(f.ganancia, 'USD')}</td>
+                      <td className="mono" style={{ textAlign: 'right' }}>{pct(f.margenPct)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {porCliente.length > 15 && <p className="muted" style={{ marginBottom: 0 }}>…y {porCliente.length - 15} clientes más en el PDF.</p>}
+          </>
+        )}
+      </div>
+
+      {/* 4 · Cuentas por cobrar */}
+      <div className="card">
+        <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap' }}>
+          <span>4 · Cuentas por cobrar <span className="muted" style={{ fontWeight: 400 }}>(abiertas, al día de hoy)</span></span>
+          <button className="btn btn-sm btn-ghost" onClick={() => bajar(() => descargarCuentasPorCobrarPdf({ soloAbiertas: true }))}>📄 Ver PDF</button>
+        </div>
+        {!filasCxC.length ? <p className="muted">No hay cuentas por cobrar abiertas.</p> : (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.84rem' }}>
+              <thead>
+                <tr>
+                  <th>Cliente / Proveedor</th><th>Tipo</th>
+                  <th style={{ textAlign: 'right' }}>Monto</th><th style={{ textAlign: 'right' }}>Cobrado</th>
+                  <th style={{ textAlign: 'right' }}>Saldo</th><th style={{ textAlign: 'right' }}>Antigüedad</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filasCxC.map((f) => (
+                  <tr key={f.id}>
+                    <td>{f.contraparte}</td>
+                    <td className="muted">{f.tipo}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(f.monto, f.moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{montoMoneda(f.cobrado, f.moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{montoMoneda(f.saldo, f.moneda)}</td>
+                    <td className="mono" style={{ textAlign: 'right' }}>{f.antiguedadDias} d</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

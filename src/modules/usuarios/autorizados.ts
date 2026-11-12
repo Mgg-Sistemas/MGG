@@ -7,12 +7,14 @@
    comprobaciones de permiso sean síncronas en toda la app.
    ============================================================ */
 
-export type PermisoAutorizado = 'oc' | 'salidas';
+export type PermisoAutorizado = 'oc' | 'salidas' | 'despachos';
 
 export interface UsuarioAutorizado {
   email: string;
   aprobar_oc: boolean;
   aprobar_salidas: boolean;
+  /** 11-11-2026 · Ventas (flujo de GT): aprueba despachos («¿Se despacha?»). */
+  aprobar_despachos?: boolean;
   /** Firma manuscrita: PNG con fondo transparente como data URL. */
   firma: string | null;
   firma_w: number | null;
@@ -25,6 +27,7 @@ export interface UsuarioAutorizado {
 export const OPCIONES_AUTORIZACION: { key: PermisoAutorizado; label: string; icono: string }[] = [
   { key: 'oc', label: 'APROBAR ÓRDENES DE COMPRA', icono: '🛒' },
   { key: 'salidas', label: 'APROBAR ÓRDENES DE SALIDA', icono: '📤' },
+  { key: 'despachos', label: 'APROBAR DESPACHOS DE VENTAS', icono: '🚚' },
 ];
 
 const norm = (e?: string | null) => (e ?? '').trim().toLowerCase();
@@ -60,13 +63,17 @@ export function autorizadoPara(
   if (!l) return null;
   const a = autorizadoDe(email, l);
   if (!a) return false;
-  return permiso === 'oc' ? a.aprobar_oc : a.aprobar_salidas;
+  if (permiso === 'oc') return a.aprobar_oc;
+  if (permiso === 'salidas') return a.aprobar_salidas;
+  return !!a.aprobar_despachos;
 }
 
 /** Texto corto de lo que puede hacer: «Compras», «Salidas», «Compras y salidas». */
-export function resumenAutorizacion(a: Pick<UsuarioAutorizado, 'aprobar_oc' | 'aprobar_salidas'>): string {
-  if (a.aprobar_oc && a.aprobar_salidas) return 'Aprueba compras y salidas';
-  if (a.aprobar_oc) return 'Aprueba órdenes de compra';
-  if (a.aprobar_salidas) return 'Aprueba órdenes de salida';
-  return 'Sin autorizaciones';
+export function resumenAutorizacion(a: Pick<UsuarioAutorizado, 'aprobar_oc' | 'aprobar_salidas' | 'aprobar_despachos'>): string {
+  let base = '';
+  if (a.aprobar_oc && a.aprobar_salidas) base = 'Aprueba compras y salidas';
+  else if (a.aprobar_oc) base = 'Aprueba órdenes de compra';
+  else if (a.aprobar_salidas) base = 'Aprueba órdenes de salida';
+  if (a.aprobar_despachos) return base ? `${base} · despachos de ventas` : 'Aprueba despachos de ventas';
+  return base || 'Sin autorizaciones';
 }

@@ -123,6 +123,11 @@ export function prefijoCategoria(categoria: string, productos: Producto[] = []):
  * cuando VIV-119 ya existía inactivo, y el alta moría con «código repetido».
  * Acá se mira TODO el catálogo, activo o no.
  */
+/** Nombre que usa el módulo de Ventas traído de Golden Touch (11-11-2026): el SKU libre de la categoría. */
+export async function nextSku(categoria: string, productos: Producto[] = []): Promise<string> {
+  return siguienteSkuLibre(categoria, productos);
+}
+
 export async function siguienteSkuLibre(categoria: string, productos: Producto[] = []): Promise<string> {
   const prefijo = prefijoCategoria(categoria, productos);
   const { data, error } = await supabase

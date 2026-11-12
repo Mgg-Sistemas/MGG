@@ -265,6 +265,8 @@ export async function registrarAbonoCobrar(input: {
   nota?: string | null;
   actor: string;
   actorName?: string | null;
+  /** 11-11-2026 · Venta a la que se aplica el cobro (Ventas › Registrar cobro). */
+  refVentaId?: string | null;
 }): Promise<{ cuenta: CuentaPorCobrar; abono: AbonoCxC }> {
   const c = input.cuenta;
   const monto = round2(input.monto);
@@ -297,8 +299,13 @@ export async function registrarAbonoCobrar(input: {
     cuenta_id: c.id, monto, moneda: c.moneda, caja_id: input.cajaId, cuenta: input.cuentaCaja,
     caja_mov_id: mov.id, saldo_restante: aplic.saldo_restante, nota: input.nota?.trim() || null,
     actor: input.actor, actor_name: input.actorName ?? null,
+    ...(input.refVentaId ? { ref_venta_id: input.refVentaId } : {}),
   }).select('*').single();
   if (abErr) throw abErr;
+  // El cobro de una venta queda enganchado en el libro de caja (vista ventas_movimientos_caja).
+  if (input.refVentaId && mov?.id) {
+    await supabase.from('movimientos_caja').update({ ref_venta_id: input.refVentaId, categoria: 'cobro_venta' }).eq('id', mov.id);
+  }
 
   const cuenta: CuentaPorCobrar = { ...c, abonado: aplic.abonado, estado: aplic.estado, updated_at: new Date().toISOString() };
   return { cuenta, abono: ab as AbonoCxC };
@@ -393,4 +400,28 @@ export async function registrarAbonoCobrarProducto(input: {
 
   const cuenta: CuentaPorCobrar = { ...c, abonado: aplic.abonado, estado: aplic.estado, updated_at: new Date().toISOString() };
   return { cuenta, abono: ab as AbonoCxC };
+}
+
+/**
+ * Cobro de una cuenta por cobrar con la firma que usa Ventas (módulo traído de
+ * Golden Touch, 11-11-2026). En MGG el dinero entra por el mismo camino que
+ * cualquier abono de Tesorería (`registrarAbonoCobrar`): reserva atómica del
+ * abono + ingreso a la caja multimoneda. La tasa la toma la caja.
+ */
+export async function registrarCobro(input: {
+  cuenta: CuentaPorCobrar;
+  cajaId: string;
+  cuentaCaja: CuentaCaja;
+  monto: number;
+  tasaBs?: number | null;
+  nota?: string | null;
+  actor: string;
+  actorName?: string | null;
+  refVentaId?: string | null;
+}): Promise<{ cuenta: CuentaPorCobrar; cobro: AbonoCxC }> {
+  const r = await registrarAbonoCobrar({
+    cuenta: input.cuenta, cajaId: input.cajaId, cuentaCaja: input.cuentaCaja, monto: input.monto,
+    nota: input.nota, actor: input.actor, actorName: input.actorName, refVentaId: input.refVentaId,
+  });
+  return { cuenta: r.cuenta, cobro: r.abono };
 }

@@ -12,7 +12,7 @@ import {
 } from './autorizados';
 
 const TABLE = 'usuarios_autorizados';
-const COLS = 'email, aprobar_oc, aprobar_salidas, firma, firma_w, firma_h, updated_at, updated_by';
+const COLS = 'email, aprobar_oc, aprobar_salidas, aprobar_despachos, firma, firma_w, firma_h, updated_at, updated_by';
 
 export async function listAutorizados(): Promise<UsuarioAutorizado[]> {
   const { data, error } = await supabase.from(TABLE).select(COLS).order('email');
