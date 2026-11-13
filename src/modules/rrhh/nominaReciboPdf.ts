@@ -370,8 +370,8 @@ function hojaSueldo(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalc
     head: [['#', 'CONCEPTO', 'DÍAS', 'DEVENGADO Bs', 'DEDUCCIÓN Bs']],
     body: filas,
     foot: [
-      ['', 'TOTALES', '', bsStr(c.totalDevengadoBs), bsStr(c.totalDeduccionBs)],
-      ['', 'NETO A PAGAR EN BOLÍVARES', '', '', bsStr(c.netoBs)],
+      ['', 'TOTALES', '', { content: bsStr(c.totalDevengadoBs), styles: { halign: 'right' } }, { content: bsStr(c.totalDeduccionBs), styles: { halign: 'right' } }],
+      ['', 'NETO A PAGAR EN BOLÍVARES', '', '', { content: bsStr(c.netoBs), styles: { halign: 'right' } }],
     ],
     margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 8.5, cellPadding: 2.5 },
@@ -411,11 +411,11 @@ function hojaBono(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalcul
 
   const finBonoFilas: (string | { content: string; colSpan?: number; styles?: { halign: 'right' } })[][] = real
     ? [
-        ['', 'TOTAL BENEFICIOS SOCIALES NO REMUNERATIVO DEL PERIODO', usd(c.bonoUsd), reales(real.bono)],
+        ['', 'TOTAL BENEFICIOS SOCIALES NO REMUNERATIVO DEL PERIODO', { content: usd(c.bonoUsd), styles: { halign: 'right' } }, { content: reales(real.bono), styles: { halign: 'right' } }],
         ['', 'TASA DE CAMBIO', { content: `1 $ = R$ ${tasaRealTexto(real.tasa)}${meta.periodo.tasa_brl_fecha ? ` (${fmtDate(meta.periodo.tasa_brl_fecha)})` : ''}`, colSpan: 2, styles: { halign: 'right' } }],
       ]
     : [
-        ['', 'TOTAL BENEFICIOS SOCIALES NO REMUNERATIVO DEL PERIODO', usd(c.bonoUsd)],
+        ['', 'TOTAL BENEFICIOS SOCIALES NO REMUNERATIVO DEL PERIODO', { content: usd(c.bonoUsd), styles: { halign: 'right' } }],
       ];
 
   autoTable(doc, {

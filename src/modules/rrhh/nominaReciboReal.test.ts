@@ -53,4 +53,23 @@ describe('recibos generados · moneda de pago de la empresa', () => {
     // El párrafo legal sale justificado (jsPDF emite el operador Tw > 0 de espaciado entre palabras).
     expect(texto).toMatch(/\d+\.\d+ Tw\s+0\. -\d+\.\d+ Td\s+\(concepto exclusivo de BENEFICIO SOCIAL/);
   });
+
+  it('alinea los totales a la derecha debajo de sus columnas de Devengado y Deducción', async () => {
+    const { texto } = await generar({});
+    // Extrae todas las coordenadas X de ($ 200,00) en hojaBono (cuerpo y pie): deben coincidir al borde derecho.
+    const xsBono = [...texto.matchAll(/(\d+\.\d+)\s+\d+\.\d+\s+Td\s+\(\$ 200,00\)\s+Tj/g)].map((m) => Number(m[1]));
+    expect(xsBono.length).toBeGreaterThanOrEqual(2);
+    expect(Math.abs(xsBono[0] - xsBono[1])).toBeLessThan(5);
+
+    // En hojaSueldo: el total Devengado (Bs 16.111,75) y el total Deducción (último Bs 0,00) quedan
+    // alineados a la derecha en sus respectivas columnas (no pegados al borde izquierdo de la celda).
+    const mDevTotal = texto.match(/(\d+(?:\.\d*)?)\s+\d+(?:\.\d*)?\s+Td\s+\(Bs 16\.111,75\)\s+Tj/);
+    const xsCero = [...texto.matchAll(/(\d+(?:\.\d*)?)\s+\d+(?:\.\d*)?\s+Td\s+\(Bs 0,00\)\s+Tj/g)].map((m) => Number(m[1]));
+    expect(mDevTotal).not.toBeNull();
+    expect(Number(mDevTotal![1])).toBeGreaterThan(380);
+    // Los últimos 6 'Bs 0,00' (5 deducciones del cuerpo + 1 total deducción en el pie) caen todos en el borde derecho (> 500 pt).
+    const deducciones = xsCero.slice(-6);
+    expect(deducciones).toHaveLength(6);
+    deducciones.forEach((x) => expect(x).toBeGreaterThan(500));
+  });
 });
