@@ -35,6 +35,41 @@ export interface PartesDeTotal {
   iva_incluido?: boolean | null;
   /** Diferencia declarada frente a la factura (puede ser negativa). */
   ajuste?: number | null;
+  /** Monto total de renglones exentos de IVA (Art. 18 Ley del IVA). */
+  exento?: number | null;
+}
+
+/**
+ * Suma el monto de los renglones marcados como exentos de IVA (Art. 18 Ley del IVA).
+ * Solo toma renglones que se compran (comprar !== false).
+ */
+export function montoExentoDeItems(
+  items?: Array<{ cantidad?: number | null; precio?: number | null; exento?: boolean; comprar?: boolean }> | null,
+): number {
+  if (!Array.isArray(items)) return 0;
+  const suma = items.reduce((acc, it) => {
+    if (!it || it.comprar === false || !it.exento) return acc;
+    const c = Math.max(0, Number(it.cantidad) || 0);
+    const p = Math.max(0, Number(it.precio) || 0);
+    return acc + c * p;
+  }, 0);
+  return r2(suma);
+}
+
+/**
+ * Suma la base gravada de los renglones (aquellos que NO están exentos).
+ */
+export function baseGravadaDeItems(
+  items?: Array<{ cantidad?: number | null; precio?: number | null; exento?: boolean; comprar?: boolean }> | null,
+): number {
+  if (!Array.isArray(items)) return 0;
+  const suma = items.reduce((acc, it) => {
+    if (!it || it.comprar === false || it.exento) return acc;
+    const c = Math.max(0, Number(it.cantidad) || 0);
+    const p = Math.max(0, Number(it.precio) || 0);
+    return acc + c * p;
+  }, 0);
+  return r2(suma);
 }
 
 /** El IVA que SUMA al total: 0 cuando los precios ya lo traen. */

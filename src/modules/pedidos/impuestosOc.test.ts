@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { etiquetaAjuste, etiquetaIva, ivaDesdePorcentaje, ivaQueSuma, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
+import {
+  baseGravadaDeItems,
+  etiquetaAjuste,
+  etiquetaIva,
+  ivaDesdePorcentaje,
+  ivaQueSuma,
+  montoExentoDeItems,
+  porcentajeDesdeIva,
+  totalDesdePartes,
+} from './impuestosOc';
 
 describe('total a pagar: IVA incluido en los precios y ajuste (14-10-2026)', () => {
   it('sin bandera, el IVA suma como siempre', () => {
@@ -36,5 +45,15 @@ describe('total a pagar: IVA incluido en los precios y ajuste (14-10-2026)', () 
     expect(etiquetaIva(false)).toBe('IVA');
     expect(etiquetaAjuste(' redondeo de la factura ')).toBe('Ajuste · redondeo de la factura');
     expect(etiquetaAjuste(null)).toBe('Ajuste');
+  });
+
+  it('calcula monto exento y base gravada de ítems (Art. 18 Ley del IVA)', () => {
+    const items = [
+      { cantidad: 2, precio: 50, exento: false, comprar: true },  // 100 gravado
+      { cantidad: 1, precio: 30, exento: true, comprar: true },   // 30 exento
+      { cantidad: 5, precio: 10, exento: true, comprar: false },  // no se compra (no suma)
+    ];
+    expect(montoExentoDeItems(items)).toBe(30);
+    expect(baseGravadaDeItems(items)).toBe(100);
   });
 });

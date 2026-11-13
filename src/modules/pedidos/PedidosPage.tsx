@@ -150,7 +150,18 @@ import { quienCargo, quienSolicita } from './quienSolicita';
 import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
 import { esOrdenDelFlujoNuevo, useFlujoCompras, useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
 import { etiquetaRetencionMomento, type RetencionMomento } from './retencionMomento';
-import { TIPOS_RETENCION, armarRetenciones, retencionesDe, totalRetenciones, type MonedaImpuesto, type RetencionOc, type TipoRetencion } from './retencionesOc';
+import {
+  TIPOS_RETENCION,
+  armarRetenciones,
+  baseParaTipoRetencion,
+  retencionesDe,
+  totalRetenciones,
+  type BasesRetencionOc,
+  type MonedaImpuesto,
+  type RetencionOc,
+  type TipoRetencion,
+  PCT_SUGERIDO_RETENCION,
+} from './retencionesOc';
 import {
   desgloseAlmacen, etiquetaSede, fmtCant, mensajeRevisionAlmacen, mensajeSolicitudPedido, resumenRevision, SEDES_REVISION_ALMACEN,
   textoEstadoSedes, trasladosDeSolicitud,
@@ -1829,13 +1840,23 @@ function MetodoPagoModal({
       ? Math.round(baseTotal * descPct) / 100                              // total × % , a 2 decimales
       : Math.max(0, Math.round((Number(descStr) || 0) * 100) / 100);       // monto manual
   const netoAPagar = Math.round(Math.max(0, baseTotal - descNum) * 100) / 100;
-  // Retenciones por tipo (03-11-2026): qué retienen y cuánto (% del total o monto fijo).
+  // Bases legales de retención (IVA sobre el IVA facturado, ISLR e ISAE sobre base imponible neta, IGTF sobre el total).
+  const ivaOrden = Math.max(0, Number(orden.iva) || 0);
+  const igtfOrden = Math.max(0, Number(orden.igtf) || 0);
+  const baseImponibleCalc = Math.max(0, Math.round((netoAPagar - ivaOrden - igtfOrden) * 100) / 100);
+  const basesRetencion: BasesRetencionOc = useMemo(() => ({
+    total: netoAPagar,
+    baseImponible: baseImponibleCalc > 0 ? baseImponibleCalc : netoAPagar,
+    iva: ivaOrden,
+  }), [netoAPagar, baseImponibleCalc, ivaOrden]);
+
+  // Retenciones por tipo (03-11-2026): qué retienen y cuánto (% según base legal o monto fijo).
   // 08-11-2026: cada impuesto dice si se paga en $ o en Bs (en Bs solo lo ve Tesorería).
   const [retMarc, setRetMarc] = useState<Partial<Record<TipoRetencion, { modo: 'pct' | 'monto'; valor: string; moneda_pago: MonedaImpuesto }>>>({});
   const retenciones = useMemo(() => armarRetenciones(
     Object.fromEntries(Object.entries(retMarc).map(([k, v]) => [k, { modo: v!.modo, valor: Number(String(v!.valor).replace(',', '.')) || 0, moneda_pago: v!.moneda_pago }])),
-    baseTotal,
-  ), [retMarc, baseTotal]);
+    basesRetencion,
+  ), [retMarc, basesRetencion]);
   const totalRet = totalRetenciones(retenciones);
 
   // Precarga los datos de pago guardados del proveedor SELECCIONADO (no del original).
@@ -2100,46 +2121,64 @@ function MetodoPagoModal({
           </div>
           {retMomento && (
             <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
-              <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.4rem' }}>¿Qué retienen? Marca cada uno e indica el % (sobre el total de la OC) o el monto.</div>
-              <div style={{ display: 'grid', gap: '.4rem' }}>
+              <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.4rem' }}>¿Qué retienen? Marca las que correspondan. El sistema calcula cada retención según su base legal (IVA sobre el IVA facturado, ISLR e ISAE sobre la base imponible neta, IGTF sobre el total) o podés fijar un monto manual.</div>
+              <div style={{ display: 'grid', gap: '.5rem' }}>
                 {TIPOS_RETENCION.map((tipo) => {
                   const m = retMarc[tipo];
                   const calc = retenciones.find((r) => r.tipo === tipo);
+                  const baseUsada = baseParaTipoRetencion(tipo, basesRetencion);
+                  const baseDesc = tipo === 'IVA'
+                    ? `de IVA ${money(baseUsada, monedaOrden)}`
+                    : tipo === 'IGTF'
+                      ? `del total ${money(baseUsada, monedaOrden)}`
+                      : `de base imponible ${money(baseUsada, monedaOrden)}`;
+                  const sinBaseIva = tipo === 'IVA' && baseUsada <= 0;
                   return (
-                    <div key={tipo} style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', minWidth: 90 }}>
-                        <input type="checkbox" checked={!!m} onChange={(e) => setRetMarc((x) => {
-                          const n = { ...x };
-                          if (e.target.checked) n[tipo] = { modo: 'pct', valor: '', moneda_pago: 'USD' }; else delete n[tipo];
-                          return n;
-                        })} />
-                        <strong>{tipo}</strong>
-                      </label>
-                      {m && (
-                        <>
-                          <select className="select" style={{ width: 'auto' }} value={m.modo}
-                            onChange={(e) => setRetMarc((x) => ({ ...x, [tipo]: { ...m, modo: e.target.value as 'pct' | 'monto' } }))}>
-                            <option value="pct">%</option>
-                            <option value="monto">Monto ({monedaOrden === 'Bs' ? 'Bs' : '$'})</option>
-                          </select>
-                          <input className="input mono" style={{ width: 110 }} inputMode="decimal" value={m.valor}
-                            placeholder={m.modo === 'pct' ? 'ej. 75' : '0,00'}
-                            onChange={(e) => setRetMarc((x) => ({ ...x, [tipo]: { ...m, valor: e.target.value } }))} />
-                          <span className="mono" style={{ color: 'var(--danger)' }}>− {money(calc?.monto ?? 0, monedaOrden)}</span>
-                          {/* 08-11-2026: ¿el impuesto se paga en $ o en Bs? En Bs solo lo ve Tesorería (no va al WhatsApp). */}
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25rem', marginLeft: '.25rem' }}>
-                            <span className="muted" style={{ fontSize: '.78rem' }}>Se paga en</span>
-                            {(['USD', 'Bs'] as const).map((mp) => (
-                              <button key={mp} type="button"
-                                className={m.moneda_pago === mp ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
-                                style={{ padding: '.1rem .5rem' }}
-                                title={mp === 'Bs' ? 'Tesorería lo paga en bolívares (tasa del día). No sale en el WhatsApp.' : 'Se paga en dólares'}
-                                onClick={() => setRetMarc((x) => ({ ...x, [tipo]: { ...m, moneda_pago: mp } }))}>
-                                {mp === 'USD' ? '$' : 'Bs'}
-                              </button>
-                            ))}
-                          </span>
-                        </>
+                    <div key={tipo} style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', minWidth: 90 }}>
+                          <input type="checkbox" checked={!!m} onChange={(e) => setRetMarc((x) => {
+                            const n = { ...x };
+                            if (e.target.checked) n[tipo] = { modo: 'pct', valor: String(PCT_SUGERIDO_RETENCION[tipo] ?? ''), moneda_pago: 'USD' };
+                            else delete n[tipo];
+                            return n;
+                          })} />
+                          <strong>{tipo}</strong>
+                        </label>
+                        {m && (
+                          <>
+                            <select className="select" style={{ width: 'auto' }} value={m.modo}
+                              onChange={(e) => setRetMarc((x) => ({ ...x, [tipo]: { ...m, modo: e.target.value as 'pct' | 'monto' } }))}>
+                              <option value="pct">%</option>
+                              <option value="monto">Monto ({monedaOrden === 'Bs' ? 'Bs' : '$'})</option>
+                            </select>
+                            <input className="input mono" style={{ width: 110 }} inputMode="decimal" value={m.valor}
+                              placeholder={m.modo === 'pct' ? String(PCT_SUGERIDO_RETENCION[tipo] ?? '0') : '0,00'}
+                              onChange={(e) => setRetMarc((x) => ({ ...x, [tipo]: { ...m, valor: e.target.value } }))} />
+                            <span className="mono" style={{ color: 'var(--danger)' }}>− {money(calc?.monto ?? 0, monedaOrden)}</span>
+                            {m.modo === 'pct' && (
+                              <span className="muted" style={{ fontSize: '.75rem' }}>({m.valor || 0}% {baseDesc})</span>
+                            )}
+                            {/* 08-11-2026: ¿el impuesto se paga en $ o en Bs? En Bs solo lo ve Tesorería (no va al WhatsApp). */}
+                            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.25rem', marginLeft: '.25rem' }}>
+                              <span className="muted" style={{ fontSize: '.78rem' }}>Se paga en</span>
+                              {(['USD', 'Bs'] as const).map((mp) => (
+                                <button key={mp} type="button"
+                                  className={m.moneda_pago === mp ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
+                                  style={{ padding: '.1rem .5rem' }}
+                                  title={mp === 'Bs' ? 'Tesorería lo paga en bolívares (tasa del día). No sale en el WhatsApp.' : 'Se paga en dólares'}
+                                  onClick={() => setRetMarc((x) => ({ ...x, [tipo]: { ...m, moneda_pago: mp } }))}>
+                                  {mp === 'USD' ? '$' : 'Bs'}
+                                </button>
+                              ))}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      {m && sinBaseIva && (
+                        <small className="hint" style={{ color: 'var(--brand, #ff8a00)', marginLeft: '1.6rem', fontSize: '.74rem' }}>
+                          ⚠️ Esta orden no tiene IVA liquidado registrado (${money(0, monedaOrden)}). Si la factura trae IVA, cambiá el modo a "Monto" para fijar la retención manual.
+                        </small>
                       )}
                     </div>
                   );
@@ -4622,6 +4661,15 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
 
   const subtotal = items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
   const descuentoObt = Math.max(0, Math.round((Number(descuentoStr) || 0) * 100) / 100);
+
+  // Renglones exentos de IVA (Art. 18 Ley del IVA)
+  const montoExento = items.reduce((a, i) => a + (i.exento ? (Number(i.cantidad) || 0) * (Number(i.precio) || 0) : 0), 0);
+  const subtotalGravado = Math.max(0, subtotal - montoExento);
+  const descGravado = montoExento > 0 && subtotal > 0
+    ? Math.round(descuentoObt * (subtotalGravado / subtotal) * 100) / 100
+    : descuentoObt;
+  const baseGravadaNeta = Math.max(0, subtotalGravado - descGravado);
+
   // Mismo cálculo que actualizarOc(): por aprobar, el IVA/IGTF son los de la pantalla;
   // después de aprobada se conservan los de la OC.
   const r2m = (s: string) => Math.max(0, Math.round((Number(s) || 0) * 100) / 100);
@@ -4631,10 +4679,11 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
   const ivaAdentro = puedeImpuestos ? (ivaIncluido && ivaOc > 0) : !!orden.iva_incluido;
   const ajusteOc = puedeImpuestos ? Math.round((Number(ajusteStr) || 0) * 100) / 100 : Math.round((Number(orden.ajuste) || 0) * 100) / 100;
   const total = totalDesdePartes({ subtotal: facturaNeta, iva: ivaOc, igtf: igtfOc, iva_incluido: ivaAdentro, ajuste: ajusteOc });
-  // Ayuda: IVA/IGTF por % sobre la factura neta (subtotal − descuento), como en la cotización.
-  // Con los precios ya con IVA adentro, el % del IVA se calcula sobre la base sin IVA.
-  const pctDe = (monto: number, incluido = false) => porcentajeDesdeIva(facturaNeta, monto, incluido);
-  const aplicarPct = (pct: number, set: (s: string) => void, incluido = false) => { const m = ivaDesdePorcentaje(facturaNeta, pct, incluido); set(m > 0 ? String(m) : ''); };
+  // Ayuda: IVA sobre la base gravada neta; IGTF sobre la factura neta.
+  const pctDe = (monto: number, incluido = false) => porcentajeDesdeIva(baseGravadaNeta, monto, incluido);
+  const pctIgtfDe = (monto: number) => (facturaNeta > 0 && monto > 0 ? Math.round((monto / facturaNeta) * 10000) / 100 : 0);
+  const aplicarPct = (pct: number, set: (s: string) => void, incluido = false) => { const m = ivaDesdePorcentaje(baseGravadaNeta, pct, incluido); set(m > 0 ? String(m) : ''); };
+  const aplicarIgtfPct = (pct: number) => { const m = Math.round(facturaNeta * pct) / 100; setIgtfStr(m > 0 ? String(m) : ''); };
   const upd = (idx: number, patch: Partial<ItemOrden>) =>
     setItems((prev) => prev.map((it, k) => (k === idx ? { ...it, ...patch } : it)));
   const quitarItem = (idx: number) => setItems((prev) => prev.filter((_, k) => k !== idx));
@@ -4737,7 +4786,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
       )}
       <div className="table-wrap">
         <table className="table" style={{ fontSize: '.85rem' }}>
-          <thead><tr><th>Producto</th><th style={{ textAlign: 'right', width: 110 }}>Cantidad</th><th style={{ textAlign: 'right', width: 130 }}>Precio unit.</th><th style={{ textAlign: 'right', width: 130 }}>Subtotal</th><th style={{ width: 40 }}></th></tr></thead>
+          <thead><tr><th>{orden.clase === 'servicio' ? 'Servicio' : 'Producto'}</th><th style={{ textAlign: 'center', width: 60 }} title={orden.clase === 'servicio' ? 'Servicio exento de IVA (Art. 17 Ley del IVA)' : 'Producto exento de IVA (Art. 18 Ley del IVA)'}>Exento</th><th style={{ textAlign: 'right', width: 110 }}>Cantidad</th><th style={{ textAlign: 'right', width: 130 }}>Precio unit.</th><th style={{ textAlign: 'right', width: 130 }}>Subtotal</th><th style={{ width: 40 }}></th></tr></thead>
           <tbody>
             {items.map((it, idx) => (
               <tr key={`${it.sku ?? idx}|${it.marca ?? ''}|${it.modelo ?? ''}`}>
@@ -4756,6 +4805,14 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
                     </div>
                   )}
                 </td>
+                <td style={{ textAlign: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={!!it.exento}
+                    onChange={(e) => upd(idx, { exento: e.target.checked })}
+                    title="Marcar como exento de IVA (Art. 18 Ley del IVA)"
+                  />
+                </td>
                 <td>
                   <input className="input mono" type="number" min={0} step="any" value={it.cantidad} onChange={(e) => upd(idx, { cantidad: Number(e.target.value) || 0 })} style={{ textAlign: 'right' }} />
                   {usaUnidadCompra(it) && <span className="muted mono" style={{ fontSize: '.72rem' }}>{textoCantidadCompra(it, Number(it.cantidad) || 0)}</span>}
@@ -4767,18 +4824,19 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
             ))}
           </tbody>
           <tfoot>
-            {(descuentoObt > 0 || ivaOc > 0 || igtfOc > 0 || ajusteOc !== 0) && (
+            {(descuentoObt > 0 || ivaOc > 0 || igtfOc > 0 || ajusteOc !== 0 || montoExento > 0) && (
               <>
-                <tr><td colSpan={3} style={{ textAlign: 'right' }}>Subtotal{ivaAdentro ? ' (precios con IVA)' : ''}</td><td className="mono" style={{ textAlign: 'right' }}>{money(subtotal)}</td><td></td></tr>
-                {descuentoObt > 0 && <tr><td colSpan={3} style={{ textAlign: 'right', color: 'var(--success)' }}>Descuento obtenido</td><td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>− {money(descuentoObt)}</td><td></td></tr>}
+                <tr><td colSpan={4} style={{ textAlign: 'right' }}>Subtotal{ivaAdentro ? ' (precios con IVA)' : ''}</td><td className="mono" style={{ textAlign: 'right' }}>{money(subtotal)}</td><td></td></tr>
+                {montoExento > 0 && <tr><td colSpan={4} style={{ textAlign: 'right', color: 'var(--text-muted)' }}>Monto exento (0% IVA)</td><td className="mono" style={{ textAlign: 'right' }}>{money(montoExento)}</td><td></td></tr>}
+                {descuentoObt > 0 && <tr><td colSpan={4} style={{ textAlign: 'right', color: 'var(--success)' }}>Descuento obtenido</td><td className="mono" style={{ textAlign: 'right', color: 'var(--success)' }}>− {money(descuentoObt)}</td><td></td></tr>}
                 {ivaOc > 0 && (ivaAdentro
-                  ? <tr className="muted"><td colSpan={3} style={{ textAlign: 'right' }}>{etiquetaIva(true)}{puedeTodo && pctDe(ivaOc, true) > 0 ? ` (${num(pctDe(ivaOc, true))} %)` : ''} · ya sumado</td><td className="mono" style={{ textAlign: 'right' }}>{money(ivaOc)}</td><td></td></tr>
-                  : <tr><td colSpan={3} style={{ textAlign: 'right' }}>IVA{puedeTodo && pctDe(ivaOc) > 0 ? ` (${num(pctDe(ivaOc))} %)` : ''}</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(ivaOc)}</td><td></td></tr>)}
-                {igtfOc > 0 && <tr><td colSpan={3} style={{ textAlign: 'right' }}>IGTF{puedeTodo && pctDe(igtfOc) > 0 ? ` (${num(pctDe(igtfOc))} %)` : ''}</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(igtfOc)}</td><td></td></tr>}
-                {ajusteOc !== 0 && <tr><td colSpan={3} style={{ textAlign: 'right' }}>{etiquetaAjuste(puedeTodo ? ajusteMotivo : orden.ajuste_motivo)}</td><td className="mono" style={{ textAlign: 'right' }}>{ajusteOc > 0 ? '+' : '−'} {money(Math.abs(ajusteOc))}</td><td></td></tr>}
+                  ? <tr className="muted"><td colSpan={4} style={{ textAlign: 'right' }}>{etiquetaIva(true)}{puedeTodo && pctDe(ivaOc, true) > 0 ? ` (${num(pctDe(ivaOc, true))} %)` : ''} · ya sumado</td><td className="mono" style={{ textAlign: 'right' }}>{money(ivaOc)}</td><td></td></tr>
+                  : <tr><td colSpan={4} style={{ textAlign: 'right' }}>IVA{puedeTodo && pctDe(ivaOc) > 0 ? ` (${num(pctDe(ivaOc))} %)` : ''}</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(ivaOc)}</td><td></td></tr>)}
+                {igtfOc > 0 && <tr><td colSpan={4} style={{ textAlign: 'right' }}>IGTF{puedeTodo && pctIgtfDe(igtfOc) > 0 ? ` (${num(pctIgtfDe(igtfOc))} %)` : ''}</td><td className="mono" style={{ textAlign: 'right' }}>+ {money(igtfOc)}</td><td></td></tr>}
+                {ajusteOc !== 0 && <tr><td colSpan={4} style={{ textAlign: 'right' }}>{etiquetaAjuste(puedeTodo ? ajusteMotivo : orden.ajuste_motivo)}</td><td className="mono" style={{ textAlign: 'right' }}>{ajusteOc > 0 ? '+' : '−'} {money(Math.abs(ajusteOc))}</td><td></td></tr>}
               </>
             )}
-            <tr style={{ fontWeight: 700 }}><td colSpan={3} style={{ textAlign: 'right' }}>Total</td><td className="mono" style={{ textAlign: 'right' }}>{money(total)}</td><td></td></tr>
+            <tr style={{ fontWeight: 700 }}><td colSpan={4} style={{ textAlign: 'right' }}>Total</td><td className="mono" style={{ textAlign: 'right' }}>{money(total)}</td><td></td></tr>
           </tfoot>
         </table>
       </div>
@@ -4794,10 +4852,10 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
             <label>IVA (monto)</label>
             <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
               <input className="input mono" type="number" min={0} step="any" value={ivaStr} onChange={(e) => setIvaStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 160 }} />
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPct(16, setIvaStr, ivaIncluido)} title={ivaIncluido ? 'Calcular el 16 % sobre la base sin IVA (factura ÷ 1,16)' : 'Calcular el 16 % sobre la factura neta (subtotal − descuento)'}>16 %</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPct(16, setIvaStr, ivaIncluido)} title={ivaIncluido ? 'Calcular el 16 % sobre la base gravada sin IVA' : 'Calcular el 16 % sobre la base gravada neta'}>16 %</button>
               <button type="button" className="btn btn-sm btn-ghost" onClick={() => { setIvaStr(''); setIvaIncluido(false); }} title="Sin IVA">Quitar</button>
             </div>
-            <small className="hint muted">{ivaIncluido ? 'Los precios ya lo traen: se guarda para la retención y NO se suma al total.' : <>Se calcula sobre la factura neta ({money(facturaNeta)}) y se suma al total. Dejalo vacío si la OC no lleva IVA.</>}</small>
+            <small className="hint muted">{ivaIncluido ? 'Los precios ya lo traen: se guarda para la retención y NO se suma al total.' : <>Se calcula sobre la base gravada neta ({money(baseGravadaNeta)}){montoExento > 0 ? ` [excluye ${money(montoExento)} exento]` : ''} y se suma al total. Dejalo vacío si la OC no lleva IVA.</>}</small>
             <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', marginTop: '.35rem', fontSize: '.85rem' }}>
               <input type="checkbox" checked={ivaIncluido} onChange={(e) => setIvaIncluido(e.target.checked)} />
               <span>Los precios ya traen el IVA (factura de punto de venta)</span>
@@ -4807,7 +4865,7 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
             <label>IGTF (monto)</label>
             <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
               <input className="input mono" type="number" min={0} step="any" value={igtfStr} onChange={(e) => setIgtfStr(e.target.value)} placeholder="0,00" style={{ maxWidth: 160 }} />
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarPct(3, setIgtfStr)} title="Calcular el 3 % sobre la factura neta">3 %</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => aplicarIgtfPct(3)} title="Calcular el 3 % sobre la factura neta">3 %</button>
               <button type="button" className="btn btn-sm btn-ghost" onClick={() => setIgtfStr('')} title="Sin IGTF">Quitar</button>
             </div>
             <small className="hint muted">Típico en pagos en divisas. Se suma al total a pagar.</small>

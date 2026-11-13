@@ -958,6 +958,8 @@ export interface ItemOrden {
   /** Renglón con NOMBRE GENERAL (sin ficha de inventario todavía): el nombre con el
    *  que se guarda en inventario se fija al cargar la cotización. */
   general?: boolean | null;
+  /** Producto exento de IVA (Art. 18 Ley del IVA). Si es true, no genera débito fiscal ni base gravada de IVA. */
+  exento?: boolean;
 }
 
 /** Sub-ítem de detalle de un renglón de servicio (pieza/reparación/trabajo). */
@@ -1151,6 +1153,8 @@ export interface Orden {
   reembolso_moneda?: string | null;
   /** IVA (monto) de la oferta elegida, copiado a la OC: ya está incluido en `total`. */
   iva?: number | null;
+  /** Monto total de renglones exentos de IVA (Art. 18 Ley del IVA). */
+  exento?: number | null;
   /** IGTF (monto) de la oferta elegida, copiado a la OC: ya está incluido en `total`. */
   igtf?: number | null;
   igtf_aplicado?: boolean | null;
@@ -1536,6 +1540,8 @@ export interface OfertaProveedor {
   /** IVA (monto) de la oferta: se calcula sobre la factura neta (subtotal − descuento)
    *  y se SUMA al total a pagar. null/0 = la oferta no lleva IVA. */
   iva?: number | null;
+  /** Monto total de renglones exentos de IVA (Art. 18 Ley del IVA). */
+  exento?: number | null;
   iva_aplicado?: boolean | null;
   iva_monto?: number | null;
   iva_pct?: number | null;

@@ -21,6 +21,8 @@ export interface ItemComparable {
   precio: number;
   precio_usd?: number | null;
   comprar?: boolean;
+  /** Producto exento de IVA (Art. 18 Ley del IVA). */
+  exento?: boolean;
 }
 
 export interface OcComparable {
@@ -59,9 +61,9 @@ const txt = (s: unknown): string => (typeof s === 'string' ? s.trim() : '');
 const clave = (it: ItemComparable): string => `${txt(it.sku)}|${txt(it.marca)}|${txt(it.modelo)}`;
 const comprables = (items: ItemComparable[]): ItemComparable[] => (items ?? []).filter((it) => it.comprar !== false);
 
-/** Huella material: renglón · cantidad · precio · precio USD, sin depender del orden. */
+/** Huella material: renglón · cantidad · precio · precio USD · exento, sin depender del orden. */
 function huellaMaterial(items: ItemComparable[]): string {
-  return comprables(items).map((it) => `${clave(it)}|${r3(it.cantidad)}|${r2(it.precio)}|${r2(it.precio_usd)}`).sort().join('\n');
+  return comprables(items).map((it) => `${clave(it)}|${r3(it.cantidad)}|${r2(it.precio)}|${r2(it.precio_usd)}|${it.exento ? 'EX' : ''}`).sort().join('\n');
 }
 
 /** Huella de texto: renglón · nombre. */

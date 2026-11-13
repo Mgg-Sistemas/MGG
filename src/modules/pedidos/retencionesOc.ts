@@ -19,7 +19,7 @@ export const TIPOS_RETENCION: TipoRetencion[] = ['IVA', 'IGTF', 'ISLR', 'ISAE'];
 
 export interface RetencionOc {
   tipo: TipoRetencion;
-  /** 'pct' = porcentaje del total de la OC · 'monto' = monto fijo en la moneda de la OC. */
+  /** 'pct' = porcentaje según la base legal correspondiente · 'monto' = monto fijo en la moneda de la OC. */
   modo: 'pct' | 'monto';
   valor: number;
   /** Lo que se retiene, en la moneda de la OC (2 decimales). */
@@ -34,6 +34,52 @@ export interface RetencionOc {
 /** Moneda en que se paga un impuesto retenido (08-11-2026). */
 export type MonedaImpuesto = 'USD' | 'Bs';
 
+/** Bases imponibles legales para el cálculo de retenciones según la normativa venezolana. */
+export interface BasesRetencionOc {
+  /** Monto total de la orden a pagar (con IVA / IGTF / ajustes). Base legal para IGTF (Ley de Reforma del IGTF). */
+  total: number;
+  /** Base imponible neta (sin IVA ni renglones exentos). Base legal para ISLR (Decreto 1.808) e ISAE municipal. */
+  baseImponible: number;
+  /** Monto de IVA liquidado en la orden. Base legal para Retención de IVA (Providencia SNAT/2025/000054). */
+  iva: number;
+}
+
+/**
+ * Porcentajes sugeridos de retención según la normativa tributaria venezolana:
+ * - IVA: 75% del IVA facturado (Providencia SNAT/2025/000054 para contribuyentes especiales).
+ * - ISLR: 2% sobre la base imponible (Decreto 1.808 para personas jurídicas por servicios/ventas).
+ * - ISAE: 1% sobre la base imponible (ordenanzas municipales bajo LOCAPTEM).
+ * - IGTF: 3% sobre el total en divisa/moneda extranjera (Ley de Reforma del IGTF).
+ */
+export const PCT_SUGERIDO_RETENCION: Record<TipoRetencion, number> = {
+  IVA: 75,
+  ISLR: 2,
+  ISAE: 1,
+  IGTF: 3,
+};
+
+/**
+ * Determina la base legal de cálculo según el tipo de retención:
+ * - IVA: aplica sobre el monto del impuesto IVA facturado.
+ * - ISLR e ISAE: aplican sobre la base imponible neta (excluye IVA y renglones exentos).
+ * - IGTF: aplica sobre el monto total en divisas.
+ * Si se pasa un número plano (retrocompatibilidad), se utiliza directamente como base.
+ */
+export function baseParaTipoRetencion(tipo: TipoRetencion, bases: number | BasesRetencionOc): number {
+  if (typeof bases === 'number') return Math.max(0, bases);
+  switch (tipo) {
+    case 'IVA':
+      return Math.max(0, Number(bases.iva) || 0);
+    case 'ISLR':
+    case 'ISAE':
+      return Math.max(0, Number(bases.baseImponible) || 0);
+    case 'IGTF':
+      return Math.max(0, Number(bases.total) || 0);
+    default:
+      return Math.max(0, Number(bases.total) || 0);
+  }
+}
+
 const r2 = (n: number) => Math.round((Number(n) || 0) * 100) / 100;
 
 /** Lo que se retiene de un tipo sobre la base. Un % fuera de 0–100 o un monto negativo cuentan 0. */
@@ -45,12 +91,14 @@ export function montoRetencion(modo: 'pct' | 'monto', valor: number, base: numbe
 
 /** Arma la lista que se guarda con los tipos marcados (en el orden IVA, IGTF, ISLR, ISAE). */
 export function armarRetenciones(
-  marcadas: Partial<Record<TipoRetencion, { modo: 'pct' | 'monto'; valor: number; moneda_pago?: MonedaImpuesto }>>, base: number,
+  marcadas: Partial<Record<TipoRetencion, { modo: 'pct' | 'monto'; valor: number; moneda_pago?: MonedaImpuesto }>>,
+  bases: number | BasesRetencionOc,
 ): RetencionOc[] {
   const out: RetencionOc[] = [];
   for (const tipo of TIPOS_RETENCION) {
     const m = marcadas[tipo];
     if (!m) continue;
+    const base = baseParaTipoRetencion(tipo, bases);
     const monto = montoRetencion(m.modo, m.valor, base);
     if (monto > 0) out.push({ tipo, modo: m.modo, valor: Number(m.valor) || 0, monto, ...(m.moneda_pago === 'Bs' ? { moneda_pago: 'Bs' as const } : {}) });
   }
