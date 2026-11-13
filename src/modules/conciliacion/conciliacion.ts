@@ -286,7 +286,8 @@ function totalUsd(o: Orden, tasa: number | null): number {
 
 export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
   const o = e.orden;
-  const pagado = !!o.pagada_en;
+  const diaPago = fechaPagoTesoreria(o);
+  const pagado = !!o.pagada_en || !!diaPago;
   const tasa = pagado ? (e.tasaPago ?? null) : (e.tasaHoy ?? null);
   const usd = totalUsd(o, tasa);
   const abonado = Number(o.abonado_total) || 0;
@@ -300,7 +301,7 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
     sp: o.codigo,
     proveedor: e.proveedor || '—',
     fechaOc: o.oc_creada_en ?? o.created_at ?? null,
-    pagadaEn: o.pagada_en ?? null,
+    pagadaEn: o.pagada_en ?? (diaPago ? `${diaPago}T12:00:00Z` : null),
     montoUsd: usd,
     montoBs: tasa && tasa > 0 ? ((o.moneda ?? 'USD').toUpperCase() === 'BS' ? r2(Number(o.total) || 0) : r2(usd * tasa)) : null,
     tasa,
@@ -320,44 +321,54 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
 export const FECHA_MINIMA_CONCILIACION = '2026-11-01';
 
 /**
- * Fecha representativa para corte de conciliación (Venezuela).
- * Si fue pagada o creada en noviembre o después (>= 2026-11-01), califica.
+ * Fecha en que Tesorería pagó la orden (Venezuela: YYYY-MM-DD).
+ * Busca en `pagada_en` o en el evento 'pagada' del historial.
  */
-export function fechaOrdenConciliable(o: Partial<Orden>): string | null {
-  const campos = [o.pagada_en, o.oc_creada_en, o.created_at].filter(Boolean) as string[];
-  for (const iso of campos) {
-    const raw = iso.slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(raw) && raw >= FECHA_MINIMA_CONCILIACION) {
-      return raw;
+export function fechaPagoTesoreria(o: Partial<Orden>): string | null {
+  if (o.pagada_en) {
+    const raw = String(o.pagada_en).slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+      try { return diaCaracas(o.pagada_en); } catch { return raw; }
     }
-    try {
-      const dp = diaCaracas(iso);
-      if (dp >= FECHA_MINIMA_CONCILIACION) return dp;
-    } catch {
-      // continua
+  }
+  const evs = Array.isArray(o.historial) ? (o.historial as unknown as Array<Record<string, unknown>>) : [];
+  for (let i = evs.length - 1; i >= 0; i--) {
+    const e = evs[i];
+    if (e?.evento === 'pagada') {
+      const fecha = typeof e.fecha_pago === 'string' ? e.fecha_pago : (typeof e.at === 'string' ? e.at : null);
+      if (fecha) {
+        const raw = fecha.slice(0, 10);
+        if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+          try { return diaCaracas(fecha); } catch { return raw; }
+        }
+      }
     }
   }
   return null;
 }
 
+export const fechaOrdenConciliable = fechaPagoTesoreria;
+
 /**
- * Las que entran: las OC (con código de OC) y las órdenes de servicio que ya pasaron a
- * Control de Servicio (oc_creada_en; casi nunca llevan código de OC, se ven con su SV-…).
+ * REGLA ESTRICTA DE CONCILIACIÓN (13-11-2026):
+ * Toma SOLO los pagos que se hicieron por Tesorería desde NOVIEMBRE (fecha de pago >= 2026-11-01).
  * Sin canceladas/anuladas.
- * REGLA ESTRICTA (13-11-2026): solo órdenes desde el 1 de noviembre de 2026 en adelante
- * (creadas o pagadas >= 2026-11-01).
- * Las más nuevas primero.
+ * Las más nuevas primero (por fecha de pago).
  */
 export function ordenesConciliables(ordenes: Orden[]): Orden[] {
   return ordenes
     .filter((o) => {
       if (!o.oc_codigo && (!esServicio(o) || !o.oc_creada_en)) return false;
       if (ESTADOS_FUERA.includes(o.estado)) return false;
-      const dia = fechaOrdenConciliable(o);
-      if (!dia || dia < FECHA_MINIMA_CONCILIACION) return false;
+      const diaPago = fechaPagoTesoreria(o);
+      if (!diaPago || diaPago < FECHA_MINIMA_CONCILIACION) return false;
       return true;
     })
-    .sort((a, b) => String(b.oc_creada_en ?? b.created_at ?? '').localeCompare(String(a.oc_creada_en ?? a.created_at ?? '')));
+    .sort((a, b) => {
+      const fA = String(a.pagada_en ?? a.oc_creada_en ?? a.created_at ?? '');
+      const fB = String(b.pagada_en ?? b.oc_creada_en ?? b.created_at ?? '');
+      return fB.localeCompare(fA);
+    });
 }
 
 export interface Tarjetas {

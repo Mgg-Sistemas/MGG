@@ -18,17 +18,17 @@ describe('conciliación · estado de Compras', () => {
     expect(estadoConciliacion('recibida').label).toBe('Recibida');
     expect(estadoConciliacion('finalizada').label).toBe('Finalizada');
   });
-  it('solo entran las OC con código y que no estén canceladas, las más nuevas primero', () => {
+  it('solo entran las órdenes pagadas por Tesorería desde noviembre (>= 2026-11-01)', () => {
     const r = ordenesConciliables([
-      oc({ id: 'a', oc_codigo: null as unknown as string }),
-      oc({ id: 'b', estado: 'cancelada' }),
-      oc({ id: 'c', oc_creada_en: '2026-11-01T00:00:00Z' }),
-      oc({ id: 'd', oc_creada_en: '2026-11-11T00:00:00Z' }),
-      oc({ id: 'e', oc_creada_en: '2026-10-31T12:00:00Z' }), // Excluida por ser anterior a noviembre
-      oc({ id: 'f', oc_creada_en: '2026-09-15T08:00:00Z' }), // Excluida
-      oc({ id: 'g', oc_creada_en: '2026-10-20T00:00:00Z', pagada_en: '2026-11-02T10:00:00Z' }), // Entra por fecha de pago en noviembre
+      oc({ id: 'a', oc_codigo: null as unknown as string, pagada_en: '2026-11-05T10:00:00Z' }), // Sin código
+      oc({ id: 'b', estado: 'cancelada', pagada_en: '2026-11-05T10:00:00Z' }), // Cancelada
+      oc({ id: 'c', oc_creada_en: '2026-11-01T00:00:00Z', pagada_en: '2026-11-01T12:00:00Z' }), // Pagada en nov
+      oc({ id: 'd', oc_creada_en: '2026-11-11T00:00:00Z', pagada_en: '2026-11-11T14:00:00Z' }), // Pagada en nov
+      oc({ id: 'e', oc_creada_en: '2026-10-31T12:00:00Z', pagada_en: '2026-10-31T15:00:00Z' }), // Pagada en oct (excluida)
+      oc({ id: 'f', oc_creada_en: '2026-11-05T08:00:00Z', pagada_en: null }), // Creada en nov pero sin pagar (excluida)
+      oc({ id: 'g', oc_creada_en: '2026-10-20T00:00:00Z', pagada_en: '2026-11-02T10:00:00Z' }), // Creada en oct pero pagada en nov (entra)
     ]);
-    expect(r.map((o) => o.id)).toEqual(['d', 'c', 'g']);
+    expect(r.map((o) => o.id)).toEqual(['d', 'g', 'c']);
   });
 });
 
@@ -127,11 +127,12 @@ describe('conciliación · rango de fechas del reporte', () => {
 
 describe('conciliación · órdenes de servicio', () => {
   const sv = (p: Record<string, unknown>) => oc({ clase: 'servicio', codigo: 'SV-2026-0039', oc_codigo: null, ...p });
-  it('entran las de servicio ya en control (sin código de OC); no las que siguen en solicitud', () => {
+  it('entran las de servicio ya en control pagadas desde noviembre', () => {
     const r = ordenesConciliables([
-      sv({ id: 's1', oc_creada_en: '2026-11-12T12:00:00Z' }),
+      sv({ id: 's1', oc_creada_en: '2026-11-12T12:00:00Z', pagada_en: '2026-11-12T15:00:00Z' }),
       sv({ id: 's2', oc_creada_en: null, estado: 'pendiente' }),
       sv({ id: 's3', estado: 'cancelada' }),
+      sv({ id: 's4', oc_creada_en: '2026-11-12T12:00:00Z', pagada_en: '2026-10-28T12:00:00Z' }), // Pagada en octubre (excluida)
       oc({ id: 'p1', clase: 'producto', oc_codigo: null }),
     ]);
     expect(r.map((o) => o.id)).toEqual(['s1']);
