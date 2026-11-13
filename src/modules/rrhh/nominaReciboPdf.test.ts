@@ -1,19 +1,25 @@
 import { describe, it, expect } from 'vitest';
 import { calcularRecibo } from './sueldoQuincena';
-import { bonoEnReal, fechaDocumento, pagoQuincenalBs, reales, tasaRealTexto, textoConformidad, textoPeriodo, tituloRecibo } from './nominaReciboPdf';
+import { bonoEnReal, correlativoBono, fechaDocumento, pagoQuincenalBs, reales, tasaRealTexto, textoConformidad, textoPeriodo, tituloRecibo } from './nominaReciboPdf';
 
-/* Dos recibos por persona (09-10-2026). Desde el 15-10-2026: el título es solo
-   «COMPROBANTE DE PAGO», el de bolívares es SOLO en bolívares y no nombra la
-   bonificación, el de la bonificación es SOLO en dólares, y firma solo el trabajador. */
+/* Dos recibos por persona (09-10-2026).
+   1/2 · RECIBO DE PAGO DE NOMINA (en Bs)
+   2/2 · RECIBO DE PAGO BENEFICIO SOCIAL DE CARACTER NO REMUNERATIVO (en divisas) */
 describe('recibos de nómina · dos por persona', () => {
   const c = calcularRecibo({
     brutoQuincena: 250, diasTrabajados: 11, diasDescanso: 4, bonosExtra: 20, viaticos: 15,
     deducciones: { ivss: 2.5, prestamos: 30, anticipos: 10 }, tasa: 189.55,
   });
 
-  it('el título es solo RECIBO DE PAGO DE NOMINA en los dos', () => {
+  it('los títulos corresponden a nómina y a beneficio social no remunerativo', () => {
     expect(tituloRecibo('sueldo')).toBe('RECIBO DE PAGO DE NOMINA');
-    expect(tituloRecibo('bono')).toBe('RECIBO DE PAGO DE NOMINA');
+    expect(tituloRecibo('bono')).toBe('RECIBO DE PAGO BENEFICIO SOCIAL DE CARACTER NO REMUNERATIVO');
+  });
+
+  it('el correlativo del bono inicia en BNS-YYYY-001', () => {
+    const meta = { periodo: { codigo: 'NOM-2026-015', tipo: 'quincena' as const, periodo_desde: '2026-11-01', periodo_hasta: '2026-11-15', tasa_bcv: 189.55 } };
+    expect(correlativoBono(0, meta)).toBe('BNS-2026-001');
+    expect(correlativoBono(1, meta)).toBe('BNS-2026-002');
   });
 
   it('el de bolívares certifica el neto en Bs y el período con el texto de la administradora, sin dólares ni bonificación', () => {
@@ -33,17 +39,19 @@ describe('recibos de nómina · dos por persona', () => {
     expect(q.diario).toBe(631.83);
   });
 
-  it('el de la bonificación certifica el bono neto solo en dólares, sin bolívares ni el otro recibo', () => {
+  it('el de beneficio social certifica la asignación no remunerativa conforme al art 105 LOTTT', () => {
     const t = textoConformidad('bono', c);
-    expect(t).toContain('$ 160,00'); // bono 200 - 30 - 10
-    expect(t).toContain('bono de $ 200,00 menos $ 40,00');
+    expect(t).toContain('BENEFICIO SOCIAL DE CARACTER NO REMUNERATIVO');
+    expect(t).toContain('artículo 105 de la LOTTT');
+    expect(t).toContain('NO REVISTE CARACTER SALARIAL');
+    expect(t).toContain('El beneficiario arriba identificado declara haber recibido');
+    expect(t).not.toContain('Certifico haber recibido');
     expect(t).not.toContain('Bs');
-    expect(t).not.toContain('1 de 2');
-    expect(t).not.toContain('totalidad');
   });
 
-  it('sin préstamos ni anticipos el de la bonificación no menciona descuentos', () => {
+  it('sin préstamos ni anticipos el de beneficio social mantiene su texto legal LOTTT', () => {
     const sin = calcularRecibo({ brutoQuincena: 250, diasTrabajados: 15, diasDescanso: 0, tasa: 100 });
+    expect(textoConformidad('bono', sin)).toContain('artículo 105 de la LOTTT');
     expect(textoConformidad('bono', sin)).not.toContain('menos');
   });
 
@@ -94,12 +102,11 @@ describe('recibo de la bonificación en Real brasileño', () => {
     expect(r.neto).toBeGreaterThanOrEqual(0);
   });
 
-  it('la conformidad certifica el neto en dólares y su equivalente en R$ con la tasa de cambio', () => {
+  it('la conformidad certifica el beneficio social y su equivalente en R$ con la tasa de cambio', () => {
     const t = textoConformidad('bono', c, '', bonoEnReal(c, 5.0428));
-    expect(t).toContain('$ 160,00');
-    expect(t).toContain('equivalente a R$ 806,85 en Real brasileño');
+    expect(t).toContain('BENEFICIO SOCIAL DE CARACTER NO REMUNERATIVO');
+    expect(t).toContain('equivalente a R$ 1.008,56 en Real brasileño');
     expect(t).toContain('1 $ = R$ 5,0428');
-    expect(t).toContain('conformidad');
   });
 
   it('el recibo en bolívares no cambia aunque la empresa pague en Real', () => {

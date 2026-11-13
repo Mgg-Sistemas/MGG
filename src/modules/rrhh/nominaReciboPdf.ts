@@ -62,8 +62,9 @@ export type HojaRecibo = 'sueldo' | 'bono';
 
 /** Título de cada recibo, como sale impreso debajo del encabezado. */
 export function tituloRecibo(hoja: HojaRecibo): string {
-  void hoja;
-  return 'RECIBO DE PAGO DE NOMINA';
+  return hoja === 'bono'
+    ? 'RECIBO DE PAGO BENEFICIO SOCIAL DE CARACTER NO REMUNERATIVO'
+    : 'RECIBO DE PAGO DE NOMINA';
 }
 
 /** El recibo de la bonificación pasado a Real brasileño (cada importe redondeado, para que la tabla cuadre). */
@@ -103,15 +104,33 @@ export function textoConformidad(hoja: HojaRecibo, c: ReciboCalculado, periodo =
     const del = periodo && periodo !== '—' ? ` al período del ${periodo}` : '';
     return `Certifico haber recibido la cantidad de ${bsStr(c.netoBs)}, conforme a la totalidad de mi salario${del}. Y firmo en señal de conformidad.`;
   }
-  // SOLO dólares en el de la bonificación (15-10-2026): nada en Bs.
-  const descuento = c.deduccionBonoUsd > 0
-    ? ` (bono de ${usd(c.bonoUsd)} menos ${usd(c.deduccionBonoUsd)} de préstamos y anticipos)`
-    : '';
-  // Empresa que paga en Real: se certifica también el equivalente y la tasa de cambio usada.
+  // Beneficio Social de Carácter No Remunerativo (Art. 105 LOTTT).
+  const base =
+    'El beneficiario arriba identificado declara haber recibido de la entidad de trabajo, a su entera satisfacción, el monto neto indicado, por concepto exclusivo de BENEFICIO SOCIAL DE CARACTER NO REMUNERATIVO, otorgado de manera asistencial y liberal para coadyuvar a su bienestar socioeconómico y familiar. De conformidad con el artículo 105 de la LOTTT, ambas partes reconocen expresamente que esta asignación NO REVISTE CARACTER SALARIAL, no constituye contraprestación directa por el servicio prestado ni forma parte del salario normal o integral, por lo cual no genera incidencia alguna en el cálculo de prestaciones sociales, utilidades, vacaciones, bono vacacional, horas extras ni cotizaciones parafiscales.';
   const equivalente = real
-    ? ` (equivalente a ${reales(real.neto)} en Real brasileño, a la tasa de cambio de 1 $ = R$ ${tasaRealTexto(real.tasa)})`
+    ? ` (equivalente a ${reales(real.bono)} en Real brasileño, a la tasa de cambio de 1 $ = R$ ${tasaRealTexto(real.tasa)}).`
     : '';
-  return `Certifico haber recibido ${usd(c.bonoNetoUsd)} de bonificación en divisas${equivalente}${descuento} por el período indicado, según este recibo, y firmo en señal de conformidad.`;
+  return base + equivalente;
+}
+
+/** Obtiene el año de 4 dígitos del período para armar correlativos (ej. 2026). */
+export function obtenerAnioPeriodo(meta: ReciboMeta): string {
+  const matchCod = meta.periodo.codigo?.match(/\b(20\d\d)\b/);
+  if (matchCod) return matchCod[1];
+  if (meta.periodo.periodo_desde) {
+    const s = String(meta.periodo.periodo_desde).trim();
+    const matchF = s.match(/\b(20\d\d)\b/);
+    if (matchF) return matchF[1];
+  }
+  return String(new Date().getFullYear());
+}
+
+/** Código correlativo secuencial del recibo de beneficio social: BNS-2026-001, BNS-2026-002, etc. */
+export function correlativoBono(idx: number, meta: ReciboMeta, r?: NominaRenglon): string {
+  void r;
+  const anio = obtenerAnioPeriodo(meta);
+  const num = String(idx + 1).padStart(3, '0');
+  return `BNS-${anio}-${num}`;
 }
 
 /**
@@ -213,7 +232,7 @@ function finalY(doc: Doc, fallback: number): number {
 }
 
 /** Encabezado (logo, empresa, código, fecha), raya naranja, título del recibo y datos del trabajador. */
-function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecibo, c: ReciboCalculado): number {
+function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecibo, c: ReciboCalculado, idx: number = 0): number {
   const { doc, autoTable, logoDataUrl, PAGE_W } = l;
   const MARGIN = MARGEN_PDF; // 2 cm (margen uniforme en todos los lados)
   let y = MARGIN;
@@ -231,7 +250,8 @@ function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecib
   // repite). Si la empresa no tiene RIF cargado, el subtítulo genérico.
   doc.text(empresa.rif ? `RIF ${empresa.rif}` : 'Comprobante de Pago de Personal', tx, y + 32);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(11);
-  doc.text(meta.periodo.codigo ?? '', PAGE_W - MARGIN, y + 16, { align: 'right' });
+  const codDoc = hoja === 'bono' ? correlativoBono(idx, meta, r) : (meta.periodo.codigo ?? '');
+  doc.text(codDoc, PAGE_W - MARGIN, y + 16, { align: 'right' });
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
   // Fecha local (no UTC): de noche en Venezuela el ISO de UTC ya es «mañana».
   const ahora = new Date();
@@ -244,33 +264,39 @@ function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecib
   y += 14;
 
   // Título grande: dice CUÁL de los dos recibos es.
-  doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
-  doc.text(tituloRecibo(hoja), MARGIN, y);
+  doc.setFont('helvetica', 'bold');
+  const titulo = tituloRecibo(hoja);
+  let fontSizeTitulo = hoja === 'bono' ? 11 : 12;
+  doc.setFontSize(fontSizeTitulo);
+  while (doc.getTextWidth(titulo) > (PAGE_W - 2 * MARGIN) && fontSizeTitulo > 8) {
+    fontSizeTitulo -= 0.5;
+    doc.setFontSize(fontSizeTitulo);
+  }
+  doc.text(titulo, MARGIN, y);
   y += 14;
 
-  // Datos del trabajador (iguales en los dos recibos).
+  // Datos del trabajador (en bono: beneficiario).
+  const esBono = hoja === 'bono';
   const cedula = meta.cedulas?.[r.personal_id ?? ''] || '';
+  const filasDatos: (string | { content: string; colSpan?: number })[][] = [
+    [esBono ? 'Beneficiario' : 'Trabajador', r.nombre, 'Cédula', cedula || '—'],
+    ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
+    esBono
+      ? ['Período', { content: textoPeriodo(meta, r), colSpan: 3 }]
+      : ['Período', textoPeriodo(meta, r), 'Días', `${Number(r.dias_trabajados) || 0} trabajados + ${Number(r.dias_descanso) || 0} de descanso`],
+    ...(hoja === 'sueldo'
+      ? [
+          ['Salario Quincenal', bsStr(pagoQuincenalBs(c).quincenal), 'Salario Diario', bsStr(pagoQuincenalBs(c).diario)],
+        ]
+      : (bonoEnReal(c, meta.periodo.tasa_brl)
+          ? [['Forma de pago', 'Divisas ($) y Real brasileño (R$)',
+              'Tasa de cambio', `1 $ = R$ ${tasaRealTexto(Number(meta.periodo.tasa_brl))}${meta.periodo.tasa_brl_fecha ? ` (${fmtDate(meta.periodo.tasa_brl_fecha)})` : ''}`]]
+          : [])),
+  ];
+
   autoTable(doc, {
     startY: y,
-    body: [
-      ['Trabajador', r.nombre, 'Cédula', cedula || '—'],
-      ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
-      ['Período', textoPeriodo(meta, r),
-        'Días', `${Number(r.dias_trabajados) || 0} trabajados + ${Number(r.dias_descanso) || 0} de descanso`],
-      // 1/2 (solo bolívares): Salario Quincenal y Salario Diario en Bs. 2/2: el sueldo mensual en $.
-      ...(hoja === 'sueldo'
-        ? [
-            ['Salario Quincenal', bsStr(pagoQuincenalBs(c).quincenal), 'Salario Diario', bsStr(pagoQuincenalBs(c).diario)],
-          ]
-        : [
-            ['Sueldo mensual', { content: usd(r.sueldo_base_mensual), colSpan: 3 }],
-            // Empresa que paga en Real: la forma de pago y la tasa de cambio, a la vista.
-            ...(bonoEnReal(c, meta.periodo.tasa_brl)
-              ? [['Forma de pago', 'Divisas ($) y Real brasileño (R$)',
-                  'Tasa de cambio', `1 $ = R$ ${tasaRealTexto(Number(meta.periodo.tasa_brl))}${meta.periodo.tasa_brl_fecha ? ` (${fmtDate(meta.periodo.tasa_brl_fecha)})` : ''}`]]
-              : []),
-          ]),
-    ],
+    body: filasDatos,
     margin: MARGENES_TABLA_PDF,
     theme: 'grid',
     styles: { fontSize: 8.5, cellPadding: 3 },
@@ -313,14 +339,14 @@ function pie(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecibo, c:
   doc.setDrawColor(120); doc.setLineWidth(0.7);
   doc.line(x0, fy, x0 + colW, fy);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(9);
-  doc.text('Firma del trabajador', x0 + colW / 2, fy + 11, { align: 'center' });
+  doc.text(hoja === 'bono' ? 'Firma del beneficiario' : 'Firma del trabajador', x0 + colW / 2, fy + 11, { align: 'center' });
   doc.text(r.nombre, x0 + colW / 2, fy + 22, { align: 'center' });
 }
 
 /* ───────── Recibo 1/2 · pago en bolívares ───────── */
-function hojaSueldo(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalculado): void {
+function hojaSueldo(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalculado, idx: number = 0): void {
   const { doc, autoTable } = l;
-  let y = cabecera(l, r, meta, 'sueldo', c);
+  let y = cabecera(l, r, meta, 'sueldo', c, idx);
   const tasa = c.tasa;
 
   /* LA TABLA: solo lo que se paga EN BOLÍVARES y SOLO EN BOLÍVARES (regla de la
@@ -365,41 +391,37 @@ function hojaSueldo(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalc
   pie(l, r, meta, 'sueldo', c, y);
 }
 
-/* ───────── Recibo 2/2 · bonificación en divisas ───────── */
-function hojaBono(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalculado): void {
+/* ───────── Recibo 2/2 · beneficio social no remunerativo en divisas ───────── */
+function hojaBono(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalculado, idx: number = 0): void {
   const { doc, autoTable } = l;
-  let y = cabecera(l, r, meta, 'bono', c);
+  let y = cabecera(l, r, meta, 'bono', c, idx);
 
-  /* EL BONO: el 80 %, en divisas. De acá se descuentan préstamos y anticipos:
-     se prestan en dólares y se cobran en dólares. Si el bono no alcanza, el
-     resto baja al recibo 1/2 como «(resto)»; la deuda no se perdona. */
-  // Empresa que paga en Real (23-10-2026): las mismas filas con dos columnas más en R$, el neto en
-  // las dos monedas y la tasa de cambio. Sin tasa del Real, la tabla es la de siempre.
+  /* BENEFICIO SOCIAL DE CARÁCTER NO REMUNERATIVO (Art. 105 LOTTT):
+     Se asigna en divisas (USD). No lleva préstamos ni anticipos en este comprobante. */
   const real = bonoEnReal(c, meta.periodo.tasa_brl);
-  const descuentoUsd = (ln: { usd: number }) => (ln.usd ? `- ${usd(ln.usd)}` : usd(0));
   const filasBono: string[][] = [
-    ['1', 'Bonificación de la quincena (80 % del total acordado)', usd(c.bonoUsd), '', ...(real ? [reales(real.bono), ''] : [])],
-    // Guion ASCII, no el «−» tipográfico: Helvetica del PDF no lo tiene y lo pinta como comilla (09-10-2026).
-    ...c.lineasBono.map((ln, i) => [
-      String(i + 2), `(-) ${ln.concepto}`, '', descuentoUsd(ln),
-      ...(real ? ['', real.lineas[i] ? `- ${reales(real.lineas[i])}` : reales(0)] : []),
-    ]),
+    [
+      '1',
+      'Subsidio Asistencial de Alimentación y Sustento Familiar',
+      usd(c.bonoUsd),
+      ...(real ? [reales(real.bono)] : []),
+    ],
   ];
+
   const finBonoFilas: (string | { content: string; colSpan?: number; styles?: { halign: 'right' } })[][] = real
     ? [
-        ['', 'TOTALES', usd(c.bonoUsd), usd(c.deduccionBonoUsd), reales(real.bono), reales(real.deduccion)],
-        ['', 'BONIFICACIÓN A ENTREGAR EN DIVISAS ($ y R$)', '', usd(c.bonoNetoUsd), '', reales(real.neto)],
-        ['', 'TASA DE CAMBIO', { content: `1 $ = R$ ${tasaRealTexto(real.tasa)}${meta.periodo.tasa_brl_fecha ? ` (${fmtDate(meta.periodo.tasa_brl_fecha)})` : ''}`, colSpan: 4, styles: { halign: 'right' } }],
+        ['', 'TOTAL BENEFICIOS SOCIALES NO REMUNERATIVO DEL PERIODO', usd(c.bonoUsd), reales(real.bono)],
+        ['', 'TASA DE CAMBIO', { content: `1 $ = R$ ${tasaRealTexto(real.tasa)}${meta.periodo.tasa_brl_fecha ? ` (${fmtDate(meta.periodo.tasa_brl_fecha)})` : ''}`, colSpan: 2, styles: { halign: 'right' } }],
       ]
     : [
-        ['', 'TOTALES', usd(c.bonoUsd), usd(c.deduccionBonoUsd)],
-        ['', 'BONIFICACIÓN A ENTREGAR EN DIVISAS', '', usd(c.bonoNetoUsd)],
+        ['', 'TOTAL BENEFICIOS SOCIALES NO REMUNERATIVO DEL PERIODO', usd(c.bonoUsd)],
       ];
+
   autoTable(doc, {
     startY: y,
     head: [real
-      ? ['#', 'CONCEPTO', 'DEVENGADO $', 'DESCUENTO $', 'DEVENGADO R$', 'DESCUENTO R$']
-      : ['#', 'CONCEPTO', 'DEVENGADO $', 'DESCUENTO $']],
+      ? ['#', 'CONCEPTO', 'MONTO ASIGNADO (USD)', 'MONTO ASIGNADO (R$)']
+      : ['#', 'CONCEPTO', 'MONTO ASIGNADO (USD)']],
     body: filasBono,
     foot: finBonoFilas,
     margin: MARGENES_TABLA_PDF,
@@ -408,16 +430,17 @@ function hojaBono(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalcul
     footStyles: { fillColor: [240, 240, 240], textColor: 20, fontStyle: 'bold' },
     columnStyles: real
       ? {
-          0: { cellWidth: 16, halign: 'center' },
-          2: { halign: 'right', cellWidth: 70 }, 3: { halign: 'right', cellWidth: 70 },
-          4: { halign: 'right', cellWidth: 76 }, 5: { halign: 'right', cellWidth: 76 },
+          0: { cellWidth: 18, halign: 'center' },
+          2: { halign: 'right', cellWidth: 110 },
+          3: { halign: 'right', cellWidth: 110 },
         }
-      : { 0: { cellWidth: 18, halign: 'center' }, 2: { halign: 'right', cellWidth: 105 }, 3: { halign: 'right', cellWidth: 105 } },
+      : {
+          0: { cellWidth: 18, halign: 'center' },
+          2: { halign: 'right', cellWidth: 140 },
+        },
   });
   y = finalY(doc, y) + 6;
 
-  /* Desde el 15-10-2026 este recibo es SOLO en dólares (regla de la administradora):
-     ya no lleva el cuadro con el pago en bolívares ni el total de los dos recibos. */
   pie(l, r, meta, 'bono', c, y);
 }
 
@@ -439,9 +462,9 @@ async function construir(renglones: NominaRenglon[], meta: ReciboMeta) {
   renglones.forEach((r, idx) => {
     const c = calcularDe(r, meta);
     if (idx > 0) doc.addPage();
-    hojaSueldo(l, r, meta, c);
+    hojaSueldo(l, r, meta, c, idx);
     doc.addPage();
-    hojaBono(l, r, meta, c);
+    hojaBono(l, r, meta, c, idx);
   });
 
   return doc;

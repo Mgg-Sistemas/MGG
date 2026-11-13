@@ -30,15 +30,16 @@ async function generar(extra: Record<string, unknown>) {
 }
 
 describe('recibos generados · moneda de pago de la empresa', () => {
-  it('con la tasa del Real el recibo de la bonificación lleva columnas, neto y tasa en R$', async () => {
+  it('con la tasa del Real el recibo de beneficio social lleva columnas y tasa en R$', async () => {
     const { paginas, texto } = await generar({ tasa_brl: 5.0428, tasa_brl_fecha: '2026-10-23' });
-    expect(paginas).toBe(2); // 1/2 bolívares + 2/2 bonificación, una hoja cada uno
-    expect(texto).toContain('DEVENGADO R$');
-    expect(texto).toContain('DESCUENTO R$');
+    expect(paginas).toBe(2); // 1/2 bolívares + 2/2 beneficio social, una hoja cada uno
+    expect(texto).toContain('MONTO ASIGNADO');
     expect(texto).toContain('R$ 1.008,56'); // bono 200 $ x 5,0428
-    expect(texto).toContain('R$ 806,85'); // neto 160 $ x 5,0428 menos descuentos redondeados
     expect(texto).toContain('1 $ = R$ 5,0428');
     expect(texto).toContain('Real brasile');
+    expect(texto).toContain('Beneficiario');
+    expect(texto).toContain('BNS-2026-001');
+    expect(texto).toContain('RECIBO DE PAGO BENEFICIO SOCIAL DE CARACTER NO REMUNERATIVO');
   });
 
   it('sin tasa del Real (empresa en dólares) no aparece nada del Real', async () => {
@@ -46,6 +47,8 @@ describe('recibos generados · moneda de pago de la empresa', () => {
     expect(paginas).toBe(2);
     expect(texto).not.toContain('R$');
     expect(texto).not.toContain('Real brasile');
-    expect(texto).toContain('DEVENGADO $');
+    expect(texto).toContain('MONTO ASIGNADO');
+    expect(texto).toContain('BNS-2026-001');
+    expect(texto).toContain('TOTAL BENEFICIOS SOCIALES NO REMUNERATIVO DEL PERIODO');
   });
 });
