@@ -15,8 +15,6 @@ import { cruzarDrive, pagadoBsTesoreria, type AnalisisDrive, type FilaDrive, typ
 import { guardarDrive } from './conciliacion.repository';
 import { guardarDriveEntradas } from './conciliacionEntradas.repository';
 
-const COLOR: Record<AnalisisDrive['estado'], string> = { Validado: '#10b981', Duplicados: '#f59e0b', Error: '#ef4444' };
-const ICONO: Record<AnalisisDrive['estado'], string> = { Validado: '✅', Duplicados: '⚠', Error: '❌' };
 type Filtro = 'todos' | 'error' | 'duplicado' | 'valido' | 'ya_conciliada';
 const FILTROS: Array<{ key: Filtro; label: string }> = [
   { key: 'todos', label: 'Todas' },
