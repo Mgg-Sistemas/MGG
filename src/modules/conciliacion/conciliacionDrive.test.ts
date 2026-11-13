@@ -361,6 +361,10 @@ describe('leerTablaArchivo e integración con el archivo real de Caja Multimoned
       { id: '7', codigo: 'OC-2026-0217', pagado: true, seCruza: false },
       // OC-2026-0200 (SUBLI MAX uniformes): NO debe mezclar la laptop de Matanzas de Golden Touch
       { id: '8', codigo: 'OC-2026-0200', pagado: true, seCruza: true },
+      // ODC 227 aparece dos veces (MGG mouse 8.064,55 ref …5075 y GT materiales 472.122,90): se elige por la ref. de Tesorería
+      { id: '9', codigo: 'OC-2026-0227', pagado: true, seCruza: true, refsTesoreria: ['5075'], referencias: ['5075'] },
+      // ODC 228 (MGG cargador 48.119,94 y GT pitman 132.201,11): sin ref., se elige por el monto Bs del sistema
+      { id: '10', codigo: 'OC-2026-0228', pagado: true, seCruza: true, montoBs: 48119.94 },
     ];
 
     const analisis = analizarTablaDrive(tabla, file.name, ordenesReales);
@@ -377,6 +381,9 @@ describe('leerTablaArchivo e integración con el archivo real de Caja Multimoned
     expect(datos200?.montoBs).toBe(179526.27);
     expect(datos200?.referencias).toContain('35323145');
     expect(datos200?.referencias).not.toContain('35283656');
+
+    expect(analisis.porOrden.get('9')).toMatchObject({ montoBs: 8064.55, referencias: ['35215075'] });
+    expect(analisis.porOrden.get('10')).toMatchObject({ montoBs: 48119.94, referencias: ['35215283'] });
 
     // Las órdenes no pagadas o pagadas en USD se omiten sin causar error
     expect(analisis.porOrden.has('6')).toBe(false);

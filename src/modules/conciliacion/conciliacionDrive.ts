@@ -240,7 +240,7 @@ export function extraerTipoRetencion(desc: string): string | undefined {
 
 /* ───────── Cruce ───────── */
 /** Diferencia aceptada en Bs (redondeos). */
-export const TOLERANCIA_BS = 0.05;
+export const TOLERANCIA_BS = 0.5;
 
 const fmtBs = (n: number) => `Bs ${n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -259,7 +259,7 @@ export function cruzarDrive(
   const refsSis = referenciasSistema(f);
   const refOk = datos.referencias.some((a) => refsSis.some((b) => mismaReferencia(a, b)));
   const esperados = [pagadoBs, f.montoBs].filter((x): x is number => x != null && Number.isFinite(x) && x > 0);
-  const montoOk = esperados.some((x) => Math.abs(x - datos.montoBs) <= 0.5);
+  const montoOk = esperados.some((x) => Math.abs(x - datos.montoBs) <= TOLERANCIA_BS);
 
   const problemas: string[] = [];
   if (!refsSis.length) problemas.push('la OC no tiene referencia de pago en el sistema');
@@ -318,6 +318,8 @@ export interface OrdenCriterioConciliacion {
   drive?: DatosDrive | ResultadoDrive | null;
   yaConciliada?: boolean;
   referencias?: string[];
+  /** Solo las referencias que cargó Tesorería al pagar (Bs / Binance): son las que mandan para elegir el pago. */
+  refsTesoreria?: string[];
   montoBs?: number | null;
   pagadoBs?: number | null;
   pagado?: boolean;
@@ -335,7 +337,7 @@ export function estaConciliada(o: OrdenCriterioConciliacion): boolean {
   const refsSis = (o.referencias ?? []).filter(Boolean);
   const refOk = refsSis.length > 0 && d.referencias.some((a) => refsSis.some((b) => mismaReferencia(a, b)));
   const montoEsp = o.pagadoBs ?? o.montoBs;
-  const montoOk = montoEsp != null && Number.isFinite(montoEsp) && montoEsp > 0 && Math.abs(montoEsp - d.montoBs) <= 0.5;
+  const montoOk = montoEsp != null && Number.isFinite(montoEsp) && montoEsp > 0 && Math.abs(montoEsp - d.montoBs) <= TOLERANCIA_BS;
   return refOk && montoOk;
 }
 
@@ -736,6 +738,32 @@ export function errorArchivoDrive(f: { name: string; size: number }): string | n
  * Si una OC ya está conciliada en el sistema (CUADRA), se marca como «ya_conciliada»,
  * evitando doble cruce y evitando sumar montos de conciliaciones de días previos.
  */
+/**
+ * De varios pagos del archivo con el mismo N° de ODC, cuáles son de esta orden:
+ *  1) los que traen la referencia que cargó Tesorería (últimos 4 dígitos);
+ *  2) si no, los que tienen el monto en Bs del sistema (lo pagado en Bs o el monto Bs de la OC);
+ *  3) si no, los que traen la referencia colocada en Conciliación;
+ *  4) si nada coincide, todos (se suman: pagos parciales) y el cruce dirá por qué no cuadra.
+ */
+export function elegirPagosDeOrden(cand: FilaDrive[], info?: OrdenCriterioConciliacion): FilaDrive[] {
+  if (cand.length < 2 || !info) return cand;
+  const refsT = (info.refsTesoreria ?? []).filter(Boolean);
+  const refsTodas = (info.referencias ?? []).filter(Boolean);
+  const esperados = [info.pagadoBs, info.montoBs].filter((x): x is number => x != null && Number.isFinite(x) && x > 0);
+  const montoOk = (m: number) => esperados.some((x) => Math.abs(x - m) <= TOLERANCIA_BS);
+
+  const porRefT = cand.filter((f) => refsT.some((r) => mismaReferencia(f.referencia, r)));
+  if (porRefT.length) {
+    const conMonto = porRefT.filter((f) => montoOk(f.montoBs));
+    return conMonto.length ? conMonto : porRefT;
+  }
+  const porMonto = cand.filter((f) => montoOk(f.montoBs));
+  if (porMonto.length) return [porMonto[0]];
+  const porRef = cand.filter((f) => refsTodas.some((r) => mismaReferencia(f.referencia, r)));
+  if (porRef.length) return porRef;
+  return cand;
+}
+
 export function analizarTablaDrive(
   tablaOriginal: unknown[][],
   archivo: string,
@@ -905,6 +933,26 @@ export function analizarTablaDrive(
 
   if (!filas.length) throw new Error('El archivo no trae filas con datos debajo de los encabezados.');
 
+  // GT y MGG reutilizan los mismos números de ODC (ej. ODC 200, 217, 224, 227, 228, 0039) y la caja
+  // es compartida: cuando una orden tiene varios pagos con su número, se queda con el que coincide
+  // con la referencia de Tesorería o con el monto del sistema; los demás se omiten (son de otra orden).
+  const candidatas = new Map<string, FilaDrive[]>();
+  for (const f of filas) {
+    if (f.estado === 'error' || f.estado === 'omitida' || !f.ordenId || f.yaConciliada) continue;
+    if (f.tipo === 'reintegro' || f.tipo === 'entrada') continue;
+    const l = candidatas.get(f.ordenId) ?? [];
+    l.push(f);
+    candidatas.set(f.ordenId, l);
+  }
+  for (const [id, cand] of candidatas) {
+    if (cand.length < 2) continue;
+    const elegidas = elegirPagosDeOrden(cand, infoPorId.get(id));
+    for (const f of cand) {
+      if (elegidas.includes(f)) continue;
+      f.estado = 'omitida';
+      f.motivoOmitida = `Otro pago con el mismo N° de ODC (ref. ${f.referencia || '—'}): no coincide con la referencia de Tesorería ni con el monto de ${f.codigo} en el sistema`;
+    }
+  }
   // Duplicados entre las filas válidas del archivo
   const veces = new Map<string, number>();
   for (const f of filas) {

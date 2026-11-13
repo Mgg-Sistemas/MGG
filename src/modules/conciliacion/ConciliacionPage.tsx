@@ -228,6 +228,7 @@ export function ConciliacionPage() {
         yaConciliada: f.drive?.estado === 'CUADRA',
         montoBs: f.montoBs,
         referencias: [f.referencia.bs, f.referencia.binance, f.referencia.manual].filter(Boolean) as string[],
+        refsTesoreria: [f.referencia.bs, f.referencia.binance].filter(Boolean) as string[],
         pagadoBs: pagadoBsTesoreria(datos.ordenes.get(f.id)?.historial),
         historial: datos.ordenes.get(f.id)?.historial,
         pagado: f.pagado,
