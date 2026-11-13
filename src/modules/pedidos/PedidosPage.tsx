@@ -1834,6 +1834,25 @@ function MetodoPagoModal({
   const [descModo, setDescModo] = useState<'monto' | 'pct'>('monto');
   const [descStr, setDescStr] = useState('');
   const monedaOrden = orden.moneda ?? 'USD';
+
+  // 13-11-2026: switch visual $ / Bs para ayudar al analista con cálculos de conversión
+  const [vistaMoneda, setVistaMoneda] = useState<'USD' | 'Bs'>('USD');
+  const [tasaBcv, setTasaBcv] = useState<number | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    getTasaHoy().then((t) => {
+      if (vivo && t.usd && Number(t.usd) > 0) setTasaBcv(Number(t.usd));
+    }).catch(() => {});
+    return () => { vivo = false; };
+  }, []);
+
+  const fmtVista = (valUsd: number) => {
+    if (vistaMoneda === 'Bs' && tasaBcv && tasaBcv > 0 && monedaOrden !== 'Bs') {
+      const bs = Math.round((Number(valUsd) || 0) * tasaBcv * 100) / 100;
+      return `Bs ${bs.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+    return money(valUsd, monedaOrden);
+  };
   const baseTotal = esContraEntrega && orden.recibido_total != null ? Number(orden.recibido_total) : Number(orden.total);
   const descPct = incluyeDesc && descModo === 'pct' ? Math.max(0, Math.min(100, Number(descStr) || 0)) : 0;
   const descNum = !incluyeDesc ? 0
@@ -2122,17 +2141,57 @@ function MetodoPagoModal({
           </div>
           {retMomento && (
             <div style={{ marginTop: '.6rem', borderTop: '1px dashed var(--border)', paddingTop: '.6rem' }}>
-              <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.4rem' }}>¿Qué retienen? Marca las que correspondan. El sistema calcula cada retención según su base legal (IVA sobre el IVA facturado, ISLR e ISAE sobre la base imponible neta, IGTF sobre el total) o podés fijar un monto manual.</div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.4rem', flexWrap: 'wrap', gap: '.4rem' }}>
+                <span style={{ fontWeight: 700, fontSize: '.86rem' }}>¿Qué retienen?</span>
+                {tasaBcv && tasaBcv > 0 && monedaOrden !== 'Bs' && (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', fontSize: '.75rem' }}>
+                    <span className="muted" style={{ fontSize: '.72rem' }}>BCV: {tasaBcv.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 })}</span>
+                    <div style={{ display: 'inline-flex', borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--bg-1)' }}>
+                      <button
+                        type="button"
+                        style={{
+                          padding: '.15rem .45rem',
+                          fontSize: '.72rem',
+                          fontWeight: 600,
+                          border: 'none',
+                          cursor: 'pointer',
+                          background: vistaMoneda === 'USD' ? 'var(--primary, #3b82f6)' : 'transparent',
+                          color: vistaMoneda === 'USD' ? '#fff' : 'inherit',
+                        }}
+                        onClick={() => setVistaMoneda('USD')}
+                      >
+                        $ USD
+                      </button>
+                      <button
+                        type="button"
+                        style={{
+                          padding: '.15rem .45rem',
+                          fontSize: '.72rem',
+                          fontWeight: 600,
+                          border: 'none',
+                          cursor: 'pointer',
+                          background: vistaMoneda === 'Bs' ? 'var(--primary, #3b82f6)' : 'transparent',
+                          color: vistaMoneda === 'Bs' ? '#fff' : 'inherit',
+                        }}
+                        onClick={() => setVistaMoneda('Bs')}
+                      >
+                        Bs BCV
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.4rem' }}>Marca las que correspondan. El sistema calcula cada retención según su base legal (IVA sobre el IVA facturado, ISLR e ISAE sobre la base imponible neta, IGTF sobre el total) o podés fijar un monto manual.</div>
               <div style={{ display: 'grid', gap: '.5rem' }}>
                 {TIPOS_RETENCION.map((tipo) => {
                   const m = retMarc[tipo];
                   const calc = retenciones.find((r) => r.tipo === tipo);
                   const baseUsada = baseParaTipoRetencion(tipo, basesRetencion);
                   const baseDesc = tipo === 'IVA'
-                    ? `de IVA ${money(baseUsada, monedaOrden)}`
+                    ? `de IVA ${fmtVista(baseUsada)}`
                     : tipo === 'IGTF'
-                      ? `del total ${money(baseUsada, monedaOrden)}`
-                      : `de base imponible ${money(baseUsada, monedaOrden)}`;
+                      ? `del total ${fmtVista(baseUsada)}`
+                      : `de base imponible ${fmtVista(baseUsada)}`;
                   const sinBaseIva = tipo === 'IVA' && baseUsada <= 0;
                   return (
                     <div key={tipo} style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
@@ -2156,7 +2215,7 @@ function MetodoPagoModal({
                             <input className="input mono" style={{ width: 110 }} inputMode="decimal" value={m.valor}
                               placeholder={m.modo === 'pct' ? String(PCT_SUGERIDO_RETENCION[tipo] ?? '0') : '0,00'}
                               onChange={(e) => setRetMarc((x) => ({ ...x, [tipo]: { ...m, valor: e.target.value } }))} />
-                            <span className="mono" style={{ color: 'var(--danger)' }}>− {money(calc?.monto ?? 0, monedaOrden)}</span>
+                            <span className="mono" style={{ color: 'var(--danger)' }}>− {fmtVista(calc?.monto ?? 0)}</span>
                             {m.modo === 'pct' && (
                               <span className="muted" style={{ fontSize: '.75rem' }}>({m.valor || 0}% {baseDesc})</span>
                             )}
@@ -2187,10 +2246,10 @@ function MetodoPagoModal({
               </div>
               {retenciones.length > 0 && (
                 <div style={{ marginTop: '.55rem', fontSize: '.88rem', display: 'grid', gap: '.15rem' }}>
-                  <div>Total OC <strong className="mono">{money(baseTotal, monedaOrden)}</strong></div>
-                  <div>Retenciones <strong className="mono" style={{ color: 'var(--danger)' }}>− {money(totalRet, monedaOrden)}</strong></div>
+                  <div>Total OC <strong className="mono">{fmtVista(baseTotal)}</strong></div>
+                  <div>Retenciones <strong className="mono" style={{ color: 'var(--danger)' }}>− {fmtVista(totalRet)}</strong></div>
                   {retMomento === 'antes'
-                    ? <div>Total a pagar <strong className="mono" style={{ color: 'var(--success)' }}>{money(Math.max(0, netoAPagar - totalRet), monedaOrden)}</strong> <span className="muted">(Tesorería paga este monto)</span></div>
+                    ? <div>Total a pagar <strong className="mono" style={{ color: 'var(--success)' }}>{fmtVista(Math.max(0, netoAPagar - totalRet))}</strong> <span className="muted">(Tesorería paga este monto)</span></div>
                     : <div className="muted">Tesorería paga el total completo; las retenciones quedan anotadas para Retenciones.</div>}
                   {retenciones.some((r) => r.moneda_pago === 'Bs') && (
                     <div className="muted" style={{ fontSize: '.8rem' }}>
