@@ -17,7 +17,7 @@ import type { Orden, PagoMetodo } from '@/shared/lib/types';
 import { labelMetodoPago } from './pedidos.repository';
 import { BANCOS_VE } from '@/shared/lib/bancos';
 import { dateTime } from '@/shared/lib/format';
-import { impuestosEnUsd, retencionesDe, totalRetenciones } from './retencionesOc';
+import { retencionesDe, totalRetenciones } from './retencionesOc';
 import { labelCondicionPago } from './ofertas.repository';
 import { OPCIONES_ENTREGA } from './entregaModalidad';
 
@@ -167,7 +167,13 @@ export function lineaMontoBs(orden: Orden, tasaBs?: number | null): string | nul
   const t = Number(tasaBs) || 0;
   if (mon !== '$' || t <= 0) return null;
   const abonado = Number(orden.abonado_total) || 0;
-  const usd = abonado > 0 ? saldoPendiente(orden) : (Number(orden.total) || 0);
+  let usd = Number(orden.total) || 0;
+  if (abonado > 0) {
+    usd = saldoPendiente(orden);
+  } else if (orden.retencion_momento === 'antes') {
+    const rets = retencionesDe(orden);
+    usd = Math.max(0, usd - (Number(orden.descuento_pago) || 0) - totalRetenciones(rets));
+  }
   return `💱 *En Bs:* ${montoTxt(usd * t, 'Bs')} (tasa ${tasaTxt(t)})`;
 }
 
@@ -191,25 +197,33 @@ export function textoOrdenPago(
   if (orden.oc_aprobada_en) L.push(`📅 *Fecha de aprobación:* ${dateTime(orden.oc_aprobada_en)}`);
   // Las cotizaciones y cuál escogió el analista, como en el de aprobar (04-11-2026).
   L.push(...lineasCotizaciones(opts?.cotizaciones ?? [], orden.moneda, opts?.tasaBs));
-  L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}`);
+
+  const tNum = Number(opts?.tasaBs) || 0;
+  const conBs = (valUsd: number) => {
+    if (tNum > 0 && mon !== 'Bs') {
+      return ` · ${montoTxt((Number(valUsd) || 0) * tNum, 'Bs')}`;
+    }
+    return '';
+  };
+
+  L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}${conBs(Number(orden.total) || 0)}`);
   // En una cuenta abierta lo que se va a pagar hoy NO es el total: es el saldo.
   // Mandar solo el total invita a pagar de más, así que el abonado y lo que
   // resta van en su propio renglón. En una orden sin abonos no aparecen.
   const abonado = Number(orden.abonado_total) || 0;
   if (abonado > 0) {
-    L.push(`✅ *Abonado:* ${montoTxt(abonado, mon)}`);
-    L.push(`🔺 *Saldo pendiente:* ${montoTxt(saldoPendiente(orden), mon)}`);
+    L.push(`✅ *Abonado:* ${montoTxt(abonado, mon)}${conBs(abonado)}`);
+    L.push(`🔺 *Saldo pendiente:* ${montoTxt(saldoPendiente(orden), mon)}${conBs(saldoPendiente(orden))}`);
   }
   // Retenciones por tipo (03-11-2026): cada descuento y lo que queda.
-  // 08-11-2026: los impuestos que se pagan en Bs NO salen acá (solo los ve Tesorería);
-  // el neto sí los descuenta, porque al proveedor se le paga lo mismo.
+  // 13-11-2026: se indican en $ y Bs si hay tasa, e incluyen todos los impuestos retenidos.
   const rets = retencionesDe(orden);
   if (rets.length) {
-    for (const r of impuestosEnUsd(rets)) L.push(`🧾 *Retención ${r.tipo}:* −${montoTxt(r.monto, mon)}`);
+    for (const r of rets) L.push(`🧾 *Retención ${r.tipo}:* −${montoTxt(r.monto, mon)}${conBs(r.monto)}`);
     const neto = Math.max(0, (Number(orden.total) || 0) - (Number(orden.descuento_pago) || 0) - totalRetenciones(rets));
     L.push(orden.retencion_momento === 'antes'
-      ? `✅ *Neto a pagar:* ${montoTxt(neto, mon)}`
-      : `📌 *Se paga completo y luego se retiene* (neto tras retenciones: ${montoTxt(neto, mon)})`);
+      ? `✅ *Neto a pagar:* ${montoTxt(neto, mon)}${conBs(neto)}`
+      : `📌 *Se paga completo y luego se retiene* (neto tras retenciones: ${montoTxt(neto, mon)}${conBs(neto)})`);
   }
   const enBs = lineaMontoBs(orden, opts?.tasaBs);
   if (enBs) L.push(enBs);

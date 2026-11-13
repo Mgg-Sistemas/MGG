@@ -33,12 +33,29 @@ describe('textoOrdenPago · retenciones por tipo (03-11-2026)', () => {
   it('sin retenciones no agrega nada', () => {
     expect(textoOrdenPago({ ...base, total: 100 } as Orden, 'X')).not.toContain('Retención');
   });
-  it('el impuesto que se paga en Bs no sale en el WhatsApp, pero el neto lo descuenta (08-11-2026)', () => {
+  it('las retenciones salen en el mensaje aunque el impuesto se pague en Bs, y con tasa muestran $ y Bs (13-11-2026)', () => {
     const rets = [{ tipo: 'IVA', modo: 'pct', valor: 75, monto: 12, moneda_pago: 'Bs' }, { tipo: 'ISLR', modo: 'monto', valor: 3, monto: 3 }];
-    const l = textoOrdenPago({ ...base, total: 100, retenciones: rets, retencion_momento: 'antes' } as unknown as Orden, 'X').split('\n');
-    expect(l.join('\n')).not.toContain('Retención IVA');
-    expect(l).toContain('🧾 *Retención ISLR:* −$3,00');
-    expect(l).toContain('✅ *Neto a pagar:* $85,00');
+    const l = textoOrdenPago({ ...base, total: 100, retenciones: rets, retencion_momento: 'antes' } as unknown as Orden, 'X', undefined, { tasaBs: 40 }).split('\n');
+    expect(l).toContain('💵 *Total:* $100,00 · Bs 4.000,00');
+    expect(l).toContain('🧾 *Retención IVA:* −$12,00 · Bs 480,00');
+    expect(l).toContain('🧾 *Retención ISLR:* −$3,00 · Bs 120,00');
+    expect(l).toContain('✅ *Neto a pagar:* $85,00 · Bs 3.400,00');
+  });
+
+  it('ejemplo real OC-2026-0215: total, retención antes de pagar y neto en $ y Bs a la tasa BCV', () => {
+    const oc = {
+      ...base,
+      oc_codigo: 'OC-2026-0215',
+      total: 168.78,
+      moneda: 'USD',
+      retenciones: [{ tipo: 'ISLR', modo: 'pct', valor: 2, monto: 2.91 }],
+      retencion_momento: 'antes',
+    } as unknown as Orden;
+    const txt = textoOrdenPago(oc, 'PROVEIND, C.A.', undefined, { tasaBs: 904.45 });
+    expect(txt).toContain('💵 *Total:* $168,78 · Bs 152.653,07');
+    expect(txt).toContain('🧾 *Retención ISLR:* −$2,91 · Bs 2.631,95');
+    expect(txt).toContain('✅ *Neto a pagar:* $165,87 · Bs 150.021,12');
+    expect(txt).toContain('💱 *En Bs:* Bs 150.021,12 (tasa 904,45)');
   });
 });
 
@@ -394,7 +411,8 @@ describe('tipo de requerimiento y monto en Bs a la tasa del día (29-10-2026)', 
 
   it('con tasa, el total en dólares sale también en Bs con la tasa entre paréntesis', () => {
     const l = textoOrdenPago(base, 'MAXI SHOES', undefined, { tasaBs: 36.5 }).split('\n');
-    const i = l.indexOf('💵 *Total:* $79,00');
+    const i = l.findIndex((x) => x.startsWith('💵 *Total:*'));
+    expect(l[i]).toBe('💵 *Total:* $79,00 · Bs 2.883,50');
     expect(l[i + 1]).toBe('💱 *En Bs:* Bs 2.883,50 (tasa 36,50)');
   });
 
