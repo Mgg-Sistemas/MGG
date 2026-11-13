@@ -230,6 +230,9 @@ export function ConciliacionPage() {
         referencias: [f.referencia.bs, f.referencia.binance, f.referencia.manual].filter(Boolean) as string[],
         pagadoBs: pagadoBsTesoreria(datos.ordenes.get(f.id)?.historial),
         historial: datos.ordenes.get(f.id)?.historial,
+        pagado: f.pagado,
+        seCruza: f.seCruza,
+        monedaPago: f.monedaPago,
       }))));
     } catch (er) { toast(er instanceof Error ? er.message : 'No se pudo leer el archivo', 'error'); }
     finally { setLeyendoDrive(false); }

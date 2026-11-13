@@ -344,23 +344,35 @@ describe('leerTablaArchivo e integración con el archivo real de Caja Multimoned
     });
 
     const tabla = await leerTablaArchivo(file);
-    // Debe haber encontrado la hoja "CAJA PRINCIPAL MULTIMONEDAS MGG" y convertido las filas
-    expect(tabla.length).toBeGreaterThan(1);
+    // Debe haber leído todas las pestañas relevantes y devuelto filas combinadas
+    expect(tabla.length).toBeGreaterThan(50);
     expect(tabla[0]).toEqual(['Código OC', 'Referencia', 'Monto Bs', 'Fecha', 'Tipo', 'Tipo Retención', 'Descripción', 'Fila Original']);
 
-    // Órdenes reales de MGG presentes en el archivo
+    // Órdenes reales de MGG presentes en el archivo: solo las pagadas en Bs se cruzan
     const ordenesReales = [
-      { id: '1', codigo: 'OC-2026-0236' },
-      { id: '2', codigo: 'OC-2026-0251' },
-      { id: '3', codigo: 'OC-2026-0250' },
-      { id: '4', codigo: 'OC-2026-0201' },
+      { id: '1', codigo: 'OC-2026-0236', pagado: true, seCruza: true },
+      { id: '2', codigo: 'OC-2026-0251', pagado: true, seCruza: true },
+      { id: '3', codigo: 'OC-2026-0250', pagado: true, seCruza: true },
+      { id: '4', codigo: 'OC-2026-0201', pagado: true, seCruza: true },
+      { id: '5', codigo: 'OC-2026-0249', pagado: true, seCruza: true },
+      // Orden sin pagar en sistema: NO se cruza (omitida)
+      { id: '6', codigo: 'OC-2026-0220', pagado: false, seCruza: false },
+      // Orden pagada en USD: NO se cruza (omitida)
+      { id: '7', codigo: 'OC-2026-0217', pagado: true, seCruza: false },
     ];
 
     const analisis = analizarTablaDrive(tabla, file.name, ordenesReales);
-    // Las órdenes de MGG se cruzan limpiamente
+    // Las órdenes pagadas en Bs de MGG se cruzan limpiamente
     expect(analisis.porOrden.has('1')).toBe(true); // ODC 236
     expect(analisis.porOrden.has('2')).toBe(true); // ODC 251
     expect(analisis.porOrden.has('3')).toBe(true); // ODC 250
     expect(analisis.porOrdenEntradas?.has('4')).toBe(true); // ODC 201 reintegro
+    expect(analisis.porOrden.has('5')).toBe(true); // ODC 249
+
+    // Las órdenes no pagadas o pagadas en USD se omiten sin causar error
+    expect(analisis.porOrden.has('6')).toBe(false);
+    expect(analisis.porOrden.has('7')).toBe(false);
+    expect(analisis.estado).not.toBe('Error');
+    expect(analisis.omitidas).toBeGreaterThan(0);
   });
 });

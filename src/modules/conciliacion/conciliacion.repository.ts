@@ -172,7 +172,19 @@ async function anotarDrive(ordenId: string, d: DatosDrive, actorEmail: string): 
       at: new Date().toISOString(), evento: EVENTO_DRIVE, actor: actorEmail,
       referencias: d.referencias, monto_bs: d.montoBs, archivo: d.archivo.slice(0, 120), filas: d.filas,
     };
-    let q = supabase.from('ordenes').update({ historial: [...historial, evento] }).eq('id', ordenId);
+    const refPrincipal = d.referencias[0]?.trim();
+    const previo = datosConciliacion(historial)?.comprobante ?? null;
+    const nuevosEventos: Record<string, unknown>[] = [evento];
+    if (refPrincipal) {
+      nuevosEventos.push({
+        at: new Date().toISOString(),
+        evento: EVENTO_REF_CONCILIACION,
+        actor: actorEmail,
+        referencia: refPrincipal,
+        ...(previo ? { comprobante_path: previo.path, comprobante_nombre: previo.nombre } : {}),
+      });
+    }
+    let q = supabase.from('ordenes').update({ historial: [...historial, ...nuevosEventos] }).eq('id', ordenId);
     q = actual.updated_at ? q.eq('updated_at', actual.updated_at) : q;
     const { data, error } = await q.select('*').maybeSingle();
     if (error) throw error;

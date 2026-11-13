@@ -15,13 +15,14 @@ import { cruzarDrive, pagadoBsTesoreria, type AnalisisDrive, type FilaDrive, typ
 import { guardarDrive } from './conciliacion.repository';
 import { guardarDriveEntradas } from './conciliacionEntradas.repository';
 
-type Filtro = 'todos' | 'error' | 'duplicado' | 'valido' | 'ya_conciliada';
+type Filtro = 'todos' | 'error' | 'duplicado' | 'valido' | 'ya_conciliada' | 'omitida';
 const FILTROS: Array<{ key: Filtro; label: string }> = [
   { key: 'todos', label: 'Todas' },
-  { key: 'error', label: 'Con error' },
-  { key: 'duplicado', label: 'Duplicadas' },
-  { key: 'valido', label: 'Nuevas válidas' },
+  { key: 'valido', label: 'Válidas para cruzar' },
   { key: 'ya_conciliada', label: 'Ya conciliadas' },
+  { key: 'omitida', label: 'Omitidas' },
+  { key: 'duplicado', label: 'Duplicadas' },
+  { key: 'error', label: 'Con error' },
 ];
 const COLUMNA: Record<string, string> = { codigo: 'Código OC', referencia: 'Referencia', monto: 'Monto Bs' };
 const fmtBs = (n: number) => (Number.isFinite(n) ? `Bs ${n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—');
@@ -36,7 +37,7 @@ export function CargarDriveModal({ analisis, filas, ordenes, onClose, onGuardado
   const { user } = useSession();
   const [confirmando, setConfirmando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
-  const [filtro, setFiltro] = useState<Filtro>(analisis.conError ? 'error' : analisis.duplicadas ? 'duplicado' : 'todos');
+  const [filtro, setFiltro] = useState<Filtro>(analisis.conError ? 'error' : 'todos');
   const totalNuevas = (analisis.porOrden?.size || 0) + (analisis.porOrdenEntradas?.size || 0);
   const tieneErrores = analisis.conError > 0;
   const puedeSubir = totalNuevas > 0;
@@ -48,7 +49,14 @@ export function CargarDriveModal({ analisis, filas, ordenes, onClose, onGuardado
     const out = new Map<string, ResultadoDrive>();
     for (const [id, d] of analisis.porOrden) {
       const f = porId.get(id);
-      if (f) out.set(id, cruzarDrive(f, d, pagadoBsTesoreria(ordenes.get(id)?.historial)));
+      if (f) {
+        // En la vista previa del cruce, la referencia que adoptará la orden al subir es la del archivo
+        const fConRef = d.referencias.length > 0 ? {
+          ...f,
+          referencia: { ...f.referencia, manual: d.referencias[0] },
+        } : f;
+        out.set(id, cruzarDrive(fConRef, d, pagadoBsTesoreria(ordenes.get(id)?.historial)));
+      }
     }
     return out;
   }, [analisis, filas, ordenes]);
@@ -115,10 +123,11 @@ export function CargarDriveModal({ analisis, filas, ordenes, onClose, onGuardado
             : totalNuevas > 0 ? `${totalNuevas} orden(es) válidas de noviembre listas para cruzar. Las filas de otros períodos o con datos incompletos se omitirán al subir.`
             : 'El archivo no contiene órdenes de noviembre válidas para subir.'} />
         <Tarjeta icono="∑" color="#64748b" titulo="Total filas" sub={String(analisis.total)} />
-        <Tarjeta icono="✓" color="#10b981" titulo="Nuevas válidas" sub={String(analisis.validas)} />
+        <Tarjeta icono="✓" color="#10b981" titulo="Válidas para cruzar" sub={String(analisis.validas)} />
         {analisis.yaConciliadas > 0 && <Tarjeta icono="✔" color="#3b82f6" titulo="Ya conciliadas" sub={String(analisis.yaConciliadas)} />}
-        <Tarjeta icono="⚠" color="#f59e0b" titulo="Duplicadas" sub={String(analisis.duplicadas)} />
-        <Tarjeta icono="❌" color={totalNuevas > 0 ? '#f59e0b' : '#ef4444'} titulo="Con aviso / omitidas" sub={String(analisis.conError)} />
+        {analisis.omitidas > 0 && <Tarjeta icono="ℹ" color="#64748b" titulo="Omitidas (no cruzan)" sub={String(analisis.omitidas)} />}
+        {analisis.duplicadas > 0 && <Tarjeta icono="⚠" color="#f59e0b" titulo="Duplicadas" sub={String(analisis.duplicadas)} />}
+        {analisis.conError > 0 && <Tarjeta icono="❌" color="#ef4444" titulo="Con error" sub={String(analisis.conError)} />}
       </div>
 
       {puedeSubir && (
@@ -182,6 +191,7 @@ function FilaDriveTr({ f, r }: { f: FilaDrive; r?: ResultadoDrive }) {
   const badge = f.estado === 'error' ? <span className="badge danger">Error</span>
     : f.estado === 'duplicado' ? <span className="badge warning">Duplicada</span>
     : f.estado === 'ya_conciliada' || f.yaConciliada ? <span className="badge info" style={{ background: '#dbeafe', color: '#1e40af' }}>Ya conciliada</span>
+    : f.estado === 'omitida' ? <span className="badge" style={{ background: '#334155', color: '#94a3b8' }}>Omitida</span>
     : <span className="badge success">Válida</span>;
   return (
     <tr>
@@ -199,14 +209,17 @@ function FilaDriveTr({ f, r }: { f: FilaDrive; r?: ResultadoDrive }) {
       <td>
         {badge}
         {f.errores.length > 0 && <div style={{ color: 'var(--danger, #dc2626)', fontSize: '.72rem' }}>{f.errores.join(' · ')}</div>}
+        {f.estado === 'omitida' && f.motivoOmitida && <div className="muted" style={{ fontSize: '.72rem' }}>{f.motivoOmitida}</div>}
         {f.duplicado && <div className="muted" style={{ fontSize: '.72rem' }}>OC repetida en el archivo: se suman</div>}
-        {(f.estado === 'ya_conciliada' || f.yaConciliada) && <div className="muted" style={{ fontSize: '.72rem' }}>No se duplica ni se suma monto</div>}
+        {(f.estado === 'ya_conciliada' || f.yaConciliada) && <div className="muted" style={{ fontSize: '.72rem' }}>Actualiza y mantiene conciliación</div>}
       </td>
       <td>
-        {f.estado === 'ya_conciliada' || f.yaConciliada ? (
+        {f.estado === 'omitida' ? (
+          <span className="muted" style={{ fontSize: '.72rem' }}>No cruza</span>
+        ) : f.estado === 'ya_conciliada' || f.yaConciliada ? (
           <>
             <span className="badge success">CUADRA</span>
-            <div className="muted" style={{ fontSize: '.7rem' }}>Conciliada previamente</div>
+            <div className="muted" style={{ fontSize: '.7rem' }}>Conciliada</div>
           </>
         ) : r ? (
           <>

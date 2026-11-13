@@ -268,7 +268,7 @@ export function cruzarDrive(
 }
 
 /* ───────── Lectura y validación del archivo (como Inventario) ───────── */
-export type EstadoFilaDrive = 'valido' | 'duplicado' | 'error' | 'ya_conciliada';
+export type EstadoFilaDrive = 'valido' | 'duplicado' | 'error' | 'ya_conciliada' | 'omitida';
 
 export interface FilaDrive {
   fila: number;
@@ -286,6 +286,7 @@ export interface FilaDrive {
   tipoRetencion?: string;
   descripcion?: string;
   yaConciliada?: boolean;
+  motivoOmitida?: string;
 }
 
 export interface AnalisisDrive {
@@ -295,6 +296,7 @@ export interface AnalisisDrive {
   conError: number;
   duplicadas: number;
   yaConciliadas: number;
+  omitidas: number;
   errorPorColumna: Record<string, number>;
   filas: FilaDrive[];
   estado: 'Validado' | 'Duplicados' | 'Error';
@@ -314,14 +316,23 @@ export interface OrdenCriterioConciliacion {
   referencias?: string[];
   montoBs?: number | null;
   pagadoBs?: number | null;
+  pagado?: boolean;
+  seCruza?: boolean;
+  monedaPago?: string;
 }
 
 /** Verifica si la orden ya está conciliada previamente en el sistema (CUADRA). */
 export function estaConciliada(o: OrdenCriterioConciliacion): boolean {
   if (o.yaConciliada) return true;
-  if (o.drive && 'estado' in o.drive && o.drive.estado === 'CUADRA') return true;
+  if (o.drive && 'estado' in o.drive) return o.drive.estado === 'CUADRA';
   const d = o.drive && 'referencias' in o.drive ? o.drive : driveDe(o.historial);
-  return !!d && d.referencias.length > 0 && d.montoBs > 0;
+  if (!d) return false;
+  if (o.pagado === false || o.seCruza === false) return false;
+  const refsSis = (o.referencias ?? []).filter(Boolean);
+  const refOk = refsSis.length > 0 && d.referencias.some((a) => refsSis.some((b) => mismaReferencia(a, b)));
+  const montoEsp = o.pagadoBs ?? o.montoBs;
+  const montoOk = montoEsp != null && Number.isFinite(montoEsp) && montoEsp > 0 && Math.abs(montoEsp - d.montoBs) <= TOLERANCIA_BS;
+  return refOk && montoOk;
 }
 
 type Columna = 'codigo' | 'referencia' | 'monto';
@@ -538,10 +549,10 @@ export function convertirCajaATablaEstandar(
   return result;
 }
 
-/** Lee el Excel o CSV como tabla; busca inteligentemente la hoja adecuada si hay múltiples pestañas. */
+/** Lee el Excel o CSV como tabla; busca inteligentemente la hoja adecuada o combina todas las hojas con datos. */
 export async function leerTablaArchivo(file: File): Promise<unknown[][]> {
-  const XLSX = await import('xlsx-js-style');
-  const X = XLSX as unknown as {
+  const mod = await import('xlsx-js-style');
+  const X = ((mod as unknown as { default?: unknown }).default ?? mod) as {
     read: (d: unknown, o: Record<string, unknown>) => { SheetNames: string[]; Sheets: Record<string, unknown> };
     utils: { sheet_to_json: <T>(ws: unknown, o?: unknown) => T[] };
   };
@@ -562,89 +573,144 @@ export async function leerTablaArchivo(file: File): Promise<unknown[][]> {
     return t;
   }
 
-  // 2. Plantilla oficial multilibro ("Salidas - Compras" y "Entradas - Reintegros")
-  const hojaSalidas = wb.SheetNames.find((n) => /salida|compra/i.test(sinAcentos(n)));
-  const hojaEntradas = wb.SheetNames.find((n) => /entrada|reintegro/i.test(sinAcentos(n)));
-  if (hojaSalidas || hojaEntradas) {
-    const filasCombinadas: unknown[][] = [
+  // 2. Extraer movimientos a través de TODAS las hojas del libro (multi-pestaña)
+  const hojasAIgnorar = /^(base de datos|datos|formato\s*tasa|instrucciones|resumen|config|plantilla)/i;
+  const filasSalida: Array<{ codigo: string; ref: string; monto: number; fecha: string; tipo: string; ret: string; desc: string; fila: number }> = [];
+
+  for (const sheetName of wb.SheetNames) {
+    if (hojasAIgnorar.test(sinAcentos(sheetName).trim())) continue;
+    const ws = wb.Sheets[sheetName];
+    if (!ws) continue;
+    const t = X.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: null, blankrows: false });
+    if (!t || t.length < 2) continue;
+
+    // Caso A: Formato Caja Multimoneda (ej. "CAJA PRINCIPAL MULTIMONEDAS MGG" o copias)
+    if (ubicarColumnasCaja(t)) {
+      const parsed = parsearCajaMultimoneda(t, { soloMgg: true });
+      for (const p of parsed) {
+        filasSalida.push({
+          codigo: p.codigo,
+          ref: p.referencia,
+          monto: p.montoBs,
+          fecha: p.fecha,
+          tipo: p.tipo,
+          ret: p.tipoRetencion ?? '',
+          desc: p.descripcion,
+          fila: p.fila,
+        });
+      }
+      continue;
+    }
+
+    // Caso B: Formato estándar con columnas Código OC, Referencia, Monto Bs
+    const ubStd = ubicarColumnas(t);
+    if (ubStd) {
+      const hs = (t[ubStd.fila] ?? []).map(normHeader);
+      const iFecha = hs.findIndex((h) => h.includes('fecha'));
+      const iRet = hs.findIndex((h) => h.includes('retencion'));
+      const iTipo = hs.findIndex((h) => h === 'tipo' || h.includes('movimiento'));
+      const iDesc = hs.findIndex((h) => h.includes('descripcion') || h.includes('concepto'));
+      for (let r = ubStd.fila + 1; r < t.length; r++) {
+        const row = t[r] ?? [];
+        const cod = normalizarCodigoOc(row[ubStd.col.codigo]);
+        const ref = String(row[ubStd.col.referencia] ?? '').trim();
+        const monto = leerMontoBs(row[ubStd.col.monto]);
+        if (!cod && !ref && !Number.isFinite(monto)) continue;
+        const fecha = iFecha >= 0 ? serialExcelAFechaIso(row[iFecha]) : '';
+        const ret = iRet >= 0 ? String(row[iRet] ?? '').trim() : '';
+        const tipo = iTipo >= 0 && /reintegro|entrada/i.test(String(row[iTipo] ?? '')) ? 'reintegro' : 'salida';
+        const desc = iDesc >= 0 ? String(row[iDesc] ?? '').trim() : '';
+        filasSalida.push({ codigo: cod, ref, monto: Number.isFinite(monto) ? monto : 0, fecha, tipo, ret, desc, fila: r + 1 });
+      }
+      continue;
+    }
+
+    // Caso C: Hojas de TASA DE BS diarias (ej. " TASA DE BS 12-11-26")
+    if (/tasa\s*(?:de)?\s*bs/i.test(sinAcentos(sheetName))) {
+      let fechaHoja = '';
+      const mFecha = sheetName.match(/(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})/);
+      if (mFecha) {
+        const d = mFecha[1].padStart(2, '0');
+        const m = mFecha[2].padStart(2, '0');
+        const y = mFecha[3].length === 2 ? `20${mFecha[3]}` : mFecha[3];
+        fechaHoja = `${y}-${m}-${d}`;
+      }
+      for (let r = 1; r < t.length; r++) {
+        const row = t[r] ?? [];
+        let desc = '';
+        for (const cell of row) {
+          if (typeof cell === 'string' && /\b(?:ODC|OC|REINTEGRO)[\s._#-]*\d+/i.test(cell)) {
+            desc = cell;
+            break;
+          }
+        }
+        if (!desc) continue;
+        const esDescMgg = /\b(MGG|MINERAL GROUP|LOS PINOS)\b/i.test(desc);
+        const esDescGt = /\b(GT|GOLDEN TOUCH|PERAMANAL)\b/i.test(desc) && !esDescMgg;
+        if (esDescGt) continue;
+
+        const odcs = extraerOdc(desc);
+        if (!odcs.length) continue;
+        const ref = extraerReferencia(desc);
+        const esEntrada = /reintegro|entrada/i.test(desc);
+        const tipo = esEntrada ? 'reintegro' : 'salida';
+        const mSalida = typeof row[5] === 'number' ? row[5] : leerMontoBs(row[5]);
+        const mEntrada = typeof row[3] === 'number' ? row[3] : leerMontoBs(row[3]);
+        const montoTotal = Number.isFinite(mSalida) && mSalida > 0 ? mSalida
+          : Number.isFinite(mEntrada) && mEntrada > 0 ? mEntrada
+          : extraerMonto(null, desc);
+
+        const montoPorOdc = odcs.length > 1 && Number.isFinite(montoTotal)
+          ? Math.round((montoTotal / odcs.length) * 100) / 100
+          : montoTotal;
+
+        for (const cod of odcs) {
+          filasSalida.push({
+            codigo: cod,
+            ref,
+            monto: Number.isFinite(montoPorOdc) ? montoPorOdc : 0,
+            fecha: fechaHoja,
+            tipo,
+            ret: extraerTipoRetencion(desc) ?? '',
+            desc: desc.replace(/\s+/g, ' '),
+            fila: r + 1,
+          });
+        }
+      }
+      continue;
+    }
+  }
+
+  // Si se extrajeron movimientos de múltiples hojas, deduplicar los idénticos
+  if (filasSalida.length > 0) {
+    const unicos: typeof filasSalida = [];
+    for (const f of filasSalida) {
+      const yaExiste = unicos.some((u) => {
+        if (u.codigo !== f.codigo) return false;
+        const mismaRef = (!u.ref && !f.ref) || u.ref === f.ref;
+        const mismoMonto = Math.abs(u.monto - f.monto) <= TOLERANCIA_BS;
+        return mismaRef && mismoMonto;
+      });
+      if (!yaExiste) {
+        unicos.push(f);
+      } else if (f.ref) {
+        const ex = unicos.find((u) => u.codigo === f.codigo && Math.abs(u.monto - f.monto) <= TOLERANCIA_BS);
+        if (ex && !ex.ref) ex.ref = f.ref;
+      }
+    }
+
+    const resultado: unknown[][] = [
       ['Código OC', 'Referencia', 'Monto Bs', 'Fecha', 'Tipo', 'Tipo Retención', 'Descripción', 'Fila Original'],
     ];
-    let huboDatos = false;
-
-    if (hojaSalidas) {
-      const wsSal = wb.Sheets[hojaSalidas];
-      const tSal = X.utils.sheet_to_json<unknown[]>(wsSal, { header: 1, defval: null, blankrows: false });
-      const ubSal = ubicarColumnas(tSal);
-      if (ubSal) {
-        for (let r = ubSal.fila + 1; r < tSal.length; r++) {
-          const row = tSal[r] ?? [];
-          const cod = row[ubSal.col.codigo];
-          const ref = row[ubSal.col.referencia];
-          const monto = row[ubSal.col.monto];
-          if (cod == null && ref == null && monto == null) continue;
-          filasCombinadas.push([cod, ref, monto, '', 'salida', '', '', r + 1]);
-          huboDatos = true;
-        }
-      }
+    for (const u of unicos) {
+      resultado.push([u.codigo, u.ref, u.monto, u.fecha, u.tipo, u.ret, u.desc, u.fila]);
     }
-
-    if (hojaEntradas) {
-      const wsEnt = wb.Sheets[hojaEntradas];
-      const tEnt = X.utils.sheet_to_json<unknown[]>(wsEnt, { header: 1, defval: null, blankrows: false });
-      const ubEnt = ubicarColumnas(tEnt);
-      if (ubEnt) {
-        const hs = (tEnt[ubEnt.fila] ?? []).map(normHeader);
-        const iFecha = hs.findIndex((h) => h.includes('fecha'));
-        const iRet = hs.findIndex((h) => h.includes('retencion'));
-        for (let r = ubEnt.fila + 1; r < tEnt.length; r++) {
-          const row = tEnt[r] ?? [];
-          const cod = row[ubEnt.col.codigo];
-          const ref = row[ubEnt.col.referencia];
-          const monto = row[ubEnt.col.monto];
-          if (cod == null && ref == null && monto == null) continue;
-          const fecha = iFecha >= 0 ? serialExcelAFechaIso(row[iFecha]) : '';
-          const ret = iRet >= 0 ? String(row[iRet] ?? '').trim() : '';
-          filasCombinadas.push([cod, ref, monto, fecha, 'reintegro', ret, '', r + 1]);
-          huboDatos = true;
-        }
-      }
-    }
-
-    if (huboDatos) return filasCombinadas;
+    return resultado;
   }
 
-  // 3. Revisar si la primera hoja ya tiene encabezados válidos
+  // Fallback si no hubo coincidencias estructuradas
   const sheet0 = wb.Sheets[wb.SheetNames[0]];
-  const t0 = X.utils.sheet_to_json<unknown[]>(sheet0, { header: 1, defval: null, blankrows: false });
-  if (ubicarColumnas(t0)) return t0;
-  if (esCajaMultimoneda(t0)) return convertirCajaATablaEstandar(t0);
-
-  // 4. Si la primera hoja no tiene encabezados válidos, buscar en las demás:
-  // Preferir hojas cuyo nombre incluya "CAJA PRINCIPAL" o "MULTIMONEDA"
-  const nombreCaja = wb.SheetNames.find((n) => /caja\s*principal|multimoneda/i.test(sinAcentos(n)));
-  if (nombreCaja) {
-    const ws = wb.Sheets[nombreCaja];
-    const t = X.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: null, blankrows: false });
-    if (esCajaMultimoneda(t)) return convertirCajaATablaEstandar(t);
-    if (ubicarColumnas(t)) return t;
-  }
-
-  // 5. Buscar cualquier hoja que contenga columnas estándar
-  for (const name of wb.SheetNames) {
-    const ws = wb.Sheets[name];
-    const t = X.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: null, blankrows: false });
-    if (ubicarColumnas(t)) return t;
-  }
-
-  // 6. Buscar cualquier hoja que sea Caja Multimoneda
-  for (const name of wb.SheetNames) {
-    const ws = wb.Sheets[name];
-    const t = X.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: null, blankrows: false });
-    if (esCajaMultimoneda(t)) return convertirCajaATablaEstandar(t);
-  }
-
-  // Fallback a la primera hoja
-  return t0;
+  return X.utils.sheet_to_json<unknown[]>(sheet0, { header: 1, defval: null, blankrows: false });
 }
 
 const EXT_OK = /\.(xlsx|xls|csv)$/i;
@@ -744,9 +810,33 @@ export function analizarTablaDrive(
     const ordenInfo = ordenId ? infoPorId.get(ordenId) : undefined;
     const yaConciliada = ordenInfo ? estaConciliada(ordenInfo) : false;
 
-    const errores: string[] = [];
+    // Solo se cruzan las órdenes que estén pagadas por tesorería en el sistema y en Bs
+    const noPagadaEnSistema = ordenInfo && (ordenInfo.pagado === false || ordenInfo.seCruza === false);
+    const esCaja = colDesc >= 0 || colFilaOrig >= 0;
 
-    // Si ya está conciliada en el sistema, no reportamos errores ni hacemos doble cruce
+    if (noPagadaEnSistema || (!ordenId && esCaja)) {
+      filas.push({
+        fila: crudo.filaOrig,
+        codigo,
+        referencia: referencia || '—',
+        montoBs: Number.isFinite(montoBs) ? montoBs : 0,
+        errores: [],
+        duplicado: false,
+        estado: 'omitida',
+        ordenId,
+        fecha: crudo.fecha ? serialExcelAFechaIso(crudo.fecha) : undefined,
+        tipo: (crudo.tipo === 'reintegro' || crudo.tipo === 'entrada') ? 'reintegro' : 'salida',
+        tipoRetencion: crudo.tipoRetencion || undefined,
+        descripcion: crudo.descripcion || undefined,
+        yaConciliada: false,
+        motivoOmitida: noPagadaEnSistema
+          ? 'No está pagada por Tesorería en Bs en el sistema (no se cruza)'
+          : `La OC ${codigo} no corresponde al período de noviembre o no está en Conciliación`,
+      });
+      continue;
+    }
+
+    // Si ya está conciliada en el sistema (CUADRA), no sumamos doble ni hacemos doble cruce
     if (yaConciliada) {
       filas.push({
         fila: crudo.filaOrig,
@@ -766,11 +856,13 @@ export function analizarTablaDrive(
       continue;
     }
 
+    const errores: string[] = [];
+
     if (!codigo) {
       errores.push('Código de OC vacío');
       sumCol('codigo');
     } else if (!ordenId) {
-      errores.push(`La OC ${codigo} no corresponde al período de noviembre o no está en Conciliación (se omitirá)`);
+      errores.push(`La OC ${codigo} no existe en Conciliación`);
       sumCol('codigo');
     }
 
@@ -813,15 +905,15 @@ export function analizarTablaDrive(
 
   if (!filas.length) throw new Error('El archivo no trae filas con datos debajo de los encabezados.');
 
-  // Duplicados entre las filas del archivo que NO están previamente conciliadas
+  // Duplicados entre las filas válidas del archivo
   const veces = new Map<string, number>();
   for (const f of filas) {
-    if (f.ordenId && !f.yaConciliada) {
+    if (f.ordenId && f.estado !== 'omitida' && f.estado !== 'error') {
       veces.set(f.ordenId, (veces.get(f.ordenId) ?? 0) + 1);
     }
   }
   for (const f of filas) {
-    if (f.ordenId && !f.yaConciliada && (veces.get(f.ordenId) ?? 0) > 1) {
+    if (f.ordenId && f.estado !== 'omitida' && f.estado !== 'error' && (veces.get(f.ordenId) ?? 0) > 1) {
       f.duplicado = true;
       if (f.estado === 'valido') f.estado = 'duplicado';
     }
@@ -830,16 +922,16 @@ export function analizarTablaDrive(
   const porOrden = new Map<string, DatosDrive>();
   const porOrdenEntradas = new Map<string, DatosDrive>();
   for (const f of filas) {
-    if (f.estado === 'error' || !f.ordenId || f.yaConciliada) continue;
+    if (f.estado === 'error' || f.estado === 'omitida' || !f.ordenId || f.yaConciliada) continue;
     if (f.tipo === 'reintegro' || f.tipo === 'entrada') {
       const d = porOrdenEntradas.get(f.ordenId) ?? { referencias: [], montoBs: 0, archivo, filas: [] };
-      if (!d.referencias.includes(f.referencia)) d.referencias.push(f.referencia);
+      if (f.referencia && !d.referencias.includes(f.referencia)) d.referencias.push(f.referencia);
       d.montoBs = Math.round((d.montoBs + f.montoBs) * 100) / 100;
       d.filas.push(f.fila);
       porOrdenEntradas.set(f.ordenId, d);
     } else {
       const d = porOrden.get(f.ordenId) ?? { referencias: [], montoBs: 0, archivo, filas: [] };
-      if (!d.referencias.includes(f.referencia)) d.referencias.push(f.referencia);
+      if (f.referencia && !d.referencias.includes(f.referencia)) d.referencias.push(f.referencia);
       d.montoBs = Math.round((d.montoBs + f.montoBs) * 100) / 100;
       d.filas.push(f.fila);
       porOrden.set(f.ordenId, d);
@@ -849,6 +941,7 @@ export function analizarTablaDrive(
   const conError = filas.filter((f) => f.estado === 'error').length;
   const duplicadas = filas.filter((f) => f.estado === 'duplicado').length;
   const yaConciliadas = filas.filter((f) => f.estado === 'ya_conciliada').length;
+  const omitidas = filas.filter((f) => f.estado === 'omitida').length;
   const validas = filas.filter((f) => f.estado === 'valido').length;
 
   return {
@@ -858,6 +951,7 @@ export function analizarTablaDrive(
     conError,
     duplicadas,
     yaConciliadas,
+    omitidas,
     errorPorColumna,
     filas,
     porOrden,

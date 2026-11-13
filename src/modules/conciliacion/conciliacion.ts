@@ -259,6 +259,10 @@ export interface FilaConciliacion {
 
 /** Recalcula el DRIVE de la fila con su referencia y monto actuales. */
 export function conDrive<T extends Omit<FilaConciliacion, 'drive'>>(f: T, historial: unknown): T & { drive: ResultadoDrive | null } {
+  // Solo se van a cruzar las órdenes que estén pagadas por tesorería en el sistema y en Bs
+  if (!f.pagado || !f.seCruza) {
+    return { ...f, drive: null };
+  }
   const datos = driveDe(historial);
   return { ...f, drive: datos ? cruzarDrive(f, datos, pagadoBsTesoreria(historial)) : null };
 }
