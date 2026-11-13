@@ -160,7 +160,7 @@ export function detectarMonedaPago(o: Partial<Orden>): {
     return { monedaPago: 'Sin pagar', seCruza: false, detalle: 'Orden sin pagar aún' };
   }
 
-  const evs = Array.isArray(o.historial) ? (o.historial as Array<Record<string, unknown>>) : [];
+  const evs = evsDe(o.historial);
 
   // 1. Revisar los eventos de pago en el historial (el más reciente manda)
   for (let i = evs.length - 1; i >= 0; i--) {
