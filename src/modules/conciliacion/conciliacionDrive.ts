@@ -679,6 +679,7 @@ export function analizarTablaDrive(
   if (!ub) throw new Error('No se encontraron las columnas. El archivo debe tener: «Código OC», «Referencia» y «Monto Bs» (descarga la plantilla).');
 
   const porCodigo = new Map<string, string>();
+  const porNumero = new Map<string, string>();
   const infoPorId = new Map<string, OrdenCriterioConciliacion>();
   for (const o of ordenes) {
     const cod = normalizarCodigoOc(o.codigo);
@@ -687,6 +688,17 @@ export function analizarTablaDrive(
     if (o.sp) {
       const sp = normalizarCodigoOc(o.sp);
       if (!porCodigo.has(sp)) porCodigo.set(sp, o.id);
+    }
+    // Indexar por número final (ej. "0022" -> "22", "0030" -> "30") para tolerar prefijos SV-, SP- u OC-
+    for (const fuente of [o.codigo, o.sp]) {
+      if (!fuente) continue;
+      const m = fuente.match(/(\d{1,6})$/);
+      if (m) {
+        const num = m[1].replace(/^0+/, '');
+        if (num && !porNumero.has(num)) porNumero.set(num, o.id);
+        const pad4 = num.padStart(4, '0');
+        if (pad4 && !porNumero.has(pad4)) porNumero.set(pad4, o.id);
+      }
     }
   }
 
@@ -720,7 +732,15 @@ export function analizarTablaDrive(
     const codigo = normalizarCodigoOc(crudo.codigo);
     let referencia = String(crudo.referencia ?? '').trim();
     const montoBs = leerMontoBs(crudo.monto);
-    const ordenId = porCodigo.get(codigo) ?? null;
+    let ordenId = porCodigo.get(codigo) ?? null;
+    // Si no encontró por código exacto normalizado, buscar por número corto (tolera prefijos SV-, SP-, etc.)
+    if (!ordenId && codigo) {
+      const mNum = codigo.match(/(\d{1,6})$/);
+      if (mNum) {
+        const num = mNum[1].replace(/^0+/, '');
+        ordenId = porNumero.get(num) ?? porNumero.get(mNum[1]) ?? null;
+      }
+    }
     const ordenInfo = ordenId ? infoPorId.get(ordenId) : undefined;
     const yaConciliada = ordenInfo ? estaConciliada(ordenInfo) : false;
 
@@ -750,7 +770,7 @@ export function analizarTablaDrive(
       errores.push('Código de OC vacío');
       sumCol('codigo');
     } else if (!ordenId) {
-      errores.push(`La OC ${codigo} no está en Conciliación`);
+      errores.push(`La OC ${codigo} no corresponde al período de noviembre o no está en Conciliación (se omitirá)`);
       sumCol('codigo');
     }
 

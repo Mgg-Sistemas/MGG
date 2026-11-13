@@ -39,8 +39,10 @@ export function CargarDriveModal({ analisis, filas, ordenes, onClose, onGuardado
   const [confirmando, setConfirmando] = useState(false);
   const [aplicando, setAplicando] = useState(false);
   const [filtro, setFiltro] = useState<Filtro>(analisis.conError ? 'error' : analisis.duplicadas ? 'duplicado' : 'todos');
-  const puedeSubir = analisis.estado !== 'Error';
-  const necesitaConfirmar = analisis.estado === 'Duplicados';
+  const totalNuevas = (analisis.porOrden?.size || 0) + (analisis.porOrdenEntradas?.size || 0);
+  const tieneErrores = analisis.conError > 0;
+  const puedeSubir = totalNuevas > 0;
+  const necesitaConfirmar = analisis.estado === 'Duplicados' || tieneErrores;
 
   // Lo que va a quedar en la columna DRIVE (vista previa del cruce).
   const cruce = useMemo(() => {
@@ -59,8 +61,6 @@ export function CargarDriveModal({ analisis, filas, ordenes, onClose, onGuardado
     if (filtro === 'ya_conciliada') return f.estado === 'ya_conciliada' || f.yaConciliada;
     return f.estado === filtro;
   });
-
-  const totalNuevas = (analisis.porOrden?.size || 0) + (analisis.porOrdenEntradas?.size || 0);
 
   async function subir() {
     if (necesitaConfirmar && !confirmando) { setConfirmando(true); return; }
@@ -95,23 +95,32 @@ export function CargarDriveModal({ analisis, filas, ordenes, onClose, onGuardado
     <Modal title={`📥 Cargar Drive/Banco · ${analisis.archivo}`} size="xl" onClose={onClose} footer={<>
       <button className="btn btn-ghost" onClick={onClose} disabled={aplicando}>Cancelar</button>
       {puedeSubir ? (
-        <button className={`btn ${necesitaConfirmar ? 'btn-warning' : 'btn-primary'}`} onClick={() => void subir()} disabled={aplicando || !totalNuevas}>
-          {aplicando ? 'Subiendo…' : necesitaConfirmar && confirmando ? 'Sí, subir de todas formas' : totalNuevas ? `↑ Subir archivo (${totalNuevas} nuevas)` : 'Todo ya conciliado'}
+        <button
+          className={`btn ${necesitaConfirmar ? 'btn-warning' : 'btn-primary'}`}
+          onClick={() => void subir()}
+          disabled={aplicando || !totalNuevas}
+          title={tieneErrores ? `Subir las ${totalNuevas} órdenes válidas omitiendo las que no corresponden a noviembre o no están en el sistema` : undefined}
+        >
+          {aplicando ? 'Subiendo…' : necesitaConfirmar && confirmando ? `Sí, subir las ${totalNuevas} válidas` : totalNuevas ? `↑ Subir archivo (${totalNuevas} válidas)` : 'Todo ya conciliado'}
         </button>
       ) : (
-        <button className="btn btn-danger" disabled title="Corrige los errores en el archivo antes de subir">✖ No se puede subir</button>
+        <button className="btn btn-danger" disabled title="No hay órdenes de noviembre en este archivo para subir">✖ Sin órdenes válidas para subir</button>
       )}
     </>}>
       <div style={{ display: 'grid', gap: '.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', marginBottom: '1rem' }}>
-        <Tarjeta big icono={ICONO[analisis.estado]} color={COLOR[analisis.estado]} titulo={`Estado: ${analisis.estado}`}
+        <Tarjeta big
+          icono={analisis.estado === 'Validado' ? '✅' : analisis.estado === 'Duplicados' ? '⚠' : totalNuevas > 0 ? '⚠' : '❌'}
+          color={analisis.estado === 'Validado' ? '#10b981' : analisis.estado === 'Duplicados' ? '#f59e0b' : totalNuevas > 0 ? '#f59e0b' : '#ef4444'}
+          titulo={analisis.estado === 'Validado' ? 'Estado: Validado' : analisis.estado === 'Duplicados' ? 'Estado: Duplicados' : totalNuevas > 0 ? 'Estado: Listo con omisiones' : 'Estado: Error'}
           sub={analisis.estado === 'Validado' ? 'Todas las filas son válidas. Se cruzan directo.'
             : analisis.estado === 'Duplicados' ? 'Hay OC repetidas en el archivo: se juntan (se suman sus montos).'
-              : 'El archivo trae errores. Corrígelos antes de subir.'} />
+            : totalNuevas > 0 ? `${totalNuevas} orden(es) válidas de noviembre listas para cruzar. Las filas de otros períodos o con datos incompletos se omitirán al subir.`
+            : 'El archivo no contiene órdenes de noviembre válidas para subir.'} />
         <Tarjeta icono="∑" color="#64748b" titulo="Total filas" sub={String(analisis.total)} />
         <Tarjeta icono="✓" color="#10b981" titulo="Nuevas válidas" sub={String(analisis.validas)} />
         {analisis.yaConciliadas > 0 && <Tarjeta icono="✔" color="#3b82f6" titulo="Ya conciliadas" sub={String(analisis.yaConciliadas)} />}
         <Tarjeta icono="⚠" color="#f59e0b" titulo="Duplicadas" sub={String(analisis.duplicadas)} />
-        <Tarjeta icono="❌" color="#ef4444" titulo="Con error" sub={String(analisis.conError)} />
+        <Tarjeta icono="❌" color={totalNuevas > 0 ? '#f59e0b' : '#ef4444'} titulo="Con aviso / omitidas" sub={String(analisis.conError)} />
       </div>
 
       {puedeSubir && (
@@ -125,10 +134,11 @@ export function CargarDriveModal({ analisis, filas, ordenes, onClose, onGuardado
 
       {confirmando && necesitaConfirmar && (
         <div className="card" style={{ borderLeft: '3px solid #f59e0b', padding: '.85rem 1rem', marginBottom: '1rem' }}>
-          <strong>⚠ Hay OC repetidas en el archivo</strong>
+          <strong>⚠ Atención antes de subir</strong>
           <p style={{ margin: '.35rem 0 0' }}>
-            {analisis.duplicadas} fila(s) son de una OC que aparece más de una vez. Se cruzan <strong>juntas</strong>: se suman sus
-            montos y vale cualquiera de sus referencias. ¿Quieres continuar?
+            {analisis.duplicadas > 0 && `${analisis.duplicadas} fila(s) corresponden a OC repetidas en el archivo y se sumarán juntas. `}
+            {tieneErrores && `${analisis.conError} fila(s) que no corresponden al período actual (noviembre) o tienen datos incompletos serán omitidas. `}
+            Se procesarán y subirán <strong>{totalNuevas} órdenes válidas</strong>. ¿Deseas continuar?
           </p>
         </div>
       )}

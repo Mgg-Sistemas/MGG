@@ -359,29 +359,25 @@ export function ConciliacionPage() {
         </div>
       )}
 
-      {/* Selector de pestañas */}
-      <div style={{ display: 'flex', gap: '.5rem', borderBottom: '1px solid var(--border-color, #e2e8f0)', marginBottom: '1.2rem', paddingBottom: '.25rem' }}>
+      {/* Selector de pestañas con los estilos estándar del sistema */}
+      <div className="view-switch" role="tablist" aria-label="Secciones de conciliación" style={{ margin: '0 0 1.25rem 0', width: 'max-content' }}>
         <button
           type="button"
+          role="tab"
+          aria-selected={tabActiva === 'salidas'}
+          className={`view-switch-tab${tabActiva === 'salidas' ? ' active' : ''}`}
           onClick={() => setTabActiva('salidas')}
-          className={`btn ${tabActiva === 'salidas' ? 'btn-primary' : 'btn-ghost'}`}
-          style={{ display: 'flex', alignItems: 'center', gap: '.45rem', fontWeight: 600, fontSize: '.92rem' }}>
-          <span>🔄</span>
-          <span>Salidas · Compras y Servicios</span>
-          <span className="badge" style={{ fontSize: '.72rem', background: tabActiva === 'salidas' ? 'rgba(255,255,255,0.25)' : 'var(--bg-muted, #f1f5f9)', color: 'inherit' }}>
-            {datos?.filas.length ?? 0}
-          </span>
+        >
+          🔄 Salidas · Compras y Servicios ({datos?.filas.length ?? 0})
         </button>
         <button
           type="button"
+          role="tab"
+          aria-selected={tabActiva === 'entradas'}
+          className={`view-switch-tab${tabActiva === 'entradas' ? ' active' : ''}`}
           onClick={() => setTabActiva('entradas')}
-          className={`btn ${tabActiva === 'entradas' ? 'btn-primary' : 'btn-ghost'}`}
-          style={{ display: 'flex', alignItems: 'center', gap: '.45rem', fontWeight: 600, fontSize: '.92rem' }}>
-          <span>🏛️</span>
-          <span>Entradas · Reintegros de Retención</span>
-          <span className="badge" style={{ fontSize: '.72rem', background: tabActiva === 'entradas' ? 'rgba(255,255,255,0.25)' : 'var(--bg-muted, #f1f5f9)', color: 'inherit' }}>
-            {filasEntradas.length}
-          </span>
+        >
+          🏛️ Entradas · Reintegros de Retención ({filasEntradas.length})
         </button>
       </div>
 
