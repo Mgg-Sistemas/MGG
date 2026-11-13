@@ -33,6 +33,7 @@ import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf, anchoUtilPdf } from '@/shared/lib/pdfMargen';
 import { definicionEmpresa, normalizarEmpresa } from './empresa';
 import { date as fmtDate } from '@/shared/lib/format';
+import { isoAVe } from '@/shared/lib/fechaVe';
 import { aBs, calcularRecibo, type ReciboCalculado } from './sueldoQuincena';
 import type { NominaPeriodo, NominaRenglon } from '@/shared/lib/types';
 
@@ -50,15 +51,6 @@ export function reales(n: number | null | undefined): string {
 export function tasaRealTexto(t: number): string {
   return Number(t).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 }
-function labelMotivo(tipo?: string | null): string {
-  switch (tipo) {
-    case 'vacaciones': return 'Vacaciones';
-    case 'liquidacion': return 'Liquidación';
-    case 'quincena': return 'Sueldo (quincena)';
-    default: return 'Sueldo';
-  }
-}
-
 export interface ReciboMeta {
   periodo: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv'>
     & Partial<Pick<NominaPeriodo, 'tasa_brl' | 'tasa_brl_fecha'>>;
@@ -70,10 +62,8 @@ export type HojaRecibo = 'sueldo' | 'bono';
 
 /** Título de cada recibo, como sale impreso debajo del encabezado. */
 export function tituloRecibo(hoja: HojaRecibo): string {
-  // Desde el 15-10-2026 el título es solo «COMPROBANTE DE PAGO» en los dos (regla de la
-  // administradora); cuál es cada uno lo dice su contenido (bolívares o divisas).
   void hoja;
-  return 'COMPROBANTE DE PAGO';
+  return 'RECIBO DE PAGO DE NOMINA';
 }
 
 /** El recibo de la bonificación pasado a Real brasileño (cada importe redondeado, para que la tabla cuadre). */
@@ -109,10 +99,9 @@ export function bonoEnReal(c: ReciboCalculado, tasaBrl?: number | null): BonoEnR
  */
 export function textoConformidad(hoja: HojaRecibo, c: ReciboCalculado, periodo = '', real: BonoEnReal | null = null): string {
   if (hoja === 'sueldo') {
-    // SOLO bolívares y con el texto que dictó la administradora (15-10-2026): monto y
-    // período; ni equivalente en $, ni tasa, ni mención de la bonificación.
+    // SOLO bolívares: monto y período; ni equivalente en $, ni tasa, ni mención de la bonificación.
     const del = periodo && periodo !== '—' ? ` al período del ${periodo}` : '';
-    return `Certifico haber recibido la cantidad de ${bsStr(c.netoBs)}, que conforme a la totalidad de mi salario${del}. Y firmo en señal de conformidad.`;
+    return `Certifico haber recibido la cantidad de ${bsStr(c.netoBs)}, conforme a la totalidad de mi salario${del}. Y firmo en señal de conformidad.`;
   }
   // SOLO dólares en el de la bonificación (15-10-2026): nada en Bs.
   const descuento = c.deduccionBonoUsd > 0
@@ -138,10 +127,25 @@ export function pagoQuincenalBs(c: ReciboCalculado): { quincenal: number; diario
   return { quincenal: r2(quincenal), diario: r2(quincenal / 15) };
 }
 
+function formatearFechaRecibo(v: unknown): string {
+  if (!v) return '';
+  const s = String(v).trim();
+  const ve = isoAVe(s);
+  if (ve) return ve;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(s)) return s;
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) {
+    const dia = String(d.getDate()).padStart(2, '0');
+    const mes = String(d.getMonth() + 1).padStart(2, '0');
+    const anio = d.getFullYear();
+    return `${dia}/${mes}/${anio}`;
+  }
+  return s;
+}
+
 /**
- * El período que imprime el recibo (15-10-2026): el de la nómina; si la nómina no lo
- * trae, el que el renglón tiene pegado (join a nomina_periodos). «Desde al hasta», o
- * una sola fecha si son iguales; «—» solo si no hay ninguna.
+ * El período que imprime el recibo en formato tipo fecha dd/mm/aaaa:
+ * «dd/mm/aaaa al dd/mm/aaaa», o una sola fecha si son iguales; «—» solo si no hay ninguna.
  */
 export function textoPeriodo(
   meta: { periodo: Pick<NominaPeriodo, 'periodo_desde' | 'periodo_hasta'> },
@@ -150,7 +154,9 @@ export function textoPeriodo(
   const desde = meta.periodo.periodo_desde || r?.periodo?.periodo_desde || null;
   const hasta = meta.periodo.periodo_hasta || r?.periodo?.periodo_hasta || null;
   if (!desde) return '—';
-  return hasta && hasta !== desde ? `${fmtDate(desde)} al ${fmtDate(hasta)}` : fmtDate(desde);
+  const fDesde = formatearFechaRecibo(desde);
+  const fHasta = hasta ? formatearFechaRecibo(hasta) : null;
+  return fHasta && fHasta !== fDesde ? `${fDesde} al ${fHasta}` : fDesde;
 }
 
 /**
@@ -240,8 +246,6 @@ function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecib
   // Título grande: dice CUÁL de los dos recibos es.
   doc.setFont('helvetica', 'bold'); doc.setFontSize(12);
   doc.text(tituloRecibo(hoja), MARGIN, y);
-  doc.setFont('helvetica', 'normal'); doc.setFontSize(10);
-  doc.text(`Motivo: ${labelMotivo(meta.periodo.tipo)}`, PAGE_W - MARGIN, y, { align: 'right' });
   y += 14;
 
   // Datos del trabajador (iguales en los dos recibos).
@@ -253,17 +257,13 @@ function cabecera(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecib
       ['Cargo', r.cargo || '—', 'Departamento', r.departamento || '—'],
       ['Período', textoPeriodo(meta, r),
         'Días', `${Number(r.dias_trabajados) || 0} trabajados + ${Number(r.dias_descanso) || 0} de descanso`],
-      // 1/2 (solo bolívares, 15-10-2026): pago quincenal y diario en Bs, como el formato de la
-      // administración. 2/2: el sueldo mensual en $, que es la base del bono.
+      // 1/2 (solo bolívares): Salario Quincenal y Salario Diario en Bs. 2/2: el sueldo mensual en $.
       ...(hoja === 'sueldo'
         ? [
-            ['Estado', r.estado === 'pagada' ? `Pagado${r.pagada_en ? ' · ' + fmtDate(r.pagada_en) : ''}` : 'Por pagar',
-              'Forma de pago', 'Bs'],
-            ['Pago quincenal', bsStr(pagoQuincenalBs(c).quincenal), 'Pago diario', bsStr(pagoQuincenalBs(c).diario)],
+            ['Salario Quincenal', bsStr(pagoQuincenalBs(c).quincenal), 'Salario Diario', bsStr(pagoQuincenalBs(c).diario)],
           ]
         : [
-            ['Estado', r.estado === 'pagada' ? `Pagado${r.pagada_en ? ' · ' + fmtDate(r.pagada_en) : ''}` : 'Por pagar',
-              'Sueldo mensual', usd(r.sueldo_base_mensual)],
+            ['Sueldo mensual', { content: usd(r.sueldo_base_mensual), colSpan: 3 }],
             // Empresa que paga en Real: la forma de pago y la tasa de cambio, a la vista.
             ...(bonoEnReal(c, meta.periodo.tasa_brl)
               ? [['Forma de pago', 'Divisas ($) y Real brasileño (R$)',

@@ -11,14 +11,14 @@ describe('recibos de nómina · dos por persona', () => {
     deducciones: { ivss: 2.5, prestamos: 30, anticipos: 10 }, tasa: 189.55,
   });
 
-  it('el título es solo COMPROBANTE DE PAGO en los dos', () => {
-    expect(tituloRecibo('sueldo')).toBe('COMPROBANTE DE PAGO');
-    expect(tituloRecibo('bono')).toBe('COMPROBANTE DE PAGO');
+  it('el título es solo RECIBO DE PAGO DE NOMINA en los dos', () => {
+    expect(tituloRecibo('sueldo')).toBe('RECIBO DE PAGO DE NOMINA');
+    expect(tituloRecibo('bono')).toBe('RECIBO DE PAGO DE NOMINA');
   });
 
   it('el de bolívares certifica el neto en Bs y el período con el texto de la administradora, sin dólares ni bonificación', () => {
-    const t = textoConformidad('sueldo', c, '01 oct. 2026 al 15 oct. 2026');
-    expect(t).toBe('Certifico haber recibido la cantidad de Bs 15.637,88, que conforme a la totalidad de mi salario al período del 01 oct. 2026 al 15 oct. 2026. Y firmo en señal de conformidad.'); // 82,50 $ x 189,55 = 15.637,875
+    const t = textoConformidad('sueldo', c, '01/10/2026 al 15/10/2026');
+    expect(t).toBe('Certifico haber recibido la cantidad de Bs 15.637,88, conforme a la totalidad de mi salario al período del 01/10/2026 al 15/10/2026. Y firmo en señal de conformidad.'); // 82,50 $ x 189,55 = 15.637,875
     expect(textoConformidad('sueldo', c, '—')).not.toContain('período'); // sin período no inventa
     expect(t).not.toContain('$');
     expect(t).not.toContain('tasa');
@@ -48,9 +48,9 @@ describe('recibos de nómina · dos por persona', () => {
   });
 
   it('el período sale de la nómina, o del renglón si la nómina no lo trae', () => {
-    expect(textoPeriodo({ periodo: { periodo_desde: '2026-10-01', periodo_hasta: '2026-10-15' } })).toBe('01 oct. 2026 al 15 oct. 2026');
-    expect(textoPeriodo({ periodo: { periodo_desde: '2026-10-15', periodo_hasta: '2026-10-15' } })).not.toContain(' al ');
-    expect(textoPeriodo({ periodo: { periodo_desde: null, periodo_hasta: null } }, { periodo: { codigo: 'X', tipo: 'quincena', periodo_desde: '2026-10-16', periodo_hasta: '2026-10-31' } })).toContain(' al ');
+    expect(textoPeriodo({ periodo: { periodo_desde: '2026-10-01', periodo_hasta: '2026-10-15' } })).toBe('01/10/2026 al 15/10/2026');
+    expect(textoPeriodo({ periodo: { periodo_desde: '2026-10-15', periodo_hasta: '2026-10-15' } })).toBe('15/10/2026');
+    expect(textoPeriodo({ periodo: { periodo_desde: null, periodo_hasta: null } }, { periodo: { codigo: 'X', tipo: 'quincena', periodo_desde: '2026-10-16', periodo_hasta: '2026-10-31' } })).toBe('16/10/2026 al 31/10/2026');
     expect(textoPeriodo({ periodo: { periodo_desde: null, periodo_hasta: null } }, null)).toBe('—');
   });
 
@@ -103,8 +103,8 @@ describe('recibo de la bonificación en Real brasileño', () => {
   });
 
   it('el recibo en bolívares no cambia aunque la empresa pague en Real', () => {
-    expect(textoConformidad('sueldo', c, '01 oct. 2026 al 15 oct. 2026', bonoEnReal(c, 5.0428)))
-      .toBe(textoConformidad('sueldo', c, '01 oct. 2026 al 15 oct. 2026'));
+    expect(textoConformidad('sueldo', c, '01/10/2026 al 15/10/2026', bonoEnReal(c, 5.0428)))
+      .toBe(textoConformidad('sueldo', c, '01/10/2026 al 15/10/2026'));
   });
 
   it('los formatos: R$ con coma decimal y la tasa con hasta 4 decimales', () => {
