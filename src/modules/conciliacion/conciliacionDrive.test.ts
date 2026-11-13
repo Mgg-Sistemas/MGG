@@ -292,16 +292,46 @@ describe('Parser de Caja Multimoneda (MGG vs GT, Salidas y Reintegros)', () => {
 describe('cruzarDrive', () => {
   const fila = { referencia: { bs: '6196', binance: null, manual: null }, montoBs: 281000 };
   const datos = { referencias: ['000123456196'], montoBs: 281103.06, archivo: 'x', filas: [2] };
-  it('CUADRA con lo pagado en Bs de Tesorería', () => {
+  it('CUADRA si la referencia bancaria coincide (incluso si el monto varía por retención o tasa)', () => {
     expect(cruzarDrive(fila, datos, 281103.06).estado).toBe('CUADRA');
+    const rVar = cruzarDrive(fila, datos, 281000.5);
+    expect(rVar.estado).toBe('CUADRA');
+    expect(rVar.motivo).toMatch(/Referencia bancaria coincide/);
   });
-  it('NO CUADRA por monto o por referencia', () => {
-    expect(cruzarDrive(fila, datos, 281000.5)).toMatchObject({ estado: 'NO CUADRA' });
+  it('NO CUADRA cuando la referencia es distinta o falta', () => {
     expect(cruzarDrive(fila, { ...datos, referencias: ['9999'] }, 281103.06).motivo).toMatch(/Referencia distinta/);
-    expect(cruzarDrive({ ...fila, referencia: { bs: null, binance: null } }, datos, 281103.06).motivo).toMatch(/no tiene referencia/);
+    expect(cruzarDrive({ ...fila, referencia: { bs: null, binance: null } }, datos, 100).motivo).toMatch(/no tiene referencia/);
   });
   it('vale la referencia colocada en Conciliación y el monto Bs de la OC', () => {
     expect(cruzarDrive({ referencia: { bs: null, binance: null, manual: '55667788' }, montoBs: 100 }, { ...datos, referencias: ['55667788'], montoBs: 100.03 }, null).estado).toBe('CUADRA');
+  });
+  it('CUADRA órdenes reales de los screenshots donde la referencia bancaria coincide', () => {
+    // OC-2026-0234 (Filtros Nekuima: ref 35200415, banco 26.064,83, sistema 31.010,63)
+    const r234 = cruzarDrive(
+      { referencia: { bs: '35200415', binance: null, manual: null }, montoBs: 31010.63 },
+      { referencias: ['35200415'], montoBs: 26064.83, archivo: 'caja.xlsx', filas: [45] },
+      null,
+    );
+    expect(r234.estado).toBe('CUADRA');
+    expect(r234.motivo).toContain('35200415');
+
+    // OC-2026-0224 (Multimax: ref 35768118, banco 54.267,00, sistema 1.742.914,43)
+    const r224 = cruzarDrive(
+      { referencia: { bs: '35768118', binance: null, manual: null }, montoBs: 1742914.43 },
+      { referencias: ['35768118'], montoBs: 54267, archivo: 'caja.xlsx', filas: [200] },
+      null,
+    );
+    expect(r224.estado).toBe('CUADRA');
+    expect(r224.motivo).toContain('35768118');
+
+    // OC-2026-0217 (Extinsur: ref 01709810, banco 72.068,23, sistema 82.365,30)
+    const r217 = cruzarDrive(
+      { referencia: { bs: '01709810', binance: null, manual: null }, montoBs: 82365.30 },
+      { referencias: ['01709810'], montoBs: 72068.23, archivo: 'caja.xlsx', filas: [47] },
+      null,
+    );
+    expect(r217.estado).toBe('CUADRA');
+    expect(r217.motivo).toContain('01709810');
   });
 });
 

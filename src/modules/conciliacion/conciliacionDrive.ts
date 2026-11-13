@@ -261,14 +261,37 @@ export function cruzarDrive(
   const esperados = [pagadoBs, f.montoBs].filter((x): x is number => x != null && Number.isFinite(x) && x > 0);
   const montoOk = esperados.some((x) => Math.abs(x - datos.montoBs) <= TOLERANCIA_BS);
 
+  // 1. Si la referencia bancaria coincide, la operación está confirmada en banco: CUADRA
+  if (refOk) {
+    return {
+      estado: 'CUADRA',
+      motivo: montoOk
+        ? 'La referencia y el monto en Bs coinciden'
+        : `Referencia bancaria coincide (${datos.referencias[0] || '—'}) · pagado en banco: ${fmtBs(datos.montoBs)}`,
+      datos,
+    };
+  }
+
+  // 2. Si el monto en Bs coincide y la orden aún no tiene referencia en el sistema: CUADRA
+  if (montoOk && !refsSis.length) {
+    return {
+      estado: 'CUADRA',
+      motivo: `Monto coincide exactamente (${fmtBs(datos.montoBs)}) · ref. banco: ${datos.referencias[0] || '—'}`,
+      datos,
+    };
+  }
+
+  // 3. De lo contrario, no cuadra
   const problemas: string[] = [];
   if (!refsSis.length) problemas.push('la OC no tiene referencia de pago en el sistema');
   else if (!refOk) problemas.push(`referencia distinta (archivo ${datos.referencias.join(', ') || '—'} · sistema ${refsSis.join(', ')})`);
   if (!esperados.length) problemas.push('la OC no tiene monto en Bs en el sistema');
   else if (!montoOk) problemas.push(`monto distinto (archivo ${fmtBs(datos.montoBs)} · sistema ${fmtBs(esperados[0])})`);
-  return problemas.length
-    ? { estado: 'NO CUADRA', motivo: problemas.join(' · ').replace(/^./, (c) => c.toUpperCase()), datos }
-    : { estado: 'CUADRA', motivo: 'La referencia y el monto en Bs coinciden', datos };
+  return {
+    estado: 'NO CUADRA',
+    motivo: problemas.join(' · ').replace(/^./, (c) => c.toUpperCase()),
+    datos,
+  };
 }
 
 /* ───────── Lectura y validación del archivo (como Inventario) ───────── */
