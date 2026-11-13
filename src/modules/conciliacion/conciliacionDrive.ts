@@ -76,7 +76,10 @@ export function pagadoBsTesoreria(historial: unknown): number | null {
     if (e?.evento !== 'pagada') continue;
     const mp = Array.isArray(e.multipago) ? e.multipago as Array<Record<string, unknown>> : [];
     const bs = mp.filter((p) => /^bs$/i.test(String(p?.moneda ?? '').trim())).reduce((a, p) => a + (Number(p?.monto) || 0), 0);
-    return bs > 0 ? Math.round(bs * 100) / 100 : null;
+    if (bs > 0) return Math.round(bs * 100) / 100;
+    if (e.referencia_bs && Number(e.monto) > 0) {
+      return Math.round(Number(e.monto) * 100) / 100;
+    }
   }
   return null;
 }
@@ -256,7 +259,8 @@ export function cruzarDrive(
   const refsSis = referenciasSistema(f);
   const refOk = datos.referencias.some((a) => refsSis.some((b) => mismaReferencia(a, b)));
   const esperados = [pagadoBs, f.montoBs].filter((x): x is number => x != null && Number.isFinite(x) && x > 0);
-  const montoOk = esperados.some((x) => Math.abs(x - datos.montoBs) <= TOLERANCIA_BS);
+  const montoOk = esperados.some((x) => Math.abs(x - datos.montoBs) <= 0.5);
+
   const problemas: string[] = [];
   if (!refsSis.length) problemas.push('la OC no tiene referencia de pago en el sistema');
   else if (!refOk) problemas.push(`referencia distinta (archivo ${datos.referencias.join(', ') || '—'} · sistema ${refsSis.join(', ')})`);
@@ -331,7 +335,7 @@ export function estaConciliada(o: OrdenCriterioConciliacion): boolean {
   const refsSis = (o.referencias ?? []).filter(Boolean);
   const refOk = refsSis.length > 0 && d.referencias.some((a) => refsSis.some((b) => mismaReferencia(a, b)));
   const montoEsp = o.pagadoBs ?? o.montoBs;
-  const montoOk = montoEsp != null && Number.isFinite(montoEsp) && montoEsp > 0 && Math.abs(montoEsp - d.montoBs) <= TOLERANCIA_BS;
+  const montoOk = montoEsp != null && Number.isFinite(montoEsp) && montoEsp > 0 && Math.abs(montoEsp - d.montoBs) <= 0.5;
   return refOk && montoOk;
 }
 
@@ -470,7 +474,7 @@ export function parsearCajaMultimoneda(
     const esDescMgg = /\b(MGG|MINERAL GROUP|LOS PINOS)\b/.test(descRaw.toUpperCase());
     const esDestinoMgg = /\b(MINERAL GROUP|LOS PINOS)\b/.test(`${hacia} ${clasif} ${subclasif}`.toUpperCase());
     const esCuentaMgg = /\bMGG\b/.test(moneda.toUpperCase());
-    const esGtGeneral = /\b(GT|GOLDEN TOUCH|PERAMANAL)\b/.test(textAll) && !esDescMgg && !esDestinoMgg && !esCuentaMgg;
+    const esGtGeneral = /\b(GT|GOLDEN TOUCH|PERAMANAL|MATANZAS|GUAIRA)\b/.test(textAll) && !esDescMgg && !esDestinoMgg && !esCuentaMgg;
 
     const esEntrada = /entrada/i.test(mov) || /reintegro/i.test(descRaw);
     const tipo = esEntrada ? 'reintegro' : 'salida';
@@ -479,20 +483,21 @@ export function parsearCajaMultimoneda(
     const montoTotal = extraerMonto(row[ub.monto], descRaw);
     const retencion = extraerTipoRetencion(descRaw);
 
-    // Filtrar ODCs para MGG
-    const odcsValidas = rawOdcs.filter((cod) => {
-      // Si la OC existe en la lista de órdenes de MGG, siempre pertenece a MGG
-      if (codigosMgg.size > 0 && codigosMgg.has(cod)) return true;
+    // Filtrar ODCs para MGG: si la fila o contexto es de Golden Touch, descartar completamente para MGG
+    if (esGtGeneral) continue;
 
+    const odcsValidas = rawOdcs.filter((cod) => {
       // Verificar si en el contexto inmediato de la ODC dice GT o MGG (ej. ODC 236 MGG Y ODC 181 GT)
       const numCorto = cod.replace('OC-2026-', '').replace(/^0+/, '');
       const idx = descRaw.toUpperCase().indexOf(numCorto);
       const context = idx >= 0 ? descRaw.toUpperCase().slice(idx, idx + 35) : '';
-      const odcDiceGt = /\bGT\b/.test(context) || /\bGOLDEN TOUCH\b/.test(context);
-      const odcDiceMgg = /\bMGG\b/.test(context) || /\bMINERAL GROUP\b/.test(context) || /\bLOS PINOS\b/.test(context);
+      const odcDiceGt = /\b(GT|GOLDEN TOUCH|MATANZAS|PERAMANAL)\b/.test(context);
+      const odcDiceMgg = /\b(MGG|MINERAL GROUP|LOS PINOS)\b/.test(context);
 
       if (odcDiceGt && !odcDiceMgg && !esDescMgg && !esDestinoMgg) return false;
-      if (esGtGeneral && !odcDiceMgg) return false;
+
+      // Si la OC existe en la lista de órdenes de MGG, pertenece a MGG
+      if (codigosMgg.size > 0 && codigosMgg.has(cod)) return true;
 
       // Si se proporcionó lista de órdenes y no está en MGG cuando soloMgg está activo
       if (soloMgg && codigosMgg.size > 0 && !codigosMgg.has(cod)) return false;
@@ -646,7 +651,7 @@ export async function leerTablaArchivo(file: File): Promise<unknown[][]> {
         }
         if (!desc) continue;
         const esDescMgg = /\b(MGG|MINERAL GROUP|LOS PINOS)\b/i.test(desc);
-        const esDescGt = /\b(GT|GOLDEN TOUCH|PERAMANAL)\b/i.test(desc) && !esDescMgg;
+        const esDescGt = /\b(GT|GOLDEN TOUCH|PERAMANAL|MATANZAS|GUAIRA)\b/i.test(desc) && !esDescMgg;
         if (esDescGt) continue;
 
         const odcs = extraerOdc(desc);
@@ -751,14 +756,9 @@ export function analizarTablaDrive(
     const cod = normalizarCodigoOc(o.codigo);
     porCodigo.set(cod, o.id);
     infoPorId.set(o.id, o);
-    if (o.sp) {
-      const sp = normalizarCodigoOc(o.sp);
-      if (!porCodigo.has(sp)) porCodigo.set(sp, o.id);
-    }
-    // Indexar por número final (ej. "0022" -> "22", "0030" -> "30") para tolerar prefijos SV-, SP- u OC-
-    for (const fuente of [o.codigo, o.sp]) {
-      if (!fuente) continue;
-      const m = fuente.match(/(\d{1,6})$/);
+    // Indexar por número final solo del código de orden (o.codigo), NUNCA por o.sp (evita que ODC 219 cruce con OC-2026-0249 por tener SP-0219)
+    if (o.codigo) {
+      const m = o.codigo.match(/(\d{1,6})$/);
       if (m) {
         const num = m[1].replace(/^0+/, '');
         if (num && !porNumero.has(num)) porNumero.set(num, o.id);
@@ -831,7 +831,7 @@ export function analizarTablaDrive(
         yaConciliada: false,
         motivoOmitida: noPagadaEnSistema
           ? 'No está pagada por Tesorería en Bs en el sistema (no se cruza)'
-          : `La OC ${codigo} no corresponde al período de noviembre o no está en Conciliación`,
+          : `La orden ${codigo || 'sin código'} no está en la vista actual de Conciliación (período de noviembre o no pagada en Bs)`,
       });
       continue;
     }
