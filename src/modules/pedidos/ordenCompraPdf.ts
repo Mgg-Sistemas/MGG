@@ -18,6 +18,7 @@ import { descuentoEfectivo } from './ofertas.repository';
 import { lineasDeTotal } from './totalesOc';
 import type { OfertaDetalle, OfertaProveedor, Orden, Proveedor } from '@/shared/lib/types';
 import { skuOGuion } from './renglonVisible';
+import { analistaDeOrden, quienSolicitaConRespaldo } from './quienSolicita';
 
 interface OcData {
   ordenes: Orden[];      // 1+ OPs que comparten la misma OC
@@ -213,7 +214,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
   const clasificacion = orden.clasificacion ?? [];
   // Unidad solicitante = depto/unidad que pide (orden.solicitante); Solicitante = la persona.
   const unidadSolicitante = orden.solicitante?.trim() || '—';
-  const solicitante = orden.ci_solicitante?.trim() || orden.solicitante_email || '—';
+  const solicitante = quienSolicitaConRespaldo(orden, orden.solicitante_email);
   // Correo → "Nombre Apellido" (analistas y gerente). Si no hay usuario, queda el correo.
   const persona = (email?: string | null, fecha?: string | null) => {
     const e = email?.trim();
@@ -387,7 +388,7 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
       doc.setFontSize(8);
       doc.setTextColor(120);
       doc.text(
-        `Solicitante: ${o.ci_solicitante ?? o.solicitante ?? o.solicitante_email}`,
+        `Solicitante: ${quienSolicitaConRespaldo(o, o.solicitante_email)}`,
         PAGE_W - MARGIN,
         y + 12,
         { align: 'right' },
@@ -533,13 +534,8 @@ export async function descargarOrdenCompraPdf(ordenId: string): Promise<void> {
     } catch { /* firma opcional */ }
   }
 
-  // Analista / solicitante que realizó la solicitud
-  const analistaNombre = (
-    orden.ci_solicitante?.trim()
-    || (orden.solicitante_email ? persona(orden.solicitante_email, orden.created_at) : '')
-    || orden.solicitante?.trim()
-    || 'Analista de Compras'
-  ).trim();
+  // Analista que realizó / cargó la solicitud (nunca el solicitante que pide el material)
+  const analistaNombre = analistaDeOrden(orden, persona);
 
   doc.setDrawColor(180);
   doc.line(MARGIN, LIMITE - 56, MARGIN + 200, LIMITE - 56);

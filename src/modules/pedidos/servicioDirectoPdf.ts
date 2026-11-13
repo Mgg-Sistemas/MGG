@@ -138,7 +138,11 @@ export async function descargarServicioDirectoPdf(servicio: ServicioDirecto): Pr
   doc.text('Firma autorizada · MGG', MARGIN, LIMITE - 42);
   doc.text('Analista que realizó la solicitud', pageW - MARGIN - 100, LIMITE - 42, { align: 'center' });
   doc.setFont('helvetica', 'bold');
-  const analistaSD = (servicio.actor_name || servicio.solicitante_persona || servicio.actor || servicio.solicitante || 'Analista de Compras').trim();
+  const analistaSD = (
+    servicio.actor_name
+    || (servicio.actor ? personas.get(servicio.actor.toLowerCase()) : null)
+    || 'Analista de Compras'
+  ).trim();
   doc.text(analistaSD, pageW - MARGIN - 100, LIMITE - 28, { align: 'center' });
   doc.setFont('helvetica', 'normal');
 

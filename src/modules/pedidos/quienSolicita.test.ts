@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { quienSolicita, quienCargo, quienSolicitaConRespaldo } from './quienSolicita';
+import { quienSolicita, quienCargo, quienSolicitaConRespaldo, analistaDeOrden } from './quienSolicita';
 
 /** SP-2026-0133, tal como está en la base. */
 const productoReal = {
@@ -69,5 +69,75 @@ describe('quienSolicitaConRespaldo', () => {
 
   it('el nombre de quien pide le gana a todos los respaldos', () => {
     expect(quienSolicitaConRespaldo(productoReal, 'Jose Liendro')).toBe('ENDER MEJIAS');
+  });
+});
+
+describe('analistaDeOrden', () => {
+  const personasMock = new Map([
+    ['nsalazar@mineralgroupguayana.com', 'NAZARET SALAZAR'],
+    ['jleiva@mineralgroupguayana.com', 'JAVIER LEIVA'],
+  ]);
+  const resolverMock = (email?: string | null) => (email ? personasMock.get(email.toLowerCase()) ?? null : null);
+
+  it('en productos devuelve el analista que cargó la solicitud (no quien solicita)', () => {
+    // Caso real SP-2026-0255: Alexander Morey pide, Nazaret Salazar cargó en Compras
+    const ordenSp = {
+      clase: 'producto',
+      codigo: 'SP-2026-0255',
+      ci_solicitante: 'ALEXANDER MOREY',
+      solicitante_persona: 'NAZARET SALAZAR',
+      solicitante: 'MANTENIMIENTO GENERAL',
+      solicitante_email: 'nsalazar@mineralgroupguayana.com',
+      oc_creada_por: 'nsalazar@mineralgroupguayana.com',
+    };
+    const analista = analistaDeOrden(ordenSp, resolverMock);
+    expect(analista).toBe('NAZARET SALAZAR');
+    expect(analista).not.toBe('ALEXANDER MOREY');
+    expect(analista).not.toBe('MANTENIMIENTO GENERAL');
+  });
+
+  it('en productos antiguos sin solicitante_persona resuelve por el correo de Compras', () => {
+    const ordenVieja = {
+      clase: 'producto',
+      codigo: 'SP-2026-0050',
+      ci_solicitante: 'ENDER MEJIAS',
+      solicitante_persona: null,
+      solicitante_email: 'jleiva@mineralgroupguayana.com',
+    };
+    expect(analistaDeOrden(ordenVieja, resolverMock)).toBe('JAVIER LEIVA');
+  });
+
+  it('en servicios no confunde al solicitante ni la cédula con el analista', () => {
+    // En servicios, solicitante_persona es quien pide y ci_solicitante es la cédula
+    const servicio = {
+      clase: 'servicio',
+      codigo: 'SV-2026-0018',
+      ci_solicitante: '26359267',
+      solicitante_persona: 'LEYDIS RENGEL',
+      solicitante: 'COCINA',
+      solicitante_email: 'nsalazar@mineralgroupguayana.com',
+      oc_creada_por: 'nsalazar@mineralgroupguayana.com',
+    };
+    const analista = analistaDeOrden(servicio, resolverMock);
+    expect(analista).toBe('NAZARET SALAZAR');
+    expect(analista).not.toBe('LEYDIS RENGEL');
+    expect(analista).not.toBe('26359267');
+  });
+
+  it('prioriza oc_creada_por sobre solicitante_email si difieren', () => {
+    const orden = {
+      clase: 'producto',
+      codigo: 'SP-2026-0100',
+      ci_solicitante: 'PEDRO PEREZ',
+      solicitante_persona: null,
+      solicitante_email: 'otro@mgg.com',
+      oc_creada_por: 'jleiva@mineralgroupguayana.com',
+    };
+    expect(analistaDeOrden(orden, resolverMock)).toBe('JAVIER LEIVA');
+  });
+
+  it('si no hay datos suficientes devuelve el fallback seguro', () => {
+    expect(analistaDeOrden(null)).toBe('Analista de Compras');
+    expect(analistaDeOrden({ clase: 'producto', ci_solicitante: 'ENDER MEJIAS' })).toBe('Analista de Compras');
   });
 });
