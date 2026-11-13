@@ -93,4 +93,21 @@ describe('pie con el IVA adentro de los precios y ajuste (14-10-2026)', () => {
       { etiqueta: 'TOTAL', monto: 99.7 },
     ]);
   });
+
+  it('informa el monto exento de IVA cuando hay ítems exentos', () => {
+    const l = lineasDeTotal({
+      items: [
+        { cantidad: 1, precio: 100, exento: false },
+        { cantidad: 1, precio: 50, exento: true },
+      ],
+      total: 166,
+      iva: 16, // 16% sobre 100 gravado
+    });
+    expect(l).toEqual([
+      { etiqueta: 'Subtotal ítems', monto: 150 },
+      { etiqueta: 'IVA', monto: 16 },
+      { etiqueta: 'TOTAL', monto: 166 },
+      { etiqueta: 'Monto exento (0% IVA) (informativo)', monto: 50 },
+    ]);
+  });
 });

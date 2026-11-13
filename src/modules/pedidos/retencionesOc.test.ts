@@ -1,5 +1,17 @@
 import { describe, expect, it } from 'vitest';
-import { armarRetenciones, etiquetaRetencion, impuestosEnBs, impuestosEnUsd, montoImpuestoEnBs, montoRetencion, retencionQueBajaElPago, retencionesDe, totalRetenciones } from './retencionesOc';
+import {
+  armarRetenciones,
+  baseParaTipoRetencion,
+  etiquetaRetencion,
+  impuestosEnBs,
+  impuestosEnUsd,
+  montoImpuestoEnBs,
+  montoRetencion,
+  retencionQueBajaElPago,
+  retencionesDe,
+  totalRetenciones,
+  type BasesRetencionOc,
+} from './retencionesOc';
 
 describe('retenciones por tipo en la OC (03-11-2026)', () => {
   it('calcula por % del total o por monto fijo, a 2 decimales', () => {
@@ -45,5 +57,32 @@ describe('retenciones por tipo en la OC (03-11-2026)', () => {
   it('etiqueta cada retención', () => {
     expect(etiquetaRetencion({ tipo: 'IVA', modo: 'pct', valor: 75 })).toBe('IVA 75 %');
     expect(etiquetaRetencion({ tipo: 'ISLR', modo: 'monto', valor: 5 })).toBe('ISLR (monto fijo)');
+  });
+
+  it('aplica las retenciones sobre sus bases legales correspondientes (IVA sobre iva, ISLR/ISAE sobre base imponible, IGTF sobre total)', () => {
+    const bases: BasesRetencionOc = {
+      total: 116,
+      baseImponible: 100,
+      iva: 16,
+    };
+    expect(baseParaTipoRetencion('IVA', bases)).toBe(16);
+    expect(baseParaTipoRetencion('ISLR', bases)).toBe(100);
+    expect(baseParaTipoRetencion('ISAE', bases)).toBe(100);
+    expect(baseParaTipoRetencion('IGTF', bases)).toBe(116);
+
+    const rs = armarRetenciones({
+      IVA: { modo: 'pct', valor: 75 },   // 75% de 16 = 12
+      ISLR: { modo: 'pct', valor: 2 },   // 2% de 100 = 2
+      ISAE: { modo: 'pct', valor: 1 },   // 1% de 100 = 1
+      IGTF: { modo: 'pct', valor: 3 },   // 3% de 116 = 3.48
+    }, bases);
+
+    expect(rs).toEqual([
+      { tipo: 'IVA', modo: 'pct', valor: 75, monto: 12 },
+      { tipo: 'IGTF', modo: 'pct', valor: 3, monto: 3.48 },
+      { tipo: 'ISLR', modo: 'pct', valor: 2, monto: 2 },
+      { tipo: 'ISAE', modo: 'pct', valor: 1, monto: 1 },
+    ]);
+    expect(totalRetenciones(rs)).toBe(18.48);
   });
 });

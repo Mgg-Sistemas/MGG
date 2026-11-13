@@ -11,7 +11,7 @@
    los renglones, una sola línea alcanza.
    ============================================================ */
 
-import { etiquetaAjuste, etiquetaIva, totalDesdePartes } from './impuestosOc';
+import { etiquetaAjuste, etiquetaIva, montoExentoDeItems, totalDesdePartes } from './impuestosOc';
 
 const round2 = (n: number): number => Math.round((Number(n) || 0) * 100) / 100;
 
@@ -20,6 +20,8 @@ export interface ItemOc {
   precio?: number | null;
   /** `false` = está en la orden pero NO se compra: no suma. */
   comprar?: boolean;
+  /** Producto exento de IVA (Art. 18 Ley del IVA). */
+  exento?: boolean;
 }
 
 export interface OrdenTotalizable {
@@ -33,6 +35,8 @@ export interface OrdenTotalizable {
   /** Diferencia declarada frente a la factura (con signo). */
   ajuste?: number | null;
   ajuste_motivo?: string | null;
+  /** Monto total exento de IVA (Art. 18 Ley del IVA). */
+  exento?: number | null;
 }
 
 export interface LineaTotal {
@@ -62,10 +66,11 @@ export function lineasDeTotal(o: OrdenTotalizable, etiquetaFinal = 'TOTAL'): Lin
   const desc = round2(o.descuento_obtenido ?? 0);
   const incluido = !!o.iva_incluido && iva > 0;
   const ajuste = round2(o.ajuste ?? 0);
+  const exento = round2(o.exento ?? montoExentoDeItems(o.items));
 
   // Si el total ya es la suma de los renglones, desglosar sería ruido… salvo que los
-  // precios traigan el IVA adentro: ahí el pie tiene que decir cuánto es (14-10-2026).
-  if (Math.abs(total - sub) < 0.01 && !incluido) return [{ etiqueta: etiquetaFinal, monto: total }];
+  // precios traigan el IVA adentro o haya ítems exentos que reportar.
+  if (Math.abs(total - sub) < 0.01 && !incluido && exento <= 0) return [{ etiqueta: etiquetaFinal, monto: total }];
 
   const lineas: LineaTotal[] = [{ etiqueta: incluido ? 'Subtotal ítems (con IVA)' : 'Subtotal ítems', monto: sub }];
   if (desc > 0) lineas.push({ etiqueta: 'Descuento', monto: -desc });
@@ -85,6 +90,9 @@ export function lineasDeTotal(o: OrdenTotalizable, etiquetaFinal = 'TOTAL'): Lin
   if (incluido) {
     lineas.push({ etiqueta: 'Base sin IVA (informativo)', monto: round2(total - iva - igtf) });
     lineas.push({ etiqueta: `${etiquetaIva(true)} (informativo)`, monto: iva });
+  }
+  if (exento > 0) {
+    lineas.push({ etiqueta: 'Monto exento (0% IVA) (informativo)', monto: exento });
   }
   return lineas;
 }

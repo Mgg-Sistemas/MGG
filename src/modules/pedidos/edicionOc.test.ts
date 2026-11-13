@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { cambiaNota, cambiaProveedorOc, cambiaTexto, cambianNombres, camposDeEdicion, hayCambiosMateriales } from './edicionOc';
+import {
+  cambiaNota,
+  cambiaProveedorOc,
+  cambiaTexto,
+  cambianNombres,
+  camposDeEdicion,
+  hayCambiosMateriales,
+  type ItemComparable,
+} from './edicionOc';
 
 // Caso real SP-2026-0124 (GT) / SP-2026-0116-4 (MGG): editar y guardar sin cambios reabría la OC.
 const oc = {
@@ -9,7 +17,7 @@ const oc = {
   proveedor_id: 'prov-maxoil',
   notas: 'SOLICITUD DE PAILA ACEITE',
 };
-const mismos = () => oc.items.map((i) => ({ ...i }));
+const mismos = (): ItemComparable[] => oc.items.map((i) => ({ ...i }));
 
 describe('hayCambiosMateriales', () => {
   it('guardar sin tocar nada no es un cambio', () => {
@@ -29,8 +37,10 @@ describe('hayCambiosMateriales', () => {
   it('cambiar la cantidad o el precio reabre', () => {
     const a = mismos(); a[0].cantidad = 12;
     const b = mismos(); b[0].precio = 170;
+    const c = mismos(); c[0].exento = true;
     expect(hayCambiosMateriales(oc, { items: a })).toBe(true);
     expect(hayCambiosMateriales(oc, { items: b })).toBe(true);
+    expect(hayCambiosMateriales(oc, { items: c })).toBe(true);
   });
 
   it('agregar o quitar un producto reabre', () => {
