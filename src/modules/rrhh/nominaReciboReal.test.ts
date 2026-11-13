@@ -50,5 +50,7 @@ describe('recibos generados · moneda de pago de la empresa', () => {
     expect(texto).toContain('MONTO ASIGNADO');
     expect(texto).toContain('BNS-2026-001');
     expect(texto).toContain('TOTAL BENEFICIOS SOCIALES NO REMUNERATIVO DEL PERIODO');
+    // El párrafo legal sale justificado (jsPDF emite el operador Tw > 0 de espaciado entre palabras).
+    expect(texto).toMatch(/\d+\.\d+ Tw\s+0\. -\d+\.\d+ Td\s+\(concepto exclusivo de BENEFICIO SOCIAL/);
   });
 });

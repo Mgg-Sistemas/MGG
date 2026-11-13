@@ -312,10 +312,11 @@ function pie(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, hoja: HojaRecibo, c:
   let y = yIni;
 
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-  const lineasConformidad = doc.splitTextToSize(textoConformidad(hoja, c, textoPeriodo(meta, r), hoja === 'bono' ? bonoEnReal(c, meta.periodo.tasa_brl) : null), anchoUtilPdf(PAGE_W)) as string[];
+  const ancho = anchoUtilPdf(PAGE_W);
+  const lineasConformidad = doc.splitTextToSize(textoConformidad(hoja, c, textoPeriodo(meta, r), hoja === 'bono' ? bonoEnReal(c, meta.periodo.tasa_brl) : null), ancho) as string[];
   // Si no entra sobre el margen inferior, la conformidad pasa a la hoja siguiente.
   if (y + 10 + lineasConformidad.length * 10 > limiteInferiorPdf(PAGE_H)) { doc.addPage(); y = MARGIN; }
-  doc.text(lineasConformidad, MARGIN, y + 10);
+  doc.text(lineasConformidad, MARGIN, y + 10, { align: 'justify', maxWidth: ancho });
   y += 10 + lineasConformidad.length * 10;
 
   // Los seriales son de los billetes en divisas: van en el recibo del bono.
