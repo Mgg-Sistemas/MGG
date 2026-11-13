@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Orden } from '@/shared/lib/types';
 import {
   armarFila, celda, comprobanteDePago, hayFiltrosActivos, datosConciliacion, estadoConciliacion, filtrar, ordenesConciliables, referenciaDePago, retencionDeOrden,
-  tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, tieneReferencia,
+  tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, tieneReferencia, COLUMNAS_CONCILIACION,
 } from './conciliacion';
 
 // Record suelto: la traza real trae claves extra (referencia_bs, binance_orden) que el tipo no lista.
@@ -146,5 +146,14 @@ describe('conciliación · órdenes de servicio', () => {
     const w = textoWhatsappConciliacion(filas);
     expect(w).toContain('(1 OC · 1 servicio)');
     expect(w).toContain('🔧 *SV-2026-0039* (servicio) TALLER');
+  });
+
+  it('DRIVE/BANCO es la última columna en la tabla y reportes', () => {
+    const claves = COLUMNAS_CONCILIACION.map((c) => c.clave);
+    expect(claves[claves.length - 1]).toBe('drive');
+    const idxDrive = claves.indexOf('drive');
+    expect(claves.indexOf('retencion')).toBeLessThan(idxDrive);
+    expect(claves.indexOf('factura')).toBeLessThan(idxDrive);
+    expect(claves.indexOf('estado')).toBeLessThan(idxDrive);
   });
 });

@@ -405,7 +405,7 @@ export function ConciliacionPage() {
               <thead>
                 <tr>
                   <th style={{ textAlign: 'center' }}>Ítem</th><th>Código</th><th>Proveedor</th>
-                  <th style={{ textAlign: 'right' }}>Monto de la OC</th><th>Referencia de pago</th><th>DRIVE/BANCO</th><th>Retención</th><th>Factura</th><th>Status</th>
+                  <th style={{ textAlign: 'right' }}>Monto de la OC</th><th>Referencia de pago</th><th>Retención</th><th>Factura</th><th>Status</th><th>DRIVE/BANCO</th>
                 </tr>
               </thead>
               <tbody>
@@ -448,17 +448,6 @@ export function ConciliacionPage() {
                         )}
                       </div>
                     </td>
-                    <td style={{ whiteSpace: 'normal', minWidth: 110 }}>
-                      {f.drive ? (
-                        <>
-                          <span className={`badge ${f.drive.estado === 'CUADRA' ? 'success' : 'danger'}`} title={f.drive.motivo}>{f.drive.estado}</span>
-                          {f.drive.estado === 'NO CUADRA' && <div className="muted" style={{ fontSize: '.7rem', maxWidth: 200 }}>{f.drive.motivo}</div>}
-                          <div className="muted mono" style={{ fontSize: '.66rem' }} title={`Archivo: ${f.drive.datos.archivo}`}>
-                            {bsTxt(f.drive.datos.montoBs)} · ref. {f.drive.datos.referencias.join(', ')}
-                          </div>
-                        </>
-                      ) : <span className="muted" style={{ fontSize: '.78rem' }}>—</span>}
-                    </td>
                     <td style={{ whiteSpace: 'normal', minWidth: 130 }}>
                       {f.retencion.lleva ? (
                         <>
@@ -473,6 +462,17 @@ export function ConciliacionPage() {
                         : <span className="muted" style={{ fontSize: '.78rem' }}>Sin factura</span>}
                     </td>
                     <td><span className={`badge ${f.estado.className}`}>{f.estado.label}</span></td>
+                    <td style={{ whiteSpace: 'normal', minWidth: 110 }}>
+                      {f.drive ? (
+                        <>
+                          <span className={`badge ${f.drive.estado === 'CUADRA' ? 'success' : 'danger'}`} title={f.drive.motivo}>{f.drive.estado}</span>
+                          {f.drive.estado === 'NO CUADRA' && <div className="muted" style={{ fontSize: '.7rem', maxWidth: 200 }}>{f.drive.motivo}</div>}
+                          <div className="muted mono" style={{ fontSize: '.66rem' }} title={`Archivo: ${f.drive.datos.archivo}`}>
+                            {bsTxt(f.drive.datos.montoBs)} · ref. {f.drive.datos.referencias.join(', ')}
+                          </div>
+                        </>
+                      ) : <span className="muted" style={{ fontSize: '.78rem' }}>—</span>}
+                    </td>
                   </tr>
                 ))}
                 {!filas.length && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>No hay órdenes con esos filtros.</td></tr>}

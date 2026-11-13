@@ -325,7 +325,7 @@ export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): Fila
 }
 
 /* ───────── Reporte dinámico: columnas ───────── */
-export type ColumnaConciliacion = 'item' | 'codigo' | 'tipo' | 'proveedor' | 'monto_usd' | 'monto_bs' | 'tasa' | 'referencia' | 'drive' | 'retencion' | 'factura' | 'estado';
+export type ColumnaConciliacion = 'item' | 'codigo' | 'tipo' | 'proveedor' | 'monto_usd' | 'monto_bs' | 'tasa' | 'referencia' | 'retencion' | 'factura' | 'estado' | 'drive';
 
 export const COLUMNAS_CONCILIACION: { clave: ColumnaConciliacion; label: string; porDefecto: boolean }[] = [
   { clave: 'item', label: 'Ítem', porDefecto: true },
@@ -336,10 +336,10 @@ export const COLUMNAS_CONCILIACION: { clave: ColumnaConciliacion; label: string;
   { clave: 'monto_bs', label: 'Monto Bs', porDefecto: true },
   { clave: 'tasa', label: 'Tasa', porDefecto: false },
   { clave: 'referencia', label: 'Referencia de pago', porDefecto: true },
-  { clave: 'drive', label: 'DRIVE/BANCO', porDefecto: true },
   { clave: 'retencion', label: 'Retención', porDefecto: true },
   { clave: 'factura', label: 'Factura', porDefecto: true },
   { clave: 'estado', label: 'Status', porDefecto: true },
+  { clave: 'drive', label: 'DRIVE/BANCO', porDefecto: true },
 ];
 
 const fmt = (n: number, d = 2) => n.toLocaleString('es-VE', { minimumFractionDigits: d, maximumFractionDigits: d });
