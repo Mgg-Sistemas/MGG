@@ -16,6 +16,7 @@ const FMT_TASA = '#,##0.0000';
 
 const ANCHO: Record<ColumnaConciliacion, number> = {
   item: 7, codigo: 18, tipo: 11, proveedor: 34, monto_usd: 15, monto_bs: 19, tasa: 13,
+  moneda_pago: 16, se_cruza: 14,
   referencia: 22, retencion: 28, factura: 14, estado: 18, drive: 16,
 };
 

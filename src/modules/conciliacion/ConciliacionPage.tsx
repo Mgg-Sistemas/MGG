@@ -29,7 +29,7 @@ import {
 } from './conciliacion.repository';
 import {
   COLUMNAS_CONCILIACION, bsTxt, desgloseTipos, diaCaracas, filtrar, hayFiltrosActivos, tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, usdTxt,
-  valorFiltroDrive, type ColumnaConciliacion, type FilaConciliacion, type FiltroDrive, type FiltrosConciliacion, type GrupoEstado,
+  valorFiltroDrive, type ColumnaConciliacion, type FilaConciliacion, type FiltroDrive, type FiltroMonedaPago, type FiltrosConciliacion, type GrupoEstado,
 } from './conciliacion';
 import { vistaPreviaConciliacionPdf } from './conciliacionPdf';
 import { vistaPreviaConciliacionExcel } from './conciliacionExcel';
@@ -79,9 +79,20 @@ function rangoRapido(r: 'hoy' | '7d' | 'mes' | 'mes_ant'): { desde: string; hast
 /* Opciones de los filtros de casillas. */
 const OPC_TIPO: { value: 'oc' | 'servicio'; label: string }[] = [{ value: 'oc', label: 'OC' }, { value: 'servicio', label: 'Servicios' }];
 const OPC_PAGO: { value: 'pagadas' | 'sin_pagar'; label: string }[] = [{ value: 'pagadas', label: 'Pagadas' }, { value: 'sin_pagar', label: 'Sin pagar' }];
+const OPC_MONEDA_PAGO: { value: FiltroMonedaPago; label: string }[] = [
+  { value: 'bs', label: 'En Bs (sí cruza)' },
+  { value: 'usd', label: 'En USD (no cruza)' },
+  { value: 'mixto', label: 'Mixto (Bs + $)' },
+  { value: 'sin_pagar', label: 'Sin pagar' },
+];
 const OPC_RET: { value: 'si' | 'no'; label: string }[] = [{ value: 'si', label: 'Con retención' }, { value: 'no', label: 'Sin retención' }];
 const OPC_REF: { value: 'con' | 'sin'; label: string }[] = [{ value: 'con', label: 'Con referencia' }, { value: 'sin', label: 'Sin referencia' }];
-const OPC_DRIVE: { value: FiltroDrive; label: string }[] = [{ value: 'cuadra', label: 'Cuadra' }, { value: 'no_cuadra', label: 'No cuadra' }, { value: 'sin', label: 'Sin cotejar' }];
+const OPC_DRIVE: { value: FiltroDrive; label: string }[] = [
+  { value: 'cuadra', label: 'Cuadra' },
+  { value: 'no_cuadra', label: 'No cuadra' },
+  { value: 'sin', label: 'Sin cotejar (Bs)' },
+  { value: 'no_aplica', label: 'No aplica (USD)' },
+];
 
 /** Las etiquetas marcadas de un filtro de casillas («A o B»). */
 function etiquetas<T extends string>(marcadas: T[] | undefined, opciones: { value: T; label: string }[]): string {
@@ -163,6 +174,7 @@ function textoFiltros(f: FiltrosConciliacion): string {
   parte(etiquetas(f.tipo, OPC_TIPO), f.tipo, OPC_TIPO.length);
   parte(f.grupo?.length ? `Status: ${etiquetas(f.grupo, GRUPOS)}` : '', f.grupo, GRUPOS.length);
   parte(etiquetas(f.pago, OPC_PAGO), f.pago, OPC_PAGO.length);
+  parte(etiquetas(f.monedaPago, OPC_MONEDA_PAGO), f.monedaPago, OPC_MONEDA_PAGO.length);
   parte(etiquetas(f.retencion, OPC_RET), f.retencion, OPC_RET.length);
   parte(etiquetas(f.referencia, OPC_REF), f.referencia, OPC_REF.length);
   parte(f.drive?.length ? `DRIVE/BANCO: ${etiquetas(f.drive, OPC_DRIVE)}` : '', f.drive, OPC_DRIVE.length);
@@ -285,7 +297,7 @@ export function ConciliacionPage() {
   const chips = useMemo(() => {
     const pagadas = filtrar(datos?.filas ?? [], { ...filtros, drive: [], pago: [] }).filter((f) => f.pagado);
     const n = (v: FiltroDrive) => pagadas.filter((f) => valorFiltroDrive(f) === v).length;
-    return { pagos: pagadas.length, cuadra: n('cuadra'), no_cuadra: n('no_cuadra'), sin: n('sin') };
+    return { pagos: pagadas.length, cuadra: n('cuadra'), no_cuadra: n('no_cuadra'), sin: n('sin'), no_aplica: n('no_aplica') };
   }, [datos, filtros]);
   const t = useMemo(() => tarjetas(filas), [filas]);
   // El reporte trae su propio rango de fechas: parte de los demás filtros de la pantalla.
@@ -427,6 +439,7 @@ export function ConciliacionPage() {
         <FiltroChecks titulo="Tipo" todas="OC y servicios" opciones={OPC_TIPO} marcadas={filtros.tipo} onChange={(v) => setF({ tipo: v })} />
         <FiltroChecks titulo="Status" todas="Todos los status" opciones={GRUPOS} marcadas={filtros.grupo} onChange={(v) => setF({ grupo: v })} />
         <FiltroChecks titulo="Pago" todas="Pagadas y sin pagar" opciones={OPC_PAGO} marcadas={filtros.pago} onChange={(v) => setF({ pago: v })} />
+        <FiltroChecks titulo="Moneda" todas="Moneda: todas" opciones={OPC_MONEDA_PAGO} marcadas={filtros.monedaPago} onChange={(v) => setF({ monedaPago: v })} />
         <FiltroChecks titulo="Retención" todas="Con y sin retención" opciones={OPC_RET} marcadas={filtros.retencion} onChange={(v) => setF({ retencion: v })} />
         <FiltroChecks titulo="Referencia" todas="Con y sin referencia" opciones={OPC_REF} marcadas={filtros.referencia} onChange={(v) => setF({ referencia: v })} />
         <FiltroChecks titulo="DRIVE/BANCO" todas="DRIVE/BANCO: todos" opciones={OPC_DRIVE} marcadas={filtros.drive} onChange={(v) => setF({ drive: v })} />
@@ -443,11 +456,13 @@ export function ConciliacionPage() {
             <ChipDrive tono="gris" activo={soloPagos && !filtros.drive?.length} onClick={tocarChipPagos}
               title="Solo las órdenes pagadas">{chips.pagos} pagos</ChipDrive>
             <ChipDrive tono="verde" activo={!!filtros.drive?.includes('cuadra')} onClick={() => tocarChipDrive('cuadra')}
-              title="Pagadas cuyo Drive CUADRA (referencia y monto en Bs coinciden)">{chips.cuadra} cuadra</ChipDrive>
+              title="Pagadas en Bs cuyo Drive CUADRA (referencia y monto en Bs coinciden)">{chips.cuadra} cuadra</ChipDrive>
             <ChipDrive tono="rojo" activo={!!filtros.drive?.includes('no_cuadra')} onClick={() => tocarChipDrive('no_cuadra')}
-              title="Pagadas cuyo Drive NO CUADRA">{chips.no_cuadra} no cuadra</ChipDrive>
+              title="Pagadas en Bs cuyo Drive NO CUADRA">{chips.no_cuadra} no cuadra</ChipDrive>
             <ChipDrive tono="amarillo" activo={!!filtros.drive?.includes('sin')} onClick={() => tocarChipDrive('sin')}
-              title="Pagadas que todavía no están en ningún archivo del Drive">{chips.sin} sin cotejar</ChipDrive>
+              title="Pagadas en Bs que todavía no están en ningún archivo del Drive">{chips.sin} sin cotejar</ChipDrive>
+            <ChipDrive tono="gris" activo={!!filtros.drive?.includes('no_aplica')} onClick={() => tocarChipDrive('no_aplica')}
+              title="Pagadas en divisas/USD (no cruzan con el Drive en Bs)">{chips.no_aplica} en USD (no cruzan)</ChipDrive>
           </div>
         )}
         {cargando && !datos ? <div className="muted" style={{ padding: '1rem' }}>Cargando…</div> : (
@@ -456,7 +471,10 @@ export function ConciliacionPage() {
               <thead>
                 <tr>
                   <th style={{ textAlign: 'center' }}>Ítem</th><th>Código</th><th>Proveedor</th>
-                  <th style={{ textAlign: 'right' }}>Monto de la OC</th><th>Referencia de pago</th><th>Retención</th><th>Factura</th><th>Status</th><th>DRIVE/BANCO</th>
+                  <th style={{ textAlign: 'right' }}>Monto de la OC</th>
+                  <th style={{ textAlign: 'center' }}>Moneda pago</th>
+                  <th style={{ textAlign: 'center' }}>¿Se cruza?</th>
+                  <th>Referencia de pago</th><th>Retención</th><th>Factura</th><th>Status</th><th>DRIVE/BANCO</th>
                 </tr>
               </thead>
               <tbody>
@@ -477,6 +495,39 @@ export function ConciliacionPage() {
                       <div className="mono muted" style={{ fontSize: '.74rem' }} title={f.tasa ? `Tasa ${f.tasa}${f.tasaEsDeHoy ? ' (de hoy: la OC no se ha pagado)' : ' (BCV del día en que se pagó)'}` : 'Sin tasa registrada'}>
                         {f.montoBs != null ? bsTxt(f.montoBs) : 'Bs —'}{f.tasaEsDeHoy && f.montoBs != null ? ' · hoy' : ''}
                       </div>
+                    </td>
+                    <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      {f.monedaPago === 'Bs' && (
+                        <span className="badge info" style={{ fontSize: '.72rem', fontWeight: 700 }} title="Pagada en Bolívares">
+                          Bs
+                        </span>
+                      )}
+                      {f.monedaPago === 'USD' && (
+                        <span className="badge" style={{ fontSize: '.72rem', fontWeight: 700, background: 'rgba(148,163,184,.14)', color: 'var(--text-muted)' }} title="Pagada en Divisas / USD ($)">
+                          $ USD
+                        </span>
+                      )}
+                      {f.monedaPago === 'Mixto' && (
+                        <span className="badge warning" style={{ fontSize: '.72rem', fontWeight: 700 }} title="Pago mixto (Bs y Divisas)">
+                          Mixto
+                        </span>
+                      )}
+                      {f.monedaPago === 'Sin pagar' && (
+                        <span className="muted" style={{ fontSize: '.75rem' }}>—</span>
+                      )}
+                    </td>
+                    <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                      {f.seCruza ? (
+                        <span className="badge success" style={{ fontSize: '.72rem', fontWeight: 700 }} title="Pagada en Bs: sí se cruza contra el Drive/Banco">
+                          ✓ Sí
+                        </span>
+                      ) : f.monedaPago === 'Sin pagar' ? (
+                        <span className="muted" style={{ fontSize: '.75rem' }}>—</span>
+                      ) : (
+                        <span className="badge" style={{ fontSize: '.72rem', fontWeight: 600, background: 'rgba(148,163,184,.14)', color: 'var(--text-muted)' }} title="Pagada en USD / divisas: no se cruza contra cuenta en Bs">
+                          ✕ No
+                        </span>
+                      )}
                     </td>
                     <td className="mono">
                       <div style={{ display: 'flex', alignItems: 'flex-start', gap: '.3rem' }}>
@@ -522,11 +573,17 @@ export function ConciliacionPage() {
                             {bsTxt(f.drive.datos.montoBs)} · ref. {f.drive.datos.referencias.join(', ')}
                           </div>
                         </>
-                      ) : <span className="muted" style={{ fontSize: '.78rem' }}>—</span>}
+                      ) : f.pagado && !f.seCruza ? (
+                        <span className="badge" style={{ fontSize: '.7rem', background: 'rgba(148,163,184,.12)', color: 'var(--text-muted)' }} title="Pagada en USD: no cruza contra el banco en Bs">
+                          No aplica (USD)
+                        </span>
+                      ) : (
+                        <span className="muted" style={{ fontSize: '.78rem' }}>—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
-                {!filas.length && <tr><td colSpan={9} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>No hay órdenes con esos filtros.</td></tr>}
+                {!filas.length && <tr><td colSpan={11} className="muted" style={{ textAlign: 'center', padding: '1.5rem' }}>No hay órdenes con esos filtros.</td></tr>}
               </tbody>
             </table>
           </div>

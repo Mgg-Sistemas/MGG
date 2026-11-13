@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Orden } from '@/shared/lib/types';
 import {
-  armarFila, celda, comprobanteDePago, hayFiltrosActivos, datosConciliacion, estadoConciliacion, filtrar, ordenesConciliables, referenciaDePago, retencionDeOrden,
-  tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, tieneReferencia, COLUMNAS_CONCILIACION,
+  armarFila, celda, comprobanteDePago, hayFiltrosActivos, datosConciliacion, detectarMonedaPago, estadoConciliacion, filtrar, ordenesConciliables, referenciaDePago, retencionDeOrden,
+  tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, tieneReferencia, valorFiltroDrive, COLUMNAS_CONCILIACION,
 } from './conciliacion';
 
 // Record suelto: la traza real trae claves extra (referencia_bs, binance_orden) que el tipo no lista.
@@ -158,5 +158,81 @@ describe('conciliación · órdenes de servicio', () => {
     expect(claves.indexOf('retencion')).toBeLessThan(idxDrive);
     expect(claves.indexOf('factura')).toBeLessThan(idxDrive);
     expect(claves.indexOf('estado')).toBeLessThan(idxDrive);
+  });
+});
+
+describe('conciliación · moneda de pago y cruce con Drive/Banco', () => {
+  it('detectarMonedaPago: detecta Bs cuando Tesorería pagó en Bs y marca que SÍ se cruza', () => {
+    const oBs = oc({
+      id: 'o_bs',
+      pagada_en: '2026-11-10T10:00:00Z',
+      historial: [{ evento: 'pagada', referencia_bs: '8519' }],
+    });
+    const det = detectarMonedaPago(oBs);
+    expect(det.monedaPago).toBe('Bs');
+    expect(det.seCruza).toBe(true);
+
+    const fila = armarFila({ orden: oBs, proveedor: 'FARIAS', tasaPago: 40, tasaHoy: 45 }, 1);
+    expect(fila.monedaPago).toBe('Bs');
+    expect(fila.seCruza).toBe(true);
+    expect(celda(fila, 'moneda_pago')).toBe('Bs');
+    expect(celda(fila, 'se_cruza')).toBe('Sí (cruza)');
+    expect(valorFiltroDrive(fila)).toBe('sin');
+  });
+
+  it('detectarMonedaPago: detecta USD cuando Tesorería pagó en divisas y marca que NO se cruza', () => {
+    const oUsd = oc({
+      id: 'o_usd',
+      pagada_en: '2026-11-10T10:00:00Z',
+      historial: [{ evento: 'pagada', binance_orden: '123456' }],
+    });
+    const det = detectarMonedaPago(oUsd);
+    expect(det.monedaPago).toBe('USD');
+    expect(det.seCruza).toBe(false);
+
+    const fila = armarFila({ orden: oUsd, proveedor: 'IMPORT', tasaPago: 40, tasaHoy: 45 }, 2);
+    expect(fila.monedaPago).toBe('USD');
+    expect(fila.seCruza).toBe(false);
+    expect(celda(fila, 'moneda_pago')).toBe('USD');
+    expect(celda(fila, 'se_cruza')).toBe('No (divisas)');
+    expect(valorFiltroDrive(fila)).toBe('no_aplica');
+  });
+
+  it('detectarMonedaPago: multipago mixto marca Mixto y SÍ se cruza por la porción en Bs', () => {
+    const oMix = oc({
+      id: 'o_mix',
+      pagada_en: '2026-11-10T10:00:00Z',
+      historial: [{
+        evento: 'pagada',
+        multipago: [
+          { moneda: 'Bs', monto: 150000 },
+          { moneda: 'USD', monto: 50 },
+        ],
+      }],
+    });
+    const det = detectarMonedaPago(oMix);
+    expect(det.monedaPago).toBe('Mixto');
+    expect(det.seCruza).toBe(true);
+  });
+
+  it('detectarMonedaPago: sin pagar marca Sin pagar y no se cruza', () => {
+    const oSin = oc({ id: 'o_sin', estado: 'oc_aprobada' });
+    const det = detectarMonedaPago(oSin);
+    expect(det.monedaPago).toBe('Sin pagar');
+    expect(det.seCruza).toBe(false);
+
+    const fila = armarFila({ orden: oSin, proveedor: 'ACME', tasaPago: null, tasaHoy: 45 }, 3);
+    expect(celda(fila, 'moneda_pago')).toBe('Sin pagar');
+    expect(celda(fila, 'se_cruza')).toBe('—');
+  });
+
+  it('permite filtrar por moneda de pago (Bs / USD)', () => {
+    const f1 = armarFila({ orden: oc({ id: '1', pagada_en: '2026-11-10T10:00:00Z', historial: [{ evento: 'pagada', referencia_bs: '1111' }] }), proveedor: 'A', tasaPago: 40, tasaHoy: 45 }, 1);
+    const f2 = armarFila({ orden: oc({ id: '2', pagada_en: '2026-11-10T10:00:00Z', historial: [{ evento: 'pagada', binance_orden: '2222' }] }), proveedor: 'B', tasaPago: 40, tasaHoy: 45 }, 2);
+
+    expect(filtrar([f1, f2], { monedaPago: ['bs'] }).map((f) => f.id)).toEqual(['1']);
+    expect(filtrar([f1, f2], { monedaPago: ['usd'] }).map((f) => f.id)).toEqual(['2']);
+    expect(filtrar([f1, f2], { drive: ['no_aplica'] }).map((f) => f.id)).toEqual(['2']);
+    expect(filtrar([f1, f2], { drive: ['sin'] }).map((f) => f.id)).toEqual(['1']);
   });
 });

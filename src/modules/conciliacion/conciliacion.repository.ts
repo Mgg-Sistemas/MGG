@@ -14,7 +14,7 @@ import { cantidadFacturas, resolverOrigenFacturas } from '@/modules/pedidos/fact
 import { origenFactura } from '@/modules/pedidos/facturaCompras';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 import {
-  EVENTO_REF_CONCILIACION, armarFila, comprobanteDePago, conDrive, datosConciliacion, ordenesConciliables, referenciaDePago,
+  EVENTO_REF_CONCILIACION, armarFila, comprobanteDePago, conDrive, datosConciliacion, detectarMonedaPago, ordenesConciliables, referenciaDePago,
   type FilaConciliacion, type RetencionFiscalOc,
 } from './conciliacion';
 import { EVENTO_DRIVE, type DatosDrive } from './conciliacionDrive';
@@ -148,7 +148,14 @@ export async function guardarReferenciaConciliacion(
 
 /** Lo que muestra la fila tras guardar (sin recargar toda la conciliación). */
 export function filaConReferencia(fila: FilaConciliacion, o: Orden): FilaConciliacion {
-  return conDrive({ ...fila, referencia: referenciaDePago(o.historial), comprobantePago: comprobanteDePago(o.historial) }, o.historial);
+  const { monedaPago, seCruza } = detectarMonedaPago(o);
+  return conDrive({
+    ...fila,
+    monedaPago,
+    seCruza,
+    referencia: referenciaDePago(o.historial),
+    comprobantePago: comprobanteDePago(o.historial),
+  }, o.historial);
 }
 
 /**

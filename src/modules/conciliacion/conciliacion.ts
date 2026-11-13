@@ -141,6 +141,91 @@ export type TipoOrdenConciliacion = 'oc' | 'servicio';
 /** Orden de servicio (Control de Servicio, código SV-…): misma tabla `ordenes`, clase 'servicio'. */
 export const esServicio = (o: Pick<Orden, 'clase'>) => o.clase === 'servicio';
 
+export type MonedaPagoConciliacion = 'Bs' | 'USD' | 'Mixto' | 'Sin pagar';
+
+/**
+ * Detecta si la OC fue pagada en Bs o USD ($) según lo que Tesorería registró:
+ *   · En Bs (multipago en Bs, referencia_bs o modalidad en Bs) → SÍ SE CRUZA contra el Drive/banco.
+ *   · En USD (divisas, Zelle, efectivo, USDT/Binance) → NO SE CRUZA contra cuenta en Bs.
+ *   · Sin pagar → no aplica cruce.
+ */
+export function detectarMonedaPago(o: Partial<Orden>): {
+  monedaPago: MonedaPagoConciliacion;
+  seCruza: boolean;
+  detalle: string;
+} {
+  const pagado = !!o.pagada_en || (Number(o.abonado_total) || 0) > 0 || ['pagada', 'por_recibir', 'recibida', 'finalizada'].includes(String(o.estado ?? ''));
+
+  if (!pagado) {
+    return { monedaPago: 'Sin pagar', seCruza: false, detalle: 'Orden sin pagar aún' };
+  }
+
+  const evs = Array.isArray(o.historial) ? (o.historial as Array<Record<string, unknown>>) : [];
+
+  // 1. Revisar los eventos de pago en el historial (el más reciente manda)
+  for (let i = evs.length - 1; i >= 0; i--) {
+    const e = evs[i];
+    if (e?.evento === 'pagada' || e?.evento === 'abono' || e?.evento === 'credito_saldado' || e?.evento === 'pagada_sin_caja') {
+      // a) Multipago
+      if (Array.isArray(e.multipago) && e.multipago.length > 0) {
+        const legs = e.multipago as Array<Record<string, unknown>>;
+        const hasBs = legs.some((l) => /^bs$|^ves$|^bolivares$/i.test(String(l?.moneda ?? '').trim()) && (Number(l?.monto) || 0) > 0);
+        const hasUsd = legs.some((l) => /^(usd|usdt|\$|zelle|divisa|divisas|efectivo)$/i.test(String(l?.moneda ?? '').trim()) && (Number(l?.monto) || 0) > 0);
+        if (hasBs && hasUsd) {
+          return { monedaPago: 'Mixto', seCruza: true, detalle: 'Pago mixto (Bs y Divisas)' };
+        }
+        if (hasBs) {
+          return { monedaPago: 'Bs', seCruza: true, detalle: 'Pagada en Bolívares (Tesorería)' };
+        }
+        if (hasUsd) {
+          return { monedaPago: 'USD', seCruza: false, detalle: 'Pagada en Divisas / USD (no cruza)' };
+        }
+      }
+
+      // b) Referencia específica cargada por Tesorería
+      if (typeof e.referencia_bs === 'string' && e.referencia_bs.trim()) {
+        return { monedaPago: 'Bs', seCruza: true, detalle: 'Referencia en Bs indicada por Tesorería' };
+      }
+      if (typeof e.binance_orden === 'string' && e.binance_orden.trim()) {
+        return { monedaPago: 'USD', seCruza: false, detalle: 'Pagada por Binance USDT (no cruza)' };
+      }
+    }
+  }
+
+  // 2. Si hay referencia en Bs en cualquier evento
+  for (let i = evs.length - 1; i >= 0; i--) {
+    const e = evs[i];
+    if (typeof e?.referencia_bs === 'string' && e.referencia_bs.trim()) {
+      return { monedaPago: 'Bs', seCruza: true, detalle: 'Referencia en Bs registrada' };
+    }
+  }
+
+  // 3. Modalidad de pago
+  if (o.modalidad_pago === 'bs') {
+    return { monedaPago: 'Bs', seCruza: true, detalle: 'Modalidad de pago en Bs' };
+  }
+  if (o.modalidad_pago === 'usd' || o.pago_en_divisa === true) {
+    return { monedaPago: 'USD', seCruza: false, detalle: 'Modalidad de pago en divisas ($)' };
+  }
+
+  // 4. Método de pago registrado
+  if (Array.isArray(o.metodo_pago) && o.metodo_pago.length > 0) {
+    const hasBs = o.metodo_pago.some((m) => /^bs$|^ves$/i.test(String(m?.moneda ?? '').trim()));
+    const hasUsd = o.metodo_pago.some((m) => /^(usd|usdt|\$|zelle)$/i.test(String(m?.moneda ?? '').trim()));
+    if (hasBs && !hasUsd) return { monedaPago: 'Bs', seCruza: true, detalle: 'Método de pago en Bs' };
+    if (hasUsd && !hasBs) return { monedaPago: 'USD', seCruza: false, detalle: 'Método de pago en USD ($)' };
+    if (hasBs && hasUsd) return { monedaPago: 'Mixto', seCruza: true, detalle: 'Método mixto' };
+  }
+
+  // 5. Moneda base de la orden
+  if (String(o.moneda ?? '').toUpperCase() === 'BS' || String(o.total_moneda ?? '').toUpperCase() === 'BS') {
+    return { monedaPago: 'Bs', seCruza: true, detalle: 'Orden en Bolívares' };
+  }
+
+  // Por defecto en MGG: las órdenes cotizan en USD y si Tesorería no indicó Bs, se liquidan en divisas
+  return { monedaPago: 'USD', seCruza: false, detalle: 'Pagada en USD / divisas (no cruza)' };
+}
+
 export interface FilaConciliacion {
   id: string;
   item: number;
@@ -159,6 +244,10 @@ export interface FilaConciliacion {
   pagado: boolean;
   /** Lo pagado en $ (la OC completa si se pagó; en un crédito, lo abonado). */
   pagadoUsd: number;
+  /** Moneda en que Tesorería pagó la OC ('Bs' | 'USD' | 'Mixto' | 'Sin pagar'). */
+  monedaPago: MonedaPagoConciliacion;
+  /** ¿Tesorería pagó en Bs y por tanto sí se cruza contra el Drive/banco? */
+  seCruza: boolean;
   referencia: ReferenciaPago;
   comprobantePago: ComprobantePagoConciliacion | null;
   retencion: RetencionConciliacion;
@@ -198,6 +287,7 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
   const usd = totalUsd(o, tasa);
   const abonado = Number(o.abonado_total) || 0;
   const pagadoUsd = pagado ? usd : r2(Math.min(abonado, usd));
+  const { monedaPago, seCruza } = detectarMonedaPago(o);
   return conDrive({
     id: o.id,
     item,
@@ -213,6 +303,8 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
     tasaEsDeHoy: !pagado,
     pagado: pagado || pagadoUsd > 0,
     pagadoUsd,
+    monedaPago,
+    seCruza,
     referencia: referenciaDePago(o.historial),
     comprobantePago: comprobanteDePago(o.historial),
     retencion: retencionDeOrden(o, e.fiscales ?? []),
@@ -293,11 +385,16 @@ export function tarjetas(filas: FilaConciliacion[]): Tarjetas {
 /* Los filtros de lista son de casillas (12-11-2026): se marcan varias opciones;
    ninguna marcada = todas. */
 export type FiltroPago = 'pagadas' | 'sin_pagar';
+export type FiltroMonedaPago = 'bs' | 'usd' | 'mixto' | 'sin_pagar';
 export type FiltroRetencion = 'si' | 'no';
 export type FiltroReferencia = 'con' | 'sin';
-export type FiltroDrive = 'cuadra' | 'no_cuadra' | 'sin';
-export const valorFiltroDrive = (f: Pick<FilaConciliacion, 'drive'>): FiltroDrive =>
-  (!f.drive ? 'sin' : f.drive.estado === 'CUADRA' ? 'cuadra' : 'no_cuadra');
+export type FiltroDrive = 'cuadra' | 'no_cuadra' | 'sin' | 'no_aplica';
+export const valorFiltroDrive = (f: Pick<FilaConciliacion, 'drive'> & { seCruza?: boolean; pagado?: boolean }): FiltroDrive => {
+  if (f.pagado && f.seCruza === false) return 'no_aplica';
+  if (!f.drive) return 'sin';
+  return f.drive.estado === 'CUADRA' ? 'cuadra' : 'no_cuadra';
+};
+
 export interface FiltrosConciliacion {
   texto?: string;
   /** Vacío = OC y servicios. */
@@ -306,7 +403,9 @@ export interface FiltrosConciliacion {
   retencion?: FiltroRetencion[];
   referencia?: FiltroReferencia[];
   pago?: FiltroPago[];
-  /** DRIVE: cuadra / no cuadra / sin cotejar. */
+  /** Moneda en la que se pagó: Bs, USD, mixto o sin pagar. */
+  monedaPago?: FiltroMonedaPago[];
+  /** DRIVE: cuadra / no cuadra / sin cotejar / no aplica (USD). */
   drive?: FiltroDrive[];
   /** Rango AAAA-MM-DD (día de Venezuela) sobre la fecha que diga `fechaBase`. */
   desde?: string;
@@ -337,6 +436,11 @@ export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): Fila
     if (!pasa<FiltroRetencion>(f.retencion, x.retencion.lleva ? 'si' : 'no')) return false;
     if (!pasa<FiltroReferencia>(f.referencia, tieneReferencia(x.referencia) ? 'con' : 'sin')) return false;
     if (!pasa<FiltroPago>(f.pago, x.pagado ? 'pagadas' : 'sin_pagar')) return false;
+    if (!pasa<FiltroMonedaPago>(f.monedaPago,
+      x.monedaPago === 'Bs' ? 'bs'
+      : x.monedaPago === 'USD' ? 'usd'
+      : x.monedaPago === 'Mixto' ? 'mixto'
+      : 'sin_pagar')) return false;
     if (!pasa<FiltroDrive>(f.drive, valorFiltroDrive(x))) return false;
     if (f.desde || f.hasta) {
       const iso = f.fechaBase === 'pago' ? x.pagadaEn : x.fechaOc;
@@ -348,7 +452,8 @@ export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): Fila
       }
     }
     if (q) {
-      const hay = sinAcentos([x.codigo, x.sp, x.proveedor, x.estado.label, x.tipo === 'servicio' ? 'servicio' : 'compra', textoReferenciaPago(x.referencia),
+      const hay = sinAcentos([x.codigo, x.sp, x.proveedor, x.estado.label, x.tipo === 'servicio' ? 'servicio' : 'compra',
+        x.monedaPago, x.seCruza ? 'si cruza' : 'no cruza', textoReferenciaPago(x.referencia),
         x.retencion.tipos.join(' '), x.retencion.codigos.join(' '), x.drive?.estado ?? ''].join(' '));
       if (!hay.includes(q)) return false;
     }
@@ -357,7 +462,7 @@ export function filtrar(filas: FilaConciliacion[], f: FiltrosConciliacion): Fila
 }
 
 /* ───────── Reporte dinámico: columnas ───────── */
-export type ColumnaConciliacion = 'item' | 'codigo' | 'tipo' | 'proveedor' | 'monto_usd' | 'monto_bs' | 'tasa' | 'referencia' | 'retencion' | 'factura' | 'estado' | 'drive';
+export type ColumnaConciliacion = 'item' | 'codigo' | 'tipo' | 'proveedor' | 'monto_usd' | 'monto_bs' | 'tasa' | 'moneda_pago' | 'se_cruza' | 'referencia' | 'retencion' | 'factura' | 'estado' | 'drive';
 
 export const COLUMNAS_CONCILIACION: { clave: ColumnaConciliacion; label: string; porDefecto: boolean }[] = [
   { clave: 'item', label: 'Ítem', porDefecto: true },
@@ -367,6 +472,8 @@ export const COLUMNAS_CONCILIACION: { clave: ColumnaConciliacion; label: string;
   { clave: 'monto_usd', label: 'Monto $', porDefecto: true },
   { clave: 'monto_bs', label: 'Monto Bs', porDefecto: true },
   { clave: 'tasa', label: 'Tasa', porDefecto: false },
+  { clave: 'moneda_pago', label: 'Moneda de pago', porDefecto: true },
+  { clave: 'se_cruza', label: '¿Se cruza?', porDefecto: true },
   { clave: 'referencia', label: 'Referencia de pago', porDefecto: true },
   { clave: 'retencion', label: 'Retención', porDefecto: true },
   { clave: 'factura', label: 'Factura', porDefecto: true },
@@ -394,8 +501,10 @@ export function celda(f: FilaConciliacion, c: ColumnaConciliacion): string {
     case 'monto_usd': return usdTxt(f.montoUsd);
     case 'monto_bs': return f.montoBs != null ? bsTxt(f.montoBs) : '—';
     case 'tasa': return f.tasa ? `${fmt(f.tasa, 4)}${f.tasaEsDeHoy ? ' (hoy)' : ''}` : '—';
+    case 'moneda_pago': return f.monedaPago;
+    case 'se_cruza': return f.seCruza ? 'Sí (cruza)' : f.monedaPago === 'Sin pagar' ? '—' : 'No (divisas)';
     case 'referencia': return textoReferenciaPago(f.referencia) || '—';
-    case 'drive': return f.drive?.estado ?? '—';
+    case 'drive': return f.drive?.estado ?? (f.pagado && !f.seCruza ? 'No aplica (USD)' : '—');
     case 'retencion': return textoRetencion(f.retencion);
     case 'factura': return f.facturas ? `${f.facturas} archivo(s)` : 'Sin factura';
     case 'estado': return f.estado.label;
@@ -432,6 +541,8 @@ export function textoWhatsappConciliacion(filas: FilaConciliacion[], opts: { tit
     if (cab) L.push(cab);
     const monto = [cols.has('monto_usd') ? usdTxt(f.montoUsd) : '', cols.has('monto_bs') && f.montoBs != null ? bsTxt(f.montoBs) : '', cols.has('tasa') && f.tasa ? `tasa ${fmt(f.tasa, 2)}${f.tasaEsDeHoy ? ' (hoy)' : ''}` : ''].filter(Boolean).join(' · ');
     if (monto) L.push(`   💰 ${monto}`);
+    if (cols.has('moneda_pago')) L.push(`   💵 Pagada en: ${f.monedaPago}`);
+    if (cols.has('se_cruza')) L.push(`   🔄 ¿Se cruza con Drive?: ${f.seCruza ? 'Sí (en Bs)' : 'No (divisas)'}`);
     if (cols.has('referencia')) L.push(`   🔢 Ref.: ${textoReferenciaPago(f.referencia) || '—'}`);
     if (cols.has('drive') && f.drive) L.push(`   ${f.drive.estado === 'CUADRA' ? '✅' : '❌'} DRIVE/BANCO: ${f.drive.estado}`);
     if (cols.has('retencion')) L.push(`   🏛 Retención: ${textoRetencion(f.retencion)}`);
