@@ -221,14 +221,46 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
   }, o.historial);
 }
 
+export const FECHA_MINIMA_CONCILIACION = '2026-11-01';
+
+/**
+ * Fecha representativa para corte de conciliación (Venezuela).
+ * Si fue pagada o creada en noviembre o después (>= 2026-11-01), califica.
+ */
+export function fechaOrdenConciliable(o: Partial<Orden>): string | null {
+  const campos = [o.pagada_en, o.oc_creada_en, o.created_at].filter(Boolean) as string[];
+  for (const iso of campos) {
+    const raw = iso.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw) && raw >= FECHA_MINIMA_CONCILIACION) {
+      return raw;
+    }
+    try {
+      const dp = diaCaracas(iso);
+      if (dp >= FECHA_MINIMA_CONCILIACION) return dp;
+    } catch {
+      // continua
+    }
+  }
+  return null;
+}
+
 /**
  * Las que entran: las OC (con código de OC) y las órdenes de servicio que ya pasaron a
  * Control de Servicio (oc_creada_en; casi nunca llevan código de OC, se ven con su SV-…).
- * Sin canceladas/anuladas. Las más nuevas primero.
+ * Sin canceladas/anuladas.
+ * REGLA ESTRICTA (13-11-2026): solo órdenes desde el 1 de noviembre de 2026 en adelante
+ * (creadas o pagadas >= 2026-11-01).
+ * Las más nuevas primero.
  */
 export function ordenesConciliables(ordenes: Orden[]): Orden[] {
   return ordenes
-    .filter((o) => (!!o.oc_codigo || (esServicio(o) && !!o.oc_creada_en)) && !ESTADOS_FUERA.includes(o.estado))
+    .filter((o) => {
+      if (!o.oc_codigo && (!esServicio(o) || !o.oc_creada_en)) return false;
+      if (ESTADOS_FUERA.includes(o.estado)) return false;
+      const dia = fechaOrdenConciliable(o);
+      if (!dia || dia < FECHA_MINIMA_CONCILIACION) return false;
+      return true;
+    })
     .sort((a, b) => String(b.oc_creada_en ?? b.created_at ?? '').localeCompare(String(a.oc_creada_en ?? a.created_at ?? '')));
 }
 

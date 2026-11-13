@@ -13,12 +13,17 @@ import type { Orden } from '@/shared/lib/types';
 import type { FilaConciliacion } from './conciliacion';
 import { cruzarDrive, pagadoBsTesoreria, type AnalisisDrive, type FilaDrive, type ResultadoDrive } from './conciliacionDrive';
 import { guardarDrive } from './conciliacion.repository';
+import { guardarDriveEntradas } from './conciliacionEntradas.repository';
 
 const COLOR: Record<AnalisisDrive['estado'], string> = { Validado: '#10b981', Duplicados: '#f59e0b', Error: '#ef4444' };
 const ICONO: Record<AnalisisDrive['estado'], string> = { Validado: '✅', Duplicados: '⚠', Error: '❌' };
-type Filtro = 'todos' | 'error' | 'duplicado' | 'valido';
+type Filtro = 'todos' | 'error' | 'duplicado' | 'valido' | 'ya_conciliada';
 const FILTROS: Array<{ key: Filtro; label: string }> = [
-  { key: 'todos', label: 'Todas' }, { key: 'error', label: 'Con error' }, { key: 'duplicado', label: 'Duplicadas' }, { key: 'valido', label: 'Válidas' },
+  { key: 'todos', label: 'Todas' },
+  { key: 'error', label: 'Con error' },
+  { key: 'duplicado', label: 'Duplicadas' },
+  { key: 'valido', label: 'Nuevas válidas' },
+  { key: 'ya_conciliada', label: 'Ya conciliadas' },
 ];
 const COLUMNA: Record<string, string> = { codigo: 'Código OC', referencia: 'Referencia', monto: 'Monto Bs' };
 const fmtBs = (n: number) => (Number.isFinite(n) ? `Bs ${n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—');
@@ -49,17 +54,37 @@ export function CargarDriveModal({ analisis, filas, ordenes, onClose, onGuardado
   }, [analisis, filas, ordenes]);
   const cuadran = [...cruce.values()].filter((r) => r.estado === 'CUADRA').length;
   const noCuadran = cruce.size - cuadran;
-  const visibles = analisis.filas.filter((f) => filtro === 'todos' || f.estado === filtro);
+  const visibles = analisis.filas.filter((f) => {
+    if (filtro === 'todos') return true;
+    if (filtro === 'ya_conciliada') return f.estado === 'ya_conciliada' || f.yaConciliada;
+    return f.estado === filtro;
+  });
+
+  const totalNuevas = (analisis.porOrden?.size || 0) + (analisis.porOrdenEntradas?.size || 0);
 
   async function subir() {
     if (necesitaConfirmar && !confirmando) { setConfirmando(true); return; }
     setAplicando(true);
     try {
-      const r = await guardarDrive(analisis.porOrden, user?.email ?? 'conciliacion');
-      onGuardado(r.guardadas);
-      const sub = r.fallidas.length ? ` · ${r.fallidas.length} no se pudieron guardar` : '';
-      toast(`Drive cargado: ${r.guardadas.length} OC cotejadas${sub}`, r.fallidas.length ? 'warning' : 'success');
-      if (!r.fallidas.length) onClose(); else setAplicando(false);
+      const ordenesActualizadas: Orden[] = [];
+      let fallidasTotal = 0;
+
+      if (analisis.porOrden && analisis.porOrden.size > 0) {
+        const r = await guardarDrive(analisis.porOrden, user?.email ?? 'conciliacion');
+        ordenesActualizadas.push(...r.guardadas);
+        fallidasTotal += r.fallidas.length;
+      }
+
+      if (analisis.porOrdenEntradas && analisis.porOrdenEntradas.size > 0) {
+        const rEnt = await guardarDriveEntradas(analisis.porOrdenEntradas, user?.email ?? 'conciliacion');
+        ordenesActualizadas.push(...rEnt.guardadas);
+        fallidasTotal += rEnt.fallidas.length;
+      }
+
+      onGuardado(ordenesActualizadas);
+      const sub = fallidasTotal ? ` · ${fallidasTotal} no se pudieron guardar` : '';
+      toast(`Drive cargado: ${ordenesActualizadas.length} OC cotejadas${sub}`, fallidasTotal ? 'warning' : 'success');
+      if (!fallidasTotal) onClose(); else setAplicando(false);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo cargar el Drive', 'error');
       setAplicando(false);
@@ -70,8 +95,8 @@ export function CargarDriveModal({ analisis, filas, ordenes, onClose, onGuardado
     <Modal title={`📥 Cargar Drive/Banco · ${analisis.archivo}`} size="xl" onClose={onClose} footer={<>
       <button className="btn btn-ghost" onClick={onClose} disabled={aplicando}>Cancelar</button>
       {puedeSubir ? (
-        <button className={`btn ${necesitaConfirmar ? 'btn-warning' : 'btn-primary'}`} onClick={() => void subir()} disabled={aplicando || !analisis.porOrden.size}>
-          {aplicando ? 'Subiendo…' : necesitaConfirmar && confirmando ? 'Sí, subir de todas formas' : '↑ Subir archivo'}
+        <button className={`btn ${necesitaConfirmar ? 'btn-warning' : 'btn-primary'}`} onClick={() => void subir()} disabled={aplicando || !totalNuevas}>
+          {aplicando ? 'Subiendo…' : necesitaConfirmar && confirmando ? 'Sí, subir de todas formas' : totalNuevas ? `↑ Subir archivo (${totalNuevas} nuevas)` : 'Todo ya conciliado'}
         </button>
       ) : (
         <button className="btn btn-danger" disabled title="Corrige los errores en el archivo antes de subir">✖ No se puede subir</button>
@@ -83,7 +108,8 @@ export function CargarDriveModal({ analisis, filas, ordenes, onClose, onGuardado
             : analisis.estado === 'Duplicados' ? 'Hay OC repetidas en el archivo: se juntan (se suman sus montos).'
               : 'El archivo trae errores. Corrígelos antes de subir.'} />
         <Tarjeta icono="∑" color="#64748b" titulo="Total filas" sub={String(analisis.total)} />
-        <Tarjeta icono="✓" color="#10b981" titulo="Válidas" sub={String(analisis.validas)} />
+        <Tarjeta icono="✓" color="#10b981" titulo="Nuevas válidas" sub={String(analisis.validas)} />
+        {analisis.yaConciliadas > 0 && <Tarjeta icono="✔" color="#3b82f6" titulo="Ya conciliadas" sub={String(analisis.yaConciliadas)} />}
         <Tarjeta icono="⚠" color="#f59e0b" titulo="Duplicadas" sub={String(analisis.duplicadas)} />
         <Tarjeta icono="❌" color="#ef4444" titulo="Con error" sub={String(analisis.conError)} />
       </div>
@@ -146,17 +172,41 @@ export function CargarDriveModal({ analisis, filas, ordenes, onClose, onGuardado
 
 function FilaDriveTr({ f, r }: { f: FilaDrive; r?: ResultadoDrive }) {
   const badge = f.estado === 'error' ? <span className="badge danger">Error</span>
-    : f.estado === 'duplicado' ? <span className="badge warning">Duplicada</span> : <span className="badge success">Válida</span>;
+    : f.estado === 'duplicado' ? <span className="badge warning">Duplicada</span>
+    : f.estado === 'ya_conciliada' || f.yaConciliada ? <span className="badge info" style={{ background: '#dbeafe', color: '#1e40af' }}>Ya conciliada</span>
+    : <span className="badge success">Válida</span>;
   return (
     <tr>
       <td className="mono">{f.fila}</td>
-      <td className="mono">{f.codigo || '—'}</td>
+      <td className="mono">
+        {f.codigo || '—'}
+        {f.tipo === 'reintegro' && (
+          <span className="badge" style={{ marginLeft: '.35rem', fontSize: '.65rem', background: '#f3e8ff', color: '#6b21a8' }}>
+            Reintegro{f.tipoRetencion ? ` (${f.tipoRetencion})` : ''}
+          </span>
+        )}
+      </td>
       <td className="mono">{f.referencia || '—'}</td>
       <td className="mono" style={{ textAlign: 'right' }}>{fmtBs(f.montoBs)}</td>
-      <td>{badge}{f.errores.length > 0 && <div style={{ color: 'var(--danger, #dc2626)', fontSize: '.72rem' }}>{f.errores.join(' · ')}</div>}
-        {f.duplicado && <div className="muted" style={{ fontSize: '.72rem' }}>OC repetida en el archivo: se suman</div>}</td>
-      <td>{r ? <><span className={`badge ${r.estado === 'CUADRA' ? 'success' : 'danger'}`}>{r.estado}</span>
-        {r.estado === 'NO CUADRA' && <div className="muted" style={{ fontSize: '.7rem', maxWidth: 260, whiteSpace: 'normal' }}>{r.motivo}</div>}</> : <span className="muted">—</span>}</td>
+      <td>
+        {badge}
+        {f.errores.length > 0 && <div style={{ color: 'var(--danger, #dc2626)', fontSize: '.72rem' }}>{f.errores.join(' · ')}</div>}
+        {f.duplicado && <div className="muted" style={{ fontSize: '.72rem' }}>OC repetida en el archivo: se suman</div>}
+        {(f.estado === 'ya_conciliada' || f.yaConciliada) && <div className="muted" style={{ fontSize: '.72rem' }}>No se duplica ni se suma monto</div>}
+      </td>
+      <td>
+        {f.estado === 'ya_conciliada' || f.yaConciliada ? (
+          <>
+            <span className="badge success">CUADRA</span>
+            <div className="muted" style={{ fontSize: '.7rem' }}>Conciliada previamente</div>
+          </>
+        ) : r ? (
+          <>
+            <span className={`badge ${r.estado === 'CUADRA' ? 'success' : 'danger'}`}>{r.estado}</span>
+            {r.estado === 'NO CUADRA' && <div className="muted" style={{ fontSize: '.7rem', maxWidth: 260, whiteSpace: 'normal' }}>{r.motivo}</div>}
+          </>
+        ) : <span className="muted">—</span>}
+      </td>
     </tr>
   );
 }

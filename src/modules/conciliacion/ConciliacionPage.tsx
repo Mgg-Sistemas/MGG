@@ -33,8 +33,10 @@ import {
 } from './conciliacion';
 import { vistaPreviaConciliacionPdf } from './conciliacionPdf';
 import { vistaPreviaConciliacionExcel } from './conciliacionExcel';
-import { analizarTablaDrive, descargarPlantillaDrive, errorArchivoDrive, leerTablaArchivo, type AnalisisDrive } from './conciliacionDrive';
+import { analizarTablaDrive, descargarPlantillaDrive, errorArchivoDrive, leerTablaArchivo, pagadoBsTesoreria, type AnalisisDrive } from './conciliacionDrive';
 import { CargarDriveModal } from './CargarDriveModal';
+import { ConciliacionEntradasTab } from './ConciliacionEntradasTab';
+import { armarFilaEntrada, ordenLlevaRetencion, type FilaEntradaRetencion } from './conciliacionEntradas';
 
 type Tarjeta = 'total' | 'pagado' | 'retencion';
 
@@ -183,6 +185,7 @@ export function ConciliacionPage() {
   const navigate = useNavigate();
   const { can } = usePermissions();
   const puedeEditar = can('conciliacion', 'escritura');
+  const [tabActiva, setTabActiva] = useState<'salidas' | 'entradas'>('salidas');
   const [editRef, setEditRef] = useState<FilaConciliacion | null>(null);
   const [datos, setDatos] = useState<DatosConciliacion | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -205,7 +208,17 @@ export function ConciliacionPage() {
     setLeyendoDrive(true);
     try {
       const tabla = await leerTablaArchivo(file);
-      setDrive(analizarTablaDrive(tabla, file.name, datos.filas.map((f) => ({ id: f.id, codigo: f.codigo, sp: f.sp }))));
+      setDrive(analizarTablaDrive(tabla, file.name, datos.filas.map((f) => ({
+        id: f.id,
+        codigo: f.codigo,
+        sp: f.sp,
+        drive: f.drive,
+        yaConciliada: f.drive?.estado === 'CUADRA',
+        montoBs: f.montoBs,
+        referencias: [f.referencia.bs, f.referencia.binance, f.referencia.manual].filter(Boolean) as string[],
+        pagadoBs: pagadoBsTesoreria(datos.ordenes.get(f.id)?.historial),
+        historial: datos.ordenes.get(f.id)?.historial,
+      }))));
     } catch (er) { toast(er instanceof Error ? er.message : 'No se pudo leer el archivo', 'error'); }
     finally { setLeyendoDrive(false); }
   }
@@ -254,6 +267,20 @@ export function ConciliacionPage() {
   };
 
   const filas = useMemo(() => filtrar(datos?.filas ?? [], filtros), [datos, filtros]);
+
+  const filasEntradas: FilaEntradaRetencion[] = useMemo(() => {
+    if (!datos) return [];
+    let item = 1;
+    const out: FilaEntradaRetencion[] = [];
+    for (const f of datos.filas) {
+      const o = datos.ordenes.get(f.id);
+      if (!o) continue;
+      if (f.retencion.lleva || ordenLlevaRetencion(o)) {
+        out.push(armarFilaEntrada(o, f.proveedor, f.tasa, item++, [], f.facturas));
+      }
+    }
+    return out;
+  }, [datos]);
   // Chips del DRIVE: cuentan las órdenes PAGADAS con los demás filtros (sin el de pago ni el de drive).
   const chips = useMemo(() => {
     const pagadas = filtrar(datos?.filas ?? [], { ...filtros, drive: [], pago: [] }).filter((f) => f.pagado);
@@ -332,7 +359,35 @@ export function ConciliacionPage() {
         </div>
       )}
 
-      {/* Tarjetas */}
+      {/* Selector de pestañas */}
+      <div style={{ display: 'flex', gap: '.5rem', borderBottom: '1px solid var(--border-color, #e2e8f0)', marginBottom: '1.2rem', paddingBottom: '.25rem' }}>
+        <button
+          type="button"
+          onClick={() => setTabActiva('salidas')}
+          className={`btn ${tabActiva === 'salidas' ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ display: 'flex', alignItems: 'center', gap: '.45rem', fontWeight: 600, fontSize: '.92rem' }}>
+          <span>🔄</span>
+          <span>Salidas · Compras y Servicios</span>
+          <span className="badge" style={{ fontSize: '.72rem', background: tabActiva === 'salidas' ? 'rgba(255,255,255,0.25)' : 'var(--bg-muted, #f1f5f9)', color: 'inherit' }}>
+            {datos?.filas.length ?? 0}
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setTabActiva('entradas')}
+          className={`btn ${tabActiva === 'entradas' ? 'btn-primary' : 'btn-ghost'}`}
+          style={{ display: 'flex', alignItems: 'center', gap: '.45rem', fontWeight: 600, fontSize: '.92rem' }}>
+          <span>🏛️</span>
+          <span>Entradas · Reintegros de Retención</span>
+          <span className="badge" style={{ fontSize: '.72rem', background: tabActiva === 'entradas' ? 'rgba(255,255,255,0.25)' : 'var(--bg-muted, #f1f5f9)', color: 'inherit' }}>
+            {filasEntradas.length}
+          </span>
+        </button>
+      </div>
+
+      {tabActiva === 'salidas' ? (
+        <>
+          {/* Tarjetas */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
         {card('total', '🧾', 'Total de órdenes', `${t.totalOc.cantidad}`, `${desgloseTipos(t)} · ${usdTxt(t.totalOc.usd)} · ${bsTxt(t.totalOc.bs)}`, 'var(--primary, #ff8a00)')}
         {card('pagado', '💵', 'Total pagado', usdTxt(t.pagado.usd), `${bsTxt(t.pagado.bs)} · ${t.pagado.cantidad} órdenes (Bs a la tasa con que se pagó)`, 'var(--success, #29c081)')}
@@ -502,6 +557,15 @@ export function ConciliacionPage() {
           </div>
         )}
       </div>
+      </>
+      ) : (
+        <ConciliacionEntradasTab
+          filas={filasEntradas}
+          puedeEditar={puedeEditar}
+          onActualizarOrden={alGuardarReferencia}
+          onVerOc={abrirOc}
+        />
+      )}
 
       {verFacturas && <FacturasOrdenModal orden={verFacturas} onClose={() => setVerFacturas(null)} />}
       {editRef && datos?.ordenes.get(editRef.id) && (

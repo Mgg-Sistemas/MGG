@@ -24,8 +24,11 @@ describe('conciliación · estado de Compras', () => {
       oc({ id: 'b', estado: 'cancelada' }),
       oc({ id: 'c', oc_creada_en: '2026-11-01T00:00:00Z' }),
       oc({ id: 'd', oc_creada_en: '2026-11-11T00:00:00Z' }),
+      oc({ id: 'e', oc_creada_en: '2026-10-31T12:00:00Z' }), // Excluida por ser anterior a noviembre
+      oc({ id: 'f', oc_creada_en: '2026-09-15T08:00:00Z' }), // Excluida
+      oc({ id: 'g', oc_creada_en: '2026-10-20T00:00:00Z', pagada_en: '2026-11-02T10:00:00Z' }), // Entra por fecha de pago en noviembre
     ]);
-    expect(r.map((o) => o.id)).toEqual(['d', 'c']);
+    expect(r.map((o) => o.id)).toEqual(['d', 'c', 'g']);
   });
 });
 
