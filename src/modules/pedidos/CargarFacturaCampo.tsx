@@ -1,15 +1,15 @@
 /* ============================================================
-   MGG · Campo «🧾 CARGAR FACTURA» de la recepción (11-11-2026)
+   MGG · Campo «🧾 CARGAR FACTURA» de la recepción (12-11-2026)
 
-   El almacenista, al recepcionar la orden (PC y teléfono), DEBE cargar la
-   factura: fotos o PDF. Se suben antes de recibir (si fallan, no se recibe) y
-   Compras las ve en «🧾 Factura» → FACTURAS ALMACÉN.
+   El almacenista, al recepcionar la orden (PC y teléfono), puede cargar
+   la factura de forma opcional (fotos o PDF). Si se carga, Compras las
+   ve en «🧾 Factura» → FACTURAS ALMACÉN.
    ============================================================ */
 import { useEffect, useMemo } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { errorArchivoFactura, MAX_FACTURAS_ALMACEN } from './facturasOrden.repository';
 
-export function CargarFacturaCampo({ id, archivos, onChange, obligatoria = true, className = 'form-row', disabled = false }: {
+export function CargarFacturaCampo({ id, archivos, onChange, obligatoria = false, className = 'form-row', disabled = false }: {
   id: string;
   archivos: File[];
   onChange: (xs: File[]) => void;

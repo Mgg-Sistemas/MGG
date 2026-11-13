@@ -407,7 +407,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
   const [nota, setNota] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Factura del proveedor: obligatoria al recepcionar (11-11-2026), salvo servicios.
+  // Factura del proveedor: opcional al recepcionar (12-11-2026), salvo servicios.
   const [facturas, setFacturas] = useState<File[]>([]);
   const [facturaSubida, setFacturaSubida] = useState(false);
   const pideFactura = !esServicioOrden(orden);
@@ -440,10 +440,9 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
       const v = despieceValido(despiece, kgRes, costoRes);
       if (!v.ok) { setError(v.motivo); return; }
     }
-    if (pideFactura && !facturaSubida && !facturas.length) { setError('Carga la factura de la compra (foto o PDF) para recepcionar.'); return; }
     setSaving(true);
     try {
-      // La factura sube primero: si falla, no se recibe.
+      // Si el almacenista cargó facturas, se suben antes de recibir.
       if (pideFactura && facturas.length) { await subirFacturasAlmacen(orden.id, facturas, actorName || actor); setFacturas([]); setFacturaSubida(true); }
       if (itemRes) {
         const { entradas } = await recibirOrdenDespiezada(

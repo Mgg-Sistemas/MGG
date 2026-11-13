@@ -143,7 +143,7 @@ function FormRecepcion({ fila, almacen, actor, actorName, quien, onCancel, onHec
   const [recibidas, setRecibidas] = useState<Record<string, string>>(() => Object.fromEntries(items.map((it) => [it.sku, String(it.cantidad ?? 0)])));
   const [nota, setNota] = useState('');
   const [fotos, setFotos] = useState<File[]>([]);
-  // Factura del proveedor: obligatoria al recepcionar (11-11-2026), salvo servicios.
+  // Factura del proveedor: opcional al recepcionar (12-11-2026), salvo servicios.
   const [facturas, setFacturas] = useState<File[]>([]);
   const [facturaSubida, setFacturaSubida] = useState(false);
   const pideFactura = !esServicioOrden(o);
@@ -159,10 +159,9 @@ function FormRecepcion({ fila, almacen, actor, actorName, quien, onCancel, onHec
     for (const it of items) if (leer(recibidas[it.sku] ?? '') > Number(it.cantidad)) { toast(`No se puede recibir más de lo pedido en ${it.nombre}.`, 'error'); return; }
     if (items.every((it) => leer(recibidas[it.sku] ?? '') <= 0)) { toast('Indica al menos una cantidad recibida.', 'error'); return; }
     if (hayDiferencia && !nota.trim()) { toast('Llegó distinto a lo pedido: escribe una nota explicando.', 'error'); return; }
-    if (pideFactura && !facturaSubida && !facturas.length) { toast('Carga la factura de la compra (foto o PDF) para recepcionar.', 'error'); return; }
     setGuardando(true);
     try {
-      // La factura sube primero: si falla, no se recibe.
+      // Si el almacenista cargó facturas, se suben antes de recibir.
       if (pideFactura && facturas.length) { await subirFacturasAlmacen(o.id, facturas, actorName || actor); setFacturas([]); setFacturaSubida(true); }
       const recepciones: RecepcionRenglon[] = items.map((it) => ({ sku: it.sku, cantidad_recibida: Math.max(0, leer(recibidas[it.sku] ?? '')), marca_recibida: null, nota_marca: null }));
       const notaDlv = fila.delivery?.estado === 'entregado' ? `Entregada por delivery (${fila.delivery.repartidor_nombre ?? '—'}). ` : '';
@@ -234,7 +233,7 @@ function FormRecepcion({ fila, almacen, actor, actorName, quien, onCancel, onHec
           </div>
         )}
       </div>
-      <button type="button" className="btn btn-primary surt-guardar" disabled={guardando || tieneRes || sinFicha.length > 0 || (pideFactura && !facturaSubida && !facturas.length)} onClick={() => void guardar()}>
+      <button type="button" className="btn btn-primary surt-guardar" disabled={guardando || tieneRes || sinFicha.length > 0} onClick={() => void guardar()}>
         {guardando ? 'Recibiendo…' : `✓ Recepcionar en ${nombreAlmacenVisible(almacen)}`}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otra orden</button>
