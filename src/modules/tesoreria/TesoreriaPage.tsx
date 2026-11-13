@@ -4917,9 +4917,9 @@ function PagarLoteModal({ rows, cajas, actor, actorName, onClose, onPaid }: {
         {tipoRefLote && (
           <div className="form-row">
             <label>{tipoRefLote === 'bs' ? 'Referencia del pago en Bs * (transferencia / pago móvil)' : 'ID de la orden de Binance *'}</label>
-            <input className="input mono" inputMode={tipoRefLote === 'bs' ? 'numeric' : 'text'} maxLength={4} value={refLote} placeholder={tipoRefLote === 'bs' ? 'Últimos 4 dígitos' : 'Últimos 4 caracteres'}
+            <input className="input mono" inputMode={tipoRefLote === 'bs' ? 'numeric' : 'text'} maxLength={4} value={refLote} placeholder={tipoRefLote === 'bs' ? 'Últimos 4 dígitos' : 'Últimos 4 dígitos/letras'}
               onChange={(e) => setRefLote(limpiarReferencia(e.target.value, tipoRefLote).slice(0, 4))} style={{ maxWidth: 180, letterSpacing: '.2em' }} />
-            <small className="hint muted">Los <strong>{tipoRefLote === 'bs' ? 'últimos 4 dígitos' : 'últimos 4 caracteres'}</strong>{tipoRefLote === 'binance' ? ' (números y/o letras)' : ''}. Es una sola y vale para <strong>todas las OC del lote</strong>.</small>
+            <small className="hint muted">Los <strong>{tipoRefLote === 'bs' ? 'últimos 4 dígitos' : 'últimos 4 caracteres'}</strong>{tipoRefLote === 'binance' ? ' (números, mayúsculas o minúsculas)' : ''}. Es una sola y vale para <strong>todas las OC del lote</strong>.</small>
           </div>
         )}
 
@@ -7515,9 +7515,9 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
             {pideRef.binance && (
               <div className="form-row">
                 <label>ID de la orden de Binance *</label>
-                <input className="input mono" inputMode="text" maxLength={4} value={refBinance} placeholder="Últimos 4 caracteres"
+                <input className="input mono" inputMode="text" maxLength={4} value={refBinance} placeholder="Últimos 4 dígitos/letras"
                   onChange={(e) => setRefBinance(limpiarReferencia(e.target.value, 'binance').slice(0, 4))} style={{ maxWidth: 180, letterSpacing: '.2em' }} />
-                <small className="hint muted">Los <strong>últimos 4 caracteres</strong> (números y/o letras) del número de orden en Binance.</small>
+                <small className="hint muted">Los <strong>últimos 4 caracteres</strong> (números, mayúsculas o minúsculas) del número de orden en Binance.</small>
               </div>
             )}
           </div>

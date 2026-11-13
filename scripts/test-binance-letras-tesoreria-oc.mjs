@@ -16,9 +16,9 @@ assert.equal(limpiarReferencia('12ab34cd', 'bs'), '1234');
 assert.equal(limpiarReferencia('12-34', 'bs'), '1234');
 
 assert.equal(limpiarReferencia('1234', 'binance'), '1234');
-assert.equal(limpiarReferencia('ab12', 'binance'), 'AB12');
-assert.equal(limpiarReferencia('3F9a', 'binance'), '3F9A');
-assert.equal(limpiarReferencia('x-y_1 2', 'binance'), 'XY12');
+assert.equal(limpiarReferencia('ab12', 'binance'), 'ab12');
+assert.equal(limpiarReferencia('3F9a', 'binance'), '3F9a');
+assert.equal(limpiarReferencia('x-Y_1 2', 'binance'), 'xY12');
 console.log('  ✓ limpiarReferencia funciona correctamente para Bs y Binance');
 
 // 2. Validación de errorReferencia

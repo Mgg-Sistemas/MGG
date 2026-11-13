@@ -35,10 +35,11 @@ describe('referencia del pago de una OC (12-11-2026)', () => {
   it('exige exactamente 4 dígitos en Bs y 4 caracteres alfanuméricos en Binance (permite letras)', () => {
     expect(errorReferencia('1234', 'bs')).toBeNull();
     expect(errorReferencia(' 12-34 ', 'binance')).toBeNull();
-    // Binance admite letras y números (se normalizan en mayúsculas sin espacios/guiones)
+    // Binance admite letras y números (preserva mayúsculas y minúsculas sin espacios/guiones)
     expect(errorReferencia('ab12', 'binance')).toBeNull();
     expect(errorReferencia('3F9a', 'binance')).toBeNull();
-    expect(limpiarReferencia('3f-9a', 'binance')).toBe('3F9A');
+    expect(limpiarReferencia('3f-9A', 'binance')).toBe('3f9A');
+    expect(limpiarReferencia('ab12', 'binance')).toBe('ab12');
     // Bs solo admite dígitos (ignora letras)
     expect(limpiarReferencia('ab9-8 7x6', 'bs')).toBe('9876');
     expect(errorReferencia('', 'bs')).toMatch(/últimos 4 dígitos/);

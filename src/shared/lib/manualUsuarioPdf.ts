@@ -364,7 +364,7 @@ const SECCIONES: Seccion[] = [
       'Calculadora multimoneda: entiende monedas dentro de la misma cuenta. Se puede escribir 100$ + 50000Bs + 20USDT y resolverlo de una vez, sin convertir a mano. Reconoce Bs, $, EUR, USDT y COP con sus distintas formas de escribirlas (dolares, euros, pesos). El selector "ver en" muestra el resultado en la moneda que se elija o en automatico.',
       'La calculadora usa las tasas del dia. Si falta alguna, lo avisa y esa moneda queda fuera del calculo en vez de resolverlo con un numero inventado.',
       'Conversor USD a Bs: muestra el monto a BCV y a Binance con el margen de ahorro de pagar a BCV. Cada cuenta hecha queda en la lista de Operaciones, se puede tocar una para reutilizar su resultado, y todas se pueden exportar a PDF.',
-      'Referencia del pago y órdenes por pagar (12/11/2026): al pagar una OC se exige la referencia de los últimos 4 caracteres (en Bs exactamente 4 dígitos de la referencia bancaria; en Binance admite números y/o letras del ID de orden). Además, Tesorería solo lista las órdenes de compra que ya tengan método de pago cargado desde Compras.',
+      'Referencia del pago y órdenes por pagar (12/11/2026): al pagar una OC se exige la referencia de los últimos 4 caracteres (en Bs exactamente 4 dígitos de la referencia bancaria; en Binance admite números, letras mayúsculas o minúsculas del ID de orden). Además, Tesorería solo lista las órdenes de compra que ya tengan método de pago cargado desde Compras.',
     ],
   },
   {

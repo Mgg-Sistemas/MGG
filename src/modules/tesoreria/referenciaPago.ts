@@ -48,10 +48,10 @@ export function soloDigitos(v: string): string {
   return String(v ?? '').replace(/\D/g, '');
 }
 
-/** Limpia la referencia según el tipo: para Bs solo dígitos; para Binance letras y números (alfanumérico en mayúsculas). */
+/** Limpia la referencia según el tipo: para Bs solo dígitos; para Binance letras y números (alfanumérico, preserva mayúsculas y minúsculas). */
 export function limpiarReferencia(v: string, que: 'bs' | 'binance'): string {
   if (que === 'binance') {
-    return String(v ?? '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+    return String(v ?? '').replace(/[^a-zA-Z0-9]/g, '');
   }
   return soloDigitos(v);
 }
