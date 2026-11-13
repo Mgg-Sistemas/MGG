@@ -344,7 +344,7 @@ function hojaSueldo(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalc
     body: filas,
     foot: [
       ['', 'TOTALES', '', bsStr(c.totalDevengadoBs), bsStr(c.totalDeduccionBs)],
-      ['', 'NETO A PAGAR EN BOLÍVARES', '', bsStr(c.netoBs), ''],
+      ['', 'NETO A PAGAR EN BOLÍVARES', '', '', bsStr(c.netoBs)],
     ],
     margin: MARGENES_TABLA_PDF,
     styles: { fontSize: 8.5, cellPadding: 2.5 },
@@ -388,12 +388,12 @@ function hojaBono(l: Lienzo, r: NominaRenglon, meta: ReciboMeta, c: ReciboCalcul
   const finBonoFilas: (string | { content: string; colSpan?: number; styles?: { halign: 'right' } })[][] = real
     ? [
         ['', 'TOTALES', usd(c.bonoUsd), usd(c.deduccionBonoUsd), reales(real.bono), reales(real.deduccion)],
-        ['', 'BONIFICACIÓN A ENTREGAR EN DIVISAS ($ y R$)', usd(c.bonoNetoUsd), '', reales(real.neto), ''],
+        ['', 'BONIFICACIÓN A ENTREGAR EN DIVISAS ($ y R$)', '', usd(c.bonoNetoUsd), '', reales(real.neto)],
         ['', 'TASA DE CAMBIO', { content: `1 $ = R$ ${tasaRealTexto(real.tasa)}${meta.periodo.tasa_brl_fecha ? ` (${fmtDate(meta.periodo.tasa_brl_fecha)})` : ''}`, colSpan: 4, styles: { halign: 'right' } }],
       ]
     : [
         ['', 'TOTALES', usd(c.bonoUsd), usd(c.deduccionBonoUsd)],
-        ['', 'BONIFICACIÓN A ENTREGAR EN DIVISAS', usd(c.bonoNetoUsd), ''],
+        ['', 'BONIFICACIÓN A ENTREGAR EN DIVISAS', '', usd(c.bonoNetoUsd)],
       ];
   autoTable(doc, {
     startY: y,
