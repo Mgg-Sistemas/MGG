@@ -577,7 +577,7 @@ export function TesoreriaPage() {
       {modal === 'pago' && <NominaPorPagarModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onPaid={reload} />}
       {modal === 'cajas' && <GestionarCajasModal actor={actor} actorName={actorName} onClose={() => setModal('none')} onCambioAplicado={reload} />}
       {modal === 'tasas' && <TasasGate onClose={() => setModal('none')} />}
-      {modal === 'conversor' && <ConversorModal cajas={cajas} saldos={saldos} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={reload} />}
+      {modal === 'conversor' && <ConversorModal cajas={cajas} actor={actor} actorName={actorName} onClose={() => setModal('none')} onSaved={reload} />}
       {modal === 'calculadora' && <CalculadoraModal actor={actor} onClose={() => setModal('none')} />}
       {modal === 'resumen' && <ResumenMovimientosModal monedas={monedasReg} defaultMoneda={fMoneda || 'USD'} defaultDesde={fDesde} defaultHasta={fHasta} cajas={cajas} canWrite={canWrite} actor={actor} onClose={() => setModal('none')} onChanged={reload} />}
       {modal === 'retencion' && <RetencionesTesoreriaModal items={retencionListas} onClose={() => setModal('none')} />}
@@ -3570,9 +3570,13 @@ function tasaCruzada(de: MonedaCaja, a: MonedaCaja, t: TasasMercado): number | n
 
 const labelCuenta = (c: CuentaCaja) => c === 'general' ? 'General' : c === 'juridica' ? 'Jurídica' : c === 'personal' ? 'Personal' : String(c);
 
-function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
-  cajas: Caja[]; saldos: CajaSaldo[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+function ConversorModal({ cajas, actor, actorName, onClose, onSaved }: {
+  cajas: Caja[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
 }) {
+  const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
+  const [cargandoSaldos, setCargandoSaldos] = useState(true);
+  const [errorSaldos, setErrorSaldos] = useState(false);
+  const [consultaSaldos, setConsultaSaldos] = useState(0);
   const [de, setDe] = useState<MonedaCaja>('USD');
   const [a, setA] = useState<MonedaCaja>('Bs');
   const [origenSaldoId, setOrigenSaldoId] = useState('');     // saldo existente del que sale el dinero
@@ -3598,6 +3602,15 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
   const [historial, setHistorial] = useState<ConversionFila[]>([]);
   const [cargandoHist, setCargandoHist] = useState(false);
   const [fConv, setFConv] = useState<FiltroConversiones>(FILTRO_CONVERSIONES_VACIO);
+
+  useEffect(() => {
+    let vigente = true;
+    listSaldos()
+      .then((filas) => { if (vigente) setSaldos(filas); })
+      .catch(() => { if (vigente) setErrorSaldos(true); })
+      .finally(() => { if (vigente) setCargandoSaldos(false); });
+    return () => { vigente = false; };
+  }, [consultaSaldos]);
 
   useEffect(() => { getTasasMercado().then(setMercado).catch(() => setMercado(null)); }, []);
   useEffect(() => { listContrapartes().then(setContrapartes).catch(() => setContrapartes([])); }, []);
@@ -3657,7 +3670,7 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
   const comisionMonto = round2(bruto - resultado);
   const comisionPct = bruto > 0 ? round2(comisionMonto / bruto * 100) : 0;
   const excede = montoNum > disponible + 0.001;
-  const puede = !!origenSaldo && !!destinoCajaId && de !== a && montoNum > 0 && tasaNum > 0 && !excede && !saving;
+  const puede = !cargandoSaldos && !errorSaldos && !!origenSaldo && !!destinoCajaId && de !== a && montoNum > 0 && tasaNum > 0 && !excede && !saving;
 
   function swap() { setDe(a); setA(de); }
   function usarMercado() {
@@ -3762,7 +3775,16 @@ function ConversorModal({ cajas, saldos, actor, actorName, onClose, onSaved }: {
       {/* Origen: de qué saldo sale el dinero (caja + cuenta + moneda DE). */}
       <div className="form-row">
         <label>Sale de (saldo en {de})</label>
-        {saldosOrigen.length === 0 ? (
+        <button type="button" className="btn btn-ghost" disabled={cargandoSaldos || saving} onClick={() => {
+          setCargandoSaldos(true);
+          setErrorSaldos(false);
+          setConsultaSaldos((prev) => prev + 1);
+        }}>Actualizar saldos</button>
+        {cargandoSaldos ? (
+          <div role="status">Consultando saldos…</div>
+        ) : errorSaldos ? (
+          <div role="alert">No se pudieron consultar los saldos. Pulsa Actualizar saldos para reintentar.</div>
+        ) : saldosOrigen.length === 0 ? (
           <div className="muted" style={{ fontSize: '.82rem', padding: '.4rem 0' }}>
             No hay ninguna caja con saldo en {de}.
           </div>

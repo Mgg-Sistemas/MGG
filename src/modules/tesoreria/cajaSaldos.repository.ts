@@ -249,7 +249,7 @@ export async function convertirDivisa(input: ConvertirDivisaInput): Promise<{ or
     // hora real, que es lo correcto para una conversión hecha en el momento.
     p_fecha: fechaAsiento(input.fecha),
   });
-  if (error) throw error;
+  if (error) throw new Error(error.message);
 
   const [{ data: origAfter }, { data: destAfter }] = await Promise.all([
     supabase.from(SALDOS).select('*').eq('caja_id', input.origenCajaId).eq('cuenta', input.origenCuenta).eq('moneda', input.monedaDe).maybeSingle(),
