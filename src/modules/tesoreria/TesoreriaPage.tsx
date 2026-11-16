@@ -3,11 +3,13 @@ import { Link } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
-import { cambiarPapeleraTesoreria, papeleraTesoreria } from './papeleraTesoreria.repository';
+import {
+  cambiarPapeleraCatalogoTesoreria, cambiarPapeleraTesoreria, papeleraCatalogosTesoreria, papeleraTesoreria,
+} from './papeleraTesoreria.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import {
   listCategoriasGasto, soloCategorias, subcategoriasDe, ensureCategoriaGasto,
-  renombrarCategoriaGasto, setActivoCategoriaGasto, eliminarCategoriaGasto,
+  renombrarCategoriaGasto, setActivoCategoriaGasto,
   type CategoriaGasto,
 } from './categoriasGasto.repository';
 import { toast } from '@/shared/ui/Toast';
@@ -59,7 +61,7 @@ import {
 // descargarCierrePdf y descargarCierreExcel se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir.
 import { periodoLargo } from './cierreReporte';
 import {
-  listContrapartes, crearContraparte, actualizarContraparte, eliminarContraparte,
+  listContrapartes, crearContraparte, actualizarContraparte,
   type Contraparte, type TipoContraparte,
 } from './contrapartes.repository';
 import { list as listProveedoresCatalogo } from '@/modules/proveedores/proveedores.repository';
@@ -1663,6 +1665,7 @@ function DispCard({ titulo, valor, nota, destacado }: { titulo: string; valor: s
 const VACIA = { tipo: 'proveedor' as TipoContraparte, nombre: '', rif: '', telefono: '', email: '', nota: '' };
 function ContrapartesModal({ onClose }: { onClose: () => void }) {
   const [lista, setLista] = useState<Contraparte[]>([]);
+  const [porArchivar, setPorArchivar] = useState<Contraparte | null>(null);
   const [filtro, setFiltro] = useState<'todos' | TipoContraparte>('todos');
   const [form, setForm] = useState({ ...VACIA });
   const [editId, setEditId] = useState<string | null>(null);
@@ -1695,16 +1698,18 @@ function ContrapartesModal({ onClose }: { onClose: () => void }) {
     finally { setBusy(false); }
   }
 
-  async function borrar(c: Contraparte) {
-    if (!window.confirm(`¿Eliminar a "${c.nombre}"?`)) return;
-    try { await eliminarContraparte(c.id); if (editId === c.id) nuevo(); await recargar(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
-  }
-
   const visibles = lista.filter((c) => filtro === 'todos' || c.tipo === filtro);
 
   return (
     <Modal title="Clientes / Proveedores" size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+      <BotonPapeleraRegistros acciones={papeleraCatalogosTesoreria} onChanged={() => void recargar()} />
+      {porArchivar && <EnviarRegistroPapelera nombre={porArchivar.nombre} conAdjuntos={false}
+        onClose={() => setPorArchivar(null)} onConfirm={async (motivo) => {
+          await cambiarPapeleraCatalogoTesoreria('tesoreria_contrapartes', porArchivar.id, motivo);
+          if (editId === porArchivar.id) nuevo();
+          setPorArchivar(null);
+          await recargar();
+        }} />}
       {/* Alta / edición */}
       <div className="card" style={{ marginBottom: '1rem' }}>
         <div className="card-title"><span>{editId ? 'Editar' : 'Nuevo'} registro</span></div>
@@ -1774,7 +1779,7 @@ function ContrapartesModal({ onClose }: { onClose: () => void }) {
                 <td className="muted" style={{ fontSize: '.82rem' }}>{[c.telefono, c.email].filter(Boolean).join(' · ') || '—'}</td>
                 <td className="actions" style={{ whiteSpace: 'nowrap' }}>
                   <button className="btn btn-sm btn-ghost" onClick={() => editar(c)}>✎</button>
-                  <button className="btn btn-sm btn-ghost" onClick={() => borrar(c)}>🗑</button>
+                  <button className="btn btn-sm btn-ghost" title="Enviar a la papelera" onClick={() => setPorArchivar(c)}>🗑</button>
                 </td>
               </tr>
             ))}
@@ -2197,6 +2202,7 @@ function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () =
   const [pegado, setPegado] = useState('');
   const [buscarCat, setBuscarCat] = useState('');
   const [buscarSub, setBuscarSub] = useState('');
+  const [categoriaPorArchivar, setCategoriaPorArchivar] = useState<CategoriaGasto | null>(null);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -2246,14 +2252,17 @@ function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () =
     setBusy(true);
     try { await setActivoCategoriaGasto(c.id, !c.activo); await cargar(); } finally { setBusy(false); }
   }
-  async function borrar(c: CategoriaGasto, esCat: boolean) {
-    if (!window.confirm(`¿Borrar "${c.nombre}"${esCat ? ' y todas sus subcategorías' : ''}? (los gastos ya registrados conservan su etiqueta)`)) return;
-    setBusy(true);
-    try { await eliminarCategoriaGasto(c.id); if (esCat && selCat === c.id) setSelCat(''); await cargar(); } finally { setBusy(false); }
-  }
-
   return (
     <Modal title="🗂️ Categorías de gasto" size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      <BotonPapeleraRegistros acciones={papeleraCatalogosTesoreria} onChanged={() => void cargar()} />
+      {categoriaPorArchivar && <EnviarRegistroPapelera nombre={categoriaPorArchivar.nombre} conAdjuntos={false}
+        aviso={categoriaPorArchivar.padre_id ? undefined : 'Al archivar la categoría también se ocultan sus subcategorías.'}
+        onClose={() => setCategoriaPorArchivar(null)} onConfirm={async (motivo) => {
+          await cambiarPapeleraCatalogoTesoreria('categorias_gasto', categoriaPorArchivar.id, motivo);
+          if (selCat === categoriaPorArchivar.id) setSelCat('');
+          setCategoriaPorArchivar(null);
+          await cargar();
+        }} />}
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
         Categorías y subcategorías que el <strong>registro de gasto</strong> exige. Tip: usá <strong>📋 Pegado masivo</strong> para cargar una columna del sheet (categoría + sus subcategorías) de una vez.
       </p>
@@ -2296,7 +2305,7 @@ function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () =
                 <span className="muted" style={{ fontSize: '.68rem' }}>{subcategoriasDe(rows, c.id).length}</span>
                 <button className="btn btn-icon btn-ghost" title="Renombrar" onClick={(e) => { e.stopPropagation(); void renombrar(c); }}>✎</button>
                 <button className="btn btn-icon btn-ghost" title={c.activo ? 'Desactivar' : 'Activar'} onClick={(e) => { e.stopPropagation(); void toggleActivo(c); }}>{c.activo ? '🚫' : '✔️'}</button>
-                <button className="btn btn-icon btn-ghost" title="Borrar" onClick={(e) => { e.stopPropagation(); void borrar(c, true); }}>🗑</button>
+                <button className="btn btn-icon btn-ghost" title="Enviar a la papelera" onClick={(e) => { e.stopPropagation(); setCategoriaPorArchivar(c); }}>🗑</button>
               </div>
             ))}
           </div>
@@ -2320,7 +2329,7 @@ function CategoriasGastoModal({ actor, onClose }: { actor: string; onClose: () =
                     <span style={{ flex: 1, fontSize: '.82rem' }}>{s.nombre}</span>
                     <button className="btn btn-icon btn-ghost" title="Renombrar" onClick={() => void renombrar(s)}>✎</button>
                     <button className="btn btn-icon btn-ghost" title={s.activo ? 'Desactivar' : 'Activar'} onClick={() => void toggleActivo(s)}>{s.activo ? '🚫' : '✔️'}</button>
-                    <button className="btn btn-icon btn-ghost" title="Borrar" onClick={() => void borrar(s, false)}>🗑</button>
+                    <button className="btn btn-icon btn-ghost" title="Enviar a la papelera" onClick={() => setCategoriaPorArchivar(s)}>🗑</button>
                   </div>
                 ))}
                 {!subs.length && <span className="muted" style={{ fontSize: '.8rem' }}>Sin subcategorías. Agregá arriba o usá pegado masivo.</span>}

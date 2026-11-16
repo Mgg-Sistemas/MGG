@@ -75,9 +75,3 @@ export async function setActivoCategoriaGasto(id: string, activo: boolean): Prom
   const { error } = await supabase.from(TABLE).update({ activo }).eq('id', id);
   if (error) throw error;
 }
-
-/** Borra definitivamente (y por cascada sus subcategorías). Usar con cuidado. */
-export async function eliminarCategoriaGasto(id: string): Promise<void> {
-  const { error } = await supabase.from(TABLE).delete().eq('id', id);
-  if (error) throw error;
-}

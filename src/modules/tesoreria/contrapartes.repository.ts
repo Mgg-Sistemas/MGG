@@ -65,8 +65,3 @@ export async function actualizarContraparte(id: string, input: ContraparteInput)
   if (error) throw error;
   return data as Contraparte;
 }
-
-export async function eliminarContraparte(id: string): Promise<void> {
-  const { error } = await supabase.from(TABLE).delete().eq('id', id);
-  if (error) throw error;
-}
