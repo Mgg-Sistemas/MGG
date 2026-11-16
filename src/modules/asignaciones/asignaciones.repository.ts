@@ -20,7 +20,7 @@ import { registrarMovimiento } from '@/modules/inventario/movimientos.repository
 import type { Asignacion, Personal } from '@/shared/lib/types';
 import { descuentaInventario, reingresaAlInventario, type EstadoAsignacion } from './asignaciones';
 import {
-  crearActa, eliminarActa, eliminarActaSiVacia, esTablaFaltante, subirFotosActa, type ActaAsignacion,
+  crearActa, eliminarActa, esTablaFaltante, subirFotosActa, type ActaAsignacion,
 } from './actas.repository';
 
 const TABLE = 'asignaciones';
@@ -359,7 +359,6 @@ export async function devolverAsignacion(
   if (error) throw error;
   return data as Asignacion;
 }
-
 /**
  * Reabre una asignación cerrada por error.
  *
@@ -384,22 +383,4 @@ export async function reabrirAsignacion(id: string, quien: string, a: Actor): Pr
   }).eq('id', id).select('*').single();
   if (error) throw error;
   return data as Asignacion;
-}
-
-/**
- * Elimina una asignación.
- *
- * Si tenía una salida viva, primero se devuelve el material al almacén: borrar
- * el registro sin reponer el stock dejaría un faltante que nadie puede explicar,
- * porque el documento que lo justificaba ya no existe.
- */
-export async function eliminarAsignacion(id: string, quien: string, a: Actor): Promise<void> {
-  const { data: prev } = await supabase.from(TABLE).select('*').eq('id', id).maybeSingle();
-  const fila = prev as Asignacion | null;
-  if (fila?.descontado && fila.producto_id) await reingresarAlInventario(fila, quien, a);
-
-  const { error } = await supabase.from(TABLE).delete().eq('id', id);
-  if (error) throw error;
-  // Si era el último ítem de su acta, el acta se va con sus fotos: un acta vacía no es nada.
-  if (fila?.acta_id) await eliminarActaSiVacia(fila.acta_id).catch(() => undefined);
 }

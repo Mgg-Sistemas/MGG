@@ -119,20 +119,10 @@ export async function actualizarActa(
 
 /** Borra el acta y sus archivos. Solo tiene sentido cuando ya no le queda ningún ítem. */
 export async function eliminarActa(acta: ActaAsignacion): Promise<void> {
-  const { error } = await supabase.from(TABLE).delete().eq('id', acta.id);
+  const { error } = await supabase.from(TABLE).delete().eq('id', acta.id).select('id').single();
   if (error) throw err(error, 'No se pudo eliminar el acta.');
   const paths = [...acta.fotos.map((f) => f.path), acta.firmada_path ?? ''].filter(Boolean);
   if (paths.length) await supabase.storage.from(BUCKET).remove(paths).catch(() => undefined);
-}
-
-/** Si al acta no le queda ningún ítem (se eliminó el último), se va con sus archivos. */
-export async function eliminarActaSiVacia(actaId: string): Promise<boolean> {
-  const { count } = await supabase.from('asignaciones').select('id', { count: 'exact', head: true }).eq('acta_id', actaId);
-  if ((count ?? 0) > 0) return false;
-  const { data } = await supabase.from(TABLE).select('*').eq('id', actaId).maybeSingle();
-  if (!data) return false;
-  await eliminarActa(normalizar(data as Record<string, unknown>));
-  return true;
 }
 
 /* ───────────── Anexo fotográfico ───────────── */

@@ -11,6 +11,8 @@
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
+import { cambiarPapeleraAsignacion, papeleraAsignaciones } from './papeleraAsignaciones.repository';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { date, num } from '@/shared/lib/format';
@@ -29,7 +31,7 @@ import {
   type EstadoAsignacion, type FiltroAsignaciones,
 } from './asignaciones';
 import {
-  actualizarAsignacion, crearEntrega, devolverAsignacion, eliminarAsignacion,
+  actualizarAsignacion, crearEntrega, devolverAsignacion,
   listAsignaciones, reabrirAsignacion, type AsignacionInput, type DatosActaEntrega,
 } from './asignaciones.repository';
 import { esTablaFaltante, listActas, type ActaAsignacion } from './actas.repository';
@@ -154,17 +156,6 @@ export function AsignacionesPage() {
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error');
     } finally { setGuardando(false); }
-  }
-
-  async function confirmarBorrado() {
-    if (!porBorrar) return;
-    const fila = porBorrar;
-    setPorBorrar(null);
-    try {
-      await eliminarAsignacion(fila.id, nombreDe(fila.personal_id), { actor, actorName });
-      toast(fila.descontado ? 'Eliminada · el material volvió al almacén' : 'Eliminada', 'success');
-      await recargar();
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
   async function confirmarReapertura() {
@@ -344,6 +335,7 @@ export function AsignacionesPage() {
           </button>
         )}
         <button className="btn btn-ghost" onClick={() => void verConsolidado()}>📄 Consolidado en PDF</button>
+        <BotonPapeleraRegistros acciones={papeleraAsignaciones} onChanged={() => void recargar()} />
         <button className="btn btn-ghost" onClick={() => setVerVehiculos(true)} title="Catálogo de vehículos: agregar, editar o borrar">🚗 Vehículos{vehiculos.length ? ` (${vehiculos.length})` : ''}</button>
       </div>
 
@@ -532,14 +524,15 @@ export function AsignacionesPage() {
       )}
 
       {porBorrar && (
-        <ConfirmDialog
-          title="Eliminar asignación"
-          message={porBorrar.descontado
-            ? `¿Eliminar «${porBorrar.descripcion}» de ${nombreDe(porBorrar.personal_id)}?\n\nComo salió del inventario, el material vuelve al almacén ${porBorrar.almacen ?? ''}.`
-            : `¿Eliminar «${porBorrar.descripcion}» de ${nombreDe(porBorrar.personal_id)}?\n\nEsta acción no se puede deshacer.`}
-          confirmText="Eliminar" danger
-          onConfirm={() => void confirmarBorrado()}
-          onCancel={() => setPorBorrar(null)} />
+        <EnviarRegistroPapelera nombre={`${porBorrar.descripcion} · ${nombreDe(porBorrar.personal_id)}`}
+          conAdjuntos={Boolean(porBorrar.acta_id)}
+          aviso={porBorrar.descontado ? 'El material volverá al almacén. Para recuperar la asignación deberá haber stock suficiente.' : undefined}
+          onClose={() => setPorBorrar(null)} onConfirm={async (motivo) => {
+            await cambiarPapeleraAsignacion(porBorrar.id, motivo);
+            setPorBorrar(null);
+            toast('Asignación enviada a la papelera', 'success');
+            await recargar();
+          }} />
       )}
 
       {porReabrir && (
