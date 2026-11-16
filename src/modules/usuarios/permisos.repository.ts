@@ -158,6 +158,7 @@ export function esRolFacturas(role: RoleKey | null | undefined): boolean {
    La marca «solo teléfono» sigue en el rol (custom_roles.solo_telefono). */
 
 export const emptyPermission: ModulePermission = { lectura: false, escritura: false, full: false };
+export const MODULOS_CON_PAPELERA: ReadonlySet<ModuleKey> = new Set(['rrhh', 'retenciones', 'documentacion', 'choferes']);
 
 /** Permisos por defecto de un rol cuando la matriz aún no tiene fila guardada en BD. */
 export function defaultsFor(role: RoleKey): RolePermisos {
@@ -167,7 +168,9 @@ export function defaultsFor(role: RoleKey): RolePermisos {
   }, {} as RolePermisos);
 
   if (role === 'admin') {
-    MODULES.forEach((m) => (all[m.key] = { lectura: true, escritura: true, full: true }));
+    MODULES.forEach(({ key }) => {
+      all[key] = { lectura: true, escritura: true, full: true, vaciar_papelera: MODULOS_CON_PAPELERA.has(key) };
+    });
   } else if (role === 'analista') {
     (['dashboard', 'pedidos', 'proveedores', 'inventario', 'deposito', 'produccion', 'refinacion', 'salidas', 'combustible', 'cocina', 'ajustes'] as ModuleKey[]).forEach((k) => {
       all[k] = { lectura: true, escritura: true, full: false };

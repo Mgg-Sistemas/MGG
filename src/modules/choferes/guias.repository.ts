@@ -5,6 +5,8 @@
 import { supabase } from '@/shared/lib/supabase';
 import { textoDeError } from '@/shared/lib/errores';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { accionesAdjuntosPapelera } from '@/shared/lib/papeleraAdjuntos';
+import type { AccionesPapelera } from '@/shared/ui/PapeleraRegistros';
 import { nombreArchivoSeguro } from '@/modules/maquinaria/documentosEquipo';
 import { nombreDescargaGuia, validarGuia, validarPdfGuia, type DatosGuia, type Guia } from './guias';
 
@@ -14,7 +16,7 @@ const TABLA = 'choferes_guias';
 /** Todas las guías, de la más nueva a la más vieja (por páginas: Supabase corta en 1.000). */
 export async function listGuias(): Promise<Guia[]> {
   return todasLasFilas<Guia>((d, h) =>
-    supabase.from(TABLA).select('*').order('fecha', { ascending: false }).order('created_at', { ascending: false }).order('id').range(d, h));
+    supabase.from(TABLA).select('*').is('eliminado_en', null).order('fecha', { ascending: false }).order('created_at', { ascending: false }).order('id').range(d, h));
 }
 
 async function borrarArchivo(path: string): Promise<void> {
@@ -50,13 +52,34 @@ export async function actualizarGuia(id: string, d: DatosGuia): Promise<void> {
   if (!data?.length) throw new Error('No se pudo guardar: sin permiso o la guía ya no existe.');
 }
 
-/** Elimina la guía y su PDF. */
-export async function eliminarGuia(g: Guia): Promise<void> {
-  const { data, error } = await supabase.from(TABLA).delete().eq('id', g.id).select('id');
-  if (error) throw new Error(textoDeError(error, 'No se pudo eliminar la guía.'));
-  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o la guía ya no existía.');
-  await borrarArchivo(g.path);
+export async function enviarGuiaAPapelera(id: string, motivo: string): Promise<void> {
+  const { error } = await supabase.rpc('chofer_guias_papelera', { p_id: id, p_motivo: motivo });
+  if (error) throw new Error(textoDeError(error, 'No se pudo enviar la guía a la papelera.'));
 }
+
+export const accionesPapeleraGuias: AccionesPapelera = {
+  modulo: 'choferes',
+  titulo: 'Papelera de guías',
+  async listar() {
+    const guias = await todasLasFilas<{ id: string; numero: string | null; descripcion: string; eliminado_en: string; eliminado_motivo: string }>((d, h) =>
+      supabase.from(TABLA).select('id, numero, descripcion, eliminado_en, eliminado_motivo')
+        .not('eliminado_en', 'is', null).order('eliminado_en', { ascending: false }).order('id').range(d, h));
+    return guias.map((g) => ({ ...g, titulo: g.numero ? `N° ${g.numero} · ${g.descripcion}` : g.descripcion }));
+  },
+  async recuperar(id) {
+    const { error } = await supabase.rpc('chofer_guias_papelera', { p_id: id });
+    if (error) throw new Error(error.message);
+  },
+  async vaciar(ids) {
+    const { data, error } = await supabase.rpc('chofer_guias_vaciar_papelera', { p_ids: ids });
+    if (error) throw new Error(error.message);
+    return Number(data) || 0;
+  },
+  ...accionesAdjuntosPapelera('chofer_guias_adjuntos_por_vaciar', [BUCKET_GUIAS], async (_bucket, rutas) => {
+    const { error } = await supabase.rpc('chofer_guias_cerrar_limpieza', { p_rutas: rutas });
+    if (error) throw new Error(error.message);
+  }),
+};
 
 /** Enlace firmado (10 min) para la vista previa. */
 export async function urlVerGuia(g: Guia): Promise<string> {

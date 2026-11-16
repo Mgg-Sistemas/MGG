@@ -5,7 +5,8 @@
    conductor (opcional), nota y el PDF.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -14,7 +15,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import type { PropsTab } from './ChoferesPage';
 import { DATOS_GUIA_VACIOS, filtrarGuias, nombreDescargaGuia, tamanoLegible, validarGuia, validarPdfGuia, type DatosGuia, type Guia } from './guias';
-import { actualizarGuia, eliminarGuia, listGuias, registrarGuia, urlDescargaGuia, urlVerGuia } from './guias.repository';
+import { accionesPapeleraGuias, actualizarGuia, enviarGuiaAPapelera, listGuias, registrarGuia, urlDescargaGuia, urlVerGuia } from './guias.repository';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 
 export function GuiasTab({ datos, canWrite, actor, actorName }: PropsTab) {
@@ -67,12 +68,6 @@ export function GuiasTab({ datos, canWrite, actor, actorName }: PropsTab) {
       document.body.appendChild(a); a.click(); a.remove();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo descargar la guía', 'error'); }
   }
-  async function confirmarBorrar() {
-    if (!borrar) return;
-    try { await eliminarGuia(borrar); toast('Guía eliminada', 'success'); setBorrar(null); void cargar(true); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
-  }
-
   const opcionesConductor = useMemo(() => datos.conductores
     .filter((c) => c.activo)
     .map((c) => ({ value: c.id, label: nombreConductor(c.id) || '(sin nombre)' }))
@@ -93,6 +88,7 @@ export function GuiasTab({ datos, canWrite, actor, actorName }: PropsTab) {
         <strong>📑 Guías</strong>
         <span className="muted">· {visibles.length}{hayFiltro ? ` de ${guias.length}` : ''} guía(s)</span>
         <div style={{ marginLeft: 'auto', display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+          <BotonPapeleraRegistros acciones={accionesPapeleraGuias} onChanged={() => void cargar(true)} />
           {canWrite && <button className="btn btn-primary" onClick={() => setNueva(true)}>+ Cargar guía (PDF)</button>}
         </div>
       </div>
@@ -156,9 +152,13 @@ export function GuiasTab({ datos, canWrite, actor, actorName }: PropsTab) {
           onSaved={() => { setNueva(false); setEditar(null); void cargar(true); }} />
       )}
       {borrar && (
-        <ConfirmDialog title="Eliminar guía" danger confirmText="Sí, eliminar"
-          message={`¿Eliminar la guía ${borrar.numero ? `N° ${borrar.numero} ` : ''}del ${fmtDate(borrar.fecha)} (${borrar.descripcion})? Se borra también el PDF.`}
-          onConfirm={() => void confirmarBorrar()} onCancel={() => setBorrar(null)} />
+        <EnviarRegistroPapelera nombre={`la guía «${borrar.descripcion}»`} onClose={() => setBorrar(null)}
+          onConfirm={async (motivo) => {
+            await enviarGuiaAPapelera(borrar.id, motivo);
+            toast('Guía enviada a la papelera', 'success');
+            setBorrar(null);
+            await cargar(true);
+          }} />
       )}
     </div>
   );
