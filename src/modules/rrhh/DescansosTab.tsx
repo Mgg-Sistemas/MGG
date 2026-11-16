@@ -16,7 +16,8 @@
    · ⚙ Ajustes → días de trabajo, días de descanso y tope (por nómina).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -28,6 +29,7 @@ import { listPersonal } from './personal.repository';
 import {
   aplicarPlanDescansos, crearDescanso, editarDescanso, eliminarDescanso, eliminarGrupoDescanso, getConfigDescansos,
   guardarConfigDescansos, guardarGrupoDescanso, listDescansos, listGruposDescanso, type Descanso, type GrupoDescanso,
+  moduloDescansos, papeleraDescansos, type ModuloDescansos,
 } from './descansos.repository';
 import {
   CONFIG_POR_DEFECTO, capacidadRotacion, cargaPorDia, diasConChoque, diasDe, fechasEntre, fueraEl,
@@ -64,6 +66,7 @@ export function DescansosTab({ empresa, canWrite, actor, actorName, soloPersonal
   etiquetaGente?: string;
 }) {
   const clave = claveConfig ?? empresa;
+  const modulo = moduloDescansos(clave);
   const hoy = useMemo(hoyVE, []);
   const [cursor, setCursor] = useState(() => ({ y: Number(hoy.slice(0, 4)), m: Number(hoy.slice(5, 7)) - 1 }));
   const [personal, setPersonal] = useState<Personal[]>([]);
@@ -218,6 +221,7 @@ export function DescansosTab({ empresa, canWrite, actor, actorName, soloPersonal
           <button className="btn btn-sm btn-ghost" onClick={() => void exportar('pdf')} disabled={loading || !!generando} title="Vista previa del PDF con lo que se está viendo">{generando === 'pdf' ? 'Generando…' : '🖨 PDF'}</button>
           {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setAjustes(true)}>⚙ Ajustes</button>}
           {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setPlan(true)} disabled={!personal.length}>🗓 Generar plan</button>}
+          <BotonPapeleraRegistros acciones={papeleraDescansos[modulo]} onChanged={() => void recargar()} />
           {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setEditar({})} disabled={!personal.length}>+ Descanso</button>}
         </div>
       </div>
@@ -283,7 +287,7 @@ export function DescansosTab({ empresa, canWrite, actor, actorName, soloPersonal
 
       {editar && (
         <DescansoModal inicial={editar} personal={personal} descansos={descansos} cfg={cfg} canWrite={canWrite}
-          actor={actor} actorName={actorName} onClose={() => setEditar(null)}
+          actor={actor} actorName={actorName} modulo={modulo} onClose={() => setEditar(null)}
           onSaved={async () => { setEditar(null); await recargar(); }} />
       )}
       {ajustes && (
@@ -349,10 +353,11 @@ function FilaPersona({ row, persona, dias, hoy, fuera, descansos, mesIni, mesFin
 }
 
 /* ───────── Nuevo / editar descanso ───────── */
-function DescansoModal({ inicial, personal, descansos, cfg, canWrite, actor, actorName, onClose, onSaved }: {
+function DescansoModal({ inicial, personal, descansos, cfg, canWrite, actor, actorName, modulo, onClose, onSaved }: {
   inicial: { descanso?: Descanso; personalId?: string; desde?: string };
   personal: Personal[]; descansos: Descanso[]; cfg: ConfigDescansos; canWrite: boolean;
   actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+  modulo: ModuloDescansos;
 }) {
   const d0 = inicial.descanso;
   const [personaId, setPersonaId] = useState(d0?.personal_id ?? inicial.personalId ?? '');
@@ -394,13 +399,6 @@ function DescansoModal({ inicial, personal, descansos, cfg, canWrite, actor, act
       toast(d0 ? 'Descanso actualizado' : 'Descanso cargado', 'success');
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); setSaving(false); }
-  }
-
-  async function eliminar() {
-    if (!d0) return;
-    setBorrar(false); setSaving(true);
-    try { await eliminarDescanso(d0.id); toast('Descanso eliminado', 'success'); onSaved(); }
-    catch (err) { setError(err instanceof Error ? err.message : 'No se pudo eliminar'); setSaving(false); }
   }
 
   return (
@@ -454,9 +452,12 @@ function DescansoModal({ inicial, personal, descansos, cfg, canWrite, actor, act
         )}
       </form>
       {borrar && d0 && (
-        <ConfirmDialog title="Eliminar descanso" danger confirmText="Sí, borrar"
-          message={`Se borra el descanso de ${nombre(persona)} del ${fmtDate(d0.desde)} al ${fmtDate(d0.hasta)}.`}
-          onConfirm={() => { void eliminar(); }} onCancel={() => setBorrar(false)} />
+        <EnviarRegistroPapelera nombre={`Descanso de ${nombre(persona)} del ${fmtDate(d0.desde)} al ${fmtDate(d0.hasta)}`}
+          conAdjuntos={false} onClose={() => setBorrar(false)} onConfirm={async (motivo) => {
+            await eliminarDescanso(d0.id, modulo, motivo);
+            toast('Descanso enviado a la papelera', 'success');
+            onSaved();
+          }} />
       )}
     </Modal>
   );
@@ -550,16 +551,6 @@ function GenerarPlanModal({ empresa, personal, descansos, cfg, hoy, actor, actor
       toast(`Selección «${nombreGrupo.trim()}» guardada (${sel.size})`, 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar la selección', 'error'); }
     finally { setGuardandoGrupo(false); }
-  }
-
-  async function confirmarBorrarGrupo() {
-    const g = borrarGrupo; setBorrarGrupo(null);
-    if (!g) return;
-    try {
-      await eliminarGrupoDescanso(g.id);
-      if (grupoId === g.id) setGrupoId('');
-      toast(`Selección «${g.nombre}» eliminada`, 'success');
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
   }
 
   const propuesta: ResultadoPlan | null = useMemo(() => {
@@ -688,9 +679,13 @@ function GenerarPlanModal({ empresa, personal, descansos, cfg, hoy, actor, actor
         </div>
       </div>
       {borrarGrupo && (
-        <ConfirmDialog title="Eliminar selección guardada" danger confirmText="Sí, eliminar"
-          message={`Se borra la selección «${borrarGrupo.nombre}» (${borrarGrupo.personal_ids.length} personas). Los descansos ya cargados no se tocan.`}
-          onConfirm={() => { void confirmarBorrarGrupo(); }} onCancel={() => setBorrarGrupo(null)} />
+        <EnviarRegistroPapelera nombre={`Selección «${borrarGrupo.nombre}»`} conAdjuntos={false}
+          onClose={() => setBorrarGrupo(null)} onConfirm={async (motivo) => {
+            await eliminarGrupoDescanso(borrarGrupo.id, moduloDescansos(empresa), motivo);
+            if (grupoId === borrarGrupo.id) setGrupoId('');
+            setBorrarGrupo(null);
+            toast('Selección enviada a la papelera', 'success');
+          }} />
       )}
     </Modal>
   );

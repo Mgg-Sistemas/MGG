@@ -8,6 +8,8 @@
                            fuera a la vez, uno por nómina (en MGG hay una sola).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import type { AccionesPapelera } from '@/shared/ui/PapeleraRegistros';
 import type { Empresa } from './empresa';
 import { CONFIG_POR_DEFECTO, type ConfigDescansos, type DescansoRango } from './descansosPlan';
 
@@ -77,9 +79,19 @@ export async function editarDescanso(id: string, cambios: { desde: string; hasta
   if (error) throw mensaje(error);
 }
 
-export async function eliminarDescanso(id: string): Promise<void> {
-  const { error } = await supabase.from(TABLA).delete().eq('id', id);
-  if (error) throw error;
+export type ModuloDescansos = 'rrhh' | 'choferes';
+
+export function moduloDescansos(clave: ClaveDescansos): ModuloDescansos {
+  return clave === 'MGG·choferes' ? 'choferes' : 'rrhh';
+}
+
+async function archivarDescanso(tabla: string, id: string, modulo: ModuloDescansos, motivo: string): Promise<void> {
+  const { error } = await supabase.rpc('descanso_papelera_cambiar', { p_tabla: tabla, p_id: id, p_modulo: modulo, p_motivo: motivo });
+  if (error) throw mensaje(error);
+}
+
+export async function eliminarDescanso(id: string, modulo: ModuloDescansos, motivo: string): Promise<void> {
+  await archivarDescanso(TABLA, id, modulo, motivo);
 }
 
 /* ── Selecciones guardadas (30-09-2026) ──────────────────────────────────
@@ -118,10 +130,32 @@ export async function guardarGrupoDescanso(
   if (error) throw mensaje(error);
 }
 
-export async function eliminarGrupoDescanso(id: string): Promise<void> {
-  const { error } = await supabase.from(TABLA_GRUPOS).delete().eq('id', id);
-  if (error) throw error;
+export async function eliminarGrupoDescanso(id: string, modulo: ModuloDescansos, motivo: string): Promise<void> {
+  await archivarDescanso(TABLA_GRUPOS, id, modulo, motivo);
 }
+
+function accionesPapeleraDescansos(modulo: ModuloDescansos): AccionesPapelera {
+  return {
+    modulo,
+    titulo: 'Papelera de descansos',
+    listar: () => todasLasFilas<{ id: string; titulo: string; eliminado_en: string; eliminado_motivo: string }>((d, h) =>
+      supabase.rpc('descanso_papelera_listar', { p_modulo: modulo }).range(d, h)),
+    async recuperar(id) {
+      const [tabla, filaId] = id.split(':');
+      const { error } = await supabase.rpc('descanso_papelera_cambiar', { p_tabla: tabla, p_id: filaId, p_modulo: modulo });
+      if (error) throw mensaje(error);
+    },
+    async vaciar(ids) {
+      const { data, error } = await supabase.rpc('descanso_vaciar_papelera', { p_modulo: modulo, p_ids: ids });
+      if (error) throw mensaje(error);
+      return Number(data) || 0;
+    },
+  };
+}
+export const papeleraDescansos = {
+  rrhh: accionesPapeleraDescansos('rrhh'),
+  choferes: accionesPapeleraDescansos('choferes'),
+};
 
 /**
  * Reemplaza el plan: borra los descansos 'plan' de esas personas desde `desde`
