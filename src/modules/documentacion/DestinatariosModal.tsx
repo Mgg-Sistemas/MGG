@@ -5,10 +5,11 @@
    Si viene `onElegir`, cada fila tiene «Usar» (llena el formulario).
    ============================================================ */
 import { useMemo, useState, type FormEvent } from 'react';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
-import { crearDestinatario, editarDestinatario, eliminarDestinatario, type Destinatario } from './documentacion.repository';
+import { crearDestinatario, editarDestinatario, eliminarDestinatario, papeleraCatalogosDocumentacion, type Destinatario } from './documentacion.repository';
 import { filtrarDestinatarios } from './notaEnvio';
 import type { DatosDestinatario } from './catalogoDocumentacion';
 
@@ -22,14 +23,11 @@ export function DestinatariosModal({ destinatarios, canWrite, actor, onClose, on
   const [borrar, setBorrar] = useState<Destinatario | null>(null);
   const visibles = useMemo(() => filtrarDestinatarios(destinatarios, q), [destinatarios, q]);
 
-  async function confirmarBorrar() {
-    if (!borrar) return;
-    try { await eliminarDestinatario(borrar.id); toast('Destinatario eliminado', 'success'); setBorrar(null); await onChanged(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
-  }
-
   return (
-    <Modal title="📇 Destinatarios" size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+    <Modal title="📇 Destinatarios" size="lg" onClose={onClose} footer={<>
+      <BotonPapeleraRegistros acciones={papeleraCatalogosDocumentacion} onChanged={() => void onChanged()} />
+      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+    </>}>
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Razón social, RIF, atención, dirección…" style={{ flex: '1 1 240px' }} />
         <span className="muted" style={{ fontSize: '.8rem' }}>{visibles.length} de {destinatarios.length}</span>
@@ -67,9 +65,13 @@ export function DestinatariosModal({ destinatarios, canWrite, actor, onClose, on
           onSaved={async () => { setForm(null); await onChanged(); }} />
       )}
       {borrar && (
-        <ConfirmDialog title="Eliminar destinatario"
-          message={`¿Eliminar «${borrar.razon_social}» del catálogo? Las notas ya emitidas conservan sus datos tal como se imprimieron.`}
-          confirmText="Eliminar" danger onConfirm={() => void confirmarBorrar()} onCancel={() => setBorrar(null)} />
+        <EnviarRegistroPapelera nombre={`el destinatario «${borrar.razon_social}»`} conAdjuntos={false} onClose={() => setBorrar(null)}
+          onConfirm={async (motivo) => {
+            await eliminarDestinatario(borrar.id, motivo);
+            toast('Destinatario enviado a la papelera', 'success');
+            setBorrar(null);
+            await onChanged();
+          }} />
       )}
     </Modal>
   );

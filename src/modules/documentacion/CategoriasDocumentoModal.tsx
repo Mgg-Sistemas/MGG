@@ -4,11 +4,12 @@
    (sus documentos pasan a «General»), con confirmación del sistema.
    ============================================================ */
 import { useMemo, useState, type FormEvent } from 'react';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import {
-  crearCategoriaDocumento, eliminarCategoriaDocumento, renombrarCategoriaDocumento, type CategoriaDocumento, type DocumentoEmpresa,
+  crearCategoriaDocumento, eliminarCategoriaDocumento, papeleraCatalogosDocumentacion, renombrarCategoriaDocumento, type CategoriaDocumento, type DocumentoEmpresa,
 } from './documentacion.repository';
 import { norm } from './notaEnvio';
 
@@ -48,19 +49,11 @@ export function CategoriasDocumentoModal({ categorias, docs, canWrite, actor, on
     catch (err) { toast(err instanceof Error ? err.message : 'No se pudo renombrar', 'error'); }
     finally { setSaving(false); }
   }
-  async function confirmarBorrar() {
-    if (!borrar) return;
-    setSaving(true);
-    try {
-      const movidos = await eliminarCategoriaDocumento(borrar);
-      toast(movidos ? `Categoría eliminada · ${movidos} documento(s) pasaron a General` : 'Categoría eliminada', 'success');
-      setBorrar(null); await onChanged();
-    } catch (err) { toast(err instanceof Error ? err.message : 'No se pudo eliminar', 'error'); }
-    finally { setSaving(false); }
-  }
-
   return (
-    <Modal title="🏷 Categorías de documentos" size="md" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+    <Modal title="🏷 Categorías de documentos" size="md" onClose={onClose} footer={<>
+      <BotonPapeleraRegistros acciones={papeleraCatalogosDocumentacion} onChanged={() => void onChanged()} />
+      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+    </>}>
       {canWrite && (
         <form onSubmit={agregar} style={{ display: 'flex', gap: '.5rem', marginBottom: '.75rem' }}>
           <input className="input" value={nueva} onChange={(e) => setNueva(e.target.value)} placeholder="Nueva categoría…" style={{ flex: 1 }} />
@@ -101,15 +94,16 @@ export function CategoriasDocumentoModal({ categorias, docs, canWrite, actor, on
           </tbody>
         </table>
       </div>
-      <small className="muted">Al renombrar, sus documentos cambian con ella. Al borrar, sus documentos pasan a «General».</small>
+      <small className="muted">Al renombrar, sus documentos cambian con ella. Al vaciar la papelera, los documentos de la categoría eliminada pasan a «General».</small>
 
       {borrar && (
-        <ConfirmDialog
-          title="Eliminar categoría"
-          message={`¿Eliminar la categoría «${borrar.nombre}»?${(usos.get(borrar.nombre) ?? 0) ? ` Sus ${usos.get(borrar.nombre)} documento(s) pasarán a «General».` : ''}`}
-          confirmText="Eliminar" danger
-          onConfirm={() => void confirmarBorrar()} onCancel={() => setBorrar(null)}
-        />
+        <EnviarRegistroPapelera nombre={`la categoría «${borrar.nombre}»`} conAdjuntos={false} onClose={() => setBorrar(null)}
+          onConfirm={async (motivo) => {
+            await eliminarCategoriaDocumento(borrar, motivo);
+            toast('Categoría enviada a la papelera', 'success');
+            setBorrar(null);
+            await onChanged();
+          }} />
       )}
     </Modal>
   );

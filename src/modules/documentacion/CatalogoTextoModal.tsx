@@ -5,10 +5,11 @@
    Si viene `onElegir`, cada fila tiene «Usar» (desde el formulario).
    ============================================================ */
 import { useMemo, useState, type FormEvent } from 'react';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
-import { crearItemCatalogoDoc, eliminarItemCatalogoDoc, renombrarItemCatalogoDoc, type ItemCatalogoDoc } from './documentacion.repository';
+import { crearItemCatalogoDoc, eliminarItemCatalogoDoc, papeleraCatalogosDocumentacion, renombrarItemCatalogoDoc, type ItemCatalogoDoc } from './documentacion.repository';
 import { SCOPES_CATALOGO_DOC, filtrarCatalogo, type ScopeCatalogoDoc } from './catalogoDocumentacion';
 
 export function CatalogoTextoModal({ items, scope: scopeInicial, fijo = false, canWrite, actor, onClose, onChanged, onElegir }: {
@@ -48,16 +49,11 @@ export function CatalogoTextoModal({ items, scope: scopeInicial, fijo = false, c
     catch (err) { toast(err instanceof Error ? err.message : 'No se pudo guardar', 'error'); }
     finally { setSaving(false); }
   }
-  async function confirmarBorrar() {
-    if (!borrar) return;
-    setSaving(true);
-    try { await eliminarItemCatalogoDoc(borrar.id); toast('Eliminado del catálogo', 'success'); setBorrar(null); await onChanged(); }
-    catch (err) { toast(err instanceof Error ? err.message : 'No se pudo eliminar', 'error'); }
-    finally { setSaving(false); }
-  }
-
   return (
-    <Modal title={`${def.icon} ${def.label}`} size="md" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+    <Modal title={`${def.icon} ${def.label}`} size="md" onClose={onClose} footer={<>
+      <BotonPapeleraRegistros acciones={papeleraCatalogosDocumentacion} onChanged={() => void onChanged()} />
+      <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+    </>}>
       {!fijo && (
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap', marginBottom: '.6rem' }}>
           {SCOPES_CATALOGO_DOC.map((s) => (
@@ -112,9 +108,13 @@ export function CatalogoTextoModal({ items, scope: scopeInicial, fijo = false, c
         </table>
       </div>
       {borrar && (
-        <ConfirmDialog title={`Eliminar de ${def.label.toLowerCase()}`}
-          message={`¿Eliminar «${borrar.nombre}» del catálogo? Las notas ya emitidas no cambian: el texto quedó escrito en cada una.`}
-          confirmText="Eliminar" danger onConfirm={() => void confirmarBorrar()} onCancel={() => setBorrar(null)} />
+        <EnviarRegistroPapelera nombre={`«${borrar.nombre}» del catálogo`} conAdjuntos={false} onClose={() => setBorrar(null)}
+          onConfirm={async (motivo) => {
+            await eliminarItemCatalogoDoc(borrar.id, motivo);
+            toast('Texto enviado a la papelera', 'success');
+            setBorrar(null);
+            await onChanged();
+          }} />
       )}
     </Modal>
   );

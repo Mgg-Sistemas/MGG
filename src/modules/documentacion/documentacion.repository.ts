@@ -254,17 +254,9 @@ export async function renombrarCategoriaDocumento(c: CategoriaDocumento, nuevo: 
   if (e2) throw new Error(textoDeError(e2, 'La categoría se renombró, pero no se pudieron actualizar sus documentos.'));
 }
 
-/** Borra la categoría. Los documentos que la usaban pasan a «General». */
-export async function eliminarCategoriaDocumento(c: CategoriaDocumento): Promise<number> {
-  const { data: usados } = await supabase.from('documentos_empresa').select('id').eq('categoria', c.nombre);
-  const cuantos = (usados ?? []).length;
-  if (cuantos) {
-    const { error: e1 } = await supabase.from('documentos_empresa').update({ categoria: 'General' }).eq('categoria', c.nombre);
-    if (e1) throw new Error(textoDeError(e1, 'No se pudieron mover los documentos de la categoría.'));
-  }
-  const { error } = await supabase.from('categorias_documentacion').delete().eq('id', c.id);
-  if (error) throw new Error(textoDeError(error, 'No se pudo eliminar la categoría.'));
-  return cuantos;
+/** Retira la categoría del catálogo conservando su vínculo con los documentos. */
+export async function eliminarCategoriaDocumento(c: CategoriaDocumento, motivo: string): Promise<void> {
+  await archivarCatalogoDocumento('categorias_documentacion', c.id, motivo);
 }
 
 /* ───────── Destinatarios ───────── */
@@ -310,9 +302,8 @@ export async function editarDestinatario(id: string, d: DatosDestinatario): Prom
 }
 
 /** Borra el destinatario del catálogo. Las notas emitidas conservan sus datos (van escritos en cada nota). */
-export async function eliminarDestinatario(id: string): Promise<void> {
-  const { error } = await supabase.from('destinatarios_documentacion').delete().eq('id', id);
-  if (error) throw new Error(textoDeError(error, 'No se pudo eliminar el destinatario.'));
+export async function eliminarDestinatario(id: string, motivo: string): Promise<void> {
+  await archivarCatalogoDocumento('destinatarios_documentacion', id, motivo);
 }
 
 /* ───────── Catálogos de texto: condición, conceptos, atención ───────── */
@@ -352,10 +343,31 @@ export async function renombrarItemCatalogoDoc(id: string, nombre: string): Prom
   return data as ItemCatalogoDoc;
 }
 
-export async function eliminarItemCatalogoDoc(id: string): Promise<void> {
-  const { error } = await supabase.from('catalogo_documentacion').delete().eq('id', id);
-  if (error) throw new Error(textoDeError(error, 'No se pudo eliminar.'));
+export async function eliminarItemCatalogoDoc(id: string, motivo: string): Promise<void> {
+  await archivarCatalogoDocumento('catalogo_documentacion', id, motivo);
 }
+
+async function archivarCatalogoDocumento(tabla: string, id: string, motivo: string): Promise<void> {
+  const { error } = await supabase.rpc('doc_catalogo_papelera_cambiar', { p_tabla: tabla, p_id: id, p_motivo: motivo });
+  if (error) throw new Error(error.message);
+}
+
+export const papeleraCatalogosDocumentacion: AccionesPapelera = {
+  modulo: 'documentacion',
+  titulo: 'Papelera de catálogos de Documentación',
+  listar: () => todasLasFilas<{ id: string; titulo: string; eliminado_en: string; eliminado_motivo: string }>((d, h) =>
+    supabase.rpc('doc_catalogo_papelera_listar').range(d, h)),
+  async recuperar(id) {
+    const [tabla, filaId] = id.split(':');
+    const { error } = await supabase.rpc('doc_catalogo_papelera_cambiar', { p_tabla: tabla, p_id: filaId });
+    if (error) throw new Error(error.message);
+  },
+  async vaciar(ids) {
+    const { data, error } = await supabase.rpc('doc_catalogo_vaciar_papelera', { p_ids: ids });
+    if (error) throw new Error(error.message);
+    return Number(data) || 0;
+  },
+};
 
 /** Asegura que el texto esté en su catálogo y le suma un uso. Best-effort: nunca frena la nota. */
 async function recordarEnCatalogo(scope: ScopeCatalogoDoc, nombre: string | null | undefined): Promise<void> {
