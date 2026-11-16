@@ -152,11 +152,11 @@ export async function subirArchivoBuzon(
 
   const timestamp = Date.now();
   const safeName = archivo.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path = `${facturaId}/${timestamp}_${safeName}`;
+  const path = `${facturaId}/${timestamp}_${crypto.randomUUID()}_${safeName}`;
 
   // Si no sube, se dice: antes el error se tragaba y el soporte quedaba anotado sin archivo.
   const { data, error } = await supabase.storage.from(BUCKET_BUZON).upload(path, archivo, {
-    upsert: true,
+    upsert: false,
     contentType: archivo.type,
   });
   if (error) throw new Error(`No se pudo subir «${archivo.name}»: ${error.message}`);
@@ -182,7 +182,8 @@ export async function subirArchivoBuzon(
  */
 export async function obtenerUrlAdjunto(path: string): Promise<string> {
   if (!path) return '';
-  const { data, error } = await supabase.storage.from(BUCKET_BUZON).createSignedUrl(path, 600);
+  const bucket = path.startsWith('facturas_externas/') ? 'compras-oc' : BUCKET_BUZON;
+  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 600);
   if (error || !data?.signedUrl) return '';
   return data.signedUrl;
 }

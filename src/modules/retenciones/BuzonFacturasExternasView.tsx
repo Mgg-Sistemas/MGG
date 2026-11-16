@@ -13,7 +13,9 @@ import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraFacturas, EnviarFacturaPapelera } from './PapeleraFacturas';
+import { enviarFacturaAPapelera } from './facturasExternas.repository';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { num, date, money } from '@/shared/lib/format';
 import { rifEmpresaParaGuardar } from '@/modules/libroFiscal/parametrosEmpresa';
@@ -22,7 +24,7 @@ import {
   type EmpresaReceptora,
 } from './empresasReceptoras.repository';
 import {
-  listFacturasBuzon, actualizarEstatusFacturaBuzon, eliminarFacturaBuzon,
+  listFacturasBuzon, actualizarEstatusFacturaBuzon,
   type FacturaBuzon, type EstatusFacturaBuzon,
 } from './facturasBuzon.repository';
 import {
@@ -270,6 +272,7 @@ export function BuzonFacturasExternasView() {
             🏢 Empresas & Fichas Fiscales ({empresas.length})
           </button>
 
+          <BotonPapeleraFacturas onChanged={() => void cargarDatos(false)} />
           {empresaSeleccionadaActual && (
             <button
               type="button"
@@ -647,23 +650,15 @@ export function BuzonFacturasExternasView() {
         </Modal>
       )}
 
-      {/* ConfirmDialog de Borrado */}
       {facturaABorrar && (
-        <ConfirmDialog
-          title="¿Eliminar esta factura del buzón?"
-          message={`Se eliminará la factura #${facturaABorrar.numero_factura} de ${facturaABorrar.proveedor_nombre} y todos sus soportes del almacenamiento.`}
-          confirmText="Sí, eliminar factura"
-          danger
-          onCancel={() => setFacturaABorrar(null)}
-          onConfirm={async () => {
-            try {
-              await eliminarFacturaBuzon(facturaABorrar.id);
-              toast('Factura eliminada', 'info');
-              setFacturaABorrar(null);
-              void cargarDatos(false);
-            } catch (e) {
-              toast('Error al eliminar factura: ' + String(e), 'error');
-            }
+        <EnviarFacturaPapelera
+          nombre={`la factura #${facturaABorrar.numero_factura} de ${facturaABorrar.proveedor_nombre}`}
+          onClose={() => setFacturaABorrar(null)}
+          onConfirm={async (motivo) => {
+            await enviarFacturaAPapelera(facturaABorrar.id, motivo);
+            toast('Factura enviada a la papelera', 'success');
+            setFacturaABorrar(null);
+            void cargarDatos(false);
           }}
         />
       )}

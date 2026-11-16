@@ -100,7 +100,7 @@ export function errorBuzon(e: { code?: string; message?: string } | null | undef
 
 function mapearFilaFactura(r: Record<string, unknown>): FacturaExternaBuzon {
   const empresaId = String(r.empresa_id || r.empresaId || r.empresa_receptora_id || '');
-  const empresaNombre = String(r.empresa_nombre || r.empresaNombre || 'Empresa Receptora');
+  const empresaNombre = String(r.empresa_nombre || r.empresaNombre || r.empresa || 'Empresa Receptora');
   const proveedorNombre = String(r.proveedor_nombre || r.proveedorNombre || 'Proveedor');
   const proveedorRif = String(r.proveedor_rif || r.proveedorRif || 'S/RIF');
   const facturaNumero = String(r.factura_numero || r.facturaNumero || r.numero_factura || '000000');
@@ -108,16 +108,19 @@ function mapearFilaFactura(r: Record<string, unknown>): FacturaExternaBuzon {
   const facturaFecha = String(r.factura_fecha || r.facturaFecha || r.fecha_factura || '').slice(0, 10);
   const montoTotal = Number(r.monto_total ?? r.montoTotal ?? 0);
   const moneda = (String(r.moneda || 'USD').toUpperCase() === 'BS' ? 'Bs' : 'USD') as 'Bs' | 'USD';
-  const tasa = r.tasa != null ? Number(r.tasa) : null;
+  const tasa = (r.tasa_cambio ?? r.tasa) != null ? Number(r.tasa_cambio ?? r.tasa) : null;
   const montoBs = Number(r.monto_bs ?? r.montoBs ?? (moneda === 'Bs' ? montoTotal : (tasa ? montoTotal * tasa : 0)));
   const montoUsd = r.monto_usd != null ? Number(r.monto_usd) : (r.montoUsd != null ? Number(r.montoUsd) : (moneda === 'USD' ? montoTotal : (tasa && tasa > 0 ? montoTotal / tasa : null)));
   const descripcion = String(r.descripcion || '');
-  const observaciones = r.observaciones ? String(r.observaciones) : null;
-  const estatus = (r.estatus as EstatusFacturaBuzon) || 'recibida';
+  const observaciones = r.observacion ? String(r.observacion) : null;
+  const estado = r.estado ?? r.estatus;
+  const estatus: EstatusFacturaBuzon = estado === 'anulada' || estado === 'rechazada' ? 'descartada'
+    : estado === 'procesada' ? 'retenida'
+    : estado === 'en_revision' || estado === 'retenida' || estado === 'descartada' ? estado : 'recibida';
   const tipoDocumento = (r.tipo_documento as TipoDocumentoFactura) || 'factura';
-  const adjuntos = Array.isArray(r.adjuntos) ? (r.adjuntos as AdjuntoFacturaItem[]) : [];
-  const createdBy = r.created_by ? String(r.created_by) : (r.createdBy ? String(r.createdBy) : null);
-  const createdByName = r.created_by_name ? String(r.created_by_name) : (r.createdByName ? String(r.createdByName) : null);
+  const adjuntos = Array.isArray(r.archivos) ? (r.archivos as AdjuntoFacturaItem[]) : [];
+  const createdBy = r.actor ? String(r.actor) : null;
+  const createdByName = r.actor_name ? String(r.actor_name) : null;
   const createdAt = String(r.created_at || r.createdAt || new Date().toISOString());
   const updatedAt = r.updated_at ? String(r.updated_at) : (r.updatedAt ? String(r.updatedAt) : null);
 
@@ -164,14 +167,13 @@ export async function listFacturasBuzon(filtro?: {
   estatus?: string;
   busqueda?: string;
 }): Promise<FacturaExternaBuzon[]> {
-  let q = supabase.from(TABLE_BUZON).select('*').order('created_at', { ascending: false });
+  let q = supabase.from(TABLE_BUZON).select('*').is('eliminado_en', null).order('created_at', { ascending: false });
   if (filtro?.empresaId) q = q.eq('empresa_id', filtro.empresaId);
-  if (filtro?.estatus) q = q.eq('estatus', filtro.estatus);
 
   const { data, error } = await q;
   if (error) throw errorBuzon(error);
   const items: FacturaExternaBuzon[] = (data ?? []).map((r) => mapearFilaFactura(r as Record<string, unknown>));
-  return filtrarMemoria(items, filtro?.busqueda);
+  return filtrarMemoria(filtro?.estatus ? items.filter((f) => f.estatus === filtro.estatus) : items, filtro?.busqueda);
 }
 
 function filtrarMemoria(xs: FacturaExternaBuzon[], q?: string): FacturaExternaBuzon[] {
@@ -267,25 +269,24 @@ export async function crearFacturaBuzon(input: NuevaFacturaBuzonInput): Promise<
   {
     const { error } = await supabase.from(TABLE_BUZON).insert({
       id: item.id,
+      empresa: item.empresaId.replace(/^empresa-/, '').replaceAll('-', '_').toUpperCase() || 'MGG',
       empresa_id: item.empresaId,
       empresa_nombre: item.empresaNombre,
       proveedor_nombre: item.proveedorNombre,
       proveedor_rif: item.proveedorRif,
-      factura_numero: item.facturaNumero,
-      factura_control: item.facturaControl,
-      factura_fecha: item.facturaFecha,
+      numero_factura: item.facturaNumero,
+      numero_control: item.facturaControl,
+      fecha_factura: item.facturaFecha,
       monto_total: item.montoTotal,
       moneda: item.moneda,
-      tasa: item.tasa,
-      monto_bs: item.montoBs,
-      monto_usd: item.montoUsd,
+      tasa_cambio: item.tasa,
       descripcion: item.descripcion,
-      observaciones: item.observaciones,
-      estatus: item.estatus,
+      observacion: item.observaciones,
+      estado: item.estatus,
       tipo_documento: item.tipoDocumento,
-      adjuntos: item.adjuntos,
-      created_by: item.createdBy,
-      created_by_name: item.createdByName,
+      archivos: item.adjuntos,
+      actor: item.createdBy,
+      actor_name: item.createdByName,
       created_at: item.createdAt,
       updated_at: item.updatedAt,
     });
@@ -316,23 +317,16 @@ export async function actualizarEstatusFacturaBuzon(
   nuevoEstatus: EstatusFacturaBuzon,
 ): Promise<void> {
   const { error } = await supabase.from(TABLE_BUZON).update({
-    estatus: nuevoEstatus,
+    estado: nuevoEstatus === 'descartada' ? 'rechazada' : nuevoEstatus,
     updated_at: new Date().toISOString(),
   }).eq('id', id);
   if (error) throw errorBuzon(error);
 }
-
 /** Guarda en la factura los soportes ya subidos (la factura se crea primero y los archivos van en su carpeta). */
 export async function guardarAdjuntosFacturaBuzon(id: string, adjuntos: AdjuntoFacturaItem[]): Promise<void> {
   const { error } = await supabase.from(TABLE_BUZON).update({
-    adjuntos,
+    archivos: adjuntos,
     updated_at: new Date().toISOString(),
   }).eq('id', id);
   if (error) throw errorBuzon(error);
 }
-
-export async function eliminarFacturaBuzon(id: string): Promise<void> {
-  const { error } = await supabase.from(TABLE_BUZON).delete().eq('id', id);
-  if (error) throw errorBuzon(error);
-}
-

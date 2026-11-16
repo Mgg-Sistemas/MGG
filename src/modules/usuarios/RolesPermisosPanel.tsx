@@ -319,7 +319,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                             <input type="checkbox" disabled={readOnly} checked={p.full} onChange={() => togglePerm(rc.key, m.key, 'full')} aria-label={`Full control ${m.label} para ${rc.label}`} />
                           </td>
                           <td style={{ textAlign: 'center' }}>
-                            {m.key === 'rrhh' ? <input type="checkbox" disabled={readOnly || rc.key === 'admin' || !(p.escritura || p.full)}
+                            {m.key === 'rrhh' || m.key === 'retenciones' ? <input type="checkbox" disabled={readOnly || rc.key === 'admin' || !(p.escritura || p.full)}
                               checked={rc.key === 'admin' || !!p.vaciar_papelera}
                               onChange={() => togglePerm(rc.key, m.key, 'vaciar_papelera')} aria-label={`Vaciar papelera de ${m.label} para ${rc.label}`} />
                               : <span className="muted">—</span>}

@@ -10,6 +10,7 @@
 
 import { supabase } from '@/shared/lib/supabase';
 import { normalizarRif, rifValido } from '@/shared/lib/rif';
+import { obtenerUrlAdjunto } from './adjuntosBuzon';
 
 export const TABLE_FACTURAS_EXTERNAS = 'retencion_facturas_externas';
 const BUCKET = 'compras-oc';
@@ -146,7 +147,7 @@ function aFacturaExterna(r: Record<string, unknown>): FacturaExterna {
 }
 
 export async function listFacturasExternas(filtros?: FiltrosFacturasExternas): Promise<FacturaExterna[]> {
-  let query = supabase.from(TABLE_FACTURAS_EXTERNAS).select('*').order('created_at', { ascending: false });
+  let query = supabase.from(TABLE_FACTURAS_EXTERNAS).select('*').is('eliminado_en', null).order('created_at', { ascending: false });
 
   if (filtros?.empresa && filtros.empresa !== 'todas') {
     query = query.eq('empresa', filtros.empresa.toUpperCase());
@@ -277,21 +278,9 @@ export async function crearFacturaExterna(
   }
 }
 
-export async function eliminarFacturaExterna(id: string): Promise<void> {
-  const { data: existente } = await supabase
-    .from(TABLE_FACTURAS_EXTERNAS)
-    .select('archivos')
-    .eq('id', id)
-    .maybeSingle();
-
-  const { error } = await supabase.from(TABLE_FACTURAS_EXTERNAS).delete().eq('id', id);
-  if (error) throw new Error(error.message || 'No se pudo eliminar la factura.');
-
-  const rawArchivos = Array.isArray(existente?.archivos) ? existente.archivos : [];
-  const paths = rawArchivos.map((a: { path?: string }) => a?.path).filter(Boolean) as string[];
-  if (paths.length) {
-    await supabase.storage.from(BUCKET).remove(paths).catch(() => {});
-  }
+export async function enviarFacturaAPapelera(id: string, motivo: string): Promise<void> {
+  const { error } = await supabase.rpc('ret_factura_papelera', { p_id: id, p_motivo: motivo });
+  if (error) throw new Error(error.message || 'No se pudo enviar la factura a la papelera.');
 }
 
 export async function actualizarEstadoFacturaExterna(
@@ -315,7 +304,7 @@ export async function actualizarEmpresaFacturaExterna(id: string, nuevaEmpresa: 
 }
 
 export async function urlArchivoFactura(path: string): Promise<string> {
-  const { data, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 15);
-  if (error) throw new Error(error.message || 'No se pudo generar el enlace de descarga.');
-  return data.signedUrl;
+  const url = await obtenerUrlAdjunto(path);
+  if (!url) throw new Error('No se pudo abrir el adjunto.');
+  return url;
 }

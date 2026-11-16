@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from '@/shared/ui/Toast';
 import { normalizarRif } from '@/shared/lib/rif';
+import { BotonPapeleraFacturas, EnviarFacturaPapelera } from './PapeleraFacturas';
 import {
   listEmpresasFiscales,
   guardarDatosFiscalesEmpresa,
@@ -21,7 +22,7 @@ import {
   listFacturasExternas,
   actualizarEstadoFacturaExterna,
   actualizarEmpresaFacturaExterna,
-  eliminarFacturaExterna,
+  enviarFacturaAPapelera,
   urlArchivoFactura,
   type FacturaExterna,
   type EstadoFacturaExterna,
@@ -63,6 +64,7 @@ export function OtrasEmpresasView({ canWrite }: { canWrite: boolean }) {
 
   // Modal para ver adjuntos
   const [facturaSeleccionada, setFacturaSeleccionada] = useState<FacturaExterna | null>(null);
+  const [facturaAPapelera, setFacturaAPapelera] = useState<FacturaExterna | null>(null);
   const [urlsAdjuntos, setUrlsAdjuntos] = useState<Record<string, string>>({});
   const [cargandoUrls, setCargandoUrls] = useState(false);
 
@@ -185,20 +187,6 @@ export function OtrasEmpresasView({ canWrite }: { canWrite: boolean }) {
     }
   }
 
-  async function handleEliminar(f: FacturaExterna) {
-    if (!canWrite) return;
-    if (!window.confirm(`¿Confirmas eliminar la factura ${f.numeroFactura} de ${f.proveedorNombre}?`)) return;
-
-    try {
-      await eliminarFacturaExterna(f.id);
-      toast('Factura eliminada del buzón.', 'info');
-      setFacturas((prev) => prev.filter((x) => x.id !== f.id));
-      if (facturaSeleccionada?.id === f.id) setFacturaSeleccionada(null);
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Error al eliminar', 'error');
-    }
-  }
-
   async function verAdjuntos(f: FacturaExterna) {
     setFacturaSeleccionada(f);
     setUrlsAdjuntos({});
@@ -299,6 +287,16 @@ export function OtrasEmpresasView({ canWrite }: { canWrite: boolean }) {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', marginTop: '.5rem' }}>
+      {facturaAPapelera && <EnviarFacturaPapelera
+        nombre={`la factura #${facturaAPapelera.numeroFactura} de ${facturaAPapelera.proveedorNombre}`}
+        onClose={() => setFacturaAPapelera(null)}
+        onConfirm={async (motivo) => {
+          await enviarFacturaAPapelera(facturaAPapelera.id, motivo);
+          setFacturas((prev) => prev.filter((f) => f.id !== facturaAPapelera.id));
+          if (facturaSeleccionada?.id === facturaAPapelera.id) setFacturaSeleccionada(null);
+          setFacturaAPapelera(null);
+          toast('Factura enviada a la papelera', 'success');
+        }} />}
       {/* ── Banner explicativo y control de campana ── */}
       <div
         className="card"
@@ -328,6 +326,7 @@ export function OtrasEmpresasView({ canWrite }: { canWrite: boolean }) {
 
         {/* Sonido distintivo y acciones */}
         <div style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
+          <BotonPapeleraFacturas onChanged={() => void recargar()} />
           <button
             type="button"
             className="btn btn-sm btn-ghost"
@@ -589,7 +588,7 @@ export function OtrasEmpresasView({ canWrite }: { canWrite: boolean }) {
                             className="btn btn-ghost btn-sm"
                             style={{ color: '#ef4444', fontSize: '.75rem', padding: '3px 6px' }}
                             title="Eliminar factura"
-                            onClick={() => void handleEliminar(f)}
+                            onClick={() => setFacturaAPapelera(f)}
                           >
                             🗑
                           </button>

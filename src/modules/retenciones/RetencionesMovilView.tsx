@@ -13,7 +13,9 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { toast } from '@/shared/ui/Toast';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraFacturas, EnviarFacturaPapelera } from './PapeleraFacturas';
+import { enviarFacturaAPapelera } from './facturasExternas.repository';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { num, date, money } from '@/shared/lib/format';
 import { hoyVE, getTasaHoy } from '@/modules/tesoreria/tasas.repository';
@@ -22,7 +24,7 @@ import {
   listEmpresasReceptoras, guardarEmpresaReceptora, type EmpresaReceptora,
 } from './empresasReceptoras.repository';
 import {
-  listFacturasBuzon, crearFacturaBuzon, eliminarFacturaBuzon,
+  listFacturasBuzon, crearFacturaBuzon,
   type FacturaExternaBuzon, type EstatusFacturaBuzon, type TipoDocumentoFactura,
 } from './facturasBuzon.repository';
 import {
@@ -136,6 +138,7 @@ export function RetencionesMovilView() {
 
       {/* Tabs principales de la vista teléfono */}
       <div className="buzon-tabs-top">
+        <BotonPapeleraFacturas onChanged={() => void cargarDatos()} />
         <button
           type="button"
           className={`buzon-tab-btn ${paso === 'lista' ? 'activo' : ''}`}
@@ -309,7 +312,7 @@ export function RetencionesMovilView() {
                           type="button"
                           className="btn btn-sm btn-danger"
                           onClick={() => setFacturaABorrar(fac)}
-                          title="Eliminar factura y soportes"
+                          title="Enviar factura y soportes a la papelera"
                         >
                           🗑
                         </button>
@@ -445,23 +448,15 @@ export function RetencionesMovilView() {
         </Modal>
       )}
 
-      {/* ConfirmDialog de Borrado */}
       {facturaABorrar && (
-        <ConfirmDialog
-          title="¿Eliminar esta factura?"
-          message={`Se eliminará permanentemente la factura #${facturaABorrar.facturaNumero || facturaABorrar.numero_factura} de ${facturaABorrar.proveedorNombre || facturaABorrar.proveedor_nombre} y sus soportes adjuntos.`}
-          confirmText="Sí, eliminar factura"
-          danger
-          onCancel={() => setFacturaABorrar(null)}
-          onConfirm={async () => {
-            try {
-              await eliminarFacturaBuzon(facturaABorrar.id);
-              toast('Factura eliminada del buzón', 'info');
-              setFacturaABorrar(null);
-              void cargarDatos();
-            } catch (e) {
-              toast('Error al eliminar factura: ' + String(e), 'error');
-            }
+        <EnviarFacturaPapelera
+          nombre={`la factura #${facturaABorrar.facturaNumero || facturaABorrar.numero_factura}`}
+          onClose={() => setFacturaABorrar(null)}
+          onConfirm={async (motivo) => {
+            await enviarFacturaAPapelera(facturaABorrar.id, motivo);
+            toast('Factura enviada a la papelera', 'success');
+            setFacturaABorrar(null);
+            void cargarDatos();
           }}
         />
       )}
