@@ -1,6 +1,6 @@
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
-import { textoDeError } from '@/shared/lib/funcionesError';
+import { textoDeError } from '@/shared/lib/errores';
 import type { AccionesPapelera } from '@/shared/ui/PapeleraRegistros';
 
 export async function cambiarPapeleraAsignacion(id: string, motivo?: string) {
