@@ -93,8 +93,8 @@ export function normalizarCodigoOc(v: unknown): string {
   if (!s) return '';
   const m = s.match(/^([A-Z]{2,4})[\s._-]*(\d{4})[\s._-]*(\d{1,6})(?:[\s._-]*(\d{1,3}))?$/);
   if (m) return `${m[1]}-${m[2]}-${m[3].padStart(4, '0')}${m[4] ? `-${m[4]}` : ''}`;
-  const m2 = s.match(/^(ODC|OC|SV)[\s._-]*(\d{1,6})$/);
-  if (m2) return `${m2[1] === 'SV' ? 'SV' : 'OC'}-2026-${m2[2].padStart(4, '0')}`;
+  const m2 = s.match(/^(ODC|OC|SV|OSV|SERV)[\s._-]*(\d{1,6})$/);
+  if (m2) return `${m2[1] === 'ODC' || m2[1] === 'OC' ? 'OC' : 'SV'}-2026-${m2[2].padStart(4, '0')}`;
   return s.replace(/\s+/g, '');
 }
 
@@ -182,10 +182,10 @@ export function serialExcelAFechaIso(v: unknown): string {
 export function extraerOdc(texto: string): string[] {
   const s = sinAcentos(String(texto ?? '')).toUpperCase();
   const odcs: string[] = [];
-  const re = /\b(ODC|OC|SV)[\s._#-]*(?:(\d{4})[\s._-]+)?(\d{1,6})\b/g;
+  const re = /\b(ODC|OC|SV|OSV|SERV)[\s._#-]*(?:(\d{4})[\s._-]+)?(\d{1,6})\b/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(s)) !== null) {
-    const prefijo = m[1] === 'SV' ? 'SV' : 'OC';
+    const prefijo = m[1] === 'ODC' || m[1] === 'OC' ? 'OC' : 'SV';
     const anio = m[2] ?? '2026';
     odcs.push(`${prefijo}-${anio}-${m[3].padStart(4, '0')}`);
 

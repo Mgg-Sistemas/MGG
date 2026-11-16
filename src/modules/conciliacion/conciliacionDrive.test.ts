@@ -65,6 +65,11 @@ describe('serialExcelAFechaIso', () => {
 });
 
 describe('extraerOdc', () => {
+  it('reconoce OSV y SERV como órdenes de servicio', () => {
+    expect(extraerOdc('PAGO OSV 0029 MGG CISTERNA AGUA')).toEqual(['SV-2026-0029']);
+    expect(extraerOdc('PAGO SERV 0028 CAMBIO SERVICIO VANS')).toEqual(['SV-2026-0028']);
+  });
+
   it('extrae ODC individual y normaliza a OC-2026-XXXX', () => {
     expect(extraerOdc('PAGO ODC183 GT RODAMIENTOS')).toEqual(['OC-2026-0183']);
     expect(extraerOdc('PAGO ODC 236 MERCADO MGG')).toEqual(['OC-2026-0236']);
