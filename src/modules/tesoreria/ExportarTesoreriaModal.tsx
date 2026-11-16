@@ -20,7 +20,8 @@ import { toast } from '@/shared/ui/Toast';
 import { mensajeError } from '@/shared/lib/errores';
 import type { MovimientoCaja } from '@/shared/lib/types';
 import { listLibroMayor } from './tesoreria.repository';
-import { cargarPendientesPorPagar, generarBloquesPreparacion, lineasDePago, type DatosPendientesPorPagar } from './pendientesPorPagar';
+import { cargarConLecturas, cargarPendientesPorPagar, generarBloquesPreparacion, lineasDePago, type DatosPendientesPorPagar } from './pendientesPorPagar';
+import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
 import { supabase } from '@/shared/lib/supabase';
 import type { PagoMetodo } from '@/shared/lib/types';
 import { listCuentasPorPagar, type CuentaPorPagar } from './cuentasPorPagar.repository';
@@ -114,10 +115,11 @@ const fmtFechaCorta = (f: string) => { const [y, m, d] = (f || '').split('-'); r
 interface Props {
   ambitoInicial?: AmbitoTesoreria;
   rangoInicial?: { desde: string; hasta: string };
+  ordenesSeleccionadas?: OrdenPorPagar[];
   onClose: () => void;
 }
 
-export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }: Props) {
+export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSeleccionadas, onClose }: Props) {
   const prefs = useMemo(() => leerPrefs(), []);
 
   const [desde, setDesde] = useState<string>(() => rangoInicial?.desde || primerDiaMesActual());
@@ -189,7 +191,9 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
           } catch { /* sin método: la columna sale vacía */ }
           if (!cancelado) { setMovs(lista); setPagoPorOrden(pagos); setCtx({ tasaBcvHoy, tasaFecha, tasasPorFecha }); }
         } else if (ambito === 'por_pagar') {
-          const datos = await cargarPendientesPorPagar();
+          const datos = ordenesSeleccionadas
+            ? await cargarConLecturas(ordenesSeleccionadas, [], { incluirDirectos: false })
+            : await cargarPendientesPorPagar();
           if (!cancelado) { setDatosPP(datos); setCtx({ tasaBcvHoy: Number(datos.tasa) || tasaBcvHoy, tasaFecha: datos.tasaFecha ?? tasaFecha }); }
         } else {
           const [p, c] = await Promise.all([listCuentasPorPagar(true), listCuentasPorCobrar(true)]);
@@ -203,7 +207,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
     }
     void cargar();
     return () => { cancelado = true; };
-  }, [ambito, desde, hasta]);
+  }, [ambito, desde, hasta, ordenesSeleccionadas]);
 
   // Normalización a filas de detalle según el ámbito
   const filasDetalle = useMemo<FilaReporteTesoreria[]>(() => {
@@ -393,7 +397,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
         <div style={surf2}>
           <div style={{ ...tituloSec, marginBottom: '.4rem' }}>🧭 Ámbito del reporte</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem' }}>
-            {AMBITOS.map((a) => (
+            {AMBITOS.filter((a) => !ordenesSeleccionadas || a.id === 'por_pagar').map((a) => (
               <button key={a.id} type="button" className={`btn btn-xs ${ambito === a.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAmbito(a.id)} style={{ display: 'flex', alignItems: 'center', gap: '.25rem' }}>
                 <span>{a.icon}</span><span>{a.label}</span>
               </button>
@@ -401,7 +405,8 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, onClose }:
           </div>
           {ambito !== 'movimientos' && (
             <div className="muted" style={{ fontSize: '.73rem', marginTop: '.4rem', fontStyle: 'italic' }}>
-              {ambito === 'por_pagar' ? 'Compromisos vigentes por pagar (no dependen del rango de fechas).' : 'Cuentas a crédito abiertas: lo que se debe (CxP) y lo que nos deben (CxC).'}
+              {ordenesSeleccionadas ? `Órdenes seleccionadas en la lista: ${ordenesSeleccionadas.length}.`
+                : ambito === 'por_pagar' ? 'Compromisos vigentes por pagar (no dependen del rango de fechas).' : 'Cuentas a crédito abiertas: lo que se debe (CxP) y lo que nos deben (CxC).'}
             </div>
           )}
         </div>

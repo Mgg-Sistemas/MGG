@@ -112,18 +112,19 @@ import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
  * Botón que abre el «Descargar Reporte de Tesorería» (traído de GT, 03-11-2026) en un
  * ámbito dado. Autocontenido (botón + estado + modal). Reemplaza los viejos «↓ Resumen PDF».
  */
-function BotonReporteTesoreria({ ambito, rango, label = '📄 Reporte', className = 'btn btn-sm btn-ghost' }: {
+function BotonReporteTesoreria({ ambito, rango, ordenesSeleccionadas, label = '📄 Reporte', className = 'btn btn-sm btn-ghost' }: {
   ambito: AmbitoTesoreria;
   rango?: { desde: string; hasta: string };
+  ordenesSeleccionadas?: OrdenPorPagar[];
   label?: string;
   className?: string;
 }) {
-  const [abierto, setAbierto] = useState(false);
+  const [reporte, setReporte] = useState<{ ordenes?: OrdenPorPagar[] } | null>(null);
   return (
     <>
-      <button type="button" className={className} onClick={() => setAbierto(true)}
+      <button type="button" className={className} onClick={() => setReporte({ ordenes: ordenesSeleccionadas?.length ? ordenesSeleccionadas : undefined })}
         title="Reporte de Tesorería: ámbito, fechas, agrupación, filtros, columnas; fichas o tabla; CSV, Excel, WhatsApp y PDF">{label}</button>
-      {abierto && <ExportarTesoreriaModal ambitoInicial={ambito} rangoInicial={rango} onClose={() => setAbierto(false)} />}
+      {reporte && <ExportarTesoreriaModal ambitoInicial={ambito} rangoInicial={rango} ordenesSeleccionadas={reporte.ordenes} onClose={() => setReporte(null)} />}
     </>
   );
 }
@@ -4557,24 +4558,18 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
   useEffect(() => { cargarNoLeidos(); }, [cargarNoLeidos]);
   useRealtime(['oc_mensajes'], cargarNoLeidos);
 
-  // Bloqueo del lote: una vez marcada la primera OC, solo se suman las del MISMO
-  // proveedor. Se permiten también las que aún no tienen método de pago (Tesorería
-  // paga directo del mismo proveedor, aunque el método no esté indicado).
-  const primera = rows.find((r) => marcadas.has(r.orden.id)) ?? null;
-  const lockProv = primera?.orden.proveedor_id ?? null;
-  const compatible = useCallback((r: OrdenPorPagar) =>
-    !!r.orden.proveedor_id && (!primera || r.orden.proveedor_id === lockProv),
-  [primera, lockProv]);
-
   function toggle(r: OrdenPorPagar) {
     setMarcadas((prev) => {
       const next = new Set(prev);
       if (next.has(r.orden.id)) next.delete(r.orden.id);
-      else if (compatible(r)) next.add(r.orden.id);
+      else next.add(r.orden.id);
       return next;
     });
   }
   const seleccionadas = rows.filter((r) => marcadas.has(r.orden.id));
+  const primera = seleccionadas[0];
+  const mismoProveedor = !!primera?.orden.proveedor_id
+    && seleccionadas.every((r) => r.orden.proveedor_id === primera.orden.proveedor_id);
   const totalSel = round2(seleccionadas.reduce((a, r) => a + (Number(r.montoAPagar) || 0), 0));
 
   return (
@@ -4587,17 +4582,19 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
       </p>
 
       <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
-        <BotonReporteTesoreria ambito="por_pagar" />
+        <BotonReporteTesoreria ambito="por_pagar" ordenesSeleccionadas={seleccionadas}
+          label={seleccionadas.length ? `📄 Reporte (${seleccionadas.length})` : '📄 Reporte'} />
         <button className="btn btn-sm btn-ghost" disabled={loading} onClick={() => setResumenWa(true)}
           title="Resumen por WhatsApp: se eligen todas o una a una, con el motivo de pago de cada una, el total y la fecha">💬 Resumen WhatsApp</button>
       </div>
 
-      {seleccionadas.length >= 2 && (
+      {seleccionadas.length > 0 && (
         <div className="card" style={{ margin: '0 0 .6rem', padding: '.55rem .8rem', display: 'flex', alignItems: 'center', gap: '.75rem', flexWrap: 'wrap', borderColor: 'var(--brand, #ff8a00)' }}>
-          <strong>{seleccionadas.length} OC</strong> de <strong>{primera?.proveedorNombre}</strong> · total <strong className="mono">{monto(totalSel, 'USD')}</strong>
+          <strong>{seleccionadas.length} seleccionadas</strong>
+          {mismoProveedor && <span>{primera.proveedorNombre} · total <strong className="mono">{monto(totalSel, 'USD')}</strong></span>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem' }}>
             <button className="btn btn-sm btn-ghost" onClick={() => setMarcadas(new Set())}>Limpiar</button>
-            <button className="btn btn-sm btn-primary" onClick={() => setLote(true)}>💳 Pagar {seleccionadas.length} seleccionadas</button>
+            {mismoProveedor && seleccionadas.length >= 2 && <button className="btn btn-sm btn-primary" onClick={() => setLote(true)}>💳 Pagar {seleccionadas.length} seleccionadas</button>}
           </div>
         </div>
       )}
@@ -4614,15 +4611,12 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
             {!loading && !rows.length && !directos.length && <tr><td colSpan={9}><EmptyState message="No hay órdenes confirmadas por pagar" icon="✅" /></td></tr>}
             {!loading && rows.map((r) => {
               const marcada = marcadas.has(r.orden.id);
-              const habilitada = compatible(r) || marcada;
               return (
-              <tr key={r.orden.id} className="row-selectable" style={{ cursor: 'pointer', opacity: !habilitada ? 0.5 : 1 }} onClick={() => setSel(r)}>
+              <tr key={r.orden.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel(r)}>
                 <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
-                  {r.orden.proveedor_id && (
-                    <input type="checkbox" checked={marcada} disabled={!habilitada}
-                      title={!habilitada ? 'Solo se agrupan OC del mismo proveedor' : 'Seleccionar para pago en lote'}
-                      onChange={() => toggle(r)} />
-                  )}
+                  <input type="checkbox" checked={marcada}
+                    aria-label={`Seleccionar ${r.orden.oc_codigo ?? r.orden.codigo}`}
+                    onChange={() => toggle(r)} />
                 </td>
                 <td className="mono">
                   {r.orden.clase === 'servicio'
@@ -4710,7 +4704,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
         />
       )}
 
-      {lote && (
+      {lote && mismoProveedor && seleccionadas.length >= 2 && (
         <PagarLoteModal
           rows={seleccionadas} cajas={cajas} actor={actor} actorName={actorName}
           onClose={() => setLote(false)}

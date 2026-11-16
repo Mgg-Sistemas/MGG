@@ -563,11 +563,13 @@ export async function cargarPendientesPorPagar(opts?: { soloConMetodo?: boolean 
 }
 
 /** Igual, pero con las OC ya leídas (la pantalla de Tesorería ya las tiene). */
-export async function cargarConLecturas(rows: OrdenPorPagar[], creditos: OrdenPorPagar[] = []): Promise<DatosPendientesPorPagar> {
+export async function cargarConLecturas(
+  rows: OrdenPorPagar[], creditos: OrdenPorPagar[] = [], { incluirDirectos = true } = {},
+): Promise<DatosPendientesPorPagar> {
   const [tasaHoy, comprasDir, serviciosDir] = await Promise.all([
     getTasaHoy().catch(() => ({ usd: null, eur: null, fecha: null })),
-    listComprasDirectas().catch(() => [] as CompraDirecta[]),
-    listServiciosDirectos().catch(() => [] as ServicioDirecto[]),
+    incluirDirectos ? listComprasDirectas().catch(() => [] as CompraDirecta[]) : [],
+    incluirDirectos ? listServiciosDirectos().catch(() => [] as ServicioDirecto[]) : [],
   ]);
   // Datos de pago guardados de TODOS los proveedores del reporte, en una sola consulta
   // (uno por renglón serían decenas). Si falla, el reporte sale igual.
