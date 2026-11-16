@@ -14,7 +14,7 @@ import { identidadAlRecibir } from '@/modules/inventario/identidadProducto';
 import { supabase } from '@/shared/lib/supabase';
 import { createProducto, siguienteSku } from '@/modules/inventario/inventario.repository';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
-import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId, eliminarMovimientoCaja } from '@/modules/tesoreria/tesoreria.repository';
+import { registrarGasto, editarMovimientoCaja, getMovimientoCajaPorId } from '@/modules/tesoreria/tesoreria.repository';
 import { egresarDivisa } from '@/modules/tesoreria/cajaSaldos.repository';
 import {
   CATEGORIA_REEMBOLSO_OC, aPagarConRetencion, camposPagoDirecto, conceptoReembolsoDirecto, type RetencionDetalle,
@@ -1130,7 +1130,10 @@ export async function eliminarCompraDirecta(compra: CompraDirecta, actor?: strin
   // 2) Revertir CAJA si ya se pagó (elimina el egreso y restituye el saldo).
   if (compra.caja_mov_id) {
     const mov = await getMovimientoCajaPorId(compra.caja_mov_id);
-    if (mov) await eliminarMovimientoCaja(mov);
+    if (mov) {
+      const { error } = await supabase.rpc('tesoreria_revertir_compra_directa', { p_id: mov.id, p_compra: compra.id });
+      if (error) throw new Error(textoDeError(error, 'No se pudo revertir el egreso de la compra.'));
+    }
   }
 
   // 3) Adjuntos (facturas + comprobante de retención) del Storage.

@@ -26,11 +26,17 @@ returns numeric language sql immutable set search_path='' as $$
     else 0 end,2);
 $$;
 
-create or replace function public.tesoreria_papelera_cambiar(p_id uuid,p_motivo text default null)
+create or replace function public.tesoreria_papelera_operar(p_id uuid,p_motivo text,p_compra uuid)
 returns void language plpgsql security definer set search_path='' as $$
 declare m public.movimientos_caja%rowtype; saldo_final numeric; delta numeric; caja uuid;
 begin
-  if not public.puede_modulo('tesoreria','escritura') then
+  if p_compra is not null then
+    if not public.puede_modulo('pedidos','full') or not exists (
+      select 1 from public.compras_directas where id=p_compra and caja_mov_id=p_id
+    ) then
+      raise exception 'El egreso debe corresponder a la compra directa' using errcode='42501';
+    end if;
+  elsif not public.puede_modulo('tesoreria','escritura') then
     raise exception 'Se requiere escritura en Tesorería' using errcode='42501';
   end if;
   select caja_id into caja from public.movimientos_caja where id=p_id;
@@ -52,7 +58,8 @@ begin
     or exists(select 1 from public.nomina_renglones where caja_mov_id=m.id)
     or exists(select 1 from public.choferes_pagos where movimiento_caja_id=m.id)
     or exists(select 1 from public.choferes_viaticos where movimiento_caja_id=m.id)
-    or exists(select 1 from public.abonos_credito where caja_mov_id=m.id) then
+    or exists(select 1 from public.abonos_credito where caja_mov_id=m.id)
+    or (p_compra is null and (m.categoria='compra_directa' or exists(select 1 from public.compras_directas where caja_mov_id=m.id))) then
     raise exception 'El movimiento está vinculado a otro registro. Corrígelo desde su operación de origen.';
   end if;
   if p_motivo is not null and char_length(trim(p_motivo)) not between 5 and 500 then
@@ -67,11 +74,15 @@ begin
       where caja_id=m.caja_id and cuenta=m.cuenta and moneda=m.moneda returning saldo into saldo_final;
   end if;
   if not found then raise exception 'No se encontró el saldo de la cuenta.'; end if;
-  update public.movimientos_caja set
-    eliminado_en=case when p_motivo is not null then now() end,
-    eliminado_por=case when p_motivo is not null then auth.uid() end,
-    eliminado_motivo=trim(p_motivo)
-  where id=m.id;
+  if p_compra is null then
+    update public.movimientos_caja set
+      eliminado_en=case when p_motivo is not null then now() end,
+      eliminado_por=case when p_motivo is not null then auth.uid() end,
+      eliminado_motivo=trim(p_motivo)
+    where id=m.id;
+  else
+    delete from public.movimientos_caja where id=m.id;
+  end if;
 
   with efectos as (
     select id,at,public.tesoreria_papelera_efecto(tipo,monto,saldo_antes,saldo_despues) efecto
@@ -85,6 +96,15 @@ begin
   update public.movimientos_caja b set saldo_antes=c.despues-c.efecto,saldo_despues=c.despues
     from cadena c where b.id=c.id and (b.saldo_antes,b.saldo_despues) is distinct from (c.despues-c.efecto,c.despues);
 end;
+$$;
+
+create or replace function public.tesoreria_papelera_cambiar(p_id uuid,p_motivo text default null)
+returns void language sql security definer set search_path='' as $$
+  select public.tesoreria_papelera_operar(p_id,p_motivo,null);
+$$;
+create or replace function public.tesoreria_revertir_compra_directa(p_id uuid,p_compra uuid)
+returns void language sql security definer set search_path='' as $$
+  select public.tesoreria_papelera_operar(p_id,'Reversión de compra directa',p_compra) where p_compra is not null;
 $$;
 
 create or replace function public.tesoreria_papelera_listar()
@@ -114,9 +134,10 @@ end;
 $$;
 
 revoke execute on function public.tesoreria_papelera_listar(),public.tesoreria_papelera_cambiar(uuid,text),
-  public.tesoreria_papelera_vaciar(uuid[]) from public,anon;
+  public.tesoreria_papelera_vaciar(uuid[]),public.tesoreria_revertir_compra_directa(uuid,uuid) from public,anon;
+revoke execute on function public.tesoreria_papelera_operar(uuid,text,uuid) from public,anon,authenticated;
 grant execute on function public.tesoreria_papelera_listar(),public.tesoreria_papelera_cambiar(uuid,text),
-  public.tesoreria_papelera_vaciar(uuid[]) to authenticated;
+  public.tesoreria_papelera_vaciar(uuid[]),public.tesoreria_revertir_compra_directa(uuid,uuid) to authenticated;
 update public.roles_permisos set permisos=jsonb_set(permisos,'{tesoreria}',
   coalesce(permisos->'tesoreria','{}'::jsonb)||'{"vaciar_papelera":true}'::jsonb,true) where role='admin';
 commit;
