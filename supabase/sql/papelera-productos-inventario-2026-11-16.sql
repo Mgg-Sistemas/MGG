@@ -3,6 +3,7 @@ begin;
 alter table public.productos
   add column if not exists papelera_vaciada_en timestamptz,
   add column if not exists papelera_vaciada_por uuid;
+revoke delete on public.productos from authenticated,anon;
 
 create or replace function public.productos_proteger_papelera()
 returns trigger language plpgsql set search_path='' as $$
