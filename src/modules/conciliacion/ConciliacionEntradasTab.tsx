@@ -86,7 +86,7 @@ export function ConciliacionEntradasTab({
       </div>
 
       {/* Tarjetas Métricas */}
-      <div style={{ display: 'grid', gap: '.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))', marginBottom: '1.25rem' }}>
+      <div style={{ display: 'grid', gap: '.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 210px), 1fr))', marginBottom: '1.25rem' }}>
         <div className="card" style={{ padding: '.85rem 1rem', borderTop: '3px solid #3b82f6', margin: 0 }}>
           <div className="muted" style={{ fontSize: '.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>
             🏛 Total con retención
@@ -141,7 +141,7 @@ export function ConciliacionEntradasTab({
           <input
             type="search"
             className="input"
-            style={{ minWidth: 240, flex: 1 }}
+            style={{ minWidth: 0, flex: '1 1 240px' }}
             placeholder="🔍 Buscar por OC, proveedor, factura o referencia..."
             value={filtros.busqueda ?? ''}
             onChange={(e) => {

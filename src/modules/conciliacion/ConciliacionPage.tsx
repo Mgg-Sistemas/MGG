@@ -118,15 +118,15 @@ function FiltroChecks<T extends string>({ titulo, todas, opciones, marcadas, onC
     : sel.length === 1 ? opciones.find((o) => o.value === sel[0])?.label ?? todas : `${titulo}: ${sel.length}`;
   const toggle = (v: T) => onChange(sel.includes(v) ? sel.filter((x) => x !== v) : [...sel, v]);
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
+    <div ref={ref} className="conciliacion-filtro" style={{ position: 'relative' }}>
       <button type="button" className="select" aria-haspopup="true" aria-expanded={abierto} title={titulo}
         onClick={() => setAbierto((a) => !a)}
         style={{ width: 'auto', textAlign: 'left', cursor: 'pointer', whiteSpace: 'nowrap', fontWeight: sel.length && sel.length < opciones.length ? 700 : undefined }}>
         {resumen} ▾
       </button>
       {abierto && (
-        <div className="card" role="group" aria-label={titulo}
-          style={{ position: 'absolute', zIndex: 30, top: 'calc(100% + 4px)', left: 0, minWidth: 200, margin: 0, padding: '.45rem .55rem', background: 'var(--bg-1)', boxShadow: '0 8px 24px rgba(0,0,0,.25)' }}>
+        <div className="card conciliacion-filtro-opciones" role="group" aria-label={titulo}
+          style={{ margin: 0, padding: '.45rem .55rem', background: 'var(--bg-1)', boxShadow: '0 8px 24px rgba(0,0,0,.25)' }}>
           <div className="muted" style={{ fontSize: '.7rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', marginBottom: '.25rem' }}>{titulo}</div>
           {opciones.map((o) => (
             <label key={o.value} style={{ display: 'flex', alignItems: 'center', gap: '.45rem', padding: '.22rem .1rem', cursor: 'pointer', fontSize: '.85rem' }}>
@@ -342,7 +342,7 @@ export function ConciliacionPage() {
   );
 
   return (
-    <div>
+    <div className="conciliacion-page">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <div>
           <h1 style={{ margin: 0 }}>🧮 Conciliación</h1>
@@ -376,7 +376,7 @@ export function ConciliacionPage() {
       )}
 
       {/* Selector de pestañas con los estilos estándar del sistema */}
-      <div className="view-switch" role="tablist" aria-label="Secciones de conciliación" style={{ margin: '0 0 1.25rem 0', width: 'max-content' }}>
+      <div className="view-switch conciliacion-tabs" role="tablist" aria-label="Secciones de conciliación" style={{ margin: '0 0 1.25rem 0' }}>
         <button
           type="button"
           role="tab"
@@ -400,7 +400,7 @@ export function ConciliacionPage() {
       {tabActiva === 'salidas' ? (
         <>
           {/* Tarjetas */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '1rem', marginBottom: '1rem' }}>
         {card('total', '🧾', 'Total de órdenes', `${t.totalOc.cantidad}`, `${desgloseTipos(t)} · ${usdTxt(t.totalOc.usd)} · ${bsTxt(t.totalOc.bs)}`, 'var(--primary, #ff8a00)')}
         {card('pagado', '💵', 'Total pagado', usdTxt(t.pagado.usd), `${bsTxt(t.pagado.bs)} · ${t.pagado.cantidad} órdenes (Bs a la tasa con que se pagó)`, 'var(--success, #29c081)')}
         {card('retencion', '🏛', 'Con retención', `${t.conRetencion.cantidad}`, `${usdTxt(t.conRetencion.usd)} en esas órdenes`, 'var(--info, #4aa8ff)')}
@@ -415,8 +415,8 @@ export function ConciliacionPage() {
           </div>
           <div style={{ display: 'grid', gap: '.4rem', maxHeight: 360, overflowY: 'auto' }}>
             {detalle.map((f) => (
-              <button key={f.id} type="button" onClick={() => abrirOc(f.id)} className="card"
-                style={{ margin: 0, padding: '.55rem .75rem', display: 'grid', gridTemplateColumns: 'minmax(120px,auto) 1fr auto', gap: '.25rem .9rem', alignItems: 'center', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit' }}>
+              <button key={f.id} type="button" onClick={() => abrirOc(f.id)} className="card conciliacion-detalle-orden"
+                style={{ margin: 0, padding: '.55rem .75rem', display: 'grid', gap: '.25rem .9rem', alignItems: 'center', textAlign: 'left', cursor: 'pointer', font: 'inherit', color: 'inherit' }}>
                 <strong className="mono">{f.tipo === 'servicio' && '🔧 '}{f.codigo}</strong>
                 <span style={{ fontSize: '.84rem' }}>
                   {f.proveedor}

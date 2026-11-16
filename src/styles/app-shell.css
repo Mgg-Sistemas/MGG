@@ -1017,3 +1017,36 @@ tr.row-selectable:active { transform: scale(0.998); }
   box-shadow: var(--glow-primary);
 }
 .view-switch { display: flex; justify-content: center; }
+
+.conciliacion-page,
+.conciliacion-page .table-wrap {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.conciliacion-page .table-wrap { overflow-x: auto; }
+.conciliacion-detalle-orden {
+  grid-template-columns: minmax(120px, auto) minmax(0, 1fr) auto;
+  overflow-wrap: anywhere;
+}
+.conciliacion-filtro-opciones {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 200px;
+}
+
+@media (max-width: 640px) {
+  .conciliacion-tabs { width: 100%; border-radius: 1rem; }
+  .conciliacion-tabs .view-switch-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    padding: .5rem;
+    white-space: normal;
+  }
+  .conciliacion-filtro { flex: 1 1 100%; min-width: 0; }
+  .conciliacion-filtro .select { min-width: 0; max-width: 100%; }
+  .conciliacion-filtro-opciones { position: static; min-width: 0; }
+  .conciliacion-detalle-orden { grid-template-columns: minmax(0, 1fr); }
+}
