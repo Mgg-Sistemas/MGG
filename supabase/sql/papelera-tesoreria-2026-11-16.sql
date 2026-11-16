@@ -31,8 +31,8 @@ returns void language plpgsql security definer set search_path='' as $$
 declare m public.movimientos_caja%rowtype; saldo_final numeric; delta numeric; caja uuid;
 begin
   if p_compra is not null then
-    if not public.puede_modulo('pedidos','full') or not exists (
-      select 1 from public.compras_directas where id=p_compra and caja_mov_id=p_id
+    if not public.puede_modulo('pedidos','escritura') or not exists (
+      select 1 from public.compras_directas where id=p_compra and caja_mov_id=p_id and estado<>'finalizada'
     ) then
       raise exception 'El egreso debe corresponder a la compra directa' using errcode='42501';
     end if;
