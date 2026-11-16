@@ -319,6 +319,7 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
 }
 
 export const FECHA_MINIMA_CONCILIACION = '2026-11-01';
+const FIN_CONCILIACION_EXCLUSIVO = '2026-12-01';
 
 /**
  * Fecha en que Tesorería pagó la orden (Venezuela: YYYY-MM-DD).
@@ -350,8 +351,7 @@ export function fechaPagoTesoreria(o: Partial<Orden>): string | null {
 export const fechaOrdenConciliable = fechaPagoTesoreria;
 
 /**
- * REGLA ESTRICTA DE CONCILIACIÓN (13-11-2026):
- * Toma SOLO los pagos que se hicieron por Tesorería desde NOVIEMBRE (fecha de pago >= 2026-11-01).
+ * Órdenes emitidas en noviembre de 2026 y pagadas por Tesorería desde noviembre.
  * Sin canceladas/anuladas.
  * Las más nuevas primero (por fecha de pago).
  */
@@ -360,6 +360,10 @@ export function ordenesConciliables(ordenes: Orden[]): Orden[] {
     .filter((o) => {
       if (!o.oc_codigo && (!esServicio(o) || !o.oc_creada_en)) return false;
       if (ESTADOS_FUERA.includes(o.estado)) return false;
+      const fechaOrden = o.oc_creada_en ?? o.created_at;
+      if (!fechaOrden) return false;
+      const diaOrden = /^\d{4}-\d{2}-\d{2}$/.test(fechaOrden) ? fechaOrden : diaCaracas(fechaOrden);
+      if (!(diaOrden >= FECHA_MINIMA_CONCILIACION && diaOrden < FIN_CONCILIACION_EXCLUSIVO)) return false;
       const diaPago = fechaPagoTesoreria(o);
       if (!diaPago || diaPago < FECHA_MINIMA_CONCILIACION) return false;
       return true;

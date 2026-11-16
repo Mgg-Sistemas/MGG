@@ -18,17 +18,18 @@ describe('conciliación · estado de Compras', () => {
     expect(estadoConciliacion('recibida').label).toBe('Recibida');
     expect(estadoConciliacion('finalizada').label).toBe('Finalizada');
   });
-  it('solo entran las órdenes pagadas por Tesorería desde noviembre (>= 2026-11-01)', () => {
+  it('solo entran órdenes emitidas en noviembre y pagadas por Tesorería desde noviembre', () => {
     const r = ordenesConciliables([
       oc({ id: 'a', oc_codigo: null as unknown as string, pagada_en: '2026-11-05T10:00:00Z' }), // Sin código
       oc({ id: 'b', estado: 'cancelada', pagada_en: '2026-11-05T10:00:00Z' }), // Cancelada
-      oc({ id: 'c', oc_creada_en: '2026-11-01T00:00:00Z', pagada_en: '2026-11-01T12:00:00Z' }), // Pagada en nov
+      oc({ id: 'c', oc_creada_en: '2026-11-01T04:00:00Z', pagada_en: '2026-11-01T12:00:00Z' }), // Medianoche en Caracas
       oc({ id: 'd', oc_creada_en: '2026-11-11T00:00:00Z', pagada_en: '2026-11-11T14:00:00Z' }), // Pagada en nov
       oc({ id: 'e', oc_creada_en: '2026-10-31T12:00:00Z', pagada_en: '2026-10-31T15:00:00Z' }), // Pagada en oct (excluida)
       oc({ id: 'f', oc_creada_en: '2026-11-05T08:00:00Z', pagada_en: null }), // Creada en nov pero sin pagar (excluida)
-      oc({ id: 'g', oc_creada_en: '2026-10-20T00:00:00Z', pagada_en: '2026-11-02T10:00:00Z' }), // Creada en oct pero pagada en nov (entra)
+      oc({ id: 'g', oc_creada_en: '2026-11-01T03:59:59Z', pagada_en: '2026-11-02T10:00:00Z' }), // Octubre en Caracas
+      oc({ id: 'h', oc_creada_en: '2026-12-01T04:00:00Z', pagada_en: '2026-12-01T12:00:00Z' }), // Diciembre en Caracas
     ]);
-    expect(r.map((o) => o.id)).toEqual(['d', 'g', 'c']);
+    expect(r.map((o) => o.id)).toEqual(['d', 'c']);
   });
 });
 
@@ -133,6 +134,7 @@ describe('conciliación · órdenes de servicio', () => {
       sv({ id: 's2', oc_creada_en: null, estado: 'pendiente' }),
       sv({ id: 's3', estado: 'cancelada' }),
       sv({ id: 's4', oc_creada_en: '2026-11-12T12:00:00Z', pagada_en: '2026-10-28T12:00:00Z' }), // Pagada en octubre (excluida)
+      sv({ id: 's5', oc_creada_en: '2026-10-29T12:00:00Z', pagada_en: '2026-11-12T15:00:00Z' }),
       oc({ id: 'p1', clase: 'producto', oc_codigo: null }),
     ]);
     expect(r.map((o) => o.id)).toEqual(['s1']);
