@@ -14,6 +14,8 @@
 import { supabase } from '@/shared/lib/supabase';
 import { textoDeError } from '@/shared/lib/errores';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { accionesAdjuntosPapelera } from '@/shared/lib/papeleraAdjuntos';
+import type { AccionesPapelera } from '@/shared/ui/PapeleraRegistros';
 import { limpiarNombreDoc, nombreArchivoSeguro, nombreDescarga } from '@/modules/maquinaria/documentosEquipo';
 import { errorNotaEnvio, normalizarNotaEnvio, type DatosNotaEnvio, type ItemNotaEnvio } from './notaEnvio';
 import {
@@ -131,7 +133,7 @@ export async function urlDescargaDocumentoEmpresa(doc: DocumentoEmpresa): Promis
 
 export async function listDocumentosEmpresa(): Promise<DocumentoEmpresa[]> {
   return todasLasFilas<DocumentoEmpresa>((desde, hasta) =>
-    supabase.from('documentos_empresa').select('*').order('categoria').order('nombre').range(desde, hasta));
+    supabase.from('documentos_empresa').select('*').is('eliminado_en', null).order('categoria').order('nombre').order('id').range(desde, hasta));
 }
 
 export async function guardarDocumentoEmpresa(input: {
@@ -172,12 +174,34 @@ export async function guardarDocumentoEmpresa(input: {
   return data as DocumentoEmpresa;
 }
 
-/** Borra el archivo (desde la app: SQL no puede tocar storage) y luego el registro. */
-export async function eliminarDocumentoEmpresa(doc: DocumentoEmpresa): Promise<void> {
-  const { error } = await supabase.from('documentos_empresa').delete().eq('id', doc.id);
-  if (error) throw new Error(textoDeError(error, 'No se pudo eliminar el documento.'));
-  await borrarArchivo(doc.path);
+export async function enviarDocumentoAPapelera(id: string, motivo: string): Promise<void> {
+  const { error } = await supabase.rpc('doc_empresa_papelera', { p_id: id, p_motivo: motivo });
+  if (error) throw new Error(textoDeError(error, 'No se pudo enviar el documento a la papelera.'));
 }
+
+export const accionesPapeleraDocumentos: AccionesPapelera = {
+  modulo: 'documentacion',
+  titulo: 'Papelera de documentos de la empresa',
+  async listar() {
+    const docs = await todasLasFilas<{ id: string; nombre: string; eliminado_en: string; eliminado_motivo: string }>((desde, hasta) =>
+      supabase.from('documentos_empresa').select('id, nombre, eliminado_en, eliminado_motivo')
+        .not('eliminado_en', 'is', null).order('eliminado_en', { ascending: false }).order('id').range(desde, hasta));
+    return docs.map((d) => ({ ...d, titulo: d.nombre }));
+  },
+  async recuperar(id) {
+    const { error } = await supabase.rpc('doc_empresa_papelera', { p_id: id });
+    if (error) throw new Error(error.message);
+  },
+  async vaciar(ids) {
+    const { data, error } = await supabase.rpc('doc_empresa_vaciar_papelera', { p_ids: ids });
+    if (error) throw new Error(error.message);
+    return Number(data) || 0;
+  },
+  ...accionesAdjuntosPapelera('doc_empresa_adjuntos_por_vaciar', [BUCKET_DOCUMENTACION], async (_bucket, rutas) => {
+    const { error } = await supabase.rpc('doc_empresa_cerrar_limpieza', { p_rutas: rutas });
+    if (error) throw new Error(error.message);
+  }),
+};
 
 /* ───────── Categorías (catálogo) ─────────
    Antes la categoría solo vivía escrita en cada documento: una categoría nueva

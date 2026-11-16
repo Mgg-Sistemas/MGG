@@ -5,13 +5,14 @@
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
 import { toast } from '@/shared/ui/Toast';
 import { date } from '@/shared/lib/format';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
-  listDocumentosEmpresa, guardarDocumentoEmpresa, eliminarDocumentoEmpresa, urlArchivoDocumentacion, urlDescargaDocumentoEmpresa,
+  accionesPapeleraDocumentos, listDocumentosEmpresa, guardarDocumentoEmpresa, enviarDocumentoAPapelera, urlArchivoDocumentacion, urlDescargaDocumentoEmpresa,
   listCategoriasDocumento, ACEPTA_DOCUMENTACION, type Actor, type CategoriaDocumento, type DocumentoEmpresa,
 } from './documentacion.repository';
 import { norm } from './notaEnvio';
@@ -72,12 +73,6 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el archivo', 'error'); }
   }
 
-  async function confirmarBorrar() {
-    if (!borrar) return;
-    try { await eliminarDocumentoEmpresa(borrar); toast('Documento eliminado', 'success'); setBorrar(null); await cargar(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
-  }
-
   return (
     <>
       <div className="card" style={{ marginBottom: '.75rem' }}>
@@ -100,6 +95,7 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
             </span>
           )}
           <span className="muted" style={{ fontSize: '.8rem', marginLeft: 'auto' }}>{filtrados.length} de {docs.length}</span>
+          <BotonPapeleraRegistros acciones={accionesPapeleraDocumentos} onChanged={() => void cargar()} />
           <button className="btn btn-ghost" onClick={() => setVerCategorias(true)} title="Catálogo de categorías: agregar, renombrar o borrar">🏷 Categorías</button>
           {canWrite && <button className="btn btn-primary" onClick={() => setEditar('nuevo')}>＋ Agregar documento</button>}
         </div>
@@ -160,11 +156,13 @@ export function DocumentosPanel({ canWrite, actor }: { canWrite: boolean; actor:
         />
       )}
       {borrar && (
-        <ConfirmDialog
-          title="Eliminar documento"
-          message={`¿Eliminar «${borrar.nombre}» y su archivo? No se puede deshacer.`}
-          confirmText="Eliminar" danger
-          onConfirm={confirmarBorrar} onCancel={() => setBorrar(null)}
+        <EnviarRegistroPapelera nombre={`«${borrar.nombre}»`} onClose={() => setBorrar(null)}
+          onConfirm={async (motivo) => {
+            await enviarDocumentoAPapelera(borrar.id, motivo);
+            toast('Documento enviado a la papelera', 'success');
+            setBorrar(null);
+            await cargar();
+          }}
         />
       )}
     </>
