@@ -1112,6 +1112,7 @@ export function PedidosPage() {
 
       {comprasFijasOpen && (
         <ComprasFijasModal productos={productos} proveedores={proveedores} puedeEditar={canManageProcurement}
+          onProductoCreado={(p) => setProductos((prev) => prev.some((x) => x.id === p.id) ? prev : [...prev, p])}
           onGenerarSolicitud={generarSolicitudFija} onGenerarDirecta={generarCompraDirectaFija}
           onClose={() => setComprasFijasOpen(false)} />
       )}

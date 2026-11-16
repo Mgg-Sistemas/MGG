@@ -12,8 +12,10 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { money } from '@/shared/lib/format';
 import type { Producto, Proveedor } from '@/shared/lib/types';
+import { createProducto, siguienteSkuLibre } from '@/modules/inventario/inventario.repository';
+import { textoDeError } from '@/shared/lib/errores';
 import {
-  FRECUENCIAS, entraPorCategoria, errorPlantilla, estadoFija, textoEstadoFija, textoFrecuencia,
+  FRECUENCIAS, entraPorCategoria, errorPlantilla, estadoFija, normCat, textoEstadoFija, textoFrecuencia,
   type CompraFija, type EstadoFija, type FrecuenciaFija, type ProductoFijo,
 } from './comprasFijas';
 import {
@@ -32,10 +34,11 @@ const NUEVA: CompraFijaEditable = {
   proveedor_id: null, proveedor_nombre: null, categorias: [], productos: [], nota: '', orden: 0, sugerida: false,
 };
 
-export function ComprasFijasModal({ productos, proveedores, puedeEditar, onGenerarSolicitud, onGenerarDirecta, onClose }: {
+export function ComprasFijasModal({ productos, proveedores, puedeEditar, onProductoCreado, onGenerarSolicitud, onGenerarDirecta, onClose }: {
   productos: Producto[];
   proveedores: Proveedor[];
   puedeEditar: boolean;
+  onProductoCreado: (producto: Producto) => void;
   onGenerarSolicitud: (c: CompraFija) => void;
   onGenerarDirecta: (c: CompraFija) => Promise<void>;
   onClose: () => void;
@@ -73,6 +76,7 @@ export function ComprasFijasModal({ productos, proveedores, puedeEditar, onGener
   if (editando) {
     return (
       <EditorCompraFija inicial={editando.datos} id={editando.id} productos={productos} proveedores={proveedores}
+        onProductoCreado={onProductoCreado}
         onClose={() => setEditando(null)} onGuardada={() => { setEditando(null); void cargar(); }} />
     );
   }
@@ -193,14 +197,16 @@ export function ComprasFijasModal({ productos, proveedores, puedeEditar, onGener
   );
 }
 
-function EditorCompraFija({ inicial, id, productos, proveedores, onClose, onGuardada }: {
+function EditorCompraFija({ inicial, id, productos, proveedores, onProductoCreado, onClose, onGuardada }: {
   inicial: CompraFijaEditable; id: string | null; productos: Producto[]; proveedores: Proveedor[];
+  onProductoCreado: (producto: Producto) => void;
   onClose: () => void; onGuardada: () => void;
 }) {
   const [d, setD] = useState<CompraFijaEditable>(inicial);
   const [catTxt, setCatTxt] = useState(inicial.categorias.join(', '));
-  const [prodSel, setProdSel] = useState('');
   const [guardando, setGuardando] = useState(false);
+  const [nuevo, setNuevo] = useState<{ nombre: string; categoria: string; unidad: string } | null>(null);
+  const [creandoProducto, setCreandoProducto] = useState(false);
   const set = <K extends keyof CompraFijaEditable>(k: K, v: CompraFijaEditable[K]) => setD((x) => ({ ...x, [k]: v }));
   const categorias = useMemo(() => catTxt.split(',').map((x) => x.trim()).filter(Boolean), [catTxt]);
   const porCategoria = useMemo(
@@ -210,12 +216,41 @@ function EditorCompraFija({ inicial, id, productos, proveedores, onClose, onGuar
   const opciones = useMemo(() => productos.filter((p) => p.estado === 'activo' && !d.productos.some((f) => f.producto_id === p.id))
     .map((p) => ({ value: p.id, label: `${p.sku} · ${p.nombre}` })), [productos, d.productos]);
 
-  function agregarProducto(pid: string) {
-    const p = productos.find((x) => x.id === pid);
-    if (!p) return;
-    const nuevo: ProductoFijo = { producto_id: p.id, sku: p.sku, nombre: p.nombre, unidad: p.unidad, cantidad: 1 };
-    set('productos', [...d.productos, nuevo]);
-    setProdSel('');
+  function agregarProducto(p: Producto) {
+    const fijo: ProductoFijo = { producto_id: p.id, sku: p.sku, nombre: p.nombre, unidad: p.unidad, cantidad: 1 };
+    setD((prev) => prev.productos.some((f) => f.producto_id === p.id)
+      ? prev : { ...prev, productos: [...prev.productos, fijo] });
+  }
+
+  async function crearProductoFijo() {
+    if (!nuevo || creandoProducto) return;
+    const nombre = nuevo.nombre.trim().toUpperCase();
+    const categoria = nuevo.categoria.trim().toUpperCase();
+    const unidad = nuevo.unidad.trim();
+    if (!nombre || !categoria || !unidad) { toast('Completa el nombre, la categoría y la unidad.', 'error'); return; }
+    const existente = productos.find((p) => p.estado === 'activo' && normCat(p.nombre) === normCat(nombre)
+      && normCat(p.categoria) === normCat(categoria) && normCat(p.unidad) === normCat(unidad));
+    if (existente) {
+      agregarProducto(existente);
+      setNuevo(null);
+      toast(`Se agregó la ficha existente ${existente.sku}.`, 'info');
+      return;
+    }
+    setCreandoProducto(true);
+    try {
+      const sku = await siguienteSkuLibre(categoria, productos);
+      const producto = await createProducto({
+        sku, nombre, categoria, unidad, stock: 0, stock_min: 0, precio: 0, almacen: '', estado: 'activo',
+      });
+      onProductoCreado(producto);
+      agregarProducto(producto);
+      setNuevo(null);
+      toast(`${producto.sku} creado en Inventario y agregado a la plantilla.`, 'success');
+    } catch (e) {
+      toast(textoDeError(e, 'No se pudo crear el producto.'), 'error');
+    } finally {
+      setCreandoProducto(false);
+    }
   }
 
   async function guardar() {
@@ -241,11 +276,11 @@ function EditorCompraFija({ inicial, id, productos, proveedores, onClose, onGuar
   }
 
   return (
-    <Modal title={id ? `✎ ${d.icono} ${d.nombre}` : '＋ Nueva compra fija'} size="lg" onClose={onClose}
+    <Modal title={id ? `✎ ${d.icono} ${d.nombre}` : '＋ Nueva compra fija'} size="lg" onClose={() => { if (!creandoProducto) onClose(); }}
       footer={<>
-        {id && <button className="btn btn-ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => void eliminar()} disabled={guardando}>🗑 Eliminar</button>}
-        <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
-        <button className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar'}</button>
+        {id && <button className="btn btn-ghost" style={{ marginRight: 'auto', color: 'var(--danger)' }} onClick={() => void eliminar()} disabled={guardando || creandoProducto}>🗑 Eliminar</button>}
+        <button className="btn btn-ghost" onClick={onClose} disabled={guardando || creandoProducto}>Cancelar</button>
+        <button className="btn btn-primary" onClick={() => void guardar()} disabled={guardando || creandoProducto || Boolean(nuevo)}>{guardando ? 'Guardando…' : 'Guardar'}</button>
       </>}>
       <div style={{ display: 'grid', gap: '.6rem', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
         <div className="form-row" style={{ margin: 0 }}>
@@ -325,7 +360,30 @@ function EditorCompraFija({ inicial, id, productos, proveedores, onClose, onGuar
         </div>
         <div className="form-row" style={{ margin: '.6rem 0 0' }}>
           <label>Productos fijos (además de los de las categorías)</label>
-          <SearchSelect options={opciones} value={prodSel} onChange={(v) => { setProdSel(v); agregarProducto(v); }} placeholder="🔍 Agregar un producto…" />
+          <SearchSelect options={opciones} value="" onChange={(v) => {
+            const producto = productos.find((p) => p.id === v);
+            if (producto) agregarProducto(producto);
+          }} placeholder="🔍 Buscar un producto del inventario…" />
+          {!nuevo && <button type="button" className="btn btn-sm btn-ghost" disabled={guardando}
+            onClick={() => setNuevo({ nombre: '', categoria: '', unidad: 'und' })}>＋ Nuevo producto</button>}
+          {nuevo && <div className="card" style={{ margin: '.4rem 0' }}>
+            <div className="form-grid">
+              <label>Nombre<input className="input" autoFocus value={nuevo.nombre} disabled={creandoProducto}
+                onChange={(e) => setNuevo({ ...nuevo, nombre: e.target.value })} /></label>
+              <label>Categoría<input className="input" list="categorias-producto-fijo" value={nuevo.categoria} disabled={creandoProducto}
+                onChange={(e) => setNuevo({ ...nuevo, categoria: e.target.value })} /></label>
+              <label>Unidad<input className="input" value={nuevo.unidad} disabled={creandoProducto}
+                onChange={(e) => setNuevo({ ...nuevo, unidad: e.target.value })} /></label>
+            </div>
+            <datalist id="categorias-producto-fijo">
+              {[...new Set(productos.map((p) => p.categoria).filter(Boolean))].sort().map((c) => <option value={c} key={c} />)}
+            </datalist>
+            <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-sm btn-primary" disabled={creandoProducto}
+                onClick={() => void crearProductoFijo()}>{creandoProducto ? 'Creando…' : 'Crear en Inventario y agregar'}</button>
+              <button type="button" className="btn btn-sm btn-ghost" disabled={creandoProducto} onClick={() => setNuevo(null)}>Cancelar alta</button>
+            </div>
+          </div>}
           {d.productos.map((f, i) => (
             <div key={f.producto_id} style={{ display: 'flex', gap: '.4rem', alignItems: 'center', marginTop: '.35rem' }}>
               <span style={{ flex: 1 }}>{f.nombre} <span className="muted mono" style={{ fontSize: '.75rem' }}>{f.sku}</span></span>
