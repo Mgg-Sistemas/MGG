@@ -93,8 +93,8 @@ export function normalizarCodigoOc(v: unknown): string {
   if (!s) return '';
   const m = s.match(/^([A-Z]{2,4})[\s._-]*(\d{4})[\s._-]*(\d{1,6})(?:[\s._-]*(\d{1,3}))?$/);
   if (m) return `${m[1]}-${m[2]}-${m[3].padStart(4, '0')}${m[4] ? `-${m[4]}` : ''}`;
-  const m2 = s.match(/^(?:ODC|OC)[\s._-]*(\d{1,6})$/);
-  if (m2) return `OC-2026-${m2[1].padStart(4, '0')}`;
+  const m2 = s.match(/^(ODC|OC|SV)[\s._-]*(\d{1,6})$/);
+  if (m2) return `${m2[1] === 'SV' ? 'SV' : 'OC'}-2026-${m2[2].padStart(4, '0')}`;
   return s.replace(/\s+/g, '');
 }
 
@@ -182,16 +182,17 @@ export function serialExcelAFechaIso(v: unknown): string {
 export function extraerOdc(texto: string): string[] {
   const s = sinAcentos(String(texto ?? '')).toUpperCase();
   const odcs: string[] = [];
-  const re = /\b(?:ODC|OC)[\s._#-]*(\d+)/gi;
+  const re = /\b(ODC|OC|SV)[\s._#-]*(?:(\d{4})[\s._-]+)?(\d{1,6})\b/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(s)) !== null) {
-    const num = m[1];
-    odcs.push(`OC-2026-${num.padStart(4, '0')}`);
+    const prefijo = m[1] === 'SV' ? 'SV' : 'OC';
+    const anio = m[2] ?? '2026';
+    odcs.push(`${prefijo}-${anio}-${m[3].padStart(4, '0')}`);
 
     let after = s.slice(m.index + m[0].length);
     let mAfter: RegExpMatchArray | null;
-    while ((mAfter = after.match(/^\s*(?:Y|E|,|\/)\s*(?:(?:ODC|OC)[\s._#-]*)?(\d+)/i)) !== null) {
-      odcs.push(`OC-2026-${mAfter[1].padStart(4, '0')}`);
+    while ((mAfter = after.match(/^\s*(?:Y|E|,|\/)\s*(\d+)/i)) !== null) {
+      odcs.push(`${prefijo}-${anio}-${mAfter[1].padStart(4, '0')}`);
       after = after.slice(mAfter[0].length);
     }
   }
@@ -483,9 +484,6 @@ export function parsearCajaMultimoneda(
     const descRaw = String(row[ub.descripcion] ?? '').trim();
     if (!descRaw) continue;
 
-    // Detectar si menciona ODC / OC (no debe coincidir con palabras como OCTUBRE)
-    if (!/\b(?:ODC|OC)[\s._#-]*\d+/i.test(descRaw)) continue;
-
     const rawOdcs = extraerOdc(descRaw);
     if (!rawOdcs.length) continue;
 
@@ -513,7 +511,7 @@ export function parsearCajaMultimoneda(
 
     const odcsValidas = rawOdcs.filter((cod) => {
       // Verificar si en el contexto inmediato de la ODC dice GT o MGG (ej. ODC 236 MGG Y ODC 181 GT)
-      const numCorto = cod.replace('OC-2026-', '').replace(/^0+/, '');
+      const numCorto = cod.split('-').at(-1)!.replace(/^0+/, '');
       const idx = descRaw.toUpperCase().indexOf(numCorto);
       const context = idx >= 0 ? descRaw.toUpperCase().slice(idx, idx + 35) : '';
       const odcDiceGt = /\b(GT|GOLDEN TOUCH|MATANZAS|PERAMANAL)\b/.test(context);
@@ -669,7 +667,7 @@ export async function leerTablaArchivo(file: File): Promise<unknown[][]> {
         const row = t[r] ?? [];
         let desc = '';
         for (const cell of row) {
-          if (typeof cell === 'string' && /\b(?:ODC|OC|REINTEGRO)[\s._#-]*\d+/i.test(cell)) {
+          if (typeof cell === 'string' && extraerOdc(cell).length) {
             desc = cell;
             break;
           }
@@ -808,7 +806,7 @@ export function analizarTablaDrive(
     porCodigo.set(cod, o.id);
     infoPorId.set(o.id, o);
     // Indexar por número final solo del código de orden (o.codigo), NUNCA por o.sp (evita que ODC 219 cruce con OC-2026-0249 por tener SP-0219)
-    if (o.codigo) {
+    if (o.codigo && !/^SV-\d{4}-\d+$/.test(cod)) {
       const m = o.codigo.match(/(\d{1,6})$/);
       if (m) {
         const num = m[1].replace(/^0+/, '');
@@ -851,7 +849,7 @@ export function analizarTablaDrive(
     const montoBs = leerMontoBs(crudo.monto);
     let ordenId = porCodigo.get(codigo) ?? null;
     // Si no encontró por código exacto normalizado, buscar por número corto (tolera prefijos SV-, SP-, etc.)
-    if (!ordenId && codigo) {
+    if (!ordenId && codigo && !/^SV-\d{4}-\d+$/.test(codigo)) {
       const mNum = codigo.match(/(\d{1,6})$/);
       if (mNum) {
         const num = mNum[1].replace(/^0+/, '');

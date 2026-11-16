@@ -195,6 +195,20 @@ describe('Parser de Caja Multimoneda (MGG vs GT, Salidas y Reintegros)', () => {
     expect(ubicarColumnasCaja([encabezadoCaja])).toMatchObject({ descripcion: 7, monto: 4, movimiento: 2 });
   });
 
+  it('cruza un pago SV del libro sin confundirlo con una OC del mismo número', () => {
+    const tabla = convertirCajaATablaEstandar([
+      encabezadoCaja,
+      [46332, '2026-11', 'SALIDA (ENTREGO)', 'BDT JURIDICO GT', 304680.8, null, null,
+        'PAGO SV 0037 REAJUSTE DE SISTEMA TELEFÓNICO\nREF 35420002', 'CAJAS PRINCIPAL', 'MINERAL GROUP GUAYANA'],
+    ]);
+    const a = analizarTablaDrive(tabla, 'caja.xlsx', [
+      { id: 'compra', codigo: 'OC-2026-0037', pagado: true, seCruza: true },
+      { id: 'servicio', codigo: 'SV-2026-0037', pagado: true, seCruza: true },
+    ]);
+    expect(a.porOrden.get('servicio')).toMatchObject({ referencias: ['35420002'], montoBs: 304680.8 });
+    expect(a.porOrden.has('compra')).toBe(false);
+  });
+
   it('extrae salidas de órdenes MGG y descarta las de GT', () => {
     const tabla = [
       encabezadoCaja,
