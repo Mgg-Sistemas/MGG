@@ -147,20 +147,6 @@ async function sincronizarStock(
   });
 }
 
-/**
- * Kg de este big bag que ya se quemaron en alguna colada.
- *
- * Se lee de los reportes de colada, que son los que mandan sobre el saldo. Si
- * la consulta falla se devuelve 0: la revisión es una protección, no puede
- * dejar el detallado sin poder editarse por un problema de red.
- */
-async function kgFundidosDeBigBag(id: string): Promise<number> {
-  try {
-    const { getConsumoBigBags } = await import('@/modules/produccion/colada.repository');
-    return round2(Number((await getConsumoBigBags()).get(id)) || 0);
-  } catch { return 0; }
-}
-
 /** Nombre legible de la categoría, para el texto del kardex. */
 const CAT_NOMBRE: Record<CasiteritaCategoria, string> = {
   bigbag: 'BIG BAG', saco: 'SACO', tobo: 'TOBO', hielo: 'BOLSA DE HIELO',
