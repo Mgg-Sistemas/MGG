@@ -116,10 +116,12 @@ interface Props {
   ambitoInicial?: AmbitoTesoreria;
   rangoInicial?: { desde: string; hasta: string };
   ordenesSeleccionadas?: OrdenPorPagar[];
+  whatsappInicial?: boolean;
+  soloConversiones?: boolean;
   onClose: () => void;
 }
 
-export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSeleccionadas, onClose }: Props) {
+export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSeleccionadas, whatsappInicial = false, soloConversiones = false, onClose }: Props) {
   const prefs = useMemo(() => leerPrefs(), []);
 
   const [desde, setDesde] = useState<string>(() => rangoInicial?.desde || primerDiaMesActual());
@@ -136,7 +138,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
   const [incluirPreparar, setIncluirPreparar] = useState<boolean>(() => {
     try { const v = localStorage.getItem(CLAVE_PREPARAR); return v === null ? true : v === 'true'; } catch { return true; }
   });
-  const [verWhatsapp, setVerWhatsapp] = useState(false);
+  const [verWhatsapp, setVerWhatsapp] = useState(whatsappInicial);
   const [orientacion, setOrientacion] = useState<'landscape' | 'portrait'>('landscape');
   const [formatoPresentacion, setFormatoPresentacion] = useState<'fichas' | 'tabla'>('fichas');
   const [ordenarPor, setOrdenarPor] = useState<'usd' | 'bs' | 'fecha' | 'contraparte'>('usd');
@@ -171,7 +173,8 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
         const tasaFecha = tasaHoy?.fecha ?? null;
 
         if (ambito === 'movimientos') {
-          const lista = await listLibroMayor({ desde, hasta });
+          const movimientos = await listLibroMayor({ desde, hasta });
+          const lista = soloConversiones ? movimientos.filter((m) => m.categoria === 'conversion') : movimientos;
           let tasasPorFecha: Map<string, number> | undefined;
           try {
             const dias = [...new Set(lista.map((m) => diaDe(m.at)).filter(Boolean))];
@@ -207,7 +210,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
     }
     void cargar();
     return () => { cancelado = true; };
-  }, [ambito, desde, hasta, ordenesSeleccionadas]);
+  }, [ambito, desde, hasta, ordenesSeleccionadas, soloConversiones]);
 
   // Normalización a filas de detalle según el ámbito
   const filasDetalle = useMemo<FilaReporteTesoreria[]>(() => {
@@ -397,15 +400,16 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
         <div style={surf2}>
           <div style={{ ...tituloSec, marginBottom: '.4rem' }}>🧭 Ámbito del reporte</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem' }}>
-            {AMBITOS.filter((a) => !ordenesSeleccionadas || a.id === 'por_pagar').map((a) => (
+            {AMBITOS.filter((a) => ordenesSeleccionadas ? a.id === 'por_pagar' : !soloConversiones || a.id === 'movimientos').map((a) => (
               <button key={a.id} type="button" className={`btn btn-xs ${ambito === a.id ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setAmbito(a.id)} style={{ display: 'flex', alignItems: 'center', gap: '.25rem' }}>
                 <span>{a.icon}</span><span>{a.label}</span>
               </button>
             ))}
           </div>
+          {soloConversiones && <p className="hint muted">Movimientos de conversión</p>}
           {ambito !== 'movimientos' && (
             <div className="muted" style={{ fontSize: '.73rem', marginTop: '.4rem', fontStyle: 'italic' }}>
-              {ordenesSeleccionadas ? `Órdenes seleccionadas en la lista: ${ordenesSeleccionadas.length}.`
+              {ordenesSeleccionadas ? `Órdenes incluidas desde la lista: ${ordenesSeleccionadas.length}.`
                 : ambito === 'por_pagar' ? 'Compromisos vigentes por pagar (no dependen del rango de fechas).' : 'Cuentas a crédito abiertas: lo que se debe (CxP) y lo que nos deben (CxC).'}
             </div>
           )}
@@ -483,7 +487,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
         </div>
 
         {/* Dimensión + Valuación */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '.6rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 280px), 1fr))', gap: '.6rem' }}>
           <div style={surf2}>
             <div style={{ ...tituloSec, marginBottom: '.4rem' }}>🎯 Dimensión principal (Agrupar por)</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.3rem' }}>
@@ -824,7 +828,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
           ) : filas.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '1.2rem', color: '#94a3b8', fontSize: '.82rem' }}>No hay datos para el ámbito, período o filtros seleccionados.</div>
           ) : formatoPresentacion === 'fichas' ? (
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.55rem', maxHeight: '260px', overflowY: 'auto', paddingRight: '.2rem' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 280px), 1fr))', gap: '.55rem', maxHeight: '260px', overflowY: 'auto', paddingRight: '.2rem' }}>
               {filas.map((f) => {
                 const acento = f.tipo_movimiento === 'ingreso' ? '#10b981' : f.tipo_movimiento === 'traslado' ? '#38bdf8' : '#FF8A00';
                 const metricas = obtenerMetricasFichaTesoreria(f, marcadosVisibles, { mostrarUsd, mostrarBs });

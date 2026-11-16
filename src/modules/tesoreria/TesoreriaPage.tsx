@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
@@ -25,7 +26,7 @@ import { HistorialTasasModal } from './HistorialTasasModal';
 import { filtrarRenglonesNomina, armarLote, pendientesDelLote, alternarSeleccion, seleccionarVisibles, podarSeleccion } from './nominaLote';
 import { TasasView } from './TasasView';
 import { errorReferencia, limpiarReferencia, referenciasRequeridas, soloDigitos } from './referenciaPago';
-import { getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
+import { hoyVE, getTasaHoy, aBs, aExtranjero, round2, getTasasMercado, refrescarBinanceP2P, getBinance3, refrescarTasasSiVencido, type TasasMercado, type Binance3 } from './tasas.repository';
 import { saldosDeCaja, ingresarDivisa, listLotes, listSaldos, trasladoEntreCajasMulti, convertirDivisa, crearBilleteraEnCero, listConversiones } from './cajaSaldos.repository';
 import type { ConversionFila } from './cajaSaldos.repository';
 import {
@@ -112,17 +113,19 @@ import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
  * Botón que abre el «Descargar Reporte de Tesorería» (traído de GT, 03-11-2026) en un
  * ámbito dado. Autocontenido (botón + estado + modal). Reemplaza los viejos «↓ Resumen PDF».
  */
-function BotonReporteTesoreria({ ambito, rango, ordenesSeleccionadas, label = '📄 Reporte', className = 'btn btn-sm btn-ghost' }: {
+function BotonReporteTesoreria({ ambito, rango, ordenesSeleccionadas, ordenesDisponibles, disabled, label = '📄 Reporte', className = 'btn btn-sm btn-ghost' }: {
   ambito: AmbitoTesoreria;
   rango?: { desde: string; hasta: string };
   ordenesSeleccionadas?: OrdenPorPagar[];
+  ordenesDisponibles?: OrdenPorPagar[];
+  disabled?: boolean;
   label?: string;
   className?: string;
 }) {
   const [reporte, setReporte] = useState<{ ordenes?: OrdenPorPagar[] } | null>(null);
   return (
     <>
-      <button type="button" className={className} onClick={() => setReporte({ ordenes: ordenesSeleccionadas?.length ? ordenesSeleccionadas : undefined })}
+      <button type="button" className={className} disabled={disabled} onClick={() => setReporte({ ordenes: ordenesSeleccionadas?.length ? ordenesSeleccionadas : ordenesDisponibles })}
         title="Reporte de Tesorería: ámbito, fechas, agrupación, filtros, columnas; fichas o tabla; CSV, Excel, WhatsApp y PDF">{label}</button>
       {reporte && <ExportarTesoreriaModal ambitoInicial={ambito} rangoInicial={rango} ordenesSeleccionadas={reporte.ordenes} onClose={() => setReporte(null)} />}
     </>
@@ -192,9 +195,92 @@ function agruparAlmacenesPorSede(almacenes: Almacen[]): [string, { a: Almacen; n
   return [...porSede.entries()];
 }
 
+export function TesoreriaMovilView() {
+  const { user } = useSession();
+  const { can, appUser, soloTelefono } = usePermissions();
+  const canWrite = can('tesoreria', 'escritura');
+  const actor = user?.email ?? 'sistema';
+  const actorName = appUser?.nombre ?? null;
+  const [cajas, setCajas] = useState<Caja[]>([]);
+  const [movimientos, setMovimientos] = useState<MovimientoCaja[]>([]);
+  const [desde, setDesde] = useState(() => `${hoyVE().slice(0, 7)}-01`);
+  const [hasta, setHasta] = useState(hoyVE);
+  const [cargando, setCargando] = useState(true);
+  const [error, setError] = useState('');
+  const [modal, setModal] = useState<'pendientes' | 'conversor' | 'reporte' | 'whatsapp' | null>(null);
+  const [detalle, setDetalle] = useState<MovimientoCaja | null>(null);
+  const solicitud = useRef(0);
+  const cerrar = () => setModal(null);
+  const rango = desde && hasta ? { desde, hasta } : undefined;
+
+  const cargar = useCallback(async () => {
+    const actual = ++solicitud.current;
+    setCargando(true);
+    setError('');
+    try {
+      const [cajasActivas, libro] = await Promise.all([
+        listCajasActivas(),
+        listLibroMayor({ desde: desde || undefined, hasta: hasta || undefined }),
+      ]);
+      if (actual !== solicitud.current) return;
+      setCajas(cajasActivas);
+      setMovimientos(libro);
+    } catch (e) {
+      if (actual === solicitud.current) setError(e instanceof Error ? e.message : 'No se pudo cargar Tesorería.');
+    } finally {
+      if (actual === solicitud.current) setCargando(false);
+    }
+  }, [desde, hasta]);
+
+  useEffect(() => { void cargar(); }, [cargar]);
+  useRealtime(['movimientos_caja', 'cajas', 'caja_saldos'], () => { void cargar(); });
+
+  return (
+    <div className="tesoreria-movil">
+      <header className="page-head">
+        <h1>💰 Tesorería</h1>
+        {!soloTelefono && <Link to="/app/tesoreria" className="btn btn-sm btn-ghost">Módulo completo</Link>}
+      </header>
+      <div className="tesoreria-movil-acciones">
+        <button type="button" className="btn btn-primary" onClick={() => setModal('pendientes')}>OC y SV por pagar</button>
+        {canWrite && <button type="button" className="btn btn-ghost" disabled={!cajas.length} onClick={() => setModal('conversor')}>💱 Convertir</button>}
+      </div>
+      <section aria-labelledby="tesoreria-movil-movs">
+        <h2 id="tesoreria-movil-movs">Registro de movimientos</h2>
+        <div className="tesoreria-movil-acciones">
+          <label>Desde<input type="date" className="input" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} /></label>
+          <label>Hasta<input type="date" className="input" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} /></label>
+          <button type="button" className="btn btn-ghost" onClick={() => setModal('reporte')}>📄 Reporte dinámico</button>
+          <button type="button" className="btn btn-ghost" onClick={() => setModal('whatsapp')}>💬 WhatsApp</button>
+        </div>
+        {error && <p role="alert">{error} <button className="btn btn-sm btn-ghost" onClick={() => void cargar()}>Reintentar</button></p>}
+        {cargando ? <p className="muted">Cargando movimientos…</p>
+          : !error && (!movimientos.length ? <EmptyState message="Sin movimientos en el período" /> : (
+            <div className="tesoreria-movil-movs">
+              {movimientos.map((m) => (
+                <button type="button" className="card tesoreria-movil-mov" key={m.id} onClick={() => setDetalle(m)}>
+                  <strong>{m.beneficiario || m.motivo || TIPO_MOV_LABEL[m.tipo] || m.tipo}</strong>
+                  <span>{monto(m.monto, m.moneda)}</span>
+                  <small className="muted">{m.caja?.nombre ?? '—'} · {TIPO_MOV_LABEL[m.tipo] ?? m.tipo} · {dateTime(m.at)}</small>
+                </button>
+              ))}
+            </div>
+          ))}
+      </section>
+      {modal === 'pendientes' && <OrdenesPorPagarModal cajas={cajas} actor={actor} actorName={actorName}
+        userId={user?.id ?? ''} directos={[]} movil puedePagar={canWrite && cajas.length > 0} onClose={cerrar} onPaid={cargar} />}
+      {modal === 'conversor' && canWrite && <ConversorModal cajas={cajas} actor={actor} actorName={actorName} reportesMovil onClose={cerrar} onSaved={cargar} />}
+      {(modal === 'reporte' || modal === 'whatsapp') && <ExportarTesoreriaModal ambitoInicial="movimientos"
+        rangoInicial={rango} whatsappInicial={modal === 'whatsapp'} onClose={cerrar} />}
+      {detalle && <MovimientoDetalleModal mov={detalle} cajas={cajas} defaultEmail={actor} canWrite={false}
+        onChanged={cargar} onClose={() => setDetalle(null)} />}
+    </div>
+  );
+}
+
 export function TesoreriaPage() {
   const { user } = useSession();
-  const { can, appUser } = usePermissions();
+  const { can, appUser, puedeVista } = usePermissions();
   const canWrite = can('tesoreria', 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
@@ -340,6 +426,7 @@ export function TesoreriaPage() {
           <button className={vista === 'movimientos' ? 'active' : ''} onClick={() => setVista('movimientos')}>📒 Registro de Movimientos</button>
           <button className={vista === 'gastos' ? 'active' : ''} onClick={() => setVista('gastos')}>💸 Gastos / Movimientos</button>
         </div>
+        {puedeVista('tesoreria') && <Link to="/app/tesoreria/telefono" className="btn btn-ghost">📱 Vista teléfono</Link>}
       </div>
 
       {vista === 'tasas' && <TasasView />}
@@ -3571,8 +3658,8 @@ function tasaCruzada(de: MonedaCaja, a: MonedaCaja, t: TasasMercado): number | n
 
 const labelCuenta = (c: CuentaCaja) => c === 'general' ? 'General' : c === 'juridica' ? 'Jurídica' : c === 'personal' ? 'Personal' : String(c);
 
-function ConversorModal({ cajas, actor, actorName, onClose, onSaved }: {
-  cajas: Caja[]; actor: string; actorName?: string | null; onClose: () => void; onSaved: () => void;
+function ConversorModal({ cajas, actor, actorName, reportesMovil = false, onClose, onSaved }: {
+  cajas: Caja[]; actor: string; actorName?: string | null; reportesMovil?: boolean; onClose: () => void; onSaved: () => void;
 }) {
   const [saldos, setSaldos] = useState<CajaSaldo[]>([]);
   const [cargandoSaldos, setCargandoSaldos] = useState(true);
@@ -3601,6 +3688,7 @@ function ConversorModal({ cajas, actor, actorName, onClose, onSaved }: {
   // El historial vive en este mismo modal, detrás de un interruptor.
   const [vista, setVista] = useState<'convertir' | 'historial'>('convertir');
   const [historial, setHistorial] = useState<ConversionFila[]>([]);
+  const [reporteConversiones, setReporteConversiones] = useState<'dinamico' | 'whatsapp' | null>(null);
   const [cargandoHist, setCargandoHist] = useState(false);
   const [fConv, setFConv] = useState<FiltroConversiones>(FILTRO_CONVERSIONES_VACIO);
 
@@ -3743,10 +3831,18 @@ function ConversorModal({ cajas, actor, actorName, onClose, onSaved }: {
       </div>
 
       {vista === 'historial' ? (
-        <HistorialConversiones
-          filas={historial} cargando={cargandoHist} filtro={fConv} onFiltro={setFConv}
-          nombreCaja={nombreCaja} onRecargar={cargarHistorial}
-        />
+        <>
+          {reportesMovil && <div className="tesoreria-movil-acciones">
+            <button type="button" className="btn btn-ghost" onClick={() => setReporteConversiones('dinamico')}>📄 Reporte dinámico</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setReporteConversiones('whatsapp')}>💬 WhatsApp</button>
+          </div>}
+          <HistorialConversiones
+            filas={historial} cargando={cargandoHist} filtro={fConv} onFiltro={setFConv}
+            nombreCaja={nombreCaja} onRecargar={cargarHistorial}
+          />
+          {reporteConversiones && <ExportarTesoreriaModal ambitoInicial="movimientos" soloConversiones
+            whatsappInicial={reporteConversiones === 'whatsapp'} onClose={() => setReporteConversiones(null)} />}
+        </>
       ) : (
       <>
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
@@ -4524,8 +4620,9 @@ function GraficoTasasModal({ onClose }: { onClose: () => void }) {
 
 /* ───────────── Órdenes pendientes por pagar (OC confirmadas) ───────────── */
 
-function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClose, onPaid }: {
+function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, movil = false, puedePagar = true, onClose, onPaid }: {
   cajas: Caja[]; actor: string; actorName: string | null; userId: string; directos: DirectoFila[]; onClose: () => void; onPaid: () => void;
+  movil?: boolean; puedePagar?: boolean;
 }) {
   const [rows, setRows] = useState<OrdenPorPagar[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4548,6 +4645,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void reload(); }, [reload]);
+  useRealtime(['ordenes'], () => { void reload(); }, { enabled: movil });
 
   // Badge 💬 de mensajes no leídos por OC (chat con Compras), en realtime.
   const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
@@ -4581,8 +4679,9 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
         (un egreso por OC).
       </p>
 
-      <div style={{ display: 'flex', gap: '.4rem', marginBottom: '.6rem' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.6rem' }}>
         <BotonReporteTesoreria ambito="por_pagar" ordenesSeleccionadas={seleccionadas}
+          ordenesDisponibles={movil ? rows : undefined} disabled={movil && loading}
           label={seleccionadas.length ? `📄 Reporte (${seleccionadas.length})` : '📄 Reporte'} />
         <button className="btn btn-sm btn-ghost" disabled={loading} onClick={() => setResumenWa(true)}
           title="Resumen por WhatsApp: se eligen todas o una a una, con el motivo de pago de cada una, el total y la fecha">💬 Resumen WhatsApp</button>
@@ -4594,12 +4693,12 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
           {mismoProveedor && <span>{primera.proveedorNombre} · total <strong className="mono">{monto(totalSel, 'USD')}</strong></span>}
           <div style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem' }}>
             <button className="btn btn-sm btn-ghost" onClick={() => setMarcadas(new Set())}>Limpiar</button>
-            {mismoProveedor && seleccionadas.length >= 2 && <button className="btn btn-sm btn-primary" onClick={() => setLote(true)}>💳 Pagar {seleccionadas.length} seleccionadas</button>}
+            {puedePagar && mismoProveedor && seleccionadas.length >= 2 && <button className="btn btn-sm btn-primary" onClick={() => setLote(true)}>💳 Pagar {seleccionadas.length} seleccionadas</button>}
           </div>
         </div>
       )}
 
-      <div className="table-wrap">
+      <div className={movil ? 'table-wrap tesoreria-movil-pendientes' : 'table-wrap'}>
         <table className="table" style={{ fontSize: '.82rem' }}>
           <thead><tr>
             <th style={{ width: 28 }}></th>
@@ -4612,7 +4711,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
             {!loading && rows.map((r) => {
               const marcada = marcadas.has(r.orden.id);
               return (
-              <tr key={r.orden.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel(r)}>
+              <tr key={r.orden.id} className="row-selectable" style={{ cursor: puedePagar ? 'pointer' : undefined }} onClick={puedePagar ? () => setSel(r) : undefined}>
                 <td style={{ textAlign: 'center' }} onClick={(e) => e.stopPropagation()}>
                   <input type="checkbox" checked={marcada}
                     aria-label={`Seleccionar ${r.orden.oc_codigo ?? r.orden.codigo}`}
@@ -4663,7 +4762,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
                 </td>
                 <td className="muted">{r.orden.oc_creada_en ? fmtDate(r.orden.oc_creada_en) : '—'}</td>
                 <td className="muted">{r.orden.oc_aprobada_en ? fmtDate(r.orden.oc_aprobada_en) : '—'}</td>
-                <td style={{ textAlign: 'right' }}><button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>{r.esperandoMetodo ? 'Ver' : 'Ver / Pagar'}</button></td>
+                <td style={{ textAlign: 'right' }}>{puedePagar && <button className="btn btn-sm btn-primary" onClick={(e) => { e.stopPropagation(); setSel(r); }}>{r.esperandoMetodo ? 'Ver' : 'Ver / Pagar'}</button>}</td>
               </tr>
               );
             })}
@@ -4696,7 +4795,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
         </table>
       </div>
 
-      {sel && (
+      {puedePagar && sel && (
         <PagarOrdenModal
           row={sel} cajas={cajas} actor={actor} actorName={actorName} userId={userId}
           onClose={() => setSel(null)}
@@ -4704,7 +4803,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, onClo
         />
       )}
 
-      {lote && mismoProveedor && seleccionadas.length >= 2 && (
+      {puedePagar && lote && mismoProveedor && seleccionadas.length >= 2 && (
         <PagarLoteModal
           rows={seleccionadas} cajas={cajas} actor={actor} actorName={actorName}
           onClose={() => setLote(false)}

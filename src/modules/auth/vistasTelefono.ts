@@ -17,7 +17,7 @@
    ============================================================ */
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 
-export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'maquinaria' | 'retenciones' | 'inventario' | 'solicitudes' | 'delivery' | 'carga_pesada';
+export type VistaTelefonoKey = 'surtidor' | 'comidas' | 'maquinaria' | 'retenciones' | 'inventario' | 'solicitudes' | 'delivery' | 'carga_pesada' | 'tesoreria';
 
 export interface VistaTelefono {
   key: VistaTelefonoKey;
@@ -69,6 +69,10 @@ export const VISTAS_TELEFONO: VistaTelefono[] = [
     key: 'carga_pesada', label: 'Carga pesada', icono: '🚚', modulo: 'carga_pesada',
     ruta: '/app/carga-pesada/telefono',
     descripcion: 'Pedidos de carga pesada: tomar, ir en ruta, entregar en almacén y compartir ubicación',
+  },
+  {
+    key: 'tesoreria', label: 'Tesorería', icono: '💰', modulo: 'tesoreria',
+    ruta: '/app/tesoreria/telefono', descripcion: 'Pagos de OC y servicios, conversor, movimientos y reportes',
   },
 ];
 

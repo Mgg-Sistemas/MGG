@@ -1018,6 +1018,55 @@ tr.row-selectable:active { transform: scale(0.998); }
 }
 .view-switch { display: flex; justify-content: center; }
 
+.tesoreria-movil { max-width: 540px; min-width: 0; margin: 0 auto; }
+.tesoreria-movil h2 { margin: 1.25rem 0 .6rem; font-size: 1.12rem; }
+.tesoreria-movil-acciones {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: .5rem;
+  margin-bottom: .75rem;
+}
+.tesoreria-movil-acciones .btn { min-height: 44px; white-space: normal; }
+.tesoreria-movil-acciones label { min-width: 0; font-size: .8rem; }
+.tesoreria-movil-acciones input { margin-top: .25rem; min-width: 0; max-width: 100%; }
+.tesoreria-movil-movs { display: grid; gap: .5rem; }
+.tesoreria-movil-mov {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: .35rem .6rem;
+  width: 100%;
+  margin: 0;
+  color: inherit;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.tesoreria-movil-mov small { grid-column: 1 / -1; }
+
+@media (max-width: 640px) {
+  .tesoreria-movil-pendientes > table { min-width: 0; }
+  .tesoreria-movil-pendientes table,
+  .tesoreria-movil-pendientes tbody { display: block; }
+  .tesoreria-movil-pendientes thead { display: none; }
+  .tesoreria-movil-pendientes tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: .4rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .tesoreria-movil-pendientes td {
+    min-width: 0;
+    padding: .3rem;
+    border: 0;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  .tesoreria-movil-pendientes td:nth-child(4),
+  .tesoreria-movil-pendientes td[colspan] { grid-column: 1 / -1; }
+  .tesoreria-movil-pendientes td:first-child input { width: 22px; height: 22px; }
+  .tesoreria-movil-pendientes td:last-child .btn { min-height: 44px; }
+}
+
 .conciliacion-page,
 .conciliacion-page .table-wrap {
   min-width: 0;
