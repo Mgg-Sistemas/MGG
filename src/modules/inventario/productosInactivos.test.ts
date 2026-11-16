@@ -61,4 +61,10 @@ describe('productos inactivos · qué se ve en el botón', () => {
     expect(opcionesDe(VINAGRES, 'categoria')).toEqual(['LIMPIEZA', 'VIVERES']);
     expect(opcionesDe(VINAGRES, 'desactivado_por')).toEqual(['mineralgroupguayanaca@gmail.com']);
   });
+
+  it('oculta los productos vaciados de la lista y de las opciones de filtro', () => {
+    const productos = [...VINAGRES.slice(0, 2), { ...VINAGRES[2], papelera_vaciada_en: '2026-11-16T12:00:00Z' }];
+    expect(inactivosFiltrados(productos, FILTRO_VACIO).map((p) => p.sku)).toEqual(['VIV-072', 'VIV-118']);
+    expect(opcionesDe(productos, 'categoria')).toEqual(['VIVERES']);
+  });
 });

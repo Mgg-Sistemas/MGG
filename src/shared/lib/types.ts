@@ -797,6 +797,7 @@ export interface Producto {
   /** Baja del producto: cuándo se dio de baja. Nulo en las bajas viejas, anteriores
    *  a que el sistema lo anotara, y en todo producto activo. */
   desactivado_en?: string | null;
+  papelera_vaciada_en?: string | null;
   /** Correo de quien lo dio de baja. */
   desactivado_por?: string | null;
   /** Por qué se dio de baja (ej. "Unificado en VIV-122 VINAGRE"). */

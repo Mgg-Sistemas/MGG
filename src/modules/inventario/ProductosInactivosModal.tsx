@@ -11,28 +11,32 @@
    como «sin registro» en vez de inventar una fecha.
    ============================================================ */
 import { useMemo, useState } from 'react';
-import { Modal } from '@/shared/ui/Modal';
+import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
 import type { Producto } from '@/shared/lib/types';
-import { setEstadoProducto } from './inventario.repository';
-import { FILTRO_VACIO, inactivosFiltrados, opcionesDe, type FiltroInactivos } from './productosInactivos';
+import { recuperarProducto, vaciarProductos, type ModuloPapeleraProductos } from './inventario.repository';
+import { FILTRO_VACIO, estaEnPapeleraProducto, inactivosFiltrados, opcionesDe, type FiltroInactivos } from './productosInactivos';
 
 interface Props {
   productos: Producto[];
   canWrite: boolean;
+  puedeVaciar: boolean;
+  modulo: ModuloPapeleraProductos;
   onClose: () => void;
   /** Se avisa al padre cuando un producto volvió a existir, para recargar. */
   onReactivado: () => void | Promise<void>;
 }
 
-export function ProductosInactivosModal({ productos, canWrite, onClose, onReactivado }: Props) {
+export function ProductosInactivosModal({ productos, canWrite, puedeVaciar, modulo, onClose, onReactivado }: Props) {
   const [f, setF] = useState<FiltroInactivos>(FILTRO_VACIO);
   const [activando, setActivando] = useState<string | null>(null);
+  const [porVaciar, setPorVaciar] = useState<Producto[] | null>(null);
+  const [vaciando, setVaciando] = useState(false);
 
   const set = (k: keyof FiltroInactivos, v: string) => setF((prev) => ({ ...prev, [k]: v }));
 
-  const inactivos = useMemo(() => productos.filter((p) => p.estado === 'inactivo'), [productos]);
+  const inactivos = useMemo(() => productos.filter(estaEnPapeleraProducto), [productos]);
   const visibles = useMemo(() => inactivosFiltrados(productos, f), [productos, f]);
   const categorias = useMemo(() => opcionesDe(productos, 'categoria'), [productos]);
   const unidades = useMemo(() => opcionesDe(productos, 'unidad'), [productos]);
@@ -43,7 +47,7 @@ export function ProductosInactivosModal({ productos, canWrite, onClose, onReacti
   async function reactivar(p: Producto) {
     setActivando(p.id);
     try {
-      await setEstadoProducto(p.id, 'activo');
+      await recuperarProducto(modulo, p.id);
       toast(`"${p.nombre}" volvió al inventario`, 'success');
       await onReactivado();
     } catch (e) {
@@ -53,12 +57,28 @@ export function ProductosInactivosModal({ productos, canWrite, onClose, onReacti
     }
   }
 
+  async function confirmarVaciado() {
+    if (!porVaciar || vaciando) return;
+    const ids = porVaciar.map((p) => p.id);
+    setPorVaciar(null);
+    setVaciando(true);
+    try {
+      const cantidad = await vaciarProductos(modulo, ids);
+      toast(`Productos retirados de la papelera: ${cantidad}`, 'success');
+      await onReactivado();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo vaciar la papelera.', 'error');
+    } finally {
+      setVaciando(false);
+    }
+  }
+
   return (
-    <Modal title="Productos deshabilitados" size="xl" onClose={onClose}>
+    <Modal title="Papelera de productos" size="xl" onClose={onClose}
+      footer={puedeVaciar && inactivos.length > 0 && <button className="btn btn-danger"
+        disabled={vaciando || activando !== null} onClick={() => setPorVaciar(inactivos)}>Vaciar papelera</button>}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.86rem' }}>
-        Mientras un producto esté dado de baja <strong>no existe</strong> para el sistema: no aparece en el
-        inventario, ni en los almacenes, ni en el buscador, y no se puede pedir ni mover. Reactivalo para
-        devolverlo a la circulación.
+        Recupera un producto para devolverlo al inventario. Al vaciar la papelera, los productos dejan de poder recuperarse y su historial permanece disponible.
       </p>
 
       <div className="filterbar" style={{ marginBottom: '.75rem' }}>
@@ -133,14 +153,18 @@ export function ProductosInactivosModal({ productos, canWrite, onClose, onReacti
                     {canWrite ? (
                       <button
                         className="btn btn-sm btn-primary"
-                        disabled={activando === p.id}
+                        disabled={activando !== null || vaciando}
                         onClick={() => void reactivar(p)}
                         title="Devolver el producto al inventario"
                       >
-                        {activando === p.id ? 'Activando…' : '↻ Reactivar'}
+                        {activando === p.id ? 'Recuperando…' : '↻ Recuperar'}
                       </button>
                     ) : (
                       <span className="muted" style={{ fontSize: '.78rem' }}>sin permiso</span>
+                    )}
+                    {puedeVaciar && (
+                      <button className="btn btn-sm btn-ghost" title="Retirar de la papelera"
+                        disabled={activando !== null || vaciando} onClick={() => setPorVaciar([p])}>Retirar</button>
                     )}
                   </td>
                 </tr>
@@ -149,6 +173,10 @@ export function ProductosInactivosModal({ productos, canWrite, onClose, onReacti
           </table>
         </div>
       )}
+      {porVaciar && <ConfirmDialog title="Vaciar papelera de productos" danger confirmText="Vaciar"
+        message={`Retirar ${porVaciar.length} producto(s) de la papelera de forma permanente. Sus movimientos históricos se conservan.`}
+        requireText="VACIAR" requireLabel="Escribe VACIAR para confirmar."
+        onConfirm={() => void confirmarVaciado()} onCancel={() => setPorVaciar(null)} />}
     </Modal>
   );
 }

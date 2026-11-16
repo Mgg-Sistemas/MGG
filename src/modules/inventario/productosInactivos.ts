@@ -27,6 +27,10 @@ export const FILTRO_VACIO: FiltroInactivos = {
   texto: '', categoria: '', unidad: '', almacen: '', porQuien: '', desde: '', hasta: '',
 };
 
+export function estaEnPapeleraProducto(p: Producto): boolean {
+  return p.estado === 'inactivo' && !p.papelera_vaciada_en;
+}
+
 /** Todo lo que se puede escribir en el buscador y encontrar el producto. */
 export function caracteristicas(p: Producto): string {
   return [
@@ -69,7 +73,7 @@ export function coincideInactivo(p: Producto, f: FiltroInactivos): boolean {
 /** Los inactivos, filtrados y ordenados: primero las bajas más recientes. */
 export function inactivosFiltrados(productos: Producto[], f: FiltroInactivos): Producto[] {
   return productos
-    .filter((p) => p.estado === 'inactivo' && coincideInactivo(p, f))
+    .filter((p) => estaEnPapeleraProducto(p) && coincideInactivo(p, f))
     .sort((a, b) => {
       const da = diaDeBaja(a), db = diaDeBaja(b);
       if (da !== db) return db.localeCompare(da); // sin fecha va al final
@@ -81,7 +85,7 @@ export function inactivosFiltrados(productos: Producto[], f: FiltroInactivos): P
 export function opcionesDe(productos: Producto[], campo: 'categoria' | 'unidad' | 'almacen' | 'desactivado_por'): string[] {
   const vistos = new Set<string>();
   for (const p of productos) {
-    if (p.estado !== 'inactivo') continue;
+    if (!estaEnPapeleraProducto(p)) continue;
     const v = String(p[campo] ?? '').trim();
     if (v) vistos.add(v);
   }

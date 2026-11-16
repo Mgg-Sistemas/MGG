@@ -8,6 +8,7 @@ import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { cachedQuery, bustCache } from '@/shared/lib/queryCache';
 import type { EstadoGenerico, Orden, Producto, RecetaFundicion } from '@/shared/lib/types';
 import { ubicacionAlRecibir } from './ubicacionProducto';
+import { textoDeError } from '@/shared/lib/errores';
 
 export interface ProductoInput {
   sku: string;
@@ -535,6 +536,21 @@ export async function setEstadoProducto(
   if (error) throw error;
   bustCache(['productos', 'existencias']);
   return data as Producto;
+}
+
+export type ModuloPapeleraProductos = 'inventario' | 'deposito';
+
+export async function recuperarProducto(modulo: ModuloPapeleraProductos, id: string): Promise<void> {
+  const { error } = await supabase.rpc('productos_papelera_recuperar', { p_modulo: modulo, p_id: id });
+  if (error) throw new Error(textoDeError(error, 'No se pudo recuperar el producto.'));
+  bustCache(['productos', 'existencias']);
+}
+
+export async function vaciarProductos(modulo: ModuloPapeleraProductos, ids: string[]): Promise<number> {
+  const { data, error } = await supabase.rpc('productos_papelera_vaciar', { p_modulo: modulo, p_ids: ids });
+  if (error) throw new Error(textoDeError(error, 'No se pudo vaciar la papelera de productos.'));
+  bustCache(['productos']);
+  return Number(data) || 0;
 }
 
 /**

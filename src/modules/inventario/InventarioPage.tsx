@@ -57,6 +57,7 @@ import { ReporteInventarioMatanzasModal } from './ReporteInventarioMatanzasModal
 import type { AmbitoInventarioMatanzas } from './reporteInventarioMatanzasDinamico';
 import { ResumenInventarioModal } from './ResumenInventarioModal';
 import { ProductosInactivosModal } from './ProductosInactivosModal';
+import { estaEnPapeleraProducto } from './productosInactivos';
 import { FILTRO_SIN_UBICACION, sinUbicacion } from './ubicacionProducto';
 import { SinCostoModal } from './SinCostoModal';
 import { contarSinCosto } from './sinCosto.repository';
@@ -328,7 +329,7 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   }, [productos, searchParams, setSearchParams]);
 
   /** Cuántos productos están dados de baja (para el botón que los saca a la luz). */
-  const inactivosCount = useMemo(() => productos.filter((p) => p.estado === 'inactivo').length, [productos]);
+  const inactivosCount = useMemo(() => productos.filter(estaEnPapeleraProducto).length, [productos]);
 
   const decorated = useMemo<ProductoDecorado[]>(
     () => decorate(productos, DEFAULT_POLICY),
@@ -939,15 +940,13 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
               ⚠ Sin costo <span className="badge warning" style={{ marginLeft: '.35rem' }}>{sinCosto}</span>
             </button>
           )}
-          {inactivosCount > 0 && (
-            <button
-              className="btn btn-ghost"
-              onClick={() => setModal({ kind: 'inactivos' })}
-              title="Productos deshabilitados: mientras no se reactiven, no existen para el sistema"
-            >
-              🗄 PRODUCTOS DESHABILITADOS <span className="badge" style={{ marginLeft: '.35rem' }}>{inactivosCount}</span>
-            </button>
-          )}
+          <button
+            className="btn btn-ghost"
+            onClick={() => setModal({ kind: 'inactivos' })}
+            title="Recuperar productos deshabilitados"
+          >
+            🗑 Papelera de productos <span className="badge" style={{ marginLeft: '.35rem' }}>{inactivosCount}</span>
+          </button>
           <button
             className="btn btn-ghost"
             onClick={() => {
@@ -1339,6 +1338,8 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
         <ProductosInactivosModal
           productos={productos}
           canWrite={canWrite}
+          modulo={espacio === 'deposito' ? 'deposito' : 'inventario'}
+          puedeVaciar={can(meta.modulo, 'vaciar_papelera')}
           onClose={() => setModal({ kind: 'none' })}
           onReactivado={reload}
         />
@@ -1749,7 +1750,7 @@ function EliminarProductoDialog({ producto, onCancel, onConfirm }: {
         ¿Seguro que deseas borrar el producto <strong>«{producto.nombre}»</strong> ({producto.sku})?
         Quedará <strong>inactivo</strong>: deja de existir para el sistema (no aparece en el inventario, ni en
         los almacenes, ni en el buscador) y su historial se conserva. Se puede reactivar desde el botón
-        <strong>«PRODUCTOS DESHABILITADOS»</strong>.
+        <strong>«Papelera de productos»</strong>.
       </p>
       <div className="form-row">
         <label>¿Por qué se da de baja? <span style={{ color: 'var(--danger)' }}>*</span></label>
