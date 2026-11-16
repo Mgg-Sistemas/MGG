@@ -405,13 +405,12 @@ export async function recuperarNomina(periodoId: string): Promise<void> {
 
 /**
  * Borra DE VERDAD todo lo que hay en la papelera (período + renglones en
- * cascada). Solo administradores (la base lo exige). Devuelve cuántas se fueron.
+ * cascada) entre las nóminas confirmadas. La base comprueba el permiso de RRHH.
  */
-export async function vaciarPapeleraNomina(empresa: Empresa = EMPRESA_POR_DEFECTO): Promise<number> {
-  const { data, error } = await supabase.from('nomina_periodos').delete()
-    .eq('empresa', empresa).not('eliminado_en', 'is', null).select('id');
-  if (error) throw error;
-  return (data ?? []).length;
+export async function vaciarPapeleraNomina(ids: string[], empresa: Empresa = EMPRESA_POR_DEFECTO): Promise<number> {
+  const { data, error } = await supabase.rpc('nomina_vaciar_papelera', { p_empresa: empresa, p_ids: ids });
+  if (error) throw new Error(error.message);
+  return Number(data) || 0;
 }
 
 /* ───────────── Vacaciones → pago (a Tesorería) ───────────── */

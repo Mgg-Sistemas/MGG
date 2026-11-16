@@ -118,6 +118,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
       }
       if ((field === 'lectura' || field === 'escritura') && !next[field]) {
         next.full = false;
+        next.vaciar_papelera = false;
       }
       const nextRole = normalizeRolePermisos({ ...prev[role], [mod]: next });
       // Autoguardado: persiste de inmediato los permisos de ESE rol (no depende
@@ -299,6 +300,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                       <th style={{ textAlign: 'center' }}>Lectura</th>
                       <th style={{ textAlign: 'center' }}>Escritura</th>
                       <th style={{ textAlign: 'center' }} title="Implica lectura y escritura">Full control</th>
+                      <th style={{ textAlign: 'center' }}>Vaciar papelera</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -315,6 +317,12 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
                           </td>
                           <td style={{ textAlign: 'center' }}>
                             <input type="checkbox" disabled={readOnly} checked={p.full} onChange={() => togglePerm(rc.key, m.key, 'full')} aria-label={`Full control ${m.label} para ${rc.label}`} />
+                          </td>
+                          <td style={{ textAlign: 'center' }}>
+                            {m.key === 'rrhh' ? <input type="checkbox" disabled={readOnly || rc.key === 'admin' || !(p.escritura || p.full)}
+                              checked={rc.key === 'admin' || !!p.vaciar_papelera}
+                              onChange={() => togglePerm(rc.key, m.key, 'vaciar_papelera')} aria-label={`Vaciar papelera de ${m.label} para ${rc.label}`} />
+                              : <span className="muted">—</span>}
                           </td>
                         </tr>
                       );

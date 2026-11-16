@@ -15,7 +15,7 @@ import {
 import { soloTelefonoDeRol } from '@/modules/usuarios/roles.repository';
 import { VISTAS_TELEFONO, entraPorTelefono, inicioTelefono, vistasPermitidas, type VistaTelefono, type VistaTelefonoKey } from './vistasTelefono';
 
-export type PermLevel = keyof ModulePermission; // 'lectura' | 'escritura' | 'full'
+export type PermLevel = keyof ModulePermission;
 
 interface PermissionsValue {
   loading: boolean;
@@ -108,6 +108,7 @@ export function PermissionsProvider({ children }: { children: ReactNode }) {
       if (isAdmin) return true;
       const p = permisos?.[module];
       if (!p) return false;
+      if (level === 'vaciar_papelera') return p.vaciar_papelera === true && (p.escritura || p.full);
       return p.full || p[level];
     };
     const allowedModules = MODULES.map((m) => m.key).filter((k) => can(k, 'lectura'));

@@ -41,6 +41,7 @@ export interface ModulePermission {
   lectura: boolean;
   escritura: boolean;
   full: boolean;
+  vaciar_papelera?: boolean;
 }
 
 export type RolePermisos = Record<ModuleKey, ModulePermission>;

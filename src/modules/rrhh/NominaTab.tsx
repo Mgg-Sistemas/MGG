@@ -102,7 +102,7 @@ export function NominaTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DE
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
           {/* Lo ve cualquiera con acceso a la pestaña: es un reporte, no cambia nada. */}
           <button className="btn btn-ghost" onClick={() => setResumenOpen(true)} title="Tabla con lo que cobró cada persona, por nómina o en general, en Excel o PDF">📊 Resumen de nómina</button>
-          {/* La papelera la ve cualquiera; recuperar y vaciar es solo del administrador. */}
+          {/* Recuperar conserva la regla de administrador. Vaciar usa el permiso de RRHH. */}
           <button className="btn btn-ghost" onClick={() => setPapeleraOpen(true)} title="Nóminas eliminadas: quién, cuándo y por qué">
             🗑 Papelera ({eliminadas.length})
           </button>
@@ -210,8 +210,10 @@ function PapeleraModal({ eliminadas, isAdmin, abierta, empresa, onClose, onChang
   eliminadas: NominaPeriodoResumen[]; isAdmin: boolean; abierta: NominaPeriodoResumen | null; empresa: Empresa;
   onClose: () => void; onChanged: () => Promise<void>;
 }) {
+  const { can } = usePermissions();
+  const puedeVaciar = can('rrhh', 'vaciar_papelera');
   const [ocupado, setOcupado] = useState<string | null>(null);
-  const [vaciar, setVaciar] = useState(false);
+  const [vaciar, setVaciar] = useState<string[] | null>(null);
   const SOLO_ADMIN = 'Solo un administrador puede hacer esto.';
 
   async function recuperar(p: NominaPeriodoResumen) {
@@ -221,10 +223,10 @@ function PapeleraModal({ eliminadas, isAdmin, abierta, empresa, onClose, onChang
     finally { setOcupado(null); }
   }
 
-  async function confirmarVaciar() {
-    setVaciar(false); setOcupado('*');
+  async function confirmarVaciar(ids: string[]) {
+    setVaciar(null); setOcupado('*');
     try {
-      const n = await vaciarPapeleraNomina(empresa);
+      const n = await vaciarPapeleraNomina(ids, empresa);
       await onChanged();
       toast(n ? `Papelera vaciada: ${n} nómina(s) borrada(s) definitivamente` : 'La papelera ya estaba vacía', 'success');
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo vaciar la papelera', 'error'); }
@@ -242,8 +244,8 @@ function PapeleraModal({ eliminadas, isAdmin, abierta, empresa, onClose, onChang
     <Modal title={`🗑 Papelera de nóminas (${eliminadas.length})`} size="lg" onClose={onClose} footer={
       <>
         {!!eliminadas.length && (
-          <button className="btn btn-danger" onClick={() => setVaciar(true)} disabled={!isAdmin || ocupado !== null}
-            title={isAdmin ? 'Borrar definitivamente todo lo que hay en la papelera' : SOLO_ADMIN}>
+          <button className="btn btn-danger" onClick={() => setVaciar(eliminadas.map((p) => p.id))} disabled={!puedeVaciar || ocupado !== null}
+            title={puedeVaciar ? 'Borrar definitivamente las nóminas de la papelera' : 'Requiere el permiso Vaciar papelera de RRHH'}>
             🧹 Vaciar papelera
           </button>
         )}
@@ -252,7 +254,7 @@ function PapeleraModal({ eliminadas, isAdmin, abierta, empresa, onClose, onChang
     }>
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.86rem' }}>
         Las nóminas eliminadas no se borran: quedan acá con quién, cuándo y por qué.
-        {isAdmin ? ' Como administrador podés recuperarlas o vaciar la papelera (eso sí es definitivo).' : ' Recuperar o vaciar es tarea del administrador.'}
+        {' Los administradores pueden recuperarlas. Para vaciar la papelera se requiere el permiso de RRHH.'}
       </p>
       {!eliminadas.length && <EmptyState message="La papelera está vacía" icon="🗑" />}
       {!!eliminadas.length && (
@@ -290,8 +292,8 @@ function PapeleraModal({ eliminadas, isAdmin, abierta, empresa, onClose, onChang
       )}
       {vaciar && (
         <ConfirmDialog title="Vaciar papelera" danger confirmText="Sí, borrar definitivamente"
-          message={`Se borran para siempre ${eliminadas.length} nómina(s) con sus renglones. Esto no se puede deshacer.`}
-          onConfirm={() => void confirmarVaciar()} onCancel={() => setVaciar(false)} />
+          message={`Se borrarán definitivamente ${vaciar.length} nómina(s) con sus renglones.`}
+          onConfirm={() => void confirmarVaciar(vaciar)} onCancel={() => setVaciar(null)} />
       )}
     </Modal>
   );
