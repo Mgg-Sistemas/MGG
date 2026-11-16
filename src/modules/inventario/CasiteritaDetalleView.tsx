@@ -7,14 +7,16 @@
                           # análisis, prom, peso puro SN, tasa y valor, editable.
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
+import { cambiarPapeleraDetalle, papeleraDetalle } from './papeleraDetalle.repository';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { PESO_FACTOR } from '@/modules/recepciones/recepciones.repository';
 import {
-  listCasiteritaDetalle, crearCasiteritaDetalle, actualizarCasiteritaDetalle, eliminarCasiteritaDetalle,
+  listCasiteritaDetalle, crearCasiteritaDetalle, actualizarCasiteritaDetalle,
   sugerenciasCasiteritaDesdeCierre, listCierresParaTraer, totalRecepcionadoCasiterita,
   calcPesoCasiterita, calcPesoPuroSn,
   type CasiteritaDetalle, type CasiteritaCategoria, type CasiteritaDetalleInput, type CasiteritaSugerencia, type CierreOpcion,
@@ -263,6 +265,7 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
           style={{ flex: '1 1 320px', minWidth: 220 }}
         />
         {buscando && <button className="btn btn-sm btn-ghost" onClick={() => setQ('')}>✕ Limpiar</button>}
+        <BotonPapeleraRegistros acciones={papeleraDetalle} onChanged={cargar} />
         <span className="muted" style={{ fontSize: '.78rem' }}>
           {buscando ? <><strong>{visibles.length}</strong> de {rows.length} fila(s)</> : <>{rows.length} fila(s)</>}
         </span>
@@ -372,12 +375,14 @@ export function CasiteritaDetalleView({ actor, actorName, canWrite, onClose }: {
         />
       )}
       {borrar && (
-        <ConfirmDialog
-          title="Borrar entrada" danger confirmText="Borrar"
-          message={`¿Borrar la entrada de ${borrar.procedencia || '—'}${borrar.precinto ? ` (precinto ${borrar.precinto})` : ''}?`}
-          onCancel={() => setBorrar(null)}
-          onConfirm={async () => { try { await eliminarCasiteritaDetalle(borrar.id, actor, actorName); toast('Entrada borrada', 'success'); setBorrar(null); cargar(); } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); } }}
-        />
+        <EnviarRegistroPapelera nombre={`Entrada · ${borrar.procedencia || '—'}${borrar.precinto ? ` · ${borrar.precinto}` : ''}`}
+          conAdjuntos={false} aviso="Al archivar se descontará el stock aportado por esta entrada."
+          onClose={() => setBorrar(null)} onConfirm={async (motivo) => {
+            await cambiarPapeleraDetalle(borrar.id, motivo);
+            toast('Entrada enviada a la papelera', 'success');
+            setBorrar(null);
+            cargar();
+          }} />
       )}
     </div>
   );

@@ -17,7 +17,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { registrarMovimiento } from './movimientos.repository';
 import { findBySku } from './inventario.repository';
-import { ajustePorFila, ajusteAlBorrar, detalleMovimiento } from './casiteritaStock';
+import { ajustePorFila, detalleMovimiento } from './casiteritaStock';
 import {
   listPesajes, listAnalisis, listMinerales, listRecepciones,
   catLado, PESO_FACTOR,
@@ -203,33 +203,6 @@ export async function actualizarCasiteritaDetalle(id: string, input: CasiteritaD
   );
   await supabase.from('casiterita_detalle')
     .update({ stock_kg: campos.peso_casiterita_kgs }).eq('id', id);
-}
-
-export async function eliminarCasiteritaDetalle(id: string, actor?: string, actorName?: string | null): Promise<void> {
-  const { data: fila } = await supabase.from('casiterita_detalle')
-    .select('id, procedencia, categoria, almacen, stock_kg').eq('id', id).maybeSingle();
-
-  // Una bolsa que ya se fundió no se borra. Al borrarla se devuelve al stock
-  // todo lo que había aportado, pero la parte que se quemó en una colada ya se
-  // descontó por su lado: el stock terminaría con kilos que no existen. Y la
-  // colada quedaría apuntando a una bolsa que no está.
-  const usado = await kgFundidosDeBigBag(id);
-  if (usado > 0) {
-    throw new Error(
-      `Este big bag ya se fundió (${usado} kg en coladas): no se puede borrar del detallado. `
-      + 'Corregí la colada que lo consumió y después borralo.',
-    );
-  }
-
-  // Primero se devuelve el stock y después se borra la fila: al revés, un fallo
-  // al borrar dejaría el kardex con una salida por una fila que sigue viva.
-  const ajuste = ajusteAlBorrar((fila as { stock_kg?: number } | null)?.stock_kg);
-  if (fila && ajuste) {
-    await sincronizarStock(fila as unknown as { id: string; procedencia: string; categoria: CasiteritaCategoria; almacen: string },
-      ajuste, true, actor ?? 'sistema', actorName ?? null);
-  }
-  const { error } = await supabase.from('casiterita_detalle').delete().eq('id', id);
-  if (error) throw error;
 }
 
 /** Total RECEPCIONADO de casiterita = Σ existencia del almacén SnO₂ (lo que realmente entró
