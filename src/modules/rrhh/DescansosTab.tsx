@@ -54,7 +54,7 @@ function finDePlan(desde: string, meses: number): string {
   return sumarDias(f.toISOString().slice(0, 10), -1);
 }
 
-export function DescansosTab({ empresa, canWrite, actor, actorName, soloPersonal, claveConfig, etiquetaGente = 'activos en la nómina' }: {
+export function DescansosTab({ empresa, canWrite, actor, actorName, soloPersonal, claveConfig, etiquetaGente = 'activos en la nómina', onDescansosChanged }: {
   empresa: Empresa; canWrite: boolean; actor: string; actorName: string | null;
   /**
    * Choferes / Conductores (12-10-2026) reutiliza esta pestaña: muestra solo
@@ -64,6 +64,7 @@ export function DescansosTab({ empresa, canWrite, actor, actorName, soloPersonal
   soloPersonal?: (p: Personal) => boolean;
   claveConfig?: string;
   etiquetaGente?: string;
+  onDescansosChanged?: () => void;
 }) {
   const clave = claveConfig ?? empresa;
   const modulo = moduloDescansos(clave);
@@ -99,6 +100,10 @@ export function DescansosTab({ empresa, canWrite, actor, actorName, soloPersonal
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudieron cargar los descansos', 'error'); }
     finally { setLoading(false); }
   }, [empresa, clave, soloPersonal]);
+  function actualizarDescansos() {
+    void recargar();
+    onDescansosChanged?.();
+  }
   useEffect(() => { void recargar(); }, [recargar]);
   useRealtime(['rrhh_descansos', 'rrhh_descansos_config', 'rrhh_descansos_grupos', 'personal'], () => { void recargar(); });
 
@@ -221,7 +226,7 @@ export function DescansosTab({ empresa, canWrite, actor, actorName, soloPersonal
           <button className="btn btn-sm btn-ghost" onClick={() => void exportar('pdf')} disabled={loading || !!generando} title="Vista previa del PDF con lo que se está viendo">{generando === 'pdf' ? 'Generando…' : '🖨 PDF'}</button>
           {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setAjustes(true)}>⚙ Ajustes</button>}
           {canWrite && <button className="btn btn-sm btn-ghost" onClick={() => setPlan(true)} disabled={!personal.length}>🗓 Generar plan</button>}
-          <BotonPapeleraRegistros acciones={papeleraDescansos[modulo]} onChanged={() => void recargar()} />
+          <BotonPapeleraRegistros acciones={papeleraDescansos[modulo]} onChanged={actualizarDescansos} />
           {canWrite && <button className="btn btn-sm btn-primary" onClick={() => setEditar({})} disabled={!personal.length}>+ Descanso</button>}
         </div>
       </div>
@@ -288,7 +293,7 @@ export function DescansosTab({ empresa, canWrite, actor, actorName, soloPersonal
       {editar && (
         <DescansoModal inicial={editar} personal={personal} descansos={descansos} cfg={cfg} canWrite={canWrite}
           actor={actor} actorName={actorName} modulo={modulo} onClose={() => setEditar(null)}
-          onSaved={async () => { setEditar(null); await recargar(); }} />
+          onSaved={() => { setEditar(null); actualizarDescansos(); }} />
       )}
       {ajustes && (
         <AjustesModal empresa={clave} cfg={cfg} personas={enRotacion.size} actor={actor}
@@ -297,7 +302,8 @@ export function DescansosTab({ empresa, canWrite, actor, actorName, soloPersonal
       {plan && (
         <GenerarPlanModal empresa={clave} personal={personal} descansos={descansos} cfg={cfg} hoy={hoy} actor={actor} actorName={actorName}
           grupos={grupos} departamentos={departamentos} enRotacion={enRotacion}
-          onClose={() => setPlan(false)} onSaved={async () => { setPlan(false); await recargar(); }} />
+          onClose={() => setPlan(false)} onSaved={() => { setPlan(false); actualizarDescansos(); }}
+          onGrupoChanged={() => void recargar()} />
       )}
       {lista && (
         <Modal title={lista === 'fuera' ? `🏠 Fuera hoy (${fueraHoy.length} / ${cfg.max_simultaneos})` : `📅 Salen en los próximos 7 días (${proximos.length})`}
@@ -506,11 +512,11 @@ function AjustesModal({ empresa, cfg, personas, actor, onClose, onSaved }: {
 }
 
 /* ───────── Generar plan ───────── */
-function GenerarPlanModal({ empresa, personal, descansos, cfg, hoy, actor, actorName, grupos, departamentos, enRotacion, onClose, onSaved }: {
+function GenerarPlanModal({ empresa, personal, descansos, cfg, hoy, actor, actorName, grupos, departamentos, enRotacion, onClose, onSaved, onGrupoChanged }: {
   empresa: string; personal: Personal[]; descansos: Descanso[]; cfg: ConfigDescansos; hoy: string;
   actor: string; actorName: string | null;
   grupos: GrupoDescanso[]; departamentos: string[]; enRotacion: Set<string>;
-  onClose: () => void; onSaved: () => void;
+  onClose: () => void; onSaved: () => void; onGrupoChanged: () => void;
 }) {
   const [desde, setDesde] = useState(hoy);
   const [meses, setMeses] = useState(3);
@@ -684,6 +690,7 @@ function GenerarPlanModal({ empresa, personal, descansos, cfg, hoy, actor, actor
             await eliminarGrupoDescanso(borrarGrupo.id, moduloDescansos(empresa), motivo);
             if (grupoId === borrarGrupo.id) setGrupoId('');
             setBorrarGrupo(null);
+            onGrupoChanged();
             toast('Selección enviada a la papelera', 'success');
           }} />
       )}

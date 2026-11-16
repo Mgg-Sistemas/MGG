@@ -194,7 +194,8 @@ export function ChoferesPage() {
       {vista === 'guias' && <GuiasTab {...props} />}
       {vista === 'descansos' && (
         <DescansosTab canWrite={canWrite} actor={actor} actorName={actorName} empresa="TODAS"
-          soloPersonal={soloChoferes} claveConfig={CLAVE_DESCANSOS_CHOFERES} etiquetaGente="conductores activos" />
+          soloPersonal={soloChoferes} claveConfig={CLAVE_DESCANSOS_CHOFERES} etiquetaGente="conductores activos"
+          onDescansosChanged={() => void recargar()} />
       )}
     </div>
   );
