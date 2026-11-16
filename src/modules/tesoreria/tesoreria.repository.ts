@@ -1,4 +1,4 @@
-﻿/* ============================================================
+/* ============================================================
    MGG · Tesorería (Supabase)
    Maneja el flujo de dinero sobre las mismas cajas/movimientos_caja
    del módulo Salidas (una sola fuente). Agrega: gastos (etiquetados
@@ -451,74 +451,6 @@ export async function editarMovimientoCajaFull(mov: MovimientoCaja, input: Edita
   if (efNuevo !== 0) await ajustarSaldoVigente(newCaja, newCuenta, newMoneda, efNuevo);
   await recomputarCadena(oldCaja, oldCuenta, oldMoneda);
   await recomputarCadena(newCaja, newCuenta, newMoneda);
-}
-
-/**
- * Al eliminar el pago de una OC (pago_oc), devuelve la orden vinculada a "Confirmada
- * pagar" (`oc_aprobada`) y limpia los campos de pago, para que Tesorería la pueda
- * re-pagar. Sin esto la orden quedaría "pagada" apuntando a un movimiento que ya no
- * existe (imposible de re-pagar). Solo actúa si la orden está en `pagada` y NO quedan
- * otras patas de pago vivas (multipago parcial no se revierte). Self-contained: no
- * importa el repo de pedidos para evitar dependencia circular.
- */
-async function revertirOrdenSiPagoBorrado(mov: MovimientoCaja): Promise<void> {
-  let ordenId = mov.ref_orden_id ?? null;
-  if (!ordenId) {
-    // Legado: pagos sin ref_orden_id se ubican por el caja_mov_id que guardó la orden.
-    const { data } = await supabase.from('ordenes').select('id').eq('caja_mov_id', mov.id).maybeSingle();
-    ordenId = (data as { id: string } | null)?.id ?? null;
-  }
-  if (!ordenId) return;
-  // ¿Quedan otras patas de pago de esta orden en caja? (el movimiento ya fue borrado.)
-  // Un reembolso de OC no es pago: si solo queda ese, la orden igual se revierte.
-  const { data: restantes } = await supabase.from(LIBRO).select('id').eq('ref_orden_id', ordenId)
-    .or('categoria.is.null,categoria.neq.reembolso_oc').limit(1);
-  if (restantes && restantes.length > 0) return; // aún hay pago(s) vivo(s): no tocar el estado
-  const { data: o } = await supabase
-    .from('ordenes')
-    .select('id, estado, oc_codigo, comprobante_tipo, historial')
-    .eq('id', ordenId)
-    .maybeSingle();
-  const orden = o as { id: string; estado: string; oc_codigo: string | null; comprobante_tipo: string | null; historial: unknown } | null;
-  if (!orden || orden.estado !== 'pagada') return; // solo un pago simple aún no recibido
-  const evento = {
-    at: new Date().toISOString(),
-    actor: 'tesoreria',
-    evento: 'pago_revertido',
-    oc_codigo: orden.oc_codigo ?? null,
-    nota: 'Movimiento de pago eliminado desde Tesorería; la orden vuelve a Confirmada pagar.',
-  };
-  const historial = Array.isArray(orden.historial) ? [...orden.historial, evento] : [evento];
-  await supabase.from('ordenes').update({
-    estado: 'oc_aprobada',
-    caja_mov_id: null,
-    caja_id: null,
-    pagada_por: null,
-    pagada_en: null,
-    ...(orden.comprobante_tipo === 'factura' ? { retencion_pagada: false, retencion_pagada_en: null } : {}),
-    historial,
-    updated_at: new Date().toISOString(),
-  }).eq('id', ordenId);
-}
-
-/**
- * Elimina un movimiento revirtiendo su efecto en el saldo vigente y recalculando
- * la cadena. Si el movimiento pagaba una OC (pago_oc), además devuelve la orden a
- * "Confirmada pagar" para que se pueda re-pagar (ver `revertirOrdenSiPagoBorrado`).
- * ATENCIÓN: no revierte otros módulos vinculados (Nómina / la otra pata de un
- * traslado); eso queda a cargo del usuario (reversión total elegida).
- */
-export async function eliminarMovimientoCaja(mov: MovimientoCaja): Promise<void> {
-  const cuenta = mov.cuenta ?? null;
-  const moneda = mov.moneda;
-  const ef = efectoMov(mov);
-  const { error } = await supabase.from(LIBRO).delete().eq('id', mov.id);
-  if (error) throw error;
-  if (ef !== 0) await ajustarSaldoVigente(mov.caja_id, cuenta, moneda, -ef);
-  await recomputarCadena(mov.caja_id, cuenta, moneda);
-  // Tras borrar el egreso, si pagaba una OC, revertí la orden a "por pagar".
-  // Borrar el REEMBOLSO de una OC no deshace el pago de la orden.
-  if ((mov.ref_orden_id || mov.categoria === 'pago_oc') && mov.categoria !== 'reembolso_oc') await revertirOrdenSiPagoBorrado(mov);
 }
 
 /* Las retenciones viven en el módulo Retenciones (retencionesFiscal.repository, tipos en minúsculas

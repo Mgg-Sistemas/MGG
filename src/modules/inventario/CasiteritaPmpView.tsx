@@ -4,7 +4,9 @@
    Pestañas: Tablero · Libro · Procedencias (% MGG).
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
+import { cambiarPapeleraPmp, papeleraPmp } from './papeleraPmp.repository';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
@@ -13,7 +15,7 @@ import {
   type CierreMesPmp, type CierreRecepcionPmp, type ColadaCas, type FilaLibro, type MovPmp, type NuevoMovPmp, type ProcedenciaPmp, type PropuestaEntrada, type TipoMovPmp,
 } from './casiteritaPmp';
 import {
-  borrarMovPmp, crearMovPmp, crearMovsPmp, faltaTabla, guardarProcedenciaPmp, listCierresCasiteritaPmp, listLibroPmp, listProcedenciasPmp,
+  crearMovPmp, crearMovsPmp, faltaTabla, guardarProcedenciaPmp, listCierresCasiteritaPmp, listLibroPmp, listProcedenciasPmp,
   listColadasCasiterita, listColadasCubiertas, listCierresPmp,
 } from './casiteritaPmp.repository';
 import { ExportacionesCasiterita, FundicionColadasModal } from './CasiteritaExportaciones';
@@ -236,12 +238,6 @@ function Libro({ filas, canWrite, hasta, onCambio }: { filas: FilaLibro[]; canWr
   const [borrar, setBorrar] = useState<FilaLibro | null>(null);
   const vis = filas.filter((f) => (!mes || mesDe(f.fecha) === mes) && (!tipo || f.tipo === tipo));
 
-  async function confirmarBorrar() {
-    if (!borrar) return;
-    try { await borrarMovPmp(borrar.id); toast('Movimiento borrado: el libro se recalculó.', 'success'); setBorrar(null); onCambio(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo borrar', 'error'); }
-  }
-
   return (
     <div className="card">
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
@@ -254,12 +250,18 @@ function Libro({ filas, canWrite, hasta, onCambio }: { filas: FilaLibro[]; canWr
           {(Object.keys(ETIQUETA_TIPO) as TipoMovPmp[]).map((t) => <option key={t} value={t}>{ETIQUETA_TIPO[t]}</option>)}
         </select>
         <span className="muted" style={{ fontSize: '.8rem' }}>{vis.length} movimiento(s)</span>
+        <BotonPapeleraRegistros acciones={papeleraPmp} onChanged={onCambio} />
       </div>
       <TablaLibro filas={vis} hasta={hasta} onBorrar={canWrite ? setBorrar : undefined} />
       {borrar && (
-        <ConfirmDialog title="Borrar movimiento" danger confirmText="Borrar"
-          message={`¿Borrar «${borrar.descripcion}» del ${fechaTxt(borrar.fecha)}? Los saldos y el PMP de lo que viene después se recalculan.`}
-          onConfirm={() => void confirmarBorrar()} onCancel={() => setBorrar(null)} />
+        <EnviarRegistroPapelera nombre={`${borrar.descripcion} · ${fechaTxt(borrar.fecha)}`} conAdjuntos={false}
+          aviso="El libro recalculará los saldos y el costo promedio de los movimientos posteriores."
+          onClose={() => setBorrar(null)} onConfirm={async (motivo) => {
+            await cambiarPapeleraPmp(borrar.id, motivo);
+            toast('Movimiento enviado a la papelera', 'success');
+            setBorrar(null);
+            onCambio();
+          }} />
       )}
     </div>
   );

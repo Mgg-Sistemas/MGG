@@ -2,6 +2,8 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormE
 import { Link } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
+import { cambiarPapeleraTesoreria, papeleraTesoreria } from './papeleraTesoreria.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import {
   listCategoriasGasto, soloCategorias, subcategoriasDe, ensureCategoriaGasto,
@@ -47,7 +49,7 @@ import {
   listCajasActivas, listCentrosAcopio,
   registrarGasto, disponibilidadFinanciera, listLibroMayor,
   categoriaLlevaCorrelativo, proximoCorrelativoGasto,
-  editarMovimientoCajaFull, eliminarMovimientoCaja, movEstaVinculado,
+  editarMovimientoCajaFull, movEstaVinculado,
   type Disponibilidad,
 } from './tesoreria.repository';
 import {
@@ -442,6 +444,7 @@ export function TesoreriaPage() {
           <button className={vista === 'gastos' ? 'active' : ''} onClick={() => setVista('gastos')}>💸 Gastos / Movimientos</button>
         </div>
         {puedeVista('tesoreria') && <Link to="/app/tesoreria/telefono" className="btn btn-ghost">📱 Vista teléfono</Link>}
+        <BotonPapeleraRegistros acciones={papeleraTesoreria} onChanged={() => void reload()} />
       </div>
 
       {vista === 'tasas' && <TasasView />}
@@ -783,16 +786,6 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
     finally { setGuardando(false); }
   }
 
-  async function eliminar() {
-    setGuardando(true);
-    try {
-      await eliminarMovimientoCaja(mov);
-      toast('Movimiento eliminado · saldo revertido', 'success');
-      setConfirmDel(false);
-      await onChanged?.();
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); setGuardando(false); }
-  }
-
   // Si el movimiento es un pago de compra (pago_oc), traemos la OC para mostrar
   // seriales de billetes, comprobante y datos de la orden pagada.
   useEffect(() => {
@@ -862,7 +855,7 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
       ) : (
         <>
           {puedeEditar && <button className="btn btn-ghost" onClick={() => setEditando(true)} title="Editar monto y concepto (recalcula el saldo)" style={{ marginRight: 'auto' }}>✎ Editar</button>}
-          {canWrite && <button className="btn btn-danger" onClick={() => setConfirmDel(true)} title="Eliminar y revertir el saldo">🗑 Eliminar</button>}
+          {canWrite && <button className="btn btn-danger" onClick={() => setConfirmDel(true)} title="Archivar y revertir el saldo">🗑 Archivar</button>}
           <button className="btn btn-ghost" onClick={descargarPdf} disabled={generandoPdf || cargandoOrden}>
             {generandoPdf ? 'Generando…' : '↓ PDF'}
           </button>
@@ -1149,14 +1142,14 @@ function MovimientoDetalleModal({ mov, cajas = [], defaultEmail, canWrite, onCha
         <DetalleCorreoModal mov={mov} orden={orden} defaultEmail={defaultEmail} onClose={() => setCorreoOpen(false)} />
       )}
       {confirmDel && (
-        <ConfirmDialog
-          title="Eliminar movimiento"
-          message={`¿Eliminar este ${egreso ? 'egreso' : 'ingreso'} de ${monto(mov.monto, mov.moneda)}? Se revierte el saldo de la caja y se recalcula el Libro Mayor.${vinculado ? ' OJO: está vinculado a otro módulo (compra/nómina/traslado), que NO se revertirá automáticamente.' : ''}`}
-          confirmText={guardando ? 'Eliminando…' : 'Eliminar'}
-          danger
-          onConfirm={eliminar}
-          onCancel={() => setConfirmDel(false)}
-        />
+        <EnviarRegistroPapelera nombre={`${mov.motivo} · ${monto(mov.monto, mov.moneda)}`} conAdjuntos={false}
+          aviso="Al archivar se revierte su efecto en caja y se recalcula el Libro Mayor."
+          onClose={() => setConfirmDel(false)} onConfirm={async (motivo) => {
+            await cambiarPapeleraTesoreria(mov.id, motivo);
+            toast('Movimiento archivado · saldo revertido', 'success');
+            setConfirmDel(false);
+            await onChanged?.();
+          }} />
       )}
     </Modal>
   );

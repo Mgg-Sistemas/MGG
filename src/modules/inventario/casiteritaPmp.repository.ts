@@ -93,11 +93,6 @@ export async function crearMovsPmp(movs: Array<{ m: NuevoMovPmp; extra?: ExtraMo
   if (error) throw error;
 }
 
-export async function borrarMovPmp(id: string): Promise<void> {
-  const { error } = await supabase.from('casiterita_libro').delete().eq('id', id);
-  if (error) throw error;
-}
-
 /* ───────── Fase 2 · cierres de recepción con casiterita ───────── */
 
 export async function listCierresCasiteritaPmp(): Promise<CierreRecepcionPmp[]> {
