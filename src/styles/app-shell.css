@@ -1019,7 +1019,23 @@ tr.row-selectable:active { transform: scale(0.998); }
 .view-switch { display: flex; justify-content: center; }
 
 .tesoreria-movil { max-width: 540px; min-width: 0; margin: 0 auto; }
-.tesoreria-movil h2 { margin: 1.25rem 0 .6rem; font-size: 1.12rem; }
+.tesoreria-movil-cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .5rem;
+  flex-wrap: wrap;
+  margin-bottom: .85rem;
+}
+.tesoreria-movil-cabecera h1 { margin: 0; font-size: 1.45rem; }
+.tesoreria-movil-registro {
+  margin: 1rem 0 .45rem;
+  padding: .75rem;
+  border: 1px solid var(--border);
+  border-radius: .85rem;
+  background: var(--bg-1);
+}
+.tesoreria-movil h2 { margin: 0 0 .6rem; font-size: 1.05rem; }
 .tesoreria-movil-acciones {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1029,19 +1045,49 @@ tr.row-selectable:active { transform: scale(0.998); }
 .tesoreria-movil-acciones .btn { min-height: 44px; white-space: normal; }
 .tesoreria-movil-acciones label { min-width: 0; font-size: .8rem; }
 .tesoreria-movil-acciones input { margin-top: .25rem; min-width: 0; max-width: 100%; }
-.tesoreria-movil-movs { display: grid; gap: .5rem; }
+.tesoreria-movil-registro .tesoreria-movil-acciones { margin-bottom: 0; }
+.tesoreria-movil-movs { display: grid; }
+.tesoreria-movil-movs h3 {
+  margin: .7rem 0 .1rem;
+  padding: .3rem .55rem;
+  font-size: .76rem;
+  color: var(--text-muted);
+  font-weight: 600;
+}
 .tesoreria-movil-mov {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: .35rem .6rem;
+  gap: .2rem .55rem;
   width: 100%;
-  margin: 0;
+  min-height: 56px;
+  padding: .6rem .55rem;
+  align-items: baseline;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  font: inherit;
+  font-size: .82rem;
   color: inherit;
   text-align: left;
-  overflow-wrap: anywhere;
   cursor: pointer;
 }
-.tesoreria-movil-mov small { grid-column: 1 / -1; }
+.tesoreria-movil-mov:hover { background: var(--bg-2); }
+.tesoreria-movil-mov strong { min-width: 0; overflow-wrap: anywhere; }
+.tesoreria-movil-mov .ingreso, .tesoreria-movil-mov .egreso {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  text-align: right;
+}
+.tesoreria-movil-mov .ingreso { color: var(--success); }
+.tesoreria-movil-motivo {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tesoreria-movil-ver { color: var(--text-muted); justify-self: end; }
 
 @media (max-width: 640px) {
   .tesoreria-movil-pendientes > table { min-width: 0; }

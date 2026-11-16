@@ -105,6 +105,7 @@ import { push as pushNotif } from '@/modules/notificaciones/notif.repository';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import { etiquetaRetencion, impuestosEnBs, montoImpuestoEnBs, retencionesDe, sePagaEnBs, totalRetenciones } from '@/modules/pedidos/retencionesOc';
 import { ExportarTesoreriaModal } from './ExportarTesoreriaModal';
+import { codigoDeMovimiento } from './reporteTesoreriaMoldeable';
 import { ResumenPorPagarModal } from './ResumenPorPagarModal';
 import { PagadaSinCajaModal } from './PagadaSinCajaModal';
 import type { AmbitoTesoreria } from './reporteTesoreriaMoldeable';
@@ -237,33 +238,47 @@ export function TesoreriaMovilView() {
 
   return (
     <div className="tesoreria-movil">
-      <header className="page-head">
-        <h1>💰 Tesorería</h1>
-        {!soloTelefono && <Link to="/app/tesoreria" className="btn btn-sm btn-ghost">Módulo completo</Link>}
+      <header className="tesoreria-movil-cabecera">
+        <h1>Tesorería</h1>
+        {!soloTelefono && <Link to="/app/tesoreria" className="btn btn-sm btn-ghost">Vista completa ↗</Link>}
       </header>
       <div className="tesoreria-movil-acciones">
-        <button type="button" className="btn btn-primary" onClick={() => setModal('pendientes')}>OC y SV por pagar</button>
+        <button type="button" className="btn btn-primary" onClick={() => setModal('pendientes')}>Pagar OC y SV</button>
         {canWrite && <button type="button" className="btn btn-ghost" disabled={!cajas.length} onClick={() => setModal('conversor')}>💱 Convertir</button>}
       </div>
       <section aria-labelledby="tesoreria-movil-movs">
-        <h2 id="tesoreria-movil-movs">Registro de movimientos</h2>
-        <div className="tesoreria-movil-acciones">
-          <label>Desde<input type="date" className="input" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} /></label>
-          <label>Hasta<input type="date" className="input" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} /></label>
-          <button type="button" className="btn btn-ghost" onClick={() => setModal('reporte')}>📄 Reporte dinámico</button>
-          <button type="button" className="btn btn-ghost" onClick={() => setModal('whatsapp')}>💬 WhatsApp</button>
+        <div className="tesoreria-movil-registro">
+          <h2 id="tesoreria-movil-movs">Movimientos</h2>
+          <div className="tesoreria-movil-acciones">
+            <label>Desde<input type="date" className="input" value={desde} max={hasta || undefined} onChange={(e) => setDesde(e.target.value)} /></label>
+            <label>Hasta<input type="date" className="input" value={hasta} min={desde || undefined} onChange={(e) => setHasta(e.target.value)} /></label>
+            <button type="button" className="btn btn-ghost" onClick={() => setModal('reporte')}>📄 Reporte</button>
+            <button type="button" className="btn btn-ghost" onClick={() => setModal('whatsapp')}>💬 WhatsApp</button>
+          </div>
         </div>
         {error && <p role="alert">{error} <button className="btn btn-sm btn-ghost" onClick={() => void cargar()}>Reintentar</button></p>}
         {cargando ? <p className="muted">Cargando movimientos…</p>
           : !error && (!movimientos.length ? <EmptyState message="Sin movimientos en el período" /> : (
             <div className="tesoreria-movil-movs">
-              {movimientos.map((m) => (
-                <button type="button" className="card tesoreria-movil-mov" key={m.id} onClick={() => setDetalle(m)}>
-                  <strong>{m.beneficiario || m.motivo || TIPO_MOV_LABEL[m.tipo] || m.tipo}</strong>
-                  <span>{monto(m.monto, m.moneda)}</span>
-                  <small className="muted">{m.caja?.nombre ?? '—'} · {TIPO_MOV_LABEL[m.tipo] ?? m.tipo} · {dateTime(m.at)}</small>
-                </button>
-              ))}
+              {movimientos.map((m, index) => {
+                const dia = fmtDate(m.at);
+                const codigo = codigoDeMovimiento(m);
+                const categoria = catLabel(m.categoria);
+                const tipo = TIPO_MOV_LABEL[m.tipo] ?? m.tipo;
+                const titulo = [m.beneficiario || (m.categoria ? categoria : tipo), codigo].filter(Boolean).join(' · ');
+                const egreso = m.tipo === 'salida' || m.tipo === 'traslado_salida'
+                  || (m.tipo === 'ajuste' && Number(m.saldo_despues) < Number(m.saldo_antes));
+                return <Fragment key={m.id}>
+                  {(index === 0 || dia !== fmtDate(movimientos[index - 1].at)) && <h3>{dia}</h3>}
+                  <button type="button" className="tesoreria-movil-mov" onClick={() => setDetalle(m)}>
+                    <strong>{titulo}</strong>
+                    <span className={egreso ? 'egreso' : 'ingreso'}>{egreso ? '−' : '+'}{monto(Math.abs(m.monto), m.moneda)}</span>
+                    {m.motivo && m.motivo !== titulo && <small className="tesoreria-movil-motivo">{m.motivo}</small>}
+                    <small className="muted">{m.caja?.nombre ?? '—'}</small>
+                    <span className="tesoreria-movil-ver" aria-hidden="true">›</span>
+                  </button>
+                </Fragment>;
+              })}
             </div>
           ))}
       </section>
