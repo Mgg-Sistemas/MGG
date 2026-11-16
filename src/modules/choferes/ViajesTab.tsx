@@ -21,7 +21,8 @@
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
@@ -103,13 +104,6 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
     try { if (t === 'pdf') await listadoFlotaPdf(listado()); else await listadoFlotaExcel(listado()); }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo exportar', 'error'); }
   }
-  async function confirmarBorrar() {
-    const v = borrar; setBorrar(null);
-    if (!v) return;
-    try { await eliminarViaje(v); toast(`${v.numero} eliminado`, 'success'); await recargar(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
-  }
-
   return (
     <div>
       <div className="desc-barra">
@@ -206,9 +200,14 @@ export function ViajesTab({ datos, canWrite, actor, actorName }: PropsTab) {
           onClose={() => setAccion(null)} onDone={async () => { setAccion(null); await recargar(); }} />
       )}
       {borrar && (
-        <ConfirmDialog title={`Eliminar ${borrar.numero}`} danger confirmText="Sí, eliminar"
-          message={<>Se borra la orden <strong>{borrar.numero}</strong> ({textoRuta(borrar)} · {nombreConductor(porId.get(borrar.chofer_id))}{borrar.viajes > 1 ? ` · ${borrar.viajes} viajes` : ''}) con sus paradas y su liquidación. Los viáticos cargados a ese viaje quedan como caja chica del chofer. {borrar.pago_id ? 'Este viaje figura como pagado: al eliminarlo se descontará de los registros. Esto no se deshace.' : 'Esto no se deshace.'}</>}
-          onConfirm={() => { void confirmarBorrar(); }} onCancel={() => setBorrar(null)} />
+        <EnviarRegistroPapelera nombre={`el viaje ${borrar.numero}`} conAdjuntos={false} onClose={() => setBorrar(null)}
+          aviso={borrar.pago_id && <p>Los totales del historial activo se recalculan al retirar el viaje. El recibo conserva su detalle.</p>}
+          onConfirm={async (motivo) => {
+            await eliminarViaje(borrar, motivo);
+            toast(`${borrar.numero} enviado a la papelera`, 'success');
+            setBorrar(null);
+            await recargar();
+          }} />
       )}
     </div>
   );

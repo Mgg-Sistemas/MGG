@@ -5,6 +5,8 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { textoDeError } from '@/shared/lib/errores';
+import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import type { AccionesPapelera } from '@/shared/ui/PapeleraRegistros';
 import { errorVehiculo, normalizarPlaca, type VehiculoBase } from './vehiculos';
 
 const TABLE = 'vehiculos_catalogo';
@@ -84,10 +86,29 @@ export async function editarVehiculo(id: string, v: VehiculoInput): Promise<Vehi
   return data as Vehiculo;
 }
 
-/** Borra el vehículo. Si tiene una asignación viva (alguien autorizado), no deja. */
-export async function eliminarVehiculo(id: string): Promise<void> {
-  const { data: vivas } = await supabase.from('asignaciones').select('id').eq('vehiculo_id', id).eq('estado', 'asignado').limit(1);
-  if ((vivas ?? []).length) throw new Error('Este vehículo está asignado a alguien: primero registrá la devolución.');
-  const { error } = await supabase.from(TABLE).delete().eq('id', id);
-  if (error) throw new Error(textoDeError(error, 'No se pudo eliminar el vehículo.'));
+type ModuloVehiculos = 'choferes' | 'asignaciones';
+
+export async function archivarVehiculo(id: string, modulo: ModuloVehiculos, motivo: string): Promise<void> {
+  const { error } = await supabase.rpc('vehiculo_papelera_cambiar', { p_modulo: modulo, p_id: id, p_motivo: motivo });
+  if (error) throw new Error(textoDeError(error, 'No se pudo archivar el vehículo.'));
 }
+
+function accionesPapeleraVehiculos(modulo: ModuloVehiculos): AccionesPapelera {
+  return {
+    modulo,
+    titulo: 'Papelera de vehículos',
+    listar: () => todasLasFilas<{ id: string; titulo: string; eliminado_en: string; eliminado_motivo: string }>((d, h) =>
+      supabase.rpc('vehiculo_papelera_listar', { p_modulo: modulo }).range(d, h)),
+    async recuperar(id) {
+      const { error } = await supabase.rpc('vehiculo_papelera_cambiar', { p_modulo: modulo, p_id: id });
+      if (error) throw new Error(error.message);
+    },
+    async vaciar(ids) {
+      const { data, error } = await supabase.rpc('vehiculo_vaciar_papelera', { p_modulo: modulo, p_ids: ids });
+      if (error) throw new Error(error.message);
+      return Number(data) || 0;
+    },
+  };
+}
+export const papeleraVehiculosAsignaciones = accionesPapeleraVehiculos('asignaciones');
+export const papeleraVehiculosChoferes = accionesPapeleraVehiculos('choferes');

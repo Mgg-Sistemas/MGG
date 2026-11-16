@@ -13,6 +13,8 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { accionesAdjuntosPapelera } from '@/shared/lib/papeleraAdjuntos';
+import type { AccionesPapelera } from '@/shared/ui/PapeleraRegistros';
 import { textoDeError } from '@/shared/lib/errores';
 import type { Personal } from '@/shared/lib/types';
 import { registrarGasto, registrarIngresoCaja } from '@/modules/tesoreria/tesoreria.repository';
@@ -36,6 +38,32 @@ const T_FLOTA = 'vehiculos_catalogo';
 const T_DOCS = 'choferes_documentos';
 /** Los archivos van al bucket privado de RRHH (sus políticas ya cubren a todo usuario registrado). */
 const BUCKET_DOCS = 'personal-docs';
+
+async function archivarChofer(tabla: string, id: string, motivo: string): Promise<void> {
+  const { error } = await supabase.rpc('choferes_papelera_cambiar', { p_tabla: tabla, p_id: id, p_motivo: motivo });
+  if (error) throw err(error, 'No se pudo enviar a la papelera.');
+}
+
+export const accionesPapeleraChoferes: AccionesPapelera = {
+  modulo: 'choferes',
+  titulo: 'Papelera de Choferes',
+  listar: () => todasLasFilas<{ id: string; titulo: string; eliminado_en: string; eliminado_motivo: string }>((d, h) =>
+    supabase.rpc('choferes_papelera_listar').range(d, h)),
+  async recuperar(id) {
+    const [tabla, filaId] = id.split(':');
+    const { error } = await supabase.rpc('choferes_papelera_cambiar', { p_tabla: tabla, p_id: filaId });
+    if (error) throw err(error, 'No se pudo recuperar el registro.');
+  },
+  async vaciar(ids) {
+    const { data, error } = await supabase.rpc('choferes_papelera_vaciar', { p_ids: ids });
+    if (error) throw err(error, 'No se pudo vaciar la papelera.');
+    return Number(data) || 0;
+  },
+  ...accionesAdjuntosPapelera('choferes_documentos_por_vaciar', [BUCKET_DOCS], async (_bucket, rutas) => {
+    const { error } = await supabase.rpc('choferes_papelera_cerrar_limpieza', { p_rutas: rutas });
+    if (error) throw err(error, 'No se pudieron limpiar los adjuntos.');
+  }),
+};
 
 export const TABLAS_CHOFERES = [T_CONDUCTORES, T_VIAJES, T_VIATICOS, T_PAGOS, T_DOCS, T_FLOTA, 'personal', 'personal_documentos', 'rrhh_descansos'];
 
@@ -272,12 +300,12 @@ export async function importarConductoresDesdeRrhh(personal: Personal[], existen
   const ya = new Set(existentes.map((c) => c.personal_id));
   const nuevos = personal.filter((p) => p.activo && esCargoDeChofer(p) && !ya.has(p.id));
   if (!nuevos.length) return 0;
-  const { error } = await supabase.from(T_CONDUCTORES).insert(nuevos.map((p) => ({
+  const { data, error } = await supabase.from(T_CONDUCTORES).upsert(nuevos.map((p) => ({
     personal_id: p.id, tarifa_viaje_usd: 0, created_by: actor, actor_name: actorName,
     observaciones: 'Expediente creado desde la ficha de RRHH; completar licencia, certificado médico y seguro.',
-  })));
+  })), { onConflict: 'personal_id', ignoreDuplicates: true }).select('id');
   if (error) throw err(error, 'No se pudieron traer los conductores de RRHH.');
-  return nuevos.length;
+  return data?.length ?? 0;
 }
 
 /* ───────────── Flota ───────────── */
@@ -832,11 +860,8 @@ export async function crearViatico(i: ViaticoInput, actor: string, actorName: st
 }
 
 /** Solo se borra lo que no movió caja: lo que salió de Tesorería se corrige allá. */
-export async function eliminarViatico(v: Pick<Viatico, 'id' | 'movimiento_caja_id'>): Promise<void> {
-  if (v.movimiento_caja_id) throw new Error('Este viático movió una caja de Tesorería. Corrígelo desde el libro de la caja, no desde aquí.');
-  const { data, error } = await supabase.from(T_VIATICOS).delete().eq('id', v.id).select('id');
-  if (error) throw err(error, 'No se pudo eliminar.');
-  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
+export async function eliminarViatico(v: Pick<Viatico, 'id'>, motivo: string): Promise<void> {
+  await archivarChofer(T_VIATICOS, v.id, motivo);
 }
 
 /* ───────────── Pagos por viaje ───────────── */
@@ -1016,44 +1041,24 @@ export async function urlDocumentoChofer(path: string): Promise<string> {
   return data.signedUrl;
 }
 
-/** Quita un documento (fila y archivo). Si era el vigente, el anterior del mismo tipo vuelve a serlo. */
-export async function eliminarDocumentoChofer(d: DocumentoChofer): Promise<void> {
-  const { data, error } = await supabase.from(T_DOCS).delete().eq('id', d.id).select('id');
-  if (error) throw err(error, 'No se pudo eliminar el documento.');
-  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
-  if (d.vigente) {
-    let q = supabase.from(T_DOCS).select('id').eq('chofer_id', d.chofer_id).eq('tipo', d.tipo).order('created_at', { ascending: false }).limit(1);
-    if (d.tipo === 'otro') q = q.eq('etiqueta', d.etiqueta ?? '');
-    const { data: ant } = await q;
-    if (ant?.[0]) await supabase.from(T_DOCS).update({ vigente: true }).eq('id', ant[0].id);
-  }
-  await supabase.storage.from(BUCKET_DOCS).remove([d.path]).catch(() => undefined);
+/** Archiva el documento con su archivo y recalcula la versión vigente. */
+export async function eliminarDocumentoChofer(d: DocumentoChofer, motivo: string): Promise<void> {
+  await archivarChofer(T_DOCS, d.id, motivo);
 }
 
 /* ───────────── Borrar (14-10-2026): cada pestaña permite eliminar ───────────── */
 
-/** Borra la orden de ruta con sus paradas y su liquidación. Permite eliminar viajes aunque estén pagados. */
-export async function eliminarViaje(v: Pick<Viaje, 'id' | 'numero' | 'pago_id'>): Promise<void> {
-  const { data, error } = await supabase.from(T_VIAJES).delete().eq('id', v.id).select('id');
-  if (error) throw err(error, 'No se pudo eliminar el viaje.');
-  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
+/** Archiva la orden de ruta con sus paradas y su liquidación. */
+export async function eliminarViaje(v: Pick<Viaje, 'id'>, motivo: string): Promise<void> {
+  await archivarChofer(T_VIAJES, v.id, motivo);
 }
 
-/** Borra el recibo. Pendiente → primero se anula (sus viajes vuelven a estar por pagar); pagado → no se borra: anúlalo. */
-export async function eliminarPago(p: Pick<PagoViaje, 'id' | 'numero' | 'estado'>, actor: string): Promise<void> {
-  if (p.estado === 'pagado') throw new Error(`${p.numero} ya está pagado: anúlalo (queda el rastro y sus viajes vuelven a estar por pagar) y después bórralo si hace falta.`);
-  if (p.estado === 'pendiente') await anularPago(p.id, actor);
-  const { data, error } = await supabase.from(T_PAGOS).delete().eq('id', p.id).select('id');
-  if (error) throw err(error, 'No se pudo eliminar el recibo.');
-  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
+/** Archiva el recibo y libera los viajes si estaba pendiente. */
+export async function eliminarPago(p: Pick<PagoViaje, 'id'>, motivo: string): Promise<void> {
+  await archivarChofer(T_PAGOS, p.id, motivo);
 }
 
-/** Borra el expediente del conductor (la ficha de RRHH no se toca). Con viajes, viáticos o recibos no deja: desactívalo. */
-export async function eliminarConductor(c: Pick<Conductor, 'id'>): Promise<void> {
-  const { data, error } = await supabase.from(T_CONDUCTORES).delete().eq('id', c.id).select('id');
-  if (error) {
-    if ((error as { code?: string }).code === '23503') throw new Error('Este conductor tiene viajes, viáticos o recibos registrados: no se puede borrar. Desactívalo (⛔) para que no salga en las listas.');
-    throw err(error, 'No se pudo eliminar el conductor.');
-  }
-  if (!data?.length) throw new Error('No se pudo eliminar: sin permiso o ya no existía.');
+/** Archiva el expediente con sus documentos y conserva la ficha de RRHH. */
+export async function eliminarConductor(c: Pick<Conductor, 'id'>, motivo: string): Promise<void> {
+  await archivarChofer(T_CONDUCTORES, c.id, motivo);
 }

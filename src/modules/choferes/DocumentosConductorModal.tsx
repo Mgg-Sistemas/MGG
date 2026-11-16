@@ -7,12 +7,14 @@
    anteriores. «Otros documentos» admite varios, cada uno con su nombre.
    ============================================================ */
 import { useMemo, useState } from 'react';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { FechaVe } from '@/shared/ui/FechaVe';
 import { toast } from '@/shared/ui/Toast';
 import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { megas } from '@/modules/rrhh/documentosPersonal';
-import { borrarDocumentoPersonal, type DocumentoPersonal } from '@/modules/rrhh/personal.repository';
+import { archivarDocumentoPersonal, papeleraDocumentosPersonal } from '@/modules/rrhh/personal.repository';
 import {
   TIPOS_DOCUMENTO_CHOFER, eliminarDocumentoChofer, subirDocumentoChofer, urlDocumentoChofer,
   type Conductor, type DocumentoChofer, type TipoDocumentoChofer,
@@ -24,6 +26,7 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
   conductor: Conductor; documentos: DocumentoChofer[]; sinInstalar: boolean; canWrite: boolean;
   actor: string; actorName: string | null; hoy: string; onClose: () => void; onChanged: () => Promise<void>;
 }) {
+  const { can } = usePermissions();
   const [subiendo, setSubiendo] = useState<string | null>(null);
   const [borrar, setBorrar] = useState<DocumentoChofer | null>(null);
   const [abrirHist, setAbrirHist] = useState<Set<string>>(new Set());
@@ -57,20 +60,6 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
     finally { setSubiendo(null); }
   }
 
-  async function confirmarBorrar() {
-    const d = borrar; setBorrar(null);
-    if (!d) return;
-    try {
-      if (d.id.startsWith('rrhh-')) {
-        await borrarDocumentoPersonal({ id: d.id.replace('rrhh-', ''), path: d.path } as DocumentoPersonal);
-      } else {
-        await eliminarDocumentoChofer(d);
-      }
-      toast('Documento eliminado', 'success');
-      await onChanged();
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
-  }
-
   const toggleHist = (k: string) => setAbrirHist((s) => { const n = new Set(s); if (n.has(k)) n.delete(k); else n.add(k); return n; });
 
   function Fila({ d, vigente }: { d: DocumentoChofer; vigente: boolean }) {
@@ -85,7 +74,7 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
         </span>
         {d.vence && <BadgeVence vence={d.vence} hoy={hoy} />}
         <button className="btn btn-sm btn-ghost" onClick={() => void ver(d)}>👁 Ver</button>
-        {canWrite && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(d)} title="Eliminar este archivo">🗑</button>}
+        {(esDeRrhh ? can('rrhh', 'escritura') : canWrite) && <button className="btn btn-sm btn-ghost" style={{ color: 'var(--danger)' }} onClick={() => setBorrar(d)} title="Enviar este documento a la papelera">🗑</button>}
       </div>
     );
   }
@@ -108,7 +97,10 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
   }
 
   return (
-    <Modal title={`📁 Documentos · ${nombreConductor(conductor)}`} size="lg" onClose={onClose} footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
+    <Modal title={`📁 Documentos · ${nombreConductor(conductor)}`} size="lg" onClose={onClose} footer={<>
+      {can('rrhh') && <BotonPapeleraRegistros acciones={papeleraDocumentosPersonal} onChanged={() => void onChanged()} />}
+      <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+    </>}>
       {sinInstalar && (
         <div className="aviso warning" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⚠</span>
           <div><strong>Los documentos todavía no están instalados en la base.</strong> Hay que ejecutar <code>supabase/sql/choferes-documentos.sql</code> en el editor SQL de Supabase y recargar.</div></div>
@@ -161,9 +153,15 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
         })}
       </div>
       {borrar && (
-        <ConfirmDialog title="Eliminar documento" danger confirmText="Sí, eliminar"
-          message={`Se borra el archivo «${borrar.nombre}» (subido ${fechaHora(borrar.created_at)}). ${borrar.vigente ? 'Si hay una versión anterior, vuelve a ser la vigente.' : 'Es una versión del histórico.'}`}
-          onConfirm={() => { void confirmarBorrar(); }} onCancel={() => setBorrar(null)} />
+        <EnviarRegistroPapelera nombre={`el documento «${borrar.nombre}»`} onClose={() => setBorrar(null)}
+          onConfirm={async (motivo) => {
+            const esRrhh = borrar.id.startsWith('rrhh-');
+            if (esRrhh) await archivarDocumentoPersonal(borrar.id.slice(5), motivo);
+            else await eliminarDocumentoChofer(borrar, motivo);
+            toast(esRrhh ? 'Documento enviado a la papelera de RRHH' : 'Documento enviado a la papelera de Choferes', 'success');
+            setBorrar(null);
+            await onChanged();
+          }} />
       )}
     </Modal>
   );

@@ -10,6 +10,7 @@
    ============================================================ */
 import { useEffect, useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
@@ -130,13 +131,13 @@ export function PagosTab({ datos, canWrite, actor, actorName }: PropsTab) {
           onConfirm={() => { void confirmarAnular(); }} onCancel={() => setAnular(null)} />
       )}
       {borrarP && (
-        <ConfirmDialog title={`Eliminar ${borrarP.numero}`} danger confirmText="Sí, eliminar"
-          message={`Se borra el recibo ${borrarP.numero}${borrarP.estado === 'pendiente' ? ` y sus ${borrarP.detalle.length} viaje(s) vuelven a estar disponibles para otro recibo` : ''}. Esto no se deshace.`}
-          onCancel={() => setBorrarP(null)}
-          onConfirm={() => {
-            const p = borrarP; setBorrarP(null);
-            void eliminarPago(p, actorName || actor).then(async () => { toast(`${p.numero} eliminado`, 'success'); await recargar(); })
-              .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'));
+        <EnviarRegistroPapelera nombre={`el recibo ${borrarP.numero}`} conAdjuntos={false} onClose={() => setBorrarP(null)}
+          aviso={borrarP.estado === 'pendiente' && <p>Los viajes quedan disponibles para otro recibo. Si se vuelven a pagar, tendrás que revisar sus vínculos antes de recuperar este recibo.</p>}
+          onConfirm={async (motivo) => {
+            await eliminarPago(borrarP, motivo);
+            toast(`${borrarP.numero} enviado a la papelera`, 'success');
+            setBorrarP(null);
+            await recargar();
           }} />
       )}
     </div>

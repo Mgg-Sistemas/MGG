@@ -3,10 +3,12 @@
    Lista buscable; agregar, editar y borrar con los estilos del sistema.
    ============================================================ */
 import { useMemo, useState, type FormEvent } from 'react';
-import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
-import { crearVehiculo, editarVehiculo, eliminarVehiculo, type Vehiculo, type VehiculoInput } from './vehiculos.repository';
+import { archivarVehiculo, crearVehiculo, editarVehiculo, papeleraVehiculosAsignaciones, type Vehiculo, type VehiculoInput } from './vehiculos.repository';
 import { TIPOS_VEHICULO, filtrarVehiculos, iconoVehiculo, labelTipoVehiculo, textoVehiculo } from './vehiculos';
 
 export function VehiculosCatalogoModal({ vehiculos, canWrite, actor, onClose, onChanged, onElegir }: {
@@ -15,22 +17,18 @@ export function VehiculosCatalogoModal({ vehiculos, canWrite, actor, onClose, on
   /** Si viene, cada fila tiene «Usar» (para elegirlo desde el formulario de asignación). */
   onElegir?: (v: Vehiculo) => void;
 }) {
+  const { can } = usePermissions();
   const [q, setQ] = useState('');
   const [form, setForm] = useState<Vehiculo | 'nuevo' | null>(null);
   const [borrar, setBorrar] = useState<Vehiculo | null>(null);
   const visibles = useMemo(() => filtrarVehiculos(vehiculos, q), [vehiculos, q]);
-
-  async function confirmarBorrar() {
-    if (!borrar) return;
-    try { await eliminarVehiculo(borrar.id); toast('Vehículo eliminado', 'success'); setBorrar(null); await onChanged(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
-  }
 
   return (
     <Modal title="🚗 Catálogo de vehículos" size="lg" onClose={onClose} footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Placa, marca, modelo, color, serial…" style={{ flex: '1 1 240px' }} />
         <span className="muted" style={{ fontSize: '.8rem' }}>{visibles.length} de {vehiculos.length}</span>
+        {can('asignaciones') && <BotonPapeleraRegistros acciones={papeleraVehiculosAsignaciones} onChanged={() => void onChanged()} />}
         {canWrite && <button className="btn btn-primary" onClick={() => setForm('nuevo')}>＋ Agregar vehículo</button>}
       </div>
       <div className="table-wrap">
@@ -68,8 +66,13 @@ export function VehiculosCatalogoModal({ vehiculos, canWrite, actor, onClose, on
           onSaved={async () => { setForm(null); await onChanged(); }} />
       )}
       {borrar && (
-        <ConfirmDialog title="Eliminar vehículo" message={`¿Eliminar ${textoVehiculo(borrar)} del catálogo? Las asignaciones ya cerradas conservan sus datos.`}
-          confirmText="Eliminar" danger onConfirm={() => void confirmarBorrar()} onCancel={() => setBorrar(null)} />
+        <EnviarRegistroPapelera nombre={textoVehiculo(borrar)} conAdjuntos={false} onClose={() => setBorrar(null)}
+          onConfirm={async (motivo) => {
+            await archivarVehiculo(borrar.id, 'asignaciones', motivo);
+            toast('Vehículo enviado a la papelera', 'success');
+            setBorrar(null);
+            await onChanged();
+          }} />
       )}
     </Modal>
   );

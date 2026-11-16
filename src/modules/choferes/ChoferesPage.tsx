@@ -18,13 +18,14 @@ import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
+import { BotonPapeleraRegistros } from '@/shared/ui/PapeleraRegistros';
 import type { Personal } from '@/shared/lib/types';
 import { listPersonal, listDocumentosDeTodos, type DocumentoPersonal } from '@/modules/rrhh/personal.repository';
 import { listDescansos, type Descanso } from '@/modules/rrhh/descansos.repository';
 import { DescansosTab } from '@/modules/rrhh/DescansosTab';
 import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
 import {
-  TABLAS_CHOFERES, esTablaFaltante, listConductores, listDocumentosChofer, listFlota, listPagos, listViajes, listViaticos,
+  accionesPapeleraChoferes, TABLAS_CHOFERES, esTablaFaltante, listConductores, listDocumentosChofer, listFlota, listPagos, listViajes, listViaticos,
   importarConductoresDesdeRrhh, esCargoDeChofer, mapearDocPersonalAChofer,
   type Conductor, type DocumentoChofer, type PagoViaje, type VehiculoFlota, type Viaje, type Viatico,
 } from './choferes.repository';
@@ -167,6 +168,7 @@ export function ChoferesPage() {
         <p className="hint muted" style={{ margin: '.25rem 0 0' }}>
           Flota y conductores: expediente con vigencias, órdenes de ruta, viáticos, pagos por viaje y descansos. Los conductores son fichas de RRHH.
         </p>
+        {!sinInstalar && <BotonPapeleraRegistros acciones={accionesPapeleraChoferes} onChanged={() => void recargar()} />}
       </div>
 
       {sinInstalar && (

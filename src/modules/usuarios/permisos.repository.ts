@@ -158,7 +158,7 @@ export function esRolFacturas(role: RoleKey | null | undefined): boolean {
    La marca «solo teléfono» sigue en el rol (custom_roles.solo_telefono). */
 
 export const emptyPermission: ModulePermission = { lectura: false, escritura: false, full: false };
-export const MODULOS_CON_PAPELERA: ReadonlySet<ModuleKey> = new Set(['rrhh', 'retenciones', 'documentacion', 'choferes']);
+export const MODULOS_CON_PAPELERA: ReadonlySet<ModuleKey> = new Set(['rrhh', 'retenciones', 'documentacion', 'choferes', 'asignaciones']);
 
 /** Permisos por defecto de un rol cuando la matriz aún no tiene fila guardada en BD. */
 export function defaultsFor(role: RoleKey): RolePermisos {

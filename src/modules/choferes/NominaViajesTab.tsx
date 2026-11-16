@@ -10,6 +10,7 @@
    ============================================================ */
 import { useEffect, useMemo, useState } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
 import { money, date as fmtDate, formatoCI } from '@/shared/lib/format';
@@ -1488,34 +1489,16 @@ export function NominaViajesTab({ datos, canWrite, actor, actorName }: PropsTab)
       )}
 
       {borrarViaje && (
-        <ConfirmDialog
-          title={`Eliminar viaje ${borrarViaje.numero}`}
-          danger
-          confirmText="Sí, eliminar"
-          message={
-            <>
-              ¿Seguro que deseas eliminar la orden <strong>{borrarViaje.numero}</strong> ({borrarViaje.origen} ➔ {borrarViaje.destino}) de{' '}
-              <strong>{nombreConductor(porId.get(borrarViaje.chofer_id))}</strong>? Esta acción no se puede deshacer.
-              {(borrarViaje.pagado_at || (borrarViaje.nota && /\[PAGADO:/i.test(borrarViaje.nota)) || borrarViaje.pago_id) && (
-                <div className="aviso warning sm" style={{ marginTop: '.6rem' }}>
-                  ⚠️ Este viaje figura como <strong>PAGADO</strong>. Al eliminarlo, se descontará del historial y de los cálculos de nómina del conductor.
-                </div>
-              )}
-            </>
-          }
-          onConfirm={async () => {
-            const v = borrarViaje;
+        <EnviarRegistroPapelera nombre={`el viaje ${borrarViaje.numero}`} conAdjuntos={false}
+          aviso={(borrarViaje.pagado_at || /\[PAGADO:/i.test(borrarViaje.nota ?? '') || borrarViaje.pago_id) &&
+            <p>El viaje figura como pagado. Mientras esté en la papelera queda fuera del historial activo y de los cálculos de nómina.</p>}
+          onConfirm={async (motivo) => {
+            await eliminarViaje(borrarViaje, motivo);
+            toast(`${borrarViaje.numero} enviado a la papelera`, 'success');
             setBorrarViaje(null);
-            if (!v) return;
-            try {
-              await eliminarViaje(v);
-              toast(`${v.numero} eliminado`, 'success');
-              await recargar();
-            } catch (err) {
-              toast(err instanceof Error ? err.message : 'No se pudo eliminar el viaje', 'error');
-            }
+            await recargar();
           }}
-          onCancel={() => setBorrarViaje(null)}
+          onClose={() => setBorrarViaje(null)}
         />
       )}
     </div>

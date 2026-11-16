@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
 import { FechaVe } from '@/shared/ui/FechaVe';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
@@ -12,7 +13,7 @@ import {
   listPersonal, crearPersonal, actualizarPersonal, setPersonalActivo, eliminarPersonal,
   subirFotoCarnet, digitosCedula, listHistorialSueldo, listCambiosSueldo, registrarSueldoHistorico, eliminarSueldoHistorico,
   listDocumentosPersonal, listDocumentosDeTodos, subirDocumentoPersonal,
-  urlDocumentoPersonal, borrarDocumentoPersonal, renombrarDocumentoPersonal,
+  urlDocumentoPersonal, archivarDocumentoPersonal, papeleraDocumentosPersonal, renombrarDocumentoPersonal,
   type PersonalInput, type CambioSueldoRegistro, type DocumentoPersonal,
 } from './personal.repository';
 import {
@@ -2052,22 +2053,14 @@ function DocumentacionModal({ persona, canWrite, actor, actorName, onClose, onCa
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo abrir el documento', 'error'); }
   }
 
-  async function quitar() {
-    if (!porQuitar) return;
-    try {
-      await borrarDocumentoPersonal(porQuitar);
-      setPorQuitar(null);
-      toast('Documento quitado', 'success');
-      await recargar();
-      onCambio();
-    } catch (e) { setPorQuitar(null); toast(e instanceof Error ? e.message : 'No se pudo quitar', 'error'); }
-  }
-
   const completa = documentacionCompleta(docs);
 
   return (
     <Modal title={`📁 Documentación · ${persona.nombre} ${persona.apellido}`} size="lg" onClose={onClose}
-      footer={<button className="btn btn-ghost" onClick={onClose}>Cerrar</button>}>
+      footer={<>
+        <BotonPapeleraRegistros acciones={papeleraDocumentosPersonal} onChanged={() => { void recargar(); onCambio(); }} />
+        <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+      </>}>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
 
       <div className="card" style={{ background: 'var(--bg-2)', marginBottom: '.75rem', display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -2226,12 +2219,14 @@ function DocumentacionModal({ persona, canWrite, actor, actorName, onClose, onCa
       </small>
 
       {porQuitar && (
-        <ConfirmDialog
-          title="Quitar el documento"
-          message={`¿Quitar «${tituloDocumento(porQuitar)}» (${porQuitar.nombre}) de la documentación de ${persona.nombre}? El archivo se borra del depósito.`}
-          confirmText="Quitar" danger
-          onConfirm={() => void quitar()}
-          onCancel={() => setPorQuitar(null)} />
+        <EnviarRegistroPapelera nombre={`«${tituloDocumento(porQuitar)}»`} onClose={() => setPorQuitar(null)}
+          onConfirm={async (motivo) => {
+            await archivarDocumentoPersonal(porQuitar.id, motivo);
+            setPorQuitar(null);
+            toast('Documento enviado a la papelera de RRHH', 'success');
+            await recargar();
+            onCambio();
+          }} />
       )}
     </Modal>
   );

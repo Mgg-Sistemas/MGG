@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { ModuleKey } from '@/modules/usuarios/permisos.repository';
 import { dateTime } from '@/shared/lib/format';
@@ -18,8 +18,8 @@ export interface AccionesPapelera {
   listar: () => Promise<RegistroPapelera[]>;
   recuperar: (id: string) => Promise<void>;
   vaciar: (ids: string[]) => Promise<number>;
-  hayAdjuntosPendientes: () => Promise<boolean>;
-  limpiarAdjuntos: () => Promise<void>;
+  hayAdjuntosPendientes?: () => Promise<boolean>;
+  limpiarAdjuntos?: () => Promise<void>;
 }
 
 export function BotonPapeleraRegistros({ acciones, onChanged }: { acciones: AccionesPapelera; onChanged: () => void }) {
@@ -49,7 +49,7 @@ function PapeleraRegistros({ acciones, onChanged, onClose }: {
     setError('');
     try {
       setRegistros(await acciones.listar());
-      setHayLimpieza(puedeVaciar && await acciones.hayAdjuntosPendientes());
+      setHayLimpieza(puedeVaciar && (await acciones.hayAdjuntosPendientes?.() ?? false));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo cargar la papelera');
     } finally {
@@ -81,7 +81,7 @@ function PapeleraRegistros({ acciones, onChanged, onClose }: {
         toast(`${cantidad} registro(s) eliminados definitivamente`, 'success');
         onChanged();
       }
-      await acciones.limpiarAdjuntos();
+      await acciones.limpiarAdjuntos?.();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo vaciar la papelera', 'error');
     } finally {
@@ -117,8 +117,10 @@ function PapeleraRegistros({ acciones, onChanged, onClose }: {
   );
 }
 
-export function EnviarRegistroPapelera({ nombre, onClose, onConfirm }: {
+export function EnviarRegistroPapelera({ nombre, conAdjuntos = true, aviso, onClose, onConfirm }: {
   nombre: string;
+  conAdjuntos?: boolean;
+  aviso?: ReactNode;
   onClose: () => void;
   onConfirm: (motivo: string) => Promise<void>;
 }) {
@@ -137,7 +139,8 @@ export function EnviarRegistroPapelera({ nombre, onClose, onConfirm }: {
         onClick={() => void enviar()}>Enviar a papelera</button>
     </>
   }>
-    <p>Podrás recuperar {nombre} y sus adjuntos.</p>
+    <p>Podrás recuperar {nombre}{conAdjuntos ? ' y sus adjuntos' : ''}.</p>
+    {aviso}
     <label>Motivo
       <textarea className="input" maxLength={500} value={motivo} onChange={(e) => setMotivo(e.target.value)} />
     </label>

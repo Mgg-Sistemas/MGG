@@ -5,6 +5,8 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { accionesAdjuntosPapelera } from '@/shared/lib/papeleraAdjuntos';
+import type { AccionesPapelera } from '@/shared/ui/PapeleraRegistros';
 import type { Personal } from '@/shared/lib/types';
 import { aCentavos, huboCambioSueldo, validarCambioSueldo, type TipoCambioSueldo } from './cambioSueldo';
 import {
@@ -383,12 +385,31 @@ export async function urlDocumentoPersonal(path: string): Promise<string> {
   return data.signedUrl;
 }
 
-/** Quita el documento: primero la fila, después el archivo. */
-export async function borrarDocumentoPersonal(doc: DocumentoPersonal): Promise<void> {
-  const { error } = await supabase.from(TABLA_DOCS).delete().eq('id', doc.id);
-  if (error) throw error;
-  await supabase.storage.from(BUCKET_DOCS).remove([doc.path]).catch(() => { /* el Storage no bloquea */ });
+/** Envía el documento y conserva el archivo para poder recuperarlo. */
+export async function archivarDocumentoPersonal(id: string, motivo: string): Promise<void> {
+  const { error } = await supabase.rpc('rrhh_documento_papelera', { p_id: id, p_motivo: motivo });
+  if (error) throw new Error(error.message);
 }
+
+export const papeleraDocumentosPersonal: AccionesPapelera = {
+  modulo: 'rrhh',
+  titulo: 'Papelera de documentos de RRHH',
+  listar: () => todasLasFilas<{ id: string; titulo: string; eliminado_en: string; eliminado_motivo: string }>((d, h) =>
+    supabase.rpc('rrhh_documento_papelera_listar').range(d, h)),
+  async recuperar(id) {
+    const { error } = await supabase.rpc('rrhh_documento_papelera', { p_id: id });
+    if (error) throw new Error(error.message);
+  },
+  async vaciar(ids) {
+    const { data, error } = await supabase.rpc('rrhh_documento_vaciar_papelera', { p_ids: ids });
+    if (error) throw new Error(error.message);
+    return Number(data) || 0;
+  },
+  ...accionesAdjuntosPapelera('rrhh_documentos_por_vaciar', [BUCKET_DOCS], async (_bucket, rutas) => {
+    const { error } = await supabase.rpc('rrhh_documento_cerrar_limpieza', { p_rutas: rutas });
+    if (error) throw new Error(error.message);
+  }),
+};
 
 /** Enlace firmado del RIF. Se conserva el nombre viejo: lo usa el listado. */
 export async function urlDocumentoRif(path: string): Promise<string> {

@@ -11,6 +11,7 @@
    ============================================================ */
 import { useMemo, useState, type FormEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { FechaVe } from '@/shared/ui/FechaVe';
@@ -20,7 +21,7 @@ import { money, date as fmtDate, formatoCI } from '@/shared/lib/format';
 import type { Personal } from '@/shared/lib/types';
 import { supabase } from '@/shared/lib/supabase';
 import { numeroFicha } from '@/modules/rrhh/fichaPersonal';
-import { crearVehiculo, editarVehiculo, eliminarVehiculo, type VehiculoInput } from '@/modules/asignaciones/vehiculos.repository';
+import { archivarVehiculo, crearVehiculo, editarVehiculo, papeleraVehiculosChoferes, type VehiculoInput } from '@/modules/asignaciones/vehiculos.repository';
 import { filtrarVehiculos, normalizarPlaca } from '@/modules/asignaciones/vehiculos';
 import {
   ESTADO_CHOFER, ESTADO_FLOTA, TIPOS_FLOTA, estadoChofer, estadoVence, iconoFlota, labelTipoFlota,
@@ -238,13 +239,13 @@ export function ExpedienteTab({ datos, canWrite, actor, actorName }: PropsTab) {
       )}
       {verFlota && <FlotaModal flota={flota} canWrite={canWrite} actor={actor} hoy={hoy} onClose={() => setVerFlota(false)} onChanged={recargar} />}
       {borrarC && (
-        <ConfirmDialog title="Eliminar expediente" danger confirmText="Sí, eliminar"
-          message={<>Se borra el expediente de chofer de <strong>{nombreConductor(borrarC)}</strong> (licencia, certificado, seguro, tarifa y sus documentos). Su ficha de RRHH no se toca. Si tiene viajes, viáticos o recibos, el sistema no lo deja: en ese caso desactívalo.</>}
-          onCancel={() => setBorrarC(null)}
-          onConfirm={() => {
-            const c = borrarC; setBorrarC(null);
-            void eliminarConductor(c).then(async () => { toast('Expediente eliminado', 'success'); await recargar(); })
-              .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'));
+        <EnviarRegistroPapelera nombre={`el expediente de ${nombreConductor(borrarC)}`} onClose={() => setBorrarC(null)}
+          aviso={<p>Si tiene viajes, viáticos o recibos, usa la opción de desactivarlo.</p>}
+          onConfirm={async (motivo) => {
+            await eliminarConductor(borrarC, motivo);
+            toast('Expediente enviado a la papelera', 'success');
+            setBorrarC(null);
+            await recargar();
           }} />
       )}
       {docsDe && (
@@ -457,6 +458,7 @@ export function FlotaModal({ flota, canWrite, actor, hoy, onClose, onChanged, on
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
         <input className="input" value={q} onChange={(e) => setQ(e.target.value)} placeholder="🔍 Placa, marca, modelo, tipo…" style={{ flex: '1 1 240px' }} />
         <span className="muted" style={{ fontSize: '.8rem' }}>{visibles.length} de {flota.length} · compartida con Asignaciones</span>
+        <BotonPapeleraRegistros acciones={papeleraVehiculosChoferes} onChanged={() => void onChanged()} />
         {canWrite && (
           <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
             <button className="btn btn-primary" onClick={() => setForm('nuevo')}>＋ Agregar vehículo</button>
@@ -508,13 +510,13 @@ export function FlotaModal({ flota, canWrite, actor, hoy, onClose, onChanged, on
       </div>
       {form && <VehiculoFormModal inicial={form === 'nuevo' ? null : form} actor={actor} onClose={() => setForm(null)} onSaved={async () => { setForm(null); await onChanged(); }} />}
       {borrarV && (
-        <ConfirmDialog title={`Eliminar ${borrarV.placa}`} danger confirmText="Sí, eliminar"
-          message={<>Se borra <strong>{[borrarV.marca, borrarV.modelo].filter(Boolean).join(' ') || borrarV.placa}</strong> del catálogo de vehículos (compartido con Asignaciones). Los viajes que ya lo usaron quedan sin vehículo. Si está asignado a alguien, el sistema no lo deja.</>}
-          onCancel={() => setBorrarV(null)}
-          onConfirm={() => {
-            const v = borrarV; setBorrarV(null);
-            void eliminarVehiculo(v.id).then(async () => { toast(`${v.placa} eliminado`, 'success'); await onChanged(); })
-              .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'));
+        <EnviarRegistroPapelera nombre={`el vehículo ${borrarV.placa}`} conAdjuntos={false} onClose={() => setBorrarV(null)}
+          aviso={<p>Mientras esté en la papelera no podrá seleccionarse para nuevos viajes ni asignaciones.</p>}
+          onConfirm={async (motivo) => {
+            await archivarVehiculo(borrarV.id, 'choferes', motivo);
+            toast(`${borrarV.placa} enviado a la papelera`, 'success');
+            setBorrarV(null);
+            await onChanged();
           }} />
       )}
     </Modal>

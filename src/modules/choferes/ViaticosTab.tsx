@@ -14,6 +14,7 @@
    ============================================================ */
 import { useMemo, useState, type FormEvent } from 'react';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
+import { EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { DecimalInput } from '@/shared/ui/DecimalInput';
@@ -58,13 +59,6 @@ export function ViaticosTab({ datos, canWrite, actor, actorName }: PropsTab) {
   const porLiquidar = useMemo(() => viajes.filter((v) => v.estado === 'finalizado' && !v.liquidado_at)
     .map((v) => ({ v, liq: liquidarViaticos(viaticos.filter((m) => m.viaje_id === v.id)), n: viaticos.filter((m) => m.viaje_id === v.id).length })), [viajes, viaticos]);
   const liquidados = useMemo(() => viajes.filter((v) => v.estado === 'finalizado' && v.liquidado_at), [viajes]);
-
-  async function confirmarBorrar() {
-    const m = borrar; setBorrar(null);
-    if (!m) return;
-    try { await eliminarViatico(m); toast('Movimiento eliminado', 'success'); await recargar(); }
-    catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
-  }
 
   async function confirmarLiquidar() {
     const v = liquidar; setLiquidar(null);
@@ -205,9 +199,13 @@ export function ViaticosTab({ datos, canWrite, actor, actorName }: PropsTab) {
           onClose={() => setNuevo(null)} onSaved={async () => { setNuevo(null); await recargar(); }} />
       )}
       {borrar && (
-        <ConfirmDialog title="Eliminar movimiento" danger confirmText="Sí, eliminar"
-          message={`Se borra ${TIPO_VIATICO[borrar.tipo].label.toLowerCase()} de ${money(borrar.monto_usd)} (${borrar.concepto}). No movió caja, así que no hay nada que revertir en Tesorería.`}
-          onConfirm={() => { void confirmarBorrar(); }} onCancel={() => setBorrar(null)} />
+        <EnviarRegistroPapelera nombre={`el movimiento «${borrar.concepto}»`} conAdjuntos={false} onClose={() => setBorrar(null)}
+          onConfirm={async (motivo) => {
+            await eliminarViatico(borrar, motivo);
+            setBorrar(null);
+            toast('Movimiento enviado a la papelera', 'success');
+            await recargar();
+          }} />
       )}
       {liquidar && (
         <ConfirmDialog title={`Liquidar ${liquidar.numero}`} success confirmText="Liquidar"
