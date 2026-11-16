@@ -907,20 +907,12 @@ export async function crearPago(i: PagoInput, actor: string, actorName: string |
 
 /** Marca el recibo como pagado; si viene caja, registra el gasto en Tesorería. */
 export async function marcarPagado(p: PagoViaje, o: { metodo: string; caja?: CajaDestino | null; chofer_nombre: string }, actor: string, actorName: string | null): Promise<void> {
-  let movimientoId: string | null = null;
-  if (o.caja) {
-    const mov = await registrarGasto({
-      cajaId: o.caja.cajaId, cuenta: o.caja.cuenta, moneda: o.caja.moneda, monto: o.caja.monto,
-      concepto: `Pago de viajes ${p.numero} · ${o.chofer_nombre} (${p.detalle.length} viaje${p.detalle.length === 1 ? '' : 's'})`,
-      categoria: 'pago_viaje_chofer', actor, actorName,
-    });
-    movimientoId = mov.id;
-  }
-  const { error } = await supabase.from(T_PAGOS).update({
-    estado: 'pagado', pagado_at: new Date().toISOString(), pagado_por: actorName || actor,
-    metodo: limpio(o.metodo), movimiento_caja_id: movimientoId,
-  }).eq('id', p.id).eq('estado', 'pendiente');
-  if (error) throw err(error, movimientoId ? 'La caja ya se movió pero el recibo no quedó marcado: revisa el libro de Tesorería.' : 'No se pudo marcar el pago.');
+  const { error } = await supabase.rpc('choferes_pago_confirmar', {
+    p_id: p.id, p_metodo: limpio(o.metodo), p_conductor: o.chofer_nombre, p_actor: actor, p_actor_nombre: actorName,
+    p_caja: o.caja?.cajaId ?? null, p_cuenta: o.caja?.cuenta ?? null, p_moneda: o.caja?.moneda ?? null,
+    p_monto: o.caja?.monto ?? null,
+  });
+  if (error) throw err(error, 'No se pudo marcar el pago.');
 }
 
 export async function anularPago(id: string, actor: string): Promise<void> {
