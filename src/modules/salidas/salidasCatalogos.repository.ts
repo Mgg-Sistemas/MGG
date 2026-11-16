@@ -6,6 +6,7 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { Chofer, Vehiculo } from '@/shared/lib/types';
+import { archivarSalida } from './papeleraSalidas.repository';
 
 const CHOFERES = 'salidas_choferes';
 const VEHICULOS = 'salidas_vehiculos';
@@ -45,9 +46,8 @@ export async function setActivoChofer(id: string, activo: boolean): Promise<void
   if (error) throw error;
 }
 
-export async function eliminarChofer(id: string): Promise<void> {
-  const { error } = await supabase.from(CHOFERES).delete().eq('id', id);
-  if (error) throw error;
+export async function eliminarChofer(id: string, motivo: string): Promise<void> {
+  await archivarSalida(CHOFERES, id, motivo);
 }
 
 /* ───────────── Vehículos ───────────── */
@@ -85,7 +85,6 @@ export async function setActivoVehiculo(id: string, activo: boolean): Promise<vo
   if (error) throw error;
 }
 
-export async function eliminarVehiculo(id: string): Promise<void> {
-  const { error } = await supabase.from(VEHICULOS).delete().eq('id', id);
-  if (error) throw error;
+export async function eliminarVehiculo(id: string, motivo: string): Promise<void> {
+  await archivarSalida(VEHICULOS, id, motivo);
 }

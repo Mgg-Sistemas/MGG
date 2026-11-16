@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
+import { papeleraSalidas } from './papeleraSalidas.repository';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import type { Chofer, Vehiculo } from '@/shared/lib/types';
@@ -27,6 +29,7 @@ export function GestionarChoferesVehiculosModal({
   const [vehiculos, setVehiculos] = useState<Vehiculo[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [porArchivar, setPorArchivar] = useState<{ id: string; nombre: string; chofer: boolean } | null>(null);
 
   // Alta
   const [nNombre, setNNombre] = useState('');
@@ -93,18 +96,6 @@ export function GestionarChoferesVehiculosModal({
     finally { setBusy(false); }
   }
 
-  async function borrar(id: string, nombre: string) {
-    if (!confirm(`¿Eliminar "${nombre}" del catálogo? Las solicitudes ya creadas conservan sus datos.`)) return;
-    setBusy(true);
-    try {
-      if (esChofer) await eliminarChofer(id);
-      else await eliminarVehiculo(id);
-      notify(`"${nombre}" eliminado`, 'success');
-      await recargar(); cambio();
-    } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo eliminar', 'error'); }
-    finally { setBusy(false); }
-  }
-
   const filas: Array<{ id: string; nombre: string; extra: string | null; activo: boolean }> = esChofer
     ? choferes.map((c) => ({ id: c.id, nombre: c.nombre, extra: c.cedula ?? null, activo: c.activo }))
     : vehiculos.map((v) => ({ id: v.id, nombre: v.nombre, extra: v.placa ?? null, activo: v.activo }));
@@ -121,6 +112,7 @@ export function GestionarChoferesVehiculosModal({
       <div className="view-toggle" role="tablist" style={{ marginBottom: '.9rem' }}>
         <button className={esChofer ? 'active' : ''} onClick={() => { setTab('choferes'); cancelarEdicion(); limpiarAlta(); }}>👤 Choferes</button>
         <button className={!esChofer ? 'active' : ''} onClick={() => { setTab('vehiculos'); cancelarEdicion(); limpiarAlta(); }}>🚚 Vehículos</button>
+        <BotonPapeleraRegistros acciones={papeleraSalidas} onChanged={() => { void recargar(); cambio(); }} />
       </div>
 
       {/* Alta */}
@@ -176,7 +168,8 @@ export function GestionarChoferesVehiculosModal({
                         <>
                           <button className="btn btn-sm btn-ghost" title="Editar" onClick={() => { setEditId(f.id); setEdNombre(f.nombre); setEdExtra(f.extra ?? ''); }}>✎</button>
                           <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => toggleActivo(f.id, f.activo)}>{f.activo ? '⃠ Deshabilitar' : '↺ Reactivar'}</button>
-                          <button className="btn btn-sm btn-ghost" disabled={busy} title="Eliminar" onClick={() => borrar(f.id, f.nombre)}>🗑</button>
+                          <button className="btn btn-sm btn-ghost" disabled={busy} title="Enviar a la papelera"
+                            onClick={() => setPorArchivar({ id: f.id, nombre: f.nombre, chofer: esChofer })}>🗑</button>
                         </>
                       )}
                     </td>
@@ -187,6 +180,15 @@ export function GestionarChoferesVehiculosModal({
           </table>
         </div>
       )}
+      {porArchivar && <EnviarRegistroPapelera nombre={porArchivar.nombre} conAdjuntos={false}
+        onClose={() => setPorArchivar(null)} onConfirm={async (motivo) => {
+          const archivar = porArchivar.chofer ? eliminarChofer : eliminarVehiculo;
+          await archivar(porArchivar.id, motivo);
+          setPorArchivar(null);
+          notify('Registro enviado a la papelera', 'success');
+          await recargar();
+          cambio();
+        }} />}
     </Modal>
   );
 }

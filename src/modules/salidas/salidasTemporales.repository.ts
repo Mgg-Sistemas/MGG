@@ -13,7 +13,7 @@ import type {
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
 import { getExistencia } from '@/modules/inventario/almacenes.repository';
 import { siguienteCodigo } from './codigoSolicitud';
-import { borrarAdjuntosDeSolicitud } from './adjuntosSalida.repository';
+import { archivarSalida } from './papeleraSalidas.repository';
 import { ajustesDeStock } from './salidasTemporalesAjuste';
 
 const T = 'solicitudes_salida_temporal';
@@ -192,7 +192,7 @@ export async function aprobarSalidaTemporal(
       mov_out_ids: movOut.length ? movOut : null,
       historial: appendHistorial(s, `aprobada por ${nombre}`, actor, { aprobador: nombre }),
     })
-    .eq('id', s.id);
+    .eq('id', s.id).eq('estado', 'por_aprobar').select('id').single();
   if (error) throw error;
 }
 
@@ -370,13 +370,9 @@ export async function editarSalidaTemporal(
 }
 
 /** Elimina la solicitud (hard delete). Solo mientras está por aprobar (aún no movió stock). */
-export async function eliminarSalidaTemporal(s: SalidaTemporal): Promise<void> {
+export async function eliminarSalidaTemporal(s: SalidaTemporal, motivo: string): Promise<void> {
   if (s.estado !== 'por_aprobar') throw new Error('Solo se elimina una solicitud Por aprobar (antes de aprobarla).');
-  const { error } = await supabase.from(T).delete().eq('id', s.id);
-  if (error) throw error;
-  // Los adjuntos se van con ella: borrada la fila, nadie puede llegar a esos
-  // archivos y quedarían ocupando el depósito para siempre.
-  await borrarAdjuntosDeSolicitud(s);
+  await archivarSalida(T, s.id, motivo);
 }
 
 /* ───────────── Tiempos (mantenimiento / tránsito / total) ───────────── */

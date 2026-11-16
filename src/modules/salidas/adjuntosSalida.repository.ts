@@ -15,12 +15,11 @@
    abre con un enlace firmado que caduca a los 10 minutos.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { BUCKET_SALIDAS_ADJUNTOS as BUCKET } from './papeleraSalidas.repository';
 import {
   MAX_ADJUNTOS_SALIDA, adjuntosDeFila, adjuntosQueQuedan, nombreSeguroAdjunto, recortarAlCupo,
   validarArchivoAdjunto, type AdjuntoSalida,
 } from './adjuntosSalida';
-
-const BUCKET = 'salidas-adjuntos';
 
 /** Las dos tablas que llevan adjuntos. */
 export type TablaConAdjuntos = 'solicitudes_salida' | 'solicitudes_salida_temporal';
@@ -64,7 +63,7 @@ export async function guardarAdjuntosSolicitud(
   }
 
   const finales = [...adjuntosQueQuedan(existentes, quitarPaths), ...subidas].slice(0, MAX_ADJUNTOS_SALIDA);
-  const { error } = await supabase.from(tabla).update({ adjuntos: finales }).eq('id', solicitudId);
+  const { error } = await supabase.from(tabla).update({ adjuntos: finales }).eq('id', solicitudId).select('id').single();
   if (error) {
     // El update se cayó: los archivos que acabo de subir no los referencia
     // nadie. Se limpian para no dejar basura en el depósito.
@@ -123,15 +122,4 @@ export async function urlDescargaAdjuntoSalida(a: AdjuntoSalida): Promise<string
  */
 export function adjuntosDeSolicitud(fila: { adjuntos?: unknown } | null | undefined): AdjuntoSalida[] {
   return adjuntosDeFila(fila?.adjuntos);
-}
-
-/**
- * Borra del depósito todos los adjuntos de una solicitud. Se llama al eliminar
- * la solicitud: si no, los archivos quedarían para siempre sin que nadie pueda
- * llegar a ellos. Best-effort, por la misma razón de arriba.
- */
-export async function borrarAdjuntosDeSolicitud(fila: { adjuntos?: unknown } | null | undefined): Promise<void> {
-  const paths = adjuntosDeSolicitud(fila).map((a) => a.path);
-  if (!paths.length) return;
-  try { await supabase.storage.from(BUCKET).remove(paths); } catch { /* el Storage no bloquea */ }
 }

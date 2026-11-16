@@ -9,7 +9,9 @@
    ============================================================ */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
-import { Modal as ModalUI, ConfirmDialog } from '@/shared/ui/Modal';
+import { Modal as ModalUI } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
+import { papeleraSalidas } from './papeleraSalidas.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { num, dateTime, date as fmtDate } from '@/shared/lib/format';
@@ -109,6 +111,7 @@ export function SalidasTemporalesView({ nuevoNonce }: { nuevoNonce?: number }) {
       <div className="view-toggle" role="tablist" aria-label="Kanban o histórico" style={{ marginBottom: '1rem' }}>
         <button className={vista === 'kanban' ? 'active' : ''} onClick={() => setVista('kanban')}>🗂 Solicitudes</button>
         <button className={vista === 'lista' ? 'active' : ''} onClick={() => setVista('lista')}>📜 Histórico</button>
+        <BotonPapeleraRegistros acciones={papeleraSalidas} onChanged={() => void reload()} />
       </div>
 
       {loading ? (
@@ -677,13 +680,12 @@ function DetalleModal({ sol, puedeAprobar, puedeEjecutar, canWrite, actor, actor
       </ul>
 
       {confirmDel && (
-        <ConfirmDialog
-          title="Eliminar salida temporal"
-          message={`¿Eliminar la solicitud ${sol.codigo}? Esta acción no se puede deshacer (solo se permite antes de aprobar).`}
-          confirmText="Eliminar" danger
-          onCancel={() => setConfirmDel(false)}
-          onConfirm={() => { setConfirmDel(false); void run(() => eliminarSalidaTemporal(sol), 'Salida temporal eliminada'); }}
-        />
+        <EnviarRegistroPapelera nombre={`Salida temporal ${sol.codigo}`} onClose={() => setConfirmDel(false)}
+          onConfirm={async (motivo) => {
+            await eliminarSalidaTemporal(sol, motivo);
+            toast('Salida temporal enviada a la papelera', 'success');
+            onChanged();
+          }} />
       )}
     </ModalUI>
   );
