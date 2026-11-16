@@ -26,7 +26,9 @@ import { notify } from '@/shared/lib/notify';
 import { bustCache } from '@/shared/lib/queryCache';
 import { money, num } from '@/shared/lib/format';
 import type { Almacen, Existencia, Producto } from '@/shared/lib/types';
-import { actualizarAlmacen, crearAlmacen, eliminarAlmacen, getExistencia, listAlmacenes, listExistencias, renombrarSede, type AlmacenInput } from './almacenes.repository';
+import { actualizarAlmacen, crearAlmacen, getExistencia, listAlmacenes, listExistencias, renombrarSede, type AlmacenInput } from './almacenes.repository';
+import { BotonPapeleraRegistros } from '@/shared/ui/PapeleraRegistros';
+import { cambiarPapeleraAlmacen, papeleraAlmacenes } from './papeleraAlmacenes.repository';
 import { listProductos, type Espacio } from './inventario.repository';
 import { transferir } from './movimientos.repository';
 import { AlmacenForm } from './AlmacenForm';
@@ -92,9 +94,9 @@ export function GestionAlmacenesModal({ espacio, actor, actorName, canFull, onCl
   }
   useEffect(() => { void cargar(); }, []);
 
-  async function despuesDeCambiar(msg: string) {
+  async function despuesDeCambiar(msg?: string) {
     bustCache(['almacenes', 'existencias', 'productos', 'movimientos']);
-    notify(msg, 'success', { link: espacio === 'deposito' ? '#/app/deposito' : '#/app/inventario' });
+    if (msg) notify(msg, 'success', { link: espacio === 'deposito' ? '#/app/deposito' : '#/app/inventario' });
     await cargar();
     await onChanged();
   }
@@ -174,6 +176,8 @@ export function GestionAlmacenesModal({ espacio, actor, actorName, canFull, onCl
       <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginBottom: '.6rem', flexWrap: 'wrap' }}>
         <input className="input" placeholder="🔎 Buscar almacén, sección o sede…" value={filtro} onChange={(e) => setFiltro(e.target.value)} style={{ maxWidth: 320 }} />
         <span className="muted" style={{ fontSize: '.78rem' }}>{almacenes.length} almacén(es) · {sedes.length} sede(s)</span>
+        <BotonPapeleraRegistros acciones={papeleraAlmacenes[espacio === 'deposito' ? 'deposito' : 'inventario']}
+          onChanged={() => void despuesDeCambiar()} />
       </div>
 
       {loading ? <EmptyState message="Cargando almacenes…" icon="◔" /> : !almacenes.length ? (
@@ -318,13 +322,15 @@ function CerrarAlmacenPanel({ almacen, almacenes, existencias, productos, canFul
     .sort((x, y) => (x.sede ?? '').localeCompare(y.sede ?? '') || x.nombre.localeCompare(y.nombre, 'es'));
   const [destino, setDestino] = useState('');
   const [texto, setTexto] = useState('');
+  const [motivo, setMotivo] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const nombreOk = texto.trim() !== '' && normalizar(texto) === normalizar(almacen.nombre);
   const bloqueadoPorHijos = hijos.length > 0;
   const requiereMover = conStock.length > 0;
   const requiereDestino = requiereMover || conHogar.length > 0;
-  const puede = !bloqueadoPorHijos && nombreOk && (!requiereDestino || (!requiereMover && !!destino) || (canFull && !!destino));
+  const puede = !bloqueadoPorHijos && nombreOk && motivo.trim().length >= 5
+    && (!requiereDestino || (!requiereMover && !!destino) || (canFull && !!destino));
 
   async function confirmar() {
     if (!puede) return;
@@ -348,11 +354,11 @@ function CerrarAlmacenPanel({ almacen, almacenes, existencias, productos, canFul
           });
         }
       }
-      setBusy('Eliminando almacén…');
-      await eliminarAlmacen(almacen.id, almacen.nombre, destino || null);
+      setBusy('Archivando almacén…');
+      await cambiarPapeleraAlmacen(almacen.id, motivo.trim(), destino || null);
       await onDone(requiereMover
         ? `Almacén ${almacen.nombre} cerrado: ${conStock.length} producto(s) movidos a ${destino}`
-        : `Almacén eliminado: ${almacen.nombre}`);
+        : `Almacén enviado a la papelera: ${almacen.nombre}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo cerrar el almacén');
       setBusy(null);
@@ -363,11 +369,11 @@ function CerrarAlmacenPanel({ almacen, almacenes, existencias, productos, canFul
   }
 
   return (
-    <Modal title={requiereMover ? `Cerrar almacén · ${almacen.nombre}` : `Eliminar almacén · ${almacen.nombre}`} size="md" onClose={() => { if (!busy) onClose(); }} footer={
+    <Modal title={requiereMover ? `Cerrar almacén · ${almacen.nombre}` : `Archivar almacén · ${almacen.nombre}`} size="md" onClose={() => { if (!busy) onClose(); }} footer={
       <>
         <button className="btn btn-ghost" onClick={onClose} disabled={!!busy}>Cancelar</button>
         <button className="btn btn-danger" disabled={!puede || !!busy} onClick={() => void confirmar()}>
-          {busy ?? (requiereMover ? 'Mover el stock y eliminar' : 'Eliminar definitivamente')}
+          {busy ?? (requiereMover ? 'Trasladar stock y archivar' : 'Enviar a la papelera')}
         </button>
       </>
     }>
@@ -383,7 +389,7 @@ function CerrarAlmacenPanel({ almacen, almacenes, existencias, productos, canFul
           <div className="card" style={{ borderColor: canFull ? 'var(--warning)' : 'var(--danger)', marginBottom: '.6rem', fontSize: '.85rem' }}>
             Este almacén tiene <strong>{conStock.length} producto(s)</strong> con <strong>{num(unidades)} unidades</strong> en stock.
             {canFull
-              ? <> Para cerrarlo, el stock se <strong>traslada</strong> a otro almacén (cada producto queda en el kardex como transferencia) y después se elimina.</>
+              ? <> Para cerrarlo, el stock se <strong>traslada</strong> a otro almacén y luego se archiva. Los traslados quedan registrados en el kardex.</>
               : <> Solo un usuario con <strong>permiso completo de este módulo</strong> puede cerrarlo moviendo el stock. Pedíselo, o trasladá el stock desde Salidas → Traslados y volvé.</>}
           </div>
           {canFull && (
@@ -415,7 +421,7 @@ function CerrarAlmacenPanel({ almacen, almacenes, existencias, productos, canFul
         </>
       ) : (
         <p style={{ marginTop: 0, fontSize: '.85rem' }}>
-          El almacén está vacío (sin stock). Se elimina de la lista; su historial en el kardex se conserva con el nombre <strong>{almacen.nombre}</strong>. <strong>Esta acción no se puede deshacer.</strong>
+          El almacén está vacío. Puedes recuperarlo desde la papelera. Su historial permanece en el kardex.
         </p>
       )}
 
@@ -441,6 +447,8 @@ function CerrarAlmacenPanel({ almacen, almacenes, existencias, productos, canFul
           <label>Para confirmar, escribí <strong>{almacen.nombre}</strong></label>
           <input className="input" value={texto} placeholder={almacen.nombre} onChange={(e) => setTexto(e.target.value)} disabled={!!busy} />
           {texto.trim() !== '' && !nombreOk && <small style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>}
+          <label>Motivo del archivo</label>
+          <textarea className="textarea" value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={500} disabled={!!busy} />
         </div>
       )}
     </Modal>

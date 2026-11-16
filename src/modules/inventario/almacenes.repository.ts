@@ -170,45 +170,6 @@ export async function renombrarSede(actual: string | null, nuevo: string): Promi
   if (error) throw error;
 }
 
-export async function eliminarAlmacen(id: string, nombre: string, reasignarProductosA?: string | null): Promise<void> {
-  // Bloquea si hay existencias con stock en este almacén.
-  const { data, error: cErr } = await supabase
-    .from('existencias')
-    .select('stock')
-    .eq('almacen', nombre)
-    .gt('stock', 0);
-  if (cErr) throw cErr;
-  if ((data ?? []).length > 0) {
-    throw new Error(`No se puede eliminar: hay ${(data ?? []).length} producto(s) con stock en este almacén`);
-  }
-  // Bloquea si tiene subalmacenes: primero hay que moverlos o eliminarlos.
-  const { data: hijos, error: hErr } = await supabase.from(TABLE).select('id').eq('parent_id', id);
-  if (hErr) throw hErr;
-  if ((hijos ?? []).length > 0) {
-    throw new Error(`No se puede eliminar: este almacén tiene ${(hijos ?? []).length} subalmacén(es). Eliminá o reasigná los subalmacenes primero.`);
-  }
-  // Productos cuyo almacén "hogar" (productos.almacen, texto) es este: si quedan apuntando al
-  // nombre borrado, el almacén reaparece en los desplegables (getNombresAlmacenes los junta) y
-  // el producto queda anclado a un almacén inexistente. Se reasignan al destino elegido.
-  const { data: hogar, error: pErr } = await supabase.from('productos').select('id').eq('almacen', nombre);
-  if (pErr) throw pErr;
-  const nHogar = (hogar ?? []).length;
-  if (nHogar > 0) {
-    const destino = (reasignarProductosA ?? '').trim();
-    if (!destino) {
-      throw new Error(`No se puede eliminar: ${nHogar} producto(s) tienen a «${nombre}» como su almacén principal. Elegí a qué almacén se reasignan.`);
-    }
-    const { error: rErr } = await supabase.from('productos').update({ almacen: destino, updated_at: new Date().toISOString() }).eq('almacen', nombre);
-    if (rErr) throw rErr;
-  }
-  // Filas de existencias en 0 (fantasmas) que apuntan a este nombre: se limpian para que el
-  // almacén no reaparezca en las vistas por sede después de borrado.
-  const { error: fErr } = await supabase.from('existencias').delete().eq('almacen', nombre).lte('stock', 0);
-  if (fErr) throw fErr;
-  const { error } = await supabase.from(TABLE).delete().eq('id', id);
-  if (error) throw error;
-}
-
 /** Todas las existencias (stock + costo por almacén). */
 export async function listExistencias(): Promise<Existencia[]> {
   // Cacheada (SWR) con TTL corto: el stock cambia seguido, pero realtime

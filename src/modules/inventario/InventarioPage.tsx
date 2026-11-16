@@ -5,6 +5,9 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
+import { EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
+import { bustCache } from '@/shared/lib/queryCache';
+import { cambiarPapeleraAlmacen } from './papeleraAlmacenes.repository';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
@@ -81,7 +84,6 @@ import {
   crearAlmacen,
   crearExistenciaInicial,
   actualizarAlmacen,
-  eliminarAlmacen,
   renombrarSede,
   nombreCortoAlmacen,
   type AlmacenInput,
@@ -812,17 +814,13 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
     await reload();
   }
 
-  async function handleEliminarAlmacen(a: Almacen) {
-    try {
-      await eliminarAlmacen(a.id, a.nombre);
-      notify(`Almacén eliminado: ${a.nombre}`, 'success', { link: basePath });
-      if (almacenSel === a.nombre) setAlmacenSel(null);
-      await reload();
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'No se pudo eliminar el almacén', 'error');
-    } finally {
-      setModal({ kind: 'none' });
-    }
+  async function handleEliminarAlmacen(a: Almacen, motivo: string) {
+    await cambiarPapeleraAlmacen(a.id, motivo);
+    bustCache(['almacenes', 'existencias', 'productos']);
+    notify(`Almacén enviado a la papelera: ${a.nombre}`, 'success', { link: basePath });
+    if (almacenSel === a.nombre) setAlmacenSel(null);
+    setModal({ kind: 'none' });
+    await reload();
   }
 
   // ─── render ───
@@ -1504,10 +1502,10 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
         />
       )}
       {modal.kind === 'almacenEliminar' && (
-        <EliminarAlmacenDialog
-          almacen={modal.almacen}
-          onCancel={() => setModal({ kind: 'none' })}
-          onConfirm={() => handleEliminarAlmacen(modal.almacen)}
+        <EnviarRegistroPapelera nombre={modal.almacen.nombre} conAdjuntos={false}
+          aviso="Para archivar un almacén con productos asignados, abre Gestión de almacenes."
+          onClose={() => setModal({ kind: 'none' })}
+          onConfirm={(motivo) => handleEliminarAlmacen(modal.almacen, motivo)}
         />
       )}
       {modal.kind === 'gestionAlmacenes' && (
@@ -1684,48 +1682,6 @@ function normalizarTexto(s: string): string {
 }
 /** Palabra a escribir para confirmar: el nombre sin el prefijo genérico
  *  (ej. "Almacén de Víveres" → "Víveres"; si no hay prefijo, el nombre completo). */
-function palabraClaveAlmacen(nombre: string): string {
-  const m = (nombre || '').trim().match(/^(?:almac[eé]n|dep[oó]sito|bodega)\s+(?:de\s+)?(.+)$/i);
-  return (m ? m[1] : nombre || '').trim();
-}
-
-function EliminarAlmacenDialog({ almacen, onCancel, onConfirm }: {
-  almacen: Almacen; onCancel: () => void; onConfirm: () => void;
-}) {
-  const clave = palabraClaveAlmacen(almacen.nombre);
-  const [texto, setTexto] = useState('');
-  const ok = texto.trim() !== '' && normalizarTexto(texto) === normalizarTexto(clave);
-  return (
-    <Modal title="Eliminar almacén" size="md" onClose={onCancel} footer={
-      <>
-        <button className="btn btn-ghost" onClick={onCancel}>Cancelar</button>
-        <button className="btn btn-danger" disabled={!ok} onClick={() => { if (ok) onConfirm(); }}>
-          Eliminar definitivamente
-        </button>
-      </>
-    }>
-      <p style={{ marginTop: 0 }}>
-        ¿Seguro que deseas borrar el almacén <strong>«{almacen.nombre}»</strong>? Solo se puede si no tiene
-        productos asignados. <strong>Esta acción no se puede deshacer.</strong>
-      </p>
-      <div className="form-row">
-        <label>Para confirmar, escribí <strong>{clave}</strong></label>
-        <input
-          className="input"
-          autoFocus
-          value={texto}
-          placeholder={clave}
-          onChange={(e) => setTexto(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter' && ok) onConfirm(); }}
-        />
-        {texto.trim() !== '' && !ok && (
-          <small className="hint muted" style={{ color: 'var(--danger)' }}>El nombre no coincide.</small>
-        )}
-      </div>
-    </Modal>
-  );
-}
-
 /* ───────── Renombrar sede (se aplica a todos los almacenes de esa sede) ───────── */
 function SedeRenameModal({ sede, onClose, onSaved }: {
   sede: string; onClose: () => void; onSaved: () => void | Promise<void>;
