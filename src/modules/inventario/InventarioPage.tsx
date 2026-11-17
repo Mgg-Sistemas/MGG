@@ -111,6 +111,9 @@ const INITIAL_UI: UiState = {
   filterAlmacen: '',
 };
 
+/** Pre-salidas: listo pero oculto hasta que se pida activar en producción. */
+const MOSTRAR_PRESALIDAS = false;
+
 /** Predicado de filtros compartido por inventario general y el detalle de almacén. */
 function coincideFiltros(p: ProductoDecorado, ui: UiState): boolean {
   const q = ui.filterText.trim().toLowerCase();
@@ -942,13 +945,15 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen' })} title="Resumen de inventario: almacenes, productos nuevos, salidas y traslados">
             📊 Resumen
           </button>
-          <button
-            className="btn btn-ghost"
-            onClick={() => setModal({ kind: 'presalidas' })}
-            title="Borradores de pre-salida para pedir autorización por WhatsApp"
-          >
-            ⏳ Pre-salidas {conteoPresalidas > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{conteoPresalidas}</span>}
-          </button>
+          {MOSTRAR_PRESALIDAS && (
+            <button
+              className="btn btn-ghost"
+              onClick={() => setModal({ kind: 'presalidas' })}
+              title="Borradores de pre-salida para pedir autorización por WhatsApp"
+            >
+              ⏳ Pre-salidas {conteoPresalidas > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{conteoPresalidas}</span>}
+            </button>
+          )}
           {/* 10/11/2026: lo que Golden Touch envió a Los Pinos por el puente (se confirma aquí). */}
           <MaterialGtPorRecibir actor={productoActor} actorName={actorName} canWrite={canWrite} />
           {/* Cola de valuación: solo aparece si hay algo pendiente, y desaparece al vaciarse. */}
