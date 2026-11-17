@@ -176,7 +176,7 @@ export function ChoferesPage() {
           <span className="aviso-icono">⚠</span>
           <div>
             <strong>El módulo todavía no está instalado en la base de datos.</strong> Hay que ejecutar el archivo
-            <code> supabase/sql/choferes-modulo.sql</code> en el editor SQL de Supabase (crea las tablas, las reglas de acceso y el tiempo real). Después, recarga esta página.
+            <code> supabase/sql/choferes/choferes-modulo.sql</code> en el editor SQL de Supabase (crea las tablas, las reglas de acceso y el tiempo real). Después, recarga esta página.
           </div>
         </div>
       )}

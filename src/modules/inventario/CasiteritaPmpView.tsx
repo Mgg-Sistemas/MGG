@@ -86,7 +86,7 @@ export function CasiteritaPmpView({ actorName, canWrite, esAdmin = false, onClos
 
       {sinTablas ? (
         <div className="card" style={{ borderLeft: '3px solid var(--warning)' }}>
-          <strong>Falta preparar la base.</strong> Corre en Supabase <span className="mono">supabase/sql/casiterita-pmp-fase1-libro.sql</span> (crea el libro) y después la semilla con los movimientos del Excel.
+          <strong>Falta preparar la base.</strong> Corre en Supabase <span className="mono">supabase/sql/inventario/casiterita-pmp-fase1-libro.sql</span> (crea el libro) y después la semilla con los movimientos del Excel.
         </div>
       ) : error ? (
         <div className="card" style={{ borderColor: 'var(--danger)' }}><strong>Error:</strong> {error}</div>

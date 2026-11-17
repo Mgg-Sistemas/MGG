@@ -194,7 +194,7 @@ export interface CajaDestino {
 
 /* ───────────── Errores ───────────── */
 
-/** La base todavía no tiene las tablas del módulo (falta correr `supabase/sql/choferes-modulo.sql`). */
+/** La base todavía no tiene las tablas del módulo (falta correr `supabase/sql/choferes/choferes-modulo.sql`). */
 export function esTablaFaltante(e: unknown): boolean {
   const o = (e ?? {}) as { code?: string; message?: string };
   const m = String(o.message ?? '');
@@ -202,7 +202,7 @@ export function esTablaFaltante(e: unknown): boolean {
 }
 
 function err(e: unknown, respaldo: string): Error {
-  if (esTablaFaltante(e)) return new Error('El módulo de Choferes todavía no está instalado en la base: hay que ejecutar supabase/sql/choferes-modulo.sql.');
+  if (esTablaFaltante(e)) return new Error('El módulo de Choferes todavía no está instalado en la base: hay que ejecutar supabase/sql/choferes/choferes-modulo.sql.');
   return new Error(textoDeError(e, respaldo));
 }
 

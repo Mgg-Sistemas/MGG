@@ -3,7 +3,7 @@
 
    El stock se mueve como en todo MGG (registrarMovimiento / transferir);
    la salida con retorno se guarda en `inventario_salidas_telefono` por las
-   funciones de supabase/sql/inventario-telefono-2026-10-29.sql. Nada es
+   funciones de supabase/sql/inventario/inventario-telefono-2026-10-29.sql. Nada es
    transaccional desde el navegador, así que cada paso que falla después de
    mover stock se COMPENSA (igual que `transferir`).
    ============================================================ */

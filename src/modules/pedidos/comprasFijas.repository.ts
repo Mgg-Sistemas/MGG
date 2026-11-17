@@ -1,7 +1,7 @@
 /* ============================================================
    MGG · Compras FIJAS (12-11-2026, de Golden Touch) · base de datos.
    Tabla compras_fijas + compra_fija_id en ordenes y compras_directas
-   (supabase/sql/compras-fijas-2026-11-12.sql).
+   (supabase/sql/pedidos/compras-fijas-2026-11-12.sql).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { ItemOrden, Orden } from '@/shared/lib/types';
@@ -10,7 +10,7 @@ import { siguienteFecha, type CompraFija, type ProductoFijo } from './comprasFij
 
 const TABLE = 'compras_fijas';
 export const MSG_FALTA_SQL_COMPRAS_FIJAS =
-  'Falta aplicar en Supabase el SQL supabase/sql/compras-fijas-2026-11-12.sql (Compras fijas).';
+  'Falta aplicar en Supabase el SQL supabase/sql/pedidos/compras-fijas-2026-11-12.sql (Compras fijas).';
 
 const faltaSql = (e: { code?: string; message?: string } | null | undefined) =>
   !!e && (e.code === '42P01' || e.code === 'PGRST205' || e.code === '42703' || e.code === 'PGRST204'

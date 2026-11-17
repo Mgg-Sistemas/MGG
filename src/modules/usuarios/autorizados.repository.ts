@@ -1,6 +1,6 @@
 /* ============================================================
    MGG · Usuarios autorizados (acceso a Supabase)
-   Tabla `usuarios_autorizados` (ver supabase/sql/usuarios-autorizados-aprobacion-2026-10-28.sql).
+   Tabla `usuarios_autorizados` (ver supabase/sql/usuarios/usuarios-autorizados-aprobacion-2026-10-28.sql).
    ============================================================ */
 import { useEffect, useSyncExternalStore } from 'react';
 import { supabase } from '@/shared/lib/supabase';
