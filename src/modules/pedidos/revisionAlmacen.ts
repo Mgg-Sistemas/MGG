@@ -28,7 +28,7 @@ export interface SedeRevision {
 /**
  * Las sedes cuyo almacén confirma la SP, en el ORDEN en que se reparte la entrega
  * (Los Pinos primero). Para sumar La Esperanza: agregarla acá y en
- * `public.almacen_sedes_revision()` (supabase/sql/compras-revision-almacen-sedes-2026-10-30.sql).
+ * `public.almacen_sedes_revision()` (supabase/sql/pedidos/compras-revision-almacen-sedes-2026-10-30.sql).
  */
 export const SEDES_REVISION_ALMACEN: readonly SedeRevision[] = [
   { sede: 'LOS PINOS', etiqueta: 'Los Pinos' },

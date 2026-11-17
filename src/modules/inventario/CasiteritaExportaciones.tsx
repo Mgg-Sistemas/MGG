@@ -62,7 +62,7 @@ export function ExportacionesCasiterita({ filas, canWrite, hasta = null, onCambi
   if (sinTablas) {
     return (
       <div className="card" style={{ borderLeft: '3px solid var(--warning)' }}>
-        <strong>Falta preparar la base.</strong> Corre en Supabase <span className="mono">supabase/sql/casiterita-pmp-fase3-exportaciones.sql</span> y después su semilla con las exportaciones del Excel.
+        <strong>Falta preparar la base.</strong> Corre en Supabase <span className="mono">supabase/sql/inventario/casiterita-pmp-fase3-exportaciones.sql</span> y después su semilla con las exportaciones del Excel.
       </div>
     );
   }

@@ -103,7 +103,7 @@ export function DocumentosConductorModal({ conductor, documentos, sinInstalar, c
     </>}>
       {sinInstalar && (
         <div className="aviso warning" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⚠</span>
-          <div><strong>Los documentos todavía no están instalados en la base.</strong> Hay que ejecutar <code>supabase/sql/choferes-documentos.sql</code> en el editor SQL de Supabase y recargar.</div></div>
+          <div><strong>Los documentos todavía no están instalados en la base.</strong> Hay que ejecutar <code>supabase/sql/choferes/choferes-documentos.sql</code> en el editor SQL de Supabase y recargar.</div></div>
       )}
       <p className="muted" style={{ fontSize: '.82rem', marginTop: 0 }}>
         Cada subida reemplaza al documento vigente de su tipo y guarda el anterior en el histórico, con fecha y quién lo subió. Si pones la fecha de vencimiento, se actualiza también en el expediente.

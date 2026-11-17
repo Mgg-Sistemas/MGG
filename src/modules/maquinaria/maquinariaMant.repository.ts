@@ -63,7 +63,7 @@ export interface MantenimientoMaquinaria {
   actor_name: string | null;
   created_at: string;
   /** 12-11-2026: varios tipos en un mismo registro (el primero también va en `tipo`).
-   *  Columnas de supabase/sql/maquinaria-entregas-almacen-2026-11-12.sql: sin ella no vienen. */
+   *  Columnas de supabase/sql/inventario/maquinaria-entregas-almacen-2026-11-12.sql: sin ella no vienen. */
   tipos?: string[] | null;
   /** 12-11-2026: fotos del mantenimiento (bucket maquinaria-os-fotos, carpeta bitacora/). */
   fotos?: { path: string; filename: string }[] | null;

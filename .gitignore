@@ -47,3 +47,4 @@ supabase/.branches/
 *backup*.sql
 *.dump
 !supabase/sql/*.sql
+!supabase/sql/**/*.sql

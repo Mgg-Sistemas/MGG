@@ -6,7 +6,7 @@
    marca la retención hecha con la RPC `compras_marcar_retencion` (security
    definer: valida permiso y que la 'despues' ya esté pagada). La retención NO
    frena el pago (01-11-2026): una 'antes' ya pagada sigue en su cola.
-   Ver supabase/sql/compras-retencion-momento-2026-10-30.sql.
+   Ver supabase/sql/pedidos/compras-retencion-momento-2026-10-30.sql.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { Orden } from '@/shared/lib/types';

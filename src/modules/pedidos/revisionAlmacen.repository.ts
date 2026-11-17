@@ -10,7 +10,7 @@
    definer): solo toca SP en `revision_almacen`, solo quien escribe en
    Inventario o en Salidas, y cada almacenista responde por SU sede (30-10:
    Los Pinos y Matanza confirman por separado; cuando confirman todos, la base
-   reparte y cierra). Ver supabase/sql/compras-revision-almacen-sedes-2026-10-30.sql.
+   reparte y cierra). Ver supabase/sql/pedidos/compras-revision-almacen-sedes-2026-10-30.sql.
    ============================================================ */
 import { useEffect, useState } from 'react';
 import { supabase } from '@/shared/lib/supabase';

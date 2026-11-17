@@ -201,7 +201,7 @@ export function AsignacionesPage() {
           <span className="aviso-icono">⚠</span>
           <div>
             <strong>Las actas de entrega todavía no están instaladas en la base.</strong> Hay que ejecutar
-            <code> supabase/sql/asignaciones-actas.sql</code> en el editor SQL de Supabase y recargar. Mientras, las asignaciones se registran sin número de acta ni fotos.
+            <code> supabase/sql/asignaciones/asignaciones-actas.sql</code> en el editor SQL de Supabase y recargar. Mientras, las asignaciones se registran sin número de acta ni fotos.
           </div>
         </div>
       )}

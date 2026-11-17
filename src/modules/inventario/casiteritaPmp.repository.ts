@@ -1,7 +1,7 @@
 /* ============================================================
    MGG · Los Pinos · Casiterita — Libro de promedios: lectura y escritura.
    Tablas: casiterita_libro, casiterita_procedencias_pmp
-   (supabase/sql/casiterita-pmp-fase1-libro.sql).
+   (supabase/sql/inventario/casiterita-pmp-fase1-libro.sql).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import type { CierreMesPmp, CierreRecepcionPmp, ColadaCas, ConteoPmp, ExportacionCas, LoteCas, MovPmp, NuevoMovPmp, ProcedenciaPmp } from './casiteritaPmp';

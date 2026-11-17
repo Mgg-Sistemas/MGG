@@ -6,7 +6,7 @@
    palabras de categoría y/o una lista fija), quién solicita y si va por
    Solicitud de Pedido (cotización → OC) o por Compra directa.
    «Generar» arma la solicitud con las cantidades de la ÚLTIMA vez que se
-   generó esa misma plantilla (supabase/sql/compras-fijas-2026-11-12.sql).
+   generó esa misma plantilla (supabase/sql/pedidos/compras-fijas-2026-11-12.sql).
    MGG: solo MERCADO viene lista. Las demás (Carnes, Pollo, Papelería) llegan como
    SUGERENCIA: se ven en el tablero, pero no avisan ni se generan hasta que Compras
    las configura (frecuencia, productos, fecha) y las guarda.
