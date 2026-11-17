@@ -10,13 +10,15 @@
    - Consultar marcas de filtros (Donaldson, Fleetguard, OEM)
    - Envío inmediato de reportes por WhatsApp de CADA movimiento
    ============================================================ */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
+import { playNotificationSound } from '@/shared/lib/sound';
+import { emitirWebPush } from '@/shared/lib/webpush';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
@@ -228,6 +230,36 @@ export function MaquinariaMovilView() {
     }
     return out;
   }, [equipos, infoEquipos]);
+
+  // Alerta sonora y push nativo al vencer el mantenimiento de un equipo
+  const prevVencidosRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (loading) return;
+    const vencidos = alertasMant.filter((a) => a.aviso.nivel === 'vencido');
+    const ids = vencidos.map((v) => v.equipo.id);
+    if (prevVencidosRef.current !== null) {
+      const nuevos = vencidos.filter((v) => !prevVencidosRef.current!.has(v.equipo.id));
+      if (nuevos.length > 0) {
+        const primero = nuevos[0];
+        const titulo = '🚨 Maquinaria: Servicio Vencido';
+        const cuerpo = nuevos.length === 1
+          ? `${primero.equipo.equipo}${primero.equipo.placa ? ` (${primero.equipo.placa})` : ''}: servicio vencido por +${fmtNum(Math.abs(primero.aviso.restante))} ${primero.aviso.unidad}.`
+          : `Hay ${nuevos.length} equipos con servicio de mantenimiento vencido.`;
+
+        try { playNotificationSound(); } catch { /* ignore */ }
+        void emitirWebPush({
+          modulo: 'maquinaria',
+          titulo,
+          cuerpo,
+          url: '/app/maquinaria/telefono',
+          tag: `mgg-maq-${primero.equipo.id}`,
+          vibrar: true,
+        });
+        toast(cuerpo, 'warning');
+      }
+    }
+    prevVencidosRef.current = new Set(ids);
+  }, [loading, alertasMant]);
 
   // Al elegir equipo, cargar sus repuestos/filtros
   useEffect(() => {
