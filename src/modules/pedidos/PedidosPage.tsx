@@ -6041,8 +6041,8 @@ function CrearOrdenModal({
           <strong>🔁 Compra fija · {compraFija.nombre}</strong>
           <span className="muted" style={{ fontSize: '.8rem' }}>
             {' '}· {fijaPrevio
-              ? <>cantidades de la última vez: <strong className="mono">{fijaPrevio.codigo}</strong> ({dateTime(fijaPrevio.fecha)})</>
-              : 'primera vez: cantidades de la plantilla'}. Son editables.
+              ? <>materiales establecidos (ref. previa <strong className="mono">{fijaPrevio.codigo}</strong> {dateTime(fijaPrevio.fecha)})</>
+              : 'materiales establecidos en la plantilla'}. Son editables.
           </span>
         </div>
       )}

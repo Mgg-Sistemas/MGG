@@ -31,16 +31,46 @@ describe('compras fijas', () => {
     expect(textoFrecuencia({ frecuencia: 'cada_dias', cada_dias: 20 })).toBe('Cada 20 días');
   });
 
-  it('arma los renglones por categoría y lista fija, con las cantidades de la última vez', () => {
+  it('arma los renglones por categoría y lista fija, sin traer productos ajenos de compras previas', () => {
     expect(entraPorCategoria('PAPELERÍA Y OFICINA', ['papeleria'])).toBe(true);
     const productos = [prod('1', 'PAPELERIA'), prod('2', 'LIMPIEZA'), prod('3', 'FERRETERIA'), prod('4', 'PAPELERIA', 'inactivo'), prod('5', 'OTROS')];
+    // Supongamos que en compras previas existían el producto 1 y el producto 5
     const previas = cantidadesPrevias([{ productoId: '1', sku: 'SKU-1', cantidad: 6 }, { productoId: '5', sku: 'SKU-5', cantidad: 2 }]);
     const r = renglonesDePlantilla({
       categorias: ['papel'], finalidad: 'COMPRA FIJA',
       productos: [{ producto_id: '3', sku: 'SKU-3', nombre: 'P3', unidad: 'UND', cantidad: 4 }],
     }, productos, previas);
-    expect(r.map((x) => [x.productoId, x.cantidad])).toEqual([['3', 4], ['1', 6], ['5', 2]]);
+    // Solo entran P3 (fijo) y P1 (por categoría papel). P5 (OTROS) fue de compras previas pero no pertenece a la plantilla
+    expect(r.map((x) => [x.productoId, x.cantidad])).toEqual([['3', 4], ['1', 6]]);
+    expect(r.some((x) => x.productoId === '5')).toBe(false);
     expect(r[0].finalidad).toBe('COMPRA FIJA');
+  });
+
+  it('respeta la lista de materiales establecida en la plantilla y no toma compras previas ajenas', () => {
+    const productos = [
+      prod('10', 'HERRAMIENTAS'),
+      prod('20', 'ELECTRICIDAD'),
+      prod('30', 'LUBRICANTES'),
+      prod('40', 'FILTROS'),
+    ];
+    // En compras previas hubo productos 30 y 40
+    const previas = cantidadesPrevias([
+      { productoId: '30', sku: 'SKU-30', cantidad: 15 },
+      { productoId: '40', sku: 'SKU-40', cantidad: 8 },
+    ]);
+    // El usuario configuró únicamente una lista fija de materiales: 10 y 20
+    const r = renglonesDePlantilla({
+      categorias: [],
+      productos: [
+        { producto_id: '10', sku: 'SKU-10', nombre: 'P10', unidad: 'UND', cantidad: 2 },
+        { producto_id: '20', sku: 'SKU-20', nombre: 'P20', unidad: 'UND', cantidad: 5 },
+      ],
+    }, productos, previas);
+
+    // Solo toma los materiales establecidos en la lista (10 y 20) con sus cantidades configuradas
+    expect(r.map((x) => [x.productoId, x.cantidad])).toEqual([['10', 2], ['20', 5]]);
+    expect(r.some((x) => x.productoId === '30')).toBe(false);
+    expect(r.some((x) => x.productoId === '40')).toBe(false);
   });
 
   it('valida la plantilla', () => {

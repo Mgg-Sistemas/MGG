@@ -394,7 +394,7 @@ function EditorCompraFija({ inicial, id, productos, proveedores, onProductoCread
               <button className="btn btn-ghost btn-sm" aria-label={`Quitar ${f.nombre}`} onClick={() => set('productos', d.productos.filter((_, j) => j !== i))}>✕</button>
             </div>
           ))}
-          <small className="muted">La cantidad de aquí se usa solo la primera vez; después sale la de la última compra.</small>
+          <small className="muted">Cantidad establecida para cada material. Si agregas categorías, los productos que entren por categoría tomarán la cantidad de la última compra.</small>
         </div>
       </div>
       <div className="form-row" style={{ marginTop: '.6rem' }}>

@@ -85,9 +85,14 @@ export async function marcarCompraFijaGenerada(c: CompraFija, ref: { tipo: 'orde
 
 /** Los renglones de la última vez que se generó esta plantilla (solicitud o compra directa). */
 export async function ultimosItemsDe(c: CompraFija): Promise<{ items: Array<Pick<ItemOrden, 'productoId' | 'sku' | 'cantidad'>>; codigo: string | null; fecha: string | null }> {
+  if (!c?.id) return { items: [], codigo: null, fecha: null };
   const [o, cd] = await Promise.all([
-    supabase.from('ordenes').select('codigo, items, created_at').eq('compra_fija_id', c.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
-    supabase.from('compras_directas').select('codigo, items, created_at').eq('compra_fija_id', c.id).order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('ordenes').select('codigo, items, created_at, estado').eq('compra_fija_id', c.id)
+      .not('estado', 'in', '(cancelada,anulada,desistida_proveedor)')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle(),
+    supabase.from('compras_directas').select('codigo, items, created_at, estado').eq('compra_fija_id', c.id)
+      .not('estado', 'in', '(cancelada,anulada)')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle(),
   ]);
   type FilaO = { codigo: string; items: ItemOrden[] | null; created_at: string };
   type FilaCd = { codigo: string | null; items: Array<{ producto_id: string; producto_sku: string | null; cantidad: number }> | null; created_at: string };
