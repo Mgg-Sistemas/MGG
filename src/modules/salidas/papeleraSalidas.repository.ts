@@ -3,7 +3,7 @@ import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { textoDeError } from '@/shared/lib/errores';
 import type { AccionesPapelera } from '@/shared/ui/PapeleraRegistros';
 
-type Tabla = 'solicitudes_salida_temporal' | 'salidas_choferes' | 'salidas_vehiculos';
+type Tabla = 'solicitudes_salida' | 'solicitudes_salida_temporal' | 'salidas_choferes' | 'salidas_vehiculos';
 export const BUCKET_SALIDAS_ADJUNTOS = 'salidas-adjuntos';
 
 async function cambiar(tabla: string, id: string, motivo?: string) {

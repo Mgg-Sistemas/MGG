@@ -540,7 +540,7 @@ export async function aprobarSolicitudSalida(s: SolicitudSalida, actor: string):
       aprobada_en: new Date().toISOString(),
       historial: appendHistorial(s, 'aprobada', actor),
     })
-    .eq('id', s.id);
+    .eq('id', s.id).eq('estado', 'por_aprobar').select('id').single();
   if (error) throw error;
 }
 
@@ -1139,6 +1139,6 @@ export async function cancelarSolicitudSalida(s: SolicitudSalida, actor: string,
       estado: 'cancelada',
       historial: appendHistorial(s, 'cancelada', actor, { motivo }),
     })
-    .eq('id', s.id);
+    .eq('id', s.id).eq('estado', s.estado).select('id').single();
   if (error) throw error;
 }

@@ -3,7 +3,7 @@ begin;
 do $$
 declare t text;
 begin
-  foreach t in array array['solicitudes_salida_temporal','salidas_choferes','salidas_vehiculos'] loop
+  foreach t in array array['solicitudes_salida','solicitudes_salida_temporal','salidas_choferes','salidas_vehiculos'] loop
     execute format('alter table public.%I add column if not exists eliminado_en timestamptz,
       add column if not exists eliminado_por uuid, add column if not exists eliminado_motivo text',t);
     execute format('revoke delete on public.%I from authenticated, anon',t);
@@ -27,6 +27,32 @@ drop policy if exists salidas_limpieza_lectura on public.salidas_adjuntos_por_va
 create policy salidas_limpieza_lectura on public.salidas_adjuntos_por_vaciar for select to authenticated
   using ((select public.puede_vaciar_papelera('salidas')));
 
+create or replace function public.salidas_solicitud_tiene_movimientos(p_id uuid)
+returns boolean language sql stable security definer set search_path='' as $$
+  select exists(select 1 from public.movimientos where ref_id=p_id::text and ref_tipo in ('salida_modulo','traslado_modulo'))
+    or exists(select 1 from public.maquinaria_ordenes_servicio where solicitud_salida_id=p_id)
+    or exists(select 1 from public.maquinaria_entregas_almacen where solicitud_salida_id=p_id);
+$$;
+revoke execute on function public.salidas_solicitud_tiene_movimientos(uuid) from public,anon,authenticated;
+
+create or replace function public.salidas_proteger_vinculo_maquinaria()
+returns trigger language plpgsql security definer set search_path='' as $$
+declare archivada timestamptz;
+begin
+  select eliminado_en into archivada from public.solicitudes_salida
+    where id=new.solicitud_salida_id for share;
+  if archivada is not null then raise exception 'La solicitud vinculada está en la papelera.'; end if;
+  return new;
+end;
+$$;
+revoke execute on function public.salidas_proteger_vinculo_maquinaria() from public,anon,authenticated;
+drop trigger if exists salidas_proteger_vinculo_maquinaria on public.maquinaria_ordenes_servicio;
+create trigger salidas_proteger_vinculo_maquinaria before insert or update of solicitud_salida_id
+  on public.maquinaria_ordenes_servicio for each row execute function public.salidas_proteger_vinculo_maquinaria();
+drop trigger if exists salidas_proteger_vinculo_maquinaria on public.maquinaria_entregas_almacen;
+create trigger salidas_proteger_vinculo_maquinaria before insert or update of solicitud_salida_id
+  on public.maquinaria_entregas_almacen for each row execute function public.salidas_proteger_vinculo_maquinaria();
+
 create or replace function public.salidas_papelera_cambiar(p_tabla text,p_id uuid,p_motivo text default null)
 returns void language plpgsql security definer set search_path='' as $$
 declare n integer;
@@ -34,7 +60,7 @@ begin
   if not public.puede_modulo('salidas','escritura') then
     raise exception 'Se requiere escritura en Salidas' using errcode='42501';
   end if;
-  if p_tabla is null or p_tabla not in ('solicitudes_salida_temporal','salidas_choferes','salidas_vehiculos') then
+  if p_tabla is null or p_tabla not in ('solicitudes_salida','solicitudes_salida_temporal','salidas_choferes','salidas_vehiculos') then
     raise exception 'Tipo de registro inválido' using errcode='22023';
   end if;
   if p_motivo is null then
@@ -50,10 +76,20 @@ begin
         on m.ref_codigo=s.codigo where s.id=p_id and m.ref_tipo='salida_temporal') then
         raise exception 'La solicitud ya tiene movimientos de inventario.';
       end if;
+    elsif p_tabla='solicitudes_salida' then
+      perform 1 from public.solicitudes_salida where id=p_id for update;
+      if public.salidas_solicitud_tiene_movimientos(p_id) then
+        raise exception 'La solicitud tiene movimientos o documentos vinculados.';
+      end if;
     end if;
     execute format('update public.%I set eliminado_en=now(),eliminado_por=auth.uid(),eliminado_motivo=trim($2)
       where id=$1 and eliminado_en is null%s',p_tabla,
-      case when p_tabla='solicitudes_salida_temporal' then ' and estado=''por_aprobar''' else '' end)
+      case
+        when p_tabla='solicitudes_salida_temporal' then ' and estado=''por_aprobar'''
+        when p_tabla='solicitudes_salida' then ' and estado in (''por_aprobar'',''cancelada'')
+          and aprobada_en is null and aprobada_por is null and not sin_autorizacion
+          and ejecutada_en is null and mov_id is null and cxc_id is null'
+        else '' end)
       using p_id,p_motivo;
   end if;
   get diagnostics n=row_count;
@@ -87,7 +123,11 @@ begin
     raise exception 'Se requiere lectura en Salidas' using errcode='42501';
   end if;
   return query select * from (
-    select 'solicitudes_salida_temporal:'||s.id,'Salida temporal · '||s.codigo,s.eliminado_en,s.eliminado_motivo
+    select 'solicitudes_salida:'||s.id,
+      concat_ws(' · ',case when s.scope='traslado' then 'Traslado' else 'Salida' end,s.codigo,s.solicitante),
+      s.eliminado_en,s.eliminado_motivo
+      from public.solicitudes_salida s where s.eliminado_en is not null
+    union all select 'solicitudes_salida_temporal:'||s.id,'Salida temporal · '||s.codigo,s.eliminado_en,s.eliminado_motivo
       from public.solicitudes_salida_temporal s where s.eliminado_en is not null
     union all select 'salidas_choferes:'||c.id,'Chofer · '||c.nombre,c.eliminado_en,c.eliminado_motivo
       from public.salidas_choferes c where c.eliminado_en is not null
@@ -104,15 +144,19 @@ begin
   if not public.puede_vaciar_papelera('salidas') then
     raise exception 'Falta el permiso Vaciar papelera en Salidas' using errcode='42501';
   end if;
-  foreach t in array array['solicitudes_salida_temporal','salidas_choferes','salidas_vehiculos'] loop
+  foreach t in array array['solicitudes_salida','solicitudes_salida_temporal','salidas_choferes','salidas_vehiculos'] loop
     select array_agg(split_part(i,':',2)::uuid) into ids from unnest(p_ids) i where split_part(i,':',1)=t;
     if ids is null then continue; end if;
-    if t='solicitudes_salida_temporal' then
-      perform 1 from public.solicitudes_salida_temporal where id=any(ids) and eliminado_en is not null for update;
-      insert into public.salidas_adjuntos_por_vaciar(ruta)
-      select a->>'path' from public.solicitudes_salida_temporal s cross join lateral jsonb_array_elements(s.adjuntos) a
-        where s.id=any(ids) and s.eliminado_en is not null and a->>'path' like s.id::text||'/%'
-        on conflict do nothing;
+    if t in ('solicitudes_salida','solicitudes_salida_temporal') then
+      execute format('select 1 from public.%I where id=any($1) and eliminado_en is not null order by id for update',t) using ids;
+      if t='solicitudes_salida' and exists(select 1 from public.solicitudes_salida where id=any(ids)
+        and eliminado_en is not null and public.salidas_solicitud_tiene_movimientos(id)) then
+        raise exception 'Una solicitud archivada tiene movimientos o documentos vinculados.';
+      end if;
+      execute format('insert into public.salidas_adjuntos_por_vaciar(ruta)
+        select a->>''path'' from public.%I s cross join lateral jsonb_array_elements(s.adjuntos) a
+        where s.id=any($1) and s.eliminado_en is not null and a->>''path'' like s.id::text||''/%%''
+        on conflict do nothing',t) using ids;
     end if;
     execute format('delete from public.%I where id=any($1) and eliminado_en is not null',t) using ids;
     get diagnostics n=row_count;

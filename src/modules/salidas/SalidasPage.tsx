@@ -4,6 +4,8 @@ import { useSession } from '@/modules/auth/authStore';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal as ModalUI } from '@/shared/ui/Modal';
+import { BotonPapeleraRegistros, EnviarRegistroPapelera } from '@/shared/ui/PapeleraRegistros';
+import { archivarSalida, papeleraSalidas } from './papeleraSalidas.repository';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
@@ -232,6 +234,7 @@ export function SalidasPage() {
         </div>
         <div className="actions">
           {canWrite && <button className="btn btn-ghost" onClick={() => setModal({ kind: 'choferes-vehiculos' })}>🚚 Choferes / Vehículos</button>}
+          <BotonPapeleraRegistros acciones={papeleraSalidas} onChanged={() => void reload()} />
           {canWrite && scope !== 'temporales' && <button className="btn btn-primary" onClick={abrirNuevo}>{btnLabel}</button>}
           {canWrite && scope === 'temporales' && <button className="btn btn-primary" onClick={() => setTemporalNuevoNonce((n) => n + 1)}>+ Nueva salida temporal</button>}
         </div>
@@ -779,6 +782,8 @@ function SolicitudDetalleModal({
   );
   const bloqueoEjecutar = origenAjeno ? sector.motivo(origenAjeno) : null;
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [archivarOpen, setArchivarOpen] = useState(false);
+  const { can } = usePermissions();
   const [motivoCancel, setMotivoCancel] = useState('');
   // Quién la canceló y por qué: se guardaba en el historial pero no se mostraba.
   const cancelacion = useMemo(() => cancelacionDe(sol), [sol]);
@@ -1080,6 +1085,10 @@ function SolicitudDetalleModal({
       : (sol.scope === 'traslado' ? 'Ejecutar (mueve stock)' : 'Ejecutar (descuenta stock)');
   // «Cerrar sin descontar» habla de descontar en Salidas y de mover en Traslados.
   const esTraslado = sol.scope === 'traslado';
+  const archivable = can('salidas', 'escritura')
+    && (sol.estado === 'por_aprobar' || sol.estado === 'cancelada')
+    && !sol.aprobada_en && !sol.aprobada_por && !sol.sin_autorizacion
+    && !sol.ejecutada_en && !sol.mov_id && !sol.cxc_id;
   const verboCierre = esTraslado ? 'mover' : 'descontar';
   const cerrarLabel = esTraslado ? '⚠ Cerrar sin mover stock (ya se movió a mano)' : '⚠ Cerrar sin descontar (ya se descontó a mano)';
 
@@ -1157,6 +1166,9 @@ function SolicitudDetalleModal({
       {sol.estado !== 'ejecutada' && sol.estado !== 'cancelada' && (
         <button className="btn btn-danger" disabled={busy} onClick={() => setCancelOpen(true)}>Cancelar solicitud</button>
       )}
+      {archivable && <button className="btn btn-ghost" disabled={busy} onClick={() => setArchivarOpen(true)}>
+        🗑 Enviar a la papelera
+      </button>}
       <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cerrar</button>
     </div>
   );
@@ -1628,6 +1640,13 @@ function SolicitudDetalleModal({
           </div>
         </div>
       )}
+      {archivarOpen && <EnviarRegistroPapelera nombre={`${esTraslado ? 'Traslado' : 'Salida'} ${sol.codigo}`}
+        onClose={() => setArchivarOpen(false)} onConfirm={async (motivo) => {
+          await archivarSalida('solicitudes_salida', sol.id, motivo);
+          notify(`Solicitud ${sol.codigo} enviada a la papelera`, 'success');
+          onChanged();
+          onClose();
+        }} />}
     </ModalUI>
   );
 }
