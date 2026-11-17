@@ -82,6 +82,9 @@ const leerAlmacen = () => { try { return localStorage.getItem(CLAVE_ALMACEN) ?? 
 const guardarAlmacen = (n: string) => { try { localStorage.setItem(CLAVE_ALMACEN, n); } catch { /* sin almacenamiento: se vuelve a elegir */ } };
 const esImagen = (f: File) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name);
 
+/** Pre-salidas: listo pero oculto hasta que se pida activar en producción. */
+const MOSTRAR_PRESALIDAS = false;
+
 type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'traslado' | 'reporte' | 'historico' | 'historicoTraslados' | 'recepciones' | 'presalidas' | 'listo' | 'listoSalida';
 
 /** Los almacenes agrupados por sede, para los `<select>`. */
@@ -292,23 +295,25 @@ export function InventarioMovilView() {
             <span>Por retornar ({porRetornar.length})</span>
             <small>{porRetornar.length ? 'Dar retorno a lo que salió' : 'Sin pendientes por retornar'}</small>
           </button>
-          <button
-            type="button"
-            className="surt-btn"
-            style={{
-              gridColumn: '1 / -1',
-              borderColor: 'var(--warning)',
-              background: presalidas.length ? 'rgba(234, 179, 8, 0.08)' : undefined,
-              minHeight: 84,
-            }}
-            onClick={() => setPaso('presalidas')}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem' }}>
-              <span className="icono" aria-hidden style={{ fontSize: '1.4rem' }}>⏳</span>
-              <span style={{ fontWeight: 700 }}>Pre-salidas ({presalidas.length})</span>
-            </div>
-            <small>{presalidas.length ? `${presalidas.length} borrador(es) por autorizar` : 'Borradores para WhatsApp'}</small>
-          </button>
+          {MOSTRAR_PRESALIDAS && (
+            <button
+              type="button"
+              className="surt-btn"
+              style={{
+                gridColumn: '1 / -1',
+                borderColor: 'var(--warning)',
+                background: presalidas.length ? 'rgba(234, 179, 8, 0.08)' : undefined,
+                minHeight: 84,
+              }}
+              onClick={() => setPaso('presalidas')}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem' }}>
+                <span className="icono" aria-hidden style={{ fontSize: '1.4rem' }}>⏳</span>
+                <span style={{ fontWeight: 700 }}>Pre-salidas ({presalidas.length})</span>
+              </div>
+              <small>{presalidas.length ? `${presalidas.length} borrador(es) por autorizar` : 'Borradores para WhatsApp'}</small>
+            </button>
+          )}
         </div>
       )}
 
@@ -1333,7 +1338,7 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
           placeholder="Para qué sale, a quién, a qué equipo…" autoComplete="off" />
       </div>
       <div className="surt-campo">
-        <label htmlFor="inv-tel-salida-autorizado">¿Quién autorizó? <small className="muted">(solo para salida directa; en pre-salida se aprueba por WhatsApp)</small></label>
+        <label htmlFor="inv-tel-salida-autorizado">¿Quién autorizó?</label>
         <select id="inv-tel-salida-autorizado" className="input surt-input" value={autorizado} onChange={(e) => setAutorizado(e.target.value)}>
           <option value="">{autorizadores === null ? 'Cargando…' : 'Elegir…'}</option>
           {(autorizadores ?? []).map((n) => <option key={n} value={n}>{n}</option>)}
@@ -1374,22 +1379,24 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
         )}
       </div>
       <div style={{ display: 'grid', gap: '.5rem', marginTop: '.75rem' }}>
-        <button
-          type="button"
-          className="btn btn-ghost btn-grande"
-          style={{ borderColor: 'var(--warning)', color: 'var(--text)', fontWeight: 600 }}
-          disabled={guardando || guardandoPre}
-          onClick={() => void guardarComoPreSalida()}
-        >
-          {guardandoPre ? 'Guardando pre-salida…' : '⏳ Guardar Pre-salida y pedir autorización (WhatsApp)'}
-        </button>
+        {MOSTRAR_PRESALIDAS && (
+          <button
+            type="button"
+            className="btn btn-ghost btn-grande"
+            style={{ borderColor: 'var(--warning)', color: 'var(--text)', fontWeight: 600 }}
+            disabled={guardando || guardandoPre}
+            onClick={() => void guardarComoPreSalida()}
+          >
+            {guardandoPre ? 'Guardando pre-salida…' : '⏳ Guardar Pre-salida y pedir autorización (WhatsApp)'}
+          </button>
+        )}
         <button
           type="submit"
           className="btn btn-primary surt-guardar"
           disabled={guardando || guardandoPre || !!malLineas || retorna === null || !autorizado.trim()
             || (preguntaMant && (paraMant === null || (paraMant && !equipoMant.id)))}
         >
-          {guardando ? 'Guardando…' : lineas.length > 1 ? `✓ Salida directa (${lineas.length} materiales)` : '✓ Salida directa con autorización'}
+          {guardando ? 'Guardando…' : lineas.length > 1 ? `✓ Salida (${lineas.length} materiales)` : '✓ Guardar salida'}
         </button>
       </div>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando || guardandoPre}>← Cancelar</button>
