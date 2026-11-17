@@ -17,6 +17,7 @@ import { type CentroAcopio } from './administracionCentrosResponsables';
 import { leerCarpetasPersonalizadas } from './GestionarCarpetasModal';
 import { TIPO_AVISO_LABEL, sincronizarAvisos } from './administracionAvisos';
 import { agendaVencimientos } from './administracionAgenda';
+import { esErrorTablaAusente, extraerMensajeError } from './adminErrores';
 
 const num2 = (n: number) => n.toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const SEMAFORO_COLOR: Record<'critico' | 'atencion' | 'al_dia', string> = { critico: '#ef4444', atencion: '#eab308', al_dia: '#10b981' };
@@ -77,7 +78,7 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
         carpetas: carpetasCustom.map((c) => ({ id: c.id, centroAcopioId: c.centroAcopioId, responsable: c.responsable })),
       }));
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo armar el tablero.');
+      setError(extraerMensajeError(err, 'No se pudo armar el tablero.'));
     } finally { setCargando(false); }
   }, [repo, empresaClave, puedeEscribir]);
   useEffect(() => { void cargar(); }, [cargar]);
@@ -142,7 +143,7 @@ export function TableroModuloTab({ repo, empresaClave, puedeEscribir = true }: {
   }
 
   if (cargando) return <p className="muted">Armando el tablero…</p>;
-  if (error) return <div className="adm-aviso">No se pudo armar el tablero: {/relation|does not exist|schema cache|jwt|sesi|permission/i.test(error) ? 'inicia sesión o la base aún no tiene las tablas del módulo.' : error}</div>;
+  if (error) return <div className="adm-aviso">No se pudo armar el tablero: {esErrorTablaAusente(error) || /relation|does not exist|schema cache|jwt|sesi|permission/i.test(error) ? 'las tablas del módulo aún no han sido aplicadas en la base de datos (ejecutar script SQL de administración).' : error}</div>;
   if (!resumen) return <EmptyState icon="📊" message="Sin datos para el tablero todavía." />;
 
   const nombreCentro = (id: string) => centros.find((c) => c.id === id)?.nombre ?? id;
