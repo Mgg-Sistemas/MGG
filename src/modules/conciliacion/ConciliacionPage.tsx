@@ -521,7 +521,12 @@ export function ConciliacionPage() {
                       )}
                     </td>
                     <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
-                      {f.seCruza ? (
+                      {f.esCompensacion ? (
+                        <span className="badge warning" style={{ fontSize: '.72rem', fontWeight: 700 }}
+                          title={`No genera movimiento bancario: pagada sin descontar caja (${f.motivoSinCaja || 'Compensación de deuda con proveedor'})`}>
+                          ✕ No (Compensada)
+                        </span>
+                      ) : f.seCruza ? (
                         <span className="badge success" style={{ fontSize: '.72rem', fontWeight: 700 }} title="Pagada en Bs: sí se cruza contra el Drive/Banco">
                           ✓ Sí
                         </span>
@@ -539,7 +544,11 @@ export function ConciliacionPage() {
                           {f.referencia.bs && <div>Bs …{f.referencia.bs}</div>}
                           {f.referencia.binance && <div>Binance …{f.referencia.binance}</div>}
                           {f.referencia.manual && <div title="Colocada en Conciliación">Ref. {f.referencia.manual}</div>}
-                          {!f.referencia.bs && !f.referencia.binance && !f.referencia.manual && <span className="muted">{f.pagado ? 'sin referencia' : '—'}</span>}
+                          {!f.referencia.bs && !f.referencia.binance && !f.referencia.manual && (
+                            <span className={f.esCompensacion ? 'badge warning' : 'muted'} style={f.esCompensacion ? { fontSize: '.68rem' } : undefined}>
+                              {f.esCompensacion ? (f.motivoSinCaja || 'Compensada') : f.pagado ? 'sin referencia' : '—'}
+                            </span>
+                          )}
                           {(f.pagado || f.comprobantePago) && (
                             <button type="button" className="btn btn-xs btn-ghost" style={{ padding: '0 .3rem', fontFamily: 'inherit', display: 'block' }}
                               onClick={() => void verComprobantePago(f, datos?.ordenes.get(f.id))}
@@ -573,13 +582,18 @@ export function ConciliacionPage() {
                         <>
                           <span className={`badge ${f.drive.estado === 'CUADRA' ? 'success' : 'danger'}`} title={f.drive.motivo}>{f.drive.estado}</span>
                           {f.drive.estado === 'NO CUADRA' && <div className="muted" style={{ fontSize: '.7rem', maxWidth: 200 }}>{f.drive.motivo}</div>}
-                          <div className="muted mono" style={{ fontSize: '.66rem' }} title={`Archivo: ${f.drive.datos.archivo}`}>
-                            {bsTxt(f.drive.datos.montoBs)} · ref. {f.drive.datos.referencias.join(', ')}
+                          <div className="muted mono" style={{ fontSize: '.66rem' }} title={f.esCompensacion ? (f.motivoSinCaja || f.drive.motivo) : `Archivo: ${f.drive.datos.archivo}`}>
+                            {f.esCompensacion ? (
+                              <span>{f.motivoSinCaja ? `Compensación · ${f.motivoSinCaja}` : 'Compensación · sin salida de caja'}</span>
+                            ) : (
+                              <>{bsTxt(f.drive.datos.montoBs)} · ref. {f.drive.datos.referencias.join(', ')}</>
+                            )}
                           </div>
                         </>
                       ) : f.pagado && !f.seCruza ? (
-                        <span className="badge" style={{ fontSize: '.7rem', background: 'rgba(148,163,184,.12)', color: 'var(--text-muted)' }} title="Pagada en USD: no cruza contra el banco en Bs">
-                          No aplica (USD)
+                        <span className="badge" style={{ fontSize: '.7rem', background: 'rgba(148,163,184,.12)', color: 'var(--text-muted)' }}
+                          title={f.esCompensacion ? `Compensada: ${f.motivoSinCaja || 'sin movimiento bancario'}` : 'Pagada en USD: no cruza contra el banco en Bs'}>
+                          {f.esCompensacion ? 'Compensada' : 'No aplica (USD)'}
                         </span>
                       ) : (
                         <span className="muted" style={{ fontSize: '.78rem' }}>—</span>
@@ -686,15 +700,33 @@ function ReferenciaPagoModal({ fila, orden, onClose, onSaved }: {
       <button className="btn btn-primary" onClick={() => void guardar()} disabled={guardando || sinCambios}>{guardando ? 'Guardando…' : 'Guardar'}</button>
     </>}>
       <p className="hint muted" style={{ marginTop: 0 }}>{fila.proveedor} · {usdTxt(fila.montoUsd)}</p>
+      {fila.esCompensacion && (
+        <div className="aviso info" style={{ marginBottom: '.8rem', fontSize: '.82rem' }}>
+          ℹ Orden pagada por Tesorería sin descontar caja: <strong>{fila.motivoSinCaja || 'Compensación de deuda con proveedor'}</strong>. No genera movimiento bancario en el Drive ni requiere referencia bancaria.
+        </div>
+      )}
       <div className="field" style={{ marginBottom: '.8rem' }}>
         <label>Referencia que cargó Tesorería</label>
-        <div className="mono">{refTesoreria || <span className="muted">Tesorería no cargó referencia</span>}</div>
+        <div className="mono">{refTesoreria || <span className="muted">{fila.esCompensacion ? 'Sin referencia bancaria (compensación)' : 'Tesorería no cargó referencia'}</span>}</div>
       </div>
       <div className="field" style={{ marginBottom: '.9rem' }}>
-        <label htmlFor="ref-conc">Referencia de pago</label>
+        <label htmlFor="ref-conc">Referencia de pago / Compensación</label>
         <input id="ref-conc" className="input mono" value={referencia} maxLength={80} autoFocus
-          placeholder="N° de referencia, transferencia, Binance…" onChange={(e) => setReferencia(e.target.value)} />
-        <small className="muted">Queda en el historial de la OC; lo de Tesorería no se modifica. Déjala vacía para quitarla.</small>
+          placeholder="N° de referencia, transferencia, Binance, o Compensación…" onChange={(e) => setReferencia(e.target.value)} />
+        <div style={{ display: 'flex', gap: '.4rem', marginTop: '.35rem', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-xs btn-ghost"
+            onClick={() => setReferencia('COMPENSACIÓN DE DEUDA')}>
+            🏷 Compensación de deuda
+          </button>
+          <button type="button" className="btn btn-xs btn-ghost"
+            onClick={() => setReferencia('CRUCE DE CUENTAS')}>
+            🏷 Cruce de cuentas
+          </button>
+        </div>
+        <small className="muted" style={{ display: 'block', marginTop: '.35rem' }}>
+          Si la orden se canceló por compensación de deuda o saldo a favor con el proveedor (sin movimiento de caja ni banco),
+          coloca <strong>Compensación</strong> o <strong>Cruce</strong> y adjunta el soporte si lo tienes: el sistema la validará como <strong>CUADRA (Compensada)</strong>.
+        </small>
       </div>
       <div className="field">
         <label>Comprobante de pago</label>

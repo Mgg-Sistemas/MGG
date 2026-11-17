@@ -148,11 +148,13 @@ export async function guardarReferenciaConciliacion(
 
 /** Lo que muestra la fila tras guardar (sin recargar toda la conciliación). */
 export function filaConReferencia(fila: FilaConciliacion, o: Orden): FilaConciliacion {
-  const { monedaPago, seCruza } = detectarMonedaPago(o);
+  const { monedaPago, seCruza, esCompensacion, motivoSinCaja } = detectarMonedaPago(o);
   return conDrive({
     ...fila,
     monedaPago,
     seCruza,
+    esCompensacion,
+    motivoSinCaja,
     referencia: referenciaDePago(o.historial),
     comprobantePago: comprobanteDePago(o.historial),
   }, o.historial);
