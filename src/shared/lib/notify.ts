@@ -1,5 +1,6 @@
 import { toast, type ToastKind } from '@/shared/ui/Toast';
 import { push } from '@/modules/notificaciones/notif.repository';
+import { emitirWebPush, type ModuloNotifKey } from '@/shared/lib/webpush';
 
 const TOAST_KIND_TO_NOTIF: Record<ToastKind, 'info' | 'success' | 'warning' | 'error'> = {
   info: 'info', success: 'success', warning: 'warning', error: 'error',
@@ -19,6 +20,9 @@ function emitRefresh() {
   });
 }
 
+/** Refresca la campana cuando se persiste una notif por fuera de notify(). */
+export function emitNotifRefresh(): void { emitRefresh(); }
+
 export interface NotifyOptions {
   /** Persistir además en la tabla `notificaciones` (campana). Default: true. */
   persist?: boolean;
@@ -31,7 +35,9 @@ export interface NotifyOptions {
   /** Destinatario lógico ('all' por default). */
   destino?: string;
   /** Módulo específico (ej: 'retenciones', 'inventario') para construir el link por defecto. */
-  modulo?: string;
+  modulo?: ModuloNotifKey | string;
+  /** Emitir además notificación Web Push / PWA nativa en el dispositivo */
+  push?: boolean;
 }
 
 /**
@@ -45,7 +51,6 @@ export function notify(
   options: NotifyOptions = {},
 ): void {
   toast(message, kind);
-  if (options.persist === false) return;
 
   const fallbackLink = options.modulo
     ? `#/app/${options.modulo}`
@@ -53,6 +58,18 @@ export function notify(
     ? window.location.hash
     : null;
   const link = options.link && options.link !== '#' ? options.link : fallbackLink;
+
+  if (options.push) {
+    void emitirWebPush({
+      titulo: message,
+      cuerpo: options.detail || message,
+      url: link || '/',
+      modulo: options.modulo as ModuloNotifKey,
+      vibrar: true,
+    });
+  }
+
+  if (options.persist === false) return;
 
   push({
     kind: TOAST_KIND_TO_NOTIF[kind],

@@ -14,6 +14,12 @@ import {
   setNotifPrefs,
   stopNotificationPattern,
 } from '@/shared/lib/sound';
+import {
+  isPushHabilitado,
+  togglePushHabilitado,
+  probarNotificacionPush,
+  soportaPush,
+} from '@/shared/lib/webpush';
 
 const VIEW_KEY = 'mgg.view.pedidos';
 const SCOPE_KEY = 'mgg.scope.pedidos';
@@ -44,6 +50,58 @@ export function AjustesPage() {
   const [notifEnabled, setNotifEnabled] = useState(() => getNotifPrefs().enabled);
   const [notifSound, setNotifSound] = useState(() => getNotifPrefs().sound);
   const [notifDuration, setNotifDuration] = useState(() => getNotifPrefs().duration);
+
+  // Notificaciones push de este dispositivo (Web Push y notificaciones nativas en pantalla)
+  const pushSoportado = soportaPush();
+  const [pushHabilitado, setPushHabilitado] = useState(() => isPushHabilitado());
+  const [pushMsg, setPushMsg] = useState('');
+  const [pushCargando, setPushCargando] = useState(false);
+
+  useEffect(() => {
+    function sincronizarPermiso() {
+      setPushHabilitado(isPushHabilitado());
+    }
+    window.addEventListener('focus', sincronizarPermiso);
+    return () => window.removeEventListener('focus', sincronizarPermiso);
+  }, []);
+
+  async function handleTogglePush(habilitar: boolean) {
+    setPushCargando(true);
+    setPushMsg('');
+    try {
+      const res = await togglePushHabilitado(habilitar);
+      if (res.ok) {
+        setPushHabilitado(habilitar);
+        const msg = habilitar
+          ? 'Notificaciones push activadas en este dispositivo.'
+          : 'Notificaciones push desactivadas en este dispositivo.';
+        setPushMsg(msg);
+        toast(msg, 'success');
+      } else {
+        setPushHabilitado(false);
+        const err = res.motivo || 'No se pudo cambiar el estado de las notificaciones.';
+        setPushMsg(err);
+        toast(err, 'warning');
+      }
+    } finally {
+      setPushCargando(false);
+    }
+  }
+
+  async function handleProbarPush() {
+    setPushCargando(true);
+    try {
+      const res = await probarNotificacionPush();
+      if (res.ok) {
+        setPushHabilitado(true);
+        toast('Notificación push de prueba emitida en este dispositivo 📲', 'success');
+      } else {
+        toast(res.motivo || 'No se pudo emitir la notificación de prueba.', 'warning');
+      }
+    } finally {
+      setPushCargando(false);
+    }
+  }
 
   const cargarPerfil = useCallback(async () => {
     if (!user) { setLoading(false); return; }
@@ -272,16 +330,48 @@ export function AjustesPage() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '.5rem', marginTop: '.75rem' }}>
+          <div className="setting-row">
+            <div style={{ flex: 1 }}>
+              <strong>
+                Notificaciones en este dispositivo (Push)
+              </strong>
+              <div className="muted" style={{ fontSize: '.82rem' }}>
+                Recibe alertas y avisos del sistema en este dispositivo (incluso con la aplicación minimizada).
+                {!pushSoportado && ' Este navegador no soporta notificaciones push.'}
+                {pushMsg && <><br />{pushMsg}</>}
+              </div>
+            </div>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={pushHabilitado}
+                disabled={!pushSoportado || pushCargando}
+                onChange={(e) => void handleTogglePush(e.target.checked)}
+              />
+              <span className="slider-toggle"></span>
+            </label>
+          </div>
+
+          <div style={{ display: 'flex', gap: '.5rem', marginTop: '.75rem', flexWrap: 'wrap' }}>
             <button
+              type="button"
               className="btn btn-ghost"
               onClick={() => playNotificationPattern(notifDuration)}
               disabled={!notifEnabled || !notifSound}
             >
               🔊 Probar sonido
             </button>
-            <button className="btn btn-ghost" onClick={stopNotificationPattern}>
+            <button type="button" className="btn btn-ghost" onClick={stopNotificationPattern}>
               ■ Detener
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => void handleProbarPush()}
+              disabled={!pushSoportado || pushCargando}
+              title="Envía una notificación push de prueba en este dispositivo"
+            >
+              📲 Probar notificación push
             </button>
           </div>
         </div>
