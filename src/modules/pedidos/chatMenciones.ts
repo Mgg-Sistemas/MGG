@@ -15,22 +15,17 @@ import { estaArchivado, estadoVisible } from '@/modules/usuarios/usuariosArchivo
  */
 export const ARCHIVADOS_CONOCIDOS = new Set<string>([
   'erick flores',
-  'javier leiva',
   'jose liendro',
   'mariana tovar',
   'teodoro garcia',
   'analista4mgg@gmail.com',
-  'analistaadministrativobra@gmail.com',
   'analistadecomprasgt@gmail.com',
   'mariana.trabajo.gt@gmail.com',
   'marianatovar@gmail.com',
   'marianatovar1127@gmail.com',
   'admingometales@gmail.com',
-  'analista1mgg@gmail.com',
   'analista4',
-  'analista1',
   'analista4mgg',
-  'analista1mgg',
 ]);
 
 /**
