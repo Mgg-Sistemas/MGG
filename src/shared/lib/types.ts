@@ -34,6 +34,10 @@ export interface Usuario {
   departamento?: string | null;
   estado: EstadoGenerico;
   must_change_password?: boolean;
+  /** Bloqueo por intentos de clave fallidos */
+  bloqueado?: boolean;
+  bloqueado_en?: string | null;
+  intentos_fallidos?: number;
   /** Sedes donde este usuario puede MOVER inventario. null/vacío = sin restricción.
    *  Ver, ve todo: la sectorización solo limita despachar, trasladar, ajustar y recibir. */
   sedes_asignadas?: string[] | null;
@@ -1017,6 +1021,8 @@ export interface Orden {
   /** Alias de clase usado en algunos submódulos */
   tipo?: 'producto' | 'servicio' | null;
   oc_codigo?: string | null;
+  /** Referencia a la orden padre / orden madre */
+  op_padre_id?: string | null;
   /** Si es una OC hija (sub-OC por proveedor), apunta a su OP padre. */
   parent_orden_id?: string | null;
   proveedor_id: string | null;

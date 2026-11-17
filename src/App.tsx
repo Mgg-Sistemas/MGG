@@ -52,6 +52,8 @@ const ChoferesPage = lazyReload(() => import('./modules/choferes/ChoferesPage').
 const VentasPage = lazyReload(() => import('./modules/ventas/VentasPage').then((m) => ({ default: m.VentasPage })));
 const TesoreriaPage = lazyReload(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaPage })));
 const TesoreriaMovilView = lazyReload(() => import('./modules/tesoreria/TesoreriaPage').then((m) => ({ default: m.TesoreriaMovilView })));
+const AdministracionPage = lazyReload(() => import('./modules/administracion/AdministracionPage').then((m) => ({ default: m.AdministracionPageApp })));
+const AdministracionDemoPage = import.meta.env.DEV ? lazyReload(() => import('./modules/administracion/demo/AdministracionDemoPage').then((m) => ({ default: m.AdministracionDemoPage }))) : null;
 const RetencionesPage = lazyReload(() => import('./modules/retenciones/RetencionesPage').then((m) => ({ default: m.RetencionesPage })));
 const ConciliacionPage = lazyReload(() => import('./modules/conciliacion/ConciliacionPage').then((m) => ({ default: m.ConciliacionPage })));
 const RetencionesMovilView = lazyReload(() => import('./modules/retenciones/RetencionesMovilView').then((m) => ({ default: m.RetencionesMovilView })));
@@ -139,6 +141,7 @@ export function App() {
         />
         {/* Carnet público por QR (sin login): cualquiera puede verificarlo */}
         <Route path="/carnet/:id" element={<Suspense fallback={<PageLoader />}><CarnetPublicoPage /></Suspense>} />
+        {AdministracionDemoPage && <Route path="/demo/administracion" element={<Suspense fallback={<PageLoader />}><AdministracionDemoPage /></Suspense>} />}
         {/* Rutas protegidas: exigen sesión iniciada */}
         <Route
           path="/app"
@@ -198,6 +201,7 @@ export function App() {
           <Route path="ventas" element={<RequireModule module="ventas"><Suspense fallback={<PageLoader />}><VentasPage /></Suspense></RequireModule>} />
           <Route path="tesoreria" element={<RequireModule module="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaPage /></Suspense></RequireModule>} />
           <Route path="tesoreria/telefono" element={<RequireVistaTelefono vista="tesoreria"><Suspense fallback={<PageLoader />}><TesoreriaMovilView /></Suspense></RequireVistaTelefono>} />
+          <Route path="administracion" element={<RequireModule module="administracion"><Suspense fallback={<PageLoader />}><AdministracionPage /></Suspense></RequireModule>} />
           <Route path="retenciones" element={<RequireModule module="retenciones"><Suspense fallback={<PageLoader />}><RetencionesPage /></Suspense></RequireModule>} />
           <Route path="retenciones/telefono" element={<RequireVistaTelefono vista="retenciones"><Suspense fallback={<PageLoader />}><RetencionesMovilView /></Suspense></RequireVistaTelefono>} />
           <Route path="retenciones/nueva" element={<Navigate to="/app/retenciones" replace />} />

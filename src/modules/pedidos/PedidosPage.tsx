@@ -49,7 +49,7 @@ import type {
   Proveedor,
   Usuario,
 } from '@/shared/lib/types';
-import { ChatOC } from './ChatOC';
+import { ChatOrden } from './ChatOrden';
 import { DetalleItemsEditor, sumaDetallePrecios } from './DetalleItemsEditor';
 import { noLeidosPorOrden } from './ocChat.repository';
 import {
@@ -3110,7 +3110,7 @@ function OrdenDetailModal({
   canManageProcurement,
   enOc,
   actorEmail,
-  actorUserId,
+  actorUserId: _actorUserId,
   actorNombre,
   onClose,
   onApprove,
@@ -4390,14 +4390,17 @@ function OrdenDetailModal({
       <h4 style={{ marginTop: '1.25rem' }}>Historial</h4>
       <Timeline historial={o.historial ?? []} proveedorMap={proveedorMap} personaMap={personaMap} />
 
-      <ChatOC
-        ordenId={o.id}
-        ordenCodigo={o.oc_codigo ?? o.codigo}
-        userId={actorUserId}
-        autorEmail={actorEmail}
-        autorNombre={actorNombre}
-        personaMap={personaMap}
-      />
+      <div style={{ marginTop: '1.25rem' }}>
+        <ChatOrden
+          ordenId={o.id}
+          ordenLabel={o.oc_codigo ?? o.codigo}
+          autorNombre={actorNombre || (personaMap?.get(actorEmail.toLowerCase())) || actorEmail}
+          contextoModulo="compras"
+          fase={o.estado}
+          tipoOperacion={o.oc_codigo ? 'Orden de Compra' : o.tipo === 'servicio' ? 'Servicio' : 'Solicitud de Pedido'}
+          ordenActual={o}
+        />
+      </div>
     </Modal>
     {mensajeWs && <MensajeWhatsappModal titulo={mensajeWs.titulo} texto={mensajeWs.texto} onClose={() => setMensajeWs(null)} />}
     {enviarOpen && (
