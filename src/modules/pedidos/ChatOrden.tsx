@@ -9,7 +9,6 @@ import { ChatMensajeContenido } from './ChatFormato';
 import { PERSONAS_CONOCIDAS_COMPRAS } from './personasCompras';
 import { ARCHIVADOS_CONOCIDOS, esUsuarioActivoParaMencion } from './chatMenciones';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
-import { estadoVisible, estaArchivado } from '@/modules/usuarios/usuariosArchivo';
 import { supabase } from '@/shared/lib/supabase';
 import type { Orden, Usuario } from '@/shared/lib/types';
 
@@ -625,11 +624,17 @@ export function ChatOrden({
           }
         }
       } catch {
+        // Fallback si listUsuarios falla
+      }
+
+      // Si RLS restringe la tabla a usuarios no-admin (mapa.size <= 1),
+      // complementar con las personas conocidas activas de la institución
+      if (mapa.size <= 1) {
         for (const [correo, nom] of Object.entries(PERSONAS_CONOCIDAS_COMPRAS)) {
           const emailNorm = correo.toLowerCase().trim();
           const nomNorm = nom.toLowerCase().trim();
           if (ARCHIVADOS_CONOCIDOS.has(nomNorm) || ARCHIVADOS_CONOCIDOS.has(emailNorm)) continue;
-          if (correo.includes('@')) {
+          if (correo.includes('@') && !mapa.has(emailNorm)) {
             const depto = normalizarDepartamento(null, emailNorm);
             mapa.set(emailNorm, { nombre: nom.toUpperCase(), depto });
           }
@@ -676,7 +681,7 @@ export function ChatOrden({
   }, [ordenId, marcar]);
 
   useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['orden_mensajes'], () => { void cargar(); });
+  useRealtime(['orden_mensajes', 'oc_mensajes'], () => { void cargar(); });
 
   useEffect(() => { finRef.current?.scrollIntoView({ block: 'end' }); }, [msgs.length]);
 

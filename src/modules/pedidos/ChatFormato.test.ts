@@ -8,7 +8,6 @@ import {
 import {
   extraerMenciones,
   resolverDestinatariosMenciones,
-  ARCHIVADOS_CONOCIDOS,
   esUsuarioActivoParaMencion,
 } from './chatMenciones';
 import {

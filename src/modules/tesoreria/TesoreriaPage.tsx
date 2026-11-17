@@ -4668,10 +4668,11 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, movil
   const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
   const cargarNoLeidos = useCallback(() => {
     if (!userId) return;
-    noLeidosPorOrden(userId).then(setNoLeidos).catch(() => { /* sin badge si falla */ });
-  }, [userId]);
+    const ids = rows.map((r) => r.orden.id);
+    noLeidosPorOrden(ids.length > 0 ? ids : userId, userId).then(setNoLeidos).catch(() => { /* sin badge si falla */ });
+  }, [rows, userId]);
   useEffect(() => { cargarNoLeidos(); }, [cargarNoLeidos]);
-  useRealtime(['oc_mensajes'], cargarNoLeidos);
+  useRealtime(['orden_mensajes', 'orden_chat_lecturas', 'oc_mensajes'], cargarNoLeidos);
 
   function toggle(r: OrdenPorPagar) {
     setMarcadas((prev) => {

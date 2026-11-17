@@ -408,8 +408,11 @@ export function PedidosPage() {
 
   const loadNoLeidos = useCallback(async () => {
     if (!user?.id) return;
-    try { setNoLeidos(await noLeidosPorOrden(user.id)); } catch { /* sin badge si falla */ }
-  }, [user?.id]);
+    try {
+      const ids = ordenes.map((o) => o.id);
+      setNoLeidos(await noLeidosPorOrden(ids.length > 0 ? ids : user.id, user.id, user.email));
+    } catch { /* sin badge si falla */ }
+  }, [ordenes, user?.id, user?.email]);
 
   const refresh = useCallback(async () => {
     try {
@@ -440,7 +443,7 @@ export function PedidosPage() {
 
   // El chat (badges 💬) se mantiene al día SIEMPRE, también con un modal abierto:
   // así el contador baja al leer y sube si llega un mensaje mientras revisás otra OC.
-  useRealtime(['oc_mensajes'], () => { void loadNoLeidos(); });
+  useRealtime(['orden_mensajes', 'orden_chat_lecturas', 'oc_mensajes'], () => { void loadNoLeidos(); });
   useEffect(() => { void loadNoLeidos(); }, [loadNoLeidos]);
 
   // Alertas "a restablecer el mercado" enviadas desde Cocina (tarjeta para el analista).
