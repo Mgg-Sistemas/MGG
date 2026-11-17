@@ -16,7 +16,7 @@
 
 import { previewExcelArchivo, previewPdf } from '@/shared/lib/reportePreview';
 import { pdfSafe } from '@/shared/lib/pdfSafe';
-import { identidadEmpresa } from '@/shared/lib/empresa';
+import { identidadEmpresa, EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { loadLogoPdfEmpresa, dibujarLogoPdf, anchoLogoPdf } from '@/shared/lib/pdfLogo';
 import type { jsPDF } from 'jspdf';
 import {
@@ -141,9 +141,9 @@ export async function construirComprasExcel(
 ): Promise<ArrayBuffer> {
   const { default: ExcelJS } = await import('exceljs');
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Golden Touch 1127 C.A.';
+  wb.creator = 'Mineral Group Guayana C.A.';
   wb.created = new Date();
-  const idEmp = identidadEmpresa('GT');
+  const idEmp = identidadEmpresa();
   const columnas = columnasVisibles(columnasClaves, meta);
   const NAR = argb(NARANJA);
 
@@ -419,10 +419,10 @@ export async function construirComprasPdf(
   const UW = PAGE_W - MARGIN * 2;
   let y = MARGIN;
 
-  const idEmp = identidadEmpresa('GT');
-  const logo = await loadLogoPdfEmpresa('GT').catch(() => null);
+  const idEmp = identidadEmpresa();
+  const logo = await loadLogoPdfEmpresa().catch(() => null);
 
-  // Paleta corporativa Golden Touch
+  // Paleta corporativa MGG
   const NARANJA_GT: [number, number, number] = [255, 138, 0];
   const VERDE_GT: [number, number, number] = [22, 101, 52];
   const AZUL_GT: [number, number, number] = [2, 132, 199];
@@ -466,25 +466,25 @@ export async function construirComprasPdf(
   }
   const tx = logo ? MARGIN + anchoLogoPdf(cajaLogo) + 12 : MARGIN;
 
-  // Lado izquierdo: datos corporativos GT
+  // Lado izquierdo: datos corporativos MGG
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(esLandscape ? 12.5 : 12.0); // +15%
   doc.setTextColor(...TINTA_GT);
-  doc.text(idEmp.nombre || 'MINERA GOLDEN TOUCH 1127, C.A.', tx, y + 11.5);
+  doc.text(idEmp.nombre || EMPRESA_NOMBRE, tx, y + 11.5);
 
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(8.3); // +15%
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text('EXPLOTACIÓN Y BENEFICIO DE MINERALES', tx, y + 22.5);
+  doc.text('EXTRACCIÓN Y PROCESAMIENTO DE MINERALES', tx, y + 22.5);
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.0); // +15%
   doc.setTextColor(...GRIS_TEXTO_GT);
-  doc.text(`RIF: ${idEmp.rif || 'J-50129993-5'} · Mina Peramanal`, tx, y + 32.5);
+  doc.text(`RIF: ${idEmp.rif || EMPRESA_RIF} · Puerto Ordaz`, tx, y + 32.5);
 
   doc.setFontSize(7.8); // +15%
   doc.setTextColor(...GRIS_CLARO_GT);
-  doc.text('EL CALLAO · ESTADO BOLÍVAR · VENEZUELA', tx, y + 41.5);
+  doc.text('ESTADO BOLÍVAR · VENEZUELA', tx, y + 41.5);
 
   // Lado derecho: Caja ejecutiva formal de metadatos del reporte
   const boxW = Math.min(255, Math.max(215, UW * 0.38));

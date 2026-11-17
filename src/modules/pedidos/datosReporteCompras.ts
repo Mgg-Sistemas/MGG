@@ -75,13 +75,22 @@ export async function cargarDatosReporteCompras(desde: string, hasta: string): P
   // ese dispara `reconciliarComprasDirectasHuerfanas()`, que ESCRIBE en `compras_directas`
   // (auto-reparo de pagos huérfanos). El reporte debe ser solo lectura (spec §3).
   const [ordenesAll, directasRes, serviciosAll, proveedoresAll, tasaHoy, catRes] = await Promise.all([
-    listOrdenes(),
-    supabase.from('compras_directas').select('id, codigo, estado, gasto, moneda, gasto_categoria, pagada_at, created_at, proveedor_id, proveedor_nombre, actor, actor_name, creado_por, nota, items, producto_nombre, cantidad'),
-    listServiciosDirectos(),
+    listOrdenes().catch((err) => {
+      console.error('Error cargando órdenes para reporte:', err);
+      return [];
+    }),
+    supabase.from('compras_directas').select('*'),
+    listServiciosDirectos().catch((err) => {
+      console.error('Error cargando servicios directos para reporte:', err);
+      return [];
+    }),
     listProveedores().catch(() => []),
     getTasaHoy().catch(() => ({ usd: 0 } as { usd: number })),
     supabase.from('productos').select('sku, categoria'),
   ]);
+  if (directasRes.error) {
+    console.error('Error cargando compras_directas para reporte:', directasRes.error);
+  }
   const directasAll = (directasRes.data ?? []) as unknown as CompraDirecta[];
 
   const tasaBcv = Number((tasaHoy as { usd?: number })?.usd) || 0;
@@ -111,7 +120,7 @@ export async function cargarDatosReporteCompras(desde: string, hasta: string): P
   // Cotizaciones por departamento: ofertas de las órdenes del rango que cuentan
   // (no excluidas). Cada oferta se atribuye al departamento de su orden.
   const deptoPorOrden = new Map<string, string>(
-    ordenes.map((o) => [o.id, normalizarDepartamento(o.unidad_solicitante)]),
+    ordenes.map((o) => [o.id, normalizarDepartamento((o as any).solicitante || o.unidad_solicitante)]),
   );
   const ordIdsValidas = ordenes.filter((o) => clasificarEstadoOrden(o.estado) !== 'excluida').map((o) => o.id);
   let cotizaciones: CotizacionCompras[] = [];

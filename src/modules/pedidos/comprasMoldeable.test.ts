@@ -127,6 +127,14 @@ describe('comprasMoldeable · normalización de las 3 fuentes (T2)', () => {
     });
   });
 
+  test('normalizarOrdenes soporta campo solicitante (esquema MGG)', () => {
+    const filas = normalizarOrdenes([
+      ordenFix({ estado: 'pagada', total: 50, total_moneda: 'USD', solicitante: 'COCINA' } as any),
+    ], ctxFix({ tasaBcv: 40 }));
+    expect(filas).toHaveLength(1);
+    expect(filas[0].departamento).toBe('COCINA');
+  });
+
   test('normalizarOrdenes a crédito usa abonado_total como pagado', () => {
     const filas = normalizarOrdenes([
       ordenFix({ estado: 'cuenta_abierta', total: 200, total_moneda: 'USD', abonado_total: 50 }),
@@ -145,6 +153,14 @@ describe('comprasMoldeable · normalización de las 3 fuentes (T2)', () => {
     });
   });
 
+  test('normalizarDirectas considera pagada cuando tiene caja_mov_id o estado finalizada sin pagada_at', () => {
+    const filas = normalizarDirectas([
+      directaFix({ estado: 'finalizada', gasto: 80, moneda: 'USD', caja_mov_id: 'mov-1', pagada_at: null } as any),
+    ], ctxFix({ tasaBcv: 40 }));
+    expect(filas).toHaveLength(1);
+    expect(filas[0].pagado_usd).toBe(80);
+  });
+
   test('normalizarServicios usa unidad_solicitante y abonado_total', () => {
     const filas = normalizarServicios([
       servicioFix({ estado: 'por_pagar', gasto: 200, moneda: 'USD', unidad_solicitante: 'Planta', abonado_total: 80 }),
@@ -152,6 +168,13 @@ describe('comprasMoldeable · normalización de las 3 fuentes (T2)', () => {
     expect(filas[0]).toMatchObject({
       tipo_compra: 'servicio', clase_estado: 'pendiente', departamento: 'Planta', pagado_usd: 80,
     });
+  });
+
+  test('normalizarServicios soporta campo solicitante (esquema MGG)', () => {
+    const filas = normalizarServicios([
+      servicioFix({ estado: 'finalizada', gasto: 150, moneda: 'USD', solicitante: 'TRANSPORTE' } as any),
+    ], ctxFix({ tasaBcv: 40 }));
+    expect(filas[0].departamento).toBe('TRANSPORTE');
   });
 });
 

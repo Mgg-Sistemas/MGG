@@ -212,7 +212,7 @@ export function normalizarOrdenes(ordenes: Orden[], ctx: ContextoCompras): FilaR
       tipo_compra: 'orden',
       fecha: diaDe(o.created_at),
       codigo: (o.oc_codigo || o.codigo || '—').trim() || '—',
-      departamento: normalizarDepartamento(o.unidad_solicitante),
+      departamento: normalizarDepartamento((o as any).solicitante || o.unidad_solicitante),
       proveedor: proveedorDe(o.proveedor_id, ctx),
       estado: o.estado,
       estado_rotulo: statusBadge(o.estado).label,
@@ -260,7 +260,7 @@ export function normalizarItemsOrdenes(ordenes: Orden[], ctx: ContextoCompras): 
     if (clase === 'excluida') continue;
     const moneda = (o.total_moneda || 'USD').toUpperCase();
     const codigo = (o.oc_codigo || o.codigo || '—').trim() || '—';
-    const depto = normalizarDepartamento(o.unidad_solicitante);
+    const depto = normalizarDepartamento((o as any).solicitante || o.unidad_solicitante);
     const prov = proveedorDe(o.proveedor_id, ctx);
     const rotulo = statusBadge(o.estado).label;
     const items = Array.isArray(o.items) ? o.items : [];
@@ -346,7 +346,14 @@ export function normalizarDirectas(directas: CompraDirecta[], ctx: ContextoCompr
     const moneda = (c.moneda || 'USD').toUpperCase();
     const monto = Number(c.gasto) || 0;
     const { usd, bs } = montoUsdBs(monto, moneda, ctx.tasaBcv);
-    const pagado = montoUsdBs(c.pagada_at ? monto : 0, moneda, ctx.tasaBcv);
+    const esPagada = Boolean(
+      c.pagada_at ||
+      (c as any).caja_mov_id ||
+      (c as any).credito_cxp_id ||
+      (c as any).finalizada_at ||
+      c.estado === 'finalizada',
+    );
+    const pagado = montoUsdBs(esPagada ? monto : 0, moneda, ctx.tasaBcv);
     filas.push({
       id: `cd-${c.id}`,
       ambito: 'ordenes',
@@ -411,7 +418,7 @@ export function normalizarServicios(servicios: ServicioDirecto[], ctx: ContextoC
       tipo_compra: 'servicio',
       fecha: diaDe(s.created_at),
       codigo: (s.codigo || '—').trim() || '—',
-      departamento: normalizarDepartamento(s.unidad_solicitante),
+      departamento: normalizarDepartamento((s as any).solicitante || s.unidad_solicitante),
       proveedor: (s.proveedor_nombre || '').trim() || proveedorDe(s.proveedor_id, ctx),
       estado: s.estado,
       estado_rotulo: statusBadge(s.estado).label,

@@ -43,7 +43,7 @@ function fechaCorta(iso: string): string {
 export function textoWhatsappCompras(resumen: ResumenReporteCompras, opts: OpcionesWhatsappCompras): string {
   const mostrarUsd = opts.mostrarUsd !== false;
   const mostrarBs = opts.mostrarBs !== false;
-  const emp = identidadEmpresa('GT');
+  const emp = identidadEmpresa();
 
   /** Dinero según los interruptores de moneda. */
   const dinero = (usd: number, bs: number): string => {
