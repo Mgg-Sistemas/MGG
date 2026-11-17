@@ -68,6 +68,8 @@ import { pasaFiltroCategorias } from './filtroCategorias';
 import { AlmacenesView, SedesView, hijosDe, raices, type AlmacenLayout } from './AlmacenesView';
 import { ArbolAlmacenesPanel } from './ArbolAlmacenesPanel';
 import { MoverProductoModal } from './MoverProductoModal';
+import { PreSalidasModal } from './PreSalidasModal';
+import { listPreSalidas } from './presalidas.repository';
 import { PresenciaAlmacenModal } from './PresenciaAlmacenModal';
 import { ConsumoChartModal } from '@/shared/ui/ConsumoChartModal';
 import { AlmacenKanban } from './AlmacenKanban';
@@ -159,7 +161,8 @@ type ModalState =
   | { kind: 'resumen' }
   | { kind: 'sinCosto' }
   | { kind: 'inactivos' }
-  | { kind: 'reporteDinamicoMatanzas'; ambito?: AmbitoInventarioMatanzas; subalmacen?: string | null };
+  | { kind: 'reporteDinamicoMatanzas'; ambito?: AmbitoInventarioMatanzas; subalmacen?: string | null }
+  | { kind: 'presalidas' };
 
 /**
  * «🏗 Almacenes» (gestor de almacenes y subalmacenes) queda OCULTO a pedido:
@@ -242,6 +245,17 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
   const [gestionCatsOpen, setGestionCatsOpen] = useState(false);
   // Cuántas existencias esperan que les carguen el costo (badge del botón «Sin costo»).
   const [sinCosto, setSinCosto] = useState(0);
+  const [conteoPresalidas, setConteoPresalidas] = useState(0);
+  const cargarConteoPresalidas = useCallback(async () => {
+    try {
+      const ps = await listPreSalidas(ui.filterAlmacen || undefined, true);
+      setConteoPresalidas(ps.length);
+    } catch {
+      setConteoPresalidas(0);
+    }
+  }, [ui.filterAlmacen]);
+  useEffect(() => { void cargarConteoPresalidas(); }, [cargarConteoPresalidas]);
+  useRealtime(['inventario_presalidas'], () => { void cargarConteoPresalidas(); });
   const [conteoCats, setConteoCats] = useState<Record<string, number>>({});
   const [unidadesGestion, setUnidadesGestion] = useState<string[]>([]);
   const [conteoMedidas, setConteoMedidas] = useState<Record<string, number>>({});
@@ -928,6 +942,13 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           <button className="btn btn-ghost" onClick={() => setModal({ kind: 'resumen' })} title="Resumen de inventario: almacenes, productos nuevos, salidas y traslados">
             📊 Resumen
           </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => setModal({ kind: 'presalidas' })}
+            title="Borradores de pre-salida para pedir autorización por WhatsApp"
+          >
+            ⏳ Pre-salidas {conteoPresalidas > 0 && <span className="badge warning" style={{ marginLeft: '.35rem' }}>{conteoPresalidas}</span>}
+          </button>
           {/* 10/11/2026: lo que Golden Touch envió a Los Pinos por el puente (se confirma aquí). */}
           <MaterialGtPorRecibir actor={productoActor} actorName={actorName} canWrite={canWrite} />
           {/* Cola de valuación: solo aparece si hay algo pendiente, y desaparece al vaciarse. */}
@@ -1474,6 +1495,19 @@ export function InventarioModulo({ espacio, centroSede = null }: { espacio: Espa
           scope={sedeScope ? { titulo: tituloInventario, general: scopeGeneral, casiterita: scopeCasiterita } : undefined}
           almacenesTabla={almacenes}
           onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+      {modal.kind === 'presalidas' && (
+        <PreSalidasModal
+          almacen={ui.filterAlmacen || almacenSel || 'General'}
+          productos={productos.map((p) => ({ ...p, stock_almacen: p.stock }))}
+          actor={productoActor}
+          actorName={actorName}
+          quien={actorName || productoActor}
+          onClose={() => {
+            setModal({ kind: 'none' });
+            void cargarConteoPresalidas();
+          }}
         />
       )}
       {modal.kind === 'import' && (

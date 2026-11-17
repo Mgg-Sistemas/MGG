@@ -63,6 +63,9 @@ import { DevolucionesMaquinaria } from '@/modules/maquinaria/DevolucionesMaquina
 import { errorEntregaMantenimiento, motivoConMaquina } from '@/modules/maquinaria/entregasAlmacen';
 import { useEntregasDisponibles } from '@/modules/maquinaria/EntregasAlmacenPanel';
 import { AvisoEnvioMaquinaria, CampoParaMantenimiento, enviarSalidaAMaquinaria, type EnvioMaquinaria } from './EntregaMaquinariaTelefono';
+import { PreSalidasView } from './PreSalidasView';
+import { listPreSalidas, guardarPreSalida } from './presalidas.repository';
+import { mensajePreSalidaWhatsapp, type PreSalida } from './presalidas';
 
 export const RUTA_INVENTARIO_TELEFONO = '/app/inventario/telefono';
 /** Cuántos productos se listan sin buscar: en el teléfono no se recorre el almacén entero. */
@@ -79,7 +82,7 @@ const leerAlmacen = () => { try { return localStorage.getItem(CLAVE_ALMACEN) ?? 
 const guardarAlmacen = (n: string) => { try { localStorage.setItem(CLAVE_ALMACEN, n); } catch { /* sin almacenamiento: se vuelve a elegir */ } };
 const esImagen = (f: File) => /^image\//.test(f.type) || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name);
 
-type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'traslado' | 'reporte' | 'historico' | 'historicoTraslados' | 'recepciones' | 'listo' | 'listoSalida';
+type Paso = 'inicio' | 'nuevo' | 'entrada' | 'salida' | 'retornos' | 'traslado' | 'reporte' | 'historico' | 'historicoTraslados' | 'recepciones' | 'presalidas' | 'listo' | 'listoSalida';
 
 /** Los almacenes agrupados por sede, para los `<select>`. */
 function porSede(almacenes: Almacen[]): [string, Almacen[]][] {
@@ -114,6 +117,15 @@ export function InventarioMovilView() {
   const [salidaHecha, setSalidaHecha] = useState<SalidaTelefono[] | null>(null);
   // 12-11-2026: si la salida fue para el mantenimiento de una máquina, cómo terminó el aviso a Maquinaria.
   const [envioMaq, setEnvioMaq] = useState<EnvioMaquinaria | null>(null);
+  // 17-11-2026: pre-salidas (borradores para autorización por WhatsApp).
+  const [presalidas, setPresalidas] = useState<PreSalida[]>([]);
+  const cargarPresalidas = useCallback(async () => {
+    if (!sel) return;
+    try { setPresalidas(await listPreSalidas(sel, true)); }
+    catch { setPresalidas([]); }
+  }, [sel]);
+  useEffect(() => { void cargarPresalidas(); }, [cargarPresalidas]);
+  useRealtime(['inventario_presalidas'], () => { void cargarPresalidas(); });
 
   const cargarAlmacenes = useCallback(async () => {
     const as = await listAlmacenes('principal');
@@ -155,7 +167,8 @@ export function InventarioMovilView() {
     if (mio !== turno.current) return;
     setProductos(ps);
     setPorRetornar(pr);
-  }, [sel]);
+    void cargarPresalidas().catch(() => {});
+  }, [sel, cargarPresalidas]);
 
   useEffect(() => {
     if (!sel) return;
@@ -279,6 +292,12 @@ export function InventarioMovilView() {
             <span>Por retornar ({porRetornar.length})</span>
             <small>{porRetornar.length ? 'Dar retorno a lo que salió' : 'Sin pendientes por retornar'}</small>
           </button>
+          <button type="button" className="surt-btn" style={{ borderColor: 'var(--warning)', background: presalidas.length ? 'rgba(234, 179, 8, 0.08)' : undefined }}
+            onClick={() => setPaso('presalidas')}>
+            <span className="icono" aria-hidden>⏳</span>
+            <span>Pre-salidas ({presalidas.length})</span>
+            <small>{presalidas.length ? `${presalidas.length} borrador(es) por autorizar` : 'Borradores para WhatsApp'}</small>
+          </button>
         </div>
       )}
 
@@ -340,10 +359,33 @@ export function InventarioMovilView() {
           onCancel={() => setElegido(null)} onHecho={hecho} />
       )}
 
+      {paso === 'presalidas' && almacen && (
+        <PreSalidasView almacen={almacen} productos={productos} actor={actor} actorName={actorName} quien={quien}
+          onVolver={volver}
+          onSalidaHecha={(s, envio) => {
+            setSalidaHecha(s);
+            setEnvioMaq(envio);
+            setPaso('listoSalida');
+            setElegido(null);
+            void reload().catch(() => {});
+            void cargarPresalidas().catch(() => {});
+          }} />
+      )}
+
       {paso === 'salida' && prodActual && (
         <FormSalida almacen={almacen} producto={prodActual} productos={productos} actor={actor} actorName={actorName}
           onCancel={() => setElegido(null)}
-          onHecho={(s, envio) => { setSalidaHecha(s); setEnvioMaq(envio); setPaso('listoSalida'); setElegido(null); void reload().catch(() => {}); }} />
+          onHecho={(s, envio) => { setSalidaHecha(s); setEnvioMaq(envio); setPaso('listoSalida'); setElegido(null); void reload().catch(() => {}); void cargarPresalidas().catch(() => {}); }}
+          onPreSalidaGuardada={(pre) => {
+            setListo({
+              titulo: `Pre-salida ${pre.codigo} lista`,
+              texto: mensajePreSalidaWhatsapp(pre, quien),
+            });
+            setPaso('listo');
+            setElegido(null);
+            void reload().catch(() => {});
+            void cargarPresalidas().catch(() => {});
+          }} />
       )}
 
       {paso === 'traslado' && prodActual && (
@@ -1156,9 +1198,11 @@ function errorLineas(lineas: LineaMaterial[], productos: ProductoEnAlmacen[]): s
   return null;
 }
 
-function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, onHecho }: {
+function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, onHecho, onPreSalidaGuardada }: {
   almacen: string; producto: ProductoEnAlmacen; productos: ProductoEnAlmacen[]; actor: string; actorName: string | null;
-  onCancel: () => void; onHecho: (ss: SalidaTelefono[], envio: EnvioMaquinaria | null) => void;
+  onCancel: () => void;
+  onHecho: (ss: SalidaTelefono[], envio: EnvioMaquinaria | null) => void;
+  onPreSalidaGuardada: (p: PreSalida) => void;
 }) {
   const [lineas, setLineas] = useState<LineaMaterial[]>([{ producto, cantidad: '' }]);
   const [motivo, setMotivo] = useState('');
@@ -1174,6 +1218,7 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
   const conMaquina = preguntaMant && paraMant === true && !!equipoMant.id;
   const [fotos, setFotos] = useState<File[]>([]);
   const [guardando, setGuardando] = useState(false);
+  const [guardandoPre, setGuardandoPre] = useState(false);
   const malLineas = errorLineas(lineas, productos);
 
   // Quién autoriza (03-11-2026): la MISMA lista que Combustible (catálogo «Autorizados»
@@ -1194,6 +1239,41 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
     const mal = errorFotos(nuevas, fotos.length);
     if (mal) toast(mal, 'warning');
     setFotos((xs) => [...xs, ...nuevas.filter(esImagen)].slice(0, MAX_FOTOS_SALIDA));
+  }
+
+  async function guardarComoPreSalida() {
+    if (malLineas) return toast(malLineas, 'error');
+    if (!motivo.trim()) return toast('Indica el motivo de la salida.', 'error');
+    setGuardandoPre(true);
+    try {
+      const motivoFinal = conMaquina ? motivoConMaquina(motivo, equipoMant.nombre) : motivo;
+      const pre = await guardarPreSalida({
+        almacen,
+        motivo: motivoFinal,
+        retorna: Boolean(retorna),
+        equipo: conMaquina ? equipoMant : null,
+        tipoMant: tipoMant || null,
+        lineas: lineas.map((l) => {
+          const pr = productos.find((x) => x.id === l.producto.id) ?? l.producto;
+          return {
+            productoId: pr.id,
+            productoNombre: pr.nombre,
+            sku: pr.sku,
+            categoria: pr.categoria,
+            unidad: pr.unidad,
+            cantidad: leerCantidad(l.cantidad),
+          };
+        }),
+        actor,
+        actorName,
+      });
+      toast(`Pre-salida ${pre.codigo} guardada. Envíala a WhatsApp para solicitar autorización.`, 'success');
+      onPreSalidaGuardada(pre);
+    } catch (err) {
+      toast(errMsg(err, 'No se pudo guardar la pre-salida'), 'error');
+    } finally {
+      setGuardandoPre(false);
+    }
   }
 
   async function guardar(e: FormEvent) {
@@ -1242,7 +1322,7 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
           placeholder="Para qué sale, a quién, a qué equipo…" autoComplete="off" />
       </div>
       <div className="surt-campo">
-        <label htmlFor="inv-tel-salida-autorizado">¿Quién autorizó?</label>
+        <label htmlFor="inv-tel-salida-autorizado">¿Quién autorizó? <small className="muted">(solo para salida directa; en pre-salida se aprueba por WhatsApp)</small></label>
         <select id="inv-tel-salida-autorizado" className="input surt-input" value={autorizado} onChange={(e) => setAutorizado(e.target.value)}>
           <option value="">{autorizadores === null ? 'Cargando…' : 'Elegir…'}</option>
           {(autorizadores ?? []).map((n) => <option key={n} value={n}>{n}</option>)}
@@ -1282,12 +1362,26 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
           </div>
         )}
       </div>
-      <button type="submit" className="btn btn-primary surt-guardar"
-        disabled={guardando || !!malLineas || retorna === null || !autorizado.trim()
-          || (preguntaMant && (paraMant === null || (paraMant && !equipoMant.id)))}>
-        {guardando ? 'Guardando…' : lineas.length > 1 ? `✓ Guardar salida (${lineas.length} materiales)` : '✓ Guardar salida'}
-      </button>
-      <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando}>← Otro material</button>
+      <div style={{ display: 'grid', gap: '.5rem', marginTop: '.75rem' }}>
+        <button
+          type="button"
+          className="btn btn-ghost btn-grande"
+          style={{ borderColor: 'var(--warning)', color: 'var(--text)', fontWeight: 600 }}
+          disabled={guardando || guardandoPre || !!malLineas || !motivo.trim()}
+          onClick={() => void guardarComoPreSalida()}
+        >
+          {guardandoPre ? 'Guardando pre-salida…' : '⏳ Guardar Pre-salida y pedir autorización (WhatsApp)'}
+        </button>
+        <button
+          type="submit"
+          className="btn btn-primary surt-guardar"
+          disabled={guardando || guardandoPre || !!malLineas || retorna === null || !autorizado.trim()
+            || (preguntaMant && (paraMant === null || (paraMant && !equipoMant.id)))}
+        >
+          {guardando ? 'Guardando…' : lineas.length > 1 ? `✓ Salida directa (${lineas.length} materiales)` : '✓ Salida directa con autorización'}
+        </button>
+      </div>
+      <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel} disabled={guardando || guardandoPre}>← Cancelar</button>
     </form>
   );
 }
