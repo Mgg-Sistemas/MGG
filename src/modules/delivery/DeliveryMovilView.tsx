@@ -28,6 +28,8 @@ import { PanelRutaMovil, metrosAlPedido, useMiPosicion } from './RutaDeliveryMov
 import { ordenarLibresPorCercania, type Punto } from './deliveryRutas';
 import { useQuien } from '@/shared/lib/directorioUsuarios';
 import { toast } from '@/shared/ui/Toast';
+import { playNotificationSound } from '@/shared/lib/sound';
+import { emitirWebPush } from '@/shared/lib/webpush';
 import { Modal } from '@/shared/ui/Modal';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
@@ -106,6 +108,8 @@ function PantallaFlota({ flota }: { flota: Flota }) {
 
   // Solo la última carga pinta (el realtime puede disparar varias seguidas).
   const turno = useRef(0);
+  const prevPedidosRef = useRef<Set<string> | null>(null);
+
   const reload = useCallback(async () => {
     const mio = ++turno.current;
     const [a, c] = await Promise.all([
@@ -113,6 +117,36 @@ function PantallaFlota({ flota }: { flota: Flota }) {
       listPedidosDelivery(true, flota).catch(() => [] as PedidoDelivery[]),
     ]);
     if (mio !== turno.current) return;
+
+    // Detección de nuevos pedidos en estado 'por_tomar' para alertar al motorizado / chofer
+    const porTomarActuales = a.filter((p) => p.estado === 'por_tomar');
+    if (prevPedidosRef.current !== null) {
+      const clavePedido = (p: PedidoDelivery) => `${p.tipo ?? 'oc'}:${p.orden_id}`;
+      const nuevos = porTomarActuales.filter((p) => !prevPedidosRef.current!.has(clavePedido(p)));
+      if (nuevos.length > 0) {
+        const primer = nuevos[0];
+        const ordenTxt = primer.codigo || `Orden #${primer.orden_id}`;
+        const titulo = flota === 'carga_pesada'
+          ? '🚚 Carga Pesada: Nuevo pedido disponible'
+          : '🛵 Delivery: Nuevo pedido disponible';
+        const cuerpo = nuevos.length === 1
+          ? `Hay 1 nuevo pedido por tomar: ${ordenTxt}. Toca para abrir.`
+          : `Hay ${nuevos.length} nuevos pedidos disponibles para entrega.`;
+
+        try { playNotificationSound(); } catch { /* ignore */ }
+        void emitirWebPush({
+          modulo: 'delivery',
+          titulo,
+          cuerpo,
+          url: flota === 'carga_pesada' ? '/app/carga-pesada/telefono' : '/app/delivery/telefono',
+          tag: `mgg-delivery-${clavePedido(primer).replace(/[^a-zA-Z0-9_-]/g, '_')}`,
+          vibrar: true,
+        });
+        toast(cuerpo, 'info');
+      }
+    }
+    prevPedidosRef.current = new Set(porTomarActuales.map((p) => `${p.tipo ?? 'oc'}:${p.orden_id}`));
+
     setActivos(a);
     setCerrados(c);
   }, [flota]);
