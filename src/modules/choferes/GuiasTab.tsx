@@ -77,7 +77,7 @@ export function GuiasTab({ datos, canWrite, actor, actorName }: PropsTab) {
     return (
       <div className="aviso warning">
         <span className="aviso-icono">⚠</span>
-        <div><strong>Las guías todavía no están instaladas en la base de datos.</strong> Hay que ejecutar <code>supabase/sql/choferes-guias.sql</code> en el editor SQL de Supabase y recargar.</div>
+        <div><strong>Las guías todavía no están instaladas en la base de datos.</strong> Hay que ejecutar <code>supabase/sql/choferes/choferes-guias.sql</code> en el editor SQL de Supabase y recargar.</div>
       </div>
     );
   }

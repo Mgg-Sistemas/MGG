@@ -259,7 +259,7 @@ export async function crearEntrega(
       }, a);
     } catch (e) {
       if (!esTablaFaltante(e)) throw e;
-      avisoActa = 'Los ítems se registraron SIN acta: falta ejecutar supabase/sql/asignaciones-actas.sql en la base.';
+      avisoActa = 'Los ítems se registraron SIN acta: falta ejecutar supabase/sql/asignaciones/asignaciones-actas.sql en la base.';
     }
   }
   const res = await crearAsignaciones(inputs.map((i) => ({ ...i, acta_id: acta?.id ?? null })), quien, a);

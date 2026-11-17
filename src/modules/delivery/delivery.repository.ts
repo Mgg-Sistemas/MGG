@@ -1,6 +1,6 @@
 /* ============================================================
    MGG · Delivery · acceso a datos (30-10-2026)
-   Todo pasa por las funciones de supabase/sql/delivery-2026-10-30.sql:
+   Todo pasa por las funciones de supabase/sql/delivery/delivery-2026-10-30.sql:
    la base decide quién puede tomar (solo uno por OC), avanzar y subir fotos.
    ============================================================ */
 import { useEffect, useState } from 'react';
@@ -238,7 +238,7 @@ export async function comprobantePagoDelivery(ordenId: string): Promise<Comproba
 /* ============================================================
    Mapa y rutas (03-11-2026): proveedores ubicados, almacenes de entrega,
    ruta por calle (OSRM) y recorrido guardado de cada pedido.
-   SQL: supabase/sql/delivery-mapa-rutas-2026-11-03.sql
+   SQL: supabase/sql/delivery/delivery-mapa-rutas-2026-11-03.sql
    ============================================================ */
 
 export interface ProveedorUbicacion {

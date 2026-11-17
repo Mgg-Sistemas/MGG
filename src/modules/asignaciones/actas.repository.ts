@@ -8,7 +8,7 @@
 
    Los archivos van al bucket privado `personal-docs` (el de RRHH) bajo
    asignaciones/<acta_id>/… — sus políticas ya cubren a todo usuario
-   registrado. Instalación: supabase/sql/asignaciones-actas.sql.
+   registrado. Instalación: supabase/sql/asignaciones/asignaciones-actas.sql.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
@@ -62,7 +62,7 @@ export function esTablaFaltante(e: unknown): boolean {
 }
 
 function err(e: unknown, fallback: string): Error {
-  if (esTablaFaltante(e)) return new Error('Las actas de entrega todavía no están instaladas en la base: hay que ejecutar supabase/sql/asignaciones-actas.sql.');
+  if (esTablaFaltante(e)) return new Error('Las actas de entrega todavía no están instaladas en la base: hay que ejecutar supabase/sql/asignaciones/asignaciones-actas.sql.');
   if (e && typeof e === 'object' && 'code' in e && (e as { code?: string }).code === '23505') return new Error('Ya existe un acta con ese número.');
   return e instanceof Error ? e : new Error(fallback);
 }

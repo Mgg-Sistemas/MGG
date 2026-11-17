@@ -7,7 +7,7 @@
      entrega_mantenimiento_rechazar     → Maquinaria: vuelve al almacén como devolución
      entrega_mantenimiento_dar_entrada  → almacenista: entra al inventario
      entrega_mantenimiento_fotos_salida → las fotos de la salida, al día
-   Mientras supabase/sql/maquinaria-entregas-almacen-2026-11-12.sql no esté
+   Mientras supabase/sql/inventario/maquinaria-entregas-almacen-2026-11-12.sql no esté
    aplicada, las lecturas devuelven vacío y `entregasDisponibles()` dice false:
    las pantallas muestran un aviso en vez de romperse.
    ============================================================ */
@@ -31,7 +31,7 @@ export function faltaMigracion(e: ErrorPg): boolean {
 }
 
 export const MSG_FALTA_MIGRACION =
-  'Falta aplicar en Supabase supabase/sql/maquinaria-entregas-almacen-2026-11-12.sql (entregas del almacén a Maquinaria).';
+  'Falta aplicar en Supabase supabase/sql/inventario/maquinaria-entregas-almacen-2026-11-12.sql (entregas del almacén a Maquinaria).';
 
 function aEntrega(r: Record<string, unknown>): EntregaAlmacen {
   return {

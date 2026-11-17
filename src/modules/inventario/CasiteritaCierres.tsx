@@ -45,7 +45,7 @@ export function CierresCasiterita({ filas, cierres, canWrite, esAdmin, sinTablas
   }
 
   if (sinTablas) {
-    return <div className="card" style={{ borderLeft: '3px solid var(--warning)' }}><strong>Falta preparar la base.</strong> Corre en Supabase <span className="mono">supabase/sql/casiterita-pmp-fase4-cierres.sql</span> y después su semilla con los cierres de agosto a octubre.</div>;
+    return <div className="card" style={{ borderLeft: '3px solid var(--warning)' }}><strong>Falta preparar la base.</strong> Corre en Supabase <span className="mono">supabase/sql/inventario/casiterita-pmp-fase4-cierres.sql</span> y después su semilla con los cierres de agosto a octubre.</div>;
   }
 
   const todos = [...new Set([...meses, ...cierres.map((c) => c.mes)])].sort().reverse();
@@ -161,7 +161,7 @@ export function ConteoCasiterita({ filas, cierres, canWrite, onCambio }: { filas
   }
 
   if (sinTabla) {
-    return <div className="card" style={{ borderLeft: '3px solid var(--warning)' }}><strong>Falta preparar la base.</strong> Corre en Supabase <span className="mono">supabase/sql/casiterita-pmp-fase4-cierres.sql</span>.</div>;
+    return <div className="card" style={{ borderLeft: '3px solid var(--warning)' }}><strong>Falta preparar la base.</strong> Corre en Supabase <span className="mono">supabase/sql/inventario/casiterita-pmp-fase4-cierres.sql</span>.</div>;
   }
 
   return (
