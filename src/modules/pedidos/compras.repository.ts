@@ -131,6 +131,7 @@ export interface CompraDirecta {
   aprobada_por: string | null;
   /** Quién pagó desde Tesorería (en el flujo montar → pagar). */
   pagada_por: string | null;
+  pagada_at?: string | null;
   /** Quién recibió y le dio entrada al inventario (almacenista) + cuándo. */
   recibida_por: string | null;
   recibida_at: string | null;

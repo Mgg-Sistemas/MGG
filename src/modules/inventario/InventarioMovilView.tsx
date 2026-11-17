@@ -292,10 +292,21 @@ export function InventarioMovilView() {
             <span>Por retornar ({porRetornar.length})</span>
             <small>{porRetornar.length ? 'Dar retorno a lo que salió' : 'Sin pendientes por retornar'}</small>
           </button>
-          <button type="button" className="surt-btn" style={{ borderColor: 'var(--warning)', background: presalidas.length ? 'rgba(234, 179, 8, 0.08)' : undefined }}
-            onClick={() => setPaso('presalidas')}>
-            <span className="icono" aria-hidden>⏳</span>
-            <span>Pre-salidas ({presalidas.length})</span>
+          <button
+            type="button"
+            className="surt-btn"
+            style={{
+              gridColumn: '1 / -1',
+              borderColor: 'var(--warning)',
+              background: presalidas.length ? 'rgba(234, 179, 8, 0.08)' : undefined,
+              minHeight: 84,
+            }}
+            onClick={() => setPaso('presalidas')}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem' }}>
+              <span className="icono" aria-hidden style={{ fontSize: '1.4rem' }}>⏳</span>
+              <span style={{ fontWeight: 700 }}>Pre-salidas ({presalidas.length})</span>
+            </div>
             <small>{presalidas.length ? `${presalidas.length} borrador(es) por autorizar` : 'Borradores para WhatsApp'}</small>
           </button>
         </div>
@@ -1243,7 +1254,7 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
 
   async function guardarComoPreSalida() {
     if (malLineas) return toast(malLineas, 'error');
-    if (!motivo.trim()) return toast('Indica el motivo de la salida.', 'error');
+    if (!motivo.trim()) return toast('Por favor escribe el motivo de la salida para solicitar la autorización por WhatsApp.', 'warning');
     setGuardandoPre(true);
     try {
       const motivoFinal = conMaquina ? motivoConMaquina(motivo, equipoMant.nombre) : motivo;
@@ -1367,7 +1378,7 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
           type="button"
           className="btn btn-ghost btn-grande"
           style={{ borderColor: 'var(--warning)', color: 'var(--text)', fontWeight: 600 }}
-          disabled={guardando || guardandoPre || !!malLineas || !motivo.trim()}
+          disabled={guardando || guardandoPre}
           onClick={() => void guardarComoPreSalida()}
         >
           {guardandoPre ? 'Guardando pre-salida…' : '⏳ Guardar Pre-salida y pedir autorización (WhatsApp)'}
