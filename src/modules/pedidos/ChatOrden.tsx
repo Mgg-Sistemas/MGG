@@ -7,6 +7,7 @@ import { toast } from '@/shared/ui/Toast';
 import { listMensajes, enviarMensaje, marcarLeido, type MensajeOrden } from './ordenChat.repository';
 import { ChatMensajeContenido } from './ChatFormato';
 import { PERSONAS_CONOCIDAS_COMPRAS } from './personasCompras';
+import { ARCHIVADOS_CONOCIDOS, esUsuarioActivoParaMencion } from './chatMenciones';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { estadoVisible, estaArchivado } from '@/modules/usuarios/usuariosArchivo';
 import { supabase } from '@/shared/lib/supabase';
@@ -605,7 +606,7 @@ export function ChatOrden({
   const [menuIndex, setMenuIndex] = useState(0);
 
   // Cargar lista de miembros activos clasificados por departamento
-  // REQUISITO ESTRICTO: Excluir totalmente archivados y deshabilitados
+  // REQUISITO ESTRICTO: Excluir totalmente archivados, deshabilitados y desvinculados
   useEffect(() => {
     let cancel = false;
     async function cargarMiembros() {
@@ -614,8 +615,7 @@ export function ChatOrden({
       try {
         const dbUsers: Usuario[] = await listUsuarios();
         for (const u of dbUsers) {
-          const esActivo = estadoVisible(u) === 'activo' && !u.bloqueado && !estaArchivado(u);
-          if (!esActivo) continue;
+          if (!esUsuarioActivoParaMencion(u)) continue;
 
           const emailNorm = (u.email ?? '').toLowerCase().trim();
           const nom = `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim();
@@ -625,17 +625,11 @@ export function ChatOrden({
           }
         }
       } catch {
-        const ARCHIVADOS_CONOCIDOS = new Set([
-          'erick flores',
-          'javier leiva',
-          'jose liendro',
-          'mariana tovar',
-          'teodoro garcia',
-        ]);
         for (const [correo, nom] of Object.entries(PERSONAS_CONOCIDAS_COMPRAS)) {
-          if (ARCHIVADOS_CONOCIDOS.has(nom.toLowerCase())) continue;
+          const emailNorm = correo.toLowerCase().trim();
+          const nomNorm = nom.toLowerCase().trim();
+          if (ARCHIVADOS_CONOCIDOS.has(nomNorm) || ARCHIVADOS_CONOCIDOS.has(emailNorm)) continue;
           if (correo.includes('@')) {
-            const emailNorm = correo.toLowerCase().trim();
             const depto = normalizarDepartamento(null, emailNorm);
             mapa.set(emailNorm, { nombre: nom.toUpperCase(), depto });
           }
@@ -647,6 +641,10 @@ export function ChatOrden({
         const nombresVistos = new Set<string>();
         for (const [email, { nombre, depto }] of mapa.entries()) {
           const upper = nombre.toUpperCase();
+          const lower = nombre.toLowerCase().trim();
+          const lowerEmail = email.toLowerCase().trim();
+          if (ARCHIVADOS_CONOCIDOS.has(lower) || ARCHIVADOS_CONOCIDOS.has(lowerEmail)) continue;
+
           if (!nombresVistos.has(upper)) {
             lista.push({ email, nombre: upper, departamento: depto });
             nombresVistos.add(upper);
@@ -751,11 +749,17 @@ export function ChatOrden({
   const { miembrosAgrupados, miembrosPlana } = useMemo(() => {
     if (menuTipo !== 'mencion') return { miembrosAgrupados: [] as Array<[string, MiembroEquipo[]]>, miembrosPlana: [] as MiembroEquipo[] };
 
-    const filtrados = miembros.filter((m) =>
-      m.nombre.toLowerCase().includes(menuQuery) ||
-      m.email.toLowerCase().includes(menuQuery) ||
-      m.departamento.toLowerCase().includes(menuQuery)
-    );
+    const filtrados = miembros.filter((m) => {
+      const lowerNom = m.nombre.toLowerCase().trim();
+      const lowerEmail = m.email.toLowerCase().trim();
+      if (ARCHIVADOS_CONOCIDOS.has(lowerNom) || ARCHIVADOS_CONOCIDOS.has(lowerEmail)) return false;
+
+      return (
+        m.nombre.toLowerCase().includes(menuQuery) ||
+        m.email.toLowerCase().includes(menuQuery) ||
+        m.departamento.toLowerCase().includes(menuQuery)
+      );
+    });
 
     const gruposMap = new Map<string, MiembroEquipo[]>();
     for (const m of filtrados) {

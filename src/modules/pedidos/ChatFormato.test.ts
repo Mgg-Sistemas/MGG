@@ -8,6 +8,8 @@ import {
 import {
   extraerMenciones,
   resolverDestinatariosMenciones,
+  ARCHIVADOS_CONOCIDOS,
+  esUsuarioActivoParaMencion,
 } from './chatMenciones';
 import {
   normalizarDepartamento,
@@ -185,6 +187,38 @@ describe('chatMenciones · Menciones (@) y Exclusión Estricta de Archivados/Des
     expect(destinatarios.some((d) => d.nombre.includes('JOSE'))).toBe(false);
     expect(destinatarios.some((d) => d.nombre.includes('TEODORO'))).toBe(false);
     expect(destinatarios.some((d) => d.nombre.includes('MARIANA'))).toBe(false);
+  });
+
+  it('EXCLUSIÓN INFALIBLE: Incluso si la BD devuelve usuarios con estado activo, los desvinculados son bloqueados', () => {
+    // Simula que en la base de datos Erick Flores y Javier Leiva tenían fila con estado='activo'
+    const usuariosStaleDb: Partial<Usuario>[] = [
+      { id: 'u1', nombre: 'KELVIN', apellido: 'PEÑA', email: 'comprasanalista9@gmail.com', estado: 'activo' },
+      { id: 'u2', nombre: 'ERICK', apellido: 'FLORES', email: 'analista4mgg@gmail.com', estado: 'activo' },
+      { id: 'u3', nombre: 'JAVIER', apellido: 'LEIVA', email: 'analista1mgg@gmail.com', estado: 'activo' },
+      { id: 'u4', nombre: 'NAZARET', apellido: 'SALAZAR', email: 'asistentecomprasgt2@gmail.com', estado: 'activo' },
+    ];
+
+    expect(esUsuarioActivoParaMencion(usuariosStaleDb[0])).toBe(true);
+    expect(esUsuarioActivoParaMencion(usuariosStaleDb[1])).toBe(false); // Erick Flores
+    expect(esUsuarioActivoParaMencion(usuariosStaleDb[2])).toBe(false); // Javier Leiva
+    expect(esUsuarioActivoParaMencion(usuariosStaleDb[3])).toBe(true);
+
+    const menciones = ['@Erick Flores', '@Javier Leiva', '@Kelvin Peña', '@Nazaret Salazar'];
+    const res = resolverDestinatariosMenciones(menciones, usuariosStaleDb as Usuario[]);
+
+    expect(res.map((r) => r.email).sort()).toEqual([
+      'asistentecomprasgt2@gmail.com',
+      'comprasanalista9@gmail.com',
+    ]);
+  });
+
+  it('esUsuarioActivoParaMencion rechaza usuarios bloqueados, archivados o con estado inactivo', () => {
+    expect(esUsuarioActivoParaMencion({ email: 'test@mgg.com', nombre: 'Test', estado: 'inactivo' })).toBe(false);
+    expect(esUsuarioActivoParaMencion({ email: 'test@mgg.com', nombre: 'Test', estado: 'activo', archivado_en: '2026-10-01' })).toBe(false);
+    expect(esUsuarioActivoParaMencion({ email: 'test@mgg.com', nombre: 'Test', estado: 'activo', bloqueado: true })).toBe(false);
+    expect(esUsuarioActivoParaMencion({ email: 'analista4mgg@gmail.com', nombre: 'Erick', estado: 'activo' })).toBe(false);
+    expect(esUsuarioActivoParaMencion({ email: 'analista1mgg@gmail.com', nombre: 'Javier', estado: 'activo' })).toBe(false);
+    expect(esUsuarioActivoParaMencion({ email: 'usuario.bueno@mgg.com', nombre: 'Carlos', apellido: 'Perez', estado: 'activo' })).toBe(true);
   });
 });
 
