@@ -32,8 +32,8 @@ export function NotificacionesPanel({ open, onClose, onAllRead }: Props) {
   const { user } = useSession();
 
   const filtro = useCallback(
-    (n: Notificacion) => puedeVerNotificacion(n, can, isAdmin, role, user?.id),
-    [can, isAdmin, role, user?.id]
+    (n: Notificacion) => puedeVerNotificacion(n, can, isAdmin, role, user?.id, user?.email),
+    [can, isAdmin, role, user?.id, user?.email]
   );
 
   // Al hacer click en una notificación: la marca leída, va a su módulo/detalle y cierra.

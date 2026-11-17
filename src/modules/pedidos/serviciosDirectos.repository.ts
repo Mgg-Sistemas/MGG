@@ -119,6 +119,9 @@ export interface ServicioDirecto {
   unidad_solicitante?: string | null;
   actor: string | null;
   actor_name: string | null;
+  /** Materialización de un GASTO FIJO de Administración (empresa y plantilla origen). */
+  empresa_clave?: string | null;
+  gasto_fijo_id?: string | null;
   /** Quién pagó desde Tesorería (en el flujo montar → pagar). */
   pagada_por: string | null;
   pagada_at?: string | null;
@@ -140,6 +143,8 @@ function normalizar(row: Record<string, unknown>): ServicioDirecto {
     nota: r.nota ?? null, moneda: r.moneda ?? 'USD',
     con_abonos: !!r.con_abonos, credito_cxp_id: r.credito_cxp_id ?? null,
     anticipo_monto: r.anticipo_monto ?? null, anticipo_moneda: r.anticipo_moneda ?? null,
+    empresa_clave: (r.empresa_clave as string) ?? null,
+    gasto_fijo_id: (r.gasto_fijo_id as string) ?? null,
     anticipo_at: r.anticipo_at ?? null,
     historial: Array.isArray(r.historial) ? r.historial : [],
     ret_pago_monto: Number(r.ret_pago_monto) || 0,
@@ -171,7 +176,9 @@ export async function listServiciosDirectos(): Promise<ServicioDirecto[]> {
 /* ───────── Alta (varios servicios) ───────── */
 
 export interface LineaServicioInput {
-  servicioCategoria: string;
+  servicioCategoria?: string;
+  categoria?: string;
+  descripcion?: string;
   servicioTipo?: string | null;
   equipoId?: string | null;
   equipoNombre?: string | null;
@@ -204,16 +211,19 @@ export interface CrearServicioDirectoInput {
   proveedorNombre?: string | null;
   solicitante?: string | null;
   solicitantePersona?: string | null;
+  moneda?: string | null;
+  nota?: string | null;
   actor: string;
   actorName?: string | null;
 }
 
 export async function crearServicioDirecto(input: CrearServicioDirectoInput): Promise<ServicioDirecto> {
-  const lineas = input.lineas.filter((l) => (Number(l.cantidad) || 0) > 0 && l.servicioCategoria.trim());
+  const lineas = input.lineas.filter((l) => (Number(l.cantidad) || 0) > 0 && (((l.servicioCategoria || l.categoria) ?? '').trim() || (l.descripcion ?? '').trim()));
   if (!lineas.length) throw new Error('Agregá al menos un servicio con su categoría y cantidad.');
 
   const items: ServicioDirectoItem[] = lineas.map((l) => {
-    const cat = l.servicioCategoria.trim().toUpperCase();
+    const rawCat = (l.servicioCategoria || l.categoria || (l.descripcion ? 'HONORARIOS / GASTO ADMINISTRATIVO' : '')).trim().toUpperCase();
+    const cat = rawCat || 'HONORARIOS / GASTO ADMINISTRATIVO';
     const tipo = (l.servicioTipo ?? '').trim().toUpperCase() || null;
     const eq = (l.equipoNombre ?? '').trim() || null;
     const recarga = esRecarga(cat);
@@ -231,8 +241,10 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
     const prodCant = prodId ? Math.max(0, Number(l.productoCantidad) || 0) : null;
     const prodNombre = prodId ? (l.productoNombre?.trim() || null) : null;
     const prodAlmacen = prodId ? (l.productoAlmacen?.trim() || null) : null;
-    const desc = [cat, eq, tipo].filter(Boolean).join(' · ') + (extra ? ` · ${extra}` : '')
-      + (prodId && prodCant ? ` · ${prodCant} ${prodNombre ?? 'repuesto'} del inventario` : '');
+    const desc = l.descripcion
+      ? l.descripcion.trim()
+      : [cat, eq, tipo].filter(Boolean).join(' · ') + (extra ? ` · ${extra}` : '')
+        + (prodId && prodCant ? ` · ${prodCant} ${prodNombre ?? 'repuesto'} del inventario` : '');
     const detalle = limpiarDetalleItems(l.detalleItems);
     return {
       servicio_categoria: cat, servicio_tipo: tipo,
@@ -261,6 +273,8 @@ export async function crearServicioDirecto(input: CrearServicioDirectoInput): Pr
       proveedor_nombre: input.proveedorNombre?.trim() || null,
       equipo_id: equipoId, equipo_nombre: equipoNombre,
       cantidad: totalCantidad, items, estado: 'en_proceso',
+      moneda: input.moneda === 'Bs' ? 'Bs' : 'USD',
+      nota: input.nota?.trim() || null,
       solicitante: input.solicitante?.trim() || null,
       solicitante_persona: input.solicitantePersona?.trim() || null,
       actor: input.actor, actor_name: input.actorName ?? null,
@@ -417,6 +431,35 @@ export async function montarServicioDirecto(input: MontarServicioDirectoInput): 
     })
     .eq('id', servicio.id);
   if (error) throw error;
+}
+
+export interface EnviarServicioAPagarInput {
+  servicio: ServicioDirecto;
+  items: Array<{ descripcion?: string; concepto?: string; cantidad: number; gasto?: number; categoria?: string | null }>;
+  moneda?: string | null;
+  actor: string;
+  actorName?: string | null;
+}
+
+export async function enviarServicioAPagar(input: EnviarServicioAPagarInput): Promise<void> {
+  return montarServicioDirecto({
+    servicio: input.servicio,
+    items: input.items.map((i) => {
+      const cat = (i.categoria || 'HONORARIOS / GASTO ADMINISTRATIVO').trim().toUpperCase();
+      return {
+        servicio_categoria: cat,
+        servicio_tipo: null,
+        equipo_id: null,
+        equipo_nombre: null,
+        descripcion: i.descripcion ?? (i as { concepto?: string }).concepto ?? 'Servicio',
+        cantidad: i.cantidad,
+        gasto: i.gasto ?? 0,
+      };
+    }),
+    moneda: input.moneda ?? input.servicio.moneda,
+    actor: input.actor,
+    actorName: input.actorName,
+  });
 }
 
 /* ───────── Pagar (Tesorería: caja → egreso → FINALIZADA) ───────── */

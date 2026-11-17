@@ -90,7 +90,7 @@ import { comprobantesDeOrden, urlRetencion, labelRetencionModo, listRetencionesH
 import { aPagarConRetencion, separarReembolso, conceptoReembolsoOc, convertirRetencion } from './reembolsoPago';
 // Generadores de PDF/Excel: se importan dinámicamente (al generar) para no cargar jsPDF/xlsx al abrir la página.
 import { type ReporteMeta } from './reportePdf';
-import { ChatOC } from '@/modules/pedidos/ChatOC';
+import { ChatOrden } from '@/modules/pedidos/ChatOrden';
 import { noLeidosPorOrden } from '@/modules/pedidos/ocChat.repository';
 // enviarReportePorCorreo, enviarMovimientoDetallePorCorreo, enviarCuentaPorPagarPorCorreo y
 // descargarOrdenCompraPdf se importan dinámicamente (al generar/enviar) para no cargar jsPDF al abrir.
@@ -6437,7 +6437,7 @@ function CuentasPorCobrarModal({ cajas, actor, actorName, onClose, onChanged }: 
   );
 }
 
-function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid }: {
+function PagarOrdenModal({ row, cajas, actor, actorName, userId: _userId, onClose, onPaid }: {
   row: OrdenPorPagar; cajas: Caja[]; actor: string; actorName: string | null; userId: string; onClose: () => void; onPaid: () => void;
 }) {
   const o = row.orden;
@@ -7704,14 +7704,16 @@ function PagarOrdenModal({ row, cajas, actor, actorName, userId, onClose, onPaid
         </>)}
       </form>
 
-      {/* Chat por OC: mismo hilo que ve el analista de compras en Pedidos. Tesorería lo
-          usa para coordinar el método de pago antes de pagar. */}
-      <ChatOC
+      {/* Chat interno con Compras (mismo hilo que la OC en Pedidos): coordinar el método
+          de pago / aclarar la orden sin salir de Tesorería. */}
+      <ChatOrden
         ordenId={o.id}
-        ordenCodigo={o.oc_codigo ?? o.codigo}
-        userId={userId}
-        autorEmail={actor}
+        ordenLabel={o.oc_codigo ?? o.codigo}
         autorNombre={actorName ?? actor}
+        contextoModulo="tesoreria"
+        fase={o.estado}
+        tipoOperacion={o.oc_codigo ? 'Orden de Compra' : o.tipo === 'servicio' ? 'Servicio' : 'Orden'}
+        ordenActual={o}
       />
 
       {/* Modal para enviar aviso formateado por WhatsApp (30-10-2026) */}

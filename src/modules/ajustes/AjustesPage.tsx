@@ -14,6 +14,17 @@ import {
   setNotifPrefs,
   stopNotificationPattern,
 } from '@/shared/lib/sound';
+import {
+  isPushHabilitado,
+  togglePushHabilitado,
+  probarNotificacionPush,
+  soportaPush,
+  MODULOS_NOTIFICACION,
+  getModulosNotifActivos,
+  setModuloNotifActivo,
+  setTodosModulosNotif,
+  type ModuloNotifKey,
+} from '@/shared/lib/webpush';
 
 const VIEW_KEY = 'mgg.view.pedidos';
 const SCOPE_KEY = 'mgg.scope.pedidos';
@@ -44,6 +55,83 @@ export function AjustesPage() {
   const [notifEnabled, setNotifEnabled] = useState(() => getNotifPrefs().enabled);
   const [notifSound, setNotifSound] = useState(() => getNotifPrefs().sound);
   const [notifDuration, setNotifDuration] = useState(() => getNotifPrefs().duration);
+
+  // Notificaciones push de este dispositivo (Web Push y notificaciones nativas en pantalla)
+  const pushSoportado = soportaPush();
+  const [pushHabilitado, setPushHabilitado] = useState(() => isPushHabilitado());
+  const [pushMsg, setPushMsg] = useState('');
+  const [pushCargando, setPushCargando] = useState(false);
+  const [modulosActivos, setModulosActivos] = useState(() => getModulosNotifActivos());
+
+  function handleToggleModulo(key: ModuloNotifKey) {
+    const nuevoEstado = !modulosActivos[key];
+    const actualizados = setModuloNotifActivo(key, nuevoEstado);
+    setModulosActivos({ ...actualizados });
+    const modConfig = MODULOS_NOTIFICACION.find((m) => m.key === key);
+    toast(
+      nuevoEstado
+        ? `Alertas activadas para ${modConfig?.label || key}`
+        : `Alertas silenciadas para ${modConfig?.label || key}`,
+      'info',
+    );
+  }
+
+  function handleToggleTodosModulos(activo: boolean) {
+    const todos = setTodosModulosNotif(activo);
+    setModulosActivos({ ...todos });
+    toast(
+      activo
+        ? 'Alertas activadas para todos los módulos'
+        : 'Alertas desactivadas para todos los módulos',
+      'info',
+    );
+  }
+
+  useEffect(() => {
+    function sincronizarPermiso() {
+      setPushHabilitado(isPushHabilitado());
+    }
+    window.addEventListener('focus', sincronizarPermiso);
+    return () => window.removeEventListener('focus', sincronizarPermiso);
+  }, []);
+
+  async function handleTogglePush(habilitar: boolean) {
+    setPushCargando(true);
+    setPushMsg('');
+    try {
+      const res = await togglePushHabilitado(habilitar);
+      if (res.ok) {
+        setPushHabilitado(habilitar);
+        const msg = habilitar
+          ? 'Notificaciones push activadas en este dispositivo.'
+          : 'Notificaciones push desactivadas en este dispositivo.';
+        setPushMsg(msg);
+        toast(msg, 'success');
+      } else {
+        setPushHabilitado(false);
+        const err = res.motivo || 'No se pudo cambiar el estado de las notificaciones.';
+        setPushMsg(err);
+        toast(err, 'warning');
+      }
+    } finally {
+      setPushCargando(false);
+    }
+  }
+
+  async function handleProbarPush() {
+    setPushCargando(true);
+    try {
+      const res = await probarNotificacionPush();
+      if (res.ok) {
+        setPushHabilitado(true);
+        toast('Notificación push de prueba emitida en este dispositivo 📲', 'success');
+      } else {
+        toast(res.motivo || 'No se pudo emitir la notificación de prueba.', 'warning');
+      }
+    } finally {
+      setPushCargando(false);
+    }
+  }
 
   const cargarPerfil = useCallback(async () => {
     if (!user) { setLoading(false); return; }
@@ -272,16 +360,132 @@ export function AjustesPage() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '.5rem', marginTop: '.75rem' }}>
+          <div className="setting-row">
+            <div style={{ flex: 1 }}>
+              <strong>
+                Notificaciones en este dispositivo (Push)
+              </strong>
+              <div className="muted" style={{ fontSize: '.82rem' }}>
+                Recibe alertas y avisos del sistema en este dispositivo (incluso con la aplicación minimizada).
+                {!pushSoportado && ' Este navegador no soporta notificaciones push.'}
+                {pushMsg && <><br />{pushMsg}</>}
+              </div>
+            </div>
+            <label className="switch">
+              <input
+                type="checkbox"
+                checked={pushHabilitado}
+                disabled={!pushSoportado || pushCargando}
+                onChange={(e) => void handleTogglePush(e.target.checked)}
+              />
+              <span className="slider-toggle"></span>
+            </label>
+          </div>
+
+          {/* Módulos con alertas y notificaciones activas */}
+          <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
+              <div>
+                <strong style={{ fontSize: '.92rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                  <span>🔔</span> Módulos con alertas activas
+                </strong>
+                <div className="muted" style={{ fontSize: '.8rem', marginTop: '2px' }}>
+                  Elige de qué módulos deseas recibir alertas sonoras y notificaciones push en este dispositivo.
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '.4rem' }}>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ fontSize: '.75rem', padding: '.25rem .55rem', height: 'auto' }}
+                  onClick={() => handleToggleTodosModulos(true)}
+                  title="Activar notificaciones para todos los módulos"
+                >
+                  ✓ Todos
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  style={{ fontSize: '.75rem', padding: '.25rem .55rem', height: 'auto' }}
+                  onClick={() => handleToggleTodosModulos(false)}
+                  title="Desactivar notificaciones para todos los módulos"
+                >
+                  ✕ Ninguno
+                </button>
+              </div>
+            </div>
+
+            {/* Chips / Pills rápidos táctiles */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.5rem', marginTop: '.6rem' }}>
+              {MODULOS_NOTIFICACION.map((m) => {
+                const activo = modulosActivos[m.key] ?? true;
+                return (
+                  <button
+                    key={m.key}
+                    type="button"
+                    onClick={() => handleToggleModulo(m.key)}
+                    title={`${m.hint} · Clic para ${activo ? 'silenciar' : 'activar'}`}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '.45rem',
+                      padding: '.4rem .75rem',
+                      borderRadius: '999px',
+                      fontSize: '.82rem',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      border: activo ? '1px solid var(--primary)' : '1px dashed var(--border)',
+                      background: activo ? 'rgba(245, 158, 11, 0.12)' : 'rgba(255, 255, 255, 0.03)',
+                      color: activo ? 'var(--primary)' : 'var(--muted)',
+                      boxShadow: activo ? '0 1px 4px rgba(245, 158, 11, 0.18)' : 'none',
+                    }}
+                  >
+                    <span>{m.icono}</span>
+                    <span>{m.label}</span>
+                    <span
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        width: '16px',
+                        height: '16px',
+                        borderRadius: '50%',
+                        fontSize: '.68rem',
+                        fontWeight: 700,
+                        marginLeft: '.2rem',
+                        background: activo ? 'var(--primary)' : 'rgba(255, 255, 255, 0.1)',
+                        color: activo ? '#000' : 'var(--muted)',
+                      }}
+                    >
+                      {activo ? '✓' : '—'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '.5rem', marginTop: '.75rem', flexWrap: 'wrap' }}>
             <button
+              type="button"
               className="btn btn-ghost"
               onClick={() => playNotificationPattern(notifDuration)}
               disabled={!notifEnabled || !notifSound}
             >
               🔊 Probar sonido
             </button>
-            <button className="btn btn-ghost" onClick={stopNotificationPattern}>
+            <button type="button" className="btn btn-ghost" onClick={stopNotificationPattern}>
               ■ Detener
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => void handleProbarPush()}
+              disabled={!pushSoportado || pushCargando}
+              title="Envía una notificación push de prueba en este dispositivo"
+            >
+              📲 Probar notificación push
             </button>
           </div>
         </div>

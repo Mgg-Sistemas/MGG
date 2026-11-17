@@ -67,7 +67,7 @@ export function AppShell() {
   const tienePantalla = (key: 'surtidor' | 'comidas') => !isAdmin && vistasTelefono.some((v) => v.key === key);
   const navigate = useNavigate();
   const location = useLocation();
-  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('solicitud_pedido') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('choferes') || can('acopio') || can('ventas') || can('tesoreria') || can('retenciones') || can('conciliacion') || can('delivery') || can('carga_pesada'));
+  const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('solicitud_pedido') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('choferes') || can('acopio') || can('ventas') || can('tesoreria') || can('administracion') || can('retenciones') || can('conciliacion') || can('delivery') || can('carga_pesada'));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.
   const showSistema = true;
@@ -445,6 +445,7 @@ export function AppShell() {
           {can('recepciones') && <NavItem to="/app/recepciones" icon="📥" label="Recepciones" />}
           {can('ventas') && <NavItem to="/app/ventas" icon="🧾" label="Ventas" />}
           {can('tesoreria') && <NavItem to="/app/tesoreria" icon="🏦" label="Tesorería" />}
+          {can('administracion') && <NavItem to="/app/administracion" icon="💼" label="Administración" />}
           {can('retenciones') && <NavItem to="/app/retenciones" icon="🧾" label="Retenciones" />}
           {can('conciliacion') && <NavItem to="/app/conciliacion" icon="🧮" label="Conciliación" />}
           {can('rrhh') && <NavItem to="/app/rrhh" icon="👥" label="RRHH / Nómina" />}

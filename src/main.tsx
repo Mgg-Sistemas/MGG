@@ -6,7 +6,12 @@ import { instalarSelectOnFocusMonto } from './shared/lib/selectOnFocus';
 import { instalarRecuperacionChunks } from './shared/lib/lazyReload';
 import { instalarMayusculaAutomatica } from './shared/lib/autoUpper';
 import { instalarPreviewPdf } from './shared/lib/reportPreview';
+import { registrarServiceWorkerPush } from './shared/lib/webpush';
 import './styles/index.css';
+
+// Service worker de notificaciones push (solo lo REGISTRA; la suscripción, que pide
+// permiso, va tras una acción del usuario — ver shared/lib/webpush.ts / Ajustes).
+void registrarServiceWorkerPush();
 
 // Al enfocar un campo numérico que muestra 0, selecciona el 0 para reemplazarlo.
 instalarSelectOnFocusMonto();
