@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { usePwaInstall } from '@/shared/hooks/usePwaInstall';
+import { esErrorTablaAusente, extraerMensajeError } from './adminErrores';
 import { crearRepoSupabase, type AdminRepo, type Empresa, type DocumentoEmpresa } from './admin.repository';
 import { crearPreferenciasAdmin, TODAS, type PreferenciasAdmin, type TabAdmin } from './administracionPreferencias';
 import { EmpresasModal } from './EmpresasModal';
@@ -69,7 +70,7 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
   const cargarEmpresas = useCallback(async () => {
     setError(null);
     try { setEmpresas(await repo.listEmpresas()); }
-    catch (e) { setError(e instanceof Error ? e.message : 'No se pudieron leer las empresas.'); }
+    catch (e) { setError(extraerMensajeError(e, 'No se pudieron leer las empresas.')); }
   }, [repo]);
 
   const cargarDocsAlerta = useCallback(async () => {
@@ -207,7 +208,9 @@ export function AdministracionPage({ repo: repoDado, prefs: prefsDadas, aviso, p
 
       {error && (
         <div className="adm-aviso">
-          No se pudieron leer las empresas{/sesi|jwt|auth|401|permission|relation|does not exist/i.test(error) ? ': inicia sesión o la base aún no tiene las tablas del módulo.' : `: ${error}`}
+          No se pudieron leer las empresas: {esErrorTablaAusente(error) || /sesi|jwt|auth|401|permission|does not exist/i.test(error)
+            ? 'las tablas del módulo aún no han sido aplicadas en la base de datos (ejecutar script SQL de administración).'
+            : error}
         </div>
       )}
 
