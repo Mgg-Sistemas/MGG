@@ -25,6 +25,7 @@ export type ModuleKey =
   | 'choferes'
   | 'ventas'
   | 'tesoreria'
+  | 'administracion'
   | 'retenciones'
   | 'conciliacion'
   | 'recepciones'
@@ -78,6 +79,7 @@ export const MODULES: { key: ModuleKey; label: string; path?: string }[] = [
   { key: 'choferes',    label: 'Choferes / Conductores' },
   { key: 'ventas',      label: 'Ventas' },
   { key: 'tesoreria',   label: 'Tesorería' },
+  { key: 'administracion', label: 'Administración' },
   { key: 'retenciones', label: 'Retenciones' },
   { key: 'conciliacion', label: 'Conciliación' },
   { key: 'recepciones', label: 'Recepciones' },

@@ -101,13 +101,20 @@ export function puedeVerNotificacion(
   can: (module: ModuleKey, level?: PermLevel) => boolean,
   isAdmin: boolean,
   role?: string | null,
-  userId?: string | null
+  userId?: string | null,
+  email?: string | null
 ): boolean {
   if (isAdmin) return true;
 
-  // Notificación con destinatario directo
+  // Notificación con destinatario directo (id, rol o email)
   if (userId && n.destino === userId) return true;
   if (role && n.destino === role) return true;
+  if (email && n.destino && n.destino.toLowerCase().trim() === email.toLowerCase().trim()) return true;
+
+  // Chat interno y menciones de una orden: conciernen tanto a Compras como a Tesorería
+  if (/^(?:💬\s*mensaje en|🔔\s*te mencionaron en)\b/i.test((n.title ?? '').trim())) {
+    return can('pedidos', 'lectura') || can('tesoreria', 'lectura');
+  }
 
   const modulo = moduloDeNotificacion(n);
   if (!modulo) {
