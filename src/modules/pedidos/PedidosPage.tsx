@@ -143,6 +143,7 @@ import { previewFileUrl } from '@/shared/lib/reportPreview';
 import { cargarHistorialNombres, nombreEnFecha, type CambioNombre, type PersonasMap } from '@/shared/lib/personas';
 import { PendientesPorPagarModal } from './PendientesPorPagarModal';
 import { ReporteComprasModal } from './ReporteComprasModal';
+import { ExportarComprasModal } from './ExportarComprasModal';
 import { CierreDiarioModal } from './CierreDiarioModal';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
@@ -455,6 +456,7 @@ export function PedidosPage() {
   // las CUENTAS A CRÉDITO. El modal lee en vivo (realtime) y adentro genera el PDF.
   const [porPagarOpen, setPorPagarOpen] = useState(false);
   const [reporteOpen, setReporteOpen] = useState(false);
+  const [reporteMoldeableOpen, setReporteMoldeableOpen] = useState(false);
   const [cierreOpen, setCierreOpen] = useState(false);
 
   // Al cerrar cualquier modal, traer lo que haya cambiado mientras estuvo pausado.
@@ -770,6 +772,13 @@ export function PedidosPage() {
             title="Reporte por renglón: pendiente por aprobar, cuentas a crédito, por indicar método de pago y por pagar (código, motivo y monto en $ o Bs)"
           >
             📊 Reporte por renglón
+          </button>
+          <button
+            className="btn btn-ghost"
+            onClick={() => setReporteMoldeableOpen(true)}
+            title="Reporte de compras moldeable: Consolidado, Detallado y Resumen. Rango de fechas, filtros y analítica (gasto por departamento, ítem más comprado, categorías) · PDF, Excel, CSV y WhatsApp"
+          >
+            📄 Reporte
           </button>
           <button
             className="btn btn-ghost"
@@ -1120,6 +1129,7 @@ export function PedidosPage() {
       {/* Modal: SOLICITUD DE MERCADO (botón independiente · COCINA · urgente · Víveres y Art. de Limpieza) */}
       {porPagarOpen && <PendientesPorPagarModal onClose={() => setPorPagarOpen(false)} />}
       {reporteOpen && <ReporteComprasModal onClose={() => setReporteOpen(false)} />}
+      {reporteMoldeableOpen && <ExportarComprasModal onClose={() => setReporteMoldeableOpen(false)} />}
       {cierreOpen && <CierreDiarioModal onClose={() => setCierreOpen(false)} />}
 
       {modal.kind === 'mercado' && (
@@ -6044,8 +6054,8 @@ function CrearOrdenModal({
           <strong>🔁 Compra fija · {compraFija.nombre}</strong>
           <span className="muted" style={{ fontSize: '.8rem' }}>
             {' '}· {fijaPrevio
-              ? <>cantidades de la última vez: <strong className="mono">{fijaPrevio.codigo}</strong> ({dateTime(fijaPrevio.fecha)})</>
-              : 'primera vez: cantidades de la plantilla'}. Son editables.
+              ? <>materiales establecidos (ref. previa <strong className="mono">{fijaPrevio.codigo}</strong> {dateTime(fijaPrevio.fecha)})</>
+              : 'materiales establecidos en la plantilla'}. Son editables.
           </span>
         </div>
       )}

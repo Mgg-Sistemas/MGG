@@ -141,6 +141,16 @@ export type TipoOrdenConciliacion = 'oc' | 'servicio';
 /** Orden de servicio (Control de Servicio, código SV-…): misma tabla `ordenes`, clase 'servicio'. */
 export const esServicio = (o: Pick<Orden, 'clase'>) => o.clase === 'servicio';
 
+/**
+ * Detecta si una referencia ingresada manualmente corresponde a una compensación,
+ * cruce de deuda o saldo a favor con el proveedor (sin movimiento de caja/banco).
+ */
+export function esReferenciaCompensacion(ref: string | null | undefined): boolean {
+  if (!ref) return false;
+  const s = ref.toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return /\b(COMPENSACI?ON|CRUCE|DEUDA|SALDO A FAVOR|SIN MOVIMIENTO|SIN CAJA)\b/.test(s);
+}
+
 export type MonedaPagoConciliacion = 'Bs' | 'USD' | 'Mixto' | 'Sin pagar';
 
 /**
@@ -148,11 +158,14 @@ export type MonedaPagoConciliacion = 'Bs' | 'USD' | 'Mixto' | 'Sin pagar';
  *   · En Bs (multipago en Bs, referencia_bs o modalidad en Bs) → SÍ SE CRUZA contra el Drive/banco.
  *   · En USD (divisas, Zelle, efectivo, USDT/Binance) → NO SE CRUZA contra cuenta en Bs.
  *   · Sin pagar → no aplica cruce.
+ *   · Pagada sin descontar caja / compensación de deuda → NO SE CRUZA (es compensación).
  */
 export function detectarMonedaPago(o: Partial<Orden>): {
   monedaPago: MonedaPagoConciliacion;
   seCruza: boolean;
   detalle: string;
+  esCompensacion?: boolean;
+  motivoSinCaja?: string;
 } {
   const pagado = !!o.pagada_en || (Number(o.abonado_total) || 0) > 0 || ['pagada', 'por_recibir', 'recibida', 'finalizada'].includes(String(o.estado ?? ''));
 
@@ -161,6 +174,24 @@ export function detectarMonedaPago(o: Partial<Orden>): {
   }
 
   const evs = evsDe(o.historial);
+
+  // 0. Revisar si fue pagada sin descontar caja en Tesorería (compensación de deuda con proveedor,
+  //    saldo a favor, cruce) o si en Conciliación se indicó una referencia de compensación/cruce.
+  const evSinCaja = evs.slice().reverse().find((e) => e?.evento === 'pagada_sin_caja');
+  const refManual = datosConciliacion(o.historial)?.referencia;
+  const refEsComp = esReferenciaCompensacion(refManual);
+  const motivoSinCaja = o.pago_sin_caja_motivo || (evSinCaja?.motivo as string | undefined) || (refEsComp ? (refManual ?? undefined) : undefined);
+
+  if (motivoSinCaja || evSinCaja || refEsComp) {
+    const esBs = o.modalidad_pago === 'bs' || String(o.moneda ?? '').toUpperCase() === 'BS';
+    return {
+      monedaPago: esBs ? 'Bs' : 'USD',
+      seCruza: false,
+      detalle: `Pagada sin descontar caja (${motivoSinCaja || 'Compensación de deuda con proveedor'})`,
+      esCompensacion: true,
+      motivoSinCaja: motivoSinCaja || 'Compensación de deuda con proveedor (sin movimiento de caja)',
+    };
+  }
 
   // 1. Revisar los eventos de pago en el historial (el más reciente manda)
   for (let i = evs.length - 1; i >= 0; i--) {
@@ -248,6 +279,9 @@ export interface FilaConciliacion {
   monedaPago: MonedaPagoConciliacion;
   /** ¿Tesorería pagó en Bs y por tanto sí se cruza contra el Drive/banco? */
   seCruza: boolean;
+  /** Pago cancelado sin descontar caja (deuda pendiente del proveedor, compensación o saldo a favor). */
+  esCompensacion?: boolean;
+  motivoSinCaja?: string;
   referencia: ReferenciaPago;
   comprobantePago: ComprobantePagoConciliacion | null;
   retencion: RetencionConciliacion;
@@ -259,12 +293,34 @@ export interface FilaConciliacion {
 
 /** Recalcula el DRIVE de la fila con su referencia y monto actuales. */
 export function conDrive<T extends Omit<FilaConciliacion, 'drive'>>(f: T, historial: unknown): T & { drive: ResultadoDrive | null } {
+  const datos = driveDe(historial);
+  if (datos) {
+    return { ...f, drive: cruzarDrive(f, datos, pagadoBsTesoreria(historial)) };
+  }
+
+  // Si es compensación de deuda / cruce sin movimiento de caja, se considera CUADRA (compensada)
+  if (f.esCompensacion) {
+    const refTxt = f.referencia.manual || 'COMPENSACIÓN';
+    return {
+      ...f,
+      drive: {
+        estado: 'CUADRA',
+        motivo: `Compensada · ${f.motivoSinCaja || 'Cruce de deuda con proveedor (sin movimiento bancario)'}`,
+        datos: {
+          referencias: [refTxt],
+          montoBs: f.montoBs ?? 0,
+          archivo: 'Compensación de deuda',
+          filas: [],
+        },
+      },
+    };
+  }
+
   // Solo se van a cruzar las órdenes que estén pagadas por tesorería en el sistema y en Bs
   if (!f.pagado || !f.seCruza) {
     return { ...f, drive: null };
   }
-  const datos = driveDe(historial);
-  return { ...f, drive: datos ? cruzarDrive(f, datos, pagadoBsTesoreria(historial)) : null };
+  return { ...f, drive: null };
 }
 
 export interface EntradaFila {
@@ -292,7 +348,7 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
   const usd = totalUsd(o, tasa);
   const abonado = Number(o.abonado_total) || 0;
   const pagadoUsd = pagado ? usd : r2(Math.min(abonado, usd));
-  const { monedaPago, seCruza } = detectarMonedaPago(o);
+  const { monedaPago, seCruza, esCompensacion, motivoSinCaja } = detectarMonedaPago(o);
   return conDrive({
     id: o.id,
     item,
@@ -310,6 +366,8 @@ export function armarFila(e: EntradaFila, item: number): FilaConciliacion {
     pagadoUsd,
     monedaPago,
     seCruza,
+    esCompensacion,
+    motivoSinCaja,
     referencia: referenciaDePago(o.historial),
     comprobantePago: comprobanteDePago(o.historial),
     retencion: retencionDeOrden(o, e.fiscales ?? []),
@@ -408,10 +466,10 @@ export type FiltroMonedaPago = 'bs' | 'usd' | 'mixto' | 'sin_pagar';
 export type FiltroRetencion = 'si' | 'no';
 export type FiltroReferencia = 'con' | 'sin';
 export type FiltroDrive = 'cuadra' | 'no_cuadra' | 'sin' | 'no_aplica';
-export const valorFiltroDrive = (f: Pick<FilaConciliacion, 'drive'> & { seCruza?: boolean; pagado?: boolean }): FiltroDrive => {
+export const valorFiltroDrive = (f: Pick<FilaConciliacion, 'drive'> & { seCruza?: boolean; pagado?: boolean; esCompensacion?: boolean }): FiltroDrive => {
+  if (f.drive) return f.drive.estado === 'CUADRA' ? 'cuadra' : 'no_cuadra';
   if (f.pagado && f.seCruza === false) return 'no_aplica';
-  if (!f.drive) return 'sin';
-  return f.drive.estado === 'CUADRA' ? 'cuadra' : 'no_cuadra';
+  return 'sin';
 };
 
 export interface FiltrosConciliacion {
@@ -521,9 +579,9 @@ export function celda(f: FilaConciliacion, c: ColumnaConciliacion): string {
     case 'monto_bs': return f.montoBs != null ? bsTxt(f.montoBs) : '—';
     case 'tasa': return f.tasa ? `${fmt(f.tasa, 4)}${f.tasaEsDeHoy ? ' (hoy)' : ''}` : '—';
     case 'moneda_pago': return f.monedaPago;
-    case 'se_cruza': return f.seCruza ? 'Sí (cruza)' : f.monedaPago === 'Sin pagar' ? '—' : 'No (divisas)';
+    case 'se_cruza': return f.esCompensacion ? 'No (compensada)' : f.seCruza ? 'Sí (cruza)' : f.monedaPago === 'Sin pagar' ? '—' : 'No (divisas)';
     case 'referencia': return textoReferenciaPago(f.referencia) || '—';
-    case 'drive': return f.drive?.estado ?? (f.pagado && !f.seCruza ? 'No aplica (USD)' : '—');
+    case 'drive': return f.drive?.estado ?? (f.pagado && !f.seCruza ? (f.esCompensacion ? 'Compensada' : 'No aplica (USD)') : '—');
     case 'retencion': return textoRetencion(f.retencion);
     case 'factura': return f.facturas ? `${f.facturas} archivo(s)` : 'Sin factura';
     case 'estado': return f.estado.label;
@@ -561,7 +619,7 @@ export function textoWhatsappConciliacion(filas: FilaConciliacion[], opts: { tit
     const monto = [cols.has('monto_usd') ? usdTxt(f.montoUsd) : '', cols.has('monto_bs') && f.montoBs != null ? bsTxt(f.montoBs) : '', cols.has('tasa') && f.tasa ? `tasa ${fmt(f.tasa, 2)}${f.tasaEsDeHoy ? ' (hoy)' : ''}` : ''].filter(Boolean).join(' · ');
     if (monto) L.push(`   💰 ${monto}`);
     if (cols.has('moneda_pago')) L.push(`   💵 Pagada en: ${f.monedaPago}`);
-    if (cols.has('se_cruza')) L.push(`   🔄 ¿Se cruza con Drive?: ${f.seCruza ? 'Sí (en Bs)' : 'No (divisas)'}`);
+    if (cols.has('se_cruza')) L.push(`   🔄 ¿Se cruza con Drive?: ${f.esCompensacion ? 'No (compensada)' : f.seCruza ? 'Sí (en Bs)' : 'No (divisas)'}`);
     if (cols.has('referencia')) L.push(`   🔢 Ref.: ${textoReferenciaPago(f.referencia) || '—'}`);
     if (cols.has('drive') && f.drive) L.push(`   ${f.drive.estado === 'CUADRA' ? '✅' : '❌'} DRIVE/BANCO: ${f.drive.estado}`);
     if (cols.has('retencion')) L.push(`   🏛 Retención: ${textoRetencion(f.retencion)}`);

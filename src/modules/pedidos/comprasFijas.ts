@@ -140,25 +140,55 @@ export function cantidadesPrevias(items: Array<Pick<ItemOrden, 'productoId' | 's
 }
 
 /**
- * Los renglones de la plantilla: los productos fijos y los activos de sus categorías,
- * con la cantidad de la última vez (o la de la plantilla, o 1). Lo que se compró la
- * última vez y hoy ya no entra por categoría igual se trae.
+ * Los renglones de la plantilla: únicamente los productos explícitamente configurados
+ * en la lista de materiales de la plantilla y los activos de sus categorías.
+ * Si la plantilla definió cantidad en un producto fijo, se respeta esa cantidad establecida;
+ * si entra por categoría (o la cantidad es 0), se sugiere la de la última compra previa (o 1).
+ * NUNCA se agregan productos ajenos de compras previas que no pertenezcan a la plantilla.
  */
-export function renglonesDePlantilla(c: Pick<CompraFija, 'categorias' | 'productos' | 'finalidad'>, productos: Producto[], previas: Map<string, number>): ItemOrden[] {
+export function renglonesDePlantilla(
+  c: Pick<CompraFija, 'categorias' | 'productos'> & { finalidad?: string | null },
+  productos: Producto[],
+  previas: Map<string, number>,
+): ItemOrden[] {
   const activos = productos.filter((p) => p.estado === 'activo');
   const porId = new Map(activos.map((p) => [p.id, p]));
   const elegidos: Producto[] = [];
   const ya = new Set<string>();
-  const sumar1 = (p: Producto | undefined) => { if (p && !ya.has(p.id)) { ya.add(p.id); elegidos.push(p); } };
+  const sumar1 = (p: Producto | undefined) => {
+    if (p && !ya.has(p.id)) {
+      ya.add(p.id);
+      elegidos.push(p);
+    }
+  };
+
+  // 1. Productos fijos configurados en la plantilla
   for (const f of c.productos ?? []) sumar1(porId.get(f.producto_id));
-  for (const p of activos) if (entraPorCategoria(p.categoria, c.categorias ?? [])) sumar1(p);
-  for (const p of activos) if (previas.has(p.id) || previas.has(p.sku)) sumar1(p);
+
+  // 2. Productos activos que pertenecen a las categorías de la plantilla
+  for (const p of activos) {
+    if (entraPorCategoria(p.categoria, c.categorias ?? [])) sumar1(p);
+  }
+
   const fija = new Map((c.productos ?? []).map((f) => [f.producto_id, Number(f.cantidad) || 0]));
-  return elegidos.map((p) => ({
-    productoId: p.id, sku: p.sku, nombre: p.nombre, precio: 0, unidad: p.unidad, comprar: true,
-    cantidad: previas.get(p.id) ?? previas.get(p.sku) ?? (fija.get(p.id) || 1),
-    ...(c.finalidad ? { finalidad: c.finalidad } : {}),
-  }));
+
+  return elegidos.map((p) => {
+    const cantFija = fija.get(p.id);
+    const cantidad = (cantFija && cantFija > 0)
+      ? cantFija
+      : (previas.get(p.id) ?? previas.get(p.sku) ?? 1);
+
+    return {
+      productoId: p.id,
+      sku: p.sku,
+      nombre: p.nombre,
+      precio: 0,
+      unidad: p.unidad,
+      comprar: true,
+      cantidad,
+      ...(c.finalidad ? { finalidad: c.finalidad } : {}),
+    };
+  });
 }
 
 /** Validación de la plantilla antes de guardar. */

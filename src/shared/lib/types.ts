@@ -1030,6 +1030,8 @@ export interface Orden {
   solicitante?: string | null;
   /** Persona que solicita (nombre). En servicios va junto a la unidad solicitante. */
   solicitante_persona?: string | null;
+  /** Unidad / área que solicita. */
+  unidad_solicitante?: string | null;
   ci_solicitante?: string | null;
   items: ItemOrden[];
   total: number;

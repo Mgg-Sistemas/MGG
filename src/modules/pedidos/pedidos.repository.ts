@@ -248,17 +248,16 @@ export { FINALIDAD_MERCADO };
 
 /**
  * Última compra de mercado: la SP/orden más reciente marcada como reposición de
- * mercado; si no hay ninguna, la última orden creada (no anulada). Sirve para
- * mostrar "qué se compró la última vez" y reponer.
+ * mercado (FINALIDAD_MERCADO). Si no hay ninguna, retorna null (nunca toma órdenes
+ * de otros rubros para evitar precargar compras ajenas).
  */
 export async function ultimaOrdenMercado(): Promise<Orden | null> {
   const { data: merc } = await supabase.from(TABLE).select('*')
-    .eq('finalidad', FINALIDAD_MERCADO).order('created_at', { ascending: false }).limit(1);
-  if (merc && merc.length) return merc[0] as Orden;
-  const { data } = await supabase.from(TABLE).select('*')
+    .eq('finalidad', FINALIDAD_MERCADO)
     .not('estado', 'in', '(cancelada,anulada,desistida_proveedor)')
     .order('created_at', { ascending: false }).limit(1);
-  return (data && data.length) ? (data[0] as Orden) : null;
+  if (merc && merc.length) return merc[0] as Orden;
+  return null;
 }
 
 export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {

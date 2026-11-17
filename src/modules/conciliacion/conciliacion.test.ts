@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Orden } from '@/shared/lib/types';
 import {
-  armarFila, celda, comprobanteDePago, hayFiltrosActivos, datosConciliacion, detectarMonedaPago, estadoConciliacion, filtrar, ordenesConciliables, referenciaDePago, retencionDeOrden,
+  armarFila, celda, comprobanteDePago, hayFiltrosActivos, datosConciliacion, detectarMonedaPago, esReferenciaCompensacion, estadoConciliacion, filtrar, ordenesConciliables, referenciaDePago, retencionDeOrden,
   tarjetas, textoReferenciaPago, textoRetencion, textoWhatsappConciliacion, tieneReferencia, valorFiltroDrive, COLUMNAS_CONCILIACION,
 } from './conciliacion';
 
@@ -237,5 +237,79 @@ describe('conciliación · moneda de pago y cruce con Drive/Banco', () => {
     expect(filtrar([f1, f2], { monedaPago: ['usd'] }).map((f) => f.id)).toEqual(['2']);
     expect(filtrar([f1, f2], { drive: ['no_aplica'] }).map((f) => f.id)).toEqual(['2']);
     expect(filtrar([f1, f2], { drive: ['sin'] }).map((f) => f.id)).toEqual(['1']);
+  });
+
+  describe('compensaciones de deuda y pagos sin descontar caja', () => {
+    it('reconoce términos de compensación de deuda o saldo a favor', () => {
+      expect(esReferenciaCompensacion('COMPENSACIÓN DE DEUDA')).toBe(true);
+      expect(esReferenciaCompensacion('compensacion')).toBe(true);
+      expect(esReferenciaCompensacion('cruce de cuentas')).toBe(true);
+      expect(esReferenciaCompensacion('deuda pendiente')).toBe(true);
+      expect(esReferenciaCompensacion('saldo a favor')).toBe(true);
+      expect(esReferenciaCompensacion('sin caja')).toBe(true);
+      expect(esReferenciaCompensacion('35323145')).toBe(false);
+      expect(esReferenciaCompensacion('')).toBe(false);
+      expect(esReferenciaCompensacion(null)).toBe(false);
+    });
+
+    it('detecta orden pagada sin caja por motivo en la orden (o.pago_sin_caja_motivo)', () => {
+      const o = oc({
+        id: 'o_gomor',
+        oc_codigo: 'OC-2026-0239',
+        pagada_en: '2026-11-03T10:00:00Z',
+        pago_sin_caja_motivo: 'el proveedor tenia una deuda pendiente',
+        modalidad_pago: 'bs',
+      });
+      const det = detectarMonedaPago(o);
+      expect(det.esCompensacion).toBe(true);
+      expect(det.seCruza).toBe(false);
+      expect(det.monedaPago).toBe('Bs');
+      expect(det.motivoSinCaja).toBe('el proveedor tenia una deuda pendiente');
+
+      const fila = armarFila({ orden: o, proveedor: 'DISTRIBUIDORA GOMOR, C.A.', tasaPago: 895.6, tasaHoy: 895.6 }, 1);
+      expect(fila.esCompensacion).toBe(true);
+      expect(fila.seCruza).toBe(false);
+      expect(celda(fila, 'se_cruza')).toBe('No (compensada)');
+      expect(fila.drive?.estado).toBe('CUADRA');
+      expect(fila.drive?.motivo).toContain('Compensada');
+      expect(valorFiltroDrive(fila)).toBe('cuadra');
+    });
+
+    it('detecta orden pagada sin caja por evento historial pagada_sin_caja', () => {
+      const o = oc({
+        id: 'o_sin_caja',
+        pagada_en: '2026-11-05T10:00:00Z',
+        historial: [{ evento: 'pagada_sin_caja', motivo: 'Cruce con factura anterior' }],
+        modalidad_pago: 'bs',
+      });
+      const det = detectarMonedaPago(o);
+      expect(det.esCompensacion).toBe(true);
+      expect(det.seCruza).toBe(false);
+      expect(det.motivoSinCaja).toBe('Cruce con factura anterior');
+
+      const fila = armarFila({ orden: o, proveedor: 'ACME', tasaPago: 40, tasaHoy: 45 }, 2);
+      expect(fila.drive?.estado).toBe('CUADRA');
+      expect(valorFiltroDrive(fila)).toBe('cuadra');
+    });
+
+    it('detecta compensación indicada manualmente en Conciliación via lápiz ✎', () => {
+      const o = oc({
+        id: 'o_manual',
+        pagada_en: '2026-11-06T10:00:00Z',
+        modalidad_pago: 'bs',
+        historial: [
+          { evento: 'pagada' },
+          { evento: 'referencia_conciliacion', referencia: 'COMPENSACIÓN DE DEUDA GOMOR' },
+        ],
+      });
+      const det = detectarMonedaPago(o);
+      expect(det.esCompensacion).toBe(true);
+      expect(det.seCruza).toBe(false);
+
+      const fila = armarFila({ orden: o, proveedor: 'DISTRIBUIDORA GOMOR, C.A.', tasaPago: 895.6, tasaHoy: 895.6 }, 3);
+      expect(fila.esCompensacion).toBe(true);
+      expect(fila.drive?.estado).toBe('CUADRA');
+      expect(valorFiltroDrive(fila)).toBe('cuadra');
+    });
   });
 });

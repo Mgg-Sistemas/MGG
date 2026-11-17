@@ -116,6 +116,7 @@ export interface ServicioDirecto {
   facturas: AdjuntoFactura[];
   solicitante: string | null;
   solicitante_persona: string | null;
+  unidad_solicitante?: string | null;
   actor: string | null;
   actor_name: string | null;
   /** Materialización de un GASTO FIJO de Administración (empresa y plantilla origen). */
@@ -123,6 +124,7 @@ export interface ServicioDirecto {
   gasto_fijo_id?: string | null;
   /** Quién pagó desde Tesorería (en el flujo montar → pagar). */
   pagada_por: string | null;
+  pagada_at?: string | null;
   created_at: string;
   finalizada_at: string | null;
   updated_at: string;
