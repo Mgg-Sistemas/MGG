@@ -188,35 +188,36 @@ describe('chatMenciones · Menciones (@) y Exclusión Estricta de Archivados/Des
     expect(destinatarios.some((d) => d.nombre.includes('MARIANA'))).toBe(false);
   });
 
-  it('EXCLUSIÓN INFALIBLE: Incluso si la BD devuelve usuarios con estado activo, los desvinculados son bloqueados', () => {
-    // Simula que en la base de datos Erick Flores y Javier Leiva tenían fila con estado='activo'
-    const usuariosStaleDb: Partial<Usuario>[] = [
+  it('EXCLUSIÓN INFALIBLE: Desvinculados históricos son bloqueados aunque tengan estado activo, pero usuarios activos como Javier sí se resuelven', () => {
+    // En MGG: Erick Flores está desvinculado, pero Javier Leiva es un Analista de Compras activo
+    const usuariosDb: Partial<Usuario>[] = [
       { id: 'u1', nombre: 'KELVIN', apellido: 'PEÑA', email: 'comprasanalista9@gmail.com', estado: 'activo' },
       { id: 'u2', nombre: 'ERICK', apellido: 'FLORES', email: 'analista4mgg@gmail.com', estado: 'activo' },
       { id: 'u3', nombre: 'JAVIER', apellido: 'LEIVA', email: 'analista1mgg@gmail.com', estado: 'activo' },
       { id: 'u4', nombre: 'NAZARET', apellido: 'SALAZAR', email: 'asistentecomprasgt2@gmail.com', estado: 'activo' },
     ];
 
-    expect(esUsuarioActivoParaMencion(usuariosStaleDb[0])).toBe(true);
-    expect(esUsuarioActivoParaMencion(usuariosStaleDb[1])).toBe(false); // Erick Flores
-    expect(esUsuarioActivoParaMencion(usuariosStaleDb[2])).toBe(false); // Javier Leiva
-    expect(esUsuarioActivoParaMencion(usuariosStaleDb[3])).toBe(true);
+    expect(esUsuarioActivoParaMencion(usuariosDb[0])).toBe(true); // Kelvin Peña
+    expect(esUsuarioActivoParaMencion(usuariosDb[1])).toBe(false); // Erick Flores (desvinculado)
+    expect(esUsuarioActivoParaMencion(usuariosDb[2])).toBe(true); // Javier Leiva (usuario activo MGG)
+    expect(esUsuarioActivoParaMencion(usuariosDb[3])).toBe(true); // Nazaret Salazar
 
     const menciones = ['@Erick Flores', '@Javier Leiva', '@Kelvin Peña', '@Nazaret Salazar'];
-    const res = resolverDestinatariosMenciones(menciones, usuariosStaleDb as Usuario[]);
+    const res = resolverDestinatariosMenciones(menciones, usuariosDb as Usuario[]);
 
     expect(res.map((r) => r.email).sort()).toEqual([
+      'analista1mgg@gmail.com',
       'asistentecomprasgt2@gmail.com',
       'comprasanalista9@gmail.com',
     ]);
   });
 
-  it('esUsuarioActivoParaMencion rechaza usuarios bloqueados, archivados o con estado inactivo', () => {
+  it('esUsuarioActivoParaMencion rechaza usuarios bloqueados, archivados o con estado inactivo, y acepta a Javier Leiva activo', () => {
     expect(esUsuarioActivoParaMencion({ email: 'test@mgg.com', nombre: 'Test', estado: 'inactivo' })).toBe(false);
     expect(esUsuarioActivoParaMencion({ email: 'test@mgg.com', nombre: 'Test', estado: 'activo', archivado_en: '2026-10-01' })).toBe(false);
     expect(esUsuarioActivoParaMencion({ email: 'test@mgg.com', nombre: 'Test', estado: 'activo', bloqueado: true })).toBe(false);
     expect(esUsuarioActivoParaMencion({ email: 'analista4mgg@gmail.com', nombre: 'Erick', estado: 'activo' })).toBe(false);
-    expect(esUsuarioActivoParaMencion({ email: 'analista1mgg@gmail.com', nombre: 'Javier', estado: 'activo' })).toBe(false);
+    expect(esUsuarioActivoParaMencion({ email: 'analista1mgg@gmail.com', nombre: 'Javier', apellido: 'Leiva', estado: 'activo' })).toBe(true);
     expect(esUsuarioActivoParaMencion({ email: 'usuario.bueno@mgg.com', nombre: 'Carlos', apellido: 'Perez', estado: 'activo' })).toBe(true);
   });
 });
