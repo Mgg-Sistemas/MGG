@@ -586,14 +586,30 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
    Acciones rápidas, catálogo con chips deslizables y tarjetas de equipo.
    Solo tokens del tema: cada botón toma --tone (primary / info / danger / primary-3)
    y se distingue por el icono; nada de colores sueltos ni degradados. */
-.flo-movil-wrap { min-width: 0; padding: .5rem 14px 2rem; }
-.flo-movil-wrap > * { min-width: 0; }
+.flo-movil-wrap { min-width: 0; max-width: 100%; width: 100%; box-sizing: border-box; padding: .5rem 14px 2rem; }
+.flo-movil-wrap > * { min-width: 0; max-width: 100%; box-sizing: border-box; }
 .flo-movil-wrap .input,
 .flo-movil-wrap .select {
   font-size: .92rem;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .flo-movil-wrap textarea.input {
   font-size: .92rem;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.flo-movil-wrap .card {
+  padding: 1rem .85rem;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+@media (max-width: 480px) {
+  .flo-movil-wrap { padding: .5rem 4px 2rem; }
+  .flo-movil-wrap .card { padding: .85rem .65rem; }
 }
 
 /* Acciones rápidas: 2 columnas, mismo tamaño y estilo base (más cómodos al tacto en teléfono) */

@@ -3,7 +3,7 @@
    Botones y campos GRANDES: se usa con una mano, al lado del tanque, con
    guantes o con el sol encima. Nada más chico que 56px de alto.
    ============================================================ */
-.surtidor { max-width: 640px; margin: 0 auto; padding-bottom: 2rem; }
+.surtidor { max-width: 640px; margin: 0 auto; padding-bottom: 2rem; width: 100%; min-width: 0; box-sizing: border-box; }
 .surt-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: .75rem; }
 .surt-head h1 { margin: 0; font-size: 1.5rem; }
 
@@ -121,7 +121,7 @@
 /* Listas buscables (equipo, autorizado, tanque destino, mina): el buscador con el
    mismo alto y letra que los demás campos; se escribe una parte y filtra. */
 .surt-buscable .input { width: 100%; min-height: 56px; font-size: 1.15rem; padding: .6rem .8rem; }
-.surt-grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+.surt-grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: .6rem; }
 /* Tres botones parejos (el selector de servicio de Cocina). La clase se usaba sin
    existir y la rejilla iba en estilos sueltos dentro del JSX. Con el relleno ancho
    de .btn-grande, «Desayuno» no entraba en un tercio de pantalla y quedaba cortado. */

@@ -632,7 +632,7 @@ export function MaquinariaMovilView() {
   };
 
   return (
-    <div className="surtidor flo-movil-wrap" style={{ maxWidth: '540px', margin: '0 auto' }}>
+    <div className="surtidor flo-movil-wrap" style={{ maxWidth: '540px', width: '100%', boxSizing: 'border-box', margin: '0 auto' }}>
       {/* ── Encabezado Móvil ── */}
       <header className="surt-head" style={{ marginBottom: '.5rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div>
@@ -949,7 +949,7 @@ export function MaquinariaMovilView() {
 
       {/* ── Formulario: Registrar Servicio / Mantenimiento (Bitácora o Compras) ── */}
       {modo === 'servicio' && (
-        <div className="card" style={{ padding: '1.1rem', marginBottom: '1rem' }}>
+        <div className="card" style={{ marginBottom: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.85rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.15rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
               <span>🔧</span> Registrar Servicio / Mantenimiento
@@ -1227,7 +1227,7 @@ export function MaquinariaMovilView() {
               </div>
 
               {/* Fila 2: Cantidad, unidad y botón Agregar espacioso y táctil */}
-              <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '.35rem', flex: '0 0 auto' }}>
                   <span style={{ fontSize: '.85rem', color: 'var(--text-muted)', fontWeight: 600 }}>Cant:</span>
                   <input
@@ -1256,7 +1256,7 @@ export function MaquinariaMovilView() {
                   type="button"
                   className="btn btn-primary"
                   style={{
-                    flex: 1,
+                    flex: '1 1 110px',
                     fontSize: '.9rem',
                     fontWeight: 700,
                     padding: '.55rem .75rem',
@@ -1402,7 +1402,7 @@ export function MaquinariaMovilView() {
 
       {/* ── Formulario: Registrar Lavado ── */}
       {modo === 'lavado' && (
-        <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
+        <div className="card" style={{ marginBottom: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.15rem' }}>🚿 Registrar Lavado de Equipo</h3>
             <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.85rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
@@ -1473,7 +1473,7 @@ export function MaquinariaMovilView() {
 
       {/* ── Formulario: Reportar Avería / Estado ── */}
       {modo === 'averia' && (
-        <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
+        <div className="card" style={{ marginBottom: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.15rem' }}>⚠️ Reportar Avería / Parada</h3>
             <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.85rem' }} onClick={() => setModo('menu')}>✕ Volver</button>
@@ -1563,7 +1563,7 @@ export function MaquinariaMovilView() {
 
       {/* ── Consulta de Filtros / Repuestos ── */}
       {modo === 'filtros' && (
-        <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
+        <div className="card" style={{ marginBottom: '1rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.75rem' }}>
             <h3 style={{ margin: 0, fontSize: '1.15rem' }}>🔍 Filtros y Marcas de la Máquina</h3>
             <button type="button" className="btn btn-sm btn-ghost" style={{ fontSize: '.85rem' }} onClick={() => setModo('menu')}>✕ Volver</button>

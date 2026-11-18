@@ -66,7 +66,7 @@
   --topbar-h: 60px;
 }
 
-* { box-sizing: border-box; }
+*, *::before, *::after { box-sizing: border-box; }
 
 html, body {
   margin: 0;
@@ -77,6 +77,8 @@ html, body {
   font-size: 14px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 body {
@@ -155,8 +157,17 @@ p { margin: 0 0 .75rem; color: var(--text-muted); }
 .btn-sm { padding: .35rem .7rem; font-size: .8rem; }
 .btn-icon { padding: .45rem .55rem; }
 
+input, select, textarea, .input, .select, .textarea {
+  box-sizing: border-box;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .input, .select, .textarea {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   padding: .6rem .85rem;
   background: var(--bg-1);
   border: 1px solid var(--border);
@@ -168,6 +179,12 @@ p { margin: 0 0 .75rem; color: var(--text-muted); }
   /* Tema oscuro: los controles nativos (icono del calendario en inputs
      date/time, spinners) se renderizan claros y quedan visibles. */
   color-scheme: dark;
+}
+
+input[type="file"].input,
+input[type="file"] {
+  max-width: 100%;
+  overflow: hidden;
 }
 /* Icono del calendario BLANCO sobre el fondo oscuro, en CUALQUIER input date/time
    del sistema (tenga o no la clase .input). Con color-scheme:dark el icono ya sale
@@ -196,7 +213,7 @@ input[type="week"]::-webkit-calendar-picker-indicator:hover {
 
 .form-row { display: flex; flex-direction: column; gap: .35rem; margin-bottom: .9rem; }
 .form-row label { font-size: .78rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+.form-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; }
 
 .card {
   background: var(--grad-surface);
@@ -204,6 +221,17 @@ input[type="week"]::-webkit-calendar-picker-indicator:hover {
   border-radius: var(--r-lg);
   padding: 1.25rem;
   box-shadow: var(--shadow-sm);
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+@media (max-width: 640px) {
+  .card { padding: 1rem .85rem; }
+}
+
+@media (max-width: 480px) {
+  .card { padding: .85rem .7rem; }
 }
 
 .card-title {
@@ -361,14 +389,16 @@ input[type="week"]::-webkit-calendar-picker-indicator:hover {
   /* Modales a pantalla completa: ocupan casi todo el viewport. El header y el
      footer quedan fijos y solo el cuerpo (.modal-body) hace scroll. */
   width: 96vw;
+  max-width: 100vw;
   height: 94vh;
   max-height: 94vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   box-shadow: var(--shadow-lg);
+  box-sizing: border-box;
 }
-.modal-lg, .modal-xl { width: 96vw; }
+.modal-lg, .modal-xl { width: 96vw; max-width: 100vw; }
 /* Confirmaciones (aceptar/cancelar): modal chico y centrado, alto según contenido.
    Los formularios (md/lg/xl) siguen a pantalla completa. */
 .modal.modal-sm {
@@ -378,8 +408,15 @@ input[type="week"]::-webkit-calendar-picker-indicator:hover {
   height: auto;
   max-height: 85vh;
 }
-.modal > .modal-body { flex: 1 1 auto; overflow: auto; min-height: 0; }
-.modal > .modal-header, .modal > .modal-footer { flex: 0 0 auto; }
+.modal > .modal-body { flex: 1 1 auto; overflow: auto; min-height: 0; min-width: 0; box-sizing: border-box; }
+.modal > .modal-header, .modal > .modal-footer { flex: 0 0 auto; box-sizing: border-box; }
+
+@media (max-width: 480px) {
+  .modal { width: 98vw; }
+  .modal-body { padding: .85rem .75rem; }
+  .modal-header { padding: .75rem .85rem; }
+  .modal-footer { padding: .65rem .85rem; }
+}
 .btn-warning {
   background: rgba(245, 158, 11, 0.18);
   border: 1px solid rgba(245, 158, 11, 0.4);

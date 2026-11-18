@@ -113,9 +113,10 @@ function useAnchoredPos(anchorRef: RefObject<HTMLElement>, open: boolean): Ancho
       const flip = spaceBelow < (isMobile ? 180 : 200) && spaceAbove > spaceBelow;
       const maxHeight = Math.max(140, Math.min(isMobile ? 320 : 260, (flip ? spaceAbove : spaceBelow) - 12));
       const left = Math.max(8, Math.min(r.left, window.innerWidth - r.width - 8));
+      const width = Math.min(r.width, window.innerWidth - 16);
       setPos(flip
-        ? { left, width: r.width, bottom: window.innerHeight - r.top + 2, maxHeight }
-        : { left, width: r.width, top: r.bottom + 2, maxHeight });
+        ? { left, width, bottom: window.innerHeight - r.top + 2, maxHeight }
+        : { left, width, top: r.bottom + 2, maxHeight });
     };
     update();
     window.addEventListener('scroll', update, true);
@@ -133,7 +134,7 @@ function DropdownPortal({ anchorRef, panelRef, open, onClose, children }: {
   if (!open || !pos) return null;
   const style: CSSProperties = {
     ...PANEL_LOOK, position: 'fixed', zIndex: 9500,
-    left: pos.left, width: pos.width, maxHeight: pos.maxHeight,
+    left: pos.left, width: pos.width, maxWidth: 'calc(100vw - 16px)', boxSizing: 'border-box', maxHeight: pos.maxHeight,
     ...(pos.top != null ? { top: pos.top } : { bottom: pos.bottom }),
   };
   return createPortal(
@@ -245,7 +246,7 @@ export function SearchSelect({
   }
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative', ...style }}>
+    <div ref={wrapRef} style={{ position: 'relative', width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', ...style }}>
       <input
         ref={inputRef}
         id={id}
@@ -394,7 +395,7 @@ export function SearchCreateSelect({
   }
 
   return (
-    <div ref={wrapRef} style={{ position: 'relative', ...style }}>
+    <div ref={wrapRef} style={{ position: 'relative', width: '100%', minWidth: 0, maxWidth: '100%', boxSizing: 'border-box', ...style }}>
       <input
         ref={inputRef}
         id={id}

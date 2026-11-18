@@ -11,6 +11,8 @@
     "sidebar aviso"
     "sidebar main";
   min-height: 100vh;
+  max-width: 100vw;
+  overflow-x: hidden;
 }
 
 /* Sidebar colapsado: solo iconos, labels y textos auxiliares se ocultan. */
@@ -947,8 +949,8 @@ tr.row-selectable:active { transform: scale(0.998); }
   .app.sidebar-collapsed .sidebar-search { display: block; }
 
   .search-box { display: none; }
-  .main { padding: 1rem; }
-  .topbar { padding: 0 .75rem; gap: .4rem; }
+  .main { padding: 1rem; min-width: 0; max-width: 100vw; box-sizing: border-box; }
+  .topbar { padding: 0 .75rem; gap: .4rem; max-width: 100vw; overflow: hidden; }
   .topbar .crumb { font-size: .8rem; min-width: 0; }
   /* El texto "MGG · Sistema" puede recortarse antes que empujar las acciones fuera. */
   .topbar .crumb > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1003,11 +1005,13 @@ tr.row-selectable:active { transform: scale(0.998); }
    ============================================================ */
 @media (max-width: 480px) {
   :root { --sidebar-w: 56px; }
+  .main { padding: .65rem; min-width: 0; max-width: 100vw; box-sizing: border-box; overflow-x: hidden; }
   /* La topbar no alcanza para hamburguesa + "MGG · Sistema" + tasas + notif:
      el rótulo es nowrap y no encoge, así que empuja el botón de notificaciones
      fuera de la pantalla. En teléfono se oculta (la marca vive en el drawer y
      el título de la sección ya está en el <h1> de cada página). */
   .topbar .crumb > span { display: none; }
+  .topbar { padding: 0 .5rem; }
   .kpi-grid { grid-template-columns: 1fr; }
   .page-head .actions { flex-wrap: wrap; }
   /* Cada botón conserva el ancho de su etiqueta (min-width: max-content): así los
