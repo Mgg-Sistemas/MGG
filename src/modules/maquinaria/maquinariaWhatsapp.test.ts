@@ -7,6 +7,7 @@ import {
   textoFichaFiltrosWhatsapp,
   textoEstadoEquipoWhatsapp,
   textoAlertaMantenimientoWhatsapp,
+  textoMantenimientoEjecutadoWhatsapp,
 } from './maquinariaWhatsapp';
 
 describe('maquinariaWhatsapp', () => {
@@ -40,6 +41,45 @@ describe('maquinariaWhatsapp', () => {
     expect(txt).toContain('Carlos Pérez');
     expect(txt).toContain('FILTRO DE ACEITE: *1 und*');
     expect(txt).toContain('ACEITE 15W40: *20 L* (🛒 Comprar: 5)');
+    expect(txt).not.toContain('\uFE0F');
+  });
+
+  it('textoMantenimientoEjecutadoWhatsapp arma reporte de bitácora directa correctamente', () => {
+    const txt = textoMantenimientoEjecutadoWhatsapp({
+      equipo: 'EXC-01',
+      tipoEquipo: 'EXCAVADORA',
+      marca: 'CATERPILLAR',
+      modelo: '320D',
+      placa: 'MGG-101',
+      fecha: '2026-11-15',
+      tipoServicio: 'preventivo',
+      intervenciones: ['aceite', 'filtros'],
+      horasActuales: 4500,
+      responsable: 'Mecánico Juan',
+      solicitante: 'Operador Móvil',
+      descripcion: 'Cambio de aceite de motor y filtros realizado en patio',
+      repuestos: [
+        { nombre: 'FILTRO DE ACEITE DONALDSON', cantidad: 1, unidad: 'und' },
+        { nombre: 'ACEITE 15W40', cantidad: 20, unidad: 'lts' },
+      ],
+      fotosCount: 3,
+    });
+
+    expect(txt).toContain('MINERAL GROUP GUAYANA C.A.');
+    expect(txt).toContain('SERVICIO / MANTENIMIENTO EJECUTADO (BITÁCORA)');
+    expect(txt).toContain('15/11/2026');
+    expect(txt).toContain('EXC-01 (MGG-101)');
+    expect(txt).toContain('EXCAVADORA · CATERPILLAR · 320D');
+    expect(txt).toContain('PREVENTIVO');
+    expect(txt).toContain('aceite, filtros');
+    expect(txt).toContain('4.500 h');
+    expect(txt).toContain('Mecánico Juan');
+    expect(txt).toContain('Operador Móvil');
+    expect(txt).toContain('Cambio de aceite de motor y filtros realizado en patio');
+    expect(txt).toContain('FILTRO DE ACEITE DONALDSON: *1 und*');
+    expect(txt).toContain('ACEITE 15W40: *20 lts*');
+    expect(txt).toContain('3 fotos guardadas en bitácora');
+    expect(txt).toContain('Registrado en Bitácora · MGG Sistema Móvil');
     expect(txt).not.toContain('\uFE0F');
   });
 

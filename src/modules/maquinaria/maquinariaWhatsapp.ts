@@ -92,6 +92,79 @@ export function textoServicioWhatsapp(d: DatosServicioWhatsapp): string {
   return lineas.join('\n');
 }
 
+/* ── 1.1 Reporte de Mantenimiento Ejecutado (Bitácora Móvil) ── */
+
+export interface DatosMantenimientoEjecutadoWhatsapp {
+  equipo: string;
+  tipoEquipo?: string | null;
+  marca?: string | null;
+  modelo?: string | null;
+  placa?: string | null;
+  fecha?: string | Date | null;
+  tipoServicio?: string | null;
+  intervenciones?: string[];
+  horasActuales?: number | null;
+  kmActuales?: number | null;
+  responsable?: string | null;
+  solicitante?: string | null;
+  descripcion: string;
+  repuestos?: Array<{
+    nombre: string;
+    cantidad: number;
+    unidad?: string | null;
+  }>;
+  fotosCount?: number;
+}
+
+export function textoMantenimientoEjecutadoWhatsapp(d: DatosMantenimientoEjecutadoWhatsapp): string {
+  const fechaStr = d.fecha
+    ? (typeof d.fecha === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d.fecha)
+        ? (() => { const [y, m, dia] = d.fecha.split('-'); return `${dia}/${m}/${y}`; })()
+        : fechaHoraVE(new Date(d.fecha)))
+    : fechaHoraVE();
+  const eqDetalle = [d.tipoEquipo, d.marca, d.modelo].filter(Boolean).join(' · ');
+
+  const lineas: string[] = [
+    sinSelector(`🔧 *MINERAL GROUP GUAYANA C.A.*`),
+    sinSelector(`✅ *SERVICIO / MANTENIMIENTO EJECUTADO (BITÁCORA)*`),
+    `*Fecha del servicio:* ${fechaStr}`,
+    '',
+    sinSelector(`🚜 *EQUIPO:* ${d.equipo}${d.placa ? ` (${d.placa})` : ''}`),
+    eqDetalle ? `*Detalle:* ${eqDetalle}` : '',
+    d.tipoServicio ? `*Tipo de servicio:* ${d.tipoServicio.toUpperCase()}` : '',
+    d.intervenciones && d.intervenciones.length > 0 ? `*Sistemas atendidos:* ${d.intervenciones.join(', ')}` : '',
+    d.horasActuales != null ? `*Horómetro:* ${fmtNum(d.horasActuales)} h` : '',
+    d.kmActuales != null ? `*Kilometraje:* ${fmtNum(d.kmActuales)} km` : '',
+    d.responsable ? `*Mecánico / Responsable:* ${d.responsable}` : '',
+    d.solicitante ? `*Registrado por:* ${d.solicitante}` : '',
+  ].filter(Boolean);
+
+  if (d.descripcion?.trim()) {
+    lineas.push('');
+    lineas.push(sinSelector(`📋 *TRABAJO REALIZADO:*`));
+    lineas.push(d.descripcion.trim());
+  }
+
+  if (d.repuestos && d.repuestos.length > 0) {
+    lineas.push('');
+    lineas.push(sinSelector(`🔩 *REPUESTOS / PIEZAS UTILIZADAS:*`));
+    d.repuestos.forEach((r) => {
+      const cant = `${fmtNum(r.cantidad)} ${r.unidad || 'und'}`;
+      lineas.push(` • ${r.nombre}: *${cant}*`);
+    });
+  }
+
+  if (d.fotosCount && d.fotosCount > 0) {
+    lineas.push('');
+    lineas.push(sinSelector(`📷 *Fotos de soporte:* ${d.fotosCount} foto${d.fotosCount === 1 ? '' : 's'} guardada${d.fotosCount === 1 ? '' : 's'} en bitácora`));
+  }
+
+  lineas.push('');
+  lineas.push(sinSelector(`_Registrado en Bitácora · MGG Sistema Móvil_`));
+
+  return lineas.join('\n');
+}
+
 /* ── 2. Reporte de Lavado de Equipo ── */
 
 export interface DatosLavadoWhatsapp {
