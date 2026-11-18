@@ -290,6 +290,8 @@ export async function listRastroDelivery(pedidoIds: (string | null | undefined)[
 export interface FilaHistorialCruda {
   id: string;
   orden_id: string;
+  tipo?: string | null;
+  flota?: string | null;
   origen: OrigenDelivery;
   estado: string;
   repartidor_nombre: string | null;
@@ -306,18 +308,28 @@ export interface FilaHistorialCruda {
   orden: {
     oc_codigo: string | null; codigo: string; total: number; moneda: string | null; proveedor_id: string | null;
     unidad_solicitante?: string | null; solicitante?: string | null; recibida_en?: string | null;
-    modalidad_entrega?: string | null;
+    modalidad_entrega?: string | null; entrega_modalidad?: string | null;
   } | null;
 }
 
 export async function listHistorialDelivery(desde: string, hasta: string, canal: CanalDelivery = 'delivery'): Promise<FilaHistorialCruda[]> {
   const { data, error } = await supabase.from('delivery_pedidos')
-    .select('id, orden_id, origen, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, nota_entrega, fotos_recibo, fotos_entrega, orden:ordenes(oc_codigo, codigo, total, moneda, proveedor_id, unidad_solicitante, solicitante, recibida_en, modalidad_entrega)')
+    .select('id, orden_id, tipo, flota, estado, repartidor_nombre, repartidor_email, aceptado_en, en_ruta_en, entregado_en, cancelado_en, motivo_cancel, almacen_entrega, nota_entrega, fotos_recibo, fotos_entrega, orden:ordenes(oc_codigo, codigo, total, moneda, proveedor_id, solicitante, recibida_en, entrega_modalidad)')
     .gte('aceptado_en', `${desde}T00:00:00-04:00`).lte('aceptado_en', `${hasta}T23:59:59.999-04:00`)
     .order('aceptado_en', { ascending: false });
   if (error) throw err(error, 'No se pudo leer el histórico.');
-  return ((data ?? []) as unknown as FilaHistorialCruda[])
-    .filter((f) => (f.origen === 'almacen' ? canal === 'delivery' : esDelCanal(f.orden?.modalidad_entrega, canal)));
+  return ((data ?? []) as unknown as Array<Record<string, unknown>>).map((r) => {
+    const tipo = (r.tipo as string | null) ?? 'oc';
+    const origen: OrigenDelivery = (r.origen as OrigenDelivery) || (tipo === 'retiro_almacen' ? 'almacen' : 'compra');
+    const orden = r.orden as FilaHistorialCruda['orden'];
+    const modalidad = orden?.entrega_modalidad ?? orden?.modalidad_entrega ?? null;
+    return {
+      ...(r as unknown as FilaHistorialCruda),
+      tipo,
+      origen,
+      orden: orden ? { ...orden, entrega_modalidad: modalidad, modalidad_entrega: modalidad } : null,
+    };
+  }).filter((f) => (f.origen === 'almacen' ? canal === 'delivery' : esDelCanal(f.orden?.entrega_modalidad ?? f.orden?.modalidad_entrega, canal)));
 }
 
 export interface ArchivoComprobanteDelivery { url: string; nombre: string; etiqueta: string; esPdf: boolean }
