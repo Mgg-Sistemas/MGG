@@ -6,9 +6,9 @@
    histórico y la ubicación en vivo se piden de esa flota.
    ============================================================ */
 import { createContext, useContext } from 'react';
-import type { Flota } from '@/modules/pedidos/entregaModalidad';
+import type { CanalDelivery } from './delivery';
 
-export type { Flota };
+export type Flota = CanalDelivery;
 
 export const FlotaContext = createContext<Flota>('delivery');
 export const useFlota = (): Flota => useContext(FlotaContext);

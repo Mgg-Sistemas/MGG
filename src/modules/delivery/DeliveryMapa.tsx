@@ -1,279 +1,597 @@
 /* ============================================================
-   MGG · Delivery · Mapa de los motorizados (30-10-2026)
-
-   Leaflet a secas (sin react-leaflet), centrado en Puerto Ordaz, estado
-   Bolívar. Dos capas: «Calles» (OpenStreetMap) y «Satelital» (Esri World
-   Imagery). Un marcador por motorizado con su última ubicación; si tiene
-   más de UBICACION_VIEJA_MS se pinta gris, «sin señal reciente». Se mueve
-   solo con el tiempo real de `delivery_ubicaciones`.
-   03-11-2026 (tipo Yummy / Ridery): los proveedores con OC pagadas por
-   tomar o en curso salen como alfileres, los almacenes de entrega (LOS
-   PINOS / MATANZA) también, y cada delivery con pedido en curso lleva su
-   ruta por calle (OSRM; si falla, línea recta punteada): su posición →
-   proveedor (si falta recogerlo) → almacén.
+   MGG · Delivery · Mapa del Controlador y Despacho (PC)
+   Centro de Control en tiempo real con OpenStreetMap y Esri Satelital.
+   Incorpora:
+   · Identificadores/Diferenciadores anti-solapamiento (M-01, M-02... / C-01...)
+   · Trazado de ruta más óptima con animación vial de flujo (stream)
+   · HUD de Telemetría de Controlador (paradas, distancia vial, ETA y Google Maps)
+   · Seguimiento interactivo al seleccionar un motorizado o pedido
    ============================================================ */
+import type { CanalDelivery } from './delivery';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { Flota } from './flota';
 import L from 'leaflet';
+import { Link } from 'react-router-dom';
+import 'leaflet/dist/leaflet.css';
+import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { CENTRO_PUERTO_ORDAZ, ZOOM_CIUDAD, colorDe, crearMapaBase, iconoPildora } from '@/shared/lib/mapaBase';
-import { nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
-import { UBICACION_VIEJA_MS, esRetiro, fechaHoraVE, ocDe, type PedidoDelivery, type UbicacionDelivery } from './delivery';
-import { calcularRuta, listProveedoresUbicacion, listUbicaciones, puntosDeProveedores, type ProveedorUbicacion } from './delivery.repository';
-import { escaparHtml, ubicacionVieja } from './deliveryPanel';
+import { ConfirmDialog } from '@/shared/ui/Modal';
+import { toast } from '@/shared/ui/Toast';
 import {
-  CLAVES_DESTINO, debeRecalcularRuta, distanciaTxt, marcaRuta, paradasDelPedido, puntoDeDestino, puntosRuta, tiempoRutaTxt,
-  type DestinosDelivery, type MarcaRuta, type Punto, type Ruta,
+  ALMACEN_RETIRO, PUERTO_ORDAZ, UBICACION_VIEJA_MS, esRetiroAlmacen, esRetornoPendiente, fechaHoraVE, montoTxt, ocDe,
+  type PedidoDelivery, type UbicacionDelivery,
+} from './delivery';
+import {
+  fijarLugarDelivery, listRastroDelivery, listUbicaciones, useUbicacionesRuta, type PuntoRastro,
+} from './delivery.repository';
+import { escaparHtml, ubicacionVieja } from './deliveryPanel';
+import { distanciaMetros } from './deliveryMovil';
+import {
+  LUGAR_LOS_PINOS, RECALCULAR_RUTA_M, calcularRuta, claveRuta, distanciaTxt, duracionTxt, paradasRuta, puntoLugar,
+  urlNavegacionDestino, type ParadaRuta, type PuntoMapa, type RutaCalculada,
 } from './deliveryRutas';
+import {
+  obtenerDiferenciador, type DiferenciadorRepartidor,
+} from './deliveryIdentificadores';
 
-/** Cada cuánto se vuelve a leer, por si el tiempo real se corta. */
-const RELEER_MS = 60_000;
+const ZOOM_INICIAL = 13;
 
-function globo(u: UbicacionDelivery, pedido: PedidoDelivery | undefined, vieja: boolean, ruta: Ruta | undefined): string {
-  const nombre = u.repartidor_nombre || u.repartidor_email || 'Delivery';
+/** Pin ergonómico de controlador: badge compacto con código M-01 e ícono, sin textos largos que se solapen */
+function iconoControlador(dif: DiferenciadorRepartidor, vieja: boolean, seleccionado: boolean): L.DivIcon {
+  const fondo = vieja ? '#9ca3af' : dif.color;
+  const html = `
+    <div class="dlv-pin-controlador ${seleccionado ? 'seleccionado' : ''}" style="background:${fondo};border-color:${seleccionado ? '#38bdf8' : '#ffffff'};${vieja ? 'opacity:.82;' : ''}">
+      <span class="dlv-pin-cod">${escaparHtml(dif.codigo)}</span>
+      <span class="dlv-pin-ico">${dif.icono}</span>
+      <span class="dlv-pin-nombre">${escaparHtml(dif.nombreVisible)}</span>
+    </div>
+  `;
+  return L.divIcon({ html, className: 'dlv-marcador-wrap', iconSize: [0, 0], iconAnchor: [0, 0], popupAnchor: [0, -14] });
+}
+
+function chipLugar(html: string, fondo: string): L.DivIcon {
+  const h = `<div style="display:inline-flex;align-items:center;gap:3px;padding:2px 8px 2px 5px;border-radius:999px;background:${fondo};`
+    + `color:#fff;font:600 11px/1.2 system-ui,sans-serif;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.35);`
+    + `border:2px solid #fff;transform:translate(-50%,-50%)">${html}</div>`;
+  return L.divIcon({ html: h, className: 'dlv-marcador', iconSize: [0, 0], iconAnchor: [0, 0], popupAnchor: [0, -12] });
+}
+
+interface RutaPrevista { clave: string; ruta: RutaCalculada; paradas: ParadaRuta[] }
+
+function globoDetalle(
+  u: UbicacionDelivery,
+  dif: DiferenciadorRepartidor,
+  pedido: PedidoDelivery | undefined,
+  vieja: boolean,
+  prevista: RutaPrevista | undefined
+): string {
   const partes = [
-    `<div style="color:#1f2937;font:13px/1.4 system-ui,sans-serif;min-width:180px">`,
-    `<div style="font-weight:700;font-size:14px">🛵 ${escaparHtml(nombre)}</div>`,
-    `<div>Última señal: ${escaparHtml(fechaHoraVE(u.actualizado_en))}</div>`,
+    `<div style="color:#1f2937;font:13px/1.4 system-ui,sans-serif;min-width:190px">`,
+    `<div style="display:flex;align-items:center;gap:6px;font-weight:800;font-size:14px;color:${dif.color}">`
+    + `<span style="background:${dif.color};color:#fff;padding:1px 6px;border-radius:4px;font-size:11px">${escaparHtml(dif.codigo)}</span>`
+    + `${dif.icono} ${escaparHtml(dif.nombreVisible)}</div>`,
+    `<div style="color:#4b5563;font-size:12px;margin-top:2px">Última señal: ${escaparHtml(fechaHoraVE(u.actualizado_en))}</div>`,
   ];
-  if (vieja) partes.push('<div style="color:#b45309;font-weight:600">Sin señal reciente</div>');
-  if (u.precision_m != null) partes.push(`<div style="color:#6b7280">Precisión ± ${Math.round(u.precision_m)} m</div>`);
+  if (vieja) partes.push('<div style="color:#b45309;font-weight:700;font-size:12px">⚠️ Sin señal reciente</div>');
+  if (u.velocidad != null && u.velocidad > 0) {
+    partes.push(`<div style="color:#059669;font-weight:600;font-size:12px">⚡ Velocidad: ${Math.round(u.velocidad * 3.6)} km/h</div>`);
+  }
   if (pedido) {
+    const retiro = esRetiroAlmacen(pedido);
     partes.push(
       `<div style="margin-top:4px;padding-top:4px;border-top:1px solid #e5e7eb">`
-      + `<b>${escaparHtml(ocDe(pedido))}</b> · ${escaparHtml(pedido.proveedor_nombre ?? '—')}`
-      + `${pedido.almacen_destino ? `<br>Hacia: ${escaparHtml(nombreAlmacenVisible(pedido.almacen_destino))}` : ''}`
-      + `${ruta ? `<br>Ruta: ${escaparHtml(distanciaTxt(ruta.metros))}${ruta.segundos != null ? ` · ${escaparHtml(tiempoRutaTxt(ruta.segundos))}` : ''}${ruta.fuente === 'recta' ? ' (línea recta)' : ''}` : ''}</div>`,
+      + `<b>${escaparHtml(retiro ? pedido.codigo : ocDe(pedido))}</b> · ${escaparHtml(retiro ? `Retiro en ${ALMACEN_RETIRO}` : (pedido.proveedor_nombre ?? '—'))}`
+      + `${pedido.almacen_destino && !retiro ? `<br>Hacia: ${escaparHtml(pedido.almacen_destino)}` : ''}`
+      + `${esRetornoPendiente(pedido) ? '<br><span style="color:#0284c7;font-weight:700">📸 En retorno a almacén</span>' : ''}</div>`,
     );
-  } else partes.push('<div style="color:#6b7280">Sin pedido en curso</div>');
+  }
+  if (prevista) {
+    const destinos = prevista.paradas.filter((p) => p.tipo !== 'yo').map((p) => escaparHtml(p.nombre)).join(' → ');
+    partes.push(
+      `<div style="margin-top:4px;color:#1d4ed8"><b>🧭 Ruta óptima:</b> ${escaparHtml(distanciaTxt(prevista.ruta.metros))}`
+      + `${prevista.ruta.segundos != null ? ` · ${escaparHtml(duracionTxt(prevista.ruta.segundos))}` : ' (vial)'}`
+      + `${destinos ? `<br>${destinos}` : ''}</div>`,
+    );
+  }
   partes.push('</div>');
   return partes.join('');
 }
 
-/** El pedido en curso de un delivery: el que manda con su ubicación, o el suyo en camino. */
-function pedidoDe(u: UbicacionDelivery, porId: Map<string, PedidoDelivery>, pedidos: PedidoDelivery[]): PedidoDelivery | undefined {
-  const enCurso = (p: PedidoDelivery | undefined) => !!p && (p.estado === 'aceptado' || p.estado === 'en_ruta');
-  const directo = u.pedido_id ? porId.get(u.pedido_id) : undefined;
-  if (enCurso(directo)) return directo;
-  const suyos = pedidos.filter((p) => p.repartidor_id === u.repartidor_id && enCurso(p));
-  return suyos.find((p) => p.estado === 'en_ruta') ?? suyos[0];
-}
+const enCurso = (p: PedidoDelivery | undefined) => !!p && (p.estado === 'aceptado' || p.estado === 'en_ruta');
 
-export function DeliveryMapa({ pedidos, destinos, onUbicar, flota = 'delivery' }: {
+export function DeliveryMapa({
+  pedidos,
+  canal = 'delivery',
+  repartidorEnfocar,
+}: {
   pedidos: PedidoDelivery[];
-  /** 04-11-2026: se ven solo los repartidores de esta flota. */
-  flota?: Flota;
-  destinos: DestinosDelivery;
-  /** Abre «📍 Ubicar proveedores» (solo si el usuario puede ubicar). */
-  onUbicar?: () => void;
+  canal?: CanalDelivery;
+  repartidorEnfocar?: string | null;
 }) {
+  const puedeMarcar = usePermissions().can('delivery', 'escritura');
   const contenedor = useRef<HTMLDivElement | null>(null);
   const mapa = useRef<L.Map | null>(null);
+  const capa = useRef<L.LayerGroup | null>(null);
   const capaLugares = useRef<L.LayerGroup | null>(null);
   const capaRutas = useRef<L.LayerGroup | null>(null);
-  const capaDelivery = useRef<L.LayerGroup | null>(null);
   const [ubicaciones, setUbicaciones] = useState<UbicacionDelivery[]>([]);
-  const [proveedores, setProveedores] = useState<ProveedorUbicacion[]>([]);
-  const [rutas, setRutas] = useState<Map<string, Ruta>>(new Map());
-  const marcas = useRef(new Map<string, MarcaRuta>());
+  const [rastro, setRastro] = useState<Map<string, PuntoRastro[]>>(() => new Map());
   const [error, setError] = useState<string | null>(null);
   const [ahora, setAhora] = useState(() => Date.now());
+  const [modoPinos, setModoPinos] = useState(false);
+  const [pinosPendiente, setPinosPendiente] = useState<PuntoMapa | null>(null);
+  const [seleccionado, setSeleccionado] = useState<string | null>(repartidorEnfocar ?? null);
 
-  const cargar = useCallback(async () => {
-    try {
-      setUbicaciones(await listUbicaciones(flota));
-      setError(null);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudieron leer las ubicaciones.');
-    }
-  }, [flota]);
-  useEffect(() => { void cargar(); }, [cargar]);
-  useRealtime(['delivery_ubicaciones'], () => { void cargar(); });
-
-  // Proveedores de lo que está por tomar o en curso.
-  const idsProv = useMemo(() => [...new Set(pedidos.filter((p) => !esRetiro(p) && p.proveedor_id
-    && ['por_tomar', 'cancelado', 'aceptado', 'en_ruta'].includes(p.estado)).map((p) => p.proveedor_id as string))].sort(), [pedidos]);
-  const claveProv = idsProv.join(',');
-  const cargarProv = useCallback(async () => {
-    try { setProveedores(await listProveedoresUbicacion(claveProv ? claveProv.split(',') : [])); } catch { /* sin alfileres */ }
-  }, [claveProv]);
-  useEffect(() => { void cargarProv(); }, [cargarProv]);
-  useRealtime(['proveedores'], () => { void cargarProv(); });
-  const provPts = useMemo(() => puntosDeProveedores(proveedores), [proveedores]);
-
-  // Cada 30 s se revisa quién quedó «sin señal reciente»; cada minuto se relee por si el tiempo real se cortó.
   useEffect(() => {
-    const t = setInterval(() => setAhora(Date.now()), 30_000);
-    const r = setInterval(() => { void cargar(); }, RELEER_MS);
-    return () => { clearInterval(t); clearInterval(r); };
-  }, [cargar]);
-
-  // El mapa se crea una sola vez.
-  useEffect(() => {
-    if (!contenedor.current || mapa.current) return;
-    const m = crearMapaBase(contenedor.current);
-    capaLugares.current = L.layerGroup().addTo(m);
-    capaRutas.current = L.layerGroup().addTo(m);
-    capaDelivery.current = L.layerGroup().addTo(m);
-    mapa.current = m;
-    // El contenedor puede haber cambiado de tamaño al abrir la pestaña.
-    const t = setTimeout(() => m.invalidateSize(), 120);
-    return () => {
-      clearTimeout(t);
-      m.remove();
-      mapa.current = null;
-      capaLugares.current = null;
-      capaRutas.current = null;
-      capaDelivery.current = null;
-    };
-  }, []);
+    if (repartidorEnfocar) setSeleccionado(repartidorEnfocar);
+  }, [repartidorEnfocar]);
 
   const pedidoPorId = useMemo(() => {
     const mp = new Map<string, PedidoDelivery>();
     for (const p of pedidos) if (p.pedido_id) mp.set(p.pedido_id, p);
     return mp;
   }, [pedidos]);
+  const idsEnCurso = useMemo(() => pedidos.filter((p) => enCurso(p)).map((p) => p.pedido_id as string).sort().join(','), [pedidos]);
 
-  // Rutas: se piden de nuevo solo si cambian las paradas o el delivery se movió > 150 m.
-  // (Sin cancelar al rehacer el efecto: la marca ya quedó puesta y la ruta pedida debe llegar igual.)
+  const { provs, lugares } = useUbicacionesRuta(pedidos.map((p) => p.proveedor_id));
+  const losPinos = useMemo(() => puntoLugar(lugares, LUGAR_LOS_PINOS), [lugares]);
+
+  const cargar = useCallback(async () => {
+    try {
+      const [u, r] = await Promise.all([
+        listUbicaciones(canal),
+        listRastroDelivery(idsEnCurso ? idsEnCurso.split(',') : []).catch(() => new Map<string, PuntoRastro[]>()),
+      ]);
+      setUbicaciones(u);
+      setRastro(r);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudieron leer las ubicaciones.');
+    }
+  }, [idsEnCurso, canal]);
+  useEffect(() => { void cargar(); }, [cargar]);
+  useRealtime(['delivery_ubicaciones'], () => { void cargar(); });
+
+  // Revisión periódica de señal
   useEffect(() => {
-    void (async () => {
-      const t = Date.now();
-      for (const u of ubicaciones) {
-        if (ubicacionVieja(u.actualizado_en, t)) continue;
-        const p = pedidoDe(u, pedidoPorId, pedidos);
-        if (!p) {
-          if (marcas.current.delete(u.repartidor_id)) setRutas((r) => { const n = new Map(r); n.delete(u.repartidor_id); return n; });
-          continue;
-        }
-        const paradas = paradasDelPedido(p, provPts, destinos);
-        const yo = { lat: u.lat, lng: u.lng };
-        const marca = marcaRuta(yo, paradas, t);
-        if (!debeRecalcularRuta(marcas.current.get(u.repartidor_id) ?? null, marca)) continue;
-        marcas.current.set(u.repartidor_id, marca);
-        const ruta = await calcularRuta(puntosRuta(yo, paradas));
-        setRutas((r) => { const n = new Map(r); if (ruta) n.set(u.repartidor_id, ruta); else n.delete(u.repartidor_id); return n; });
-      }
-    })();
-  }, [ubicaciones, pedidoPorId, pedidos, provPts, destinos]);
+    const t = setInterval(() => setAhora(Date.now()), 30_000);
+    return () => clearInterval(t);
+  }, []);
 
-  // Proveedores y almacenes.
+  // Clic en el mapa para marcar Los Pinos
+  const alClic = useRef<((p: PuntoMapa) => void) | null>(null);
+  useEffect(() => {
+    alClic.current = modoPinos ? (p) => setPinosPendiente(p) : null;
+  }, [modoPinos]);
+
+  // Creación del mapa Leaflet
+  useEffect(() => {
+    if (!contenedor.current || mapa.current) return;
+    const m = L.map(contenedor.current, { center: PUERTO_ORDAZ, zoom: ZOOM_INICIAL });
+    const calles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap',
+    });
+    const satelital = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{x}/{y}', {
+      maxZoom: 19,
+      attribution: 'Imágenes &copy; Esri',
+    });
+    calles.addTo(m);
+    L.control.layers({ Calles: calles, Satelital: satelital }, undefined, { position: 'topright' }).addTo(m);
+    L.control.scale({ imperial: false }).addTo(m);
+    capaRutas.current = L.layerGroup().addTo(m);
+    capaLugares.current = L.layerGroup().addTo(m);
+    capa.current = L.layerGroup().addTo(m);
+    m.on('click', (e: L.LeafletMouseEvent) => alClic.current?.({ lat: e.latlng.lat, lng: e.latlng.lng }));
+    mapa.current = m;
+
+    const t = setTimeout(() => m.invalidateSize(), 120);
+    return () => {
+      clearTimeout(t);
+      m.remove();
+      mapa.current = null;
+      capa.current = null;
+      capaLugares.current = null;
+      capaRutas.current = null;
+    };
+  }, []);
+
+  useEffect(() => {
+    const el = contenedor.current;
+    if (el) el.style.cursor = modoPinos ? 'crosshair' : '';
+  }, [modoPinos]);
+
+  // Diferenciadores estables y persistentes para cada repartidor
+  const diferenciadores = useMemo(() => {
+    const mp = new Map<string, DiferenciadorRepartidor>();
+    const ids = [...new Set(ubicaciones.map((u) => u.repartidor_id))].sort();
+    ids.forEach((id, idx) => {
+      const u = ubicaciones.find((x) => x.repartidor_id === id);
+      mp.set(id, obtenerDiferenciador(id, u?.repartidor_nombre || u?.repartidor_email, canal, idx));
+    });
+    return mp;
+  }, [ubicaciones, canal]);
+
+  /* ── Ruta prevista de cada motorizado con pedido en curso ── */
+  const [previstas, setPrevistas] = useState<Map<string, RutaPrevista>>(() => new Map());
+  const origenes = useRef(new Map<string, PuntoMapa>());
+  const previstasRef = useRef(previstas);
+  useEffect(() => { previstasRef.current = previstas; }, [previstas]);
+
+  useEffect(() => {
+    let vivo = true;
+    const activos = new Set<string>();
+    const pendientes: Array<{ rep: string; clave: string; paradas: ParadaRuta[] }> = [];
+
+    for (const u of ubicaciones) {
+      const pedido = u.pedido_id ? pedidoPorId.get(u.pedido_id) : undefined;
+      if (!enCurso(pedido) || ubicacionVieja(u.actualizado_en, ahora) || !Number.isFinite(u.lat) || !Number.isFinite(u.lng)) continue;
+      activos.add(u.repartidor_id);
+      const aqui = { lat: u.lat, lng: u.lng };
+      const antes = origenes.current.get(u.repartidor_id);
+      const origen = antes && distanciaMetros(antes, aqui) <= RECALCULAR_RUTA_M ? antes : aqui;
+      origenes.current.set(u.repartidor_id, origen);
+      const paradas = paradasRuta(pedido as PedidoDelivery, origen, provs, losPinos);
+      if (paradas.length < 2) continue;
+      const clave = claveRuta(paradas.map((p) => p.punto));
+      if (previstasRef.current.get(u.repartidor_id)?.clave !== clave) pendientes.push({ rep: u.repartidor_id, clave, paradas });
+    }
+
+    const sobran = [...previstasRef.current.keys()].filter((k) => !activos.has(k));
+    if (sobran.length) {
+      setPrevistas((prev) => { const n = new Map(prev); sobran.forEach((k) => n.delete(k)); return n; });
+    }
+    for (const x of pendientes) {
+      void calcularRuta(x.paradas.map((p) => p.punto)).then((ruta) => {
+        if (!vivo) return;
+        setPrevistas((prev) => new Map(prev).set(x.rep, { clave: x.clave, ruta, paradas: x.paradas }));
+      });
+    }
+    return () => { vivo = false; };
+  }, [ubicaciones, pedidoPorId, provs, losPinos, ahora]);
+
+  // Marcadores de repartidores con badges de identificador anti-solapamiento
+  useEffect(() => {
+    const g = capa.current;
+    if (!g) return;
+    g.clearLayers();
+    for (const u of ubicaciones) {
+      if (!Number.isFinite(u.lat) || !Number.isFinite(u.lng)) continue;
+      const vieja = ubicacionVieja(u.actualizado_en, ahora);
+      const dif = diferenciadores.get(u.repartidor_id) ?? obtenerDiferenciador(u.repartidor_id, u.repartidor_nombre, canal);
+      const pedido = u.pedido_id ? pedidoPorId.get(u.pedido_id) : undefined;
+      const esSel = seleccionado === u.repartidor_id;
+
+      const marker = L.marker([u.lat, u.lng], {
+        icon: iconoControlador(dif, vieja, esSel),
+        title: `${dif.codigo} · ${dif.nombreVisible}`,
+        zIndexOffset: esSel ? 1800 : vieja ? 0 : 1000,
+      })
+        .bindPopup(globoDetalle(u, dif, pedido, vieja, previstas.get(u.repartidor_id)))
+        .on('click', () => setSeleccionado(u.repartidor_id));
+
+      marker.addTo(g);
+    }
+  }, [ubicaciones, pedidoPorId, ahora, previstas, diferenciadores, seleccionado, canal]);
+
+  // Rutas óptimas animadas (stream vial continuo) y recorridos históricos
+  useEffect(() => {
+    const g = capaRutas.current;
+    if (!g) return;
+    g.clearLayers();
+
+    for (const u of ubicaciones) {
+      const dif = diferenciadores.get(u.repartidor_id) ?? obtenerDiferenciador(u.repartidor_id, u.repartidor_nombre, canal);
+      const color = dif.color;
+      const esSel = seleccionado === u.repartidor_id;
+
+      // Recorrido histórico real
+      const r = u.pedido_id ? rastro.get(u.pedido_id) : undefined;
+      if (r && r.length >= 2 && enCurso(pedidoPorId.get(u.pedido_id as string))) {
+        L.polyline(r.map((x) => [x.lat, x.lng] as [number, number]), {
+          color,
+          weight: 4,
+          opacity: 0.55,
+          interactive: false,
+        }).addTo(g);
+      }
+
+      // Ruta óptima calculada hacia destino con animación de flujo de navegación
+      const prev = previstas.get(u.repartidor_id);
+      if (prev) {
+        // Línea base con resplandor
+        L.polyline(prev.ruta.linea, {
+          color,
+          weight: esSel ? 9 : 7,
+          opacity: esSel ? 0.35 : 0.22,
+          lineCap: 'round',
+          lineJoin: 'round',
+          interactive: false,
+        }).addTo(g);
+
+        // Línea superior con animación continua de flujo hacia el destino
+        L.polyline(prev.ruta.linea, {
+          color,
+          weight: esSel ? 6 : 5,
+          opacity: esSel ? 1 : 0.88,
+          className: 'dlv-ruta-stream-animada',
+          dashArray: '12 14',
+          lineCap: 'round',
+          lineJoin: 'round',
+        })
+          .bindTooltip(`${dif.codigo} · ${dif.nombreVisible} · ${distanciaTxt(prev.ruta.metros)}${prev.ruta.segundos != null ? ` · ${duracionTxt(prev.ruta.segundos)}` : ''}`, { sticky: true })
+          .on('click', () => setSeleccionado(u.repartidor_id))
+          .addTo(g);
+
+        for (const p of prev.paradas) {
+          if (p.tipo === 'recogida' && !esRetiroAlmacen({ origen: pedidoPorId.get(u.pedido_id as string)?.origen })) {
+            L.circleMarker([p.punto.lat, p.punto.lng], {
+              radius: esSel ? 7 : 6,
+              color: '#fff',
+              weight: 2,
+              fillColor: color,
+              fillOpacity: 1,
+              interactive: false,
+            }).addTo(g);
+          }
+        }
+      }
+    }
+  }, [ubicaciones, rastro, previstas, pedidoPorId, diferenciadores, seleccionado, canal]);
+
+  // Proveedores y Almacén Los Pinos
+  const porTomar = useMemo(() => pedidos.filter((p) => p.estado === 'por_tomar'), [pedidos]);
+  const { gruposProv, sinUbicacion } = useMemo(() => {
+    const grupos = new Map<string, { nombre: string; punto: PuntoMapa; ocs: PedidoDelivery[]; enCurso: number }>();
+    const sin = new Set<string>();
+    for (const p of pedidos) {
+      const libre = p.estado === 'por_tomar';
+      if (esRetiroAlmacen(p) || !p.proveedor_id || !(libre || enCurso(p))) continue;
+      const punto = provs.get(p.proveedor_id);
+      if (!punto) { sin.add(p.proveedor_id); continue; }
+      const g = grupos.get(p.proveedor_id) ?? { nombre: p.proveedor_nombre ?? 'Proveedor', punto, ocs: [], enCurso: 0 };
+      if (libre) g.ocs.push(p); else g.enCurso++;
+      grupos.set(p.proveedor_id, g);
+    }
+    return { gruposProv: [...grupos.values()], sinUbicacion: sin.size };
+  }, [pedidos, provs]);
+  const retirosPorTomar = porTomar.filter((p) => esRetiroAlmacen(p)).length;
+
   useEffect(() => {
     const g = capaLugares.current;
     if (!g) return;
     g.clearLayers();
-    const porProv = new Map<string, { libres: number; enCurso: number }>();
-    for (const p of pedidos) {
-      if (esRetiro(p) || !p.proveedor_id) continue;
-      const c = porProv.get(p.proveedor_id) ?? { libres: 0, enCurso: 0 };
-      if (p.estado === 'por_tomar' || p.estado === 'cancelado') c.libres++;
-      else if (p.estado === 'aceptado' || p.estado === 'en_ruta') c.enCurso++;
-      porProv.set(p.proveedor_id, c);
+    for (const x of gruposProv) {
+      const urgente = x.ocs.some((p) => p.urgente);
+      const lista = x.ocs.map((p) => `<li><b>${escaparHtml(ocDe(p))}</b> · ${escaparHtml(montoTxt(p.total, p.moneda))}${p.urgente ? ' · 🚨 Urgente' : ''}</li>`).join('');
+      const fondo = x.ocs.length ? (urgente ? '#dc2626' : '#d97706') : '#2563eb';
+      L.marker([x.punto.lat, x.punto.lng], {
+        icon: chipLugar(`🏭 ${escaparHtml(x.nombre.length > 26 ? `${x.nombre.slice(0, 25)}…` : x.nombre)}${x.ocs.length > 1 ? ` (${x.ocs.length})` : ''}`, fondo),
+        zIndexOffset: 400,
+      }).bindPopup(`<div style="color:#1f2937;font:13px/1.4 system-ui,sans-serif;min-width:180px"><div style="font-weight:700">🏭 ${escaparHtml(x.nombre)}</div>`
+        + `${x.ocs.length ? `<div>💰 OC pagadas por tomar:</div><ul style="margin:.2rem 0 0;padding-left:1rem">${lista}</ul>` : ''}`
+        + `${x.enCurso ? `<div>🚚 ${x.enCurso} en curso</div>` : ''}</div>`).addTo(g);
     }
-    for (const pr of proveedores) {
-      const pt = provPts.get(pr.id);
-      const c = porProv.get(pr.id);
-      if (!pt || !c) continue;
-      const fondo = c.libres ? '#d97706' : '#2563eb';
-      L.marker([pt.lat, pt.lng], { icon: iconoPildora('🏭', pr.razon_social, fondo), title: pr.razon_social, zIndexOffset: 200 })
-        .bindPopup(`<div style="color:#1f2937;font:13px/1.4 system-ui,sans-serif"><b>🏭 ${escaparHtml(pr.razon_social)}</b>`
-          + `${pr.direccion ? `<br>${escaparHtml(pr.direccion)}` : ''}`
-          + `${c.libres ? `<br>💰 ${c.libres} por tomar` : ''}${c.enCurso ? `<br>🚚 ${c.enCurso} en curso` : ''}</div>`)
-        .addTo(g);
+    if (losPinos) {
+      L.marker([losPinos.lat, losPinos.lng], {
+        icon: chipLugar(`🏬 LOS PINOS${retirosPorTomar ? ` · ${retirosPorTomar} retiro${retirosPorTomar === 1 ? '' : 's'}` : ''}`, '#374151'),
+        zIndexOffset: 600,
+      }).addTo(g);
     }
-    for (const clave of CLAVES_DESTINO) {
-      const pt = puntoDeDestino(destinos[clave]);
-      if (!pt) continue;
-      L.marker([pt.lat, pt.lng], { icon: iconoPildora('🏬', clave, '#374151'), title: clave, zIndexOffset: 100 })
-        .bindPopup(`<div style="color:#1f2937;font:13px/1.4 system-ui,sans-serif"><b>🏬 Almacén ${escaparHtml(clave)}</b>`
-          + `${destinos[clave].aproximada ? '<br><span style="color:#b45309">Ubicación aproximada</span>' : ''}</div>`)
-        .addTo(g);
+    if (pinosPendiente) {
+      L.circleMarker([pinosPendiente.lat, pinosPendiente.lng], { radius: 9, color: '#7c3aed', weight: 3, fillColor: '#c4b5fd', fillOpacity: 0.9 }).addTo(g);
     }
-  }, [proveedores, provPts, pedidos, destinos]);
+  }, [gruposProv, losPinos, retirosPorTomar, pinosPendiente]);
 
-  // Motorizados y sus rutas: se rehacen con cada cambio (son pocos).
-  useEffect(() => {
-    const gd = capaDelivery.current;
-    const gr = capaRutas.current;
-    if (!gd || !gr) return;
-    gd.clearLayers();
-    gr.clearLayers();
-    for (const u of ubicaciones) {
-      if (!Number.isFinite(u.lat) || !Number.isFinite(u.lng)) continue;
-      const vieja = ubicacionVieja(u.actualizado_en, ahora);
-      const nombre = u.repartidor_nombre || u.repartidor_email || 'Delivery';
-      const pedido = pedidoDe(u, pedidoPorId, pedidos);
-      const ruta = vieja ? undefined : rutas.get(u.repartidor_id);
-      const color = vieja ? '#9ca3af' : colorDe(u.repartidor_id);
-      if (ruta && pedido) {
-        L.polyline(ruta.linea.map((p) => [p.lat, p.lng] as [number, number]), {
-          color, weight: 5, opacity: 0.8, dashArray: ruta.fuente === 'recta' ? '8 8' : undefined,
-        }).bindTooltip(`${nombre} · ${ocDe(pedido)}`, { sticky: true }).addTo(gr);
-      }
-      L.marker([u.lat, u.lng], { icon: iconoPildora('🛵', nombre, color, { tenue: vieja }), title: nombre, zIndexOffset: vieja ? 300 : 1000 })
-        .bindPopup(globo(u, pedido, vieja, ruta))
-        .addTo(gd);
+  async function guardarPinos() {
+    if (!pinosPendiente) return;
+    try {
+      await fijarLugarDelivery(LUGAR_LOS_PINOS, pinosPendiente);
+      toast(`${ALMACEN_RETIRO} quedó marcado en el mapa.`, 'success');
+      setModoPinos(false);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo marcar el almacén.', 'error');
+    } finally {
+      setPinosPendiente(null);
     }
-  }, [ubicaciones, pedidoPorId, pedidos, rutas, ahora]);
+  }
 
   function verATodos() {
+    setSeleccionado(null);
     const m = mapa.current;
     if (!m) return;
     const puntos: L.LatLng[] = ubicaciones.filter((u) => Number.isFinite(u.lat) && Number.isFinite(u.lng)).map((u) => L.latLng(u.lat, u.lng));
-    for (const pt of provPts.values()) puntos.push(L.latLng(pt.lat, pt.lng));
-    if (!puntos.length) { m.setView(CENTRO_PUERTO_ORDAZ, ZOOM_CIUDAD); return; }
+    gruposProv.forEach((x) => puntos.push(L.latLng(x.punto.lat, x.punto.lng)));
+    if (losPinos) puntos.push(L.latLng(losPinos.lat, losPinos.lng));
+    if (!puntos.length) { m.setView(PUERTO_ORDAZ, ZOOM_INICIAL); return; }
     m.fitBounds(L.latLngBounds(puntos), { padding: [48, 48], maxZoom: 16 });
   }
 
-  function irA(p: Punto) { mapa.current?.setView([p.lat, p.lng], 16); }
+  function enfocarUnidad(repId: string) {
+    setSeleccionado(repId);
+    const u = ubicaciones.find((x) => x.repartidor_id === repId);
+    if (mapa.current && u && Number.isFinite(u.lat) && Number.isFinite(u.lng)) {
+      mapa.current.flyTo([u.lat, u.lng], 16, { animate: true, duration: 1.0 });
+    }
+  }
 
-  const conSenal = ubicaciones.filter((u) => !ubicacionVieja(u.actualizado_en, ahora));
-  const sinUbicar = new Set(pedidos.filter((p) => !esRetiro(p) && p.proveedor_id && (p.estado === 'por_tomar' || p.estado === 'cancelado' || p.estado === 'aceptado' || p.estado === 'en_ruta')
-    && !provPts.has(p.proveedor_id)).map((p) => p.proveedor_nombre ?? p.proveedor_id)).size;
-  const almacenesSinUbicar = CLAVES_DESTINO.filter((c) => !puntoDeDestino(destinos[c]) || destinos[c].aproximada);
+  const conSenal = ubicaciones.filter((u) => !ubicacionVieja(u.actualizado_en, ahora)).length;
+  const enRutaConMapa = previstas.size;
+
+  // Datos para el HUD de Telemetría Flotante de Controlador
+  const repSel = seleccionado ? ubicaciones.find((u) => u.repartidor_id === seleccionado) : null;
+  const difSel = seleccionado ? (diferenciadores.get(seleccionado) ?? obtenerDiferenciador(seleccionado, repSel?.repartidor_nombre, canal)) : null;
+  const pedidoSel = repSel?.pedido_id ? pedidoPorId.get(repSel.pedido_id) : null;
+  const prevSel = seleccionado ? previstas.get(seleccionado) : null;
+  const paradaSiguiente = prevSel?.paradas.find((p) => p.tipo !== 'yo');
+  const urlGmaps = paradaSiguiente && repSel ? urlNavegacionDestino(paradaSiguiente.punto, { lat: repSel.lat, lng: repSel.lng }) : null;
 
   return (
     <div className="card">
       <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
-        <span>🗺 Motorizados y rutas</span>
-        <span className="badge success">{conSenal.length} con señal</span>
-        {ubicaciones.length - conSenal.length > 0 && <span className="badge warning">{ubicaciones.length - conSenal.length} sin señal reciente</span>}
+        <span>🗺 Centro de Despacho y Rutas en Vivo</span>
+        <span className="badge success">{conSenal} con señal</span>
+        {ubicaciones.length - conSenal > 0 && <span className="badge warning">{ubicaciones.length - conSenal} sin señal</span>}
+        {enRutaConMapa > 0 && <span className="badge info">🧭 {enRutaConMapa} en ruta</span>}
         <span style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {onUbicar && <button type="button" className="btn btn-ghost btn-sm" onClick={onUbicar}>📍 Ubicar proveedores</button>}
+          <Link to="/app/proveedores" className="btn btn-ghost btn-sm" title="Marca la ubicación en Proveedores › Editar › «Ubicación en el mapa»">📍 Ubicar proveedores</Link>
+          {puedeMarcar && (
+            <button type="button" className={`btn btn-sm ${modoPinos ? 'btn-primary' : 'btn-ghost'}`} onClick={() => { setModoPinos((v) => !v); setPinosPendiente(null); }}>
+              {modoPinos ? '✕ Cancelar marcado' : losPinos ? '📍 Mover Almacén Los Pinos' : '📍 Marcar Almacén Los Pinos'}
+            </button>
+          )}
           <button type="button" className="btn btn-ghost btn-sm" onClick={verATodos}>🎯 Ver a todos</button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => mapa.current?.setView(CENTRO_PUERTO_ORDAZ, ZOOM_CIUDAD)}>📍 Puerto Ordaz</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => mapa.current?.setView(PUERTO_ORDAZ, ZOOM_INICIAL)}>📍 Puerto Ordaz</button>
         </span>
       </div>
+
       {error && <div className="aviso warning" style={{ marginBottom: '.6rem' }}><span className="aviso-icono">⚠</span><div>{error}</div></div>}
-      {(sinUbicar > 0 || almacenesSinUbicar.length > 0) && (
+      {modoPinos && (
         <div className="aviso info sm" style={{ marginBottom: '.6rem' }}>
-          <span className="aviso-icono">📍</span>
-          <div>
-            {sinUbicar > 0 && <>{sinUbicar} proveedor(es) con pedidos todavía no están en el mapa: sin ellos no hay ruta ni «más cercano». </>}
-            {almacenesSinUbicar.length > 0 && <>Almacén {almacenesSinUbicar.join(' y ')} sin ubicar o con ubicación aproximada. </>}
-            {onUbicar ? <button type="button" className="btn btn-ghost btn-sm" onClick={onUbicar}>Ubicarlos</button> : 'Pídele a Compras que los ubique.'}
-          </div>
+          <span className="aviso-icono">📍</span><div>Haz clic en el mapa donde queda el {ALMACEN_RETIRO} (usa «Satelital» para ubicarlo mejor).</div>
         </div>
       )}
-      {/* isolation: los paneles de Leaflet (z-index 400–1000) no se montan sobre las ventanas del sistema. */}
-      <div ref={contenedor} style={{ height: 'min(70vh, 560px)', minHeight: 320, borderRadius: 10, overflow: 'hidden', isolation: 'isolate', position: 'relative' }} />
+      {(sinUbicacion > 0 || (!losPinos && !modoPinos)) && (
+        <div className="aviso info sm" style={{ marginBottom: '.6rem', alignItems: 'center' }}>
+          <span className="aviso-icono">📍</span>
+          <div style={{ flex: 1 }}>
+            {sinUbicacion > 0 && <>{sinUbicacion} proveedor(es) con pedidos todavía no están en el mapa: sin ellos no hay ruta ni «más cercano». </>}
+            {!losPinos && <>Almacén LOS PINOS sin ubicar: las rutas terminan en el proveedor{puedeMarcar ? ' (usa «📍 Marcar Almacén Los Pinos»)' : ''}. </>}
+          </div>
+          {sinUbicacion > 0 && <Link to="/app/proveedores" className="btn btn-ghost btn-sm">Ubicarlos</Link>}
+        </div>
+      )}
 
-      {conSenal.length > 0 && (
+      {/* Escenario del Mapa con HUD Flotante del Controlador */}
+      <div style={{ position: 'relative', borderRadius: 10, overflow: 'hidden', isolation: 'isolate' }}>
+        <div ref={contenedor} style={{ height: 'min(70vh, 560px)', minHeight: 340, width: '100%', background: '#e2e8f0' }} />
+
+        {/* HUD Flotante de Telemetría sobre el Mapa */}
+        {seleccionado && repSel && difSel && (
+          <div className="dlv-hud-controlador">
+            <div className="cab">
+              <span className="dlv-badge-id" style={{ background: difSel.color }}>
+                {difSel.codigo} {difSel.icono}
+              </span>
+              <strong style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {difSel.nombreVisible}
+              </strong>
+              <button
+                type="button"
+                className="btn-cerrar"
+                onClick={() => setSeleccionado(null)}
+                title="Cerrar seguimiento y ver a todos"
+              >
+                ✕
+              </button>
+            </div>
+            <div style={{ fontSize: '.76rem', color: '#94a3b8' }}>
+              📡 Señal: {fechaHoraVE(repSel.actualizado_en)}
+              {repSel.velocidad != null && repSel.velocidad > 0 && ` · ${Math.round(repSel.velocidad * 3.6)} km/h`}
+            </div>
+
+            {pedidoSel ? (
+              <div style={{ marginTop: 6, paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.14)' }}>
+                <div style={{ fontWeight: 800 }}>
+                  {esRetiroAlmacen(pedidoSel) ? pedidoSel.codigo : ocDe(pedidoSel)}
+                  {esRetornoPendiente(pedidoSel) && <span style={{ color: '#38bdf8', fontSize: '.72rem', marginLeft: 6 }}>📸 En retorno</span>}
+                </div>
+                <div style={{ fontSize: '.76rem', color: '#cbd5e1' }}>
+                  {esRetiroAlmacen(pedidoSel) ? `Retiro en ${ALMACEN_RETIRO}` : (pedidoSel.proveedor_nombre ?? 'Proveedor')}
+                  {pedidoSel.almacen_destino && ` → ${pedidoSel.almacen_destino}`}
+                </div>
+              </div>
+            ) : (
+              <div style={{ marginTop: 4, color: '#10b981', fontSize: '.78rem', fontWeight: 600 }}>
+                ✅ Sin pedido en curso (Libre)
+              </div>
+            )}
+
+            {prevSel && (
+              <div className="dlv-hud-telemetria">
+                <span>🧭 <strong>{distanciaTxt(prevSel.ruta.metros)}</strong></span>
+                <span>⏱ <strong>{duracionTxt(prevSel.ruta.segundos) || 'Vía OSRM'}</strong></span>
+                {urlGmaps && (
+                  <a
+                    href={urlGmaps}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-ghost btn-sm"
+                    style={{ marginLeft: 'auto', padding: '2px 8px', fontSize: '.72rem', background: '#2563eb', color: '#fff', textDecoration: 'none' }}
+                  >
+                    🗺 Google Maps
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Lista de Unidades y Estado de Conducción en la Torre de Despacho */}
+      {ubicaciones.some((u) => !ubicacionVieja(u.actualizado_en, ahora)) && (
         <div className="table-wrap" style={{ marginTop: '.75rem' }}>
           <table className="table" style={{ fontSize: '.85rem' }}>
-            <thead><tr><th>Delivery</th><th>Pedido en curso</th><th>Ruta</th><th>Última señal</th><th /></tr></thead>
+            <thead>
+              <tr>
+                <th>Unidad / Delivery</th>
+                <th>Pedido en curso</th>
+                <th>Ruta óptima vial</th>
+                <th>Última señal</th>
+                <th style={{ textAlign: 'right' }}>Acción</th>
+              </tr>
+            </thead>
             <tbody>
-              {conSenal.map((u) => {
-                const p = pedidoDe(u, pedidoPorId, pedidos);
-                const r = rutas.get(u.repartidor_id);
+              {ubicaciones.filter((u) => !ubicacionVieja(u.actualizado_en, ahora)).map((u) => {
+                const dif = diferenciadores.get(u.repartidor_id) ?? obtenerDiferenciador(u.repartidor_id, u.repartidor_nombre, canal);
+                const p = u.pedido_id ? pedidoPorId.get(u.pedido_id) : undefined;
+                const pr = previstas.get(u.repartidor_id);
+                const retiro = p ? esRetiroAlmacen(p) : false;
+                const esSel = seleccionado === u.repartidor_id;
+
                 return (
-                  <tr key={u.repartidor_id}>
-                    <td><span aria-hidden style={{ display: 'inline-block', width: 10, height: 10, borderRadius: 999, background: colorDe(u.repartidor_id), marginRight: 6 }} />
-                      <strong>{u.repartidor_nombre || u.repartidor_email || 'Delivery'}</strong></td>
-                    <td>{p ? <>{ocDe(p)} · {p.proveedor_nombre ?? '—'}{p.almacen_destino ? <> → {nombreAlmacenVisible(p.almacen_destino)}</> : null}</> : <span className="muted">Libre</span>}</td>
-                    <td>{p && r ? <>{distanciaTxt(r.metros)}{r.segundos != null ? ` · ${tiempoRutaTxt(r.segundos)}` : ''}{r.fuente === 'recta' ? <span className="muted"> (línea recta)</span> : null}</> : <span className="muted">—</span>}</td>
-                    <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(u.actualizado_en)}</td>
-                    <td><button type="button" className="btn btn-ghost btn-sm" onClick={() => irA({ lat: u.lat, lng: u.lng })}>🎯 Ver</button></td>
+                  <tr key={u.repartidor_id} style={esSel ? { background: 'rgba(56, 189, 248, 0.08)' } : undefined}>
+                    <td>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span className="dlv-badge-id" style={{ background: dif.color }}>
+                          {dif.codigo}
+                        </span>
+                        <strong>{dif.nombreVisible}</strong>
+                        {dif.alias && <span className="muted" style={{ fontSize: '.72rem' }}>({u.repartidor_nombre})</span>}
+                      </div>
+                    </td>
+                    <td>
+                      {p && enCurso(p) ? (
+                        <>
+                          <strong>{retiro ? p.codigo : ocDe(p)}</strong> · {retiro ? `Retiro en ${ALMACEN_RETIRO}` : (p.proveedor_nombre ?? '—')}
+                          {esRetornoPendiente(p) && <span style={{ color: '#38bdf8', fontSize: '.72rem', display: 'block' }}>📸 Foto tomada · Posible retorno</span>}
+                        </>
+                      ) : (
+                        <span className="muted">Libre</span>
+                      )}
+                    </td>
+                    <td>
+                      {pr ? (
+                        <>
+                          <span style={{ color: '#0284c7', fontWeight: 700 }}>🧭 {distanciaTxt(pr.ruta.metros)}</span>
+                          {pr.ruta.segundos != null ? ` · ${duracionTxt(pr.ruta.segundos)}` : <span className="muted"> (vial)</span>}
+                        </>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {fechaHoraVE(u.actualizado_en)}
+                      {u.velocidad != null && u.velocidad > 0 && <span style={{ color: '#059669', marginLeft: 4 }}>({Math.round(u.velocidad * 3.6)} km/h)</span>}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button
+                        type="button"
+                        className={`btn btn-sm ${esSel ? 'btn-primary' : 'btn-ghost'}`}
+                        onClick={() => enfocarUnidad(u.repartidor_id)}
+                      >
+                        {esSel ? '🎯 Siguiendo' : '🎯 Seguir'}
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -281,12 +599,25 @@ export function DeliveryMapa({ pedidos, destinos, onUbicar, flota = 'delivery' }
           </table>
         </div>
       )}
-      <p className="hint muted" style={{ margin: '.5rem 0 0', fontSize: '.8rem' }}>
-        Cada delivery comparte su ubicación mientras tiene abierta la vista de teléfono. En gris, los que no mandan señal hace más de {Math.round(UBICACION_VIEJA_MS / 60000)} minutos.
-        {' '}Alfiler naranja = proveedor con OC por tomar; azul = con pedido en curso. Ruta continua = por calle; punteada = línea recta (no se pudo calcular la ruta).
-        {' '}Solo quien supervisa Delivery ve a todos los delivery.
-        {!ubicaciones.length && !error && ' Todavía no hay ubicaciones compartidas.'}
-      </p>
+
+      <div className="muted" style={{ display: 'flex', flexWrap: 'wrap', gap: '.35rem 1.1rem', margin: '.55rem 0 0', fontSize: '.8rem' }} aria-label="Leyenda">
+        <span><span style={{ color: '#2563eb' }}>●</span> 🛵 Unidad / Repartidor con código identificador único</span>
+        <span><span style={{ color: '#9ca3af' }}>●</span> Sin señal reciente</span>
+        <span><span style={{ color: '#d97706' }}>●</span> 🏭 Proveedor con OC por tomar (<span style={{ color: '#dc2626' }}>rojo</span> = urgente)</span>
+        <span><span style={{ color: '#2563eb' }}>●</span> 🏭 Proveedor con pedido en curso</span>
+        <span><span style={{ color: '#374151' }}>●</span> 🏬 {ALMACEN_RETIRO}</span>
+        <span>┄━ Ruta óptima animada (flujo hacia destino)</span>
+      </div>
+
+      {pinosPendiente && (
+        <ConfirmDialog
+          title={losPinos ? `Mover ${ALMACEN_RETIRO}` : `Marcar ${ALMACEN_RETIRO}`}
+          message={`¿Guardar este punto (${pinosPendiente.lat.toFixed(5)}, ${pinosPendiente.lng.toFixed(5)}) como el ${ALMACEN_RETIRO}? Las rutas de Delivery terminan ahí.`}
+          confirmText="Guardar"
+          onConfirm={() => void guardarPinos()}
+          onCancel={() => setPinosPendiente(null)}
+        />
+      )}
     </div>
   );
 }

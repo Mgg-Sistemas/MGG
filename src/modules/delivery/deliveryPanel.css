@@ -1,0 +1,260 @@
+/* ============================================================
+   MGG · Delivery · Centro de control de la PC (10/11/2026)
+   Cabecera, segmento de flota, métricas, mapa, Repartidores conectados y
+   Trazabilidad y horarios. Solo diseño.
+   ============================================================ */
+/* ── Panel de la PC: Centro de control ── */
+.dlv-centro-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: .8rem; flex-wrap: wrap;
+  border: 1px solid var(--border); border-radius: var(--r-lg); padding: 1rem 1.1rem; margin-bottom: 1rem;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--primary) 7%, var(--surface-2)), var(--surface-2));
+}
+.dlv-centro-head h1 { margin: 0; font-size: 1.35rem; }
+.dlv-centro-head p { margin: .25rem 0 0; font-size: .85rem; color: var(--text-muted); }
+.dlv-pills { display: inline-flex; gap: .3rem; padding: .25rem; border: 1px solid var(--border); border-radius: 999px; background: var(--surface-3); flex-wrap: wrap; }
+.dlv-pills button {
+  border: 0; background: transparent; color: var(--text-muted); font: inherit; font-weight: 700; font-size: .88rem;
+  padding: .4rem .9rem; border-radius: 999px; cursor: pointer;
+}
+.dlv-pills button.active { background: var(--primary); color: #fff; box-shadow: 0 3px 10px color-mix(in srgb, var(--primary) 35%, transparent); }
+.dlv-metricas { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: .75rem; margin-bottom: 1rem; }
+.dlv-metrica {
+  display: flex; align-items: center; gap: .8rem; padding: .9rem 1rem; border: 1px solid var(--border); border-radius: var(--r-lg);
+  background: var(--surface-2); transition: transform .15s ease, border-color .15s ease;
+}
+.dlv-metrica:hover { transform: translateY(-2px); border-color: var(--border-strong); }
+.dlv-metrica .ico { flex: 0 0 auto; width: 46px; height: 46px; border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 1.35rem; }
+.dlv-metrica.naranja .ico { background: color-mix(in srgb, var(--primary) 16%, transparent); }
+.dlv-metrica.azul .ico { background: color-mix(in srgb, var(--info) 16%, transparent); }
+.dlv-metrica.verde .ico { background: color-mix(in srgb, var(--success) 16%, transparent); }
+.dlv-metrica.morado .ico { background: color-mix(in srgb, #8b5cf6 18%, transparent); }
+.dlv-metrica .val { font-family: var(--font-mono); font-size: 1.55rem; font-weight: 800; line-height: 1.1; }
+.dlv-metrica .lbl { font-size: .74rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.dlv-metrica .sub { font-size: .74rem; color: var(--text-muted); }
+.dlv-mapa-card { margin-bottom: 1rem; }
+.dlv-mapa-card .card-title { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
+
+/* Repartidores conectados */
+.dlv-repartidores { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: .75rem; }
+.dlv-repartidor { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-2); padding: .85rem .95rem; display: flex; flex-direction: column; gap: .45rem; }
+.dlv-repartidor .fila { display: flex; align-items: center; gap: .6rem; }
+.dlv-repartidor .dlv-avatar { width: 38px; height: 38px; font-size: 1.1rem; }
+.dlv-repartidor .dlv-avatar.sin-senal { filter: grayscale(1); opacity: .7; }
+.dlv-repartidor .dlv-avatar.sin-senal::after { background: var(--text-muted); }
+.dlv-repartidor .nombre { font-weight: 800; }
+.dlv-repartidor .dato { font-size: .82rem; color: var(--text-muted); }
+.dlv-repartidor .dato strong { color: var(--text); }
+
+/* Trazabilidad y horarios */
+.dlv-traza { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: .6rem; }
+.dlv-traza > li { border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--surface-2); padding: .75rem .9rem; }
+.dlv-traza .cab { display: flex; justify-content: space-between; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .45rem; }
+.dlv-traza .cab .oc { font-family: var(--font-mono); font-weight: 800; }
+.dlv-linea { display: flex; flex-wrap: wrap; gap: .35rem .5rem; align-items: center; font-size: .82rem; }
+.dlv-linea .paso { padding: .2rem .55rem; border-radius: 999px; background: var(--surface-3); white-space: nowrap; }
+.dlv-linea .paso.fin { background: color-mix(in srgb, var(--success) 15%, transparent); color: var(--success); font-weight: 700; }
+.dlv-linea .paso.cancel { background: color-mix(in srgb, var(--danger) 13%, transparent); color: var(--danger); font-weight: 700; }
+.dlv-linea .flecha { color: var(--text-muted); font-size: .75rem; }
+
+/* Estado en la trazabilidad (pastilla) y el avatar chico de cada repartidor. */
+.dlv-pill { flex: 0 0 auto; font-size: .7rem; font-weight: 800; padding: .22rem .6rem; border-radius: 999px; white-space: nowrap; text-transform: uppercase; letter-spacing: .03em; border: 1px solid transparent; }
+.dlv-pill.est-por_tomar { color: var(--primary); background: color-mix(in srgb, var(--primary) 14%, transparent); border-color: color-mix(in srgb, var(--primary) 35%, transparent); }
+.dlv-pill.est-aceptado, .dlv-pill.est-en_ruta { color: var(--info); background: color-mix(in srgb, var(--info) 15%, transparent); border-color: color-mix(in srgb, var(--info) 40%, transparent); }
+.dlv-pill.est-entregado { color: var(--success); background: color-mix(in srgb, var(--success) 14%, transparent); border-color: color-mix(in srgb, var(--success) 40%, transparent); }
+.dlv-pill.est-cancelado { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); border-color: color-mix(in srgb, var(--danger) 35%, transparent); }
+.dlv-repartidor .dlv-avatar { flex: 0 0 auto; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: linear-gradient(135deg, #ff8a00, #ffc94d); }
+.dlv-repartidor .dlv-gps-pill { display: inline-flex; font-size: .72rem; font-weight: 700; padding: .15rem .55rem; border-radius: 999px; border: 1px solid var(--border); color: var(--text-muted); background: var(--surface-3); }
+.dlv-repartidor .dlv-gps-pill.on { color: var(--success); border-color: color-mix(in srgb, var(--success) 40%, transparent); background: color-mix(in srgb, var(--success) 12%, transparent); }
+
+/* ── Adaptación Móvil del Centro de Control (para Compras/Supervisión en teléfono) ── */
+@media (max-width: 768px) {
+  .dlv-centro-head {
+    padding: .75rem .85rem;
+    gap: .5rem;
+  }
+  .dlv-centro-head h1 {
+    font-size: 1.15rem;
+  }
+  .dlv-centro-head p {
+    font-size: .78rem;
+  }
+  .dlv-pills {
+    width: 100%;
+  }
+  .dlv-pills button {
+    flex: 1;
+    font-size: .8rem;
+    padding: .35rem .6rem;
+    text-align: center;
+  }
+  /* Cuadrícula compacta 2x2 para las métricas: no satura la pantalla vertical */
+  .dlv-metricas {
+    grid-template-columns: 1fr 1fr !important;
+    gap: .5rem !important;
+    margin-bottom: .75rem !important;
+  }
+  .dlv-metrica {
+    padding: .6rem .75rem !important;
+    gap: .55rem !important;
+  }
+  .dlv-metrica .ico {
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 1.15rem !important;
+    border-radius: 9px !important;
+  }
+  .dlv-metrica .val {
+    font-size: 1.25rem !important;
+  }
+  .dlv-metrica .lbl {
+    font-size: .65rem !important;
+  }
+  .dlv-metrica .sub {
+    display: none !important; /* oculta texto largo en móvil para ahorrar espacio */
+  }
+
+  /* El mapa se posiciona con altura cómoda y visible de inmediato */
+  .dlv-mapa-card .card-title {
+    font-size: .85rem;
+    gap: .4rem;
+  }
+  .dlv-mapa-card .card-title button {
+    font-size: .75rem;
+    padding: .25rem .5rem;
+  }
+  .dlv-mapa-layout {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: .75rem !important;
+  }
+  .dlv-mapa-caja {
+    min-height: 340px !important;
+    height: 48vh !important;
+  }
+  .dlv-mapa-barra {
+    flex-wrap: wrap !important;
+    gap: .4rem !important;
+  }
+  .dlv-mapa-barra .dlv-seg {
+    width: 100% !important;
+    display: flex !important;
+  }
+  .dlv-mapa-barra .dlv-seg-btn {
+    flex: 1 !important;
+    text-align: center !important;
+  }
+}
+
+/* ── Animación de Navegación Vial en Leaflet (Vista de Controlador y Despacho) ── */
+.dlv-ruta-stream-animada {
+  stroke-dasharray: 12, 14;
+  animation: dlvStreamAvance 1.4s linear infinite;
+  stroke-linecap: round;
+}
+@keyframes dlvStreamAvance {
+  from {
+    stroke-dashoffset: 26;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Pin de Controlador (Anti-solapamiento con código M-01) */
+.dlv-pin-controlador {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px 3px 4px;
+  border-radius: 999px;
+  color: #fff;
+  font: 700 11px/1.2 system-ui, -apple-system, sans-serif;
+  white-space: nowrap;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+  border: 2px solid #fff;
+  transform: translate(-50%, -50%);
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.dlv-pin-controlador:hover {
+  transform: translate(-50%, -50%) scale(1.08);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.55);
+  z-index: 2000 !important;
+}
+.dlv-pin-cod {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  font-family: var(--font-mono, monospace);
+}
+.dlv-pin-ico {
+  font-size: 14px;
+}
+.dlv-pin-nombre {
+  font-weight: 700;
+}
+
+/* Badge de Identificador para Listas y Tablas */
+.dlv-badge-id {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 800;
+  color: #fff;
+  letter-spacing: 0.02em;
+  font-family: var(--font-mono, monospace);
+  vertical-align: middle;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+/* HUD Flotante de Telemetría sobre el Mapa del Controlador */
+.dlv-hud-controlador {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 1000;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  padding: 10px 14px;
+  color: #f8fafc;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  max-width: 360px;
+  font-size: 0.85rem;
+  pointer-events: auto;
+}
+.dlv-hud-controlador .cab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.dlv-hud-controlador .btn-cerrar {
+  background: transparent;
+  border: 0;
+  color: #94a3b8;
+  cursor: pointer;
+  font-size: 1.1rem;
+  padding: 0 4px;
+  line-height: 1;
+}
+.dlv-hud-controlador .btn-cerrar:hover {
+  color: #fff;
+}
+.dlv-hud-telemetria {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 6px;
+  font-size: 0.78rem;
+  color: #cbd5e1;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 6px;
+}

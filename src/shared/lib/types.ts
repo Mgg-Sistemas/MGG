@@ -2445,3 +2445,12 @@ export interface MinutaAdjunto {
   subido_por?: string | null;
   subido_en: string;
 }
+
+/* ───────────── Sede donde entregar la OC ───────────── */
+export const SEDES_ENTREGA: Array<{ sede: 'los_pinos' | 'matanza'; etiqueta: string }> = [
+  { sede: 'los_pinos', etiqueta: 'Los Pinos' },
+  { sede: 'matanza', etiqueta: 'Matanza' },
+];
+export const etiquetaSedeEntrega = (s: string | null | undefined): string | null =>
+  SEDES_ENTREGA.find((x) => x.sede === s)?.etiqueta ?? null;
+

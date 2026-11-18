@@ -1,54 +1,65 @@
 /* ============================================================
-   MGG · Delivery · Panel central (30-10-2026)
+   MGG · Delivery · Panel central (31/10/2026)
 
-   La OC que Tesorería pagó (la retención no es requisito, 01-11-2026) la toma UN
-   motorizado desde su teléfono, va en ruta y la entrega en el almacén. Acá
-   se sigue todo desde la PC:
+   La OC de productos que Tesorería pagó la toma UN motorizado desde su
+   teléfono, va en ruta y la entrega en el almacén. Acá se sigue todo desde
+   la PC:
      Tablero      → por tomar / aceptados / en camino / entregados hoy, con
-                    fotos, comprobante de pago, WhatsApp y cancelar si se trabó
-                    (31-10: «📄 Ver PDF» y «💬 WhatsApp» del pedido y de la lista)
+                    fotos, comprobante de pago, WhatsApp, reporte del pedido
+                    (PDF y WhatsApp) y cancelar si se trabó
      Mapa         → dónde está cada motorizado (Calles / Satelital)
-     Histórico    → lo tomado en un rango de fechas, filtrable por delivery
+     Histórico    → lo tomado en un rango de fechas, filtrable por estado y
+                    delivery, con el reporte en PDF (vista previa) y WhatsApp
      Por delivery → cuántos pedidos lleva cada uno y su tiempo promedio
-   Construido pero DESCONECTADO hasta que la administradora lo active
-   (config compras.delivery): mientras tanto las listas quedan vacías.
+   Construido pero DESCONECTADO hasta que la administración lo active
+   (interruptor compras_delivery): mientras tanto las listas quedan vacías.
+   En GT la OC entra apenas queda pagada (sin esperar la
+   retención) y solo las creadas desde que se encendió.
+   02/11/2026: también los RETIROS EN ALMACÉN LOS PINOS (📦, lo que la
+   revisión de Almacén marcó como disponible: sin monto ni comprobante, se
+   entrega A la unidad / persona); filtro por origen en Histórico; al aceptar
+   queda directo «En camino»; los «No disponible» del motorizado se ven con
+   su motivo en el Tablero.
    ============================================================ */
+import { etiquetaSedeEntrega } from '@/shared/lib/types';
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { MODULO_FLOTA, RUTA_TELEFONO_FLOTA, TITULO_FLOTA, type Flota } from './flota';
-import { nombreAlmacenVisible } from '@/modules/inventario/sectorizacion';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { listProveedores } from '@/modules/pedidos/pedidos.repository';
-import { MensajeWhatsappModal } from '@/modules/pedidos/MensajeWhatsappModal';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import { useRecargaAlVolver } from './useRecargaAlVolver';
+import { CANALES_DELIVERY, tituloPantallaCanal, type CanalDelivery } from './delivery';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
+import { quienSync, useQuien } from '@/shared/lib/directorioUsuarios';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import {
-  ESTADO_DELIVERY, MAX_FOTOS_DELIVERY, MOTIVOS_CANCELACION, UBICACION_VIEJA_MS, claveDe, esRetiro, textoCancelacion, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe,
-  type FotoDelivery, type PedidoDelivery, type UbicacionDelivery,
+  ALMACEN_RETIRO, ESTADO_DELIVERY, UBICACION_VIEJA_MS, cerradoPorRecepcion, MOTIVOS_CANCELACION, ORIGEN_DELIVERY, claveDelivery, destinoRetiro, esRetiroAlmacen,
+  esRetornoPendiente, etiquetaEstado, fechaHoraVE, mensajeCancelado, minutosEntre, montoTxt, ocDe, rechazosDe, rotuloFotos,
+  type FotoDelivery, type PedidoDelivery, type RechazoDelivery, type UbicacionDelivery,
 } from './delivery';
 import {
-  cancelarPedido, comprobantePagoDelivery, listHistorialDelivery, listPedidosDelivery, listUbicaciones, quitarFotoDelivery, subirFotosDelivery,
-  urlFotoDelivery, useDeliveryConectado, useDestinosDelivery,
-  type ComprobantePagoDelivery,
+  cancelarPedido, listHistorialDelivery, listPedidosDelivery, listRechazosDelivery, listUbicaciones, urlFotoDelivery, useDeliveryConectado,
+  type FilaHistorialCruda,
 } from './delivery.repository';
 import {
-  RANGOS_DELIVERY, armarFilasHistorial, conteoPorEstado, duracionTxt, filtrarPorRepartidor, rangoDelivery,
-  rangoDeliveryActivo, repartidoresDe, resumenHistorial, sePuedeCancelar, totalesResumen, type FilaHistorialDelivery,
+  RANGOS_DELIVERY, armarFilasHistorial, conteoPorEstado, duracionTxt, mensajeDelPedido, rangoDelivery,
+  rangoDeliveryActivo, repartidoresDe, resumenHistorial, sePuedeCancelar, totalesResumen, minutosPromedio, minutosTxt, type FilaHistorialDelivery,
 } from './deliveryPanel';
+import {
+  ESTADOS_FILTRO, ORIGENES_FILTRO, filtrarHistorial, textoReporteGeneral, textoReportePedido,
+  type FiltroEstadoDelivery, type FiltroOrigenDelivery,
+} from './deliveryReporte';
 import { DeliveryMapa } from './DeliveryMapa';
-import { UbicarProveedoresModal } from './UbicarProveedoresModal';
-import { DetalleDeliveryModal } from './DetalleDeliveryModal';
-import type { DestinosDelivery } from './deliveryRutas';
-import { pdfComprobanteDelivery, pdfHistorialDelivery, pdfListaDelivery, pdfPorDelivery } from './deliveryPdf';
-import { mensajeHistorialDelivery, mensajeListaDelivery, mensajePorDelivery, mensajeReporteDelivery } from './deliveryReporte';
-import { previewFileUrl } from '@/shared/lib/reportPreview';
-import './deliveryMovil.css';
+import { previewGaleria, type PreviewImagenItem } from '@/shared/lib/reportePreview';
+import { pdfFotosDelivery, pdfHistorialDelivery, pdfPedidoDelivery, pdfPorDelivery } from './deliveryPdf';
+import { WhatsappDeliveryModal } from './WhatsappDeliveryModal';
+import { ComprobantePagoCuerpo } from './ComprobantePagoDelivery';
+import { EditarFotosDeliveryModal, puedeEditarFotosDelivery } from './EditarFotosDelivery';
+import { obtenerDiferenciador, guardarAliasRepartidor } from './deliveryIdentificadores';
+import './deliveryPanel.css';
 
-// 10-11-2026 (maqueta de Delivery): «Centro de control» con el mapa en vivo adentro, y dos pestañas
-// nuevas: repartidores conectados y trazabilidad con horarios. Sin avisos ni WhatsApp automáticos.
+// 10/11/2026 (como MGG, maqueta de Delivery): «Centro de control» con el mapa en vivo adentro y dos
+// pestañas nuevas: repartidores conectados y trazabilidad con horarios. Sin avisos ni WhatsApp automáticos.
 type Vista = 'tablero' | 'repartidores' | 'trazabilidad' | 'historico' | 'por_delivery';
 
 const TABS: { key: Vista; label: string; icon: string }[] = [
@@ -61,32 +72,31 @@ const TABS: { key: Vista; label: string; icon: string }[] = [
 
 const msgError = (e: unknown, def: string) => (e instanceof Error ? e.message : def);
 
-/** Abre un PDF en la vista previa (solo con el botón) y marca cuál se está generando. */
-function abrirPdf(clave: string, generar: () => Promise<void>, setGenerando: (v: string | null) => void) {
-  setGenerando(clave);
-  generar()
-    .catch((e) => toast(msgError(e, 'No se pudo generar el PDF.'), 'error'))
-    .finally(() => setGenerando(null));
+/** GT: el histórico muestra nombre y apellido aunque la toma solo guardara el correo. */
+function filasConNombres(rows: FilaHistorialCruda[], proveedores: Map<string, string>): FilaHistorialDelivery[] {
+  return armarFilasHistorial(rows, proveedores).map((f) => (f.repartidor.includes('@')
+    ? { ...f, repartidor: quienSync(null, f.repartidor) || f.repartidor } : f));
 }
 
-export function DeliveryPage() {
+export function DeliveryPage({ canal: canalInicial = 'delivery' }: { canal?: CanalDelivery } = {}) {
+  // 05/11/2026 (como MGG): Delivery y Carga pesada son dos segmentos de esta misma
+  // página; cada quien ve las flotas que su rol tiene.
   const { can, isAdmin, vistasTelefono } = usePermissions();
+  const flotas = (Object.keys(CANALES_DELIVERY) as CanalDelivery[]).filter((f) => isAdmin || can(CANALES_DELIVERY[f].modulo));
+  const [canal, setCanal] = useState<CanalDelivery>(() => (flotas.includes(canalInicial) ? canalInicial : (flotas[0] ?? 'delivery')));
+  const cfgCanal = CANALES_DELIVERY[canal];
   const conectado = useDeliveryConectado();
-  // 04-11-2026: Delivery y Carga pesada (switch). Cada quien ve las flotas que tiene.
-  const flotas = (['delivery', 'carga_pesada'] as Flota[]).filter((f) => isAdmin || can(MODULO_FLOTA[f], 'lectura'));
-  const [flota, setFlota] = useState<Flota>(() => flotas[0] ?? 'delivery');
-  const supervisor = isAdmin || can(MODULO_FLOTA[flota], 'full');
-  const tieneTelefono = vistasTelefono.some((v) => v.key === flota);
+  const supervisor = isAdmin || can(cfgCanal.modulo, 'full');
+  const tieneTelefono = vistasTelefono.some((v) => v.key === canal);
+  const puedeAmbos = flotas.length > 1;
   const [vista, setVista] = useState<Vista>('tablero');
-  // 03-11-2026: proveedores y almacenes en el mapa (rutas tipo Yummy / Ridery).
-  const puedeUbicar = isAdmin || can('proveedores', 'escritura') || can('delivery', 'full');
-  const [destinos, setDestinos] = useDestinosDelivery();
-  const [ubicar, setUbicar] = useState(false);
+  const [repartidorEnfocar, setRepartidorEnfocar] = useState<string | null>(null);
 
   /* ── Tablero: pedidos actuales (y cerrados si se piden) + lo de hoy ── */
   const hoy = useMemo(hoyVenezuela, []);
   const [verCerrados, setVerCerrados] = useState(false);
   const [pedidos, setPedidos] = useState<PedidoDelivery[]>([]);
+  const [rechazos, setRechazos] = useState<RechazoDelivery[]>([]);
   const [deHoy, setDeHoy] = useState<FilaHistorialDelivery[]>([]);
   const [cargando, setCargando] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
@@ -106,14 +116,16 @@ export function DeliveryPage() {
 
   const recargarTablero = useCallback(async () => {
     try {
-      const [ps, hh] = await Promise.all([listPedidosDelivery(verCerrados, flota), listHistorialDelivery(hoy, hoy, flota)]);
+      const [ps, hh] = await Promise.all([listPedidosDelivery(verCerrados, canal), listHistorialDelivery(hoy, hoy, canal)]);
+      // Los «No disponible» de lo que se ve (no frenan el tablero si fallan).
+      setRechazos(await listRechazosDelivery(ps.map((p) => p.orden_id)).catch(() => []));
       setPedidos(ps);
-      setDeHoy(armarFilasHistorial(hh, proveedores));
+      setDeHoy(filasConNombres(hh, proveedores));
       setErrorCarga(null);
     } catch (e) {
       setErrorCarga(msgError(e, 'No se pudieron leer los pedidos de Delivery.'));
     } finally { setCargando(false); }
-  }, [verCerrados, hoy, proveedores, flota]);
+  }, [verCerrados, hoy, proveedores, canal]);
   useEffect(() => { void recargarTablero(); }, [recargarTablero]);
 
   const enHistorico = vista === 'historico' || vista === 'por_delivery' || vista === 'trazabilidad';
@@ -121,42 +133,41 @@ export function DeliveryPage() {
     if (!desde || !hasta || desde > hasta) return;
     setCargandoHist(true);
     try {
-      setHistorial(armarFilasHistorial(await listHistorialDelivery(desde, hasta, flota), proveedores));
+      setHistorial(filasConNombres(await listHistorialDelivery(desde, hasta, canal), proveedores));
     } catch (e) {
       toast(msgError(e, 'No se pudo leer el histórico.'), 'error');
     } finally { setCargandoHist(false); }
-  }, [desde, hasta, proveedores, flota]);
+  }, [desde, hasta, proveedores, canal]);
   useEffect(() => { if (enHistorico) void recargarHistorial(); }, [enHistorico, recargarHistorial]);
 
   // Tiempo real: lo que hace el motorizado en su teléfono (o Tesorería al pagar) se ve sin recargar.
   // Las ubicaciones las escucha el propio mapa: llegan seguido y no cambian las listas.
-  useRealtime(['delivery_pedidos', 'ordenes'], () => {
+  useRealtime(['delivery_pedidos', 'delivery_rechazos', 'ordenes', 'solicitudes_revision_almacen'], () => {
     void recargarTablero();
     if (enHistorico) void recargarHistorial();
   });
-  // 07-11-2026: si se cortó el tiempo real (equipo suspendido), al volver y cada 45 s se pone al día.
-  useRecargaAlVolver(recargarTablero);
 
   return (
     <div>
+      {/* 10/11/2026 (como MGG): cabecera del Centro de control con el segmento de flota. */}
       <div className="dlv-centro-head">
         <div style={{ flex: '1 1 320px' }}>
-          <h1>🖥 Centro de control y despacho · {TITULO_FLOTA[flota]}</h1>
+          <h1>🖥 Centro de control y despacho · {cfgCanal.icono} {tituloPantallaCanal(canal)}</h1>
           <p>
-            Seguimiento en vivo de las órdenes que Compras confirmó para retiro: quién las toma, dónde va cada {flota === 'carga_pesada' ? 'camión' : 'motorizado'} y cuándo llegan al almacén.
+            Seguimiento en vivo de las órdenes pagadas y de los retiros en {ALMACEN_RETIRO}: quién las toma, dónde va
+            cada {canal === 'carga_pesada' ? 'camión' : 'motorizado'} y cuándo llegan al almacén.
           </p>
         </div>
         <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
-          {flotas.length > 1 && (
-            <div className="dlv-pills" role="tablist" aria-label="Flota">
-              {flotas.map((f) => (
-                <button key={f} role="tab" aria-selected={flota === f} className={flota === f ? 'active' : ''} onClick={() => setFlota(f)}>
-                  {TITULO_FLOTA[f]}
-                </button>
+          {puedeAmbos && (
+            <div className="dlv-pills" role="tablist" aria-label="Delivery o Carga pesada">
+              {flotas.map((k) => (
+                <button key={k} type="button" role="tab" aria-selected={k === canal} onClick={() => setCanal(k)}
+                  className={k === canal ? 'active' : ''}>{CANALES_DELIVERY[k].icono} {CANALES_DELIVERY[k].titulo}</button>
               ))}
             </div>
           )}
-          {tieneTelefono && <Link to={RUTA_TELEFONO_FLOTA[flota]} className="btn btn-ghost btn-sm">📱 Vista de teléfono</Link>}
+          {tieneTelefono && <Link to={cfgCanal.rutaTelefono} className="btn btn-ghost btn-sm">📱 Vista de teléfono</Link>}
         </div>
       </div>
 
@@ -164,8 +175,8 @@ export function DeliveryPage() {
         <div className="aviso info" style={{ marginBottom: '1rem' }}>
           <span className="aviso-icono">ℹ</span>
           <div>
-            <strong>Delivery todavía no está conectado a Compras.</strong> Cuando la administradora lo active, acá llegarán las órdenes
-            pagadas por Tesorería. Mientras tanto las listas quedan vacías.
+            <strong>Delivery todavía no está conectado a Compras.</strong> Cuando la administración lo active, acá llegarán las órdenes
+            de productos que Tesorería pague desde ese momento (sin esperar la retención). Mientras tanto las listas quedan vacías.
           </div>
         </div>
       )}
@@ -184,39 +195,75 @@ export function DeliveryPage() {
       </div>
 
       {vista === 'tablero' && (
-        <TableroTab pedidos={pedidos} deHoy={deHoy} cargando={cargando} supervisor={supervisor}
-          verCerrados={verCerrados} setVerCerrados={setVerCerrados} onCambio={() => void recargarTablero()}
-          mapa={<DeliveryMapa pedidos={pedidos} destinos={destinos} flota={flota} onUbicar={puedeUbicar ? () => setUbicar(true) : undefined} />} />
+        <TableroTab
+          pedidos={pedidos}
+          rechazos={rechazos}
+          deHoy={deHoy}
+          cargando={cargando}
+          supervisor={supervisor}
+          verCerrados={verCerrados}
+          setVerCerrados={setVerCerrados}
+          onCambio={() => void recargarTablero()}
+          canal={canal}
+          repartidorEnfocar={repartidorEnfocar}
+          setRepartidorEnfocar={setRepartidorEnfocar}
+        />
       )}
-      {vista === 'repartidores' && <RepartidoresTab flota={flota} pedidos={pedidos} deHoy={deHoy} />}
-      {ubicar && (
-        <UbicarProveedoresModal pedidos={pedidos} destinos={destinos} onDestinos={setDestinos}
-          puedeAlmacenes={supervisor} onClose={() => setUbicar(false)} />
+      {vista === 'repartidores' && (
+        <RepartidoresTab
+          canal={canal}
+          pedidos={pedidos}
+          deHoy={deHoy}
+          onVerEnMapa={(repId) => {
+            setRepartidorEnfocar(repId);
+            setVista('tablero');
+          }}
+        />
       )}
       {enHistorico && (
         <BarraRango hoy={hoy} desde={desde} hasta={hasta} setDesde={setDesde} setHasta={setHasta} cargando={cargandoHist} />
       )}
       {vista === 'trazabilidad' && <TrazabilidadTab filas={historial} cargando={cargandoHist} />}
       {vista === 'historico' && <HistoricoTab filas={historial} desde={desde} hasta={hasta} />}
-      {vista === 'por_delivery' && <PorDeliveryTab filas={historial} desde={desde} hasta={hasta} destinos={destinos} />}
+      {vista === 'por_delivery' && <PorDeliveryTab filas={historial} desde={desde} hasta={hasta} />}
     </div>
   );
 }
 
 /* ───────────── Tablero ───────────── */
 
-function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerCerrados, onCambio, mapa }: {
-  pedidos: PedidoDelivery[]; deHoy: FilaHistorialDelivery[]; cargando: boolean; supervisor: boolean;
-  verCerrados: boolean; setVerCerrados: (v: boolean) => void; onCambio: () => void;
-  /** El mapa en vivo (motorizados, proveedores y almacenes), debajo de las métricas. */
-  mapa?: ReactNode;
+function TableroTab({
+  pedidos,
+  rechazos,
+  deHoy,
+  cargando,
+  supervisor,
+  verCerrados,
+  setVerCerrados,
+  onCambio,
+  canal,
+  repartidorEnfocar,
+  setRepartidorEnfocar,
+}: {
+  pedidos: PedidoDelivery[];
+  rechazos: RechazoDelivery[];
+  deHoy: FilaHistorialDelivery[];
+  cargando: boolean;
+  supervisor: boolean;
+  verCerrados: boolean;
+  setVerCerrados: (v: boolean) => void;
+  onCambio: () => void;
+  canal: CanalDelivery;
+  repartidorEnfocar: string | null;
+  setRepartidorEnfocar: (id: string | null) => void;
 }) {
+  const quien = useQuien();
   const c = conteoPorEstado(pedidos);
   const entregadosHoy = deHoy.filter((f) => f.estado === 'entregado').length;
   const canceladosHoy = deHoy.filter((f) => f.estado === 'cancelado').length;
+  const promedioHoy = minutosPromedio(deHoy);
   const urgentes = pedidos.filter((p) => p.estado === 'por_tomar' && p.urgente).length;
-  const minutosHoy = deHoy.filter((f) => f.estado === 'entregado' && f.minutos != null).map((f) => f.minutos as number);
-  const promedioHoy = minutosHoy.length ? Math.round(minutosHoy.reduce((a, b) => a + b, 0) / minutosHoy.length) : null;
+  const retirosPorTomar = pedidos.filter((p) => p.estado === 'por_tomar' && esRetiroAlmacen(p)).length;
 
   const [fotos, setFotos] = useState<PedidoDelivery | null>(null);
   const [whatsapp, setWhatsapp] = useState<{ titulo: string; texto: string } | null>(null);
@@ -228,21 +275,30 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
   const orden: Record<string, number> = { por_tomar: 0, aceptado: 1, en_ruta: 2, entregado: 3, cancelado: 4 };
   const lista = [...pedidos].sort((a, b) => (orden[a.estado] - orden[b.estado])
     || (Number(b.urgente) - Number(a.urgente))
-    || String(a.pagada_en ?? a.aceptado_en ?? '').localeCompare(String(b.pagada_en ?? b.aceptado_en ?? '')));
-  const filtro = verCerrados ? 'Todos (incluye entregados y cancelados)' : 'Por tomar y en curso';
+    || String(a.pagada_en ?? a.revisada_en ?? a.aceptado_en ?? '').localeCompare(String(b.pagada_en ?? b.revisada_en ?? b.aceptado_en ?? '')));
+
+  function pdfPedido(p: PedidoDelivery) {
+    const k = `${claveDelivery(p)}-${p.pedido_id ?? 'libre'}`;
+    setGenerando(k);
+    pdfPedidoDelivery(p)
+      .catch((e) => toast(msgError(e, 'No se pudo generar el PDF.'), 'error'))
+      .finally(() => setGenerando(null));
+  }
 
   return (
     <>
+      {/* 10/11/2026 (como MGG): métricas del Centro de control y el mapa en vivo debajo. */}
       <div className="dlv-metricas">
         <div className="dlv-metrica naranja">
           <div className="ico" aria-hidden="true">💰</div>
           <div><div className="val">{c.por_tomar}</div><div className="lbl">Por tomar</div>
-            <div className="sub">{urgentes ? `${urgentes} urgente(s)` : 'Confirmadas por Compras'}</div></div>
+            <div className="sub">{[urgentes ? `${urgentes} urgente(s)` : 'Pagadas y retiros', retirosPorTomar ? `📦 ${retirosPorTomar} en Almacén` : '', rechazos.length ? `✕ ${rechazos.length} no disponible` : ''].filter(Boolean).join(' · ')}</div></div>
         </div>
         <div className="dlv-metrica azul">
           <div className="ico" aria-hidden="true">🚚</div>
-          <div><div className="val">{c.aceptado + c.en_ruta}</div><div className="lbl">En tránsito</div>
-            <div className="sub">{c.aceptado} tomado(s) · {c.en_ruta} en ruta</div></div>
+          {/* 02/11/2026: al aceptar queda directo «En camino» (los «Aceptado» son de antes). */}
+          <div><div className="val">{c.en_ruta + c.aceptado}</div><div className="lbl">En tránsito</div>
+            <div className="sub">Aceptados por un delivery, sin entregar</div></div>
         </div>
         <div className="dlv-metrica verde">
           <div className="ico" aria-hidden="true">✅</div>
@@ -251,17 +307,14 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
         </div>
         <div className="dlv-metrica morado">
           <div className="ico" aria-hidden="true">⏱</div>
-          <div><div className="val">{promedioHoy != null ? duracionTxt(promedioHoy) : '—'}</div><div className="lbl">Tiempo promedio</div>
+          <div><div className="val">{minutosTxt(promedioHoy)}</div><div className="lbl">Tiempo promedio</div>
             <div className="sub">De tomado a entregado, hoy</div></div>
         </div>
       </div>
 
-      {mapa && (
-        <div className="card dlv-mapa-card">
-          <div className="card-title">📍 Mapa GPS en vivo · Puerto Ordaz / San Félix</div>
-          {mapa}
-        </div>
-      )}
+      <div className="card dlv-mapa-card">
+        <DeliveryMapa pedidos={pedidos} canal={canal} repartidorEnfocar={repartidorEnfocar} />
+      </div>
 
       <div className="card">
         <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
@@ -270,15 +323,6 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
             <input type="checkbox" checked={verCerrados} onChange={(e) => setVerCerrados(e.target.checked)} />
             Ver también entregados y cancelados
           </label>
-          <button type="button" className="btn btn-ghost btn-sm" disabled={!!generando || !lista.length}
-            title="Reporte de la lista que se ve, en vista previa"
-            onClick={() => abrirPdf('lista', () => pdfListaDelivery({ pedidos: lista, filtro }), setGenerando)}>
-            {generando === 'lista' ? 'Generando…' : '📄 Ver PDF'}
-          </button>
-          <button type="button" className="btn btn-ghost btn-sm" disabled={!lista.length}
-            onClick={() => setWhatsapp({ titulo: 'Pedidos de Delivery', texto: mensajeListaDelivery({ pedidos: lista, filtro }) })}>
-            💬 WhatsApp
-          </button>
         </div>
         {cargando ? <p className="muted">Cargando…</p> : !lista.length ? (
           <p className="muted" style={{ margin: '.4rem 0' }}>No hay pedidos {verCerrados ? '' : 'por tomar ni en curso '}por ahora.</p>
@@ -287,57 +331,97 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
             <table className="table" style={{ fontSize: '.85rem' }}>
               <thead>
                 <tr>
-                  <th>OC</th><th>Proveedor</th><th>Delivery</th><th>Estado</th><th>Tiempos</th><th>Monto</th><th style={{ textAlign: 'right' }}>Acciones</th>
+                  <th>OC / SP</th><th>Proveedor / Origen</th><th>Delivery</th><th>Estado</th><th>Tiempos</th><th>Monto</th><th style={{ textAlign: 'right' }}>Acciones</th>
                 </tr>
               </thead>
               <tbody>
                 {lista.map((p) => {
+                  const retiro = esRetiroAlmacen(p);
                   const est = ESTADO_DELIVERY[p.estado];
-                  const nFotos = p.fotos_recibo.length + p.fotos_entrega.length;
-                  const clave = `${claveDe(p)}-${p.pedido_id ?? 'libre'}`;
+                  const nFotos = p.fotos_recibo.length + p.fotos_entrega.length + p.fotos_factura.length;
+                  const msg = mensajeDelPedido(p);
                   const fin = p.estado === 'cancelado' ? p.cancelado_en : p.entregado_en;
+                  const clave = `${claveDelivery(p)}-${p.pedido_id ?? 'libre'}`;
+                  const noDisp = rechazosDe(p, rechazos);
+                  const destino = retiro ? (p.almacen_entrega || destinoRetiro(p)) : p.almacen_destino;
+                  const dif = p.repartidor_id ? obtenerDiferenciador(p.repartidor_id, p.repartidor_nombre, canal) : null;
                   return (
                     <tr key={clave}>
                       <td>
-                        <strong>{ocDe(p)}</strong>
+                        <strong>{retiro ? p.codigo : ocDe(p)}</strong>
                         {p.urgente && <> <span className="badge danger">URGENTE</span></>}
-                        {p.almacen_destino && <div className="muted" style={{ fontSize: '.75rem' }}>📍 Recepción: {nombreAlmacenVisible(p.almacen_destino)}</div>}
+                        {destino && <div className="muted" style={{ fontSize: '.75rem' }}>🏬 {retiro ? `Entregar a: ${destino}` : destino}</div>}
+                        {!retiro && etiquetaSedeEntrega(p.sede_entrega) && <div className="muted" style={{ fontSize: '.75rem' }}>📍 Recepción: <strong>Almacén {etiquetaSedeEntrega(p.sede_entrega)}</strong></div>}
                       </td>
                       <td>
-                        {p.proveedor_nombre ?? '—'}
-                        {p.proveedor_direccion && <div className="muted" style={{ fontSize: '.75rem' }}>📍 {p.proveedor_direccion}</div>}
+                        {retiro ? <span className="badge info">{ORIGEN_DELIVERY.almacen.emoji} Retiro en {ALMACEN_RETIRO}</span> : (p.proveedor_nombre ?? '—')}
+                        {!retiro && p.proveedor_direccion && <div className="muted" style={{ fontSize: '.75rem' }}>📍 {p.proveedor_direccion}</div>}
+                        {retiro && p.analista_nombre && <div className="muted" style={{ fontSize: '.75rem' }}>Revisó: {p.analista_nombre}</div>}
                       </td>
-                      <td>{p.repartidor_nombre ?? <span className="muted">—</span>}</td>
                       <td>
-                        <span className={`badge ${est?.badge ?? ''}`}>{est?.emoji} {est?.label ?? p.estado}</span>
-                        {p.estado === 'cancelado' && (
-                          <div className="muted" style={{ fontSize: '.75rem', maxWidth: 220, whiteSpace: 'normal' }}
-                            title="El delivery que la tomó la soltó: vuelve a estar disponible para otro.">
-                            {textoCancelacion(p) ? <>Motivo: <strong>{textoCancelacion(p)}</strong></> : 'Sin motivo'}
-                            <div>↩ Disponible otra vez</div>
+                        {p.repartidor_nombre ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                            {dif && (
+                              <span className="dlv-badge-id" style={{ background: dif.color }}>
+                                {dif.codigo}
+                              </span>
+                            )}
+                            <strong>{dif?.nombreVisible ?? quien(p.repartidor_nombre)}</strong>
+                            {p.repartidor_id && (
+                              <button
+                                type="button"
+                                className="btn btn-ghost btn-sm"
+                                style={{ padding: '0 6px', fontSize: '.72rem', height: 22 }}
+                                onClick={() => {
+                                  setRepartidorEnfocar(p.repartidor_id);
+                                  window.scrollTo({ top: 180, behavior: 'smooth' });
+                                }}
+                                title="Enfocar ruta en el mapa del controlador"
+                              >
+                                🎯 Ver
+                              </button>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
+                        {noDisp.map((r) => (
+                          <div key={r.id} className="muted" style={{ fontSize: '.75rem', color: 'var(--danger)' }}
+                            title={`${fechaHoraVE(r.created_at)} · ${r.motivo}`}>
+                            ✕ No disponible: {r.repartidor_nombre ? quien(r.repartidor_nombre) : (r.repartidor_email ?? '—')} — {r.motivo}
+                          </div>
+                        ))}
+                      </td>
+                      <td>
+                        <span className={`badge ${est?.badge ?? ''}`}>{cerradoPorRecepcion(p) ? '📥' : est?.emoji} {etiquetaEstado(p.estado, p.origen, p.motivo_cancel)}</span>
+                        {esRetornoPendiente(p) && (
+                          <div style={{ fontSize: '.72rem', color: '#38bdf8', fontWeight: 600, marginTop: 3 }}>
+                            📸 Foto tomada · Posible retorno
                           </div>
                         )}
+                        {p.estado === 'cancelado' && p.motivo_cancel && <div className="muted" style={{ fontSize: '.75rem' }}>{p.motivo_cancel}</div>}
                       </td>
                       <td style={{ fontSize: '.78rem', whiteSpace: 'nowrap' }}>
-                        {p.pagada_en && <div>{esRetiro(p) ? '🏬 Almacén revisó' : '💰 Pagada'} {fechaHoraVE(p.pagada_en)}</div>}
-                        {p.aceptado_en && <div>🛵 Tomada {fechaHoraVE(p.aceptado_en)}</div>}
-                        {p.en_ruta_en && <div>🚚 En camino {fechaHoraVE(p.en_ruta_en)}</div>}
+                        {!retiro && p.pagada_en && <div>💰 Pagada {fechaHoraVE(p.pagada_en)}</div>}
+                        {retiro && p.revisada_en && <div>📦 Revisada {fechaHoraVE(p.revisada_en)}</div>}
+                        {p.aceptado_en && <div>🛵 Aceptada {fechaHoraVE(p.aceptado_en)}</div>}
+                        {p.en_ruta_en && p.en_ruta_en !== p.aceptado_en && <div>🚚 En camino {fechaHoraVE(p.en_ruta_en)}</div>}
                         {fin && <div>{p.estado === 'cancelado' ? '⛔' : '✅'} {fechaHoraVE(fin)}</div>}
                         {p.estado === 'entregado' && <div className="muted">⏳ {duracionTxt(minutosEntre(p.aceptado_en, p.entregado_en))}</div>}
                       </td>
-                      <td style={{ whiteSpace: 'nowrap' }}>{esRetiro(p) ? <span className="badge info">Retiro</span> : montoTxt(p.total, p.moneda)}</td>
+                      <td style={{ whiteSpace: 'nowrap' }}>{retiro ? <span className="muted">—</span> : montoTxt(p.total, p.moneda)}</td>
                       <td>
                         <div style={{ display: 'flex', gap: '.3rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                          {!esRetiro(p) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setComprobante(p)} title="Comprobante que adjuntó Tesorería al pagar">🧾 Comprobante de pago</button>}
-                          <button type="button" className="btn btn-ghost btn-sm" disabled={!nFotos && !(supervisor && p.estado === 'entregado')} onClick={() => setFotos(p)}
-                            title={supervisor && p.estado === 'entregado' ? 'Ver o editar las fotos' : nFotos ? 'Ver fotos' : 'Sin fotos todavía'}>📷 {nFotos}</button>
-                          <button type="button" className="btn btn-ghost btn-sm" disabled={!!generando} title="Comprobante del pedido en vista previa"
-                            onClick={() => abrirPdf(clave, () => pdfComprobanteDelivery(p), setGenerando)}>
-                            {generando === clave ? 'Generando…' : '📄 Ver PDF'}
+                          {!retiro && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setComprobante(p)} title="Comprobante que adjuntó Tesorería al pagar">🧾 Comprobante de pago</button>}
+                          <button type="button" className="btn btn-ghost btn-sm" disabled={!nFotos && p.estado !== 'entregado'} onClick={() => setFotos(p)} title={nFotos ? 'Ver fotos' : p.estado === 'entregado' ? 'Sin fotos: puedes agregarlas' : 'Sin fotos todavía'}>📷 {nFotos}</button>
+                          {msg && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setWhatsapp(msg)}>💬 WhatsApp</button>}
+                          <button type="button" className="btn btn-ghost btn-sm" disabled={generando === clave} onClick={() => pdfPedido(p)}
+                            title="Reporte del pedido en PDF (vista previa)">
+                            {generando === clave ? 'Generando…' : '📄 PDF'}
                           </button>
-                          <button type="button" className="btn btn-ghost btn-sm" title="Reporte del pedido con su estado y tiempos"
-                            onClick={() => setWhatsapp({ titulo: `Reporte · ${ocDe(p)}`, texto: mensajeReporteDelivery(p) })}>
-                            💬 WhatsApp
+                          <button type="button" className="btn btn-ghost btn-sm" title="Reporte del pedido por WhatsApp"
+                            onClick={() => setWhatsapp({ titulo: `Reporte del pedido ${retiro ? p.codigo : ocDe(p)}`, texto: textoReportePedido(p, quienSync) })}>
+                            📋 Reporte
                           </button>
                           {supervisor && sePuedeCancelar(p) && (
                             <button type="button" className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => setCancelar(p)}>⛔ Cancelar</button>
@@ -353,9 +437,9 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
         )}
       </div>
 
-      {fotos && <FotosModal pedido={fotos} editable={supervisor && fotos.estado === 'entregado'} onCambio={onCambio} onClose={() => setFotos(null)} />}
+      {fotos && <FotosModal pedido={fotos} onClose={() => setFotos(null)} onCambio={onCambio} />}
       {comprobante && <ComprobanteModal pedido={comprobante} onClose={() => setComprobante(null)} />}
-      {whatsapp && <MensajeWhatsappModal titulo={whatsapp.titulo} texto={whatsapp.texto} onClose={() => setWhatsapp(null)} />}
+      {whatsapp && <WhatsappDeliveryModal titulo={whatsapp.titulo} texto={whatsapp.texto} onClose={() => setWhatsapp(null)} />}
       {cancelar && (
         <CancelarModal pedido={cancelar} onClose={() => setCancelar(null)}
           onCancelado={(texto) => { setCancelar(null); onCambio(); setWhatsapp({ titulo: 'Pedido cancelado', texto }); }} />
@@ -366,188 +450,118 @@ function TableroTab({ pedidos, deHoy, cargando, supervisor, verCerrados, setVerC
 
 /* ───────────── Fotos del pedido ───────────── */
 
-/**
- * Las fotos del pedido. 03-11-2026 (pedido de la administradora): con la orden ya
- * ENTREGADA, el supervisor puede corregir las fotos que subió el delivery (agregar o
- * quitar). La base lo permite al supervisor y al delivery que la llevó.
- */
-function FotosModal({ pedido, editable = false, onCambio, onClose }: {
-  pedido: PedidoDelivery; editable?: boolean; onCambio?: () => void; onClose: () => void;
-}) {
-  const [recibo, setRecibo] = useState<FotoDelivery[]>(pedido.fotos_recibo);
-  const [entrega, setEntrega] = useState<FotoDelivery[]>(pedido.fotos_entrega);
-  const [ocupado, setOcupado] = useState(false);
+function FotosModal({ pedido, onClose, onCambio }: { pedido: PedidoDelivery; onClose: () => void; onCambio: () => void }) {
   const [urls, setUrls] = useState<Record<string, string>>({});
-  const clave = [...recibo, ...entrega].map((f) => f.path).join('|');
+  const { can, isAdmin } = usePermissions();
+  const [editar, setEditar] = useState(false);
+  const [generandoPdf, setGenerandoPdf] = useState<'fotos' | 'reporte' | null>(null);
+  const [whatsapp, setWhatsapp] = useState<string | null>(null);
+  const titulo = esRetiroAlmacen(pedido) ? pedido.codigo : ocDe(pedido);
   useEffect(() => {
     let vivo = true;
-    const todas = [...recibo, ...entrega];
+    const todas = [...pedido.fotos_recibo, ...pedido.fotos_factura, ...pedido.fotos_entrega];
     void Promise.all(todas.map(async (f) => [f.path, await urlFotoDelivery(f.path).catch(() => '')] as const))
       .then((pares) => { if (vivo) setUrls(Object.fromEntries(pares)); });
     return () => { vivo = false; };
-    // `clave` resume las rutas de las fotos.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clave]);
+  }, [pedido]);
 
-  const setDe = (tipo: 'recibo' | 'entrega') => (tipo === 'recibo' ? setRecibo : setEntrega);
-  async function quitar(tipo: 'recibo' | 'entrega', actuales: FotoDelivery[], f: FotoDelivery) {
-    if (!pedido.pedido_id || !window.confirm(`¿Quitar la foto «${f.filename}»?`)) return;
-    setOcupado(true);
-    try {
-      setDe(tipo)(await quitarFotoDelivery(pedido.pedido_id, tipo, actuales, f.path));
-      toast('Foto quitada.', 'success');
-      onCambio?.();
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudo quitar la foto', 'error');
-    } finally { setOcupado(false); }
-  }
-  async function agregar(tipo: 'recibo' | 'entrega', actuales: FotoDelivery[], lista: FileList | null) {
-    const archivos = Array.from(lista ?? []);
-    if (!archivos.length || !pedido.pedido_id) return;
-    if (archivos.some((f) => !/^image\//.test(f.type) && !/\.(jpe?g|png|webp|gif|heic|heif|pdf)$/i.test(f.name))) {
-      toast('Solo se pueden subir fotos o documentos (imágenes o PDF).', 'error');
-      return;
+  const galeria = useMemo(() => {
+    const out: Array<PreviewImagenItem & { path: string }> = [];
+    const rotRecibo = rotuloFotos(pedido.origen, 'recibo');
+    const rotEntrega = rotuloFotos(pedido.origen, 'entrega');
+    for (const f of pedido.fotos_recibo) {
+      if (urls[f.path]) out.push({ path: f.path, url: urls[f.path], filename: f.filename, etiqueta: `${titulo} · ${rotRecibo}` });
     }
-    if (actuales.length + archivos.length > MAX_FOTOS_DELIVERY) { toast(`Se pueden adjuntar hasta ${MAX_FOTOS_DELIVERY} fotos.`, 'error'); return; }
-    setOcupado(true);
-    try {
-      setDe(tipo)(await subirFotosDelivery(pedido.pedido_id, tipo, actuales, archivos));
-      toast(archivos.length === 1 ? 'Foto agregada.' : `${archivos.length} fotos agregadas.`, 'success');
-      onCambio?.();
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'No se pudieron subir las fotos', 'error');
-    } finally { setOcupado(false); }
-  }
+    for (const f of pedido.fotos_factura) {
+      if (urls[f.path]) out.push({ path: f.path, url: urls[f.path], filename: f.filename, etiqueta: `${titulo} · ${rotuloFotos(pedido.origen, 'factura')}` });
+    }
+    for (const f of pedido.fotos_entrega) {
+      if (urls[f.path]) out.push({ path: f.path, url: urls[f.path], filename: f.filename, etiqueta: `${titulo} · ${rotEntrega}` });
+    }
+    return out;
+  }, [pedido, titulo, urls]);
 
-  const grupo = (titulo: string, tipo: 'recibo' | 'entrega', fs: FotoDelivery[]) => (
+  const abrirFoto = (path: string) => {
+    const idx = galeria.findIndex((x) => x.path === path);
+    previewGaleria(galeria, idx >= 0 ? idx : 0);
+  };
+
+  const abrirPdfFotos = () => {
+    setGenerandoPdf('fotos');
+    pdfFotosDelivery(pedido, urls)
+      .catch((e) => toast(msgError(e, 'No se pudo generar el PDF de fotos.'), 'error'))
+      .finally(() => setGenerandoPdf(null));
+  };
+
+  const abrirPdfReporte = () => {
+    setGenerandoPdf('reporte');
+    pdfPedidoDelivery(pedido, urls)
+      .catch((e) => toast(msgError(e, 'No se pudo generar el reporte en PDF.'), 'error'))
+      .finally(() => setGenerandoPdf(null));
+  };
+
+  const totalFotos = pedido.fotos_recibo.length + pedido.fotos_entrega.length + pedido.fotos_factura.length;
+
+  const grupo = (rotulo: string, fs: FotoDelivery[]) => (
     <div style={{ marginBottom: '1rem' }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem' }}>
-        <div className="card-title" style={{ fontSize: '.9rem' }}>{titulo} ({fs.length}/{MAX_FOTOS_DELIVERY})</div>
-        {editable && fs.length < MAX_FOTOS_DELIVERY && (
-          <label className="btn btn-ghost btn-sm" style={{ cursor: ocupado ? 'wait' : 'pointer' }}>
-            {ocupado ? 'Guardando…' : '+ Agregar fotos'}
-            <input type="file" accept="image/*,application/pdf" multiple hidden disabled={ocupado}
-              onChange={(e) => { void agregar(tipo, fs, e.target.files); e.target.value = ''; }} />
-          </label>
-        )}
-      </div>
+      <div className="card-title" style={{ fontSize: '.9rem' }}>{rotulo} ({fs.length})</div>
       {!fs.length ? <p className="muted" style={{ margin: 0 }}>Sin fotos.</p> : (
         <div style={{ display: 'grid', gap: '.6rem', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))' }}>
-          {fs.map((f) => {
-            const url = urls[f.path];
-            const esPdf = /\.pdf$/i.test(f.filename || f.path);
-            return (
-              <div key={f.path} style={{ position: 'relative' }}>
-                {url ? (
-                  <button
-                    type="button"
-                    onClick={() => void previewFileUrl(url, f.filename, `Foto · ${ocDe(pedido)}`)}
-                    title={`Ver en vista previa: ${f.filename}`}
-                    style={{
-                      padding: 0,
-                      border: '1px solid var(--border)',
-                      borderRadius: 8,
-                      background: 'var(--surface-2, #18202c)',
-                      cursor: 'pointer',
-                      width: '100%',
-                      display: 'block',
-                      textAlign: 'left',
-                      overflow: 'hidden',
-                      position: 'relative',
-                    }}
-                  >
-                    {esPdf ? (
-                      <div
-                        style={{
-                          height: 140,
-                          display: 'flex',
-                          flexDirection: 'column',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          gap: '.35rem',
-                          padding: '.6rem',
-                          color: 'var(--text)',
-                        }}
-                      >
-                        <span style={{ fontSize: '2.4rem' }}>📄</span>
-                        <span style={{ fontSize: '.75rem', fontWeight: 600, textAlign: 'center', wordBreak: 'break-all', lineHeight: 1.2 }}>
-                          {f.filename}
-                        </span>
-                        <small className="muted" style={{ fontSize: '.68rem' }}>Toca para ver PDF</small>
-                      </div>
-                    ) : (
-                      <div style={{ position: 'relative', overflow: 'hidden' }}>
-                        <img
-                          src={url}
-                          alt={f.filename}
-                          style={{
-                            width: '100%',
-                            height: 140,
-                            objectFit: 'cover',
-                            display: 'block',
-                            transition: 'transform 0.18s ease',
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.04)'; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
-                        />
-                        <div
-                          style={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            background: 'linear-gradient(transparent, rgba(0,0,0,0.75))',
-                            padding: '4px 6px',
-                            color: '#fff',
-                            fontSize: '.72rem',
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '.3rem',
-                          }}
-                        >
-                          <span>👁</span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Vista previa</span>
-                        </div>
-                      </div>
-                    )}
-                  </button>
-                ) : (
-                  <div className="muted" style={{ height: 140, display: 'grid', placeItems: 'center', border: '1px dashed var(--border)', borderRadius: 8, fontSize: '.8rem' }}>
-                    {f.path in urls ? 'No se pudo abrir' : 'Cargando…'}
-                  </div>
-                )}
-                {editable && (
-                  <button type="button" className="btn btn-sm" disabled={ocupado} onClick={() => { void quitar(tipo, fs, f); }}
-                    style={{ position: 'absolute', top: 6, right: 6, background: 'var(--danger)', color: '#fff', zIndex: 2 }} aria-label={`Quitar ${f.filename}`}>
-                    ✕ Quitar
-                  </button>
-                )}
+          {fs.map((f) => (
+            urls[f.path] ? (
+              <button key={f.path} type="button" onClick={() => abrirFoto(f.path)} title={`Vista previa · ${f.filename}`}
+                style={{ padding: 0, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'transparent', cursor: 'zoom-in', width: '100%', display: 'block' }}>
+                <img src={urls[f.path]} alt={f.filename} style={{ width: '100%', height: 140, objectFit: 'cover', display: 'block' }} />
+              </button>
+            ) : (
+              <div key={f.path} className="muted" style={{ height: 140, display: 'grid', placeItems: 'center', border: '1px dashed var(--border)', borderRadius: 8, fontSize: '.8rem' }}>
+                {f.path in urls ? 'No se pudo abrir' : 'Cargando…'}
               </div>
-            );
-          })}
+            )
+          ))}
         </div>
       )}
     </div>
   );
 
   return (
-    <Modal title={`📷 Fotos · ${ocDe(pedido)}`} size="lg" onClose={onClose}
-      footer={
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%' }}>
-          <button
-            type="button"
-            className="btn btn-ghost"
-            onClick={() => void pdfComprobanteDelivery(pedido)}
-            title="Ver comprobante de delivery con sus datos en PDF"
-          >
-            📄 Ver Comprobante (PDF)
-          </button>
-          <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
-        </div>
-      }>
-      {editable && <p className="hint muted" style={{ marginTop: 0 }}>Orden entregada: puedes agregar o quitar las fotos que subió el delivery.</p>}
-      {grupo('🧾 Factura (la ve Compras)', 'recibo', recibo)}
-      {grupo('📷 Foto del producto', 'entrega', entrega)}
+    <Modal title={`📷 Fotos · ${titulo}`} size="lg" onClose={onClose}
+      footer={<>
+        {totalFotos > 0 && (
+          <>
+            <button type="button" className="btn btn-ghost" disabled={!galeria.length} onClick={() => previewGaleria(galeria, 0)}
+              title="Abrir las fotos en la vista previa del sistema (zoom, rotación, imprimir y descargar)">
+              🖼 Vista previa
+            </button>
+            <button type="button" className="btn btn-ghost" disabled={generandoPdf !== null} onClick={abrirPdfFotos}
+              title="Ver las fotos con formato PDF en vista previa">
+              {generandoPdf === 'fotos' ? 'Generando…' : '📄 PDF (vista previa)'}
+            </button>
+            <button type="button" className="btn btn-ghost" disabled={generandoPdf !== null} onClick={abrirPdfReporte}
+              title="Reporte completo del pedido con fotos en PDF (vista previa)">
+              {generandoPdf === 'reporte' ? 'Generando…' : '📋 Reporte PDF'}
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={() => setWhatsapp(textoReportePedido(pedido, quienSync))}
+              title="Reporte del pedido en formato WhatsApp">
+              💬 WhatsApp
+            </button>
+          </>
+        )}
+        {/* 03/11/2026: pedido entregado → se pueden corregir las fotos (agregar / quitar). */}
+        {puedeEditarFotosDelivery(pedido, isAdmin, can('delivery', 'escritura') || can('carga_pesada', 'escritura')) && (
+          <button type="button" className="btn btn-ghost" onClick={() => setEditar(true)}>✏ Editar fotos</button>
+        )}
+        <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
+      </>}>
+      {editar && pedido.pedido_id && (
+        <EditarFotosDeliveryModal pedidoId={pedido.pedido_id} origen={pedido.origen} titulo={titulo}
+          fotosRecibo={pedido.fotos_recibo} fotosEntrega={pedido.fotos_entrega} fotosFactura={pedido.fotos_factura}
+          onClose={() => setEditar(false)} onGuardado={() => { onCambio(); onClose(); }} />
+      )}
+      {whatsapp && <WhatsappDeliveryModal titulo={`Reporte del pedido ${titulo}`} texto={whatsapp} onClose={() => setWhatsapp(null)} />}
+      {grupo(rotuloFotos(pedido.origen, 'recibo'), pedido.fotos_recibo)}
+      {pedido.origen !== 'almacen' && grupo(rotuloFotos(pedido.origen, 'factura'), pedido.fotos_factura)}
+      {grupo(rotuloFotos(pedido.origen, 'entrega'), pedido.fotos_entrega)}
       {pedido.nota_entrega && <p><strong>Nota de entrega:</strong> {pedido.nota_entrega}</p>}
     </Modal>
   );
@@ -556,52 +570,10 @@ function FotosModal({ pedido, editable = false, onCambio, onClose }: {
 /* ───────────── Comprobante de pago (se lee al abrir) ───────────── */
 
 function ComprobanteModal({ pedido, onClose }: { pedido: PedidoDelivery; onClose: () => void }) {
-  const [estado, setEstado] = useState<{ cargando: boolean; dato: ComprobantePagoDelivery | null; error: string | null }>(
-    { cargando: true, dato: null, error: null },
-  );
-  useEffect(() => {
-    let vivo = true;
-    comprobantePagoDelivery(pedido.orden_id)
-      .then((dato) => { if (vivo) setEstado({ cargando: false, dato, error: null }); })
-      .catch((e) => { if (vivo) setEstado({ cargando: false, dato: null, error: msgError(e, 'No se pudo leer el comprobante.') }); });
-    return () => { vivo = false; };
-  }, [pedido.orden_id]);
-  const { cargando, dato, error } = estado;
-
   return (
-    <Modal title={`🧾 Comprobante de pago · ${ocDe(pedido)}`} size={dato && !dato.esPdf ? 'lg' : 'sm'} onClose={onClose}
+    <Modal title={`🧾 Comprobante de pago · ${ocDe(pedido)}`} size="lg" onClose={onClose} minimizable={false}
       footer={<button className="btn btn-primary" onClick={onClose}>Cerrar</button>}>
-      {cargando && <p className="muted">Buscando el comprobante…</p>}
-      {error && <div className="aviso danger"><span className="aviso-icono">⚠</span><div>{error}</div></div>}
-      {!cargando && !error && !dato && (
-        <div className="aviso warning"><span className="aviso-icono">ℹ</span><div>Tesorería no adjuntó comprobante.</div></div>
-      )}
-      {dato && (
-        <>
-          <p style={{ margin: '0 0 .6rem' }}>
-            {dato.pagadaEn && <>💰 Pagada el <strong>{fechaHoraVE(dato.pagadaEn)}</strong>. </>}
-            {dato.pagos.length > 0 && <>Pagos: {dato.pagos.map((x) => montoTxt(x.monto, x.moneda)).join(' + ')}.</>}
-          </p>
-          {dato.esPdf ? (
-            <button
-              type="button"
-              className="btn btn-primary"
-              onClick={() => void previewFileUrl(dato.url, dato.nombre, `Comprobante de pago · ${ocDe(pedido)}`)}
-            >
-              📄 Abrir PDF · {dato.nombre}
-            </button>
-          ) : (
-            <button
-              type="button"
-              style={{ padding: 0, border: 'none', background: 'transparent', cursor: 'pointer', display: 'block', margin: '0 auto' }}
-              onClick={() => void previewFileUrl(dato.url, dato.nombre, `Comprobante de pago · ${ocDe(pedido)}`)}
-              title="Abrir en vista previa"
-            >
-              <img src={dato.url} alt={dato.nombre} style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', display: 'block', margin: '0 auto', borderRadius: 8 }} />
-            </button>
-          )}
-        </>
-      )}
+      <ComprobantePagoCuerpo pedido={pedido} />
     </Modal>
   );
 }
@@ -622,7 +594,7 @@ function CancelarModal({ pedido, onClose, onCancelado }: {
     setGuardando(true);
     try {
       await cancelarPedido(pedido.pedido_id, motivo, detalle.trim() || null);
-      toast(`${ocDe(pedido)} cancelada: queda libre para otro delivery.`, 'success');
+      toast(`${esRetiroAlmacen(pedido) ? `Retiro ${pedido.codigo}` : ocDe(pedido)} cancelado: queda libre para otro delivery.`, 'success');
       onCancelado(mensajeCancelado(pedido, pedido.repartidor_nombre || 'Delivery', motivo, detalle, new Date().toISOString()));
     } catch (e) {
       toast(msgError(e, 'No se pudo cancelar el pedido.'), 'error');
@@ -630,7 +602,7 @@ function CancelarModal({ pedido, onClose, onCancelado }: {
   }
 
   return (
-    <Modal title={`⛔ Cancelar · ${ocDe(pedido)}`} size="sm" onClose={onClose}
+    <Modal title={`⛔ Cancelar · ${esRetiroAlmacen(pedido) ? pedido.codigo : ocDe(pedido)}`} compact onClose={onClose}
       footer={(
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Volver</button>
@@ -638,8 +610,8 @@ function CancelarModal({ pedido, onClose, onCancelado }: {
         </>
       )}>
       <p style={{ marginTop: 0 }}>
-        Lo tiene <strong>{pedido.repartidor_nombre ?? '—'}</strong> ({ESTADO_DELIVERY[pedido.estado].label.toLowerCase()}).
-        Al cancelarlo, la orden queda disponible para otro delivery.
+        Lo tiene <strong>{pedido.repartidor_nombre ?? '—'}</strong> ({etiquetaEstado(pedido.estado, pedido.origen).toLowerCase()}).
+        Al cancelarlo, {esRetiroAlmacen(pedido) ? `el retiro en ${ALMACEN_RETIRO}` : 'la orden'} queda disponible para otro delivery.
       </p>
       <div className="form-row">
         <label htmlFor="dlv-motivo">Motivo</label>
@@ -689,40 +661,54 @@ function BarraRango({ hoy, desde, hasta, setDesde, setHasta, cargando }: {
 
 function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[]; desde: string; hasta: string }) {
   const [repartidor, setRepartidor] = useState('');
+  const [estado, setEstado] = useState<FiltroEstadoDelivery>('');
+  const [origen, setOrigen] = useState<FiltroOrigenDelivery>('');
   const repartidores = useMemo(() => repartidoresDe(filas), [filas]);
-  const visibles = useMemo(() => filtrarPorRepartidor(filas, repartidor), [filas, repartidor]);
-  const [generando, setGenerando] = useState<string | null>(null);
+  const visibles = useMemo(() => filtrarHistorial(filas, { estado, repartidor, origen }), [filas, estado, repartidor, origen]);
+  const [generando, setGenerando] = useState(false);
   const [whatsapp, setWhatsapp] = useState<string | null>(null);
 
   function pdf() {
-    abrirPdf('historico', () => pdfHistorialDelivery({ desde, hasta, repartidor: repartidor || null, filas: visibles }), setGenerando);
+    setGenerando(true);
+    pdfHistorialDelivery({ desde, hasta, repartidor: repartidor || null, estado: estado || null, origen: origen || null, filas: visibles })
+      .catch((e) => toast(msgError(e, 'No se pudo generar el PDF.'), 'error'))
+      .finally(() => setGenerando(false));
   }
 
   return (
     <div className="card">
       <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
         <span>📜 Histórico ({visibles.length})</span>
+        <select className="select" style={{ width: 'auto', minWidth: 180 }} value={origen}
+          onChange={(e) => setOrigen(e.target.value as FiltroOrigenDelivery)} aria-label="Filtrar por origen">
+          {ORIGENES_FILTRO.map((x) => <option key={x.valor} value={x.valor}>{x.label}</option>)}
+        </select>
+        <select className="select" style={{ width: 'auto', minWidth: 180 }} value={estado}
+          onChange={(e) => setEstado(e.target.value as FiltroEstadoDelivery)} aria-label="Filtrar por estado">
+          {ESTADOS_FILTRO.map((x) => <option key={x.valor} value={x.valor}>{x.label}</option>)}
+        </select>
         <select className="select" style={{ width: 'auto', minWidth: 200 }} value={repartidor} onChange={(e) => setRepartidor(e.target.value)} aria-label="Filtrar por delivery">
           <option value="">Todos los delivery</option>
           {repartidores.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
-        <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} disabled={!!generando || !visibles.length} onClick={pdf}
-          title="Histórico del rango (y del delivery elegido) en vista previa">
-          {generando ? 'Generando…' : '📄 Ver PDF'}
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" disabled={!visibles.length}
-          onClick={() => setWhatsapp(mensajeHistorialDelivery({ desde, hasta, repartidor: repartidor || null, filas: visibles }))}>
-          💬 WhatsApp
-        </button>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-ghost btn-sm" disabled={generando} onClick={pdf}>
+            {generando ? 'Generando…' : '📄 PDF (vista previa)'}
+          </button>
+          <button type="button" className="btn btn-ghost btn-sm"
+            onClick={() => setWhatsapp(textoReporteGeneral({ desde, hasta, estado: estado || null, repartidor: repartidor || null, origen: origen || null, filas: visibles }))}>
+            💬 WhatsApp
+          </button>
+        </span>
       </div>
-      {whatsapp && <MensajeWhatsappModal titulo="Histórico de Delivery" texto={whatsapp} onClose={() => setWhatsapp(null)} />}
-      {!visibles.length ? <p className="muted" style={{ margin: '.4rem 0' }}>No hay pedidos tomados en ese rango.</p> : (
+      {!visibles.length ? <p className="muted" style={{ margin: '.4rem 0' }}>No hay pedidos tomados con esos filtros.</p> : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.85rem' }}>
             <thead>
               <tr>
-                <th>Tomado</th><th>OC</th><th>Proveedor</th><th>Delivery</th><th>Estado</th><th>En ruta</th>
-                <th>Entregado / Cancelado</th><th style={{ textAlign: 'right' }}>Tiempo</th><th>Almacén / Motivo</th><th style={{ textAlign: 'right' }}>Monto</th>
+                <th>Tomado</th><th>Origen</th><th>OC / SP</th><th>Proveedor</th><th>Delivery</th><th>Estado</th><th>En camino</th>
+                <th>Entregado / Cancelado</th><th style={{ textAlign: 'right' }}>Tiempo</th><th>Almacén / Entregado a / Motivo</th>
+                <th style={{ textAlign: 'right' }}>Fotos</th><th style={{ textAlign: 'right' }}>Monto</th>
               </tr>
             </thead>
             <tbody>
@@ -731,15 +717,20 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
                 return (
                   <tr key={f.id}>
                     <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.fecha)}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>{ORIGEN_DELIVERY[f.origen].emoji} {ORIGEN_DELIVERY[f.origen].corto}</td>
                     <td><strong>{f.oc}</strong></td>
                     <td>{f.proveedor}</td>
                     <td>{f.repartidor}</td>
-                    <td><span className={`badge ${est?.badge ?? ''}`}>{est?.emoji} {est?.label ?? f.estado}</span></td>
+                    <td><span className={`badge ${est?.badge ?? ''}`}>{cerradoPorRecepcion(f) ? '📥' : est?.emoji} {etiquetaEstado(f.estado, f.origen, f.motivo_cancel)}</span></td>
                     <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.en_ruta_en) || '—'}</td>
                     <td style={{ whiteSpace: 'nowrap' }}>{fechaHoraVE(f.estado === 'cancelado' ? f.cancelado_en : f.entregado_en) || '—'}</td>
                     <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{duracionTxt(f.minutos)}</td>
-                    <td>{(f.estado === 'cancelado' ? textoCancelacion(f) : f.almacen_entrega) || '—'}</td>
-                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{montoTxt(f.total, f.moneda)}</td>
+                    <td>
+                      {(f.estado === 'cancelado' ? f.motivo_cancel : f.almacen_entrega) || '—'}
+                      {f.estado !== 'cancelado' && f.nota_entrega && <div className="muted" style={{ fontSize: '.75rem' }}>📝 {f.nota_entrega}</div>}
+                    </td>
+                    <td style={{ textAlign: 'right' }}>{f.fotos}</td>
+                    <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>{f.origen === 'almacen' ? '—' : montoTxt(f.total, f.moneda)}</td>
                   </tr>
                 );
               })}
@@ -747,44 +738,33 @@ function HistoricoTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[];
           </table>
         </div>
       )}
+      {whatsapp && <WhatsappDeliveryModal titulo="Reporte de Delivery" texto={whatsapp} onClose={() => setWhatsapp(null)} />}
     </div>
   );
 }
 
 /* ───────────── Por delivery ───────────── */
 
-function PorDeliveryTab({ filas, desde, hasta, destinos }: {
-  filas: FilaHistorialDelivery[]; desde: string; hasta: string; destinos: DestinosDelivery;
-}) {
+function PorDeliveryTab({ filas, desde, hasta }: { filas: FilaHistorialDelivery[]; desde: string; hasta: string }) {
   const resumen = useMemo(() => resumenHistorial(filas), [filas]);
-  // 03-11-2026: al tocar un delivery se abre su detalle (pedidos, tiempos y la ruta en el mapa).
-  const [detalle, setDetalle] = useState<string | null>(null);
   const t = totalesResumen(resumen);
-  const [generando, setGenerando] = useState<string | null>(null);
-  const [whatsapp, setWhatsapp] = useState<string | null>(null);
+  const [generando, setGenerando] = useState(false);
 
   function pdf() {
-    abrirPdf('por_delivery', () => pdfPorDelivery({ desde, hasta, resumen }), setGenerando);
+    setGenerando(true);
+    pdfPorDelivery({ desde, hasta, resumen })
+      .catch((e) => toast(msgError(e, 'No se pudo generar el PDF.'), 'error'))
+      .finally(() => setGenerando(false));
   }
 
   return (
     <div className="card">
       <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: '.6rem', flexWrap: 'wrap' }}>
         <span>🛵 Pedidos por delivery</span>
-        <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} disabled={!!generando || !resumen.length} onClick={pdf}
-          title="Resumen por delivery del rango en vista previa">
-          {generando ? 'Generando…' : '📄 Ver PDF'}
-        </button>
-        <button type="button" className="btn btn-ghost btn-sm" disabled={!resumen.length}
-          onClick={() => setWhatsapp(mensajePorDelivery({ desde, hasta, resumen }))}>
-          💬 WhatsApp
+        <button type="button" className="btn btn-ghost btn-sm" style={{ marginLeft: 'auto' }} disabled={generando || !resumen.length} onClick={pdf}>
+          📄 PDF (vista previa)
         </button>
       </div>
-      {whatsapp && <MensajeWhatsappModal titulo="Pedidos por delivery" texto={whatsapp} onClose={() => setWhatsapp(null)} />}
-      {detalle && (
-        <DetalleDeliveryModal repartidor={detalle} filas={filtrarPorRepartidor(filas, detalle)}
-          desde={desde} hasta={hasta} destinos={destinos} onClose={() => setDetalle(null)} />
-      )}
       {!resumen.length ? <p className="muted" style={{ margin: '.4rem 0' }}>Ningún delivery tomó pedidos en ese rango.</p> : (
         <div className="table-wrap">
           <table className="table" style={{ fontSize: '.88rem' }}>
@@ -796,9 +776,8 @@ function PorDeliveryTab({ filas, desde, hasta, destinos }: {
             </thead>
             <tbody>
               {resumen.map((r) => (
-                <tr key={r.repartidor} onClick={() => setDetalle(r.repartidor)} style={{ cursor: 'pointer' }}
-                  title="Ver sus pedidos, tiempos y la ruta en el mapa">
-                  <td><strong>{r.repartidor}</strong> <span className="muted" style={{ fontSize: '.78rem' }}>· ver detalle y ruta</span></td>
+                <tr key={r.repartidor}>
+                  <td><strong>{r.repartidor}</strong></td>
                   <td style={{ textAlign: 'right' }}>{r.entregados}</td>
                   <td style={{ textAlign: 'right' }}>{r.cancelados}</td>
                   <td style={{ textAlign: 'right' }}>{r.enCurso}</td>
@@ -827,7 +806,7 @@ function PorDeliveryTab({ filas, desde, hasta, destinos }: {
   );
 }
 
-/* ───────────── Repartidores conectados (10-11-2026) ───────────── */
+/* ───────────── Repartidores conectados (10/11/2026 · como MGG) ───────────── */
 
 /** Hace cuánto llegó la última ubicación, en palabras cortas. */
 function haceTxt(iso: string | null | undefined): string {
@@ -839,16 +818,28 @@ function haceTxt(iso: string | null | undefined): string {
   return h < 24 ? `hace ${h} h` : fechaHoraVE(iso);
 }
 
-/**
- * Cada delivery de la flota: si su GPS está al día, qué pedido lleva y cómo le fue hoy.
- * Sale de las ubicaciones que comparte el teléfono y de los pedidos (nada se inventa).
- */
-function RepartidoresTab({ flota, pedidos, deHoy }: { flota: Flota; pedidos: PedidoDelivery[]; deHoy: FilaHistorialDelivery[] }) {
+/** Cada delivery de la flota: si su GPS está al día, qué lleva y cómo le fue hoy (de las ubicaciones y los pedidos). */
+function RepartidoresTab({
+  canal,
+  pedidos,
+  deHoy,
+  onVerEnMapa,
+}: {
+  canal: CanalDelivery;
+  pedidos: PedidoDelivery[];
+  deHoy: FilaHistorialDelivery[];
+  onVerEnMapa?: (repartidorId: string) => void;
+}) {
+  const quien = useQuien();
   const [ubic, setUbic] = useState<UbicacionDelivery[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [editandoAlias, setEditandoAlias] = useState<{ id: string; nombre: string; aliasActual: string } | null>(null);
+  const [nuevoAlias, setNuevoAlias] = useState('');
+  const [recargaLocal, setRecargaLocal] = useState(0);
+
   const cargar = useCallback(async () => {
-    try { setUbic(await listUbicaciones(flota)); } catch { /* sin ubicaciones: solo pedidos */ } finally { setCargando(false); }
-  }, [flota]);
+    try { setUbic(await listUbicaciones(canal)); } catch { /* sin ubicaciones: solo pedidos */ } finally { setCargando(false); }
+  }, [canal]);
   useEffect(() => { void cargar(); }, [cargar]);
   useRealtime(['delivery_ubicaciones'], () => { void cargar(); });
   // Refresca el «hace X min» aunque no lleguen ubicaciones nuevas.
@@ -856,54 +847,176 @@ function RepartidoresTab({ flota, pedidos, deHoy }: { flota: Flota; pedidos: Ped
   useEffect(() => { const t = window.setInterval(() => setTic((n) => n + 1), 30000); return () => window.clearInterval(t); }, []);
 
   const filas = useMemo(() => {
-    const norm = (s: string | null | undefined) => (s ?? '').trim().toUpperCase();
-    const mapa = new Map<string, { nombre: string; u: UbicacionDelivery | null; enCurso: PedidoDelivery[]; entregados: number; minutos: number[] }>();
-    const fila = (nombre: string) => {
-      const k = norm(nombre) || '—';
-      if (!mapa.has(k)) mapa.set(k, { nombre: nombre || '—', u: null, enCurso: [], entregados: 0, minutos: [] });
+    const norm = (x: string | null | undefined) => (x ?? '').trim().toUpperCase();
+    const mapa = new Map<string, { id: string; nombre: string; u: UbicacionDelivery | null; enCurso: PedidoDelivery[]; entregados: number; minutos: number[] }>();
+    const fila = (id: string, nombre: string) => {
+      const k = norm(nombre) || id || '—';
+      if (!mapa.has(k)) mapa.set(k, { id, nombre: nombre || '—', u: null, enCurso: [], entregados: 0, minutos: [] });
       return mapa.get(k)!;
     };
-    for (const u of ubic) { const f = fila(u.repartidor_nombre ?? u.repartidor_email ?? '—'); if (!f.u || f.u.actualizado_en < u.actualizado_en) f.u = u; }
-    for (const p of pedidos) if ((p.estado === 'aceptado' || p.estado === 'en_ruta') && p.repartidor_nombre) fila(p.repartidor_nombre).enCurso.push(p);
+    for (const u of ubic) {
+      const f = fila(u.repartidor_id, u.repartidor_nombre || quien(null, u.repartidor_email) || u.repartidor_email || '—');
+      if (!f.u || f.u.actualizado_en < u.actualizado_en) f.u = u;
+    }
+    for (const p of pedidos) {
+      if ((p.estado === 'aceptado' || p.estado === 'en_ruta') && p.repartidor_nombre) {
+        fila(p.repartidor_id || p.repartidor_nombre, p.repartidor_nombre).enCurso.push(p);
+      }
+    }
     for (const h of deHoy) {
       if (h.estado !== 'entregado' || !h.repartidor || h.repartidor === '—') continue;
-      const f = fila(h.repartidor); f.entregados++; if (h.minutos != null) f.minutos.push(h.minutos);
+      const f = fila(h.repartidor, h.repartidor);
+      f.entregados++;
+      if (h.minutos != null) f.minutos.push(h.minutos);
     }
     return [...mapa.values()].sort((a, b) => b.enCurso.length - a.enCurso.length || String(b.u?.actualizado_en ?? '').localeCompare(String(a.u?.actualizado_en ?? '')));
-  }, [ubic, pedidos, deHoy]);
+  }, [ubic, pedidos, deHoy, quien, recargaLocal]);
 
   if (cargando && !filas.length) return <p className="muted">Cargando…</p>;
   if (!filas.length) return <div className="card"><p className="muted" style={{ margin: 0 }}>Todavía no hay repartidores con ubicación ni pedidos hoy.</p></div>;
+
   return (
-    <div className="dlv-repartidores">
-      {filas.map((r) => {
-        const conSenal = !!r.u && Date.now() - new Date(r.u.actualizado_en).getTime() <= UBICACION_VIEJA_MS;
-        const prom = r.minutos.length ? Math.round(r.minutos.reduce((a, b) => a + b, 0) / r.minutos.length) : null;
-        const vel = r.u?.velocidad != null && r.u.velocidad > 0 ? Math.round(r.u.velocidad * 3.6) : null;
-        return (
-          <div key={r.nombre} className="dlv-repartidor">
-            <div className="fila">
-              <div className={`dlv-avatar${conSenal ? '' : ' sin-senal'}`} aria-hidden>{flota === 'carga_pesada' ? '🚚' : '🛵'}</div>
-              <div style={{ minWidth: 0 }}>
-                <div className="nombre">{r.nombre}</div>
-                <span className={`dlv-gps-pill${conSenal ? ' on' : ''}`}>{conSenal ? '● GPS al día' : r.u ? '○ Sin señal reciente' : '○ Sin GPS compartido'}</span>
+    <>
+      <div className="dlv-repartidores">
+        {filas.map((r, idx) => {
+          const dif = obtenerDiferenciador(r.id || r.u?.repartidor_id || r.nombre, r.nombre, canal, idx);
+          const conSenal = !!r.u && Date.now() - new Date(r.u.actualizado_en).getTime() <= UBICACION_VIEJA_MS;
+          const prom = r.minutos.length ? Math.round(r.minutos.reduce((a, b) => a + b, 0) / r.minutos.length) : null;
+          const vel = r.u?.velocidad != null && r.u.velocidad > 0 ? Math.round(r.u.velocidad * 3.6) : null;
+
+          return (
+            <div key={r.nombre} className="dlv-repartidor">
+              <div className="fila">
+                <div
+                  className={`dlv-avatar${conSenal ? '' : ' sin-senal'}`}
+                  style={{ background: dif.color }}
+                  aria-hidden
+                  title={`Unidad ${dif.codigo}`}
+                >
+                  <span style={{ fontSize: '0.74rem', fontWeight: 800, color: '#fff' }}>{dif.codigo}</span>
+                </div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="nombre" style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontWeight: 800 }}>{dif.nombreVisible}</span>
+                    {dif.alias && <span className="muted" style={{ fontSize: '.75rem' }}>({r.nombre})</span>}
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 3 }}>
+                    <span className={`dlv-gps-pill${conSenal ? ' on' : ''}`}>
+                      {conSenal ? '● GPS al día' : r.u ? '○ Sin señal reciente' : '○ Sin GPS compartido'}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn btn-ghost btn-sm"
+                      style={{ padding: '0 6px', fontSize: '.72rem', height: 22 }}
+                      onClick={() => {
+                        setEditandoAlias({ id: r.id || r.u?.repartidor_id || r.nombre, nombre: r.nombre, aliasActual: dif.alias || '' });
+                        setNuevoAlias(dif.alias || '');
+                      }}
+                      title="Asignar o editar identificador / unidad"
+                    >
+                      ✏ Alias / Unidad
+                    </button>
+                  </div>
+                </div>
               </div>
+
+              <div className="dato">
+                📡 Última ubicación: <strong>{haceTxt(r.u?.actualizado_en)}</strong>
+                {vel != null ? <> · <strong>{vel} km/h</strong></> : null}
+              </div>
+
+              <div className="dato">
+                {r.enCurso.length ? (
+                  <>
+                    🚚 Lleva:{' '}
+                    {r.enCurso.map((p) => (
+                      <strong key={claveDelivery(p)} style={{ marginRight: '.35rem' }}>
+                        {esRetiroAlmacen(p) ? p.codigo : ocDe(p)} ({etiquetaEstado(p.estado, p.origen, p.motivo_cancel)})
+                      </strong>
+                    ))}
+                  </>
+                ) : (
+                  <>✅ Libre</>
+                )}
+              </div>
+
+              <div className="dato">
+                📦 Entregados hoy: <strong>{r.entregados}</strong>
+                {prom != null ? <> · ⏱ promedio <strong>{minutosTxt(prom)}</strong></> : null}
+              </div>
+
+              {onVerEnMapa && r.u && (
+                <div style={{ marginTop: 'auto', paddingTop: 6, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-sm"
+                    onClick={() => onVerEnMapa(r.u!.repartidor_id)}
+                  >
+                    🎯 Ver en Centro de Control
+                  </button>
+                </div>
+              )}
             </div>
-            <div className="dato">📡 Última ubicación: <strong>{haceTxt(r.u?.actualizado_en)}</strong>{vel != null ? <> · <strong>{vel} km/h</strong></> : null}</div>
-            <div className="dato">
-              {r.enCurso.length
-                ? <>🚚 Lleva: {r.enCurso.map((p) => <strong key={claveDe(p)} style={{ marginRight: '.35rem' }}>{ocDe(p)} ({ESTADO_DELIVERY[p.estado]?.label ?? p.estado})</strong>)}</>
-                : <>✅ Libre</>}
-            </div>
-            <div className="dato">📦 Entregados hoy: <strong>{r.entregados}</strong>{prom != null ? <> · ⏱ promedio <strong>{duracionTxt(prom)}</strong></> : null}</div>
+          );
+        })}
+      </div>
+
+      {editandoAlias && (
+        <Modal
+          title={`✏ Asignar Identificador / Unidad a ${editandoAlias.nombre}`}
+          compact
+          onClose={() => setEditandoAlias(null)}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setEditandoAlias(null)}>Cancelar</button>
+              {editandoAlias.aliasActual && (
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => {
+                    guardarAliasRepartidor(editandoAlias.id, null);
+                    setEditandoAlias(null);
+                    setRecargaLocal((n) => n + 1);
+                    toast('Identificador restaurado al valor por defecto.', 'info');
+                  }}
+                >
+                  Restaurar por defecto
+                </button>
+              )}
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  guardarAliasRepartidor(editandoAlias.id, nuevoAlias.trim() || null);
+                  setEditandoAlias(null);
+                  setRecargaLocal((n) => n + 1);
+                  toast('Identificador de la unidad guardado.', 'success');
+                }}
+              >
+                Guardar
+              </button>
+            </>
+          }
+        >
+          <p style={{ marginTop: 0, fontSize: '.88rem' }}>
+            Asigna un identificador reconocible o número de unidad (ej. <strong>Unidad 1</strong>, <strong>Móvil 02</strong>, <strong>Héctor (01)</strong> o placa) para diferenciarlo inmediatamente en el mapa y la lista aunque el nombre esté incompleto o solapado.
+          </p>
+          <div className="form-row">
+            <label htmlFor="dlv-alias-inp">Identificador / Alias de Unidad</label>
+            <input
+              id="dlv-alias-inp"
+              className="input"
+              placeholder="ej. Unidad 1, Móvil 02..."
+              value={nuevoAlias}
+              onChange={(e) => setNuevoAlias(e.target.value)}
+              autoFocus
+            />
           </div>
-        );
-      })}
-    </div>
+        </Modal>
+      )}
+    </>
   );
 }
 
-/* ───────────── Trazabilidad y horarios (10-11-2026) ───────────── */
+/* ───────────── Trazabilidad y horarios (10/11/2026 · como MGG) ───────────── */
 
 /** Cada pedido del rango con sus horas: tomado → en ruta → entregado (o cancelado) y cuánto tardó. */
 function TrazabilidadTab({ filas, cargando }: { filas: FilaHistorialDelivery[]; cargando: boolean }) {
@@ -926,10 +1039,10 @@ function TrazabilidadTab({ filas, cargando }: { filas: FilaHistorialDelivery[]; 
             </div>
             <div className="dlv-linea">
               <span className="paso">🛵 Tomado {fechaHoraVE(f.fecha)}</span>
-              {f.en_ruta_en && <><span className="flecha">→ {duracionTxt(enRuta)} →</span><span className="paso">🚚 En ruta {fechaHoraVE(f.en_ruta_en)}</span></>}
-              {f.entregado_en && <><span className="flecha">→</span><span className="paso fin">📦 Entregado {fechaHoraVE(f.entregado_en)}{f.almacen_entrega ? ` · ${nombreAlmacenVisible(f.almacen_entrega)}` : ''}</span></>}
-              {f.cancelado_en && <><span className="flecha">→</span><span className="paso cancel">⛔ Cancelado {fechaHoraVE(f.cancelado_en)}{textoCancelacion(f) ? ` · ${textoCancelacion(f)}` : ''}</span></>}
-              {f.minutos != null && <span className="muted" style={{ marginLeft: 'auto' }}>⏱ Total: <strong>{duracionTxt(f.minutos)}</strong></span>}
+              {f.en_ruta_en && enRuta != null && enRuta > 0 && <><span className="flecha">→ {minutosTxt(enRuta)} →</span><span className="paso">🚚 En ruta {fechaHoraVE(f.en_ruta_en)}</span></>}
+              {f.entregado_en && <><span className="flecha">→</span><span className="paso fin">📦 Entregado {fechaHoraVE(f.entregado_en)}{f.almacen_entrega ? ` · ${f.almacen_entrega}` : ''}</span></>}
+              {f.cancelado_en && <><span className="flecha">→</span><span className="paso cancel">⛔ Cancelado {fechaHoraVE(f.cancelado_en)}{f.motivo_cancel ? ` · ${f.motivo_cancel}` : ''}</span></>}
+              {f.minutos != null && <span className="muted" style={{ marginLeft: 'auto' }}>⏱ Total: <strong>{minutosTxt(f.minutos)}</strong></span>}
             </div>
           </li>
         );
