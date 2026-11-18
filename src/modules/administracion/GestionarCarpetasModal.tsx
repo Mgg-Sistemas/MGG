@@ -48,7 +48,7 @@ export function GestionarCarpetasModal({
   const [centroAcopioId, setCentroAcopioId] = useState<string>('');
   const [responsable, setResponsable] = useState<string>('');
 
-  const centros = centrosProp ?? [];
+  const centros = useMemo(() => centrosProp ?? [], [centrosProp]);
   const mapaCentros = useMemo(() => new Map(centros.map((c) => [c.id, c.nombre])), [centros]);
   const opcionesResponsables = useMemo(() => obtenerListaResponsables(centros, [], [], lista), [centros, lista]);
 
