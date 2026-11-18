@@ -63,7 +63,7 @@ function esErrorDeChunk(err: unknown): boolean {
  * los chunks frescos. Si ya recargamos hace poco (error real), propaga el error
  * para que lo muestre el ChunkErrorBoundary.
  */
-export function lazyReload<T extends ComponentType<unknown>>(
+export function lazyReload<T extends ComponentType<any>>(
   factory: () => Promise<{ default: T }>,
 ): LazyExoticComponent<T> {
   return lazy(async () => {

@@ -69,7 +69,6 @@ export function AppShell() {
   // en «Operación» no se repite (vería «Surtidor» arriba y «Combustible» abajo para lo mismo).
   const tienePantalla = (key: 'surtidor' | 'comidas') => !isAdmin && vistasTelefono.some((v) => v.key === key);
   const navigate = useNavigate();
-  const location = useLocation();
   const showOperacion = !soloTelefono && (can('dashboard') || can('pedidos') || can('solicitud_pedido') || can('proveedores') || can('inventario') || can('produccion') || can('refinacion') || can('salidas') || can('cocina') || can('combustible') || can('maquinaria') || can('choferes') || can('acopio') || can('ventas') || can('tesoreria') || can('administracion') || can('retenciones') || can('conciliacion') || can('delivery') || can('carga_pesada'));
   // El "Menú del Sistema" (manual HTML) está disponible para todos, así que la
   // sección Sistema siempre se muestra.

@@ -17,7 +17,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import {
-  ALMACEN_RETIRO, PUERTO_ORDAZ, UBICACION_VIEJA_MS, esRetiroAlmacen, esRetornoPendiente, fechaHoraVE, montoTxt, ocDe,
+  ALMACEN_RETIRO, PUERTO_ORDAZ, esRetiroAlmacen, esRetornoPendiente, fechaHoraVE, montoTxt, ocDe,
   type PedidoDelivery, type UbicacionDelivery,
 } from './delivery';
 import {

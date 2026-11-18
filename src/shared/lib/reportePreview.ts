@@ -14,6 +14,7 @@ interface OverlayUI {
   body: HTMLDivElement;
   btnDl: HTMLButtonElement;
   btnPrint: HTMLButtonElement;
+  setTitle: (nuevo: string) => void;
   close: () => void;
   onClose: (fn: () => void) => void;
 }
@@ -31,6 +32,7 @@ function buildOverlay(filename: string): OverlayUI {
   title.style.cssText =
     'margin-right:auto;color:#e6edf3;font:600 .95rem system-ui;display:flex;gap:.5rem;align-items:center;min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;';
   title.textContent = `Vista previa · ${filename}`;
+  const setTitle = (nuevo: string) => { title.textContent = `Vista previa · ${nuevo}`; };
 
   const btnDl = document.createElement('button');
   btnDl.type = 'button';
@@ -66,7 +68,7 @@ function buildOverlay(filename: string): OverlayUI {
   document.addEventListener('keydown', onKey);
   closers.push(() => document.removeEventListener('keydown', onKey));
 
-  return { bar, body, btnDl, btnPrint, close, onClose: (fn: () => void) => closers.push(fn) };
+  return { bar, body, btnDl, btnPrint, setTitle, close, onClose: (fn: () => void) => closers.push(fn) };
 }
 
 export interface PreviewPdfOpciones {
@@ -206,6 +208,225 @@ export function previewArchivo(url: string, filename = 'archivo'): void {
       window.open(url, '_blank', 'noopener,noreferrer');
     }
   };
+}
+
+export interface PreviewImagenItem {
+  url: string;
+  filename: string;
+  /** Contexto opcional para la barra superior, p. ej. «OC-2026-0200 · Al recibir del proveedor». */
+  etiqueta?: string;
+}
+
+const ESCALAS_IMAGEN = [0.5, 0.75, 1, 1.25, 1.5, 2, 2.5, 3];
+const ESTILO_BTN_BARRA =
+  'background:transparent;color:#e6edf3;border:1px solid #30363d;border-radius:6px;padding:.45rem .7rem;font:600 .88rem system-ui;cursor:pointer;';
+
+async function rotarBlobImagen(blobUrl: string, giro: number): Promise<string | null> {
+  if (!giro) return null;
+  return await new Promise<string | null>((resolve) => {
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const girada = giro === 90 || giro === 270;
+        const canvas = document.createElement('canvas');
+        canvas.width = girada ? im.naturalHeight : im.naturalWidth;
+        canvas.height = girada ? im.naturalWidth : im.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) { resolve(null); return; }
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate((giro * Math.PI) / 180);
+        ctx.drawImage(im, -im.naturalWidth / 2, -im.naturalHeight / 2);
+        canvas.toBlob((b) => resolve(b ? URL.createObjectURL(b) : null), 'image/jpeg', 0.92);
+      } catch {
+        resolve(null);
+      }
+    };
+    im.onerror = () => resolve(null);
+    im.src = blobUrl;
+  });
+}
+
+/**
+ * Vista previa de una o varias IMÁGENES dentro del sistema (mismo formato `Vista previa`
+ * de los reportes: barra superior con zoom, rotación, navegación entre fotos, 🖨 Imprimir,
+ * ⬇ Descargar, ↗ Abrir en pestaña y ✕ Cerrar).
+ */
+export function previewGaleria(items: PreviewImagenItem[], indiceInicial = 0): void {
+  const validos = items.filter((x) => !!x.url);
+  if (!validos.length) return;
+  let idx = Math.min(Math.max(0, indiceInicial), validos.length - 1);
+  let escala = 1;
+  let giro = 0;
+  let natural: { w: number; h: number } | null = null;
+
+  const tituloDe = (i: number) => {
+    const it = validos[i];
+    const num = validos.length > 1 ? ` (${i + 1}/${validos.length})` : '';
+    return it.etiqueta ? `${it.etiqueta}${num} · ${it.filename}` : `${it.filename}${num}`;
+  };
+
+  const ui = buildOverlay(tituloDe(idx));
+
+  // Controles de navegación (solo si hay más de una foto)
+  const btnPrev = document.createElement('button');
+  btnPrev.type = 'button'; btnPrev.textContent = '‹'; btnPrev.title = 'Foto anterior (←)';
+  btnPrev.style.cssText = ESTILO_BTN_BARRA;
+  const lblPos = document.createElement('span');
+  lblPos.style.cssText = 'color:#9da7b3;font:600 .85rem system-ui;min-width:2.8rem;text-align:center;';
+  const btnNext = document.createElement('button');
+  btnNext.type = 'button'; btnNext.textContent = '›'; btnNext.title = 'Foto siguiente (→)';
+  btnNext.style.cssText = ESTILO_BTN_BARRA;
+
+  // Controles de zoom y rotación (muy útiles para facturas / notas de entrega)
+  const btnMenos = document.createElement('button');
+  btnMenos.type = 'button'; btnMenos.textContent = '−'; btnMenos.title = 'Alejar';
+  btnMenos.style.cssText = ESTILO_BTN_BARRA;
+  const btnZoom = document.createElement('button');
+  btnZoom.type = 'button'; btnZoom.textContent = '100%'; btnZoom.title = 'Restablecer zoom y rotación';
+  btnZoom.style.cssText = `${ESTILO_BTN_BARRA}min-width:3.8rem;`;
+  const btnMas = document.createElement('button');
+  btnMas.type = 'button'; btnMas.textContent = '+'; btnMas.title = 'Acercar';
+  btnMas.style.cssText = ESTILO_BTN_BARRA;
+  const btnGiro = document.createElement('button');
+  btnGiro.type = 'button'; btnGiro.textContent = '⟳'; btnGiro.title = 'Rotar 90°';
+  btnGiro.style.cssText = ESTILO_BTN_BARRA;
+
+  const btnTab = document.createElement('a');
+  btnTab.textContent = '↗ Abrir en pestaña';
+  btnTab.target = '_blank'; btnTab.rel = 'noopener noreferrer';
+  btnTab.style.cssText = `text-decoration:none;${ESTILO_BTN_BARRA}`;
+
+  const anchor = ui.btnPrint;
+  if (validos.length > 1) {
+    anchor.insertAdjacentElement('beforebegin', btnPrev);
+    anchor.insertAdjacentElement('beforebegin', lblPos);
+    anchor.insertAdjacentElement('beforebegin', btnNext);
+  }
+  anchor.insertAdjacentElement('beforebegin', btnMenos);
+  anchor.insertAdjacentElement('beforebegin', btnZoom);
+  anchor.insertAdjacentElement('beforebegin', btnMas);
+  anchor.insertAdjacentElement('beforebegin', btnGiro);
+  ui.btnDl.insertAdjacentElement('beforebegin', btnTab);
+  ui.btnPrint.style.display = '';
+
+  const stage = document.createElement('div');
+  stage.style.cssText = 'min-width:100%;min-height:100%;display:flex;padding:16px;box-sizing:border-box;';
+  const caja = document.createElement('div');
+  caja.style.cssText = 'margin:auto;position:relative;flex:0 0 auto;';
+  const img = document.createElement('img');
+  img.style.cssText = 'display:block;background:#fff;border-radius:4px;box-shadow:0 8px 32px rgba(0,0,0,.45);transition:transform .15s ease;';
+  caja.appendChild(img);
+  stage.appendChild(caja);
+  ui.body.appendChild(stage);
+
+  const aplicarMedidas = () => {
+    btnZoom.textContent = `${Math.round(escala * 100)}%`;
+    if (!natural) {
+      caja.style.width = '';
+      caja.style.height = '';
+      img.style.cssText = 'max-width:calc(100vw - 32px);max-height:calc(100vh - 96px);object-fit:contain;display:block;background:#fff;border-radius:4px;';
+      return;
+    }
+    const availW = Math.max(200, (ui.body.clientWidth || window.innerWidth) - 32);
+    const availH = Math.max(200, (ui.body.clientHeight || window.innerHeight - 64) - 32);
+    const girada = giro === 90 || giro === 270;
+    const vw = girada ? natural.h : natural.w;
+    const vh = girada ? natural.w : natural.h;
+    const fit = Math.min(availW / Math.max(vw, 1), availH / Math.max(vh, 1), 1);
+    const imgW = Math.max(1, Math.round(natural.w * fit * escala));
+    const imgH = Math.max(1, Math.round(natural.h * fit * escala));
+    const cajaW = girada ? imgH : imgW;
+    const cajaH = girada ? imgW : imgH;
+    caja.style.width = `${cajaW}px`;
+    caja.style.height = `${cajaH}px`;
+    img.style.cssText =
+      `position:absolute;left:50%;top:50%;width:${imgW}px;height:${imgH}px;max-width:none;max-height:none;` +
+      `transform:translate(-50%,-50%) rotate(${giro}deg);transition:transform .15s ease;background:#fff;border-radius:4px;box-shadow:0 8px 32px rgba(0,0,0,.45);`;
+  };
+
+  const mostrar = (nuevoIdx: number) => {
+    idx = (nuevoIdx + validos.length) % validos.length;
+    escala = 1;
+    giro = 0;
+    natural = null;
+    const it = validos[idx];
+    ui.setTitle(tituloDe(idx));
+    lblPos.textContent = `${idx + 1} / ${validos.length}`;
+    btnTab.href = it.url;
+    img.alt = it.filename;
+    aplicarMedidas();
+    img.src = it.url;
+  };
+
+  img.onload = () => {
+    natural = { w: img.naturalWidth || 800, h: img.naturalHeight || 600 };
+    aplicarMedidas();
+  };
+
+  const cambiarEscala = (dir: -1 | 1) => {
+    const pos = ESCALAS_IMAGEN.findIndex((x) => x >= escala - 0.001);
+    const actual = pos === -1 ? ESCALAS_IMAGEN.length - 1 : pos;
+    const sig = Math.min(Math.max(0, actual + dir), ESCALAS_IMAGEN.length - 1);
+    escala = ESCALAS_IMAGEN[sig];
+    aplicarMedidas();
+  };
+
+  btnPrev.onclick = () => mostrar(idx - 1);
+  btnNext.onclick = () => mostrar(idx + 1);
+  btnMenos.onclick = () => cambiarEscala(-1);
+  btnMas.onclick = () => cambiarEscala(1);
+  btnZoom.onclick = () => { escala = 1; giro = 0; aplicarMedidas(); };
+  btnGiro.onclick = () => { giro = (giro + 90) % 360; aplicarMedidas(); };
+
+  const onNavKey = (e: KeyboardEvent) => {
+    if (validos.length > 1 && e.key === 'ArrowLeft') { e.preventDefault(); mostrar(idx - 1); }
+    else if (validos.length > 1 && e.key === 'ArrowRight') { e.preventDefault(); mostrar(idx + 1); }
+  };
+  document.addEventListener('keydown', onNavKey);
+  ui.onClose(() => document.removeEventListener('keydown', onNavKey));
+
+  const onResize = () => aplicarMedidas();
+  window.addEventListener('resize', onResize);
+  ui.onClose(() => window.removeEventListener('resize', onResize));
+
+  ui.btnPrint.onclick = async () => {
+    const it = validos[idx];
+    const texto = ui.btnPrint.textContent;
+    ui.btnPrint.disabled = true;
+    ui.btnPrint.textContent = '🖨 Preparando…';
+    try {
+      const bajado = await (await fetch(it.url)).blob();
+      const blobUrl = URL.createObjectURL(bajado);
+      ui.onClose(() => URL.revokeObjectURL(blobUrl));
+      const rotadaUrl = await rotarBlobImagen(blobUrl, giro);
+      if (rotadaUrl) ui.onClose(() => URL.revokeObjectURL(rotadaUrl));
+      const pagina = URL.createObjectURL(new Blob([htmlImagen(rotadaUrl ?? blobUrl, it.filename)], { type: 'text/html' }));
+      ui.onClose(() => URL.revokeObjectURL(pagina));
+      imprimirUrlLocal(pagina, ui);
+    } catch {
+      window.open(it.url, '_blank', 'noopener,noreferrer');
+    } finally {
+      ui.btnPrint.disabled = false;
+      ui.btnPrint.textContent = texto;
+    }
+  };
+
+  ui.btnDl.onclick = async () => {
+    const it = validos[idx];
+    try {
+      const resp = await fetch(it.url);
+      const blob = await resp.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl; a.download = it.filename;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+    } catch {
+      window.open(it.url, '_blank', 'noopener,noreferrer');
+    }
+  };
+
+  mostrar(idx);
 }
 
 /** Previsualiza un archivo Excel ya armado en ArrayBuffer. */

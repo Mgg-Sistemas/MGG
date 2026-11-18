@@ -81,6 +81,7 @@ describe('Mapa', () => {
 
 describe('Histórico y resumen por delivery', () => {
   const base = {
+    origen: 'compra' as const, nota_entrega: null, fotos_recibo: [], fotos_entrega: [],
     repartidor_email: null, en_ruta_en: null, entregado_en: null, cancelado_en: null, motivo_cancel: null, almacen_entrega: null,
   };
   const rows = [

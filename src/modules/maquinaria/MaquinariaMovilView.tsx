@@ -759,7 +759,7 @@ export function MaquinariaMovilView() {
         type="button"
         className="btn btn-ghost flo-mv-solicitudes"
         style={{
-          marginTop: '.45rem',
+          marginTop: '.2rem',
           border: verCatalogo ? '1px solid var(--primary)' : '1px solid var(--border)',
           background: verCatalogo ? 'color-mix(in srgb, var(--primary) 8%, var(--surface))' : undefined,
         }}
@@ -958,53 +958,57 @@ export function MaquinariaMovilView() {
           </div>
 
           {/* Selector de tipo: Ya realizado (Directo a Bitácora) vs Solicitar a Compras */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.5rem', marginBottom: '.85rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '.55rem', marginBottom: '.85rem' }}>
             <button
               type="button"
               className={`btn ${destinoServicio === 'bitacora' ? 'btn-primary' : 'btn-ghost'}`}
               style={{
-                padding: '.6rem .4rem',
-                fontSize: '.84rem',
+                padding: '.75rem .5rem',
+                minHeight: '58px',
+                fontSize: '.94rem',
                 fontWeight: 700,
                 border: destinoServicio === 'bitacora' ? undefined : '1px solid var(--border)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: '.15rem',
+                justifyContent: 'center',
+                gap: '.2rem',
                 borderRadius: 'var(--r-md)',
               }}
               onClick={() => setDestinoServicio('bitacora')}
             >
               <span>✅ Ya realizado</span>
-              <span style={{ fontSize: '.71rem', opacity: .88, fontWeight: 500 }}>Solo Bitácora · no va a compras</span>
+              <span style={{ fontSize: '.76rem', opacity: .9, fontWeight: 500 }}>Solo Bitácora · no va a compras</span>
             </button>
             <button
               type="button"
               className={`btn ${destinoServicio === 'compras' ? 'btn-primary' : 'btn-ghost'}`}
               style={{
-                padding: '.6rem .4rem',
-                fontSize: '.84rem',
+                padding: '.75rem .5rem',
+                minHeight: '58px',
+                fontSize: '.94rem',
                 fontWeight: 700,
                 border: destinoServicio === 'compras' ? undefined : '1px solid var(--border)',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
-                gap: '.15rem',
+                justifyContent: 'center',
+                gap: '.2rem',
                 borderRadius: 'var(--r-md)',
               }}
               onClick={() => setDestinoServicio('compras')}
             >
               <span>🛒 Solicitar a Compras</span>
-              <span style={{ fontSize: '.71rem', opacity: .88, fontWeight: 500 }}>Cotizar / comprar piezas</span>
+              <span style={{ fontSize: '.76rem', opacity: .9, fontWeight: 500 }}>Cotizar / comprar piezas</span>
             </button>
           </div>
 
           {destinoServicio === 'bitacora' ? (
-            <div style={{ padding: '.55rem .75rem', marginBottom: '.85rem', background: 'color-mix(in srgb, var(--success) 12%, var(--surface))', borderRadius: 'var(--r-md)', border: '1px solid var(--success)', fontSize: '.82rem', color: 'var(--text)' }}>
+            <div style={{ padding: '.65rem .85rem', marginBottom: '.85rem', background: 'color-mix(in srgb, var(--success) 12%, var(--surface))', borderRadius: 'var(--r-md)', border: '1px solid var(--success)', fontSize: '.86rem', color: 'var(--text)' }}>
               ℹ️ <strong>Mantenimiento ya ejecutado:</strong> Se guardará en la bitácora del equipo con sus piezas y fotos de respaldo. <strong>No</strong> generará pedido a Compras.
             </div>
           ) : (
-            <div style={{ padding: '.55rem .75rem', marginBottom: '.85rem', background: 'color-mix(in srgb, var(--primary) 12%, var(--surface))', borderRadius: 'var(--r-md)', border: '1px solid var(--primary)', fontSize: '.82rem', color: 'var(--text)' }}>
+            <div style={{ padding: '.65rem .85rem', marginBottom: '.85rem', background: 'color-mix(in srgb, var(--primary) 12%, var(--surface))', borderRadius: 'var(--r-md)', border: '1px solid var(--primary)', fontSize: '.86rem', color: 'var(--text)' }}>
               ℹ️ <strong>Solicitud a Compras:</strong> Se creará una orden de servicio y solicitud para que el departamento de Compras cotice y adquiera las piezas.
             </div>
           )}
@@ -1012,22 +1016,22 @@ export function MaquinariaMovilView() {
           <div style={{ display: 'grid', gap: '.85rem' }}>
             {destinoServicio === 'bitacora' && (
               <div>
-                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
+                <label style={{ fontSize: '.94rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>
                   Fecha en que se realizó el servicio *
                 </label>
                 <input
                   type="date"
                   className="input"
-                  style={{ fontSize: '.92rem' }}
+                  style={{ fontSize: '.95rem', minHeight: '44px' }}
                   value={fechaServicio}
                   onChange={(e) => setFechaServicio(e.target.value)}
                 />
-                <small className="muted" style={{ fontSize: '.76rem' }}>Si es un servicio viejo o histórico, puedes indicar su fecha pasada.</small>
+                <small className="muted" style={{ fontSize: '.78rem' }}>Si es un servicio viejo o histórico, puedes indicar su fecha pasada.</small>
               </div>
             )}
 
             <div>
-              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Máquina / Vehículo *</label>
+              <label style={{ fontSize: '.94rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>Máquina / Vehículo *</label>
               <SearchSelect
                 value={equipoSelId}
                 onChange={setEquipoSelId}
@@ -1063,12 +1067,12 @@ export function MaquinariaMovilView() {
 
             {/* Opciones de Intervención / Tipo de Falla (Aceite, Pieza, Sistema Hidráulico, etc.) */}
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
-                <label style={{ fontSize: '.9rem', fontWeight: 600, margin: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem' }}>
+                <label style={{ fontSize: '.94rem', fontWeight: 600, margin: 0 }}>
                   {destinoServicio === 'bitacora' ? 'Sistema / Mantenimiento realizado *' : 'Sistema / Intervención requerida *'}
                 </label>
                 {intervencionesServicio.length > 0 && (
-                  <span className="badge" style={{ fontSize: '.78rem', padding: '2px 8px' }}>
+                  <span className="badge" style={{ fontSize: '.82rem', padding: '3px 8px' }}>
                     {intervencionesServicio.length} {intervencionesServicio.length === 1 ? 'seleccionado' : 'seleccionados'}
                   </span>
                 )}
@@ -1110,8 +1114,8 @@ export function MaquinariaMovilView() {
             <div className={destinoServicio === 'compras' ? 'surt-grid2' : ''}>
               {destinoServicio === 'compras' && (
                 <div>
-                  <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Urgencia</label>
-                  <select className="select" style={{ fontSize: '.92rem' }} value={urgenciaServicio} onChange={(e) => setUrgenciaServicio(e.target.value as 'normal' | 'urgente')}>
+                  <label style={{ fontSize: '.94rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>Urgencia</label>
+                  <select className="select" style={{ fontSize: '.95rem', minHeight: '44px' }} value={urgenciaServicio} onChange={(e) => setUrgenciaServicio(e.target.value as 'normal' | 'urgente')}>
                     <option value="normal">NORMAL</option>
                     <option value="urgente">🚨 URGENTE</option>
                   </select>
@@ -1119,13 +1123,13 @@ export function MaquinariaMovilView() {
               )}
 
               <div>
-                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
+                <label style={{ fontSize: '.94rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>
                   {destinoServicio === 'bitacora' ? 'Mecánico / Responsable que realizó el trabajo' : 'Responsable / Mecánico'}
                 </label>
                 <input
                   type="text"
                   className="input"
-                  style={{ fontSize: '.92rem' }}
+                  style={{ fontSize: '.95rem', minHeight: '44px' }}
                   value={responsableServicio}
                   onChange={(e) => setResponsableServicio(e.target.value)}
                   placeholder="Nombre de quien revisó o ejecutó el trabajo…"
@@ -1135,11 +1139,11 @@ export function MaquinariaMovilView() {
 
             <div className="surt-grid2">
               <div>
-                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Horómetro actual</label>
+                <label style={{ fontSize: '.94rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>Horómetro actual</label>
                 <input
                   type="number"
                   className="input mono"
-                  style={{ fontSize: '.92rem' }}
+                  style={{ fontSize: '.95rem', minHeight: '44px' }}
                   value={horasServicio}
                   onChange={(e) => setHorasServicio(e.target.value)}
                   placeholder="Ej. 4500"
@@ -1147,11 +1151,11 @@ export function MaquinariaMovilView() {
               </div>
 
               <div>
-                <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>Kilometraje actual</label>
+                <label style={{ fontSize: '.94rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>Kilometraje actual</label>
                 <input
                   type="number"
                   className="input mono"
-                  style={{ fontSize: '.92rem' }}
+                  style={{ fontSize: '.95rem', minHeight: '44px' }}
                   value={kmServicio}
                   onChange={(e) => setKmServicio(e.target.value)}
                   placeholder="Ej. 120000"
@@ -1160,13 +1164,13 @@ export function MaquinariaMovilView() {
             </div>
 
             <div>
-              <label style={{ fontSize: '.9rem', fontWeight: 600, display: 'block', marginBottom: '.3rem' }}>
+              <label style={{ fontSize: '.94rem', fontWeight: 600, display: 'block', marginBottom: '.35rem' }}>
                 {destinoServicio === 'bitacora' ? 'Trabajo realizado / Detalle del mantenimiento *' : 'Trabajo o falla a reparar *'}
               </label>
               <textarea
                 className="input"
                 rows={3}
-                style={{ fontSize: '.92rem' }}
+                style={{ fontSize: '.95rem', padding: '.65rem .75rem' }}
                 value={descripcionServicio}
                 onChange={(e) => setDescripcionServicio(e.target.value)}
                 placeholder={destinoServicio === 'bitacora' ? 'Describe qué se le hizo a la máquina, fallas resueltas o ajustes efectuados…' : 'Describe qué trabajo necesita la máquina o qué repuesto hace falta…'}

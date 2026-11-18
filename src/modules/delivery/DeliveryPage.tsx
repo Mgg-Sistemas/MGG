@@ -22,7 +22,7 @@
    su motivo en el Tablero.
    ============================================================ */
 import { etiquetaSedeEntrega } from '@/shared/lib/types';
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { listProveedores } from '@/modules/pedidos/pedidos.repository';
