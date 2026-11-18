@@ -38,26 +38,26 @@ export function mesesAccionables(periodos: ContPeriodo[], ejercicio: ContEjercic
   };
 }
 
-function useDatosPeriodo(version: number) {
+function useDatosPeriodo(version: number, empresaClave?: string) {
   const [datos, setDatos] = useState<{ ejercicios: ContEjercicio[]; periodos: ContPeriodo[]; cierres: ContCierre[] } | null>(null);
   const cargar = useCallback(async () => {
     try {
-      const [ejercicios, periodos, cierres] = await Promise.all([listEjercicios(), listPeriodos(), listCierres()]);
+      const [ejercicios, periodos, cierres] = await Promise.all([listEjercicios(empresaClave), listPeriodos(empresaClave), listCierres(empresaClave)]);
       setDatos({ ejercicios, periodos, cierres });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron leer los períodos.', 'error');
     }
-  }, []);
+  }, [empresaClave]);
   useEffect(() => { void cargar(); }, [cargar, version]);
   return { datos, cargar };
 }
 
 /* ───────────── Período ───────────── */
 
-export function PeriodoTab() {
+export function PeriodoTab({ empresaClave = 'MGG' }: { empresaClave?: string } = {}) {
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
-  const { datos, cargar } = useDatosPeriodo(0);
+  const { datos, cargar } = useDatosPeriodo(0, empresaClave);
   const [cerrar, setCerrar] = useState<ContPeriodo | null>(null);
   const [abrir, setAbrir] = useState<ContPeriodo | null>(null);
 
@@ -216,10 +216,10 @@ function AbrirMesDialogo({ periodo, actor, onCerrar, onHecho }: { periodo: ContP
 
 type Accion = { kind: 'ninguna' } | { kind: 'cerrar'; tipo: 'pre_cierre' | 'definitivo' } | { kind: 'reabrir' } | { kind: 'siguiente' };
 
-export function CerrarPeriodoTab() {
+export function CerrarPeriodoTab({ empresaClave = 'MGG' }: { empresaClave?: string } = {}) {
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
-  const { datos, cargar } = useDatosPeriodo(0);
+  const { datos, cargar } = useDatosPeriodo(0, empresaClave);
   const [accion, setAccion] = useState<Accion>({ kind: 'ninguna' });
   const [motivo, setMotivo] = useState('');
 

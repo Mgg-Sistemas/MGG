@@ -40,10 +40,16 @@ export function IntegracionTab({ empresaClave = 'MGG' }: { empresaClave?: string
   const [vista, setVista] = useState<Vista>('bandeja');
   return (
     <>
-      <div className="view-toggle" role="tablist" aria-label="Integración" style={{ marginBottom: '1rem' }}>
-        <button role="tab" aria-selected={vista === 'bandeja'} className={vista === 'bandeja' ? 'active' : ''} onClick={() => setVista('bandeja')}>Por contabilizar</button>
-        <button role="tab" aria-selected={vista === 'reglas'} className={vista === 'reglas' ? 'active' : ''} onClick={() => setVista('reglas')}>Reglas de Contabilización</button>
-        <button role="tab" aria-selected={vista === 'mapeos'} className={vista === 'mapeos' ? 'active' : ''} onClick={() => setVista('mapeos')}>Mapeos</button>
+      <div className="view-toggle" role="tablist" aria-label="Por Contabilizar" style={{ marginBottom: '1rem' }}>
+        <button role="tab" aria-selected={vista === 'bandeja'} className={vista === 'bandeja' ? 'active' : ''} onClick={() => setVista('bandeja')}>
+          Por contabilizar
+        </button>
+        <button role="tab" aria-selected={vista === 'reglas'} className={vista === 'reglas' ? 'active' : ''} onClick={() => setVista('reglas')}>
+          Reglas de Contabilización
+        </button>
+        <button role="tab" aria-selected={vista === 'mapeos'} className={vista === 'mapeos' ? 'active' : ''} onClick={() => setVista('mapeos')}>
+          Mapeos
+        </button>
       </div>
       {vista === 'bandeja' && <BandejaPorContabilizar empresaClave={empresaClave} />}
       {vista === 'reglas' && <ReglasContabilizacion empresaClave={empresaClave} />}
@@ -315,7 +321,9 @@ export function ReglasContabilizacion({ empresaClave = 'MGG' }: { empresaClave?:
           <button key={m} role="tab" aria-selected={modulo === m} className={modulo === m ? 'active' : ''} onClick={() => setModulo(m)}>{nombreModulo(m)}</button>
         ))}
       </div>
-      <p className="cont-nota" style={{ marginBottom: '.75rem' }}>Consulta: las reglas vienen del modelo de datos. Cada pestaña es un proceso del módulo, como en Galac.</p>
+      <p className="cont-nota" style={{ marginBottom: '.75rem' }}>
+        Catálogo de reglas maestras de enlace contable por módulo. Cada regla define la estructura de cuentas (Debe y Haber), tipo de comprobante y método de agrupación para los hechos operativos de {empresaClave}.
+      </p>
       {pestanas.map((p) => (
         <div key={p} className="card cont-regla-pestana">
           <div className="card-title">{p}</div>
@@ -374,6 +382,11 @@ export function MapeosVista({ empresaClave = 'MGG' }: { empresaClave?: string } 
   const tipos = [...new Set(mapeos.map((m) => m.tipo))];
   return (
     <div className="card" style={{ padding: 0 }}>
+      <div style={{ padding: '.85rem 1rem', borderBottom: '1px solid var(--border)' }}>
+        <p className="muted" style={{ margin: 0, fontSize: '.86rem' }}>
+          Los mapeos asocian las cuentas contables de la empresa activa ({empresaClave}) con las cajas chicas, cuentas bancarias, almacenes y conceptos de gasto operativos, permitiendo generar asientos automáticos consistentes.
+        </p>
+      </div>
       <div className="table-wrap">
         <table className="table cont-tabla-informe">
           <thead><tr><th>Tipo</th><th>Clave del documento</th><th>Cuenta</th><th>C.C.</th></tr></thead>

@@ -110,12 +110,21 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
     return p;
   }
 
-  async function listEjercicios(): Promise<ContEjercicio[]> {
-    return (await almacen.leer()).cont_ejercicios;
+  async function listEjercicios(empresaClave?: string): Promise<ContEjercicio[]> {
+    const list = (await almacen.leer()).cont_ejercicios;
+    return empresaClave ? list.filter((e) => !e.empresa_clave || e.empresa_clave === empresaClave) : list;
   }
 
-  async function listPeriodos(): Promise<ContPeriodo[]> {
-    return (await almacen.leer()).cont_periodos.sort((a, b) => a.codigo.localeCompare(b.codigo));
+  async function listPeriodos(empresaClave?: string): Promise<ContPeriodo[]> {
+    const e = await almacen.leer();
+    const periodos = empresaClave
+      ? e.cont_periodos.filter((p) => {
+          if (p.empresa_clave) return p.empresa_clave === empresaClave;
+          const ej = e.cont_ejercicios.find((x) => x.id === p.ejercicio_id);
+          return !ej?.empresa_clave || ej.empresa_clave === empresaClave;
+        })
+      : e.cont_periodos;
+    return periodos.sort((a, b) => a.codigo.localeCompare(b.codigo));
   }
 
   async function listMonedas(): Promise<ContMoneda[]> {
@@ -537,8 +546,9 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
      cont_cerrar_ejercicio, cont_reabrir_ejercicio y cont_apertura de BD:
      cada una en una transacción. */
 
-  async function listCierres(): Promise<ContCierre[]> {
-    return (await almacen.leer()).cont_cierres;
+  async function listCierres(empresaClave?: string): Promise<ContCierre[]> {
+    const list = (await almacen.leer()).cont_cierres;
+    return empresaClave ? list.filter((c) => !c.empresa_clave || c.empresa_clave === empresaClave) : list;
   }
 
   /** Lo que haría «Cerrar Mes»: los errores que lo impiden y el diferencial cambiario que generaría. */

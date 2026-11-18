@@ -10,19 +10,30 @@ import { ContabilidadPage } from './ContabilidadPage';
 const html = renderToStaticMarkup(<ContabilidadPage />);
 
 describe('página de Contabilidad', () => {
-  it('los menús siguen la barra de Galac, en su orden, más Auxiliares y Otros e Integración (sin NIIF ni Conciliación por ahora)', () => {
+  it('los menús presentan la cinta contable en terminología clara y profesional', () => {
     const menus = [...html.matchAll(/<button role="tab"[^>]*>([^<]*)<\/button>/g)].map((m) => m[1]);
-    expect(menus).toEqual(['Compañía', 'Comprobante', 'Cuenta', 'Balances', 'Informes', 'Período', 'Cerrar Período', 'Auxiliares y Otros', 'Integración']);
+    expect(menus).toEqual([
+      'Comprobantes',
+      'Por Contabilizar',
+      'Plan de Cuentas',
+      'Estados Financieros',
+      'Libros Contables',
+      'Períodos Mensuales',
+      'Cierre de Ejercicio',
+      'Terceros y Centros',
+      'Parámetros Empresa',
+    ]);
   });
 
-  it('la barra de estado de Galac muestra Compañía, Período y Usuario', () => {
+  it('la barra de estado muestra Compañía, Período y Usuario', () => {
     const t = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
     expect(t).toMatch(/Compañía: …/);
     expect(t).toMatch(/Período: …/);
     expect(t).toMatch(/Usuario: prueba@ejemplo\.test/);
   });
 
-  it('avisa que es una maqueta sobre datos simulados', () => {
-    expect(html).toContain('Datos simulados en este navegador');
+  it('no muestra avisos técnicos de maqueta ni insignias confusas para el usuario', () => {
+    expect(html).not.toContain('Datos simulados en este navegador');
+    expect(html).not.toContain('Base de datos en vivo');
   });
 });

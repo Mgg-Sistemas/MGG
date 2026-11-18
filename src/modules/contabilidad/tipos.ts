@@ -73,6 +73,7 @@ export interface ContEjercicio {
 /** cont_periodos: 1 a 12, y 13 = período de cierre. */
 export interface ContPeriodo {
   id: string;
+  empresa_clave?: string;
   ejercicio_id: string;
   numero: number;
   /** AAAAMM; el 13 es AAAA13. */

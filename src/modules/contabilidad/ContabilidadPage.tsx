@@ -29,6 +29,7 @@ import {
   listEmpresasContables, leerEmpresaContableActiva, guardarEmpresaContableActiva,
   EMPRESAS_CONTABLES_DEFECTO, type EmpresaContable
 } from './empresasContabilidad';
+import { GestionEmpresasContablesModal } from './GestionEmpresasContablesModal';
 import { AuxiliaresTab } from './AuxiliaresTab';
 import { ComprobantesTab } from './ComprobantesTab';
 import { BalancesTab, InformesTab } from './LibrosTab';
@@ -39,18 +40,18 @@ import { PlanCuentasTab } from './PlanCuentasTab';
 import type { ContCuenta, ContEjercicio, ContParametros, ContTipoComprobante } from './tipos';
 import './contabilidad.css';
 
-type Menu = 'compania' | 'comprobante' | 'cuenta' | 'balances' | 'informes' | 'periodo' | 'cerrar' | 'auxiliares' | 'integracion';
+type Menu = 'comprobante' | 'integracion' | 'cuenta' | 'balances' | 'informes' | 'periodo' | 'cerrar' | 'auxiliares' | 'compania';
 
 const MENUS: { key: Menu; label: string }[] = [
-  { key: 'compania', label: 'Compañía' },
-  { key: 'comprobante', label: 'Comprobante' },
-  { key: 'cuenta', label: 'Cuenta' },
-  { key: 'balances', label: 'Balances' },
-  { key: 'informes', label: 'Informes' },
-  { key: 'periodo', label: 'Período' },
-  { key: 'cerrar', label: 'Cerrar Período' },
-  { key: 'auxiliares', label: 'Auxiliares y Otros' },
-  { key: 'integracion', label: 'Integración' },
+  { key: 'comprobante', label: 'Comprobantes' },
+  { key: 'integracion', label: 'Por Contabilizar' },
+  { key: 'cuenta', label: 'Plan de Cuentas' },
+  { key: 'balances', label: 'Estados Financieros' },
+  { key: 'informes', label: 'Libros Contables' },
+  { key: 'periodo', label: 'Períodos Mensuales' },
+  { key: 'cerrar', label: 'Cierre de Ejercicio' },
+  { key: 'auxiliares', label: 'Terceros y Centros' },
+  { key: 'compania', label: 'Parámetros Empresa' },
 ];
 
 const CLAVE_MENU = 'mgg.contabilidad.menu';
@@ -71,11 +72,12 @@ export function ContabilidadPage() {
   const [menu, setMenu] = useState<Menu>(menuGuardado);
   const [parametros, setParametros] = useState<ContParametros | null>(null);
   const [ejercicio, setEjercicio] = useState<ContEjercicio | null>(null);
+  const [abrirGestionEmpresas, setAbrirGestionEmpresas] = useState(false);
   // Sube al reiniciar la simulación o cambiar de empresa: las pestañas se vuelven a montar desde cero.
   const [version, setVersion] = useState(0);
   const [confirmarReinicio, setConfirmarReinicio] = useState(false);
 
-  useEffect(() => {
+  const recargarEmpresas = useCallback(() => {
     void listEmpresasContables().then((lista) => {
       if (lista.length > 0) {
         setEmpresas(lista);
@@ -88,9 +90,13 @@ export function ContabilidadPage() {
     });
   }, [empresaActiva]);
 
+  useEffect(() => {
+    recargarEmpresas();
+  }, [recargarEmpresas]);
+
   const cargar = useCallback(async () => {
     try {
-      const [p, ejercicios] = await Promise.all([getParametros(empresaActiva), listEjercicios()]);
+      const [p, ejercicios] = await Promise.all([getParametros(empresaActiva), listEjercicios(empresaActiva)]);
       setParametros(p);
       setEjercicio(ejercicios.find((e) => e.estado === 'abierto') ?? ejercicios[0] ?? null);
     } catch (e) {
@@ -144,13 +150,16 @@ export function ContabilidadPage() {
               ))}
             </select>
           </label>
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => setAbrirGestionEmpresas(true)}
+            title="Administrar el catálogo de empresas jurídicas del grupo (crear, editar RIF y estado)"
+          >
+            ⚙ Gestionar Empresas
+          </button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmarReinicio(true)}>↺ Reiniciar datos de ejemplo</button>
         </div>
-      </div>
-
-      <div className="cont-aviso" role="note">
-        <strong>Maqueta</strong>
-        <span>Datos simulados en este navegador. Nada se lee ni se guarda en la base del sistema.</span>
       </div>
 
       <nav className="view-toggle cont-menus" role="tablist" aria-label="Menús de Contabilidad">
@@ -169,16 +178,26 @@ export function ContabilidadPage() {
 
       {!parametros && <p className="muted">Cargando…</p>}
       {parametros && <>
-        {menu === 'compania' && <CompaniaTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} empresaNombre={empresaSelObj?.nombre} empresaRif={empresaSelObj?.rif} onCambio={cargar} />}
         {menu === 'comprobante' && <ComprobantesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'integracion' && <IntegracionTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
         {menu === 'cuenta' && <PlanCuentasTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
-        {menu === 'periodo' && <PeriodoTab key={`${version}-${empresaActiva}`} />}
-        {menu === 'cerrar' && <CerrarPeriodoTab key={`${version}-${empresaActiva}`} />}
         {menu === 'balances' && <BalancesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'informes' && <InformesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'periodo' && <PeriodoTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
+        {menu === 'cerrar' && <CerrarPeriodoTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
         {menu === 'auxiliares' && <AuxiliaresTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
-        {menu === 'integracion' && <IntegracionTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
+        {menu === 'compania' && <CompaniaTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} empresaNombre={empresaSelObj?.nombre} empresaRif={empresaSelObj?.rif} onCambio={cargar} />}
       </>}
+
+      {abrirGestionEmpresas && (
+        <GestionEmpresasContablesModal
+          onClose={() => setAbrirGestionEmpresas(false)}
+          onActualizado={() => {
+            recargarEmpresas();
+            void cargar();
+          }}
+        />
+      )}
 
       {confirmarReinicio && (
         <ConfirmDialog
