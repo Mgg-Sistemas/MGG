@@ -13,9 +13,9 @@
    dan de alta en el inventario: las nombra y crea Compras (13-10).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { DetalleServicioItem, ItemOrden, ItemSolicitudSalida } from '@/shared/lib/types';
+import type { DetalleServicioItem, ItemOrden, ItemSolicitudSalida, Orden } from '@/shared/lib/types';
 import { crearSolicitudSalida } from '@/modules/salidas/salidas.repository';
-import { crearOrden, ensureUnidadSolicitante } from '@/modules/pedidos/pedidos.repository';
+import { crearOrden, ensureUnidadSolicitante, cancelarOrden, anularOrden } from '@/modules/pedidos/pedidos.repository';
 import { notify } from '@/shared/lib/notify';
 import { BUCKET_DOCUMENTOS } from './maquinariaDocumentos.repository';
 import { ordenarFotosEquipo } from './maquinariaDocumentos';
@@ -469,13 +469,47 @@ export async function editarOrdenServicio(id: string, input: EdicionOrdenServici
  * Borra la orden con sus fotos. La base valida (una orden realizada solo la borra un
  * administrador) y, si estaba en curso, devuelve el equipo al estado que tenía antes.
  * Los archivos de las fotos se borran desde la app y solo si la orden se borró.
+ * Si tenía una solicitud de servicio en Compras (Pedidos), la cancela automáticamente.
  */
 export async function eliminarOrdenServicio(o: Pick<OrdenServicio, 'id' | 'codigo'>): Promise<void> {
+  // 1. Consultar la orden antes de borrarla para verificar si tiene compra vinculada
+  const { data: ordenFila } = await supabase
+    .from('maquinaria_ordenes_servicio')
+    .select('id, codigo, orden_compra_id')
+    .eq('id', o.id)
+    .maybeSingle();
+
   const fotos = await listFotosOrden(o.id).catch(() => []);
   const { data, error } = await supabase.from('maquinaria_ordenes_servicio').delete().eq('id', o.id).select('id');
   if (error) throw error;
   if (!data?.length) throw new Error(`No se pudo borrar la orden ${o.codigo} (puede que ya no exista o que no tengas permiso).`);
   await borrarArchivosFotosOrden(fotos.map((f) => f.path));
+
+  // 2. Si tenía orden de compra/servicio en Compras, cancelarla en Compras (Servicios)
+  if (ordenFila?.orden_compra_id) {
+    try {
+      const { data: ocFila } = await supabase
+        .from('ordenes')
+        .select('*')
+        .eq('id', ordenFila.orden_compra_id)
+        .maybeSingle();
+
+      if (ocFila && ocFila.estado !== 'cancelada' && ocFila.estado !== 'anulada') {
+        const actor = await actorDeSesion().catch(() => ({ email: 'sistema', nombre: 'Sistema' }));
+        const motivo = `Cancelada automáticamente al eliminarse la orden de servicio ${ordenFila.codigo} en Control de Maquinaria.`;
+        if (['pendiente', 'aprobada', 'revision_almacen'].includes(ocFila.estado)) {
+          await cancelarOrden(ocFila as Orden, actor.email, motivo);
+        } else if (['oc_creada', 'confirmada_metodo', 'oc_aprobada', 'por_recibir', 'cuenta_abierta'].includes(ocFila.estado)) {
+          await anularOrden(ocFila as Orden, actor.email, motivo);
+        }
+        notify(`🔧 Solicitud de servicio ${ocFila.codigo ?? ''} cancelada en Compras (orden ${ordenFila.codigo} eliminada)`, 'info', {
+          link: '#/app/pedidos',
+        });
+      }
+    } catch (errCancel) {
+      console.warn(`No se pudo cancelar la orden en Compras vinculada a ${ordenFila.codigo}:`, errCancel);
+    }
+  }
 }
 
 /** Cambia una pieza nueva por el producto del inventario y vuelve a decidir inventario / compra. */

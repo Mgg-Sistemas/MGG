@@ -22,7 +22,6 @@ export function BorrarOrdenDialog({ orden, equipo, salida, compra, onClose, onDo
 }) {
   const s = servicioPorId(orden.tipo);
   const enCurso = ordenAbierta(orden.estado);
-  const vinculos = [salida ? `la salida ${salida}` : null, compra ? `el pedido ${compra}` : null].filter(Boolean).join(' y ');
   const exigeTexto = orden.estado === 'realizada';
   return (
     <ConfirmDialog title={`Borrar orden ${orden.codigo}`} danger confirmText="Borrar orden"
@@ -33,7 +32,8 @@ export function BorrarOrdenDialog({ orden, equipo, salida, compra, onClose, onDo
           <span>Se borra la orden con sus fotos. No se puede deshacer; queda registrada en la auditoría.</span>
           {enCurso && <span>Si es la única orden abierta del equipo, el equipo <strong>vuelve al estado que tenía antes de abrirla</strong>.</span>}
           {orden.estado === 'realizada' && <span>⚠️ El servicio ya se realizó (traza completa): <strong>solo un administrador puede borrarla</strong>. La anotación en la bitácora y el reinicio del contador no se deshacen.</span>}
-          {vinculos && <span>Lo que se pidió ({vinculos}) no se cancela solo: si ya no hace falta, cancélalo en Salidas / Pedidos.</span>}
+          {compra && <span>🛒 La solicitud de servicio vinculada en Compras (<strong>{compra}</strong>) <strong>se cancelará automáticamente</strong>.</span>}
+          {salida && <span>Lo que se pidió en Salidas ({salida}) no se cancela solo: si ya no hace falta, cancélalo en Salidas.</span>}
         </div>
       }
       preview={

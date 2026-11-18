@@ -2126,8 +2126,12 @@ export function MaquinariaMovilView() {
       {/* Confirmación para borrar movimiento */}
       {borrandoMov && (
         <ConfirmDialog
-          title="Eliminar movimiento"
-          message={`¿Estás seguro de eliminar el registro «${borrandoMov.codigo}»? Esta acción no se puede deshacer.`}
+          title={borrandoMov.tipo === 'orden' ? 'Eliminar Orden de Servicio' : 'Eliminar Registro de Lavado'}
+          message={
+            borrandoMov.tipo === 'orden'
+              ? `¿Estás seguro de eliminar la orden «${borrandoMov.codigo}»? Esta acción no se puede deshacer y cancelará automáticamente cualquier solicitud de servicio vinculada en Compras.`
+              : `¿Estás seguro de eliminar el registro «${borrandoMov.codigo}»? Esta acción no se puede deshacer.`
+          }
           confirmText="Sí, eliminar"
           danger
           onConfirm={async () => {

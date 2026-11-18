@@ -12,6 +12,7 @@ import { precioRenglon, recortarOfertaAHija, skusAbsorbiblesPorHija, skusSinCoti
 import { totalDesdePartes } from './impuestosOc';
 import { camposDeEdicion, cambiaProveedorOc, cambiaTexto, cambianNombres, hayCambiosMateriales } from './edicionOc';
 import { errorMotivoCambio, extrasCambioProveedor, extrasReaperturaOc, type ProveedorRef } from './cambioProveedor';
+import { notify } from '@/shared/lib/notify';
 
 /** Nombre y RIF de los proveedores dados (para sellarlos tal cual en la traza). */
 async function refsProveedores(ids: (string | null | undefined)[]): Promise<Map<string, ProveedorRef>> {
@@ -3080,7 +3081,71 @@ export async function cancelarOrden(
     .select('*')
     .single();
   if (error) throw error;
-  return data as Orden;
+  const ordenActualizada = data as Orden;
+
+  // Si la solicitud de servicio está vinculada a Control de Maquinaria, eliminar la orden en maquinaria
+  await eliminarMaquinariaOrdenDeCompra(o.id, o.notas);
+
+  return ordenActualizada;
+}
+
+/**
+ * Al cancelarse o anularse una solicitud de servicio en Compras, si está vinculada a una
+ * orden de servicio en Control de Maquinaria, elimina la orden de servicio en maquinaria
+ * (con sus fotos y restableciendo el estado del equipo a través del trigger en base de datos).
+ */
+export async function eliminarMaquinariaOrdenDeCompra(compraId: string, notas?: string | null): Promise<void> {
+  try {
+    // 1. Buscar por orden_compra_id
+    let { data: ordenesMaq } = await supabase
+      .from('maquinaria_ordenes_servicio')
+      .select('id, codigo')
+      .eq('orden_compra_id', compraId);
+
+    // Fallback: si no vino por orden_compra_id, buscar por código de OS en notas (ej. "Orden de servicio OS-2026-0045")
+    if ((!ordenesMaq || ordenesMaq.length === 0) && notas) {
+      const match = notas.match(/Orden de servicio (OS-\d{4}-\d+)/i);
+      if (match && match[1]) {
+        const { data: porCodigo } = await supabase
+          .from('maquinaria_ordenes_servicio')
+          .select('id, codigo')
+          .eq('codigo', match[1]);
+        if (porCodigo && porCodigo.length > 0) {
+          ordenesMaq = porCodigo;
+        }
+      }
+    }
+
+    if (!ordenesMaq || ordenesMaq.length === 0) return;
+
+    for (const maq of ordenesMaq) {
+      // 1. Obtener fotos antes de borrar
+      const { data: fotos } = await supabase
+        .from('maquinaria_os_fotos')
+        .select('path')
+        .eq('orden_id', maq.id);
+
+      // 2. Borrar la orden de maquinaria (trg_maquinaria_os_al_borrar restaura el estado del equipo)
+      const { error: errDel } = await supabase
+        .from('maquinaria_ordenes_servicio')
+        .delete()
+        .eq('id', maq.id);
+
+      if (!errDel) {
+        if (fotos && fotos.length > 0) {
+          const paths = fotos.map((f) => f.path).filter(Boolean);
+          if (paths.length > 0) {
+            await supabase.storage.from('maquinaria-os-fotos').remove(paths).catch(() => undefined);
+          }
+        }
+        notify(`🔧 Orden de servicio ${maq.codigo} eliminada en Maquinaria al cancelarse en Compras`, 'info', {
+          link: '#/app/maquinaria',
+        });
+      }
+    }
+  } catch (errMaq) {
+    console.warn('Error al eliminar orden de servicio en maquinaria al cancelar en compras:', errMaq);
+  }
 }
 
 /**
@@ -3112,7 +3177,12 @@ export async function anularOrden(
     .select('*')
     .single();
   if (error) throw error;
-  return data as Orden;
+  const ordenActualizada = data as Orden;
+
+  // Si era una orden vinculada a Control de Maquinaria, eliminarla en maquinaria
+  await eliminarMaquinariaOrdenDeCompra(o.id, o.notas);
+
+  return ordenActualizada;
 }
 
 /**
