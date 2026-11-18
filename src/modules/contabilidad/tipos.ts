@@ -17,9 +17,11 @@ export type Moneda = 'VES' | 'USD' | 'USDT' | 'EUR' | 'COP';
 
 export type TipoNumeracion = 'tipo_mes_numero' | 'consecutivo' | 'mes_consecutivo';
 
-/** cont_parametros: una sola fila. */
+/** cont_parametros: una sola fila por empresa. */
 export interface ContParametros {
   id: true;
+  /** Clave de la empresa ('MGG', etc.), vinculada con admin_empresas. */
+  empresa_clave?: string;
   /** «9.9.99.99.999»: cada grupo es un nivel y su ancho. */
   mascara_codigo: string;
   niveles: number;
@@ -57,6 +59,7 @@ export interface ContParametros {
 /** cont_ejercicios */
 export interface ContEjercicio {
   id: string;
+  empresa_clave?: string;
   nombre: string;
   fecha_inicio: string;
   fecha_fin: string;
@@ -91,6 +94,7 @@ export type TipoAuxiliar = 'proveedor' | 'cliente' | 'empleado' | 'banco' | 'cen
 /** cont_cuentas: el plan de cuentas. */
 export interface ContCuenta {
   id: string;
+  empresa_clave?: string;
   /** Único; respeta la máscara («1.1.01.01.001»). */
   codigo: string;
   nombre: string;
@@ -117,6 +121,7 @@ export interface ContCuenta {
 
 /** Lo que pide la pantalla para crear una cuenta; el resto lo deriva el repositorio. */
 export interface CuentaInput {
+  empresa_clave?: string;
   codigo: string;
   nombre: string;
   es_movimiento: boolean;
@@ -160,6 +165,7 @@ export interface ContTipoComprobante {
 /** cont_centros_costo */
 export interface ContCentroCosto {
   id: string;
+  empresa_clave?: string;
   codigo: string;
   nombre: string;
   padre_id: string | null;
@@ -171,6 +177,7 @@ export interface ContCentroCosto {
 /** cont_auxiliares: terceros. En la simulación, el RIF siempre es ficticio o nulo. */
 export interface ContAuxiliar {
   id: string;
+  empresa_clave?: string;
   tipo: TipoAuxiliar;
   codigo: string;
   nombre: string;
@@ -250,6 +257,7 @@ export interface EventoComprobante {
 /** cont_comprobantes: cabecera del asiento (DDL v0.4 + historial aprobado para la v0.5). */
 export interface ContComprobante {
   id: string;
+  empresa_clave?: string;
   /** El código se repite cada año: es único por ejercicio. */
   ejercicio_id: string;
   tipo_id: string;
@@ -317,6 +325,7 @@ export interface ContComprobanteLinea {
 /** cont_cierres: un cierre de mes o de ejercicio, con la foto de saldos (DDL v0.5). Uno vigente por mes y por ejercicio. */
 export interface ContCierre {
   id: string;
+  empresa_clave?: string;
   tipo: 'mes' | 'ejercicio';
   /** Solo de ejercicio: pre_cierre (reabrible) o definitivo. */
   tipo_cierre: 'pre_cierre' | 'definitivo' | null;
@@ -340,6 +349,7 @@ export interface ContCierre {
  */
 export interface ContIntegracion {
   id: string;
+  empresa_clave?: string;
   origen_modulo: string;
   origen_tabla: string;
   origen_id: string;
@@ -379,6 +389,7 @@ export type TipoMapeo = 'caja' | 'categoria_gasto' | 'almacen' | 'categoria_prod
 /** cont_reglas: de un hecho de un módulo a un comprobante (DDL v0.4, con los datos de Galac). */
 export interface ContRegla {
   id: string;
+  empresa_clave?: string;
   codigo: string;
   nombre: string;
   origen_modulo: string;
@@ -419,6 +430,7 @@ export interface ContReglaLinea {
 /** cont_mapeos: qué cuenta corresponde a cada cosa de MGG (caja, categoría de gasto, almacén…). */
 export interface ContMapeo {
   id: string;
+  empresa_clave?: string;
   tipo: TipoMapeo;
   clave: string;
   cuenta_id: string;

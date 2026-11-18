@@ -43,6 +43,7 @@ import {
 import { AlmacenSimulado, almacen as almacenDeLaApp } from './simulacion/almacen';
 import { AlmacenCambios, almacenCambios as almacenCambiosDeLaApp } from './simulacion/almacenCambios';
 import { cargarDocumentos } from './simulacion/datosBd';
+import { PARAMETROS_MGG, CENTROS_COSTO_MGG, generarPlanCuentasMGG } from './planCuentasMgg';
 import type {
   ContAuxiliar, ContCambio, ContCentroCosto, ContCierre, ContComprobante, ContComprobanteLinea, ContCuenta, ContEjercicio, ContIntegracion,
   ContEsquemaEf, ContMapeo, ContMoneda, ContMonedaLocal, ContPais, ContTasa, ContParametros, ContPeriodo, ContRegla, ContReglaLinea, ContTipoComprobante, CuentaInput, EstadoSimulacion, Moneda,
@@ -95,12 +96,18 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
   /** El estado con las tasas manuales de «Cambio» unidas a las del sistema (la manual manda en su fecha). */
   const conCambios = (e: EstadoSimulacion, cs: ContCambio[]): EstadoSimulacion => ({ ...e, cont_tasas: tasasDe(e, cs) });
 
-  async function listCuentas(): Promise<ContCuenta[]> {
-    return (await almacen.leer()).cont_cuentas.sort((a, b) => compararCodigos(a.codigo, b.codigo));
+  async function listCuentas(empresaClave?: string): Promise<ContCuenta[]> {
+    const cuentas = (await almacen.leer()).cont_cuentas;
+    const filtradas = empresaClave ? cuentas.filter((c) => !c.empresa_clave || c.empresa_clave === empresaClave) : cuentas;
+    return filtradas.sort((a, b) => compararCodigos(a.codigo, b.codigo));
   }
 
-  async function getParametros(): Promise<ContParametros> {
-    return (await almacen.leer()).cont_parametros;
+  async function getParametros(empresaClave?: string): Promise<ContParametros> {
+    const p = (await almacen.leer()).cont_parametros;
+    if (empresaClave && empresaClave !== 'MGG') {
+      return { ...p, empresa_clave: empresaClave };
+    }
+    return p;
   }
 
   async function listEjercicios(): Promise<ContEjercicio[]> {
@@ -127,6 +134,7 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
       const padre = codigoPadre(codigo);
       const cuenta: ContCuenta = {
         id: `cta-${codigo}`,
+        empresa_clave: input.empresa_clave ?? 'MGG',
         codigo,
         nombre: input.nombre.trim().toUpperCase(),
         nivel: nivelDe(codigo),
@@ -176,12 +184,16 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
 
   /* ───────────── Comprobantes (tramo 2, al estilo Galac) ───────────── */
 
-  async function listCentrosCosto(): Promise<ContCentroCosto[]> {
-    return (await almacen.leer()).cont_centros_costo.sort((a, b) => a.codigo.localeCompare(b.codigo));
+  async function listCentrosCosto(empresaClave?: string): Promise<ContCentroCosto[]> {
+    const todos = (await almacen.leer()).cont_centros_costo;
+    const filtrados = empresaClave ? todos.filter((c) => !c.empresa_clave || c.empresa_clave === empresaClave) : todos;
+    return filtrados.sort((a, b) => a.codigo.localeCompare(b.codigo));
   }
 
-  async function listAuxiliares(): Promise<ContAuxiliar[]> {
-    return (await almacen.leer()).cont_auxiliares.sort((a, b) => a.codigo.localeCompare(b.codigo));
+  async function listAuxiliares(empresaClave?: string): Promise<ContAuxiliar[]> {
+    const todos = (await almacen.leer()).cont_auxiliares;
+    const filtrados = empresaClave ? todos.filter((a) => !a.empresa_clave || a.empresa_clave === empresaClave) : todos;
+    return filtrados.sort((a, b) => a.codigo.localeCompare(b.codigo));
   }
 
   /** VES por unidad de la moneda a esa fecha (la del día o la última anterior); null si no hay. */
@@ -190,8 +202,10 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
   }
 
   /** Cabeceras, de la más reciente a la más vieja. */
-  async function listComprobantes(): Promise<ContComprobante[]> {
-    return (await almacen.leer()).cont_comprobantes.sort((a, b) =>
+  async function listComprobantes(empresaClave?: string): Promise<ContComprobante[]> {
+    const todos = (await almacen.leer()).cont_comprobantes;
+    const filtrados = empresaClave ? todos.filter((c) => !c.empresa_clave || c.empresa_clave === empresaClave) : todos;
+    return filtrados.sort((a, b) =>
       b.fecha.localeCompare(a.fecha) || b.codigo.localeCompare(a.codigo) || b.created_at.localeCompare(a.created_at));
   }
 
@@ -332,11 +346,16 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
      Al migrar salen de las vistas cont_v_movimientos / cont_v_saldos
      (Carril BD); la forma de lo que devuelven no cambia. */
 
-  async function fuenteInformes(): Promise<FuenteInforme> {
+  async function fuenteInformes(empresaClave?: string): Promise<FuenteInforme> {
     const e = await almacen.leer();
+    const comprobantes = empresaClave ? e.cont_comprobantes.filter((c) => !c.empresa_clave || c.empresa_clave === empresaClave) : e.cont_comprobantes;
+    const cbtesIds = new Set(comprobantes.map((c) => c.id));
+    const lineas = empresaClave ? e.cont_comprobante_lineas.filter((l) => cbtesIds.has(l.comprobante_id)) : e.cont_comprobante_lineas;
+    const cuentas = empresaClave ? e.cont_cuentas.filter((c) => !c.empresa_clave || c.empresa_clave === empresaClave) : e.cont_cuentas;
+    const centros = empresaClave ? e.cont_centros_costo.filter((c) => !c.empresa_clave || c.empresa_clave === empresaClave) : e.cont_centros_costo;
+    const auxiliares = empresaClave ? e.cont_auxiliares.filter((a) => !a.empresa_clave || a.empresa_clave === empresaClave) : e.cont_auxiliares;
     return {
-      comprobantes: e.cont_comprobantes, lineas: e.cont_comprobante_lineas, cuentas: e.cont_cuentas,
-      centros: e.cont_centros_costo, auxiliares: e.cont_auxiliares,
+      comprobantes, lineas, cuentas, centros, auxiliares,
     };
   }
 
@@ -344,26 +363,26 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
   /** Cada informe va con su equivalente en la otra moneda (en `eq`), para mostrarlo debajo de la cifra. */
   const otraMoneda = (m: MonedaInforme): MonedaInforme => (m === 'VES' ? 'USD' : 'VES');
 
-  async function getLibroDiario(desde: string, hasta: string, moneda: MonedaInforme): Promise<LibroDiario> {
-    const f = await fuenteInformes();
+  async function getLibroDiario(desde: string, hasta: string, moneda: MonedaInforme, empresaClave?: string): Promise<LibroDiario> {
+    const f = await fuenteInformes(empresaClave);
     return diarioConEquivalente(libroDiario(f, desde, hasta, moneda), libroDiario(f, desde, hasta, otraMoneda(moneda)));
   }
 
   /** Balances → Mayor Analítico, Detallado o Resumido. */
-  async function getMayorAnalitico(filtro: FiltroMayor): Promise<CuentaMayor[]> {
-    const f = await fuenteInformes();
+  async function getMayorAnalitico(filtro: FiltroMayor, empresaClave?: string): Promise<CuentaMayor[]> {
+    const f = await fuenteInformes(empresaClave);
     return mayorConEquivalente(mayorAnalitico(f, filtro), mayorAnalitico(f, { ...filtro, moneda: otraMoneda(filtro.moneda) }));
   }
 
   /** Informes → Informes de Movimientos de Cuentas → Movimientos de Auxiliares (photo_55). */
-  async function getMovimientosAuxiliares(filtro: FiltroAuxiliares): Promise<AuxiliarMayor[]> {
-    const f = await fuenteInformes();
+  async function getMovimientosAuxiliares(filtro: FiltroAuxiliares, empresaClave?: string): Promise<AuxiliarMayor[]> {
+    const f = await fuenteInformes(empresaClave);
     return auxiliaresConEquivalente(movimientosAuxiliares(f, filtro), movimientosAuxiliares(f, { ...filtro, moneda: otraMoneda(filtro.moneda) }));
   }
 
   /** Balances → Balance de Comprobación, hasta el nivel de detalle pedido. */
-  async function getBalanceComprobacion(filtro: FiltroBalance): Promise<BalanceComprobacion> {
-    const f = await fuenteInformes();
+  async function getBalanceComprobacion(filtro: FiltroBalance, empresaClave?: string): Promise<BalanceComprobacion> {
+    const f = await fuenteInformes(empresaClave);
     return balanceConEquivalente(balanceComprobacion(f, filtro), balanceComprobacion(f, { ...filtro, moneda: otraMoneda(filtro.moneda) }));
   }
 
@@ -404,25 +423,27 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
      transacción; la única (origen_tabla, origen_id, evento) impide
      contabilizar dos veces. */
 
-  async function listReglasContabilizacion(): Promise<ReglaCompleta[]> {
+  async function listReglasContabilizacion(empresaClave?: string): Promise<ReglaCompleta[]> {
     const e = await almacen.leer();
-    return e.cont_reglas
+    const reglas = empresaClave ? e.cont_reglas.filter((r) => !r.empresa_clave || r.empresa_clave === empresaClave) : e.cont_reglas;
+    return reglas
       .sort((a, b) => a.origen_modulo.localeCompare(b.origen_modulo) || a.pestana.localeCompare(b.pestana) || a.codigo.localeCompare(b.codigo))
       .map((regla) => ({ regla, lineas: e.cont_regla_lineas.filter((l) => l.regla_id === regla.id).sort((a, b) => a.renglon - b.renglon) }));
   }
 
-  async function listMapeos(): Promise<ContMapeo[]> {
-    return (await almacen.leer()).cont_mapeos;
+  async function listMapeos(empresaClave?: string): Promise<ContMapeo[]> {
+    const mapeos = (await almacen.leer()).cont_mapeos;
+    return empresaClave ? mapeos.filter((m) => !m.empresa_clave || m.empresa_clave === empresaClave) : mapeos;
   }
 
   /** La bandeja: los documentos de los módulos con su estado frente a Contabilidad, en orden de fecha. */
-  async function listIntegraciones(filtro: { estados?: ContIntegracion['estado'][] } = {}): Promise<DocumentoIntegracion[]> {
+  async function listIntegraciones(filtro: { estados?: ContIntegracion['estado'][] } = {}, empresaClave?: string): Promise<DocumentoIntegracion[]> {
     const [e, docs, cs] = await Promise.all([almacen.leer(), fuentes.documentos(), cambios.leer()]);
     const porId = new Map(docs.map((d) => [d.id, d]));
     const comprobante = new Map(e.cont_comprobantes.map((c) => [c.id, c]));
     const cat = catalogoDe(conCambios(e, cs));
     return e.cont_integraciones
-      .filter((i) => !filtro.estados || filtro.estados.includes(i.estado))
+      .filter((i) => (!empresaClave || !i.empresa_clave || i.empresa_clave === empresaClave) && (!filtro.estados || filtro.estados.includes(i.estado)))
       .sort(ordenIntegracion)
       .map((integracion) => {
         const documento = porId.get(integracion.origen_id) ?? null;
@@ -737,7 +758,7 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
     return almacen.modificar((e) => {
       falla(validarCentroCosto(x, e.cont_centros_costo));
       const codigo = x.codigo.trim().toUpperCase();
-      const c: ContCentroCosto = { id: `cc-${codigo}`, codigo, nombre: x.nombre.trim().toUpperCase(), padre_id: x.padre_id, tipo: x.tipo, origen_clave: null, activo: true };
+      const c: ContCentroCosto = { id: `cc-${codigo}`, empresa_clave: x.empresa_clave ?? 'MGG', codigo, nombre: x.nombre.trim().toUpperCase(), padre_id: x.padre_id, tipo: x.tipo, origen_clave: null, activo: true };
       e.cont_centros_costo.push(c);
       return c;
     });
@@ -765,7 +786,7 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
     return almacen.modificar((e) => {
       falla(validarAuxiliar(x, e.cont_auxiliares));
       const n = normalizarAuxiliar(x);
-      const a: ContAuxiliar = { id: `aux-${n.tipo}-${n.codigo}`, ...n, origen_tabla: null, origen_id: null, activo: true };
+      const a: ContAuxiliar = { id: `aux-${n.tipo}-${n.codigo}`, empresa_clave: x.empresa_clave ?? 'MGG', ...n, origen_tabla: null, origen_id: null, activo: true };
       e.cont_auxiliares.push(a);
       return a;
     });
@@ -920,9 +941,33 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
     });
   }
 
+  async function aplicarPlanMGG(): Promise<void> {
+    await almacen.modificar((estado) => {
+      estado.cont_parametros.empresa_nombre = PARAMETROS_MGG.empresa_nombre;
+      estado.cont_parametros.centro_costo_defecto_id = PARAMETROS_MGG.centro_costo_defecto_id;
+      for (const cc of CENTROS_COSTO_MGG) {
+        const existe = estado.cont_centros_costo.find((x) => x.codigo === cc.codigo);
+        if (existe) {
+          Object.assign(existe, cc);
+        } else {
+          estado.cont_centros_costo.push(cc as ContCentroCosto);
+        }
+      }
+      const cuentasMGG = generarPlanCuentasMGG();
+      for (const cta of cuentasMGG) {
+        const existe = estado.cont_cuentas.find((x) => x.codigo === cta.codigo);
+        if (existe) {
+          Object.assign(existe, cta);
+        } else {
+          estado.cont_cuentas.push(cta);
+        }
+      }
+    });
+  }
+
   return {
     listCuentas, getParametros, listEjercicios, listPeriodos, listMonedas, listTiposComprobante,
-    crearCuenta, cambiarActivaCuenta, reiniciarDatosEjemplo,
+    crearCuenta, cambiarActivaCuenta, reiniciarDatosEjemplo, aplicarPlanMGG, aplicarPlanGoldenTouch: aplicarPlanMGG, aplicarPlanOficial: aplicarPlanMGG,
     listCentrosCosto, listAuxiliares, getTasa, listComprobantes, getComprobante,
     grabarComprobante, reversarComprobante,
     getLibroDiario, getMayorAnalitico, getMovimientosAuxiliares, getBalanceComprobacion,
@@ -1061,7 +1106,7 @@ const repo = crearRepositorio(almacenDeLaApp, FUENTES_BD, almacenCambiosDeLaApp)
 
 export const {
   listCuentas, getParametros, listEjercicios, listPeriodos, listMonedas, listTiposComprobante,
-  crearCuenta, cambiarActivaCuenta, reiniciarDatosEjemplo,
+  crearCuenta, cambiarActivaCuenta, reiniciarDatosEjemplo, aplicarPlanMGG, aplicarPlanGoldenTouch, aplicarPlanOficial,
   listCentrosCosto, listAuxiliares, getTasa, listComprobantes, getComprobante,
   grabarComprobante, reversarComprobante,
   getLibroDiario, getMayorAnalitico, getMovimientosAuxiliares, getBalanceComprobacion,

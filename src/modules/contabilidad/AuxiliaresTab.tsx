@@ -49,7 +49,7 @@ function tablaGuardada(): TablaCatalogo {
   }
 }
 
-export function AuxiliaresTab({ parametros }: { parametros: ContParametros }) {
+export function AuxiliaresTab({ parametros, empresaClave = 'MGG' }: { parametros: ContParametros; empresaClave?: string }) {
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const [tabla, setTabla] = useState<TablaCatalogo>(tablaGuardada);
@@ -65,13 +65,13 @@ export function AuxiliaresTab({ parametros }: { parametros: ContParametros }) {
   const cargar = useCallback(async () => {
     try {
       const [auxiliares, cambios, centros, monedas, monedasLocales, paises, tipos] = await Promise.all([
-        listAuxiliares(), listCambios(), listCentrosCosto(), listMonedas(), listMonedasLocales(), listPaises(), listTiposComprobante(),
+        listAuxiliares(empresaClave), listCambios(), listCentrosCosto(empresaClave), listMonedas(), listMonedasLocales(), listPaises(), listTiposComprobante(),
       ]);
       setDatos({ auxiliares, cambios, centros, monedas, monedasLocales, paises, tipos });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron leer las tablas.', 'error');
     }
-  }, []);
+  }, [empresaClave]);
 
   useEffect(() => { void cargar(); }, [cargar]);
 
@@ -198,7 +198,7 @@ export function AuxiliaresTab({ parametros }: { parametros: ContParametros }) {
       </div>
 
       {ventana && datos && (
-        <FichaModal tabla={tabla} modo={ventana.modo} id={ventana.id} datos={datos} parametros={parametros} actor={actor}
+        <FichaModal tabla={tabla} modo={ventana.modo} id={ventana.id} datos={datos} parametros={parametros} actor={actor} empresaClave={empresaClave}
           onCerrar={() => setVentana(null)}
           onGuardado={async (id) => { setVentana(null); await cargar(); setElegida(id); }} />
       )}
@@ -313,19 +313,19 @@ function valoresDe(t: TablaCatalogo, id: string | null, d: DatosCatalogos): Valo
 }
 
 /** Graba la ficha y devuelve el id del registro (para dejarlo elegido en la rejilla). */
-async function grabar(t: TablaCatalogo, modo: 'insertar' | 'modificar', id: string | null, v: Valores, actor: string): Promise<string> {
+async function grabar(t: TablaCatalogo, modo: 'insertar' | 'modificar', id: string | null, v: Valores, actor: string, empresaClave = 'MGG'): Promise<string> {
   const numero = (s: string) => parseDecimal(s) ?? NaN;
   switch (t) {
     case 'auxiliar':
       return modo === 'insertar'
-        ? (await crearAuxiliar({ tipo: v.tipo as TipoAuxiliar, codigo: v.codigo, nombre: v.nombre, rif: v.rif })).id
+        ? (await crearAuxiliar({ tipo: v.tipo as TipoAuxiliar, codigo: v.codigo, nombre: v.nombre, rif: v.rif, empresa_clave: empresaClave })).id
         : (await modificarAuxiliar(id!, { nombre: v.nombre, rif: v.rif })).id;
     case 'cambio': {
       const x = { moneda: v.moneda, fecha: v.fecha, tasa_ves: numero(v.tasa_ves) };
       return modo === 'insertar' ? (await crearCambio(x, actor)).id : (await modificarCambio(id!, x, actor)).id;
     }
     case 'centro': {
-      const x = { nombre: v.nombre, tipo: v.tipo as ContCentroCosto['tipo'], padre_id: v.padre_id || null };
+      const x = { nombre: v.nombre, tipo: v.tipo as ContCentroCosto['tipo'], padre_id: v.padre_id || null, empresa_clave: empresaClave };
       return modo === 'insertar' ? (await crearCentroCosto({ codigo: v.codigo, ...x })).id : (await modificarCentroCosto(id!, x)).id;
     }
     case 'moneda':
@@ -351,8 +351,8 @@ async function grabar(t: TablaCatalogo, modo: 'insertar' | 'modificar', id: stri
 
 const TITULO_MODO: Record<Modo, string> = { insertar: 'Insertar', modificar: 'Modificar', consultar: 'Consultar' };
 
-function FichaModal({ tabla, modo, id, datos, parametros, actor, onCerrar, onGuardado }: {
-  tabla: TablaCatalogo; modo: Modo; id: string | null; datos: DatosCatalogos; parametros: ContParametros; actor: string;
+function FichaModal({ tabla, modo, id, datos, parametros, actor, empresaClave = 'MGG', onCerrar, onGuardado }: {
+  tabla: TablaCatalogo; modo: Modo; id: string | null; datos: DatosCatalogos; parametros: ContParametros; actor: string; empresaClave?: string;
   onCerrar: () => void; onGuardado: (id: string) => Promise<void>;
 }) {
   const [valores, setValores] = useState<Valores>(() => valoresDe(tabla, id, datos));
@@ -366,7 +366,7 @@ function FichaModal({ tabla, modo, id, datos, parametros, actor, onCerrar, onGua
     setGuardando(true);
     setErrores([]);
     try {
-      await onGuardado(await grabar(tabla, modo, id, valores, actor));
+      await onGuardado(await grabar(tabla, modo, id, valores, actor, empresaClave));
       toast(`${tituloTabla(tabla)}: ${modo === 'insertar' ? 'insertado' : 'modificado'}.`, 'success');
     } catch (e) {
       // El repositorio junta los errores en una frase por regla: se muestran uno por renglón.
@@ -376,7 +376,7 @@ function FichaModal({ tabla, modo, id, datos, parametros, actor, onCerrar, onGua
   }
 
   return (
-    <Modal title={`${tituloTabla(tabla)} · ${TITULO_MODO[modo]}`} size="sm" onClose={() => !guardando && onCerrar()}
+    <Modal title={`${tituloTabla(tabla)} · ${TITULO_MODO[modo]}`} size="md" onClose={() => !guardando && onCerrar()}
       footer={<>
         <button type="button" className="btn btn-ghost" onClick={onCerrar} disabled={guardando}>{soloLectura ? 'Salir' : 'Cancelar'}</button>
         {!soloLectura && <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>{guardando ? 'Grabando…' : 'Grabar'}</button>}

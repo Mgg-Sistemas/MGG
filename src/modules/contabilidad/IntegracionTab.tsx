@@ -36,7 +36,7 @@ import type { ContAuxiliar, ContCentroCosto, ContCuenta, ContIntegracion, ContMa
 
 type Vista = 'bandeja' | 'reglas' | 'mapeos';
 
-export function IntegracionTab() {
+export function IntegracionTab({ empresaClave = 'MGG' }: { empresaClave?: string }) {
   const [vista, setVista] = useState<Vista>('bandeja');
   return (
     <>
@@ -45,9 +45,9 @@ export function IntegracionTab() {
         <button role="tab" aria-selected={vista === 'reglas'} className={vista === 'reglas' ? 'active' : ''} onClick={() => setVista('reglas')}>Reglas de Contabilización</button>
         <button role="tab" aria-selected={vista === 'mapeos'} className={vista === 'mapeos' ? 'active' : ''} onClick={() => setVista('mapeos')}>Mapeos</button>
       </div>
-      {vista === 'bandeja' && <BandejaPorContabilizar />}
-      {vista === 'reglas' && <ReglasContabilizacion />}
-      {vista === 'mapeos' && <MapeosVista />}
+      {vista === 'bandeja' && <BandejaPorContabilizar empresaClave={empresaClave} />}
+      {vista === 'reglas' && <ReglasContabilizacion empresaClave={empresaClave} />}
+      {vista === 'mapeos' && <MapeosVista empresaClave={empresaClave} />}
     </>
   );
 }
@@ -56,13 +56,13 @@ export function IntegracionTab() {
 
 interface Catalogo { cuentas: ContCuenta[]; centros: ContCentroCosto[]; auxiliares: ContAuxiliar[]; tipos: ContTipoComprobante[] }
 
-function useCatalogo(): Catalogo | null {
+function useCatalogo(empresaClave?: string): Catalogo | null {
   const [cat, setCat] = useState<Catalogo | null>(null);
   useEffect(() => {
-    Promise.all([listCuentas(), listCentrosCosto(), listAuxiliares(), listTiposComprobante()])
+    Promise.all([listCuentas(empresaClave), listCentrosCosto(empresaClave), listAuxiliares(empresaClave), listTiposComprobante()])
       .then(([cuentas, centros, auxiliares, tipos]) => setCat({ cuentas, centros, auxiliares, tipos }))
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudieron leer los catálogos.', 'error'));
-  }, []);
+  }, [empresaClave]);
   return cat;
 }
 
@@ -87,7 +87,7 @@ export function EtiquetaIntegracion({ fila }: { fila: DocumentoIntegracion }) {
   return <span className="cont-etq acr">Pendiente</span>;
 }
 
-export function BandejaPorContabilizar() {
+export function BandejaPorContabilizar({ empresaClave = 'MGG' }: { empresaClave?: string }) {
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const [moneda, setMoneda] = useMonedaVista();
@@ -101,11 +101,11 @@ export function BandejaPorContabilizar() {
 
   const cargar = useCallback(async () => {
     try {
-      setFilas(await listIntegraciones({ estados: ESTADOS[filtro] }));
+      setFilas(await listIntegraciones({ estados: ESTADOS[filtro] }, empresaClave));
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo leer la bandeja.', 'error');
     }
-  }, [filtro]);
+  }, [filtro, empresaClave]);
   useEffect(() => { void cargar(); setElegidos(new Set()); setPagina(0); }, [cargar]);
 
   const modulos = useMemo(() => [...new Set((filas ?? []).map((f) => f.integracion.origen_modulo))].sort(), [filas]);
@@ -220,7 +220,7 @@ export function BandejaPorContabilizar() {
       </div>
 
       {vistaPrevia && (
-        <VistaPreviaComprobante fila={vistaPrevia} moneda={moneda} trabajando={trabajando}
+        <VistaPreviaComprobante fila={vistaPrevia} empresaClave={empresaClave} moneda={moneda} trabajando={trabajando}
           onCerrar={() => setVistaPrevia(null)}
           onContabilizar={async () => { await contabilizar([vistaPrevia.integracion.id]); setVistaPrevia(null); }} />
       )}
@@ -229,10 +229,10 @@ export function BandejaPorContabilizar() {
 }
 
 /** Lo que generaría la regla para un documento, sin grabar (Galac: «Editar Inmediatamente el Comprobante Generado»). */
-function VistaPreviaComprobante({ fila, moneda, trabajando, onCerrar, onContabilizar }: {
-  fila: DocumentoIntegracion; moneda: MonedaInforme; trabajando: boolean; onCerrar: () => void; onContabilizar: () => Promise<void>;
+function VistaPreviaComprobante({ fila, empresaClave, moneda, trabajando, onCerrar, onContabilizar }: {
+  fila: DocumentoIntegracion; empresaClave?: string; moneda: MonedaInforme; trabajando: boolean; onCerrar: () => void; onContabilizar: () => Promise<void>;
 }) {
-  const cat = useCatalogo();
+  const cat = useCatalogo(empresaClave);
   const [g, setG] = useState<ComprobanteGenerado | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -293,15 +293,15 @@ function VistaPreviaComprobante({ fila, moneda, trabajando, onCerrar, onContabil
 
 const TEXTO_CENTRO: Record<ContReglaLinea['centro_fuente'], string> = { ninguno: '—', del_evento: 'El del documento', fijo: 'Fijo' };
 
-export function ReglasContabilizacion() {
-  const cat = useCatalogo();
+export function ReglasContabilizacion({ empresaClave = 'MGG' }: { empresaClave?: string } = {}) {
+  const cat = useCatalogo(empresaClave);
   const [reglas, setReglas] = useState<ReglaCompleta[] | null>(null);
   const [modulo, setModulo] = useState('');
   useEffect(() => {
-    listReglasContabilizacion()
+    listReglasContabilizacion(empresaClave)
       .then((r) => { setReglas(r); setModulo((m) => m || r[0]?.regla.origen_modulo || ''); })
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudieron leer las reglas.', 'error'));
-  }, []);
+  }, [empresaClave]);
   if (!reglas || !cat) return <p className="muted">Leyendo las reglas…</p>;
 
   const modulos = [...new Set(reglas.map((r) => r.regla.origen_modulo))];
@@ -364,12 +364,12 @@ export function ReglasContabilizacion() {
 
 /* ───────────── Mapeos ───────────── */
 
-export function MapeosVista() {
-  const cat = useCatalogo();
+export function MapeosVista({ empresaClave = 'MGG' }: { empresaClave?: string } = {}) {
+  const cat = useCatalogo(empresaClave);
   const [mapeos, setMapeos] = useState<ContMapeo[] | null>(null);
   useEffect(() => {
-    listMapeos().then(setMapeos).catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudieron leer los mapeos.', 'error'));
-  }, []);
+    listMapeos(empresaClave).then(setMapeos).catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudieron leer los mapeos.', 'error'));
+  }, [empresaClave]);
   if (!mapeos || !cat) return <p className="muted">Leyendo los mapeos…</p>;
   const tipos = [...new Set(mapeos.map((m) => m.tipo))];
   return (

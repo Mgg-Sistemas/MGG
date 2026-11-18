@@ -60,7 +60,7 @@ type Ventana =
   | { kind: 'reversar'; comp: ContComprobante };
 
 /** La página la monta con `key` = versión de los datos: al reiniciar la simulación arranca de cero. */
-export function ComprobantesTab({ parametros }: { parametros: ContParametros }) {
+export function ComprobantesTab({ parametros, empresaClave = 'MGG' }: { parametros: ContParametros; empresaClave?: string }) {
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const [lista, setLista] = useState<ContComprobante[] | null>(null);
@@ -78,14 +78,19 @@ export function ComprobantesTab({ parametros }: { parametros: ContParametros }) 
   const cargar = useCallback(async () => {
     try {
       const [comprobantes, cuentas, centros, auxiliares, tipos, periodos] = await Promise.all([
-        listComprobantes(), listCuentas(), listCentrosCosto(), listAuxiliares(), listTiposComprobante(), listPeriodos(),
+        listComprobantes(empresaClave),
+        listCuentas(empresaClave),
+        listCentrosCosto(empresaClave),
+        listAuxiliares(empresaClave),
+        listTiposComprobante(),
+        listPeriodos(),
       ]);
       setLista(comprobantes);
       setCat({ cuentas, centros, auxiliares, tipos, periodos });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron leer los comprobantes.', 'error');
     }
-  }, []);
+  }, [empresaClave]);
 
   useEffect(() => { void cargar(); }, [cargar]);
 
@@ -191,7 +196,14 @@ export function ComprobantesTab({ parametros }: { parametros: ContParametros }) 
         <EditarComprobante modo={ventana.modo} base={ventana.base} cat={cat} parametros={parametros}
           onCerrar={() => setVentana({ kind: 'ninguna' })}
           onGrabar={async (input) => {
-            const c = await grabarComprobante(input, actor);
+            const inputConEmpresa = {
+              ...input,
+              cabecera: {
+                ...input.cabecera,
+                empresa_clave: input.cabecera.empresa_clave ?? empresaClave,
+              },
+            };
+            const c = await grabarComprobante(inputConEmpresa, actor);
             toast(c.estado === 'contabilizado'
               ? `Comprobante ${c.codigo} grabado: Contabilizado.`
               : `Comprobante ${c.codigo} grabado DESCUADRADO: no afecta saldos hasta que cuadre.`, c.estado === 'contabilizado' ? 'success' : 'warning');
@@ -606,7 +618,7 @@ export function ReversarDialogo({ comp, onCerrar, onReversar }: {
     }
   }
   return (
-    <Modal title={`Reversar el comprobante ${comp.codigo}`} size="sm" onClose={() => !enviando && onCerrar()}
+    <Modal title={`Reversar el comprobante ${comp.codigo}`} size="md" compact onClose={() => !enviando && onCerrar()}
       footer={<>
         <button type="button" className="btn btn-ghost" onClick={onCerrar} disabled={enviando}>Salir</button>
         <button type="button" className="btn btn-danger" onClick={() => void confirmar()} disabled={enviando || !motivo.trim()}>{enviando ? 'Reversando…' : 'Reversar'}</button>

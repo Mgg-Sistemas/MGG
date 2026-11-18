@@ -50,7 +50,7 @@ describe('el camino de la app: almacén por defecto con import() dinámico', () 
   it('el repositorio lee los 1.419 comprobantes y la compañía de BD', async () => {
     const repo = crearRepositorio(new AlmacenSimulado(null));
     expect(await repo.listComprobantes()).toHaveLength(bd.meta.oraculo.comprobantes);
-    expect((await repo.getParametros()).empresa_nombre).toBe('Minera Ejemplo, C.A. (datos ficticios)');
+    expect((await repo.getParametros()).empresa_nombre).toBe(bd.parametros.empresa_nombre);
     expect((await repo.listCuentas()).length).toBe(bd.cuentas.length);
   });
 });

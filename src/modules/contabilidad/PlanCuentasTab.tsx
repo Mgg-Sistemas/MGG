@@ -12,7 +12,7 @@ import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useSession } from '@/modules/auth/authStore';
-import { cambiarActivaCuenta, crearCuenta, listCuentas } from './contabilidad.repository';
+import { cambiarActivaCuenta, crearCuenta, listCuentas, aplicarPlanMGG } from './contabilidad.repository';
 import {
   NOMBRE_CLASE, NOMBRE_NATURALEZA, claseSugerida, codigoPadre, codigosConHijos, codigosHastaNivel, construirArbol, filtrarArbol,
   formatoDeMascara, naturalezaSugerida, resumenPlan, siguienteCodigoHijo, validarNuevaCuenta, type NodoCuenta,
@@ -23,7 +23,7 @@ import type { ClaseCuenta, ContCuenta, ContParametros, CuentaInput, Moneda, Natu
 const nombreAuxiliar = nombreTipoAuxiliar;
 
 /** La página la monta con `key` = versión de los datos: al reiniciar la simulación arranca de cero. */
-export function PlanCuentasTab({ parametros }: { parametros: ContParametros }) {
+export function PlanCuentasTab({ parametros, empresaClave = 'MGG' }: { parametros: ContParametros; empresaClave?: string }) {
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const [cuentas, setCuentas] = useState<ContCuenta[] | null>(null);
@@ -39,7 +39,7 @@ export function PlanCuentasTab({ parametros }: { parametros: ContParametros }) {
 
   const cargar = useCallback(async () => {
     try {
-      const lista = await listCuentas();
+      const lista = await listCuentas(empresaClave);
       setCuentas(lista);
       if (!inicializado.current) {
         inicializado.current = true;
@@ -48,7 +48,7 @@ export function PlanCuentasTab({ parametros }: { parametros: ContParametros }) {
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudo leer el plan de cuentas.', 'error');
     }
-  }, []);
+  }, [empresaClave]);
 
   useEffect(() => { void cargar(); }, [cargar]);
 
@@ -64,6 +64,21 @@ export function PlanCuentasTab({ parametros }: { parametros: ContParametros }) {
     if (s.has(codigo)) s.delete(codigo); else s.add(codigo);
     return s;
   });
+
+  const [cargandoMGG, setCargandoMGG] = useState(false);
+  const cargarPlanMGG = async () => {
+    if (!window.confirm('¿Deseas aplicar el Plan de Cuentas oficial de MINERAL GROUP GUAYANA C.A.? Se incorporarán las cuentas de bancos nacionales, divisas, inventarios mineros y centros de costo de la empresa.')) return;
+    setCargandoMGG(true);
+    try {
+      await aplicarPlanMGG();
+      await cargar();
+      toast('Plan de cuentas oficial de MGG aplicado con éxito.', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo aplicar el plan de cuentas.', 'error');
+    } finally {
+      setCargandoMGG(false);
+    }
+  };
 
   async function alternarActiva(c: ContCuenta) {
     try {
@@ -110,6 +125,9 @@ export function PlanCuentasTab({ parametros }: { parametros: ContParametros }) {
           <input type="checkbox" checked={verInactivas} onChange={(e) => setVerInactivas(e.target.checked)} /> Mostrar inactivas
         </label>
         <span className="cont-sep" />
+        <button type="button" className="btn btn-secondary btn-sm" title="Aplica el catálogo oficial de cuentas de MINERAL GROUP GUAYANA C.A." disabled={cargandoMGG} onClick={() => void cargarPlanMGG()}>
+          {cargandoMGG ? 'Aplicando…' : '⭐ Plan Oficial MGG'}
+        </button>
         <button type="button" className="btn btn-primary btn-sm" onClick={() => setNueva({ padre: null })}>+ Nueva cuenta</button>
       </div>
 
@@ -152,7 +170,7 @@ export function PlanCuentasTab({ parametros }: { parametros: ContParametros }) {
       </div>
 
       {nueva && (
-        <NuevaCuentaModal padre={nueva.padre} cuentas={cuentas} parametros={parametros}
+        <NuevaCuentaModal padre={nueva.padre} cuentas={cuentas} parametros={parametros} empresaClave={empresaClave}
           onCerrar={() => setNueva(null)}
           onGuardar={async (input) => {
             const creada = await crearCuenta(input, actor);
@@ -223,10 +241,11 @@ function FichaCuenta({ cuenta, cuentas, parametros, onSubcuenta, onAlternarActiv
   );
 }
 
-function NuevaCuentaModal({ padre, cuentas, parametros, onCerrar, onGuardar }: {
+function NuevaCuentaModal({ padre, cuentas, parametros, empresaClave, onCerrar, onGuardar }: {
   padre: ContCuenta | null;
   cuentas: ContCuenta[];
   parametros: ContParametros;
+  empresaClave?: string;
   onCerrar: () => void;
   onGuardar: (input: CuentaInput) => Promise<void>;
 }) {
@@ -259,6 +278,7 @@ function NuevaCuentaModal({ padre, cuentas, parametros, onCerrar, onGuardar }: {
   }
 
   const input: CuentaInput = {
+    empresa_clave: empresaClave ?? 'MGG',
     codigo, nombre, es_movimiento: esMovimiento, naturaleza, clase,
     exige_centro_costo: esMovimiento && exigeCentro,
     exige_auxiliar: esMovimiento && exigeAuxiliar,
@@ -281,7 +301,7 @@ function NuevaCuentaModal({ padre, cuentas, parametros, onCerrar, onGuardar }: {
   }
 
   return (
-    <Modal title={padre ? `Nueva subcuenta de ${padre.codigo} · ${padre.nombre}` : 'Nueva cuenta'} size="sm" onClose={() => !guardando && onCerrar()}
+    <Modal title={padre ? `Nueva subcuenta de ${padre.codigo} · ${padre.nombre}` : 'Nueva cuenta'} size="md" onClose={() => !guardando && onCerrar()}
       footer={<>
         <button type="button" className="btn btn-ghost" onClick={onCerrar} disabled={guardando}>Cancelar</button>
         <button type="button" className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>{guardando ? 'Guardando…' : 'Crear cuenta'}</button>

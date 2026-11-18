@@ -25,7 +25,13 @@
    Y las de uso: no se inactiva lo que el sistema necesita para trabajar.
    ============================================================ */
 
-import { normalizarRif } from '@/shared/lib/rif';
+import { partirRif } from '@/shared/lib/rif';
+
+function normalizarRifAuxiliar(rif?: string | null): string | null {
+  if (!rif) return null;
+  const { letra, numero } = partirRif(rif);
+  return numero ? `${letra}-${numero}` : null;
+}
 import type {
   ContAuxiliar, ContCambio, ContCentroCosto, ContMoneda, ContMonedaLocal, ContPais, ContParametros, ContRegla,
   ContTipoComprobante, TipoAuxiliar,
@@ -85,7 +91,7 @@ export function erroresInactivarTipo(t: ContTipoComprobante, reglas: ContRegla[]
 
 /* ───────────── Centros de costo ───────────── */
 
-export interface CentroCostoInput { codigo: string; nombre: string; tipo: ContCentroCosto['tipo']; padre_id: string | null }
+export interface CentroCostoInput { empresa_clave?: string; codigo: string; nombre: string; tipo: ContCentroCosto['tipo']; padre_id: string | null }
 
 function erroresPadre(padreId: string | null, existentes: ContCentroCosto[], propio?: string): string[] {
   if (!padreId) return [];
@@ -135,9 +141,9 @@ export function erroresActivarCentro(c: ContCentroCosto, todos: ContCentroCosto[
 
 /* ───────────── Auxiliares ───────────── */
 
-export interface AuxiliarInput { tipo: TipoAuxiliar; codigo: string; nombre: string; rif: string }
+export interface AuxiliarInput { empresa_clave?: string; tipo: TipoAuxiliar; codigo: string; nombre: string; rif: string }
 
-const erroresRif = (rif: string) => (rif.trim() && !normalizarRif(rif) ? ['El RIF no tiene dígitos: se escribe como J-123456789.'] : []);
+const erroresRif = (rif: string) => (rif.trim() && !normalizarRifAuxiliar(rif) ? ['El RIF no tiene dígitos: se escribe como J-123456789.'] : []);
 
 export function validarAuxiliar(x: AuxiliarInput, existentes: ContAuxiliar[]): string[] {
   const errores: string[] = [];
@@ -153,7 +159,7 @@ export function validarAuxiliar(x: AuxiliarInput, existentes: ContAuxiliar[]): s
 export const erroresModificarAuxiliar = (x: Pick<AuxiliarInput, 'nombre' | 'rif'>): string[] => [...sinNombre(x.nombre), ...erroresRif(x.rif)];
 
 /** Cómo se guarda: código en mayúsculas, nombre sin espacios de más, RIF «LETRA-DÍGITOS» o nulo. */
-export const normalizarAuxiliar = (x: AuxiliarInput) => ({ tipo: x.tipo, codigo: mayus(x.codigo), nombre: x.nombre.trim().toUpperCase(), rif: normalizarRif(x.rif) || null });
+export const normalizarAuxiliar = (x: AuxiliarInput) => ({ tipo: x.tipo, codigo: mayus(x.codigo), nombre: x.nombre.trim().toUpperCase(), rif: normalizarRifAuxiliar(x.rif) });
 
 /* ───────────── Monedas, países y monedas locales ───────────── */
 
