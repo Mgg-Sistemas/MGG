@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { PedidoDelivery } from './delivery';
+import type { FotoDelivery, PedidoDelivery } from './delivery';
 import { armarFilasHistorial, filtrarPorOrigen } from './deliveryPanel';
 import {
   ESTADOS_FILTRO, MAX_PEDIDOS_WHATSAPP, ORIGENES_FILTRO, detallePedido, filtrarHistorial, resumenReporte, textoFiltros,
@@ -68,9 +68,12 @@ describe('Reporte de un pedido', () => {
 });
 
 describe('Reporte general', () => {
-  const base = { repartidor_email: null, en_ruta_en: null, entregado_en: null, cancelado_en: null, motivo_cancel: null, almacen_entrega: null };
+  const base = {
+    origen: 'compra' as const, nota_entrega: null, fotos_recibo: [] as FotoDelivery[], fotos_entrega: [] as FotoDelivery[],
+    repartidor_email: null, en_ruta_en: null, entregado_en: null, cancelado_en: null, motivo_cancel: null, almacen_entrega: null,
+  };
   const rows = [
-    { ...base, id: 'a', orden_id: 'o1', estado: 'entregado', repartidor_nombre: 'Pedro', aceptado_en: '2026-10-30T12:00:00Z', entregado_en: '2026-10-30T12:30:00Z', almacen_entrega: 'General', nota_entrega: 'ok', fotos_recibo: [{}], fotos_entrega: [{}, {}], orden: { oc_codigo: 'OC-1', codigo: 'SP-1', total: 10, moneda: 'USD', proveedor_id: 'p1' } },
+    { ...base, id: 'a', orden_id: 'o1', estado: 'entregado', repartidor_nombre: 'Pedro', aceptado_en: '2026-10-30T12:00:00Z', entregado_en: '2026-10-30T12:30:00Z', almacen_entrega: 'General', nota_entrega: 'ok', fotos_recibo: [{ path: 'p1' }] as FotoDelivery[], fotos_entrega: [{ path: 'p2' }, { path: 'p3' }] as FotoDelivery[], orden: { oc_codigo: 'OC-1', codigo: 'SP-1', total: 10, moneda: 'USD', proveedor_id: 'p1' } },
     { ...base, id: 'b', orden_id: 'o2', estado: 'entregado', repartidor_nombre: 'Pedro', aceptado_en: '2026-10-30T13:00:00Z', entregado_en: '2026-10-30T14:00:00Z', orden: { oc_codigo: 'OC-2', codigo: 'SP-2', total: 5, moneda: 'Bs', proveedor_id: 'p1' } },
     { ...base, id: 'c', orden_id: 'o3', estado: 'cancelado', repartidor_nombre: 'Ana', aceptado_en: '2026-10-30T09:00:00Z', cancelado_en: '2026-10-30T09:10:00Z', motivo_cancel: 'Avería del vehículo', orden: null },
     { ...base, id: 'd', orden_id: 'o3', estado: 'en_ruta', repartidor_nombre: 'Ana', aceptado_en: '2026-10-30T10:00:00Z', orden: null },
@@ -156,7 +159,10 @@ describe('Retiro en Almacén Los Pinos (02/11/2026)', () => {
   });
 
   it('general: filas del retiro, filtro por origen y conteo por origen', () => {
-    const base = { repartidor_email: null, en_ruta_en: null, entregado_en: null, cancelado_en: null, motivo_cancel: null, almacen_entrega: null };
+    const base = {
+      origen: 'compra' as const, nota_entrega: null, fotos_recibo: [] as FotoDelivery[], fotos_entrega: [] as FotoDelivery[],
+      repartidor_email: null, en_ruta_en: null, entregado_en: null, cancelado_en: null, motivo_cancel: null, almacen_entrega: null,
+    };
     const filas = armarFilasHistorial([
       { ...base, id: 'a', orden_id: 'o1', estado: 'entregado', repartidor_nombre: 'Pedro', aceptado_en: '2026-11-02T12:00:00Z', orden: { oc_codigo: 'OC-1', codigo: 'SP-1', total: 10, moneda: 'USD', proveedor_id: 'p1' } },
       { ...base, id: 'b', orden_id: 'o1', origen: 'almacen', estado: 'entregado', repartidor_nombre: 'Ana', aceptado_en: '2026-11-02T10:00:00Z', almacen_entrega: 'PRODUCCION', orden: { oc_codigo: 'OC-1', codigo: 'SP-1', total: 10, moneda: 'USD', proveedor_id: 'p1' } },
@@ -179,7 +185,10 @@ describe('Retiro en Almacén Los Pinos (02/11/2026)', () => {
 
 describe('Toma viva de una OC que Almacén ya recibió (02/11/2026)', () => {
   it('el histórico la muestra cerrada «Recibida por Almacén» y no cuenta para el motorizado', () => {
-    const base = { repartidor_email: null, en_ruta_en: null, entregado_en: null, cancelado_en: null, motivo_cancel: null, almacen_entrega: null };
+    const base = {
+      origen: 'compra' as const, nota_entrega: null, fotos_recibo: [] as FotoDelivery[], fotos_entrega: [] as FotoDelivery[],
+      repartidor_email: null, en_ruta_en: null, entregado_en: null, cancelado_en: null, motivo_cancel: null, almacen_entrega: null,
+    };
     const filas = armarFilasHistorial([
       { ...base, id: 'a', orden_id: 'o1', estado: 'en_ruta', repartidor_nombre: 'Pedro', aceptado_en: '2026-11-02T12:00:00Z',
         orden: { oc_codigo: 'OC-1', codigo: 'SP-1', total: 10, moneda: 'USD', proveedor_id: null, recibida_en: '2026-11-02T13:00:00Z' } },

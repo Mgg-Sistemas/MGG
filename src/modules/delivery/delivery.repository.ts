@@ -10,7 +10,7 @@ import { useRealtime } from '@/shared/lib/useRealtime';
 import { labelMetodoPago, urlAdjuntoOc } from '@/modules/pedidos/pedidos.repository';
 import type { PagoMetodo } from '@/shared/lib/types';
 import {
-  INTERRUPTOR_DELIVERY, MAX_FOTOS_DELIVERY, esDelCanal, type CanalDelivery,
+  MAX_FOTOS_DELIVERY, esDelCanal, type CanalDelivery,
   type FotoDelivery, type TipoFotoDelivery, type OrigenDelivery, type TipoDelivery,
   type PedidoDelivery, type RechazoDelivery, type UbicacionDelivery,
 } from './delivery';

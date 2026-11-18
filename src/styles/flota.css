@@ -597,16 +597,16 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 }
 
 /* Acciones rápidas: 2 columnas, mismo tamaño y estilo base (más cómodos al tacto en teléfono) */
-.flo-mv-acciones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .5rem; margin-bottom: .6rem; }
+.flo-mv-acciones { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: .65rem; margin-bottom: .75rem; }
 .flo-mv-accion {
   --tone: var(--primary);
-  width: 100%; min-height: 52px; padding: .4rem .6rem; min-width: 0;
-  flex-direction: column; justify-content: center; gap: .2rem; line-height: 1.15;
+  width: 100%; min-height: 80px; padding: .75rem .65rem; min-width: 0;
+  flex-direction: column; justify-content: center; gap: .35rem; line-height: 1.2;
   color: var(--tone); border-color: color-mix(in srgb, var(--tone) 40%, var(--border));
   background: color-mix(in srgb, var(--tone) 8%, transparent);
 }
-.flo-mv-accion .ico { font-size: 1.25rem; line-height: 1; }
-.flo-mv-accion strong { font-size: .88rem; white-space: normal; text-align: center; font-weight: 700; }
+.flo-mv-accion .ico { font-size: 1.65rem; line-height: 1; }
+.flo-mv-accion strong { font-size: .95rem; white-space: normal; text-align: center; font-weight: 700; }
 .flo-mv-accion:hover { color: var(--tone); border-color: var(--tone); }
 .flo-mv-accion[aria-pressed="true"] { border-color: var(--tone); box-shadow: inset 0 0 0 1px var(--tone); background: color-mix(in srgb, var(--tone) 18%, transparent); }
 .flo-mv-accion.tone-info { --tone: var(--info); }
@@ -615,13 +615,13 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 
 /* Acceso a «Mis Solicitudes y Órdenes» */
 .flo-mv-solicitudes {
-  width: 100%; min-height: 48px; min-width: 0; margin-bottom: .75rem; padding: .55rem .85rem;
+  width: 100%; min-height: 56px; min-width: 0; margin-bottom: .6rem; padding: .75rem .95rem;
   justify-content: space-between; gap: .5rem;
   border-color: color-mix(in srgb, var(--primary) 40%, var(--border)); background: var(--surface-2);
 }
-.flo-mv-solicitudes > span:first-child { display: inline-flex; align-items: center; gap: .5rem; min-width: 0; white-space: normal; text-align: left; font-weight: 700; font-size: .92rem; }
-.flo-mv-solicitudes .ico { font-size: 1.25rem; line-height: 1; }
-.flo-mv-solicitudes .badge { flex: none; font-size: .78rem; }
+.flo-mv-solicitudes > span:first-child { display: inline-flex; align-items: center; gap: .6rem; min-width: 0; white-space: normal; text-align: left; font-weight: 700; font-size: .96rem; }
+.flo-mv-solicitudes .ico { font-size: 1.45rem; line-height: 1; }
+.flo-mv-solicitudes .badge { flex: none; font-size: .82rem; padding: .25rem .55rem; }
 .flo-mv-solicitudes[aria-pressed="true"] { border-color: var(--primary); box-shadow: inset 0 0 0 1px var(--primary); background: var(--grad-primary-soft), var(--surface-2); }
 
 /* Encabezado del catálogo: título + contador y botones PDF / Nuevo en una fila con wrap */

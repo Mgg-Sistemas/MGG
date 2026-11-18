@@ -759,7 +759,7 @@ export function MaquinariaMovilView() {
         type="button"
         className="btn btn-ghost flo-mv-solicitudes"
         style={{
-          marginTop: '.45rem',
+          marginTop: '.2rem',
           border: verCatalogo ? '1px solid var(--primary)' : '1px solid var(--border)',
           background: verCatalogo ? 'color-mix(in srgb, var(--primary) 8%, var(--surface))' : undefined,
         }}
