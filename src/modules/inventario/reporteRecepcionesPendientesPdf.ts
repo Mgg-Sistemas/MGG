@@ -44,10 +44,10 @@ export async function generarReporteRecepcionesPdf(
   doc.setTextColor(217, 119, 6); // primary / ámbar
   doc.text('REPORTE DE MERCANCÍA PENDIENTE POR RECEPCIONAR EN ALMACÉN', 98, y + 23);
 
-  doc.setFontSize(9);
+  doc.setFontSize(9.5);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(220, 38, 38); // Rojo alerta
-  doc.text('🚨 NO HA LLEGADO A ALMACÉN · DAR STATUS', 98, y + 36);
+  doc.text('ALERTA: NO HA LLEGADO A ALMACEN - DAR STATUS', 98, y + 36);
 
   const ahora = new Date();
   const fechaHoraStr = `${ahora.toLocaleDateString('es-VE')} ${ahora.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })}`;
