@@ -177,7 +177,21 @@ export async function editarFotosDelivery(
     return { path, filename: original.name };
   }));
   const fotos = [...quedan, ...subidas];
-  const { error } = await supabase.rpc('delivery_editar_fotos', { p_pedido_id: pedidoId, p_tipo: tipo, p_fotos: fotos });
+  let { error } = await supabase.rpc('delivery_editar_fotos', { p_pedido_id: pedidoId, p_tipo: tipo, p_fotos: fotos });
+  if (error && (error.code === 'PGRST202' || error.message?.includes('delivery_editar_fotos') || error.message?.includes('schema cache'))) {
+    // Fallback: si delivery_editar_fotos aún no existe en la BD de Supabase
+    if (tipo === 'recibo' || tipo === 'entrega') {
+      const res = await supabase.rpc('delivery_fotos', { p_pedido_id: pedidoId, p_tipo: tipo, p_fotos: fotos });
+      error = res.error;
+    }
+    if (error) {
+      const col = tipo === 'recibo' ? 'fotos_recibo' : tipo === 'entrega' ? 'fotos_entrega' : 'fotos_factura';
+      const res2 = await supabase.from('delivery_pedidos').update({ [col]: fotos, updated_at: new Date().toISOString() }).eq('id', pedidoId);
+      if (!res2.error) {
+        error = null;
+      }
+    }
+  }
   if (error) {
     if (subidas.length) await supabase.storage.from(BUCKET).remove(subidas.map((s) => s.path)).catch(() => {});
     throw err(error, 'No se pudieron guardar las fotos.');

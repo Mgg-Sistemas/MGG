@@ -19,6 +19,8 @@ import { destinoRecepcionPorUsuario, opcionesRecepcion } from './sectorizacion';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { Almacen, Orden } from '@/shared/lib/types';
 import { skuOGuion } from '@/modules/pedidos/renglonVisible';
+import { analistaDeOrden } from './reporteRecepcionesPendientes';
+import { ReporteRecepcionesPendientesModal } from './ReporteRecepcionesPendientesModal';
 
 /** Sede a la que pertenece un almacén (por su nombre). Si no se encuentra, devuelve
  *  el propio nombre como respaldo. Se usa para mostrar la SEDE en vez del almacén. */
@@ -49,32 +51,71 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
   const [recibir, setRecibir] = useState<Orden | null>(null);
   const [recibirCompra, setRecibirCompra] = useState<CompraDirecta | null>(null);
   const [anularCompra, setAnularCompra] = useState<CompraDirecta | null>(null);
+  const [modalReporte, setModalReporte] = useState<'reporte' | 'whatsapp' | null>(null);
 
   return (
     <>
     <div className="card">
-      <div className="card-title">
-        <span>Recepciones por recibir</span>
-        <span className="muted mono">{num(ordenes.length)} órdenes</span>
+      <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+          <span>Recepciones por recibir</span>
+          <span className="muted mono">{num(ordenes.length)} órdenes</span>
+        </div>
+        <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn btn-sm btn-secondary"
+            onClick={() => setModalReporte('reporte')}
+            title="Abrir reporte dinámico con filtros, métricas y PDF"
+          >
+            📊 Reporte Dinámico
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm btn-outline-success"
+            style={{ color: '#25D366', borderColor: '#25D366' }}
+            onClick={() => setModalReporte('whatsapp')}
+            title="Compartir resumen por WhatsApp"
+          >
+            💬 WhatsApp
+          </button>
+        </div>
       </div>
 
       {!ordenes.length ? (
         <EmptyState message="No hay mercancía por recibir. Cuando llegue una orden, aparecerá acá para asignarle el almacén." icon="📦" />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '.75rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.75rem' }}>
           {ordenes.map((o) => {
             const itemsCount = Array.isArray(o.items) ? o.items.length : 0;
             const totalUnidades = Array.isArray(o.items) ? o.items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0) : 0;
+            const analista = analistaDeOrden(o);
+            const fechaPagoTxt = o.pagada_en
+              ? date(o.pagada_en)
+              : o.pagada_por
+                ? `Registrado (${o.pagada_por})`
+                : 'Pendiente de pago';
             return (
               <div key={o.id} className="card" style={{ margin: 0, padding: '.85rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
                   <div>
                     <div className="mono" style={{ fontWeight: 700 }}>{o.oc_codigo ?? o.codigo}</div>
-                    <div className="muted" style={{ fontSize: '.75rem' }}>{date(o.created_at)}</div>
+                    <div className="muted" style={{ fontSize: '.75rem' }}>
+                      📅 Montada: {date(o.created_at) || '—'}
+                    </div>
                   </div>
                   <StatusBadge estado={o.estado} />
                 </div>
-                <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
+                <div style={{ marginTop: '.5rem', fontSize: '.82rem', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
+                  <div>
+                    <span className="muted">👤 Analista:</span> <strong>{analista}</strong>
+                  </div>
+                  <div>
+                    <span className="muted">💳 Pagó Tesorería:</span>{' '}
+                    <span style={{ color: o.pagada_en ? 'var(--primary-3)' : 'var(--text-muted)' }}>
+                      {fechaPagoTxt}
+                    </span>
+                  </div>
                   <div>{num(itemsCount)} ítem{itemsCount !== 1 ? 's' : ''} · {num(totalUnidades)} und.</div>
                   <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(o.total, o.moneda)}</div>
                 </div>
@@ -112,20 +153,31 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
       {!compras.length ? (
         <EmptyState message="No hay compras directas por recibir. Cuando Tesorería pague una, aparecerá acá para darle entrada al inventario." icon="🛒" />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '.75rem' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.75rem' }}>
           {compras.map((c) => {
             const itemsCount = c.items.length;
             const totalUnidades = c.items.reduce((a, it) => a + (Number(it.cantidad) || 0), 0);
+            const analista = c.actor_name || analistaDeOrden({
+              solicitante_email: c.actor || undefined,
+              solicitante: c.actor || c.pagada_por || undefined,
+            });
+            const fechaPagoTxt = c.pagada_at
+              ? date(c.pagada_at)
+              : c.pagada_por
+                ? `Pagada (${c.pagada_por})`
+                : 'Pagada';
             return (
               <div key={c.id} className="card" style={{ margin: 0, padding: '.85rem' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '.5rem' }}>
                   <div>
                     <div className="mono" style={{ fontWeight: 700 }}>{c.codigo ?? '—'}</div>
-                    <div className="muted" style={{ fontSize: '.75rem' }}>{date(c.created_at)}</div>
+                    <div className="muted" style={{ fontSize: '.75rem' }}>
+                      📅 Montada: {date(c.created_at) || '—'}
+                    </div>
                   </div>
                   <span className="badge warning">🛒 Directo</span>
                 </div>
-                <div style={{ marginTop: '.5rem', fontSize: '.82rem' }}>
+                <div style={{ marginTop: '.5rem', fontSize: '.82rem', display: 'flex', flexDirection: 'column', gap: '.25rem' }}>
                   {/* Con varios materiales el nombre guardado ya dice «N materiales»: se muestran los nombres (09-10-2026). */}
                   <div>
                     <strong>{itemsCount > 1 ? `${num(itemsCount)} materiales` : c.producto_nombre}</strong>
@@ -135,7 +187,16 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
                       </div>
                     )}
                   </div>
-                  <div className="muted">{num(totalUnidades)} und.{c.pagada_por ? ` · pagó ${c.pagada_por}` : ''}</div>
+                  <div>
+                    <span className="muted">👤 Responsable:</span> <strong>{analista}</strong>
+                  </div>
+                  <div>
+                    <span className="muted">💳 Pagó Tesorería:</span>{' '}
+                    <span style={{ color: 'var(--primary-3)' }}>
+                      {fechaPagoTxt}
+                    </span>
+                  </div>
+                  <div className="muted">{num(totalUnidades)} und.</div>
                   <div className="mono" style={{ color: 'var(--primary-3)', fontWeight: 600 }}>{money(c.gasto, c.moneda)}</div>
                 </div>
                 {c.almacen && (
@@ -182,6 +243,17 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
         />
       )}
     </div>
+
+    {modalReporte && (
+      <ReporteRecepcionesPendientesModal
+        ordenes={ordenes}
+        compras={compras}
+        almacenes={almacenes}
+        actor={actorName || actor}
+        modoInicial={modalReporte}
+        onClose={() => setModalReporte(null)}
+      />
+    )}
     </>
   );
 }
