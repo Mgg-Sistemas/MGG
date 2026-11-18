@@ -44,13 +44,18 @@ export async function generarReporteRecepcionesPdf(
   doc.setTextColor(217, 119, 6); // primary / ámbar
   doc.text('REPORTE DE MERCANCÍA PENDIENTE POR RECEPCIONAR EN ALMACÉN', 98, y + 23);
 
+  doc.setFontSize(9);
+  doc.setFont('helvetica', 'bold');
+  doc.setTextColor(220, 38, 38); // Rojo alerta
+  doc.text('🚨 NO HA LLEGADO A ALMACÉN · DAR STATUS', 98, y + 36);
+
   const ahora = new Date();
   const fechaHoraStr = `${ahora.toLocaleDateString('es-VE')} ${ahora.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })}`;
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(100, 116, 139);
-  doc.text(`Emisión: ${fechaHoraStr}${actor ? ` · Por: ${actor}` : ''}`, 98, y + 36);
+  doc.text(`Emisión: ${fechaHoraStr}${actor ? ` · Por: ${actor}` : ''}`, 98, y + 49);
 
   // Filtros aplicados a la derecha
   const criteriosText: string[] = [];
@@ -68,7 +73,7 @@ export async function generarReporteRecepcionesPdf(
     doc.text(`Filtros: ${criteriosText.join(' | ')}`, pageWidth - 36, y + 8, { align: 'right' });
   }
 
-  y += 50;
+  y += 62;
 
   // Resumen en recuadro destacado
   const totales = calcularTotalesRecepciones(filas);

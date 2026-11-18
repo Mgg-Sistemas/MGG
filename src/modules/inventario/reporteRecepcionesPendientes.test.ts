@@ -205,6 +205,7 @@ describe('reporteRecepcionesPendientes', () => {
       expect(mensaje).toContain('Javier Leiva');
       expect(mensaje).toContain('*Montada:* 10 nov. 2026');
       expect(mensaje).toContain('*Pagó Tesorería:* 12 nov. 2026');
+      expect(mensaje).toContain('NO HA LLEGADO A ALMACEN DAR STATUS');
       expect(mensaje).toContain('MATANZAS');
     });
   });

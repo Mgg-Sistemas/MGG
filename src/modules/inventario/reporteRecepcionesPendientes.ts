@@ -249,6 +249,7 @@ export function textoReporteRecepcionesWhatsapp(
   const lineas: string[] = [];
   lineas.push('📦 *MINERAL GROUP GUAYANA C.A.*');
   lineas.push('📋 *REPORTE DE PENDIENTES POR RECEPCIONAR*');
+  lineas.push('🚨 *NO HA LLEGADO A ALMACEN DAR STATUS*');
   lineas.push(`📅 *Fecha de emisión:* ${fechaStr} · ${horaStr}`);
   if (actor) lineas.push(`👤 *Generado por:* ${actor}`);
 
@@ -274,6 +275,7 @@ export function textoReporteRecepcionesWhatsapp(
 
   filas.forEach((f, idx) => {
     lineas.push(`${idx + 1}. 🔹 *${f.codigo}* (${f.estado})`);
+    lineas.push(`   ⚠️ *NO HA LLEGADO A ALMACEN DAR STATUS*`);
     lineas.push(`   📅 *Montada:* ${f.fechaMontadaTxt}`);
     lineas.push(`   💳 *Pagó Tesorería:* ${f.fechaPagoTxt}`);
     lineas.push(`   👤 *Analista:* ${f.analista}`);
@@ -292,7 +294,8 @@ export function textoReporteRecepcionesWhatsapp(
   });
 
   lineas.push('');
-  lineas.push('ℹ️ _Favor coordinar con el equipo de almacén para dar entrada oportuna en inventario._');
+  lineas.push('🚨 *NO HA LLEGADO A ALMACEN DAR STATUS*');
+  lineas.push('ℹ️ _Favor coordinar con el equipo de compras/logística para dar entrada oportuna en inventario._');
 
   return lineas.join('\n');
 }
