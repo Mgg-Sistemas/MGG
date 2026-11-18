@@ -35,6 +35,17 @@ export interface Empresa {
 }
 export type EmpresaInput = Omit<Empresa, 'id'>;
 
+export const EMPRESA_ADMIN_DEFECTO: Empresa = {
+  id: 'mgg-default',
+  clave: 'MGG',
+  nombre: 'Mineral Group Guayana C.A.',
+  rif: 'J-50221930-7',
+  moneda: 'USD',
+  logoPath: null,
+  activa: true,
+  orden: 1,
+};
+
 /** Centro de acopio de una empresa (tabla `admin_centros_acopio`). */
 export interface CentroAcopio {
   id: string;
@@ -945,8 +956,12 @@ export function crearRepoSupabase(): AdminRepo {
   return {
     async listEmpresas() {
       const { data, error } = await supabase.from(T_EMP).select('*').order('orden').order('clave');
-      if (error) throw error;
-      return (data ?? []).map((r) => aEmpresa(r as RowEmpresa));
+      if (error) {
+        if (esErrorTablaAusente(error)) return [EMPRESA_ADMIN_DEFECTO];
+        throw error;
+      }
+      const empresas = (data ?? []).map((r) => aEmpresa(r as RowEmpresa));
+      return empresas.length > 0 ? empresas : [EMPRESA_ADMIN_DEFECTO];
     },
     async crearEmpresa(e) {
       const { data, error } = await supabase.from(T_EMP).insert(deEmpresa(e)).select('*').single();
@@ -959,7 +974,10 @@ export function crearRepoSupabase(): AdminRepo {
     },
     async contarGastosDeEmpresa(clave) {
       const { count, error } = await supabase.from(T_GF).select('id', { count: 'exact', head: true }).eq('empresa_clave', clave);
-      if (error) throw error;
+      if (error) {
+        if (esErrorTablaAusente(error)) return 0;
+        throw error;
+      }
       return count ?? 0;
     },
     async desactivarEmpresa(id) {
@@ -1266,7 +1284,10 @@ export function crearRepoSupabase(): AdminRepo {
       let q = supabase.from(T_GF).select('*').order('concepto');
       if (empresaClave) q = q.eq('empresa_clave', empresaClave);
       const { data, error } = await q;
-      if (error) throw error;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
       return (data ?? []).map((r) => aGasto(r as RowGasto));
     },
     async crearGastoFijo(g) {
@@ -1330,7 +1351,10 @@ export function crearRepoSupabase(): AdminRepo {
       let q = supabase.from(T_MOV).select('*').order('fecha', { ascending: false });
       if (empresaClave) q = q.eq('empresa_clave', empresaClave);
       const { data, error } = await q;
-      if (error) throw error;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
       return (data ?? []).map((r) => aMov(r as RowMov));
     },
     async crearMovimiento(m) {
@@ -1500,7 +1524,10 @@ export function crearRepoSupabase(): AdminRepo {
       let q = supabase.from(T_DOC).select('*').order('created_at', { ascending: false });
       if (empresaClave) q = q.eq('empresa_clave', empresaClave);
       const { data, error } = await q;
-      if (error) throw error;
+      if (error) {
+        if (esErrorTablaAusente(error)) return [];
+        throw error;
+      }
       return (data ?? []).map((r) => aDoc(r as RowDoc));
     },
     async subirDocumento(empresaClave, tipo, file, meta, actor) {
