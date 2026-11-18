@@ -25,6 +25,10 @@ import { date } from '@/shared/lib/format';
 import {
   getParametros, listCuentas, listEjercicios, listTiposComprobante, modificarTiposDeParametros, reiniciarDatosEjemplo,
 } from './contabilidad.repository';
+import {
+  listEmpresasContables, leerEmpresaContableActiva, guardarEmpresaContableActiva,
+  EMPRESAS_CONTABLES_DEFECTO, type EmpresaContable
+} from './empresasContabilidad';
 import { AuxiliaresTab } from './AuxiliaresTab';
 import { ComprobantesTab } from './ComprobantesTab';
 import { BalancesTab, InformesTab } from './LibrosTab';
@@ -62,28 +66,49 @@ function menuGuardado(): Menu {
 
 export function ContabilidadPage() {
   const { user } = useSession();
+  const [empresas, setEmpresas] = useState<EmpresaContable[]>(EMPRESAS_CONTABLES_DEFECTO);
+  const [empresaActiva, setEmpresaActiva] = useState<string>(leerEmpresaContableActiva);
   const [menu, setMenu] = useState<Menu>(menuGuardado);
   const [parametros, setParametros] = useState<ContParametros | null>(null);
   const [ejercicio, setEjercicio] = useState<ContEjercicio | null>(null);
-  // Sube al reiniciar la simulación: las pestañas se vuelven a montar desde cero.
+  // Sube al reiniciar la simulación o cambiar de empresa: las pestañas se vuelven a montar desde cero.
   const [version, setVersion] = useState(0);
   const [confirmarReinicio, setConfirmarReinicio] = useState(false);
 
+  useEffect(() => {
+    void listEmpresasContables().then((lista) => {
+      if (lista.length > 0) {
+        setEmpresas(lista);
+        if (!lista.some((e) => e.clave === empresaActiva)) {
+          const def = lista[0].clave;
+          setEmpresaActiva(def);
+          guardarEmpresaContableActiva(def);
+        }
+      }
+    });
+  }, [empresaActiva]);
+
   const cargar = useCallback(async () => {
     try {
-      const [p, ejercicios] = await Promise.all([getParametros(), listEjercicios()]);
+      const [p, ejercicios] = await Promise.all([getParametros(empresaActiva), listEjercicios()]);
       setParametros(p);
       setEjercicio(ejercicios.find((e) => e.estado === 'abierto') ?? ejercicios[0] ?? null);
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron leer los parámetros contables.', 'error');
     }
-  }, []);
+  }, [empresaActiva]);
 
   useEffect(() => { void cargar(); }, [cargar, version]);
 
   function elegir(m: Menu) {
     setMenu(m);
     try { localStorage.setItem(CLAVE_MENU, m); } catch { /* sin almacenamiento: no se recuerda el menú */ }
+  }
+
+  function cambiarEmpresa(clave: string) {
+    setEmpresaActiva(clave);
+    guardarEmpresaContableActiva(clave);
+    setVersion((v) => v + 1);
   }
 
   async function reiniciar() {
@@ -93,6 +118,8 @@ export function ContabilidadPage() {
     toast('Datos de ejemplo restablecidos.', 'success');
   }
 
+  const empresaSelObj = empresas.find((e) => e.clave === empresaActiva) ?? empresas[0];
+
   return (
     <div>
       <div className="page-head">
@@ -100,7 +127,23 @@ export function ContabilidadPage() {
           <h1>📒 Contabilidad</h1>
           <p className="muted">Moneda funcional {parametros?.moneda_funcional ?? '…'} · referencia {parametros?.moneda_referencia ?? '…'} · cada asiento en las dos monedas</p>
         </div>
-        <div className="actions">
+        <div className="actions" style={{ display: 'flex', alignItems: 'center', gap: '.65rem', flexWrap: 'wrap' }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.4rem' }}>
+            <span className="muted hint" style={{ fontWeight: 600 }}>🏢 Empresa:</span>
+            <select
+              className="input"
+              value={empresaActiva}
+              onChange={(e) => cambiarEmpresa(e.target.value)}
+              aria-label="Empresa Contable"
+              style={{ minWidth: 220, fontWeight: 500 }}
+            >
+              {empresas.map((e) => (
+                <option key={e.clave} value={e.clave}>
+                  {e.nombre} ({e.clave})
+                </option>
+              ))}
+            </select>
+          </label>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmarReinicio(true)}>↺ Reiniciar datos de ejemplo</button>
         </div>
       </div>
@@ -119,22 +162,22 @@ export function ContabilidadPage() {
       </nav>
 
       <div className="cont-estado" aria-label="Barra de estado">
-        <span>Compañía: <strong>{parametros?.empresa_nombre ?? '…'}</strong></span>
+        <span>Compañía: <strong>{parametros ? (empresaSelObj?.nombre ?? parametros.empresa_nombre) : '…'}</strong>{parametros && empresaSelObj?.rif ? ` (${empresaSelObj.rif})` : ''}</span>
         <span>Período: <strong>{ejercicio ? `${date(ejercicio.fecha_inicio)} - ${date(ejercicio.fecha_fin)}` : '…'}</strong></span>
         <span>Usuario: <strong>{user?.email ?? '—'}</strong></span>
       </div>
 
       {!parametros && <p className="muted">Cargando…</p>}
       {parametros && <>
-        {menu === 'compania' && <CompaniaTab key={version} parametros={parametros} onCambio={cargar} />}
-        {menu === 'comprobante' && <ComprobantesTab key={version} parametros={parametros} />}
-        {menu === 'cuenta' && <PlanCuentasTab key={version} parametros={parametros} />}
-        {menu === 'periodo' && <PeriodoTab key={version} />}
-        {menu === 'cerrar' && <CerrarPeriodoTab key={version} />}
-        {menu === 'balances' && <BalancesTab key={version} parametros={parametros} />}
-        {menu === 'informes' && <InformesTab key={version} parametros={parametros} />}
-        {menu === 'auxiliares' && <AuxiliaresTab key={version} parametros={parametros} />}
-        {menu === 'integracion' && <IntegracionTab key={version} />}
+        {menu === 'compania' && <CompaniaTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} empresaNombre={empresaSelObj?.nombre} empresaRif={empresaSelObj?.rif} onCambio={cargar} />}
+        {menu === 'comprobante' && <ComprobantesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'cuenta' && <PlanCuentasTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'periodo' && <PeriodoTab key={`${version}-${empresaActiva}`} />}
+        {menu === 'cerrar' && <CerrarPeriodoTab key={`${version}-${empresaActiva}`} />}
+        {menu === 'balances' && <BalancesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'informes' && <InformesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'auxiliares' && <AuxiliaresTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'integracion' && <IntegracionTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
       </>}
 
       {confirmarReinicio && (
@@ -151,14 +194,26 @@ export function ContabilidadPage() {
   );
 }
 
-function CompaniaTab({ parametros, onCambio }: { parametros: ContParametros; onCambio: () => Promise<void> }) {
+function CompaniaTab({
+  parametros,
+  empresaClave,
+  empresaNombre,
+  empresaRif,
+  onCambio,
+}: {
+  parametros: ContParametros;
+  empresaClave?: string;
+  empresaNombre?: string;
+  empresaRif?: string | null;
+  onCambio: () => Promise<void>;
+}) {
   const [datos, setDatos] = useState<{ cuentas: ContCuenta[]; tipos: ContTipoComprobante[] } | null>(null);
 
   useEffect(() => {
-    Promise.all([listCuentas(), listTiposComprobante()])
+    Promise.all([listCuentas(empresaClave), listTiposComprobante()])
       .then(([cuentas, tipos]) => setDatos({ cuentas, tipos }))
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudieron leer los parámetros.', 'error'));
-  }, [parametros]);
+  }, [parametros, empresaClave]);
 
   if (!datos) return <p className="muted">Cargando…</p>;
   const cuenta = (id: string | null) => {
@@ -173,7 +228,8 @@ function CompaniaTab({ parametros, onCambio }: { parametros: ContParametros; onC
         <div className="table-wrap">
           <table className="table cont-tabla-param">
             <tbody>
-              <tr><td>Empresa</td><td>{p.empresa_nombre}</td></tr>
+              <tr><td>Empresa activa</td><td><strong>{empresaNombre ?? p.empresa_nombre}</strong> ({empresaClave ?? 'MGG'})</td></tr>
+              <tr><td>RIF Fiscal</td><td><span className="mono">{empresaRif ?? 'J-50221930-7'}</span></td></tr>
               <tr><td>Máscara del código</td><td className="mono">{p.mascara_codigo} ({p.niveles} niveles)</td></tr>
               <tr><td>Moneda funcional</td><td>{p.moneda_funcional} (VEN-NIF)</td></tr>
               <tr><td>Moneda de referencia</td><td>{p.moneda_referencia}</td></tr>

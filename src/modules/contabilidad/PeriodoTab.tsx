@@ -198,7 +198,7 @@ function AbrirMesDialogo({ periodo, actor, onCerrar, onHecho }: { periodo: ContP
     }
   }
   return (
-    <Modal title={`Abrir el mes ${nombreMes(periodo)} de ${periodo.codigo.slice(0, 4)}`} size="sm" onClose={() => !enviando && onCerrar()}
+    <Modal title={`Abrir el mes ${nombreMes(periodo)} de ${periodo.codigo.slice(0, 4)}`} size="md" compact onClose={() => !enviando && onCerrar()}
       footer={<>
         <button type="button" className="btn btn-ghost" onClick={onCerrar} disabled={enviando}>Salir</button>
         <button type="button" className="btn btn-primary" onClick={() => void confirmar()} disabled={enviando || !motivo.trim()}>{enviando ? 'Abriendo…' : 'Abrir Mes'}</button>
@@ -325,7 +325,7 @@ export function CerrarPeriodoTab() {
         />
       )}
       {accion.kind === 'reabrir' && (
-        <Modal title={`Re-abrir el período ${ej.nombre}`} size="sm" onClose={() => setAccion({ kind: 'ninguna' })}
+        <Modal title={`Re-abrir el período ${ej.nombre}`} size="md" compact onClose={() => setAccion({ kind: 'ninguna' })}
           footer={<>
             <button type="button" className="btn btn-ghost" onClick={() => setAccion({ kind: 'ninguna' })}>Salir</button>
             <button type="button" className="btn btn-primary" disabled={!motivo.trim()} onClick={() => void ejecutar()}>Re-abrir</button>

@@ -131,6 +131,7 @@ export interface ContextoValidacion {
 }
 
 export interface CabeceraBorrador {
+  empresa_clave?: string;
   tipo_id: string;
   fecha: string;
   /** «Descripción» del comprobante en Galac. */

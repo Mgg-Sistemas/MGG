@@ -96,7 +96,7 @@ function AccionesInforme({ onPdf, onExcel }: { onPdf: () => Promise<void>; onExc
 
 type VistaBalances = 'general' | 'resultados' | 'comprobacion' | 'mayor';
 
-export function BalancesTab({ parametros }: { parametros: ContParametros }) {
+export function BalancesTab({ parametros, empresaClave = 'MGG' }: { parametros: ContParametros; empresaClave?: string }) {
   const [vista, setVista] = useState<VistaBalances>('comprobacion');
   return (
     <>
@@ -108,13 +108,13 @@ export function BalancesTab({ parametros }: { parametros: ContParametros }) {
       </div>
       {vista === 'general' && <BalanceGeneralVista parametros={parametros} />}
       {vista === 'resultados' && <EstadoResultadosVista parametros={parametros} />}
-      {vista === 'comprobacion' && <BalanceComprobacionVista parametros={parametros} />}
-      {vista === 'mayor' && <MayorAnaliticoVista parametros={parametros} />}
+      {vista === 'comprobacion' && <BalanceComprobacionVista parametros={parametros} empresaClave={empresaClave} />}
+      {vista === 'mayor' && <MayorAnaliticoVista parametros={parametros} empresaClave={empresaClave} />}
     </>
   );
 }
 
-function BalanceComprobacionVista({ parametros }: { parametros: ContParametros }) {
+function BalanceComprobacionVista({ parametros, empresaClave }: { parametros: ContParametros; empresaClave?: string }) {
   const ej = useEjercicio();
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
@@ -133,10 +133,10 @@ function BalanceComprobacionVista({ parametros }: { parametros: ContParametros }
 
   useEffect(() => {
     if (!desde || !hasta) return;
-    getBalanceComprobacion({ desde, hasta, moneda, nivel, incluirSinMovimiento: sinMovimiento })
+    getBalanceComprobacion({ desde, hasta, moneda, nivel, incluirSinMovimiento: sinMovimiento }, empresaClave)
       .then(setDatos)
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo armar el balance.', 'error'));
-  }, [desde, hasta, moneda, nivel, sinMovimiento]);
+  }, [desde, hasta, moneda, nivel, sinMovimiento, empresaClave]);
 
   return (
     <>
@@ -200,7 +200,7 @@ function BalanceComprobacionVista({ parametros }: { parametros: ContParametros }
 }
 
 /** `titulo`: en Balances es «Mayor Analítico»; en Informes, «Movimiento de una Cuenta» (el nombre de Galac). */
-function MayorAnaliticoVista({ parametros, titulo = 'Mayor Analítico' }: { parametros: ContParametros; titulo?: string }) {
+function MayorAnaliticoVista({ parametros, titulo = 'Mayor Analítico', empresaClave }: { parametros: ContParametros; titulo?: string; empresaClave?: string }) {
   const ej = useEjercicio();
   const [cuentas, setCuentas] = useState<ContCuenta[]>([]);
   const [desde, setDesde] = useState('');
@@ -213,7 +213,7 @@ function MayorAnaliticoVista({ parametros, titulo = 'Mayor Analítico' }: { para
   const [datos, setDatos] = useState<CuentaMayor[] | null>(null);
 
   useEffect(() => {
-    listCuentas()
+    listCuentas(empresaClave)
       .then((l) => {
         setCuentas(l);
         // Por omisión, la primera cuenta de movimiento: el mayor de todo el plan es muy largo para una pantalla.
@@ -222,7 +222,7 @@ function MayorAnaliticoVista({ parametros, titulo = 'Mayor Analítico' }: { para
         setCuentaHasta(primera);
       })
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo leer el plan de cuentas.', 'error'));
-  }, []);
+  }, [empresaClave]);
 
   useEffect(() => {
     if (ej === undefined) return;
@@ -233,10 +233,10 @@ function MayorAnaliticoVista({ parametros, titulo = 'Mayor Analítico' }: { para
 
   useEffect(() => {
     if (!desde || !hasta || !cuentaDesde) return;
-    getMayorAnalitico({ desde, hasta, moneda, modo, cuentaDesde, cuentaHasta: cuentaHasta || cuentaDesde, incluirSinMovimiento: sinMovimiento })
+    getMayorAnalitico({ desde, hasta, moneda, modo, cuentaDesde, cuentaHasta: cuentaHasta || cuentaDesde, incluirSinMovimiento: sinMovimiento }, empresaClave)
       .then(setDatos)
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo armar el mayor.', 'error'));
-  }, [desde, hasta, moneda, modo, cuentaDesde, cuentaHasta, sinMovimiento]);
+  }, [desde, hasta, moneda, modo, cuentaDesde, cuentaHasta, sinMovimiento, empresaClave]);
 
   const opciones = useMemo(() => cuentas.filter((c) => c.es_movimiento).map((c) => ({ value: c.codigo, label: `${c.codigo} · ${c.nombre}` })), [cuentas]);
 
@@ -315,7 +315,7 @@ const DIARIO_POR_PAGINA = 50;
 
 type VistaInformes = 'diario' | 'movimientos';
 
-export function InformesTab({ parametros }: { parametros: ContParametros }) {
+export function InformesTab({ parametros, empresaClave = 'MGG' }: { parametros: ContParametros; empresaClave?: string }) {
   const [vista, setVista] = useState<VistaInformes>('diario');
   return (
     <>
@@ -323,13 +323,13 @@ export function InformesTab({ parametros }: { parametros: ContParametros }) {
         <button role="tab" aria-selected={vista === 'diario'} className={vista === 'diario' ? 'active' : ''} onClick={() => setVista('diario')}>Diario de Comprobantes</button>
         <button role="tab" aria-selected={vista === 'movimientos'} className={vista === 'movimientos' ? 'active' : ''} onClick={() => setVista('movimientos')}>Informes de Movimientos de Cuentas</button>
       </div>
-      {vista === 'diario' && <DiarioVista parametros={parametros} />}
-      {vista === 'movimientos' && <MovimientosCuentasVista parametros={parametros} />}
+      {vista === 'diario' && <DiarioVista parametros={parametros} empresaClave={empresaClave} />}
+      {vista === 'movimientos' && <MovimientosCuentasVista parametros={parametros} empresaClave={empresaClave} />}
     </>
   );
 }
 
-function DiarioVista({ parametros }: { parametros: ContParametros }) {
+function DiarioVista({ parametros, empresaClave }: { parametros: ContParametros; empresaClave?: string }) {
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
   const [moneda, setMoneda] = useMonedaVista();
@@ -338,7 +338,7 @@ function DiarioVista({ parametros }: { parametros: ContParametros }) {
 
   // Por omisión, el último mes con comprobantes: el diario de todo el ejercicio son miles de asientos.
   useEffect(() => {
-    listComprobantes()
+    listComprobantes(empresaClave)
       .then((l) => {
         const ultima = l.filter((c) => c.estado === 'contabilizado').reduce((m, c) => (c.fecha > m ? c.fecha : m), '');
         const base = ultima || new Date().toISOString().slice(0, 10);
@@ -347,15 +347,15 @@ function DiarioVista({ parametros }: { parametros: ContParametros }) {
         setHasta(fin);
       })
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudieron leer los comprobantes.', 'error'));
-  }, []);
+  }, [empresaClave]);
 
   useEffect(() => {
     if (!desde || !hasta) return;
     setPagina(0);
-    getLibroDiario(desde, hasta, moneda)
+    getLibroDiario(desde, hasta, moneda, empresaClave)
       .then(setDatos)
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo armar el diario.', 'error'));
-  }, [desde, hasta, moneda]);
+  }, [desde, hasta, moneda, empresaClave]);
 
   const paginas = datos ? Math.max(1, Math.ceil(datos.comprobantes.length / DIARIO_POR_PAGINA)) : 1;
   return (
@@ -432,7 +432,7 @@ const INFORMES_MOVIMIENTOS: Array<{ clave: InformeMovimientos; nombre: string }>
   { clave: 'auxiliares', nombre: 'Movimientos de Auxiliares' },
 ];
 
-function MovimientosCuentasVista({ parametros }: { parametros: ContParametros }) {
+function MovimientosCuentasVista({ parametros, empresaClave }: { parametros: ContParametros; empresaClave?: string }) {
   const [informe, setInforme] = useState<InformeMovimientos>('cuenta');
   return (
     <div className="cont-movimientos">
@@ -445,14 +445,14 @@ function MovimientosCuentasVista({ parametros }: { parametros: ContParametros })
         ))}
       </div>
       <div>
-        {informe === 'cuenta' && <MayorAnaliticoVista parametros={parametros} titulo="Movimiento de una Cuenta" />}
-        {informe === 'auxiliares' && <MovimientosAuxiliaresVista parametros={parametros} />}
+        {informe === 'cuenta' && <MayorAnaliticoVista parametros={parametros} titulo="Movimiento de una Cuenta" empresaClave={empresaClave} />}
+        {informe === 'auxiliares' && <MovimientosAuxiliaresVista parametros={parametros} empresaClave={empresaClave} />}
       </div>
     </div>
   );
 }
 
-function MovimientosAuxiliaresVista({ parametros }: { parametros: ContParametros }) {
+function MovimientosAuxiliaresVista({ parametros, empresaClave }: { parametros: ContParametros; empresaClave?: string }) {
   const ej = useEjercicio();
   const [auxiliares, setAuxiliares] = useState<ContAuxiliar[]>([]);
   const [desde, setDesde] = useState('');
@@ -465,10 +465,10 @@ function MovimientosAuxiliaresVista({ parametros }: { parametros: ContParametros
   const [datos, setDatos] = useState<AuxiliarMayor[] | null>(null);
 
   useEffect(() => {
-    listAuxiliares()
+    listAuxiliares(empresaClave)
       .then(setAuxiliares)
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudieron leer los auxiliares.', 'error'));
-  }, []);
+  }, [empresaClave]);
 
   useEffect(() => {
     if (ej === undefined) return;
@@ -479,10 +479,10 @@ function MovimientosAuxiliaresVista({ parametros }: { parametros: ContParametros
 
   useEffect(() => {
     if (!desde || !hasta) return;
-    getMovimientosAuxiliares({ desde, hasta, moneda, tipo, auxiliarDesde: auxDesde, auxiliarHasta: auxHasta || auxDesde, incluirSinMovimiento: sinMovimiento })
+    getMovimientosAuxiliares({ desde, hasta, moneda, tipo, auxiliarDesde: auxDesde, auxiliarHasta: auxHasta || auxDesde, incluirSinMovimiento: sinMovimiento }, empresaClave)
       .then(setDatos)
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo armar el informe.', 'error'));
-  }, [desde, hasta, moneda, tipo, auxDesde, auxHasta, sinMovimiento]);
+  }, [desde, hasta, moneda, tipo, auxDesde, auxHasta, sinMovimiento, empresaClave]);
 
   // Desde y Hasta son códigos dentro del tipo elegido (sin tipo, de todos).
   const opciones = useMemo(() => auxiliares
