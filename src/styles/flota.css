@@ -688,8 +688,8 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 .flo-mv-servicios-grid {
   display: grid !important;
   grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
-  gap: .45rem !important;
-  margin: .35rem 0 .75rem !important;
+  gap: .55rem !important;
+  margin: .45rem 0 .85rem !important;
 }
 
 @media (max-width: 320px) {
@@ -703,9 +703,9 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
   flex-direction: column !important;
   align-items: center !important;
   justify-content: center !important;
-  padding: .5rem .25rem !important;
-  gap: .25rem !important;
-  min-height: 72px !important;
+  padding: .65rem .35rem !important;
+  gap: .35rem !important;
+  min-height: 84px !important;
   border-radius: var(--r-md) !important;
   border: 1px solid var(--border-strong) !important;
   /* Mismo fondo que las tarjetas seleccionables del sistema (.mode-card, .chip):
@@ -739,14 +739,14 @@ a.flo-kcard:hover { border-color: var(--border-strong); }
 }
 
 .flo-mv-servicio-btn .ico {
-  font-size: 1.35rem;
+  font-size: 1.65rem;
   line-height: 1;
 }
 
 .flo-mv-servicio-btn .lbl {
-  font-size: .8rem;
+  font-size: .88rem;
   font-weight: 600;
-  line-height: 1.18;
+  line-height: 1.22;
   white-space: normal;
   text-align: center;
   display: block;
