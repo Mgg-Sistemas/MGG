@@ -1,344 +1,302 @@
 /* ============================================================
-   MGG · Delivery · mapa y rutas (03-11-2026)
+   MGG · Delivery · rutas y cercanía (03/11/2026)
 
-   Pedido de la administradora (tipo Yummy / Ridery): el delivery ve en el
-   teléfono dónde está, cuál es el proveedor más cercano entre las OC
-   pagadas y la ruta al proveedor y de ahí al almacén; la PC ve a todos con
-   su ruta. Acá vive lo que no toca pantalla ni base: distancias, el orden
-   por cercanía, las paradas de cada pedido, los enlaces de Google Maps y
-   Waze y la lectura de la ruta de OSRM (con línea recta si falla).
+   Pedido de la usuaria (estilo Yummy / Ridery): el motorizado ve en el
+   teléfono su ubicación, el proveedor más cercano entre lo que está «Por
+   tomar» y la ruta: de donde está → al proveedor (o al Almacén Los Pinos si
+   es un retiro) → al Almacén Los Pinos. La PC ve la ruta prevista de cada
+   motorizado. Acá vive lo que no toca pantalla ni base (se prueba en
+   deliveryRutas.test.ts): distancias, orden por cercanía, las paradas de la
+   ruta, el enlace de Google Maps y la lectura de la respuesta de OSRM
+   (router.project-osrm.org, servicio público y gratis: se le pide poco, de a
+   una consulta por segundo y con caché). Si OSRM falla, va la línea recta.
    ============================================================ */
-import { esRetiro, type PedidoDelivery } from './delivery';
-import { distanciaMetros, type PedidoFeed, type PuntoGps } from './deliveryMovil';
+import { puntoValido, type PuntoMapa } from '@/modules/proveedores/ubicacionProveedor';
+import { ALMACEN_RETIRO, almacenRecepcion, esRetiroAlmacen, type PedidoDelivery } from './delivery';
+import { distanciaMetros } from './deliveryMovil';
 
-export type Punto = PuntoGps;
+export { puntoValido };
+export type { PuntoMapa };
 
-/* ── Almacenes de entrega ── */
+/** Clave del Almacén Los Pinos en `delivery_lugares`. */
+export const LUGAR_LOS_PINOS = 'los_pinos';
 
-export type ClaveDestino = 'LOS PINOS' | 'MATANZA';
-export const CLAVES_DESTINO: ClaveDestino[] = ['LOS PINOS', 'MATANZA'];
-
-export interface DestinoAlmacen {
-  clave: ClaveDestino;
+/** Un punto fijo de la ruta (`delivery_lugares`). */
+export interface LugarDelivery {
+  clave: string;
+  nombre: string;
   lat: number | null;
   lng: number | null;
-  /** Coordenada de partida, sin confirmar en el sitio: la PC avisa que conviene ubicarla bien. */
-  aproximada: boolean;
-}
-export type DestinosDelivery = Record<ClaveDestino, DestinoAlmacen>;
-
-/**
- * Lo mismo que siembra delivery-mapa-rutas-2026-11-03.sql: Matanza en la Zona
- * Industrial Matanzas (aproximada) y Los Pinos sin ubicar hasta que se marque.
- */
-export const DESTINOS_POR_DEFECTO: DestinosDelivery = {
-  'LOS PINOS': { clave: 'LOS PINOS', lat: null, lng: null, aproximada: true },
-  MATANZA: { clave: 'MATANZA', lat: 8.2905, lng: -62.829, aproximada: true },
-};
-
-const num = (v: unknown): number | null => {
-  if (v === null || v === undefined || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-
-/** Lee config `delivery.destinos` (lo que no venga o venga mal queda como por defecto). */
-export function leerDestinos(raw: unknown): DestinosDelivery {
-  const out: DestinosDelivery = {
-    'LOS PINOS': { ...DESTINOS_POR_DEFECTO['LOS PINOS'] },
-    MATANZA: { ...DESTINOS_POR_DEFECTO.MATANZA },
-  };
-  if (!raw || typeof raw !== 'object') return out;
-  for (const clave of CLAVES_DESTINO) {
-    const v = (raw as Record<string, unknown>)[clave];
-    if (!v || typeof v !== 'object') continue;
-    const o = v as Record<string, unknown>;
-    const p = { lat: num(o.lat), lng: num(o.lng) };
-    const ok = p.lat !== null && p.lng !== null && puntoValido({ lat: p.lat, lng: p.lng });
-    out[clave] = { clave, lat: ok ? p.lat : null, lng: ok ? p.lng : null, aproximada: o.aproximada !== false };
-  }
-  return out;
+  actualizado_en: string | null;
+  actualizado_por: string | null;
 }
 
-export function puntoDeDestino(d: DestinoAlmacen | null | undefined): Punto | null {
-  return d && d.lat !== null && d.lng !== null ? { lat: d.lat, lng: d.lng } : null;
+/** Ubicación de cada proveedor (id → punto); los que no tienen no están. */
+export type UbicacionesProveedores = Map<string, PuntoMapa>;
+
+/** El punto de un lugar fijo, o null si todavía no se marcó. */
+export function puntoLugar(lugares: LugarDelivery[], clave: string): PuntoMapa | null {
+  const l = lugares.find((x) => x.clave === clave);
+  return l ? puntoValido(l.lat, l.lng) : null;
 }
 
-const sinAcentos = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().trim();
+/* ── Textos ── */
 
-/**
- * A cuál de los dos almacenes de entrega apunta lo que dice la orden: «Los Pinos» /
- * «LOS PINOS» → LOS PINOS; «General» (el principal de Matanza), «MATANZA» o la sede
- * «CENTRO DE FUNDICION - MATANZAS» → MATANZA. Otro lugar: null.
- */
-export function claveDestino(almacen: string | null | undefined): ClaveDestino | null {
-  const a = sinAcentos(String(almacen ?? ''));
-  if (!a) return null;
-  if (a.includes('PINOS')) return 'LOS PINOS';
-  if (a === 'GENERAL' || a.includes('MATANZA')) return 'MATANZA';
-  return null;
-}
-
-/* ── Puntos y distancias ── */
-
-/** Coordenada usable (números finitos, dentro de rango y no el 0,0 de un GPS sin señal). */
-export function puntoValido(p: Partial<Punto> | null | undefined): p is Punto {
-  if (!p) return false;
-  const { lat, lng } = p;
-  if (typeof lat !== 'number' || typeof lng !== 'number' || !Number.isFinite(lat) || !Number.isFinite(lng)) return false;
-  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return false;
-  return !(lat === 0 && lng === 0);
-}
-
-/** «850 m» o «2,3 km». */
+/** «850 m», «2,4 km», «12 km». */
 export function distanciaTxt(metros: number | null | undefined): string {
-  if (metros === null || metros === undefined || !Number.isFinite(metros)) return '—';
-  if (metros < 1000) return `${Math.max(0, Math.round(metros / 10) * 10)} m`;
-  return `${(metros / 1000).toLocaleString('es-VE', { maximumFractionDigits: 1, minimumFractionDigits: 1 })} km`;
+  if (metros == null || !Number.isFinite(metros) || metros < 0) return '—';
+  if (metros < 1000) return `${Math.max(10, Math.round(metros / 10) * 10)} m`;
+  const km = metros / 1000;
+  return `${km.toLocaleString('es-VE', { minimumFractionDigits: km < 10 ? 1 : 0, maximumFractionDigits: km < 10 ? 1 : 0 })} km`;
 }
 
-/** «8 min» o «1 h 05 min». */
-export function tiempoRutaTxt(segundos: number | null | undefined): string {
-  if (segundos === null || segundos === undefined || !Number.isFinite(segundos)) return '—';
+/** «≈ 12 min», «≈ 1 h 05 min». */
+export function duracionTxt(segundos: number | null | undefined): string {
+  if (segundos == null || !Number.isFinite(segundos) || segundos < 0) return '';
   const min = Math.max(1, Math.round(segundos / 60));
-  if (min < 60) return `${min} min`;
-  return `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
+  if (min < 60) return `≈ ${min} min`;
+  return `≈ ${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')} min`;
 }
 
-/* ── Proveedor más cercano ── */
+/* ── Paradas ── */
 
-/** El punto donde se busca el pedido: el proveedor de la OC o, en un retiro, Los Pinos. */
-export function puntoOrigen(
-  p: Pick<PedidoDelivery, 'proveedor_id' | 'tipo'>, proveedores: Map<string, Punto>, destinos: DestinosDelivery,
-): Punto | null {
-  if (esRetiro(p)) return puntoDeDestino(destinos['LOS PINOS']);
-  const u = p.proveedor_id ? proveedores.get(p.proveedor_id) : undefined;
-  return puntoValido(u) ? u : null;
+/** ¿Ya lo recogió? (subió fotos al recibir del proveedor / al retirar en Almacén) */
+export function yaRecogido(p: Pick<PedidoDelivery, 'fotos_recibo'>): boolean {
+  return (p.fotos_recibo?.length ?? 0) > 0;
 }
 
-export interface ProveedorCercano {
-  proveedor_id: string;
+/** ¿La OC se entrega en el Almacén Los Pinos? (el General es Los Pinos) */
+export function entregaEnLosPinos(p: Pick<PedidoDelivery, 'almacen_destino'>): boolean {
+  const a = almacenRecepcion(p);
+  return a === 'General' || /pinos/i.test(a);
+}
+
+/** Dónde se busca: el local del proveedor (OC) o el Almacén Los Pinos (retiro). */
+export function puntoRecogida(
+  p: Pick<PedidoDelivery, 'origen' | 'proveedor_id'>, provs: UbicacionesProveedores, losPinos: PuntoMapa | null,
+): PuntoMapa | null {
+  if (esRetiroAlmacen(p)) return losPinos;
+  return p.proveedor_id ? provs.get(p.proveedor_id) ?? null : null;
+}
+
+/** Dónde se entrega: la OC al Almacén Los Pinos; el retiro va a una unidad / persona sin punto en el mapa. */
+export function puntoEntrega(p: Pick<PedidoDelivery, 'origen' | 'almacen_destino'>, losPinos: PuntoMapa | null): PuntoMapa | null {
+  if (esRetiroAlmacen(p)) return null;
+  return entregaEnLosPinos(p) ? losPinos : null;
+}
+
+export interface ParadaRuta {
+  tipo: 'yo' | 'recogida' | 'entrega';
   nombre: string;
-  punto: Punto;
-  metros: number;
-  /** Cuántas OC por tomar tiene ese proveedor. */
-  pedidos: number;
+  punto: PuntoMapa;
 }
 
+/** Dos puntos a menos de 30 m son el mismo lugar (no se repite la parada). */
+const MISMO_LUGAR_M = 30;
+
 /**
- * Proveedores con OC por tomar ordenados del más cercano al más lejano (los que no
- * están ubicados no entran). Sin mi ubicación: lista vacía.
+ * Las paradas de la ruta: desde donde estoy → a buscarlo (si todavía no lo
+ * recogí) → a entregarlo en Los Pinos. Lo que no tiene punto se salta.
  */
-export function proveedoresCercanos(
-  yo: Punto | null, libres: Array<Pick<PedidoDelivery, 'proveedor_id' | 'proveedor_nombre' | 'tipo'>>, proveedores: Map<string, Punto>,
-): ProveedorCercano[] {
-  if (!puntoValido(yo)) return [];
-  const acc = new Map<string, ProveedorCercano>();
-  for (const p of libres) {
-    if (esRetiro(p) || !p.proveedor_id) continue;
-    const punto = proveedores.get(p.proveedor_id);
-    if (!puntoValido(punto)) continue;
-    const ya = acc.get(p.proveedor_id);
-    if (ya) { ya.pedidos++; continue; }
-    acc.set(p.proveedor_id, {
-      proveedor_id: p.proveedor_id, nombre: p.proveedor_nombre ?? 'Proveedor', punto, metros: distanciaMetros(yo, punto), pedidos: 1,
-    });
+export function paradasRuta(
+  p: Pick<PedidoDelivery, 'origen' | 'proveedor_id' | 'proveedor_nombre' | 'almacen_destino' | 'fotos_recibo'>,
+  yo: PuntoMapa | null, provs: UbicacionesProveedores, losPinos: PuntoMapa | null,
+): ParadaRuta[] {
+  const out: ParadaRuta[] = [];
+  if (yo) out.push({ tipo: 'yo', nombre: 'Tú', punto: yo });
+  const recogida = yaRecogido(p) ? null : puntoRecogida(p, provs, losPinos);
+  if (recogida) {
+    out.push({ tipo: 'recogida', nombre: esRetiroAlmacen(p) ? ALMACEN_RETIRO : (p.proveedor_nombre?.trim() || 'Proveedor'), punto: recogida });
   }
-  return [...acc.values()].sort((a, b) => a.metros - b.metros || a.nombre.localeCompare(b.nombre, 'es'));
-}
-
-/**
- * Ordena por cercanía solo el bloque de pedidos por tomar del listado (lo mío en curso
- * sigue arriba, lo ajeno y lo entregado abajo). Dentro del bloque, lo urgente primero
- * y después del más cercano al más lejano; sin distancia, al final y en su orden.
- */
-export function ordenarLibresPorCercania(feed: PedidoFeed[], metrosDe: (p: PedidoDelivery) => number | null): PedidoFeed[] {
-  const idx = feed.map((f, i) => (f.disponible ? i : -1)).filter((i) => i >= 0);
-  if (idx.length < 2) return feed;
-  const libres = idx.map((i, orden) => ({ f: feed[i], orden, m: metrosDe(feed[i].p) }));
-  libres.sort((a, b) => (Number(b.f.p.urgente) - Number(a.f.p.urgente))
-    || ((a.m === null ? 1 : 0) - (b.m === null ? 1 : 0))
-    || ((a.m ?? 0) - (b.m ?? 0))
-    || (a.orden - b.orden));
-  const out = [...feed];
-  idx.forEach((i, k) => { out[i] = libres[k].f; });
-  return out;
-}
-
-/* ── Paradas y ruta del pedido ── */
-
-export interface ParadasPedido {
-  /** Donde se busca: proveedor (OC) o Los Pinos (retiro). */
-  origen: Punto | null;
-  /** Almacén de entrega (LOS PINOS / MATANZA) si se sabe. */
-  destino: Punto | null;
-  destinoClave: ClaveDestino | null;
-  /** Ya lo recogió: subió fotos al recibir. La ruta va directo al almacén. */
-  recogido: boolean;
-}
-
-export function paradasDelPedido(
-  p: Pick<PedidoDelivery, 'proveedor_id' | 'tipo' | 'almacen_destino' | 'almacen_entrega' | 'fotos_recibo'>,
-  proveedores: Map<string, Punto>, destinos: DestinosDelivery,
-): ParadasPedido {
-  const destinoClave = claveDestino(p.almacen_entrega ?? p.almacen_destino);
-  return {
-    origen: puntoOrigen(p, proveedores, destinos),
-    destino: destinoClave ? puntoDeDestino(destinos[destinoClave]) : null,
-    destinoClave,
-    recogido: (p.fotos_recibo?.length ?? 0) > 0,
-  };
-}
-
-const mismoPunto = (a: Punto, b: Punto) => distanciaMetros(a, b) < 15;
-
-/** Puntos de la ruta: yo → proveedor (si falta recogerlo) → almacén. Sin repetidos ni inválidos. */
-export function puntosRuta(yo: Punto | null, paradas: ParadasPedido): Punto[] {
-  const crudo = [yo, paradas.recogido ? null : paradas.origen, paradas.destino];
-  const out: Punto[] = [];
-  for (const p of crudo) {
-    if (!puntoValido(p)) continue;
-    if (out.length && mismoPunto(out[out.length - 1], p)) continue;
-    out.push(p);
+  const entrega = puntoEntrega(p, losPinos);
+  if (entrega && !(recogida && distanciaMetros(recogida, entrega) < MISMO_LUGAR_M)) {
+    out.push({ tipo: 'entrega', nombre: ALMACEN_RETIRO, punto: entrega });
   }
   return out;
 }
 
-/** A dónde va ahora: el proveedor si falta recogerlo; si no, el almacén. */
-export function proximaParada(paradas: ParadasPedido): Punto | null {
-  if (!paradas.recogido && paradas.origen) return paradas.origen;
-  return paradas.destino ?? paradas.origen;
+/* ── Cercanía ── */
+
+export interface ConDistancia<T> { item: T; metros: number | null }
+
+/** Ordena del más cercano al más lejano; los que no tienen punto van al final (en el orden en que venían). */
+export function ordenarPorCercania<T>(items: T[], punto: (x: T) => PuntoMapa | null, desde: PuntoMapa | null): ConDistancia<T>[] {
+  const con = items.map((item, i) => {
+    const p = desde ? punto(item) : null;
+    return { item, metros: desde && p ? distanciaMetros(desde, p) : null, i };
+  });
+  con.sort((a, b) => {
+    if (a.metros == null && b.metros == null) return a.i - b.i;
+    if (a.metros == null) return 1;
+    if (b.metros == null) return -1;
+    return a.metros - b.metros || a.i - b.i;
+  });
+  return con.map(({ item, metros }) => ({ item, metros }));
 }
 
-/* ── Enlaces de navegación (se abren solo al tocar el botón) ── */
-
-const c6 = (p: Punto) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+/** El más cercano que tenga distancia (o null). */
+export function masCercano<T>(lista: ConDistancia<T>[]): ConDistancia<T> | null {
+  let mejor: ConDistancia<T> | null = null;
+  for (const x of lista) if (x.metros != null && (mejor == null || x.metros < (mejor.metros as number))) mejor = x;
+  return mejor;
+}
 
 /**
- * Google Maps con la ruta en carro. Sin origen arranca donde está el teléfono.
- * `paradas` son puntos intermedios (p. ej. el proveedor antes del almacén).
+ * Orden de «Por tomar» en el teléfono: urgentes primero (como manda la base) y,
+ * dentro de cada grupo, del más cercano al más lejano. Sin GPS queda el orden de la base.
  */
-export function googleMapsHref(destino: Punto, paradas: Punto[] = [], origen?: Punto | null): string {
-  const q = new URLSearchParams({ api: '1', destination: c6(destino), travelmode: 'driving' });
-  if (puntoValido(origen)) q.set('origin', c6(origen));
-  const intermedias = paradas.filter((p) => puntoValido(p));
-  if (intermedias.length) q.set('waypoints', intermedias.map(c6).join('|'));
+export function ordenarDisponibles<T extends { p: Pick<PedidoDelivery, 'urgente'> }>(
+  items: T[], distancia: (x: T) => number | null,
+): T[] {
+  return items.map((x, i) => ({ x, i, d: distancia(x) })).sort((a, b) => {
+    const u = (b.x.p.urgente ? 1 : 0) - (a.x.p.urgente ? 1 : 0);
+    if (u) return u;
+    if (a.d == null && b.d == null) return a.i - b.i;
+    if (a.d == null) return 1;
+    if (b.d == null) return -1;
+    return a.d - b.d || a.i - b.i;
+  }).map((y) => y.x);
+}
+
+/* ── Enlaces ── */
+
+const ll = (p: PuntoMapa) => `${p.lat.toFixed(6)},${p.lng.toFixed(6)}`;
+
+/**
+ * Navegación paso a paso en Google Maps: origen (si no va, Google usa la
+ * ubicación del teléfono), destino y paradas intermedias.
+ */
+export function urlGoogleMapsRuta(paradas: PuntoMapa[], conOrigen = true): string | null {
+  const ps = paradas.filter((p) => puntoValido(p?.lat, p?.lng));
+  if (!ps.length || (conOrigen && ps.length < 2)) return null;
+  const origen = conOrigen ? ps[0] : null;
+  const resto = conOrigen ? ps.slice(1) : ps;
+  const destino = resto[resto.length - 1];
+  const intermedios = resto.slice(0, -1);
+  const q = new URLSearchParams({ api: '1' });
+  if (origen) q.set('origin', ll(origen));
+  q.set('destination', ll(destino));
+  if (intermedios.length) q.set('waypoints', intermedios.map(ll).join('|'));
+  q.set('travelmode', 'driving');
   return `https://www.google.com/maps/dir/?${q.toString()}`;
 }
 
-/** Waze navega a un solo punto (la próxima parada). */
-export function wazeHref(destino: Punto): string {
-  return `https://waze.com/ul?ll=${encodeURIComponent(c6(destino))}&navigate=yes`;
+/** 10/11/2026 (maqueta): navegar con Waze hasta un punto. */
+export function urlWaze(p: PuntoMapa | null | undefined): string | null {
+  if (!p || !puntoValido(p.lat, p.lng)) return null;
+  return `https://waze.com/ul?ll=${ll(p)}&navigate=yes`;
 }
 
-/* ── Ruta por calle (OSRM) con línea recta de respaldo ── */
+/** Navegación directa paso a paso hacia un destino en Google Maps (aprovecha GPS actual como origen si existe). */
+export function urlNavegacionDestino(destino: PuntoMapa | null | undefined, yo: PuntoMapa | null | undefined): string | null {
+  if (!destino || !puntoValido(destino.lat, destino.lng)) return null;
+  const q = new URLSearchParams({ api: '1', destination: ll(destino), travelmode: 'driving' });
+  if (yo && puntoValido(yo.lat, yo.lng)) {
+    q.set('origin', ll(yo));
+  }
+  return `https://www.google.com/maps/dir/?${q.toString()}`;
+}
 
-export const OSRM_BASE = 'https://router.project-osrm.org/route/v1/driving';
+/** 10/11/2026: la próxima parada del pedido (buscar donde el proveedor / Los Pinos, o entregar). */
+export function siguienteParada(
+  p: Pick<PedidoDelivery, 'origen' | 'proveedor_id' | 'proveedor_nombre' | 'almacen_destino' | 'fotos_recibo'>,
+  provs: UbicacionesProveedores, losPinos: PuntoMapa | null,
+): ParadaRuta | null {
+  return paradasRuta(p, null, provs, losPinos)[0] ?? null;
+}
 
-export interface Ruta {
-  linea: Punto[];
+/* ── OSRM ── */
+
+export const OSRM_BASE = 'https://router.project-osrm.org';
+
+/** URL de la ruta en auto por esos puntos (OSRM pide lng,lat). */
+export function urlOsrm(puntos: PuntoMapa[], base = OSRM_BASE): string | null {
+  if (puntos.length < 2) return null;
+  const coords = puntos.map((p) => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
+  return `${base}/route/v1/driving/${coords}?overview=full&geometries=geojson&alternatives=false&steps=false`;
+}
+
+export interface RutaCalculada {
   metros: number;
+  /** null en la línea recta (no se sabe cuánto tarda). */
   segundos: number | null;
-  /** 'osrm' = por calle · 'recta' = no se pudo calcular: línea recta entre paradas. */
+  /** [lat, lng] para dibujar en Leaflet. */
+  linea: Array<[number, number]>;
   fuente: 'osrm' | 'recta';
 }
 
-/** URL del servicio de rutas: OSRM pide «lng,lat» separados por «;». */
-export function urlRutaOsrm(puntos: Punto[]): string {
-  const coords = puntos.map((p) => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';');
-  return `${OSRM_BASE}/${coords}?overview=full&geometries=geojson&alternatives=false&steps=false`;
-}
-
-/** Lee la respuesta de OSRM; null si no trae una ruta usable. */
-export function leerRutaOsrm(json: unknown): Ruta | null {
+/** Lee la respuesta de OSRM. null si no trae una ruta usable. */
+export function parsearOsrm(json: unknown): RutaCalculada | null {
   const j = json as { code?: string; routes?: Array<{ distance?: number; duration?: number; geometry?: { coordinates?: unknown } }> } | null;
   if (!j || j.code !== 'Ok' || !Array.isArray(j.routes) || !j.routes.length) return null;
   const r = j.routes[0];
-  const coords = Array.isArray(r.geometry?.coordinates) ? (r.geometry!.coordinates as unknown[]) : [];
-  const linea: Punto[] = [];
+  const coords = Array.isArray(r.geometry?.coordinates) ? (r.geometry?.coordinates as unknown[]) : [];
+  const linea: Array<[number, number]> = [];
   for (const c of coords) {
     if (!Array.isArray(c) || c.length < 2) continue;
-    const p = { lat: Number(c[1]), lng: Number(c[0]) };
-    if (puntoValido(p)) linea.push(p);
+    const p = puntoValido(c[1], c[0]);
+    if (p) linea.push([p.lat, p.lng]);
   }
-  if (linea.length < 2 || !Number.isFinite(r.distance)) return null;
-  return { linea, metros: Number(r.distance), segundos: Number.isFinite(r.duration) ? Number(r.duration) : null, fuente: 'osrm' };
+  const metros = Number(r.distance);
+  if (linea.length < 2 || !Number.isFinite(metros)) return null;
+  const s = Number(r.duration);
+  return { metros, segundos: Number.isFinite(s) ? s : null, linea, fuente: 'osrm' };
 }
 
-/** Respaldo: línea recta entre las paradas (distancia en línea recta, sin tiempo). */
-export function lineaRecta(puntos: Punto[]): Ruta {
+/** Plan B: línea recta entre las paradas (con su distancia). */
+export function rutaRecta(puntos: PuntoMapa[]): RutaCalculada {
   let metros = 0;
   for (let i = 1; i < puntos.length; i++) metros += distanciaMetros(puntos[i - 1], puntos[i]);
-  return { linea: [...puntos], metros, segundos: null, fuente: 'recta' };
+  return { metros, segundos: null, linea: puntos.map((p) => [p.lat, p.lng]), fuente: 'recta' };
 }
 
-/** Moverse más que esto vuelve a pedir la ruta. */
-export const RUTA_METROS = 150;
-/** Nunca se pide la ruta más seguido que esto (el servidor público de OSRM es compartido). */
-export const RUTA_MIN_MS = 15_000;
-
-/** Clave de una lista de puntos redondeados a ~11 m (para la memoria de rutas y para comparar paradas). */
-export function claveParadas(puntos: Punto[]): string {
+/** Clave de caché: puntos redondeados a 4 decimales (~11 m). */
+export function claveRuta(puntos: PuntoMapa[]): string {
   return puntos.map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join(';');
 }
 
-/** Con qué se pidió la última ruta: las paradas (sin mi posición), desde dónde y cuándo. */
-export interface MarcaRuta { paradas: string; desde: Punto | null; t: number }
-
-export function marcaRuta(desde: Punto | null, paradas: ParadasPedido, t: number): MarcaRuta {
-  const ps = [paradas.recogido ? null : paradas.origen, paradas.destino].filter((p): p is Punto => puntoValido(p));
-  return { paradas: claveParadas(ps), desde: puntoValido(desde) ? desde : null, t };
-}
-
-/**
- * ¿Hay que volver a pedir la ruta? La primera vez, si cambian las paradas (otro
- * proveedor, otro almacén, ya recogió) o si aparece / se pierde el GPS. Por moverse,
- * solo si se alejó más de RUTA_METROS y pasaron al menos RUTA_MIN_MS.
- */
-export function debeRecalcularRuta(anterior: MarcaRuta | null, ahora: MarcaRuta): boolean {
-  if (!anterior) return true;
-  if (anterior.paradas !== ahora.paradas) return true;
-  if (!anterior.desde !== !ahora.desde) return true;
-  if (!anterior.desde || !ahora.desde) return false;
-  if (ahora.t - anterior.t < RUTA_MIN_MS) return false;
-  return distanciaMetros(anterior.desde, ahora.desde) > RUTA_METROS;
-}
-
-/* ── Detalle de un pedido ya tomado (PC · «Pedidos por delivery») ── */
-
-export interface PasoTiempo { paso: string; minutos: number | null }
-
-const minEntre = (a: string | null | undefined, b: string | null | undefined): number | null => {
-  if (!a || !b) return null;
-  const m = (new Date(b).getTime() - new Date(a).getTime()) / 60000;
-  return Number.isFinite(m) && m >= 0 ? Math.round(m) : null;
-};
+/** OSRM público: como máximo una consulta por segundo. */
+const OSRM_MIN_MS = 1_100;
+const OSRM_TIMEOUT_MS = 8_000;
+const CACHE_MAX = 40;
+const cache = new Map<string, RutaCalculada>();
+let cola: Promise<unknown> = Promise.resolve();
+let ultimaOsrm = 0;
 
 /**
- * Tiempo de cada paso y total: tomado → en camino → entregado (o cancelado).
- * Desde el 02-11 aceptar ya lo deja en camino, así que el primer paso suele ser 0.
+ * La ruta en auto por esas paradas (OSRM). Si el servicio no responde, no hay
+ * internet o tarda más de 8 s, devuelve la línea recta (nunca falla).
  */
-export function tiemposPedido(p: {
-  estado: string; aceptado_en: string | null; en_ruta_en: string | null; entregado_en: string | null; cancelado_en: string | null;
-}): { pasos: PasoTiempo[]; total: number | null } {
-  const fin = p.estado === 'cancelado' ? p.cancelado_en : p.entregado_en;
-  const pasos: PasoTiempo[] = [{ paso: 'Tomado → en camino', minutos: minEntre(p.aceptado_en, p.en_ruta_en) }];
-  if (p.estado === 'cancelado') pasos.push({ paso: 'En camino → cancelado', minutos: minEntre(p.en_ruta_en ?? p.aceptado_en, fin) });
-  else pasos.push({ paso: 'En camino → entregado', minutos: minEntre(p.en_ruta_en ?? p.aceptado_en, fin) });
-  return { pasos, total: minEntre(p.aceptado_en, fin) };
+export function calcularRuta(puntos: PuntoMapa[], fetcher: typeof fetch = fetch): Promise<RutaCalculada> {
+  if (puntos.length < 2) return Promise.resolve(rutaRecta(puntos));
+  const k = claveRuta(puntos);
+  const hit = cache.get(k);
+  if (hit) return Promise.resolve(hit);
+  const url = urlOsrm(puntos);
+  const tarea = cola.then(async (): Promise<RutaCalculada> => {
+    const otra = cache.get(k);
+    if (otra) return otra;
+    const espera = OSRM_MIN_MS - (Date.now() - ultimaOsrm);
+    if (espera > 0) await new Promise((r) => setTimeout(r, espera));
+    ultimaOsrm = Date.now();
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const t = setTimeout(() => ctrl?.abort(), OSRM_TIMEOUT_MS);
+    try {
+      const res = await fetcher(url as string, { signal: ctrl?.signal });
+      const ruta = res.ok ? parsearOsrm(await res.json()) : null;
+      if (!ruta) return rutaRecta(puntos);
+      if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string);
+      cache.set(k, ruta);
+      return ruta;
+    } catch {
+      return rutaRecta(puntos);
+    } finally {
+      clearTimeout(t);
+    }
+  });
+  cola = tarea.catch(() => undefined);
+  return tarea;
 }
 
-/**
- * Ruta planeada de un pedido ya hecho: desde donde lo tomó (primer punto del
- * recorrido guardado, si hay) → proveedor → almacén donde lo entregó.
- */
-export function puntosRutaPlaneada(inicio: Punto | null, origen: Punto | null, destino: Punto | null): Punto[] {
-  return puntosRuta(inicio, { origen, destino, destinoClave: null, recogido: false });
-}
-
-/** Distancia recorrida según el recorrido guardado (suma de tramos). */
-export function metrosRecorrido(puntos: Punto[]): number {
-  let m = 0;
-  for (let i = 1; i < puntos.length; i++) m += distanciaMetros(puntos[i - 1], puntos[i]);
-  return m;
-}
+/** Moverse más que esto vuelve a pedir la ruta (para no consultar OSRM a cada paso). */
+export const RECALCULAR_RUTA_M = 400;

@@ -1,260 +1,237 @@
 /* ============================================================
-   MGG · Delivery · reportes (31-10-2026)
+   MGG · Delivery · Reportes (31/10/2026)
 
-   Lo que llevan los reportes de Delivery, sin tocar pantalla ni base:
-     · Comprobante de un pedido: ficha (OC, proveedor, delivery, almacén,
-       monto, notas), tiempos (pagada / tomada / en ruta / entregada o
-       cancelada), productos e historial.
-     · Lista de pedidos tal como se ve (Tablero en la PC, chips del teléfono).
-     · Histórico y «Pedidos por delivery» con su rango y filtro.
-   De acá salen las filas del PDF (deliveryPdf.ts) y el texto de WhatsApp
-   (negritas con *…*, un renglón por pedido). Nada se manda ni se descarga
-   solo: los botones «📄 Ver PDF» y «💬 WhatsApp» lo abren.
-   Emojis sin el selector U+FE0F (ver mensajeMovimiento.ts).
+   Pedido de la usuaria: sacar los reportes de Delivery en PDF (vista
+   previa) y como mensaje de WhatsApp, en la PC y en el teléfono.
+     · Por pedido: OC, proveedor, motorizado (nombre y apellido), estados con
+       su hora, almacén de entrega, nota y cuántas fotos lleva.
+     · General (PC): rango de fechas + estado + motorizado → totales por
+       estado, resumen por motorizado, tiempo promedio de entrega y la lista.
+   Funciones puras (sin pantalla ni base): las usan deliveryPdf.ts, la PC y
+   el teléfono, y se prueban en deliveryReporte.test.ts. Emojis sin el
+   selector U+FE0F (WhatsApp lo pierde).
+   02/11/2026: con el ORIGEN (OC pagada / retiro en Almacén Los Pinos): el
+   retiro se nombra por la SP, sale de «Almacén Los Pinos», se entrega A la
+   unidad / persona y no tiene monto. El general se filtra por origen.
    ============================================================ */
 import {
-  ESTADO_DELIVERY, textoCancelacion, fechaHoraVE, lineasItems, minutosEntre, montoTxt, ocDe, type EstadoDelivery, type PedidoDelivery,
+  ALMACEN_RETIRO, ESTADO_DELIVERY, ORIGEN_DELIVERY, PIE_DELIVERY, destinoDe, esRetiroAlmacen, etiquetaEstado, fechaHoraVE,
+  minutosEntre, montoTxt, ocDe, type EstadoDelivery, type OrigenDelivery, type PedidoDelivery,
 } from './delivery';
-import { duracionTxt, totalesResumen, type FilaHistorialDelivery, type ResumenDelivery } from './deliveryPanel';
+import {
+  duracionTxt, resumenHistorial, totalesResumen, type FilaHistorialDelivery, type ResumenDelivery,
+} from './deliveryPanel';
 
-/** Cómo se muestra el nombre de un almacén (el teléfono usa nombreAlmacenVisible). */
-export type VerAlmacen = (a: string) => string;
-const tal: VerAlmacen = (a) => a;
+/** Resuelve el nombre visible (nombre y apellido) de quien se guardó; por defecto, tal cual. */
+export type ResolverNombre = (guardado: string | null | undefined, correo?: string | null) => string;
+const tal: ResolverNombre = (g, c) => (g?.trim() || c?.trim() || '');
 
-const PIE = '🏢 *MINERAL GROUP GUAYANA C.A.* · Delivery';
+/* ───────────── Por pedido ───────────── */
 
-/** AAAA-MM-DD → DD/MM/AAAA. */
-export function fechaTxt(iso: string): string {
-  const [y, m, d] = iso.split('-');
-  return y && m && d ? `${d}/${m}/${y}` : iso;
+export interface PasoPedido { paso: string; hora: string }
+
+export interface DetallePedidoDelivery {
+  /** 02/11/2026: 'compra' | 'almacen'. */
+  origen: OrigenDelivery;
+  /** «Orden de compra» o «Solicitud de pedido» (rótulo de `oc`). */
+  rotuloOrden: string;
+  oc: string;
+  estado: string;
+  urgente: boolean;
+  proveedor: string;
+  direccion: string | null;
+  telefonoProveedor: string | null;
+  motorizado: string;
+  /** En la OC el analista de Compras; en el retiro, el almacenista que revisó. */
+  analista: string | null;
+  /** Almacén de entrega (OC) o «Entregado a» / destino (retiro). */
+  almacen: string;
+  /** '—' en un retiro de Almacén (no se paga nada). */
+  monto: string;
+  pasos: PasoPedido[];
+  /** «45 min», «1 h 05 min» o «—» (de tomado a entregado). */
+  tiempo: string;
+  motivoCancel: string | null;
+  nota: string | null;
+  fotosRecibo: number;
+  fotosEntrega: number;
+  productos: Array<{ nombre: string; cantidad: string }>;
 }
 
-/** «Día 30/10/2026» o «Del 26/10/2026 al 30/10/2026». */
-export function rangoTxt(desde: string, hasta: string): string {
-  return desde === hasta ? `Día ${fechaTxt(desde)}` : `Del ${fechaTxt(desde)} al ${fechaTxt(hasta)}`;
-}
-
-export function estadoTxt(e: EstadoDelivery | string): string {
-  return ESTADO_DELIVERY[e as EstadoDelivery]?.label ?? String(e);
-}
-
-const emojiEstado = (e: EstadoDelivery | string) => ESTADO_DELIVERY[e as EstadoDelivery]?.emoji ?? '•';
 const cant = (n: number) => (Number(n) || 0).toLocaleString('es-VE', { maximumFractionDigits: 3 });
-const limpio = (s: string | null | undefined) => (s ?? '').trim();
 
-/** Montos sumados por moneda: «$1.200,00 + Bs 3.500,00» (o «$0,00»). */
-export function totalPorMoneda(xs: Array<{ total: number; moneda: string }>): string {
-  const acc = new Map<string, number>();
-  for (const x of xs) {
-    const m = (x.moneda || 'USD').toUpperCase() === 'BS' ? 'BS' : 'USD';
-    acc.set(m, (acc.get(m) ?? 0) + (Number(x.total) || 0));
-  }
-  if (!acc.size) return montoTxt(0, 'USD');
-  return ['USD', 'BS'].filter((m) => acc.has(m)).map((m) => montoTxt(acc.get(m) ?? 0, m)).join(' + ');
-}
-
-/* ───────────── Comprobante de un pedido ───────────── */
-
-/** La ficha del comprobante: [rótulo, valor]. Solo lleva lo que tiene dato. */
-export function fichaComprobanteDelivery(p: PedidoDelivery, ver: VerAlmacen = tal): Array<[string, string]> {
-  const f: Array<[string, string]> = [['Orden de compra', ocDe(p)]];
-  if (p.oc_codigo && p.codigo && p.codigo !== p.oc_codigo) f.push(['Solicitud', p.codigo]);
-  f.push(['Estado', estadoTxt(p.estado)], ['Requerimiento', p.urgente ? 'URGENTE' : 'Normal']);
-  f.push(['Proveedor', p.proveedor_nombre || '—']);
-  if (limpio(p.proveedor_direccion)) f.push(['Dirección del proveedor', limpio(p.proveedor_direccion)]);
-  if (limpio(p.proveedor_contacto)) f.push(['Contacto', limpio(p.proveedor_contacto)]);
-  if (limpio(p.proveedor_telefono)) f.push(['Teléfono del proveedor', limpio(p.proveedor_telefono)]);
-  const analista = limpio(p.analista_nombre) || limpio(p.analista_email);
-  if (analista) f.push(['Analista de Compras', analista]);
-  f.push(['Delivery (motorizado)', p.repartidor_nombre || '—']);
-  if (p.almacen_destino) f.push(['Almacén destino (OC)', ver(p.almacen_destino)]);
-  if (p.almacen_entrega) f.push(['Entregado en', ver(p.almacen_entrega)]);
-  f.push(['Monto de la OC', montoTxt(p.total, p.moneda)]);
-  if (limpio(p.motivo)) f.push(['Motivo de la compra', limpio(p.motivo)]);
-  if (limpio(p.finalidad)) f.push(['Finalidad', limpio(p.finalidad)]);
-  if (limpio(p.notas)) f.push(['Notas de la OC', limpio(p.notas)]);
-  if (p.estado === 'cancelado') {
-    f.push(['Motivo de cancelación', limpio(p.motivo_cancel) || '—']);
-    if (limpio(p.detalle_cancel)) f.push(['Detalle', limpio(p.detalle_cancel)]);
-  }
-  if (limpio(p.nota_entrega)) f.push(['Nota de entrega', limpio(p.nota_entrega)]);
-  f.push(['Fotos', `${p.fotos_recibo?.length ?? 0} de factura · ${p.fotos_entrega?.length ?? 0} del producto`]);
-  return f;
-}
-
-/** Los tiempos del pedido: [paso, fecha y hora]. */
-export function tiemposComprobanteDelivery(p: PedidoDelivery): Array<[string, string]> {
-  const t: Array<[string, string]> = [
-    ['Pagada por Tesorería', fechaHoraVE(p.pagada_en) || '—'],
-    ['Tomada por el delivery', fechaHoraVE(p.aceptado_en) || '—'],
-    ['En ruta', fechaHoraVE(p.en_ruta_en) || '—'],
-  ];
-  if (p.estado === 'cancelado') t.push(['Cancelada', fechaHoraVE(p.cancelado_en) || '—']);
-  else t.push(['Entregada en almacén', fechaHoraVE(p.entregado_en) || '—']);
-  if (p.estado === 'entregado') t.push(['Tiempo (tomada → entregada)', duracionTxt(minutosEntre(p.aceptado_en, p.entregado_en))]);
-  return t;
-}
-
-/** Productos que se compran: [#, producto, cantidad, unidad]. */
-export function itemsComprobanteDelivery(p: PedidoDelivery): string[][] {
-  return (p.items ?? []).filter((i) => i.comprar !== false)
-    .map((i, k) => [String(k + 1), i.nombre, cant(i.cantidad), i.unidad ?? '']);
-}
-
-/** El historial guardado del pedido: [fecha, evento, quién, motivo]. */
-/** `nombre` pasa el correo guardado a «Nombre Apellido» (04-11-2026: en el PDF salía el correo). */
-export function historialComprobanteDelivery(p: PedidoDelivery, nombre: (correo: string) => string = (c) => c): string[][] {
-  return (p.historial ?? []).map((e) => [
-    fechaHoraVE(e.at) || '—', estadoTxt(e.evento), limpio(e.actor) ? (nombre(limpio(e.actor)) || limpio(e.actor)) : '—', limpio(e.motivo) || '—',
-  ]);
-}
-
-/** El reporte de un pedido para WhatsApp (en cualquier estado). */
-export function mensajeReporteDelivery(p: PedidoDelivery, ver: VerAlmacen = tal, ahora?: string): string {
-  const l = [
-    `📋 *REPORTE DE DELIVERY · ${ocDe(p)}*`,
-    `${emojiEstado(p.estado)} *Estado:* ${estadoTxt(p.estado)}`,
-    p.urgente ? '🚨 *Requerimiento:* URGENTE' : '🟢 *Requerimiento:* Normal',
-    `🏭 *Proveedor:* ${p.proveedor_nombre ?? '—'}`,
-  ];
-  if (limpio(p.proveedor_direccion)) l.push(`📍 *Dirección:* ${limpio(p.proveedor_direccion)}`);
-  l.push(`👤 *Delivery:* ${p.repartidor_nombre ?? '—'}`);
-  if (p.almacen_destino) l.push(`🏬 *Almacén destino:* ${ver(p.almacen_destino)}`);
-  if (p.almacen_entrega) l.push(`🏬 *Entregado en:* ${ver(p.almacen_entrega)}`);
-  l.push(`💵 *Monto:* ${montoTxt(p.total, p.moneda)}`);
-
-  l.push('', '🕒 *Tiempos:*');
-  if (p.pagada_en) l.push(`• Pagada: ${fechaHoraVE(p.pagada_en)}`);
-  if (p.aceptado_en) l.push(`• Tomada: ${fechaHoraVE(p.aceptado_en)}`);
-  if (p.en_ruta_en) l.push(`• En ruta: ${fechaHoraVE(p.en_ruta_en)}`);
-  if (p.estado === 'entregado' && p.entregado_en) {
-    l.push(`• Entregada: ${fechaHoraVE(p.entregado_en)}`);
-    const m = minutosEntre(p.aceptado_en, p.entregado_en);
-    if (m != null) l.push(`⏳ *Tiempo desde que lo tomó:* ${duracionTxt(m)}`);
-  }
-  if (p.estado === 'cancelado' && p.cancelado_en) l.push(`• Cancelada: ${fechaHoraVE(p.cancelado_en)}`);
-  if (!p.pagada_en && !p.aceptado_en) l.push('• Sin movimientos todavía');
-
-  const items = lineasItems(p);
-  if (items.length) l.push('', `📦 *Productos (${items.length}):*`, ...items);
-
-  if (p.estado === 'cancelado') {
-    l.push('', `❌ *Motivo:* ${limpio(p.motivo_cancel) || '—'}`);
-    if (limpio(p.detalle_cancel)) l.push(`📝 *Detalle:* ${limpio(p.detalle_cancel)}`);
-  }
-  if (limpio(p.nota_entrega)) l.push(`📝 *Nota de entrega:* ${limpio(p.nota_entrega)}`);
-  const nFotos = (p.fotos_recibo?.length ?? 0) + (p.fotos_entrega?.length ?? 0);
-  if (nFotos) l.push(`📷 *Fotos:* ${p.fotos_recibo?.length ?? 0} al recibir · ${p.fotos_entrega?.length ?? 0} de la entrega`);
-  l.push('', `🗓 Generado ${fechaHoraVE(ahora ?? new Date().toISOString())}`, '', PIE);
-  return l.join('\n');
-}
-
-/* ───────────── Lista de pedidos (Tablero / teléfono) ───────────── */
-
-/**
- * En el teléfono un pedido «cancelado» que quedó libre otra vez se muestra
- * «Por tomar»: la lista del reporte lo cuenta igual que la pantalla.
- */
-export function pedidosDelFeed(feed: Array<{ p: PedidoDelivery; disponible: boolean }>): PedidoDelivery[] {
-  return feed.map((f) => (f.disponible && f.p.estado !== 'por_tomar' ? { ...f.p, estado: 'por_tomar' as const } : f.p));
-}
-
-const fin = (p: PedidoDelivery) => (p.estado === 'cancelado' ? p.cancelado_en : p.estado === 'entregado' ? p.entregado_en : null);
-
-/** Columnas del PDF de la lista. */
-export const COLUMNAS_LISTA_DELIVERY = ['OC', 'Proveedor', 'Delivery', 'Estado', 'Pagada', 'Tomada', 'En ruta', 'Entregada / Cancelada', 'Tiempo', 'Almacén / Motivo', 'Monto'];
-
-/** Una fila por pedido, en el orden de COLUMNAS_LISTA_DELIVERY. */
-export function filasListaDelivery(pedidos: PedidoDelivery[], ver: VerAlmacen = tal): string[][] {
-  return pedidos.map((p) => {
-    const almacen = p.almacen_entrega ?? p.almacen_destino;
-    return [
-      `${ocDe(p)}${p.urgente ? ' (URGENTE)' : ''}`,
-      p.proveedor_nombre ?? '—',
-      p.repartidor_nombre ?? '—',
-      estadoTxt(p.estado),
-      fechaHoraVE(p.pagada_en) || '—',
-      fechaHoraVE(p.aceptado_en) || '—',
-      fechaHoraVE(p.en_ruta_en) || '—',
-      fechaHoraVE(fin(p)) || '—',
-      p.estado === 'entregado' ? duracionTxt(minutosEntre(p.aceptado_en, p.entregado_en)) : '—',
-      (p.estado === 'cancelado' ? limpio(textoCancelacion(p)) : almacen ? ver(almacen) : '') || '—',
-      montoTxt(p.total, p.moneda),
-    ];
-  });
-}
-
-/** Conteo por estado en una línea: «💰 2 por tomar · 🚚 1 en ruta…» (solo los que hay). */
-function conteoTxt(estados: EstadoDelivery[]): string {
-  const orden: EstadoDelivery[] = ['por_tomar', 'aceptado', 'en_ruta', 'entregado', 'cancelado'];
-  const corto: Record<EstadoDelivery, string> = {
-    por_tomar: 'por tomar', aceptado: 'aceptado(s)', en_ruta: 'en ruta', entregado: 'entregado(s)', cancelado: 'cancelado(s)',
+/** Lo que muestran el PDF y el WhatsApp de UN pedido. */
+export function detallePedido(p: PedidoDelivery, quien: ResolverNombre = tal): DetallePedidoDelivery {
+  const retiro = esRetiroAlmacen(p);
+  const pasos: PasoPedido[] = [];
+  if (retiro && p.revisada_en) pasos.push({ paso: 'Revisada por Almacén (hay en Los Pinos)', hora: fechaHoraVE(p.revisada_en) });
+  if (!retiro && p.pagada_en) pasos.push({ paso: 'Pagada por Tesorería', hora: fechaHoraVE(p.pagada_en) });
+  if (p.aceptado_en) pasos.push({ paso: 'Tomada por el delivery', hora: fechaHoraVE(p.aceptado_en) });
+  if (p.en_ruta_en) pasos.push({ paso: 'En camino', hora: fechaHoraVE(p.en_ruta_en) });
+  if (p.entregado_en) pasos.push({ paso: retiro ? 'Entregada a quien la pidió' : 'Entregada en almacén', hora: fechaHoraVE(p.entregado_en) });
+  if (p.cancelado_en) pasos.push({ paso: 'Cancelada', hora: fechaHoraVE(p.cancelado_en) });
+  const rep = p.repartidor_nombre ? quien(p.repartidor_nombre, null) : '';
+  return {
+    origen: retiro ? 'almacen' : 'compra',
+    rotuloOrden: retiro ? 'Solicitud de pedido' : 'Orden de compra',
+    oc: retiro ? p.codigo : ocDe(p),
+    estado: etiquetaEstado(p.estado, p.origen, p.motivo_cancel),
+    urgente: !!p.urgente,
+    proveedor: retiro ? ALMACEN_RETIRO : (p.proveedor_nombre?.trim() || '—'),
+    direccion: retiro ? null : (p.proveedor_direccion?.trim() || null),
+    telefonoProveedor: retiro ? null : (p.proveedor_telefono?.trim() || null),
+    motorizado: rep || '—',
+    analista: (p.analista_nombre || p.analista_email) ? (quien(p.analista_nombre, p.analista_email) || null) : null,
+    almacen: destinoDe(p),
+    monto: retiro ? '—' : montoTxt(p.total, p.moneda),
+    pasos,
+    tiempo: p.estado === 'entregado' ? duracionTxt(minutosEntre(p.aceptado_en, p.entregado_en)) : '—',
+    motivoCancel: p.estado === 'cancelado'
+      ? [p.motivo_cancel?.trim(), p.detalle_cancel?.trim()].filter(Boolean).join(' · ') || null
+      : null,
+    nota: p.nota_entrega?.trim() || null,
+    fotosRecibo: p.fotos_recibo?.length ?? 0,
+    fotosEntrega: p.fotos_entrega?.length ?? 0,
+    productos: (p.items ?? []).filter((i) => i.comprar !== false)
+      .map((i) => ({ nombre: i.nombre, cantidad: `${cant(i.cantidad)}${i.unidad ? ` ${i.unidad}` : ''}` })),
   };
-  return orden.map((e) => [e, estados.filter((x) => x === e).length] as const)
-    .filter(([, n]) => n > 0).map(([e, n]) => `${ESTADO_DELIVERY[e].emoji} ${n} ${corto[e]}`).join(' · ');
 }
 
-/** WhatsApp de la lista que se está viendo, un renglón por pedido. */
-export function mensajeListaDelivery(data: {
-  pedidos: PedidoDelivery[]; filtro?: string | null; ver?: VerAlmacen; ahora?: string;
-}): string {
-  const ver = data.ver ?? tal;
-  const l = ['📋 *DELIVERY · PEDIDOS*'];
-  if (limpio(data.filtro)) l.push(`🔎 *Vista:* ${limpio(data.filtro)}`);
-  l.push(`📦 *Pedidos:* ${data.pedidos.length}`);
-  if (data.pedidos.length) {
-    l.push(conteoTxt(data.pedidos.map((p) => p.estado)), `💵 *Monto:* ${totalPorMoneda(data.pedidos)}`, '');
-    for (const p of data.pedidos) {
-      const partes = [`${p.urgente ? '🚨 ' : '• '}*${ocDe(p)}*`, p.proveedor_nombre ?? '—', `${emojiEstado(p.estado)} ${estadoTxt(p.estado)}`];
-      if (p.repartidor_nombre) partes.push(`🛵 ${p.repartidor_nombre}`);
-      const almacen = p.almacen_entrega ?? p.almacen_destino;
-      if (almacen && p.estado !== 'cancelado') partes.push(`🏬 ${ver(almacen)}`);
-      partes.push(montoTxt(p.total, p.moneda));
-      l.push(partes.join(' · '));
-    }
+/** WhatsApp con el reporte de UN pedido. */
+export function textoReportePedido(p: PedidoDelivery, quien: ResolverNombre = tal, generado?: string | null): string {
+  const d = detallePedido(p, quien);
+  const retiro = d.origen === 'almacen';
+  const l = [
+    retiro ? '📋 *REPORTE DE DELIVERY · RETIRO EN ALMACÉN*' : '📋 *REPORTE DE DELIVERY*',
+    `🔹 *${retiro ? 'Solicitud' : 'Orden'}:* ${d.oc}${d.urgente ? ' · 🚨 URGENTE' : ''}`,
+    `📌 *Estado:* ${d.estado}`,
+    retiro ? `📦 *Retirar en:* ${d.proveedor}` : `🏭 *Proveedor:* ${d.proveedor}`,
+  ];
+  if (d.direccion) l.push(`📍 *Dirección:* ${d.direccion}`);
+  l.push(`👤 *Delivery:* ${d.motorizado}`);
+  if (retiro) {
+    l.push(`🏬 *${p.estado === 'entregado' ? 'Entregado a' : 'Entregar a'}:* ${d.almacen}`);
+  } else {
+    l.push(`🏬 *Almacén de entrega:* ${d.almacen}`);
+    l.push(`💵 *Monto OC:* ${d.monto}`);
   }
-  l.push('', `🗓 Generado ${fechaHoraVE(data.ahora ?? new Date().toISOString())}`, '', PIE);
+  if (d.pasos.length) {
+    l.push('', '🕒 *Pasos:*');
+    for (const x of d.pasos) l.push(`• ${x.paso}: ${x.hora}`);
+  }
+  if (d.tiempo !== '—') l.push(`⏳ *Tiempo de entrega:* ${d.tiempo}`);
+  if (d.motivoCancel) l.push(`❌ *Motivo de cancelación:* ${d.motivoCancel}`);
+  if (d.nota) l.push(`📝 *Nota:* ${d.nota}`);
+  l.push(`📷 *Fotos:* ${d.fotosRecibo} ${retiro ? 'al retirar en Almacén' : 'al recibir'} · ${d.fotosEntrega} de la entrega`);
+  if (d.productos.length) {
+    l.push('', `📦 *Productos (${d.productos.length}):*`, ...d.productos.map((x) => `• ${x.nombre} — ${x.cantidad}`));
+  }
+  l.push('', `🕒 Generado ${generado ?? fechaHoraVE(new Date().toISOString())}`, PIE_DELIVERY);
   return l.join('\n');
 }
 
-/* ───────────── Histórico y Por delivery ───────────── */
+/* ───────────── General (histórico de la PC) ───────────── */
 
-/** WhatsApp del Histórico (rango y filtro de motorizado), un renglón por registro. */
-export function mensajeHistorialDelivery(data: {
-  desde: string; hasta: string; repartidor?: string | null; filas: FilaHistorialDelivery[]; ahora?: string;
+export type FiltroEstadoDelivery = '' | Exclude<EstadoDelivery, 'por_tomar'>;
+
+/** Estados que se pueden filtrar en el histórico (lo tomado: nunca «por tomar»). */
+export const ESTADOS_FILTRO: Array<{ valor: FiltroEstadoDelivery; label: string }> = [
+  { valor: '', label: 'Todos los estados' },
+  { valor: 'aceptado', label: ESTADO_DELIVERY.aceptado.label },
+  { valor: 'en_ruta', label: ESTADO_DELIVERY.en_ruta.label },
+  { valor: 'entregado', label: ESTADO_DELIVERY.entregado.label },
+  { valor: 'cancelado', label: ESTADO_DELIVERY.cancelado.label },
+];
+
+/** 02/11/2026: origen en el histórico ('' = todos). */
+export type FiltroOrigenDelivery = '' | OrigenDelivery;
+
+export const ORIGENES_FILTRO: Array<{ valor: FiltroOrigenDelivery; label: string }> = [
+  { valor: '', label: 'Compras y Almacén' },
+  { valor: 'compra', label: '🏭 Compras (OC pagadas)' },
+  { valor: 'almacen', label: '📦 Almacén Los Pinos' },
+];
+
+export function filtrarHistorial<T extends Pick<FilaHistorialDelivery, 'estado' | 'repartidor'> & { origen?: OrigenDelivery }>(
+  filas: T[], f: { estado?: FiltroEstadoDelivery | null; repartidor?: string | null; origen?: FiltroOrigenDelivery | null },
+): T[] {
+  return filas.filter((x) => (!f.estado || x.estado === f.estado) && (!f.repartidor || x.repartidor === f.repartidor)
+    && (!f.origen || (x.origen ?? 'compra') === f.origen));
+}
+
+export interface ResumenReporteDelivery {
+  total: number;
+  porEstado: Record<Exclude<EstadoDelivery, 'por_tomar'>, number>;
+  /** 02/11/2026: cuántos de Compras (OC) y cuántos retiros de Almacén. */
+  porOrigen: Record<OrigenDelivery, number>;
+  porDelivery: ResumenDelivery[];
+  minutosPromedio: number | null;
+}
+
+export function resumenReporte(filas: FilaHistorialDelivery[]): ResumenReporteDelivery {
+  const porEstado = { aceptado: 0, en_ruta: 0, entregado: 0, cancelado: 0 };
+  const porOrigen: Record<OrigenDelivery, number> = { compra: 0, almacen: 0 };
+  for (const f of filas) {
+    if (f.estado in porEstado) porEstado[f.estado as keyof typeof porEstado]++;
+    porOrigen[f.origen === 'almacen' ? 'almacen' : 'compra']++;
+  }
+  const porDelivery = resumenHistorial(filas);
+  return { total: filas.length, porEstado, porOrigen, porDelivery, minutosPromedio: totalesResumen(porDelivery).minutosPromedio };
+}
+
+const ddmmaaaa = (d: string) => (/^\d{4}-\d{2}-\d{2}$/.test(d) ? `${d.slice(8, 10)}/${d.slice(5, 7)}/${d.slice(0, 4)}` : d);
+
+/** «Del 26/10/2026 al 31/10/2026 · Origen: Almacén Los Pinos · Estado: Entregado en almacén · Delivery: Ana Pérez». */
+export function textoFiltros(f: {
+  desde: string; hasta: string; estado?: FiltroEstadoDelivery | null; repartidor?: string | null; origen?: FiltroOrigenDelivery | null;
 }): string {
-  const l = ['📜 *HISTÓRICO DE DELIVERY*', `📅 *Rango:* ${rangoTxt(data.desde, data.hasta)}`];
-  if (limpio(data.repartidor)) l.push(`🛵 *Delivery:* ${limpio(data.repartidor)}`);
-  l.push(`📦 *Registros:* ${data.filas.length}`);
+  const partes = [f.desde === f.hasta ? `Día ${ddmmaaaa(f.desde)}` : `Del ${ddmmaaaa(f.desde)} al ${ddmmaaaa(f.hasta)}`];
+  if (f.origen) partes.push(`Origen: ${f.origen === 'almacen' ? ALMACEN_RETIRO : 'Compras (OC pagadas)'}`);
+  if (f.estado) partes.push(`Estado: ${ESTADO_DELIVERY[f.estado]?.label ?? f.estado}`);
+  if (f.repartidor) partes.push(`Delivery: ${f.repartidor}`);
+  return partes.join(' · ');
+}
+
+/** Cuántos pedidos se listan en el WhatsApp (el PDF los trae todos). */
+export const MAX_PEDIDOS_WHATSAPP = 40;
+
+/** WhatsApp con el reporte general del rango filtrado. */
+export function textoReporteGeneral(data: {
+  desde: string; hasta: string; estado?: FiltroEstadoDelivery | null; repartidor?: string | null;
+  origen?: FiltroOrigenDelivery | null; filas: FilaHistorialDelivery[]; generado?: string | null;
+}): string {
+  const r = resumenReporte(data.filas);
+  const l = [
+    '📊 *REPORTE DE DELIVERY*',
+    `📅 ${textoFiltros(data)}`,
+    '',
+    `📦 *Pedidos tomados:* ${r.total}`,
+    `${ORIGEN_DELIVERY.compra.emoji} De Compras (OC): ${r.porOrigen.compra} · ${ORIGEN_DELIVERY.almacen.emoji} Retiros en ${ALMACEN_RETIRO}: ${r.porOrigen.almacen}`,
+    `✅ Entregados: ${r.porEstado.entregado}`,
+    `🚚 En camino: ${r.porEstado.en_ruta}`,
+    `🛵 Aceptados: ${r.porEstado.aceptado}`,
+    `⛔ Cancelados: ${r.porEstado.cancelado}`,
+    `⏳ *Tiempo promedio de entrega:* ${duracionTxt(r.minutosPromedio)}`,
+  ];
+  if (r.porDelivery.length) {
+    l.push('', '👤 *Por delivery:*');
+    for (const x of r.porDelivery) {
+      l.push(`• ${x.repartidor}: ${x.entregados} entregado(s), ${x.cancelados} cancelado(s), ${x.enCurso} en curso · ${duracionTxt(x.minutosPromedio)}`);
+    }
+  }
   if (data.filas.length) {
-    l.push(conteoTxt(data.filas.map((f) => f.estado)), `💵 *Monto:* ${totalPorMoneda(data.filas)}`, '');
-    for (const f of data.filas) {
-      const partes = [`• ${fechaHoraVE(f.fecha) || '—'}`, `*${f.oc}*`, f.proveedor];
-      if (!limpio(data.repartidor)) partes.push(`🛵 ${f.repartidor}`);
-      partes.push(`${emojiEstado(f.estado)} ${estadoTxt(f.estado)}`);
-      if (f.estado === 'entregado' && f.minutos != null) partes.push(`⏳ ${duracionTxt(f.minutos)}`);
-      if (f.estado === 'cancelado' && limpio(textoCancelacion(f))) partes.push(limpio(textoCancelacion(f)));
-      partes.push(montoTxt(f.total, f.moneda));
-      l.push(partes.join(' · '));
+    l.push('', '📋 *Pedidos:*');
+    for (const f of data.filas.slice(0, MAX_PEDIDOS_WHATSAPP)) {
+      const est = ESTADO_DELIVERY[f.estado];
+      const extra = f.estado === 'cancelado' ? (f.motivo_cancel ? ` · ${f.motivo_cancel}` : '')
+        : f.estado === 'entregado' ? ` · ${duracionTxt(f.minutos)}${f.almacen_entrega ? ` · ${f.almacen_entrega}` : ''}` : '';
+      const de = f.origen === 'almacen' ? `📦 ${ALMACEN_RETIRO}` : f.proveedor;
+      l.push(`${est?.emoji ?? '•'} ${f.oc} · ${de} · ${f.repartidor} · ${fechaHoraVE(f.fecha)}${extra}`);
     }
+    if (data.filas.length > MAX_PEDIDOS_WHATSAPP) l.push(`… y ${data.filas.length - MAX_PEDIDOS_WHATSAPP} más (ver el PDF).`);
+  } else {
+    l.push('', 'No hay pedidos tomados con esos filtros.');
   }
-  l.push('', `🗓 Generado ${fechaHoraVE(data.ahora ?? new Date().toISOString())}`, '', PIE);
-  return l.join('\n');
-}
-
-/** WhatsApp de «Pedidos por delivery»: un renglón por motorizado y el total. */
-export function mensajePorDelivery(data: { desde: string; hasta: string; resumen: ResumenDelivery[]; ahora?: string }): string {
-  const l = ['🛵 *PEDIDOS POR DELIVERY*', `📅 *Rango:* ${rangoTxt(data.desde, data.hasta)}`];
-  if (!data.resumen.length) l.push('', 'Ningún delivery tomó pedidos en ese rango.');
-  else {
-    l.push('');
-    for (const r of data.resumen) {
-      l.push(`• *${r.repartidor}* — ✅ ${r.entregados} · ⛔ ${r.cancelados} · 🚚 ${r.enCurso} en curso · ⏳ ${duracionTxt(r.minutosPromedio)}`);
-    }
-    const t = totalesResumen(data.resumen);
-    l.push('', `📊 *Total:* ✅ ${t.entregados} entregados · ⛔ ${t.cancelados} cancelados · 🚚 ${t.enCurso} en curso`);
-    l.push(`⏳ *Tiempo promedio:* ${duracionTxt(t.minutosPromedio)}`);
-  }
-  l.push('', `🗓 Generado ${fechaHoraVE(data.ahora ?? new Date().toISOString())}`, '', PIE);
+  l.push('', `🕒 Generado ${data.generado ?? fechaHoraVE(new Date().toISOString())}`, PIE_DELIVERY);
   return l.join('\n');
 }

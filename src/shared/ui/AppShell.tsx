@@ -55,7 +55,10 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 export function AppShell() {
   const { user } = useSession();
+  const location = useLocation();
   const { can, role, appUser, isAdmin, soloTelefono, vistasTelefono } = usePermissions();
+  // Vistas inmersivas a pantalla completa para conductores en calle (Delivery / Carga Pesada)
+  const esVistaInmersiva = location.pathname.startsWith('/app/delivery/telefono') || location.pathname.startsWith('/app/carga-pesada/telefono');
   // Interruptor del flujo SP → Almacén → Compras (config.compras.revision_almacen, arranca apagado).
   const flujoAlmacen = useFlujoRevisionAlmacen();
   // 31-10-2026: «Solicitudes de Pedido» (revisión de almacén) solo para el almacenista con sede, o el admin.
@@ -346,7 +349,7 @@ export function AppShell() {
   }, [role, user?.email]);
 
   return (
-    <div className={`app${collapsed ? ' sidebar-collapsed' : ''}${drawerOpen ? ' drawer-open' : ''}`}>
+    <div className={`app${collapsed ? ' sidebar-collapsed' : ''}${drawerOpen ? ' drawer-open' : ''}${esVistaInmersiva ? ' app--inmersivo' : ''}`}>
       <div className="sidebar-overlay" onClick={closeDrawer} aria-hidden="true" />
       <aside className={`sidebar${busquedaMenu.trim() ? ' buscando' : ''}`} ref={asideRef}>
        <BusquedaMenu.Provider value={busquedaMenu}>
@@ -522,91 +525,93 @@ export function AppShell() {
       </BusquedaMenu.Provider>
       </aside>
 
-      <header className="topbar">
-        <div className="crumb" style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
-          <button
-            type="button"
-            onClick={handleMenuBtn}
-            className="btn btn-icon btn-ghost"
-            title={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
-            aria-label={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
-            style={{ fontSize: '1.1rem', lineHeight: 1 }}
-          >
-            ☰
-          </button>
-          <span>MGG · <strong>Sistema</strong></span>
-        </div>
-        <div className="top-actions">
-          <TasaChip />
-          <GlobalSearch />
-          <button
-            type="button"
-            className="btn btn-icon btn-ghost"
-            onClick={() => setAyudasOff((v) => {
-              // El botón avisa lo que hizo: sin esto parecía muerto cuando la
-              // pantalla de turno no tenía textos de ayuda que esconder.
-              toast(v ? 'Ayudas visibles' : 'Ayudas ocultas', 'info');
-              return !v;
-            })}
-            title={ayudasOff ? 'Mostrar las ayudas (textos explicativos)' : 'Ocultar las ayudas (textos explicativos)'}
-            aria-label={ayudasOff ? 'Mostrar ayudas' : 'Ocultar ayudas'}
-            aria-pressed={!ayudasOff}
-            style={{ fontSize: '1rem', lineHeight: 1, opacity: ayudasOff ? 0.55 : 1 }}
-          >
-            (?)
-          </button>
-          <button
-            type="button"
-            className="notif-btn"
-            onClick={handleOpenNotif}
-            title="Notificaciones"
-            style={{
-              position: 'relative',
-              background: 'transparent',
-              border: '1px solid var(--border)',
-              color: 'var(--text)',
-              padding: '.45rem .65rem',
-              borderRadius: 'var(--r-md)',
-              cursor: 'pointer',
-              fontSize: '1.05rem',
-              lineHeight: 1,
-            }}
-          >
-            ◔
-            {unread > 0 && (
-              <span
-                aria-label={`${unread} sin leer`}
-                style={{
-                  position: 'absolute',
-                  top: '-4px',
-                  right: '-4px',
-                  background: 'var(--danger)',
-                  color: '#fff',
-                  borderRadius: '999px',
-                  minWidth: 18,
-                  height: 18,
-                  fontSize: '.65rem',
-                  fontWeight: 700,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: '0 5px',
-                  boxShadow: '0 0 0 2px var(--bg-1)',
-                }}
-              >
-                {unread > 9 ? '9+' : unread}
-              </span>
-            )}
-          </button>
-        </div>
-      </header>
+      {!esVistaInmersiva && (
+        <header className="topbar">
+          <div className="crumb" style={{ display: 'flex', alignItems: 'center', gap: '.6rem' }}>
+            <button
+              type="button"
+              onClick={handleMenuBtn}
+              className="btn btn-icon btn-ghost"
+              title={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
+              aria-label={collapsed ? 'Mostrar menú' : 'Ocultar menú'}
+              style={{ fontSize: '1.1rem', lineHeight: 1 }}
+            >
+              ☰
+            </button>
+            <span>MGG · <strong>Sistema</strong></span>
+          </div>
+          <div className="top-actions">
+            <TasaChip />
+            <GlobalSearch />
+            <button
+              type="button"
+              className="btn btn-icon btn-ghost"
+              onClick={() => setAyudasOff((v) => {
+                // El botón avisa lo que hizo: sin esto parecía muerto cuando la
+                // pantalla de turno no tenía textos de ayuda que esconder.
+                toast(v ? 'Ayudas visibles' : 'Ayudas ocultas', 'info');
+                return !v;
+              })}
+              title={ayudasOff ? 'Mostrar las ayudas (textos explicativos)' : 'Ocultar las ayudas (textos explicativos)'}
+              aria-label={ayudasOff ? 'Mostrar ayudas' : 'Ocultar ayudas'}
+              aria-pressed={!ayudasOff}
+              style={{ fontSize: '1rem', lineHeight: 1, opacity: ayudasOff ? 0.55 : 1 }}
+            >
+              (?)
+            </button>
+            <button
+              type="button"
+              className="notif-btn"
+              onClick={handleOpenNotif}
+              title="Notificaciones"
+              style={{
+                position: 'relative',
+                background: 'transparent',
+                border: '1px solid var(--border)',
+                color: 'var(--text)',
+                padding: '.45rem .65rem',
+                borderRadius: 'var(--r-md)',
+                cursor: 'pointer',
+                fontSize: '1.05rem',
+                lineHeight: 1,
+              }}
+            >
+              ◔
+              {unread > 0 && (
+                <span
+                  aria-label={`${unread} sin leer`}
+                  style={{
+                    position: 'absolute',
+                    top: '-4px',
+                    right: '-4px',
+                    background: 'var(--danger)',
+                    color: '#fff',
+                    borderRadius: '999px',
+                    minWidth: 18,
+                    height: 18,
+                    fontSize: '.65rem',
+                    fontWeight: 700,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '0 5px',
+                    boxShadow: '0 0 0 2px var(--bg-1)',
+                  }}
+                >
+                  {unread > 9 ? '9+' : unread}
+                </span>
+              )}
+            </button>
+          </div>
+        </header>
+      )}
 
-      <AvisoActualizacion />
-      <DockMinimizadas />
-      <AvisoSalidaModulo />
+      {!esVistaInmersiva && <AvisoActualizacion />}
+      {!esVistaInmersiva && <DockMinimizadas />}
+      {!esVistaInmersiva && <AvisoSalidaModulo />}
 
-      <main className="main">
-        <AvisoReloj />
+      <main className={`main${esVistaInmersiva ? ' main--inmersivo' : ''}`}>
+        {!esVistaInmersiva && <AvisoReloj />}
         <Outlet />
       </main>
 

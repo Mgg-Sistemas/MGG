@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Delivery · lógica de la vista de teléfono (30-10-2026)
+   MGG · Delivery · lógica de la vista de teléfono (31/10/2026)
 
    Lo que no toca pantalla ni base: cuándo mandar la ubicación, cómo se
    arma el listado del motorizado (por tomar / en curso / entregados),
@@ -7,7 +7,8 @@
    cada paso cuando se quiere volver a verlo.
    ============================================================ */
 import {
-  claveDe, mensajeAceptado, mensajeCancelado, mensajeEnRuta, mensajeEntregado, type PedidoDelivery,
+  claveDelivery, esRetiroAlmacen, mensajeAceptado, mensajeCancelado, mensajeEntregado,
+  type PedidoDelivery, type RechazoDelivery,
 } from './delivery';
 
 /* ── Ubicación ── */
@@ -73,7 +74,7 @@ export function mapaHref(direccion: string | null | undefined): string | null {
 
 /* ── Listado ── */
 
-export type ChipDelivery = 'por_tomar' | 'en_ruta' | 'entregados';
+export type ChipDelivery = 'todos' | 'por_tomar' | 'en_ruta' | 'entregados';
 
 export interface PedidoFeed {
   p: PedidoDelivery;
@@ -86,44 +87,78 @@ export const MAX_ENTREGADOS_TELEFONO = 30;
 
 const t = (iso: string | null | undefined) => (iso ? new Date(iso).getTime() || 0 : 0);
 
+/** 02/11/2026: claves (orden + origen) de lo que ESTE motorizado marcó «No disponible». */
+export function rechazadosPor(rechazos: Pick<RechazoDelivery, 'orden_id' | 'origen' | 'repartidor_id'>[], uid: string | null | undefined): Set<string> {
+  return new Set(uid ? rechazos.filter((r) => r.repartidor_id === uid).map((r) => claveDelivery(r)) : []);
+}
+
 /**
  * Junta la lista de activos (`listPedidosDelivery(false)`) con la de cerrados
  * (`listPedidosDelivery(true)`). En la de activos una fila «cancelado» solo
- * puede estar porque la OC quedó libre otra vez: esa se puede tomar.
+ * puede estar porque el pedido quedó libre otra vez: ese se puede tomar.
  * Orden: lo mío en curso, lo que está por tomar (urgente primero, como lo
- * manda la base), lo de otros en curso y los entregados más nuevos.
+ * manda la base) y mis entregados más nuevos.
+ * 02/11/2026 (pedido de la usuaria): un pedido aceptado SOLO lo ve quien lo
+ * aceptó (lo de otros en curso o entregado no sale en el teléfono; la PC lo
+ * ve todo) y lo que yo marqué «No disponible» ya no me sale en «Por tomar».
+ * Cada fila es (orden, origen): la misma SP puede traer su retiro de Almacén
+ * y su OC.
  */
-export function armarFeed(activos: PedidoDelivery[], conCerrados: PedidoDelivery[]): PedidoFeed[] {
+export function armarFeed(activos: PedidoDelivery[], conCerrados: PedidoDelivery[], rechazadosPorMi: Set<string> = new Set()): PedidoFeed[] {
   const vistos = new Set<string>();
   const mios: PedidoFeed[] = [];
   const libres: PedidoFeed[] = [];
-  const ajenos: PedidoFeed[] = [];
   for (const p of activos) {
-    vistos.add(claveDe(p));
-    if (p.estado === 'por_tomar' || p.estado === 'cancelado') libres.push({ p, disponible: true });
-    else if (p.es_mio) mios.push({ p, disponible: false });
-    else ajenos.push({ p, disponible: false });
+    const k = claveDelivery(p);
+    vistos.add(k);
+    if (p.estado === 'por_tomar' || p.estado === 'cancelado') {
+      if (!rechazadosPorMi.has(k)) libres.push({ p, disponible: true });
+    } else if (p.es_mio) mios.push({ p, disponible: false });
   }
   mios.sort((a, b) => (a.p.estado === 'en_ruta' ? 0 : 1) - (b.p.estado === 'en_ruta' ? 0 : 1));
   const entregados = conCerrados
-    .filter((p) => !vistos.has(claveDe(p)) && p.estado === 'entregado')
+    .filter((p) => !vistos.has(claveDelivery(p)) && p.estado === 'entregado' && p.es_mio)
     .sort((a, b) => t(b.entregado_en) - t(a.entregado_en))
     .slice(0, MAX_ENTREGADOS_TELEFONO)
     .map((p) => ({ p, disponible: false }));
-  return [...mios, ...libres, ...ajenos, ...entregados];
+  return [...mios, ...libres, ...entregados];
 }
 
-export function enChip(f: PedidoFeed, chip: ChipDelivery | 'todos'): boolean {
+export function enChip(f: PedidoFeed, chip: ChipDelivery): boolean {
   if (chip === 'todos') return true;
   if (chip === 'por_tomar') return f.disponible;
   if (chip === 'en_ruta') return !f.disponible && (f.p.estado === 'aceptado' || f.p.estado === 'en_ruta');
   return f.p.estado === 'entregado';
 }
 
+/** 10/11/2026 (maqueta): color de la franja de la tarjeta según el estado. */
+export type EstadoTarjeta = 'por_tomar' | 'en_camino' | 'entregado' | 'cancelado';
+export function estadoTarjeta(f: PedidoFeed): EstadoTarjeta {
+  if (f.disponible) return 'por_tomar';
+  if (f.p.estado === 'aceptado' || f.p.estado === 'en_ruta') return 'en_camino';
+  return f.p.estado === 'entregado' ? 'entregado' : 'cancelado';
+}
+
+/** 10/11/2026: en qué tramo va (1 = va a buscarlo, 2 = ya lo recogió y va a entregarlo). */
+export function tramoEnCurso(p: Pick<PedidoDelivery, 'fotos_recibo'>): 1 | 2 {
+  return (p.fotos_recibo?.length ?? 0) > 0 ? 2 : 1;
+}
+
+/** ¿El pedido fue previamente cancelado/desasignado antes de quedar libre para re-toma? */
+export function fueCanceladoPreviamente(p: Pick<PedidoDelivery, 'estado' | 'motivo_cancel'>): boolean {
+  return p.estado === 'cancelado' || !!p.motivo_cancel;
+}
+
 /** El pedido que este motorizado tiene en curso (en ruta primero). */
 export function trabajoEnCurso(feed: PedidoFeed[]): PedidoDelivery | null {
   const mios = feed.filter((f) => !f.disponible && f.p.es_mio && (f.p.estado === 'aceptado' || f.p.estado === 'en_ruta'));
   return (mios.find((f) => f.p.estado === 'en_ruta') ?? mios[0])?.p ?? null;
+}
+
+/** 02/11/2026: la tarjeta muestra solo cuántos productos trae: «📦 1 producto» / «📦 17 productos». */
+export function productosTxt(n: number): string {
+  const k = Math.max(0, Math.trunc(Number(n) || 0));
+  return `📦 ${k} ${k === 1 ? 'producto' : 'productos'}`;
 }
 
 /* ── Mensajes ── */
@@ -133,15 +168,20 @@ export function mensajeDeEstado(
   p: PedidoDelivery, nombre: string, verAlmacen: (a: string) => string = (a) => a,
 ): { titulo: string; texto: string } | null {
   const quien = p.repartidor_nombre?.trim() || nombre;
+  const retiro = esRetiroAlmacen(p);
   switch (p.estado) {
-    case 'aceptado': return { titulo: 'Pedido aceptado', texto: mensajeAceptado(p, quien, p.aceptado_en) };
-    case 'en_ruta': return { titulo: 'En camino', texto: mensajeEnRuta(p, quien, p.en_ruta_en) };
-    case 'entregado': return {
+    case 'aceptado': return { titulo: retiro ? 'Retiro aceptado' : 'Pedido aceptado', texto: mensajeAceptado(p, quien, p.aceptado_en) };
+    // 02/11/2026: al aceptar queda «En camino»: se muestra el mensaje de la aceptación.
+    case 'en_ruta': return { titulo: 'En camino', texto: mensajeAceptado(p, quien, p.en_ruta_en ?? p.aceptado_en) };
+    case 'entregado': return retiro ? {
+      titulo: 'Retiro entregado',
+      texto: mensajeEntregado(p, quien, (p.almacen_entrega ?? '').trim() || '—', p.nota_entrega, p.entregado_en),
+    } : {
       titulo: 'Entregado en almacén',
       texto: mensajeEntregado(p, quien, verAlmacen(p.almacen_entrega ?? p.almacen_destino ?? '—'), p.nota_entrega, p.entregado_en),
     };
     case 'cancelado': return {
-      titulo: 'Pedido cancelado',
+      titulo: retiro ? 'Retiro cancelado' : 'Pedido cancelado',
       texto: mensajeCancelado(p, quien, p.motivo_cancel ?? '—', p.detalle_cancel, p.cancelado_en),
     };
     default: return null;
