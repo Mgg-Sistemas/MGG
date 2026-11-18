@@ -941,25 +941,27 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
     });
   }
 
-  async function aplicarPlanMGG(): Promise<void> {
+  async function aplicarPlanMGG(empresaClave: string = 'MGG'): Promise<void> {
     await almacen.modificar((estado) => {
       estado.cont_parametros.empresa_nombre = PARAMETROS_MGG.empresa_nombre;
       estado.cont_parametros.centro_costo_defecto_id = PARAMETROS_MGG.centro_costo_defecto_id;
       for (const cc of CENTROS_COSTO_MGG) {
-        const existe = estado.cont_centros_costo.find((x) => x.codigo === cc.codigo);
+        const item = { ...cc, empresa_clave: empresaClave };
+        const existe = estado.cont_centros_costo.find((x) => x.codigo === cc.codigo && (!x.empresa_clave || x.empresa_clave === empresaClave));
         if (existe) {
-          Object.assign(existe, cc);
+          Object.assign(existe, item);
         } else {
-          estado.cont_centros_costo.push(cc as ContCentroCosto);
+          estado.cont_centros_costo.push(item as ContCentroCosto);
         }
       }
       const cuentasMGG = generarPlanCuentasMGG();
       for (const cta of cuentasMGG) {
-        const existe = estado.cont_cuentas.find((x) => x.codigo === cta.codigo);
+        const item = { ...cta, empresa_clave: empresaClave };
+        const existe = estado.cont_cuentas.find((x) => x.codigo === cta.codigo && (!x.empresa_clave || x.empresa_clave === empresaClave));
         if (existe) {
-          Object.assign(existe, cta);
+          Object.assign(existe, item);
         } else {
-          estado.cont_cuentas.push(cta);
+          estado.cont_cuentas.push(item);
         }
       }
     });

@@ -152,6 +152,11 @@
   .cont-cabecera, .cont-pie, .cont-linea-activa { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .cont-ficha dl { grid-template-columns: 8rem 1fr; }
 }
+@media (max-width: 560px) {
+  .cont-cabecera, .cont-pie, .cont-linea-activa { grid-template-columns: minmax(0, 1fr); }
+  .cont-cabecera .ancho { grid-column: auto; }
+  .cont-barra .input, .cont-barra .select { width: 100%; max-width: 100%; }
+}
 
 /* Historial del comprobante: solo se agrega (usuario, 20/10 13:04). */
 .cont-historial { margin-top: .75rem; font-size: .8rem; }

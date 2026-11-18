@@ -70,7 +70,7 @@ export function PlanCuentasTab({ parametros, empresaClave = 'MGG' }: { parametro
     if (!window.confirm('¿Deseas aplicar el Plan de Cuentas oficial de MINERAL GROUP GUAYANA C.A.? Se incorporarán las cuentas de bancos nacionales, divisas, inventarios mineros y centros de costo de la empresa.')) return;
     setCargandoMGG(true);
     try {
-      await aplicarPlanMGG();
+      await aplicarPlanMGG(empresaClave);
       await cargar();
       toast('Plan de cuentas oficial de MGG aplicado con éxito.', 'success');
     } catch (e) {
