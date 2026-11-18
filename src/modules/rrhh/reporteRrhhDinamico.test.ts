@@ -16,6 +16,7 @@ import {
   formatearDatosPagoRrhh,
   CAMPOS_REPORTE_RRHH,
   CAMPOS_DEFAULT_RRHH,
+  textoInfoTasaRrhh,
 } from './reporteRrhhDinamico';
 import { textoCeldaRrhh } from './exportarRrhhDinamico';
 
@@ -436,6 +437,47 @@ describe('reporteRrhhDinamico - Histórico de Cargos / Tabulador', () => {
     expect(filas[0].personasEnCargo).toBe(2);
     expect(filas[0].costoCargoUsd).toBe(1000); // 2 * 500
     expect(filas[0].variacionUsd).toBe(50);
+  });
+});
+
+describe('reporteRrhhDinamico - Sueldo en Bs, porcentajes y tasa del día', () => {
+  const personal: Personal[] = [
+    { id: 'p-bs', nombre: 'Ana', apellido: 'Diaz', cargo: 'OPERADOR', sueldo_base: 450, activo: true, created_at: '' },
+  ];
+  const mapaEmpresas = new Map<string, DefinicionEmpresa>();
+
+  it('registra checks de 20%, 80% y 100% del sueldo en Bs solo en Directorio y Personal', () => {
+    const esperados: Array<[string, string]> = [
+      ['sueldo_bs_20', '20% Sueldo (Bs)'],
+      ['sueldo_bs_80', '80% Sueldo (Bs)'],
+      ['sueldo_bs_100', '100% Sueldo (Bs)'],
+    ];
+    for (const [clave, etiqueta] of esperados) {
+      const col = CAMPOS_REPORTE_RRHH.find((c) => c.clave === clave);
+      expect(col, `Falta la columna ${clave}`).toBeDefined();
+      expect(col?.etiqueta).toBe(etiqueta);
+      expect(col?.formato).toBe('moneda_bs');
+      expect(col?.ambitos).toEqual(['personal']);
+      for (const mods of Object.values(CAMPOS_DEFAULT_RRHH)) {
+        for (const cols of Object.values(mods)) expect(cols).not.toContain(clave);
+      }
+    }
+  });
+
+  it('muestra el 20%, 80% y 100% a partir del sueldo equivalente en Bs', () => {
+    const [ficha] = normalizarPersonalRrhh(personal, mapaEmpresas, 42.5);
+    expect(ficha.sueldoBs).toBe(19125);
+    expect(textoCeldaRrhh(ficha, 'sueldo_bs_20')).toBe('Bs 3.825,00');
+    expect(textoCeldaRrhh(ficha, 'sueldo_bs_80')).toBe('Bs 15.300,00');
+    expect(textoCeldaRrhh(ficha, 'sueldo_bs_100')).toBe('Bs 19.125,00');
+  });
+
+  it('explica la tasa aplicada y avisa cuando no es la del día o no se pudo cargar', () => {
+    expect(textoInfoTasaRrhh(916.65, '2026-11-18', true, true)).toBe(
+      'Tasa BCV 18-11-2026: 916,65 Bs por USD (aplicada a los importes en Bs)',
+    );
+    expect(textoInfoTasaRrhh(916.65, '2026-11-17', true, false)).toContain('AVISO');
+    expect(textoInfoTasaRrhh(1, null, false, false)).toContain('No se pudo cargar');
   });
 });
 

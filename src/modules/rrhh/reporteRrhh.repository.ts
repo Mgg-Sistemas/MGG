@@ -22,7 +22,7 @@ import type { DefinicionEmpresa } from './empresa';
 import { listCambiosSueldo, listCargaFamiliarDeTodos, type CambioSueldoRegistro, type FamiliarPersonal } from './personal.repository';
 import { listHistorialTabulador } from './tabulador.repository';
 import type { HistorialTabulador } from './tabulador';
-import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { getTasaHoy, hoyVE } from '@/modules/tesoreria/tasas.repository';
 import type { AmbitoRrhh } from './reporteRrhhDinamico';
 
 const TABLA_PERSONAL = 'personal';
@@ -63,6 +63,9 @@ export interface PaqueteDatosReporteRrhh {
   cambiosSueldo: CambioSueldoRegistro[];
   historialTabulador: HistorialTabulador[];
   tasaBcv: number;
+  tasaFecha: string | null;
+  tasaDisponible: boolean;
+  tasaEsDelDia: boolean;
 }
 
 /**
@@ -100,7 +103,8 @@ export async function cargarDatosReporteRrhh(opts: {
     mapaFamilia.set(fam.personalId, arr);
   }
 
-  const tasaBcv = tasaHoy?.usd && tasaHoy.usd > 0 ? tasaHoy.usd : 1;
+  const tasaDisponible = typeof tasaHoy?.usd === 'number' && tasaHoy.usd > 0;
+  const tasaBcv = tasaDisponible && tasaHoy?.usd ? tasaHoy.usd : 1;
 
   return {
     empresas,
@@ -111,6 +115,9 @@ export async function cargarDatosReporteRrhh(opts: {
     cambiosSueldo,
     historialTabulador,
     tasaBcv,
+    tasaFecha: tasaHoy?.fecha ?? null,
+    tasaDisponible,
+    tasaEsDelDia: tasaDisponible && tasaHoy?.fecha === hoyVE(),
   };
 }
 

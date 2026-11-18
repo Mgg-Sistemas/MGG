@@ -35,6 +35,7 @@ import {
   normalizarPersonalRrhh,
   obtenerMetricasFichaRrhh,
   procesarFilasReporteRrhh,
+  textoInfoTasaRrhh,
   type AmbitoRrhh,
   type FilaReporteRrhh,
   type FiltrosRrhh,
@@ -131,6 +132,11 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
   const [mapaFamilia, setMapaFamilia] = useState<Map<string, FamiliarPersonal[]>>(new Map());
   const [mapaEmpresas, setMapaEmpresas] = useState<Map<string, DefinicionEmpresa>>(new Map());
   const [tasaBcv, setTasaBcv] = useState(1);
+  const [tasaInfo, setTasaInfo] = useState<{ fecha: string | null; disponible: boolean; esDelDia: boolean }>({
+    fecha: null,
+    disponible: false,
+    esDelDia: false,
+  });
   const [recarga, setRecarga] = useState(0);
 
   // Carga de datos de Supabase
@@ -157,6 +163,11 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
           setCambiosSueldo(datos.cambiosSueldo);
           setHistorialTabulador(datos.historialTabulador);
           setTasaBcv(datos.tasaBcv);
+          setTasaInfo({
+            fecha: datos.tasaFecha,
+            disponible: datos.tasaDisponible,
+            esDelDia: datos.tasaEsDelDia,
+          });
           ultimaCarga.current = claveCarga;
         }
       } catch (err) {
@@ -272,6 +283,12 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
 
   const metricasKpi = useMemo(() => obtenerMetricasFichaRrhh(resumen, ambito, columnasSel), [resumen, ambito, columnasSel]);
 
+  const tasaTexto = useMemo(
+    () => textoInfoTasaRrhh(tasaBcv, tasaInfo.fecha, tasaInfo.disponible, tasaInfo.esDelDia),
+    [tasaBcv, tasaInfo],
+  );
+  const avisoTasa = tasaTexto.startsWith('AVISO');
+
   const columnasDisponibles = useMemo(
     () => CAMPOS_REPORTE_RRHH.filter((c) => c.ambitos.includes(ambito)),
     [ambito],
@@ -296,8 +313,9 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
       orientacion,
       desde: desde || undefined,
       hasta: hasta || undefined,
+      tasaBcvTexto: tasaTexto,
     }),
-    [ambito, agrupacion, columnasSel, empresasTexto, resumen, filasProcesadas, orientacion, desde, hasta],
+    [ambito, agrupacion, columnasSel, empresasTexto, resumen, filasProcesadas, orientacion, desde, hasta, tasaTexto],
   );
 
   const textoWa = useMemo(
@@ -645,6 +663,23 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
           </div>
         ))}
       </div>
+
+      {!cargando && (
+        <div
+          style={{
+            marginTop: '-.5rem',
+            marginBottom: '1.2rem',
+            padding: '.5rem .75rem',
+            borderRadius: '6px',
+            border: `1px solid ${avisoTasa ? 'rgba(243, 156, 18, 0.3)' : 'var(--border)'}`,
+            background: avisoTasa ? 'rgba(243, 156, 18, 0.12)' : 'var(--card-bg, #1e2229)',
+            color: avisoTasa ? 'var(--warning)' : 'var(--muted)',
+            fontSize: '.8rem',
+          }}
+        >
+          💱 {tasaTexto}
+        </div>
+      )}
 
       {/* Panel colapsable de WhatsApp (se muestra u oculta tras presionar el botón) */}
       {mostrarWhatsapp && (

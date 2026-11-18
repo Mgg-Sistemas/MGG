@@ -25,6 +25,7 @@ import {
   fmtPct,
   MODOS_AGRUPACION_RRHH,
   obtenerMetricasFichaRrhh,
+  porcentajeSueldoBs,
 } from './reporteRrhhDinamico';
 import { GRADOS_INSTRUCCION, PARENTESCOS } from './fichaPersonal';
 
@@ -42,6 +43,7 @@ export interface OpcionesExportacionRrhh {
   orientacion?: 'auto' | 'vertical' | 'horizontal';
   desde?: string;
   hasta?: string;
+  tasaBcvTexto?: string;
 }
 
 /** Obtiene el texto formateado de una celda según su columna. */
@@ -127,6 +129,12 @@ export function textoCeldaRrhh(f: FilaReporteRrhh, clave: string): string {
       return fmtMonedaUsd(f.sueldoBase);
     case 'sueldo_bs':
       return fmtMonedaBs(f.sueldoBs);
+    case 'sueldo_bs_20':
+      return fmtMonedaBs(porcentajeSueldoBs(f.sueldoBs, 0.2));
+    case 'sueldo_bs_80':
+      return fmtMonedaBs(porcentajeSueldoBs(f.sueldoBs, 0.8));
+    case 'sueldo_bs_100':
+      return fmtMonedaBs(porcentajeSueldoBs(f.sueldoBs, 1));
     case 'total_personas':
       return String(f.totalPersonas || 1);
     case 'masa_salarial':
@@ -192,6 +200,7 @@ export async function descargarRrhhExcel(op: OpcionesExportacionRrhh): Promise<v
   const aoa: unknown[][] = [
     [`REPORTE DE RRHH · ${ambitoLabel.toUpperCase()} · MGG`],
     [`Empresas: ${op.empresasTexto} | Agrupación: ${agrupacionLabel} | ${new Date().toLocaleDateString('es-VE')}`],
+    ...(op.tasaBcvTexto ? [[op.tasaBcvTexto]] : []),
     [],
     cabeceras,
     ...filasDatos,
@@ -256,7 +265,15 @@ export async function descargarRrhhPdf(op: OpcionesExportacionRrhh): Promise<voi
   const infoSub = `Empresas: ${op.empresasTexto} · Agrupación: ${op.agrupacion.toUpperCase()} · ${new Date().toLocaleDateString('es-VE')}`;
   doc.text(infoSub, tx, y + 42);
 
-  y += LOGO_SZ + 8;
+  if (op.tasaBcvTexto) {
+    if (op.tasaBcvTexto.startsWith('AVISO')) {
+      doc.setTextColor(COLOR_NARANJA_RGB[0], COLOR_NARANJA_RGB[1], COLOR_NARANJA_RGB[2]);
+    }
+    doc.text(op.tasaBcvTexto, tx, y + 54);
+    doc.setTextColor(100);
+  }
+
+  y += LOGO_SZ + (op.tasaBcvTexto ? 22 : 8);
   doc.setDrawColor(COLOR_NARANJA_RGB[0], COLOR_NARANJA_RGB[1], COLOR_NARANJA_RGB[2]);
   doc.setLineWidth(1.5);
   doc.line(MARGEN_PDF, y, W - MARGEN_PDF, y);

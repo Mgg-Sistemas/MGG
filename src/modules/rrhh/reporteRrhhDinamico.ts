@@ -137,6 +137,9 @@ export const CAMPOS_REPORTE_RRHH: CampoColumnaRrhh[] = [
   // Económicos / Sueldos
   { clave: 'sueldo_base', etiqueta: 'Sueldo Base ($)', anchoExcel: 16, alineacion: 'right', formato: 'moneda', ambitos: ['personal'] },
   { clave: 'sueldo_bs', etiqueta: 'Sueldo Equiv. (Bs)', anchoExcel: 18, alineacion: 'right', formato: 'moneda_bs', ambitos: ['personal'] },
+  { clave: 'sueldo_bs_20', etiqueta: '20% Sueldo (Bs)', anchoExcel: 18, alineacion: 'right', formato: 'moneda_bs', ambitos: ['personal'] },
+  { clave: 'sueldo_bs_80', etiqueta: '80% Sueldo (Bs)', anchoExcel: 18, alineacion: 'right', formato: 'moneda_bs', ambitos: ['personal'] },
+  { clave: 'sueldo_bs_100', etiqueta: '100% Sueldo (Bs)', anchoExcel: 18, alineacion: 'right', formato: 'moneda_bs', ambitos: ['personal'] },
   { clave: 'total_personas', etiqueta: 'Colaboradores', anchoExcel: 14, alineacion: 'center', formato: 'numero', ambitos: ['personal', 'historico_cargos'] },
   { clave: 'masa_salarial', etiqueta: 'Masa Salarial ($)', anchoExcel: 18, alineacion: 'right', formato: 'moneda', ambitos: ['personal', 'historico_cargos'] },
   { clave: 'sueldo_promedio', etiqueta: 'Sueldo Promedio ($)', anchoExcel: 18, alineacion: 'right', formato: 'moneda', ambitos: ['personal', 'historico_cargos'] },
@@ -343,6 +346,26 @@ export const fmtNum2 = (v: number): string =>
 export const fmtMonedaUsd = (v: number): string => `$ ${fmtNum2(v)}`;
 export const fmtMonedaBs = (v: number): string => `Bs ${fmtNum2(v)}`;
 export const fmtPct = (v: number): string => `${(Number(v) || 0) >= 0 ? '+' : ''}${fmtNum2(v)}%`;
+
+/** Parte del sueldo ya convertido a Bs (20 %, 80 % o 100 %), con 2 decimales. */
+export function porcentajeSueldoBs(sueldoBs: number, porcentaje: number): number {
+  return round2((Number(sueldoBs) || 0) * porcentaje);
+}
+
+/** Texto de la tasa BCV aplicada, con aviso si no se pudo cargar o no es la del día. */
+export function textoInfoTasaRrhh(
+  tasa: number,
+  fecha?: string | null,
+  disponible = true,
+  esDelDia = true,
+): string {
+  const fechaTxt = fecha && /^\d{4}-\d{2}-\d{2}/.test(fecha)
+    ? `${fecha.slice(8, 10)}-${fecha.slice(5, 7)}-${fecha.slice(0, 4)}`
+    : 'fecha desconocida';
+  if (!disponible) return 'AVISO: No se pudo cargar la tasa BCV del dia; los importes en Bs pueden ser incorrectos';
+  if (!esDelDia) return `AVISO: La tasa BCV es del ${fechaTxt}, no la del dia; los importes en Bs usan esa tasa`;
+  return `Tasa BCV ${fechaTxt}: ${fmtNum2(tasa)} Bs por USD (aplicada a los importes en Bs)`;
+}
 
 /** Calcula años y meses de antigüedad desde la fecha de ingreso. */
 export function calcularAntiguedad(fechaIngresoIso?: string | null): { anios: number; texto: string } {
