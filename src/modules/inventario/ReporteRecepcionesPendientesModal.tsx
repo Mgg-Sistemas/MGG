@@ -11,9 +11,15 @@ import {
   filtrarRecepcionesPendientes,
   calcularTotalesRecepciones,
   textoReporteRecepcionesWhatsapp,
+  textoOrdenPendienteWhatsapp,
   type FiltrosRecepcionesPendientes,
 } from './reporteRecepcionesPendientes';
-import { generarReporteRecepcionesPdf } from './reporteRecepcionesPendientesPdf';
+import {
+  COLUMNAS_ORDEN_PENDIENTE,
+  generarReporteOrdenPendientePdf,
+  generarReporteRecepcionesPdf,
+  type ClaveColumnaOrdenPendiente,
+} from './reporteRecepcionesPendientesPdf';
 
 const surf2 = {
   background: 'var(--surface-2, #182230)',
@@ -40,8 +46,22 @@ interface Props {
   almacenes: Almacen[];
   actor?: string;
   modoInicial?: 'reporte' | 'whatsapp';
+  /** Cuando se abre desde una tarjeta o modal de una orden específica, arranca enfocado en esa orden. */
+  ordenIndividualId?: string;
+  /** Si es true, el modal está dedicado exclusivamente a esa orden individual (sin botón de volver al general). */
+  soloOrdenIndividual?: boolean;
   onClose: () => void;
 }
+
+const COLS_ORDEN_DEFAULT: ClaveColumnaOrdenPendiente[] = [
+  'sku',
+  'nombre',
+  'marca',
+  'cantidad',
+  'unidad',
+  'precio',
+  'subtotal',
+];
 
 export function ReporteRecepcionesPendientesModal({
   ordenes,
@@ -49,12 +69,40 @@ export function ReporteRecepcionesPendientesModal({
   almacenes,
   actor,
   modoInicial = 'reporte',
+  ordenIndividualId,
+  soloOrdenIndividual = false,
   onClose,
 }: Props) {
   // Filas completas normalizadas
   const filasBase = useMemo(() => {
     return armarFilasRecepcionesPendientes(ordenes, compras, almacenes);
   }, [ordenes, compras, almacenes]);
+
+  // Estado de foco en una orden individual (desde tarjeta, desde RecibirModal o desde fila de la tabla general)
+  const [focoId, setFocoId] = useState<string | null>(() => {
+    if (ordenIndividualId) return ordenIndividualId;
+    if (soloOrdenIndividual && filasBase.length === 1) return filasBase[0].id;
+    return null;
+  });
+  const [busquedaMaterial, setBusquedaMaterial] = useState('');
+  const [colsOrden, setColsOrden] = useState<ClaveColumnaOrdenPendiente[]>(COLS_ORDEN_DEFAULT);
+
+  const filaEnFoco = useMemo(
+    () => (focoId ? filasBase.find((f) => f.id === focoId) ?? null : null),
+    [filasBase, focoId],
+  );
+
+  const itemsFiltradosOrden = useMemo(() => {
+    if (!filaEnFoco) return [];
+    const q = busquedaMaterial.trim().toLowerCase();
+    if (!q) return filaEnFoco.itemsDetalle;
+    return filaEnFoco.itemsDetalle.filter(
+      (it) =>
+        it.nombre.toLowerCase().includes(q) ||
+        (it.sku && it.sku.toLowerCase().includes(q)) ||
+        (it.marca && it.marca.toLowerCase().includes(q)),
+    );
+  }, [filaEnFoco, busquedaMaterial]);
 
   // Totales de la base sin filtrar
   const totalesBase = useMemo(() => {
@@ -110,13 +158,34 @@ export function ReporteRecepcionesPendientesModal({
   }, [filasFiltradas]);
 
   const textoWhatsapp = useMemo(() => {
+    if (filaEnFoco) {
+      return textoOrdenPendienteWhatsapp(filaEnFoco, actor, itemsFiltradosOrden);
+    }
     return textoReporteRecepcionesWhatsapp(filasFiltradas, filtrosActuales, actor);
-  }, [filasFiltradas, filtrosActuales, actor]);
+  }, [filaEnFoco, itemsFiltradosOrden, filasFiltradas, filtrosActuales, actor]);
+
+  function toggleColOrden(clave: ClaveColumnaOrdenPendiente) {
+    setColsOrden((prev) =>
+      prev.includes(clave)
+        ? prev.length > 1
+          ? prev.filter((c) => c !== clave)
+          : prev
+        : [...prev, clave],
+    );
+  }
 
   async function handleDescargarPdf() {
     try {
       setGenerandoPdf(true);
-      await generarReporteRecepcionesPdf(filasFiltradas, filtrosActuales, actor);
+      if (filaEnFoco) {
+        await generarReporteOrdenPendientePdf(filaEnFoco, {
+          items: itemsFiltradosOrden,
+          columnas: colsOrden,
+          actor,
+        });
+      } else {
+        await generarReporteRecepcionesPdf(filasFiltradas, filtrosActuales, actor);
+      }
     } catch (err) {
       toast(err instanceof Error ? err.message : 'No se pudo generar el PDF', 'error');
     } finally {
@@ -153,13 +222,39 @@ export function ReporteRecepcionesPendientesModal({
 
   return (
     <Modal
-      title="📦 Reporte Dinámico de Pendientes por Recepcionar"
+      title={
+        filaEnFoco
+          ? `📦 Reporte Dinámico · ${filaEnFoco.codigo} (Pendiente por Recepcionar)`
+          : '📦 Reporte Dinámico de Pendientes por Recepcionar'
+      }
       size="xl"
       onClose={onClose}
       footer={
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '.5rem' }}>
-          <div className="muted" style={{ fontSize: '.84rem' }}>
-            Mostrando <strong>{num(filasFiltradas.length)}</strong> de <strong>{num(filasBase.length)}</strong> registros
+          <div className="muted" style={{ fontSize: '.84rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+            {filaEnFoco ? (
+              <>
+                {!soloOrdenIndividual && filasBase.length > 1 && (
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-ghost"
+                    onClick={() => {
+                      setFocoId(null);
+                      setBusquedaMaterial('');
+                    }}
+                  >
+                    ← Volver al reporte general ({filasBase.length})
+                  </button>
+                )}
+                <span>
+                  Orden <strong>{filaEnFoco.codigo}</strong> · Mostrando <strong>{num(itemsFiltradosOrden.length)}</strong> de <strong>{num(filaEnFoco.itemsDetalle.length)}</strong> materiales
+                </span>
+              </>
+            ) : (
+              <>
+                Mostrando <strong>{num(filasFiltradas.length)}</strong> de <strong>{num(filasBase.length)}</strong> registros
+              </>
+            )}
           </div>
           <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
             <button
@@ -217,7 +312,10 @@ export function ReporteRecepcionesPendientesModal({
                   color: 'var(--success, #25D366)',
                 }}
               >
-                <span>💬</span> Mensaje estructurado para WhatsApp · Pendientes por Recepcionar
+                <span>💬</span>{' '}
+                {filaEnFoco
+                  ? `Mensaje de WhatsApp · Orden Pendiente ${filaEnFoco.codigo}`
+                  : 'Mensaje estructurado para WhatsApp · Pendientes por Recepcionar'}
               </strong>
               <button
                 type="button"
@@ -229,12 +327,247 @@ export function ReporteRecepcionesPendientesModal({
               </button>
             </div>
             <p className="muted" style={{ fontSize: '.78rem', marginTop: 0, marginBottom: '.65rem' }}>
-              Incluye analista, fechas de montaje y pago, sede sugerida y la leyenda obligatoria: <strong>NO HA LLEGADO A ALMACEN DAR STATUS</strong>.
+              {filaEnFoco ? (
+                <>
+                  Detalle individual de <strong>{filaEnFoco.codigo}</strong> con todos sus materiales pendientes, analista, fechas y la leyenda: <strong>NO HA LLEGADO A ALMACEN DAR STATUS</strong>.
+                </>
+              ) : (
+                <>
+                  Incluye analista, fechas de montaje y pago, sede sugerida y la leyenda obligatoria: <strong>NO HA LLEGADO A ALMACEN DAR STATUS</strong>.
+                </>
+              )}
             </p>
             <CompartirWhatsapp texto={textoWhatsapp} />
           </div>
         )}
 
+        {filaEnFoco ? (
+          <>
+            {/* ── Vista de Reporte Dinámico por Orden Individual ── */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(290px, 1fr))', gap: '.65rem' }}>
+              <div style={surf2}>
+                <div style={tituloSec}>
+                  <span>🔍</span> Filtrar materiales de {filaEnFoco.codigo}
+                </div>
+                <input
+                  type="text"
+                  className="input"
+                  style={{ width: '100%', fontSize: '.84rem' }}
+                  placeholder="Buscar por nombre del material, SKU o marca…"
+                  value={busquedaMaterial}
+                  onChange={(e) => setBusquedaMaterial(e.target.value)}
+                />
+                {busquedaMaterial && (
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-ghost"
+                    style={{ marginTop: '.4rem', fontSize: '.75rem' }}
+                    onClick={() => setBusquedaMaterial('')}
+                  >
+                    ✕ Limpiar búsqueda
+                  </button>
+                )}
+              </div>
+
+              <div style={surf2}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+                  <div style={{ ...tituloSec, marginBottom: 0 }}>
+                    <span>☑️</span> Columnas del reporte ({colsOrden.length})
+                  </div>
+                  <div style={{ display: 'flex', gap: '.3rem' }}>
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-ghost"
+                      style={{ fontSize: '.72rem', padding: '.1rem .4rem' }}
+                      onClick={() => setColsOrden(COLS_ORDEN_DEFAULT)}
+                    >
+                      Todas
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-ghost"
+                      style={{ fontSize: '.72rem', padding: '.1rem .4rem' }}
+                      onClick={() => setColsOrden(['sku', 'nombre', 'marca', 'cantidad', 'unidad'])}
+                    >
+                      Sin precios
+                    </button>
+                  </div>
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.45rem .8rem' }}>
+                  {COLUMNAS_ORDEN_PENDIENTE.map((col) => (
+                    <label
+                      key={col.clave}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '.3rem',
+                        fontSize: '.78rem',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={colsOrden.includes(col.clave)}
+                        onChange={() => toggleColOrden(col.clave)}
+                      />
+                      <span>{col.etiqueta}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Tarjetas KPI de la Orden Individual */}
+            <div
+              style={{
+                background: 'var(--surface-1, #0f172a)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                padding: '.65rem .85rem',
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                gap: '.65rem',
+              }}
+            >
+              <div className="card" style={{ margin: 0, padding: '.65rem .8rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                <div className="muted" style={{ fontSize: '.7rem', fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase' }}>
+                  Documento pendiente
+                </div>
+                <div className="mono" style={{ fontSize: '1.2rem', fontWeight: 800, color: '#f59e0b', margin: '.2rem 0' }}>
+                  {filaEnFoco.codigo}
+                </div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>
+                  {filaEnFoco.tipoEtiqueta} · {filaEnFoco.estado}
+                </div>
+              </div>
+
+              <div className="card" style={{ margin: 0, padding: '.65rem .8rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                <div className="muted" style={{ fontSize: '.7rem', fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase' }}>
+                  Analista y destino
+                </div>
+                <div style={{ fontSize: '.98rem', fontWeight: 800, color: '#f1f5f9', margin: '.25rem 0' }}>
+                  👤 {filaEnFoco.analista}
+                </div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>
+                  🏭 {filaEnFoco.almacenSugerido}
+                  {filaEnFoco.proveedor && filaEnFoco.proveedor !== '—' ? ` · ${filaEnFoco.proveedor}` : ''}
+                </div>
+              </div>
+
+              <div className="card" style={{ margin: 0, padding: '.65rem .8rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                <div className="muted" style={{ fontSize: '.7rem', fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase' }}>
+                  Fechas de control
+                </div>
+                <div style={{ fontSize: '.95rem', fontWeight: 700, color: '#38bdf8', margin: '.25rem 0' }}>
+                  💳 {filaEnFoco.fechaPagoTxt}
+                </div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>
+                  📅 Montada: {filaEnFoco.fechaMontadaTxt}
+                </div>
+              </div>
+
+              <div className="card" style={{ margin: 0, padding: '.65rem .8rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                <div className="muted" style={{ fontSize: '.7rem', fontWeight: 700, letterSpacing: '.03em', textTransform: 'uppercase' }}>
+                  Ítems y monto orden
+                </div>
+                <div className="mono" style={{ fontSize: '1.25rem', fontWeight: 800, color: '#22c55e', margin: '.2rem 0' }}>
+                  {money(filaEnFoco.monto, filaEnFoco.moneda)}
+                </div>
+                <div className="muted" style={{ fontSize: '.72rem' }}>
+                  {num(itemsFiltradosOrden.length)} ítem{itemsFiltradosOrden.length === 1 ? '' : 's'} ·{' '}
+                  {num(itemsFiltradosOrden.reduce((a, it) => a + (Number(it.cantidad) || 0), 0))} und.
+                </div>
+              </div>
+            </div>
+
+            {/* Tabla detallada de materiales de la orden */}
+            <div style={surf2}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '.5rem', flexWrap: 'wrap', gap: '.4rem' }}>
+                <span style={{ ...tituloSec, fontSize: '.84rem', color: 'var(--text, #f1f5f9)', marginBottom: 0 }}>
+                  <span>📦</span> Materiales pendientes por recepcionar · {filaEnFoco.codigo}
+                </span>
+                <span className="badge warning" style={{ fontSize: '.72rem' }}>
+                  🚨 NO HA LLEGADO A ALMACÉN · DAR STATUS
+                </span>
+              </div>
+
+              <div style={{ maxHeight: '42vh', overflow: 'auto', border: '1px solid var(--border)', borderRadius: '6px' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.8rem', margin: 0 }}>
+                  <thead style={{ position: 'sticky', top: 0, background: 'var(--surface-1, #0f172a)', zIndex: 1, borderBottom: '1px solid var(--border)' }}>
+                    <tr>
+                      <th style={{ padding: '.5rem .6rem', textAlign: 'center', width: 36, color: '#94a3b8', fontWeight: 600 }}>#</th>
+                      {COLUMNAS_ORDEN_PENDIENTE.filter((c) => colsOrden.includes(c.clave)).map((c) => (
+                        <th
+                          key={c.clave}
+                          style={{ padding: '.5rem .6rem', textAlign: c.alineacion, color: '#94a3b8', fontWeight: 600 }}
+                        >
+                          {c.etiqueta.toUpperCase()}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!itemsFiltradosOrden.length ? (
+                      <tr>
+                        <td colSpan={colsOrden.length + 1} style={{ textAlign: 'center', padding: '1.8rem 1rem', color: 'var(--text-muted)' }}>
+                          Ningún material de esta orden coincide con la búsqueda.
+                        </td>
+                      </tr>
+                    ) : (
+                      itemsFiltradosOrden.map((it, idx) => (
+                        <tr
+                          key={`${it.sku || it.nombre}-${idx}`}
+                          style={{
+                            borderBottom: '1px solid rgba(255,255,255,0.05)',
+                            background: idx % 2 === 1 ? 'rgba(255,255,255,0.02)' : 'transparent',
+                          }}
+                        >
+                          <td style={{ padding: '.45rem .6rem', textAlign: 'center', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                          {colsOrden.includes('sku') && (
+                            <td className="mono" style={{ padding: '.45rem .6rem', textAlign: 'center' }}>
+                              {it.sku || '—'}
+                            </td>
+                          )}
+                          {colsOrden.includes('nombre') && (
+                            <td style={{ padding: '.45rem .6rem', fontWeight: 600, color: '#f1f5f9' }}>
+                              {it.nombre}
+                            </td>
+                          )}
+                          {colsOrden.includes('marca') && (
+                            <td style={{ padding: '.45rem .6rem', color: 'var(--text-muted)' }}>
+                              {it.marca || '—'}
+                            </td>
+                          )}
+                          {colsOrden.includes('cantidad') && (
+                            <td className="mono" style={{ padding: '.45rem .6rem', textAlign: 'right', fontWeight: 700 }}>
+                              {num(it.cantidad)}
+                            </td>
+                          )}
+                          {colsOrden.includes('unidad') && (
+                            <td style={{ padding: '.45rem .6rem', textAlign: 'center', color: 'var(--text-muted)' }}>
+                              {it.unidad || 'und.'}
+                            </td>
+                          )}
+                          {colsOrden.includes('precio') && (
+                            <td className="mono" style={{ padding: '.45rem .6rem', textAlign: 'right' }}>
+                              {it.precioUnitario != null ? money(it.precioUnitario, filaEnFoco.moneda) : '—'}
+                            </td>
+                          )}
+                          {colsOrden.includes('subtotal') && (
+                            <td className="mono" style={{ padding: '.45rem .6rem', textAlign: 'right', fontWeight: 700, color: '#22c55e' }}>
+                              {it.subtotal != null ? money(it.subtotal, filaEnFoco.moneda) : '—'}
+                            </td>
+                          )}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </>
+        ) : (
+          <>
         {/* ── 2. Tarjetas de Filtros Dinámicos (Estilo Tarjetas) ── */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '.65rem' }}>
           
@@ -525,12 +858,13 @@ export function ReporteRecepcionesPendientesModal({
                   <th style={{ padding: '.5rem .6rem', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>ÍTEMS / UND.</th>
                   <th style={{ padding: '.5rem .6rem', textAlign: 'right', color: '#94a3b8', fontWeight: 600 }}>MONTO TOTAL</th>
                   <th style={{ padding: '.5rem .6rem', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>ESTADO</th>
+                  <th style={{ padding: '.5rem .6rem', textAlign: 'center', color: '#94a3b8', fontWeight: 600 }}>POR ORDEN</th>
                 </tr>
               </thead>
               <tbody>
                 {!filasFiltradas.length ? (
                   <tr>
-                    <td colSpan={9} style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--text-muted)' }}>
                       No hay recepciones pendientes que coincidan con los filtros aplicados.
                     </td>
                   </tr>
@@ -579,6 +913,33 @@ export function ReporteRecepcionesPendientesModal({
                           {f.estado}
                         </span>
                       </td>
+                      <td style={{ padding: '.45rem .6rem', textAlign: 'center', whiteSpace: 'nowrap' }}>
+                        <div style={{ display: 'inline-flex', gap: '.25rem' }}>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            title={`Ver reporte dinámico de ${f.codigo}`}
+                            onClick={() => {
+                              setFocoId(f.id);
+                              setVerWhatsapp(false);
+                            }}
+                          >
+                            📊
+                          </button>
+                          <button
+                            type="button"
+                            className="btn btn-xs btn-ghost"
+                            style={{ color: '#25D366' }}
+                            title={`WhatsApp individual de ${f.codigo}`}
+                            onClick={() => {
+                              setFocoId(f.id);
+                              setVerWhatsapp(true);
+                            }}
+                          >
+                            💬
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   ))
                 )}
@@ -586,6 +947,8 @@ export function ReporteRecepcionesPendientesModal({
             </table>
           </div>
         </div>
+          </>
+        )}
 
       </div>
     </Modal>

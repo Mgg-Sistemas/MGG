@@ -16,7 +16,18 @@
 import type { Orden, Almacen } from '@/shared/lib/types';
 import type { CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { nombrePersonaCompras, derivarNombreDesdeCorreo } from '@/modules/pedidos/personasCompras';
-import { date, money } from '@/shared/lib/format';
+import { skuOGuion } from '@/modules/pedidos/renglonVisible';
+import { date, money, num } from '@/shared/lib/format';
+
+export interface ItemRecepcionPendienteDetalle {
+  sku?: string;
+  nombre: string;
+  marca?: string;
+  cantidad: number;
+  unidad?: string;
+  precioUnitario?: number;
+  subtotal?: number;
+}
 
 export interface FilaRecepcionPendiente {
   id: string;
@@ -36,7 +47,7 @@ export interface FilaRecepcionPendiente {
   monto: number;
   moneda: string;
   estado: string;
-  itemsDetalle: Array<{ nombre: string; cantidad: number; unidad?: string }>;
+  itemsDetalle: ItemRecepcionPendienteDetalle[];
 }
 
 export interface FiltrosRecepcionesPendientes {
@@ -110,11 +121,20 @@ export function armarFilasRecepcionesPendientes(
       monto: Number(o.total) || 0,
       moneda: o.moneda || 'USD',
       estado: o.estado === 'pagada' ? 'Pagada' : o.estado === 'por_recibir' ? 'Por recibir' : o.estado,
-      itemsDetalle: items.map((it) => ({
-        nombre: it.nombre || 'Material',
-        cantidad: Number(it.cantidad) || 0,
-        unidad: it.unidad,
-      })),
+      itemsDetalle: items.map((it) => {
+        const cant = Number(it.cantidad) || 0;
+        const precio = Number(it.precio) || 0;
+        const skuVis = skuOGuion(it);
+        return {
+          sku: skuVis !== '—' ? skuVis : undefined,
+          nombre: it.nombre || 'Material',
+          marca: it.marca?.trim() || undefined,
+          cantidad: cant,
+          unidad: it.unidad || undefined,
+          precioUnitario: precio,
+          subtotal: Math.round(cant * precio * 100) / 100,
+        };
+      }),
     });
   }
 
@@ -148,11 +168,18 @@ export function armarFilasRecepcionesPendientes(
       monto: Number(c.gasto) || 0,
       moneda: c.moneda || 'USD',
       estado: 'Por recibir',
-      itemsDetalle: items.map((it) => ({
-        nombre: it.producto_nombre || 'Material',
-        cantidad: Number(it.cantidad) || 0,
-        unidad: it.unidad || undefined,
-      })),
+      itemsDetalle: items.map((it) => {
+        const cant = Number(it.cantidad) || 0;
+        const montoItem = Number(it.gasto) || 0;
+        return {
+          sku: it.producto_sku?.trim() || undefined,
+          nombre: it.producto_nombre || 'Material',
+          cantidad: cant,
+          unidad: it.unidad || undefined,
+          precioUnitario: cant > 0 ? Math.round((montoItem / cant) * 100) / 100 : 0,
+          subtotal: montoItem,
+        };
+      }),
     });
   }
 
@@ -296,6 +323,57 @@ export function textoReporteRecepcionesWhatsapp(
   lineas.push('');
   lineas.push('🚨 *NO HA LLEGADO A ALMACEN DAR STATUS*');
   lineas.push('ℹ️ _Favor coordinar con el equipo de compras/logística para dar entrada oportuna en inventario._');
+
+  return lineas.join('\n');
+}
+
+/** Genera el mensaje de WhatsApp detallado para UNA orden o compra directa específica pendiente por recepcionar. */
+export function textoOrdenPendienteWhatsapp(
+  fila: FilaRecepcionPendiente,
+  actor?: string,
+  itemsPersonalizados?: ItemRecepcionPendienteDetalle[],
+): string {
+  const ahora = new Date();
+  const fechaStr = ahora.toLocaleDateString('es-VE');
+  const horaStr = ahora.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
+  const items = itemsPersonalizados ?? fila.itemsDetalle;
+  const totalUnidades = items.reduce((acc, it) => acc + (Number(it.cantidad) || 0), 0);
+
+  const lineas: string[] = [];
+  lineas.push('📦 *MINERAL GROUP GUAYANA C.A.*');
+  lineas.push(`📋 *ORDEN PENDIENTE POR RECEPCIONAR · ${fila.codigo}*`);
+  lineas.push('🚨 *NO HA LLEGADO A ALMACEN DAR STATUS*');
+  lineas.push(`📅 *Fecha de emisión:* ${fechaStr} · ${horaStr}`);
+  if (actor) lineas.push(`👤 *Generado por:* ${actor}`);
+  lineas.push('');
+  lineas.push(`🔹 *Documento:* ${fila.codigo} (${fila.tipoEtiqueta} · ${fila.estado})`);
+  lineas.push(`📅 *Montada:* ${fila.fechaMontadaTxt}`);
+  lineas.push(`💳 *Pagó Tesorería:* ${fila.fechaPagoTxt}`);
+  lineas.push(`👤 *Analista:* ${fila.analista}`);
+  if (fila.proveedor && fila.proveedor !== '—') {
+    lineas.push(`🏭 *Proveedor:* ${fila.proveedor}`);
+  }
+  lineas.push(`🏢 *Destino sugerido:* ${fila.almacenSugerido}`);
+  lineas.push(`💰 *Monto total:* ${money(fila.monto, fila.moneda)}`);
+  lineas.push('');
+  lineas.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+  lineas.push(`📦 *MATERIALES POR RECIBIR (${items.length} ítem${items.length === 1 ? '' : 's'} · ${num(totalUnidades)} und.):*`);
+  lineas.push('━━━━━━━━━━━━━━━━━━━━━━━━');
+
+  if (!items.length) {
+    lineas.push('• _Sin renglones que coincidan con el filtro._');
+  } else {
+    items.forEach((it, idx) => {
+      const skuTxt = it.sku ? ` · \`${it.sku}\`` : '';
+      const marcaTxt = it.marca ? ` · Marca: ${it.marca}` : '';
+      const cantTxt = `${num(it.cantidad)}${it.unidad ? ` ${it.unidad}` : ' und.'}`;
+      lineas.push(`${idx + 1}. 📦 *${it.nombre}*${skuTxt}${marcaTxt} — *${cantTxt}*`);
+    });
+  }
+
+  lineas.push('');
+  lineas.push('🚨 *NO HA LLEGADO A ALMACEN DAR STATUS*');
+  lineas.push('ℹ️ _Favor informar estatus de despacho/entrega para recepcionar esta orden en almacén._');
 
   return lineas.join('\n');
 }

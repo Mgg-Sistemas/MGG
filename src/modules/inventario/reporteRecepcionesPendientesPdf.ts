@@ -4,8 +4,12 @@
 
 import { previewPdf } from '@/shared/lib/reportePreview';
 import { loadLogoDataUrl } from '@/shared/lib/pdfLogo';
-import { money } from '@/shared/lib/format';
-import type { FilaRecepcionPendiente, FiltrosRecepcionesPendientes } from './reporteRecepcionesPendientes';
+import { money, num } from '@/shared/lib/format';
+import type {
+  FilaRecepcionPendiente,
+  FiltrosRecepcionesPendientes,
+  ItemRecepcionPendienteDetalle,
+} from './reporteRecepcionesPendientes';
 import { calcularTotalesRecepciones } from './reporteRecepcionesPendientes';
 
 export async function generarReporteRecepcionesPdf(
@@ -169,5 +173,193 @@ export async function generarReporteRecepcionesPdf(
   });
 
   const filename = `Pendientes_Recepcionar_${ahora.toISOString().slice(0, 10)}.pdf`;
+  previewPdf(doc, filename);
+}
+
+export type ClaveColumnaOrdenPendiente =
+  | 'sku'
+  | 'nombre'
+  | 'marca'
+  | 'cantidad'
+  | 'unidad'
+  | 'precio'
+  | 'subtotal';
+
+export const COLUMNAS_ORDEN_PENDIENTE: Array<{
+  clave: ClaveColumnaOrdenPendiente;
+  etiqueta: string;
+  alineacion: 'left' | 'center' | 'right';
+}> = [
+  { clave: 'sku', etiqueta: 'Código / SKU', alineacion: 'center' },
+  { clave: 'nombre', etiqueta: 'Material / Descripción', alineacion: 'left' },
+  { clave: 'marca', etiqueta: 'Marca Pedida', alineacion: 'left' },
+  { clave: 'cantidad', etiqueta: 'Cantidad', alineacion: 'right' },
+  { clave: 'unidad', etiqueta: 'Unidad', alineacion: 'center' },
+  { clave: 'precio', etiqueta: 'Costo Unit.', alineacion: 'right' },
+  { clave: 'subtotal', etiqueta: 'Subtotal', alineacion: 'right' },
+];
+
+/** Genera el PDF detallado de UNA orden o compra directa pendiente por recepcionar. */
+export async function generarReporteOrdenPendientePdf(
+  fila: FilaRecepcionPendiente,
+  opts?: {
+    items?: ItemRecepcionPendienteDetalle[];
+    columnas?: ClaveColumnaOrdenPendiente[];
+    actor?: string;
+  },
+): Promise<void> {
+  const [{ jsPDF }, { default: autoTable }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+  ]);
+
+  const items = opts?.items ?? fila.itemsDetalle;
+  const colsActivas = COLUMNAS_ORDEN_PENDIENTE.filter((c) =>
+    !opts?.columnas?.length ? true : opts.columnas.includes(c.clave),
+  );
+
+  const doc = new jsPDF({
+    orientation: colsActivas.length >= 6 ? 'landscape' : 'portrait',
+    unit: 'pt',
+    format: 'letter',
+  });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  const logo = await loadLogoDataUrl().catch(() => null);
+  let y = 35;
+
+  if (logo) {
+    try {
+      doc.addImage(logo, 'JPEG', 36, y - 10, 52, 52);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(14);
+  doc.setTextColor(30, 41, 59);
+  doc.text('MINERAL GROUP GUAYANA C.A.', 98, y + 8);
+
+  doc.setFontSize(11);
+  doc.setTextColor(217, 119, 6);
+  doc.text(`ORDEN PENDIENTE POR RECEPCIONAR EN ALMACÉN · ${fila.codigo}`, 98, y + 23);
+
+  doc.setFontSize(9.5);
+  doc.setTextColor(220, 38, 38);
+  doc.text('ALERTA: NO HA LLEGADO A ALMACEN - DAR STATUS', 98, y + 36);
+
+  const ahora = new Date();
+  const fechaHoraStr = `${ahora.toLocaleDateString('es-VE')} ${ahora.toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })}`;
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(100, 116, 139);
+  doc.text(`Emisión: ${fechaHoraStr}${opts?.actor ? ` · Por: ${opts.actor}` : ''}`, 98, y + 49);
+
+  y += 62;
+
+  // Ficha resumen de la orden
+  doc.setFillColor(248, 250, 252);
+  doc.setDrawColor(226, 232, 240);
+  doc.roundedRect(36, y, pageWidth - 72, 44, 4, 4, 'FD');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(8.5);
+  doc.setTextColor(30, 41, 59);
+  const linea1 = [
+    `Documento: ${fila.codigo} (${fila.tipoEtiqueta})`,
+    `Estado: ${fila.estado}`,
+    `Analista: ${fila.analista}`,
+    fila.proveedor && fila.proveedor !== '—' ? `Proveedor: ${fila.proveedor}` : null,
+  ]
+    .filter(Boolean)
+    .join('   |   ');
+  doc.text(linea1, 48, y + 16);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setTextColor(71, 85, 105);
+  const totalUnidades = items.reduce((acc, it) => acc + (Number(it.cantidad) || 0), 0);
+  const linea2 = [
+    `Montada: ${fila.fechaMontadaTxt}`,
+    `Pagó Tesorería: ${fila.fechaPagoTxt}`,
+    `Destino sugerido: ${fila.almacenSugerido}`,
+    `Ítems: ${items.length} (${num(totalUnidades)} und.)`,
+    `Monto total: ${money(fila.monto, fila.moneda)}`,
+  ].join('   |   ');
+  doc.text(linea2, 48, y + 33);
+
+  y += 54;
+
+  const valorCelda = (it: ItemRecepcionPendienteDetalle, clave: ClaveColumnaOrdenPendiente): string => {
+    switch (clave) {
+      case 'sku':
+        return it.sku || '—';
+      case 'nombre':
+        return it.nombre || 'Material';
+      case 'marca':
+        return it.marca || '—';
+      case 'cantidad':
+        return num(it.cantidad);
+      case 'unidad':
+        return it.unidad || 'und.';
+      case 'precio':
+        return it.precioUnitario != null ? money(it.precioUnitario, fila.moneda) : '—';
+      case 'subtotal':
+        return it.subtotal != null ? money(it.subtotal, fila.moneda) : '—';
+    }
+  };
+
+  const head = [['#', ...colsActivas.map((c) => c.etiqueta)]];
+  const body = items.map((it, idx) => [
+    String(idx + 1),
+    ...colsActivas.map((c) => valorCelda(it, c.clave)),
+  ]);
+
+  const columnStyles: Record<number, { halign?: 'left' | 'center' | 'right'; cellWidth?: number }> = {
+    0: { halign: 'center', cellWidth: 26 },
+  };
+  colsActivas.forEach((c, idx) => {
+    columnStyles[idx + 1] = { halign: c.alineacion };
+  });
+
+  autoTable(doc, {
+    startY: y,
+    margin: { left: 36, right: 36, bottom: 36 },
+    head,
+    body,
+    theme: 'grid',
+    styles: {
+      fontSize: 8.5,
+      cellPadding: 4.5,
+      textColor: [30, 41, 59],
+      valign: 'middle',
+      lineColor: [226, 232, 240],
+      lineWidth: 0.5,
+    },
+    headStyles: {
+      fillColor: [30, 41, 59],
+      textColor: [255, 255, 255],
+      fontStyle: 'bold',
+      fontSize: 8.5,
+      halign: 'center',
+    },
+    columnStyles,
+    didDrawPage: (data) => {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text(
+        `Página ${data.pageNumber} · Mineral Group Guayana C.A. · ${fila.codigo} pendiente por recepcionar`,
+        pageWidth / 2,
+        pageHeight - 18,
+        { align: 'center' },
+      );
+    },
+  });
+
+  const codigoSeguro = fila.codigo.replace(/[^A-Za-z0-9_-]/g, '_');
+  const filename = `Orden_Pendiente_${codigoSeguro}_${ahora.toISOString().slice(0, 10)}.pdf`;
   previewPdf(doc, filename);
 }

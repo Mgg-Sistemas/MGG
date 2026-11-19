@@ -6,6 +6,7 @@ import {
   filtrarRecepcionesPendientes,
   calcularTotalesRecepciones,
   textoReporteRecepcionesWhatsapp,
+  textoOrdenPendienteWhatsapp,
   type FilaRecepcionPendiente,
 } from './reporteRecepcionesPendientes';
 import type { Orden, Almacen } from '@/shared/lib/types';
@@ -207,6 +208,43 @@ describe('reporteRecepcionesPendientes', () => {
       expect(mensaje).toContain('*Pagó Tesorería:* 12 nov. 2026');
       expect(mensaje).toContain('NO HA LLEGADO A ALMACEN DAR STATUS');
       expect(mensaje).toContain('MATANZAS');
+    });
+
+    it('genera el mensaje de WhatsApp detallado por orden individual pendiente con todos sus materiales', () => {
+      const filaOrden: FilaRecepcionPendiente = {
+        id: 'oc-264',
+        tipo: 'oc',
+        tipoEtiqueta: 'Orden de Compra',
+        codigo: 'OC-2026-0264',
+        fechaMontada: '2026-11-17T10:00:00Z',
+        fechaMontadaTxt: '17 nov. 2026',
+        fechaPago: '2026-11-19T09:00:00Z',
+        fechaPagoTxt: '19 nov. 2026',
+        pagadaPor: 'Tesorería',
+        analista: 'JAVIER LEIVA',
+        proveedor: 'Frigorífico Guayana',
+        almacenSugerido: 'CENTRO DE FUNDICION - MATANZAS',
+        itemsCount: 2,
+        unidades: 45,
+        monto: 312.6,
+        moneda: 'USD',
+        estado: 'Pagada',
+        itemsDetalle: [
+          { sku: 'VIV-085', nombre: 'CARNE', marca: 'PREMIUM', cantidad: 20, unidad: 'kg', precioUnitario: 6.5, subtotal: 130 },
+          { sku: 'CAR-030', nombre: 'COCHINO', cantidad: 25, unidad: 'kg', precioUnitario: 7.304, subtotal: 182.6 },
+        ],
+      };
+
+      const msg = textoOrdenPendienteWhatsapp(filaOrden, 'Almacén Matanzas');
+      expect(msg).toContain('ORDEN PENDIENTE POR RECEPCIONAR · OC-2026-0264');
+      expect(msg).toContain('NO HA LLEGADO A ALMACEN DAR STATUS');
+      expect(msg).toContain('JAVIER LEIVA');
+      expect(msg).toContain('CENTRO DE FUNDICION - MATANZAS');
+      expect(msg).toContain('CARNE');
+      expect(msg).toContain('VIV-085');
+      expect(msg).toContain('PREMIUM');
+      expect(msg).toContain('COCHINO');
+      expect(msg).toContain('CAR-030');
     });
   });
 });

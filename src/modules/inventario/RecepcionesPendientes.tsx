@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
 import { notify } from '@/shared/lib/notify';
 import { toast } from '@/shared/ui/Toast';
@@ -19,7 +20,11 @@ import { destinoRecepcionPorUsuario, opcionesRecepcion } from './sectorizacion';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { Almacen, Orden } from '@/shared/lib/types';
 import { skuOGuion } from '@/modules/pedidos/renglonVisible';
-import { analistaDeOrden } from './reporteRecepcionesPendientes';
+import {
+  analistaDeOrden,
+  armarFilasRecepcionesPendientes,
+  textoOrdenPendienteWhatsapp,
+} from './reporteRecepcionesPendientes';
 import { ReporteRecepcionesPendientesModal } from './ReporteRecepcionesPendientesModal';
 
 /** Sede a la que pertenece un almacén (por su nombre). Si no se encuentra, devuelve
@@ -51,7 +56,11 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
   const [recibir, setRecibir] = useState<Orden | null>(null);
   const [recibirCompra, setRecibirCompra] = useState<CompraDirecta | null>(null);
   const [anularCompra, setAnularCompra] = useState<CompraDirecta | null>(null);
-  const [modalReporte, setModalReporte] = useState<'reporte' | 'whatsapp' | null>(null);
+  const [modalReporte, setModalReporte] = useState<{
+    modo: 'reporte' | 'whatsapp';
+    orden?: Orden;
+    compra?: CompraDirecta;
+  } | null>(null);
 
   return (
     <>
@@ -65,8 +74,8 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
           <button
             type="button"
             className="btn btn-sm btn-secondary"
-            onClick={() => setModalReporte('reporte')}
-            title="Abrir reporte dinámico con filtros, métricas y PDF"
+            onClick={() => setModalReporte({ modo: 'reporte' })}
+            title="Abrir reporte dinámico general con filtros, métricas y PDF"
           >
             📊 Reporte Dinámico
           </button>
@@ -74,8 +83,8 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
             type="button"
             className="btn btn-sm btn-outline-success"
             style={{ color: '#25D366', borderColor: '#25D366' }}
-            onClick={() => setModalReporte('whatsapp')}
-            title="Compartir resumen por WhatsApp"
+            onClick={() => setModalReporte({ modo: 'whatsapp' })}
+            title="Compartir resumen general por WhatsApp"
           >
             💬 WhatsApp
           </button>
@@ -122,7 +131,27 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
                 {o.almacen_destino && (
                   <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Sugerido: 🏭 {sedeDeAlmacen(o.almacen_destino, almacenes)}</div>
                 )}
-                <button className="btn btn-sm btn-primary" style={{ marginTop: '.6rem', width: '100%' }} onClick={() => setRecibir(o)}>
+                <div style={{ display: 'flex', gap: '.35rem', marginTop: '.55rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-secondary"
+                    style={{ flex: 1, fontSize: '.75rem' }}
+                    onClick={() => setModalReporte({ modo: 'reporte', orden: o })}
+                    title={`Reporte dinámico de ${o.oc_codigo ?? o.codigo}`}
+                  >
+                    📊 Reporte Dinámico
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-outline-success"
+                    style={{ flex: 1, fontSize: '.75rem', color: '#25D366', borderColor: '#25D366' }}
+                    onClick={() => setModalReporte({ modo: 'whatsapp', orden: o })}
+                    title={`Enviar WhatsApp de pendiente por recepcionar (${o.oc_codigo ?? o.codigo})`}
+                  >
+                    💬 WhatsApp
+                  </button>
+                </div>
+                <button className="btn btn-sm btn-primary" style={{ marginTop: '.4rem', width: '100%' }} onClick={() => setRecibir(o)}>
                   📦 Recibir / asignar almacén
                 </button>
               </div>
@@ -202,11 +231,31 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
                 {c.almacen && (
                   <div className="muted" style={{ fontSize: '.72rem', marginTop: '.35rem' }}>Sugerido: 🏭 {sedeDeAlmacen(c.almacen, almacenes)}</div>
                 )}
+                <div style={{ display: 'flex', gap: '.35rem', marginTop: '.55rem' }}>
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-secondary"
+                    style={{ flex: 1, fontSize: '.75rem' }}
+                    onClick={() => setModalReporte({ modo: 'reporte', compra: c })}
+                    title={`Reporte dinámico de ${c.codigo ?? 'compra directa'}`}
+                  >
+                    📊 Reporte Dinámico
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-xs btn-outline-success"
+                    style={{ flex: 1, fontSize: '.75rem', color: '#25D366', borderColor: '#25D366' }}
+                    onClick={() => setModalReporte({ modo: 'whatsapp', compra: c })}
+                    title={`Enviar WhatsApp de pendiente por recepcionar (${c.codigo ?? 'compra directa'})`}
+                  >
+                    💬 WhatsApp
+                  </button>
+                </div>
                 {(() => {
                   // Solo se anula si NO movió dinero: sin egreso de caja y sin cuenta por pagar.
                   const pagada = !!c.caja_mov_id || !!c.credito_cxp_id;
                   return (
-                    <div style={{ display: 'flex', gap: '.35rem', marginTop: '.6rem' }}>
+                    <div style={{ display: 'flex', gap: '.35rem', marginTop: '.4rem' }}>
                       <button className="btn btn-sm btn-primary" style={{ flex: 1 }} onClick={() => setRecibirCompra(c)}>
                         📦 Recibir / asignar almacén
                       </button>
@@ -246,11 +295,13 @@ export function RecepcionesPendientes({ ordenes, compras = [], almacenes, actor,
 
     {modalReporte && (
       <ReporteRecepcionesPendientesModal
-        ordenes={ordenes}
-        compras={compras}
+        ordenes={modalReporte.orden ? [modalReporte.orden] : modalReporte.compra ? [] : ordenes}
+        compras={modalReporte.compra ? [modalReporte.compra] : modalReporte.orden ? [] : compras}
         almacenes={almacenes}
         actor={actorName || actor}
-        modoInicial={modalReporte}
+        modoInicial={modalReporte.modo}
+        ordenIndividualId={modalReporte.orden?.id ?? modalReporte.compra?.id}
+        soloOrdenIndividual={Boolean(modalReporte.orden || modalReporte.compra)}
         onClose={() => setModalReporte(null)}
       />
     )}
@@ -334,6 +385,12 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verWhatsappOrden, setVerWhatsappOrden] = useState(false);
+  const [verReporteOrden, setVerReporteOrden] = useState(false);
+  const textoWaCompra = useMemo(() => {
+    const [fila] = armarFilasRecepcionesPendientes([], [compra], almacenes);
+    return fila ? textoOrdenPendienteWhatsapp(fila, actorName || actor) : '';
+  }, [compra, almacenes, actorName, actor]);
   // Marca con la que llegó cada material: arranca con la de la ficha y se corrige si llegó otra.
   const [marcas, setMarcas] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -376,18 +433,52 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
   }
 
   const footer = (
-    <>
-      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="recibir-compra-form" className="btn btn-primary" disabled={saving || !almacenFinal || (enBs && !tasa)}>
-        {saving ? 'Recibiendo…' : 'Confirmar entrada al inventario'}
-      </button>
-    </>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '.5rem' }}>
+      <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="btn btn-sm btn-secondary"
+          onClick={() => setVerReporteOrden(true)}
+          disabled={saving}
+          title={`Abrir reporte dinámico de ${compra.codigo ?? 'esta compra directa'}`}
+        >
+          📊 Reporte Dinámico
+        </button>
+        <button
+          type="button"
+          className={`btn btn-sm ${verWhatsappOrden ? 'btn-primary' : 'btn-outline-success'}`}
+          style={verWhatsappOrden ? {} : { color: '#25D366', borderColor: '#25D366' }}
+          onClick={() => setVerWhatsappOrden((v) => !v)}
+          disabled={saving}
+        >
+          💬 {verWhatsappOrden ? 'Ocultar WhatsApp' : 'WhatsApp'}
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+        <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button type="submit" form="recibir-compra-form" className="btn btn-primary" disabled={saving || !almacenFinal || (enBs && !tasa)}>
+          {saving ? 'Recibiendo…' : 'Confirmar entrada al inventario'}
+        </button>
+      </div>
+    </div>
   );
 
   return (
+    <>
     <Modal title={`Recibir compra directa · ${compra.codigo ?? ''}`} size="lg" onClose={onClose} footer={footer}>
       <form id="recibir-compra-form" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+        {verWhatsappOrden && textoWaCompra && (
+          <div className="card" style={{ marginBottom: '.75rem', border: '1px solid var(--success, #25D366)', padding: '.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem' }}>
+              <strong style={{ fontSize: '.86rem', color: 'var(--success, #25D366)' }}>
+                💬 Mensaje de WhatsApp · {compra.codigo ?? 'Compra Directa'} pendiente por recepcionar
+              </strong>
+              <button type="button" className="btn btn-xs btn-ghost" onClick={() => setVerWhatsappOrden(false)}>✕</button>
+            </div>
+            <CompartirWhatsapp texto={textoWaCompra} />
+          </div>
+        )}
 
         <div className="card" style={{ marginBottom: '.6rem', fontSize: '.86rem' }}>
           <div><strong>{compra.producto_nombre}</strong>{compra.proveedor_nombre ? <span className="muted"> · {compra.proveedor_nombre}</span> : null}</div>
@@ -450,6 +541,19 @@ function RecibirCompraModal({ compra, almacenes, actor, actorName, onClose, onSa
         </div>
       </form>
     </Modal>
+    {verReporteOrden && (
+      <ReporteRecepcionesPendientesModal
+        ordenes={[]}
+        compras={[compra]}
+        almacenes={almacenes}
+        actor={actorName || actor}
+        modoInicial="reporte"
+        ordenIndividualId={compra.id}
+        soloOrdenIndividual
+        onClose={() => setVerReporteOrden(false)}
+      />
+    )}
+    </>
   );
 }
 
@@ -479,6 +583,12 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
   const [nota, setNota] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [verWhatsappOrden, setVerWhatsappOrden] = useState(false);
+  const [verReporteOrden, setVerReporteOrden] = useState(false);
+  const textoWaOrden = useMemo(() => {
+    const [fila] = armarFilasRecepcionesPendientes([orden], [], almacenes);
+    return fila ? textoOrdenPendienteWhatsapp(fila, actorName || actor) : '';
+  }, [orden, almacenes, actorName, actor]);
   // Factura del proveedor: opcional al recepcionar (12-11-2026), salvo servicios.
   const [facturas, setFacturas] = useState<File[]>([]);
   const [facturaSubida, setFacturaSubida] = useState(false);
@@ -542,18 +652,52 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
   }
 
   const footer = (
-    <>
-      <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
-      <button type="submit" form="recibir-form" className="btn btn-primary" disabled={saving || !almacenFinal}>
-        {saving ? 'Recibiendo…' : 'Confirmar recepción'}
-      </button>
-    </>
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', flexWrap: 'wrap', gap: '.5rem' }}>
+      <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="btn btn-sm btn-secondary"
+          onClick={() => setVerReporteOrden(true)}
+          disabled={saving}
+          title={`Abrir reporte dinámico de ${orden.oc_codigo ?? orden.codigo}`}
+        >
+          📊 Reporte Dinámico
+        </button>
+        <button
+          type="button"
+          className={`btn btn-sm ${verWhatsappOrden ? 'btn-primary' : 'btn-outline-success'}`}
+          style={verWhatsappOrden ? {} : { color: '#25D366', borderColor: '#25D366' }}
+          onClick={() => setVerWhatsappOrden((v) => !v)}
+          disabled={saving}
+        >
+          💬 {verWhatsappOrden ? 'Ocultar WhatsApp' : 'WhatsApp'}
+        </button>
+      </div>
+      <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
+        <button type="button" className="btn btn-ghost" onClick={onClose} disabled={saving}>Cancelar</button>
+        <button type="submit" form="recibir-form" className="btn btn-primary" disabled={saving || !almacenFinal}>
+          {saving ? 'Recibiendo…' : 'Confirmar recepción'}
+        </button>
+      </div>
+    </div>
   );
 
   return (
+    <>
     <Modal title={`Recibir ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
       <form id="recibir-form" onSubmit={submit}>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
+        {verWhatsappOrden && textoWaOrden && (
+          <div className="card" style={{ marginBottom: '.75rem', border: '1px solid var(--success, #25D366)', padding: '.75rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.45rem' }}>
+              <strong style={{ fontSize: '.86rem', color: 'var(--success, #25D366)' }}>
+                💬 Mensaje de WhatsApp · {orden.oc_codigo ?? orden.codigo} pendiente por recepcionar
+              </strong>
+              <button type="button" className="btn btn-xs btn-ghost" onClick={() => setVerWhatsappOrden(false)}>✕</button>
+            </div>
+            <CompartirWhatsapp texto={textoWaOrden} />
+          </div>
+        )}
 
         {/* Destino de recepción: SOLO Los Pinos / Matanza (un desplegable de dos opciones,
             sin subalmacenes). Usuario limitado por correo → su única sede, fija. */}
@@ -629,5 +773,18 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
         {pideFactura && !facturaSubida && <CargarFacturaCampo id="recibir-factura" archivos={facturas} onChange={setFacturas} disabled={saving} />}
       </form>
     </Modal>
+    {verReporteOrden && (
+      <ReporteRecepcionesPendientesModal
+        ordenes={[orden]}
+        compras={[]}
+        almacenes={almacenes}
+        actor={actorName || actor}
+        modoInicial="reporte"
+        ordenIndividualId={orden.id}
+        soloOrdenIndividual
+        onClose={() => setVerReporteOrden(false)}
+      />
+    )}
+    </>
   );
 }
