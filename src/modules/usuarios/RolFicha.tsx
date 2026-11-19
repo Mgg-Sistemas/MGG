@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Roles y permisos › Ficha de un rol
+   MGG · Roles y permisos › Ficha de un rol (Nivelado visual exacto a GT)
    Antes cada rol era una tarjeta con muchas filas × 3 casillas, y se
    pintaban todas a la vez: una pared. Aquí el rol se abre solo
    cuando se va a editar, y su contenido se parte en dos temas
@@ -16,6 +16,7 @@ import { useState, type CSSProperties } from 'react';
 import { VISTAS_TELEFONO } from '@/modules/auth/vistasTelefono';
 import type { CustomRole } from './roles.repository';
 import {
+  MODULES,
   MODULOS_CON_PAPELERA,
   emptyPermission as empty,
   type ModuleKey,
@@ -35,7 +36,6 @@ interface Props {
   vistasTelefono: string[];
   soloTelefono: boolean;
   readOnly: boolean;
-  /** El rol admin solo lo edita el admin (regla de siempre). */
   bloqueado: boolean;
   autoEstado: EstadoAutoguardado;
   onVolver: () => void;
@@ -52,18 +52,6 @@ const TEXTO_AUTO: Record<EstadoAutoguardado, string> = {
   guardado: '✓ Guardado automáticamente',
   error: '⚠ Error al guardar',
 };
-
-const ICONO_GRUPO: Record<string, string> = {
-  mineral: '⛏',
-  abastecimiento: '🛒',
-  activos: '🚜',
-  dinero: '💰',
-  personas: '👥',
-  sistema: '⚙',
-  otros: '📦',
-};
-
-const GRUPOS = gruposConTodos();
 
 export function RolFicha({
   rol,
@@ -82,65 +70,49 @@ export function RolFicha({
   onEliminar,
 }: Props) {
   const [tema, setTema] = useState<Tema>('modulos');
-  // Por defecto todos los grupos arrancan abiertos para no esconder módulos.
-  const [abiertos, setAbiertos] = useState<Record<string, boolean>>(() =>
-    GRUPOS.reduce<Record<string, boolean>>((acc, g) => { acc[g.key] = true; return acc; }, {}),
-  );
-
+  const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set(['mineral']));
+  const grupos = gruposConTodos();
   const noEditable = readOnly || bloqueado;
 
-  function alternarGrupo(clave: string) {
-    setAbiertos((prev) => ({ ...prev, [clave]: !prev[clave] }));
-  }
-
-  const estiloRol = { '--rol-color': rol.color || 'var(--primary)' } as CSSProperties;
+  const alternarGrupo = (key: string) => {
+    setAbiertos((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   return (
-    <div className="rol-ficha" style={estiloRol}>
-      {/* ── Barra superior: volver + rol actual + estado autoguardado ── */}
-      <div className="rol-ficha-top">
-        <button type="button" className="btn btn-ghost btn-sm" onClick={onVolver}>
-          ← Volver a roles
-        </button>
-        <div className="rol-ficha-titulo">
-          <span className="rol-ficha-tag" />
-          <div>
-            <h2>{rol.label}</h2>
-            <p className="muted">
-              <code>{rol.key}</code>
-              {rol.descripcion ? ` · ${rol.descripcion}` : ''}
-              {` · 👤 ${usuariosEnUso} ${usuariosEnUso === 1 ? 'usuario' : 'usuarios'}`}
-            </p>
+    <div className="rol-ficha">
+      <div className="rol-ficha-head">
+        <button type="button" className="btn btn-sm btn-ghost" onClick={onVolver}>← Roles</button>
+        <h2 className="rol-ficha-titulo" style={{ '--rol-color': rol.color } as CSSProperties}>
+          <span className="rol-ficha-color" aria-hidden="true" />
+          {rol.label}
+          {rol.sistema && <span className="badge" style={{ fontSize: '.65rem' }}>SISTEMA</span>}
+        </h2>
+        <span className="rol-card-usuarios">
+          {usuariosEnUso === 0 ? 'Sin usuarios asignados' : `${usuariosEnUso} usuario(s)`}
+        </span>
+        {!readOnly && (
+          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center', marginLeft: 'auto', flexWrap: 'wrap' }}>
+            <span className={`rol-autoguardado ${autoEstado}`} aria-live="polite">{TEXTO_AUTO[autoEstado]}</span>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={onReset} title="Resetear este rol a los valores por defecto">
+              ↺ Default
+            </button>
+            {onEliminar && (
+              <button type="button" className="btn btn-sm btn-danger" onClick={onEliminar} title="Eliminar este rol">
+                🗑 Eliminar
+              </button>
+            )}
           </div>
-        </div>
-        <div className="rol-ficha-acciones">
-          <span className={`rol-auto-badge rol-auto-${autoEstado}`} aria-live="polite">
-            {TEXTO_AUTO[autoEstado]}
-          </span>
-          {!noEditable && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm"
-              onClick={onReset}
-              title="Restaura los permisos sugeridos para este rol"
-            >
-              Restablecer sugeridos
-            </button>
-          )}
-          {onEliminar && !noEditable && (
-            <button
-              type="button"
-              className="btn btn-ghost btn-sm text-danger"
-              onClick={onEliminar}
-            >
-              Eliminar rol
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
+      {rol.descripcion && <p className="muted" style={{ marginTop: 0, marginBottom: '1rem', fontSize: '.85rem' }}>{rol.descripcion}</p>}
+
       {bloqueado && (
-        <div className="aviso warning" style={{ margin: '0 0 1rem' }}>
+        <div className="aviso warning" style={{ margin: '0 0 1.25rem' }}>
           <span className="aviso-icono">🔒</span>
           <div>
             El rol <strong>Administrador</strong> solo puede ser modificado por otro administrador.
@@ -148,78 +120,75 @@ export function RolFicha({
         </div>
       )}
 
-      {/* ── Conmutador de temas: Módulos · Teléfono ── */}
-      <div className="rol-temas" role="tablist" aria-label="Secciones del rol">
+      <div className="view-toggle" style={{ marginLeft: 0, marginBottom: '1.25rem' }} role="tablist" aria-label="Qué configurar del rol">
         <button
           type="button"
           role="tab"
           aria-selected={tema === 'modulos'}
-          className={tema === 'modulos' ? 'activo' : ''}
+          className={tema === 'modulos' ? 'active' : ''}
           onClick={() => setTema('modulos')}
         >
-          🧩 Módulos
+          Módulos
         </button>
         {rol.key !== 'admin' && (
           <button
             type="button"
             role="tab"
             aria-selected={tema === 'telefono'}
-            className={tema === 'telefono' ? 'activo' : ''}
+            className={tema === 'telefono' ? 'active' : ''}
             onClick={() => setTema('telefono')}
           >
             📱 Teléfono
-            {vistasTelefono.length > 0 && <span className="rol-tema-conteo">{vistasTelefono.length}</span>}
           </button>
         )}
       </div>
 
-      {/* ── Contenido: Módulos agrupados por proceso ── */}
       {tema === 'modulos' && (
-        <div className="rol-grupos">
-          <p className="muted" style={{ margin: 0, fontSize: '.82rem' }}>
-            Los permisos se guardan al tocar cada casilla. <em>Full control</em> incluye lectura y escritura.
+        <div>
+          <div className="perm-barra">
+            <span className="muted" style={{ fontSize: '.75rem' }}>{MODULES.length} módulos en {grupos.length} grupos</span>
+          </div>
+          <p className="perm-nota" style={{ margin: '0 0 .75rem' }}>
+            Full control incluye lectura y escritura: al marcarlo se marcan las dos.
           </p>
 
-          {GRUPOS.map((g) => {
+          {grupos.map((g) => {
+            const abierto = abiertos.has(g.key);
             const conAcceso = alcanceDeGrupo(permisos, g.modulos);
-            const abierto = abiertos[g.key] ?? true;
             return (
-              <div key={g.key} className="rol-grupo">
+              <div className="perm-grupo" key={g.key}>
                 <button
                   type="button"
-                  className="rol-grupo-head"
-                  onClick={() => alternarGrupo(g.key)}
+                  className="perm-grupo-head"
                   aria-expanded={abierto}
+                  onClick={() => alternarGrupo(g.key)}
                 >
-                  <span className="rol-grupo-icono">{ICONO_GRUPO[g.key] ?? '📦'}</span>
-                  <div className="rol-grupo-info">
-                    <strong>{g.label}</strong>
-                    <span className="muted">· {g.resumen}</span>
-                  </div>
-                  <span className="rol-grupo-alcance">
-                    {conAcceso} de {g.modulos.length}
+                  <span className="perm-grupo-flecha" aria-hidden="true">▸</span>
+                  <span>
+                    {g.label}
+                    <small className="muted" style={{ display: 'block', fontWeight: 500, fontSize: '.74rem' }}>{g.resumen}</small>
                   </span>
-                  <span className="rol-grupo-chevron" aria-hidden="true">{abierto ? '▲' : '▼'}</span>
+                  <span className="perm-grupo-resumen">{conAcceso} de {g.modulos.length}</span>
                 </button>
 
                 {abierto && (
-                  <div className="rol-grupo-cuerpo">
+                  <div className="perm-grupo-cuerpo">
                     <div className="table-wrap">
-                      <table className="table rol-tabla-perm">
+                      <table className="perm-tabla">
                         <thead>
                           <tr>
                             <th>Módulo</th>
-                            <th className="th-center">Lectura</th>
-                            <th className="th-center">Escritura</th>
-                            <th className="th-center">Full control</th>
-                            <th className="th-center" title="Solo módulos que manejan papelera">Vaciar papelera</th>
+                            <th>Lectura</th>
+                            <th>Escritura</th>
+                            <th>Full control</th>
+                            <th>Vaciar papelera</th>
                           </tr>
                         </thead>
                         <tbody>
                           {g.modulos.map((k) => {
-                            const p = permisos?.[k] ?? empty;
                             const info = INFO_MODULO.get(k);
-                            const columnas: Array<{ campo: keyof ModulePermission; label: string }> = [
+                            const p = permisos?.[k] ?? { ...empty };
+                            const campos: { campo: keyof ModulePermission; label: string }[] = [
                               { campo: 'lectura', label: 'Lectura' },
                               { campo: 'escritura', label: 'Escritura' },
                               { campo: 'full', label: 'Full control' },
@@ -227,12 +196,12 @@ export function RolFicha({
                             ];
                             return (
                               <tr key={k}>
-                                <td>
-                                  <strong>{info?.label ?? k}</strong>
+                                <td className="perm-modulo">
+                                  <div className="perm-modulo-nombre">{info?.label ?? k}</div>
                                 </td>
-                                {columnas.map(({ campo, label }) => (
-                                  <td key={campo} className="td-center">
-                                    <label className="rol-touch-target">
+                                {campos.map(({ campo, label }) => (
+                                  <td className="perm-celda" key={campo}>
+                                    <label>
                                       <input
                                         type="checkbox"
                                         disabled={noEditable || (campo === 'vaciar_papelera' && !MODULOS_CON_PAPELERA.has(k))}
@@ -255,9 +224,9 @@ export function RolFicha({
             );
           })}
 
-          {/* Respaldo de Base de Datos (conectado a permisos.respaldo) */}
+          {/* Respaldo de Base de Datos */}
           {rol.key !== 'admin' ? (
-            <div style={{ marginTop: '1rem', padding: '1rem', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-2)' }}>
+            <div style={{ marginTop: '1.25rem', padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', background: 'var(--bg-1)' }}>
               <label htmlFor={`respaldo-${rol.key}`} style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-start', cursor: noEditable ? 'default' : 'pointer' }}>
                 <input
                   id={`respaldo-${rol.key}`}
@@ -265,6 +234,7 @@ export function RolFicha({
                   disabled={noEditable}
                   checked={permisos?.respaldo?.lectura === true}
                   onChange={() => onToggle('respaldo', 'lectura')}
+                  style={{ width: 17, height: 17, marginTop: '.15rem', accentColor: 'var(--primary)' }}
                 />
                 <span>
                   <strong>💾 Respaldo de Base de Datos</strong>
@@ -275,22 +245,21 @@ export function RolFicha({
               </label>
             </div>
           ) : (
-            <div style={{ marginTop: '1rem', padding: '1rem', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg-2)', fontSize: '.84rem', color: 'var(--muted)' }}>
+            <div style={{ marginTop: '1.25rem', padding: '1rem', border: '1px solid var(--border)', borderRadius: 'var(--r-md)', background: 'var(--bg-1)', fontSize: '.84rem', color: 'var(--muted)' }}>
               <span>💾 <strong>Respaldo de Base de Datos:</strong> Incluido siempre para Administrador.</span>
             </div>
           )}
         </div>
       )}
 
-      {/* ── Contenido: Pantallas de teléfono ── */}
       {tema === 'telefono' && rol.key !== 'admin' && (
         <div>
-          <p className="muted" style={{ marginTop: 0, fontSize: '.82rem' }}>
+          <p className="muted" style={{ marginTop: 0, marginBottom: '1rem', fontSize: '.82rem' }}>
             Qué pantallas ve este rol cuando entra desde un teléfono.
           </p>
           <div className="rol-lista-opciones">
             {VISTAS_TELEFONO.map((v) => {
-              const marcada = vistasTelefono.includes(v.key);
+              const marcada = (vistasTelefono ?? []).includes(v.key);
               const mod = permisos?.[v.modulo];
               const sinModulo = !(mod?.lectura || mod?.full);
               const modLabel = INFO_MODULO.get(v.modulo)?.label ?? v.modulo;
@@ -314,7 +283,7 @@ export function RolFicha({
                 </label>
               );
             })}
-            <label htmlFor={`tel-${rol.key}-solo`} className="rol-opcion" style={{ cursor: noEditable ? 'default' : 'pointer' }}>
+            <label htmlFor={`tel-${rol.key}-solo`} className="rol-opcion" style={{ cursor: noEditable ? 'default' : 'pointer', marginTop: '.4rem' }}>
               <input
                 id={`tel-${rol.key}-solo`}
                 type="checkbox"

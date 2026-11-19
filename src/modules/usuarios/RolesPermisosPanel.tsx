@@ -1,14 +1,16 @@
 /* ============================================================
-   MGG · Roles y permisos (Rediseño visual tipo GT)
+   MGG · Roles y permisos (Nivelado visual exacto a GT)
    Se separa la pared de tablas en dos capas:
    1. Galería de roles (vista general con barra de alcance por rol).
    2. Ficha técnica del rol seleccionado (RolFicha).
    ============================================================ */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import './usuarios.css';
 import { toast } from '@/shared/ui/Toast';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import { norm } from '@/shared/lib/texto';
 import {
   loadPermisos,
   loadTelefonoRoles,
@@ -16,6 +18,7 @@ import {
   savePermisosRole,
   eliminarPermisosRol,
   normalizeRolePermisos,
+  emptyPermission as empty,
   defaultsFor,
   type AllPermisos,
   type ModuleKey,
@@ -36,7 +39,6 @@ import { UsuariosAutorizadosPanel } from './UsuariosAutorizadosPanel';
 import { RolFicha } from './RolFicha';
 import { alcanceDeRol } from './gruposModulos';
 
-// Un módulo que la fila guardada aún no trae se muestra con el default del rol
 function normalize(stored: Partial<AllPermisos>, roles: CustomRole[]): AllPermisos {
   return roles.reduce<AllPermisos>((acc: AllPermisos, r: CustomRole) => {
     const role = stored[r.key] as Partial<RolePermisos> | undefined;
@@ -53,7 +55,7 @@ type ModalState =
 
 export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readOnly?: boolean; onRolesChanged?: () => void } = {}) {
   const { user } = useSession();
-  const { isAdmin } = usePermissions(); // el rol admin solo lo edita el admin
+  const { isAdmin } = usePermissions();
   const [roles, setRoles] = useState<CustomRole[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
   const [permisos, setPermisos] = useState<AllPermisos>({} as AllPermisos);
@@ -62,7 +64,6 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
   const [autoEstado, setAutoEstado] = useState<'idle' | 'guardando' | 'guardado' | 'error'>('idle');
   const [modal, setModal] = useState<ModalState>({ kind: 'none' });
   const [buscarRol, setBuscarRol] = useState('');
-  /* Galería → ficha. Se abre en la galería y la matriz solo se monta para el rol que se va a editar. */
   const [rolAbierto, setRolAbierto] = useState<RoleKey | null>(null);
 
   const guardandoRef = useRef(0);
@@ -110,7 +111,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
 
   function togglePerm(role: RoleKey, mod: ModuleKey, field: keyof ModulePermission) {
     setPermisos((prev) => {
-      const current = prev[role]?.[mod] ?? { lectura: false, escritura: false, full: false };
+      const current = prev[role]?.[mod] ?? { ...empty };
       const next: ModulePermission = { ...current, [field]: !current[field] };
       if (field === 'full' && next.full) {
         next.lectura = true;
@@ -169,16 +170,17 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
     }
   }
 
-  function handleReset(role: RoleKey) {
+  function resetRol(role: RoleKey) {
     const def = defaultsFor(role);
     setPermisos((prev) => ({ ...prev, [role]: def }));
     void persistirRol(role, def);
+    toast(`Permisos del rol "${role}" reseteados al valor por defecto`, 'info');
   }
 
   async function handleEliminarRol(role: CustomRole) {
     try {
       await eliminarRol(role.key);
-      await eliminarPermisosRol(role.key);
+      try { await eliminarPermisosRol(role.key); } catch { /* opcional */ }
       setModal({ kind: 'none' });
       setRolAbierto(null);
       await reload();
@@ -188,155 +190,152 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
     }
   }
 
-  const rolesFiltrados = useMemo(() => {
-    const q = buscarRol.trim().toLowerCase();
-    if (!q) return roles;
+  const rolesVisibles = (() => {
+    const t = norm(buscarRol);
+    if (!t) return roles;
     return roles.filter((r) =>
-      r.label.toLowerCase().includes(q)
-      || r.key.toLowerCase().includes(q)
-      || (r.descripcion && r.descripcion.toLowerCase().includes(q)),
+      t.split(/\s+/).every((p) => norm(`${r.label} ${r.key} ${r.descripcion ?? ''}`).includes(p)),
     );
-  }, [roles, buscarRol]);
+  })();
 
-  const rolActual = roles.find((r) => r.key === rolAbierto);
+  const rolSel = rolAbierto ? roles.find((r) => r.key === rolAbierto) ?? null : null;
 
-  if (loading) {
-    return <div className="muted" style={{ padding: '2rem 0' }}>Cargando roles y permisos…</div>;
-  }
-
-  /* ── 2. Si hay un rol abierto: FICHA TÉCNICA ── */
-  if (rolActual) {
+  /* La ficha del rol reemplaza la galería: la matriz se monta solo para
+     el rol que se está editando, no para todos a la vez. */
+  if (rolSel) {
+    const enUso = counts[rolSel.key] ?? 0;
     return (
-      <RolFicha
-        rol={rolActual}
-        usuariosEnUso={counts[rolActual.key] ?? 0}
-        permisos={permisos[rolActual.key]}
-        vistasTelefono={telefono[rolActual.key] ?? []}
-        soloTelefono={!!rolActual.solo_telefono}
-        readOnly={readOnly}
-        bloqueado={rolActual.key === 'admin' && !isAdmin}
-        autoEstado={autoEstado}
-        onVolver={() => setRolAbierto(null)}
-        onToggle={(mod, field) => togglePerm(rolActual.key, mod, field)}
-        onToggleTelefono={(v) => cambiarVistaTelefono(rolActual.key, v)}
-        onSoloTelefono={(val) => void cambiarSoloTelefono(rolActual.key, val)}
-        onReset={() => handleReset(rolActual.key)}
-        onEliminar={
-          rolActual.key !== 'admin' && (counts[rolActual.key] ?? 0) === 0
-            ? () => setModal({ kind: 'eliminar', role: rolActual })
-            : null
-        }
-      />
+      <div>
+        <RolFicha
+          rol={rolSel}
+          usuariosEnUso={enUso}
+          permisos={permisos[rolSel.key]}
+          vistasTelefono={telefono[rolSel.key] ?? []}
+          soloTelefono={!!rolSel.solo_telefono}
+          readOnly={readOnly}
+          bloqueado={rolSel.key === 'admin' && !isAdmin}
+          autoEstado={autoEstado}
+          onVolver={() => setRolAbierto(null)}
+          onToggle={(mod, field) => togglePerm(rolSel.key, mod, field)}
+          onToggleTelefono={(v) => cambiarVistaTelefono(rolSel.key, v)}
+          onSoloTelefono={(val) => void cambiarSoloTelefono(rolSel.key, val)}
+          onReset={() => resetRol(rolSel.key)}
+          onEliminar={
+            !readOnly && !rolSel.sistema && enUso === 0
+              ? () => setModal({ kind: 'eliminar', role: rolSel })
+              : null
+          }
+        />
+
+        {modal.kind === 'eliminar' && (
+          <ConfirmDialog
+            title="Eliminar rol"
+            message={`Se eliminará el rol "${modal.role.label}". Esto borra también su matriz de permisos. ¿Continuar?`}
+            confirmText="Eliminar"
+            danger
+            onCancel={() => setModal({ kind: 'none' })}
+            onConfirm={async () => {
+              await handleEliminarRol(modal.role);
+              setRolAbierto(null);
+            }}
+          />
+        )}
+      </div>
     );
   }
 
-  /* ── 1. Vista principal: AUTORIZADOS + GALERÍA DE ROLES ── */
   return (
     <div>
-      {/* Apartado propio para autorizados: ya no queda en medio de las tablas */}
-      <UsuariosAutorizadosPanel readOnly={readOnly} />
+      {/* Quién FIRMA no es lo mismo que qué puede ver cada rol: va antes
+          y con encabezado propio, en vez de empotrado entre los roles. */}
+      <div className="rol-seccion-aparte">
+        <UsuariosAutorizadosPanel readOnly={readOnly} />
+      </div>
 
-      {/* Cabecera de la galería con buscador y botones de gestión */}
-      <div className="rol-galeria-top">
-        <div className="rol-galeria-meta">
-          <strong>Galería de roles</strong>
-          <span className="muted">
-            · {roles.length} {roles.length === 1 ? 'rol definido' : 'roles definidos'}
-          </span>
-        </div>
-        <div className="rol-galeria-acciones">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '.75rem' }}>
+        <p className="muted" style={{ margin: 0, fontSize: '.88rem', maxWidth: '58ch' }}>
+          Elige un rol para ver y ajustar qué puede hacer. Puedes crear roles nuevos y
+          eliminar los que no tengan usuarios asignados.
+        </p>
+        {!readOnly && (
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button className="btn btn-ghost" onClick={() => setModal({ kind: 'gestionar' })} title="Editar nombre, descripción o color de roles">
+              ⚙ Gestionar
+            </button>
+            <button className="btn btn-ghost" onClick={() => setModal({ kind: 'crear' })}>+ Nuevo rol</button>
+          </div>
+        )}
+      </div>
+
+      {!loading && (
+        <div style={{ display: 'flex', gap: '.6rem', alignItems: 'center', flexWrap: 'wrap', marginBottom: '1.25rem' }}>
           <input
-            type="search"
-            className="input input-sm rol-buscador"
-            placeholder="🔍 Filtrar rol…"
-            value={buscarRol}
-            onChange={(e) => setBuscarRol(e.target.value)}
-            aria-label="Filtrar roles"
+            id="roles-buscar" className="input" style={{ maxWidth: 360 }}
+            value={buscarRol} onChange={(e) => setBuscarRol(e.target.value)}
+            placeholder="🔍 Buscar rol por nombre o descripción…" aria-label="Buscar rol"
           />
-          {!readOnly && (
-            <>
-              <button
-                type="button"
-                className="btn btn-primary btn-sm"
-                onClick={() => setModal({ kind: 'crear' })}
-              >
-                + Nuevo rol
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost btn-sm"
-                onClick={() => setModal({ kind: 'gestionar' })}
-              >
-                ⚙ Gestionar roles
-              </button>
-            </>
-          )}
+          {buscarRol && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setBuscarRol('')}>✕ Limpiar</button>}
+          <span className="muted" style={{ fontSize: '.8rem' }}>{rolesVisibles.length} de {roles.length} roles</span>
         </div>
-      </div>
+      )}
 
-      {/* Grilla de tarjetas de rol */}
-      <div className="rol-galeria">
-        {rolesFiltrados.map((rc) => {
-          const scope = alcanceDeRol(permisos[rc.key]);
-          const porcentaje = scope.total > 0 ? Math.round((scope.conAcceso / scope.total) * 100) : 0;
-          const bloqueado = rc.key === 'admin' && !isAdmin;
-          return (
-            <article
-              key={rc.key}
-              className={`rol-card ${rolAbierto === rc.key ? 'activo' : ''}`}
-              style={{ '--rol-color': rc.color || 'var(--primary)' } as React.CSSProperties}
-              onClick={() => setRolAbierto(rc.key)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault();
-                  setRolAbierto(rc.key);
-                }
-              }}
-            >
-              <div className="rol-card-head">
-                <span className="rol-card-tag" style={{ background: rc.color || 'var(--primary)' }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <h3 className="rol-card-title">{rc.label}</h3>
-                  <p className="rol-card-desc">{rc.descripcion || 'Sin descripción'}</p>
-                </div>
-                <span className="rol-card-uso" title="Usuarios con este rol">
-                  👤 {counts[rc.key] ?? 0}
+      {loading ? (
+        <div className="card" style={{ padding: '1.25rem' }}>
+          <p className="muted" style={{ margin: 0 }}>Cargando roles…</p>
+        </div>
+      ) : !rolesVisibles.length ? (
+        <div className="card muted" style={{ padding: '1.25rem' }}>Ningún rol coincide con «{buscarRol}».</div>
+      ) : (
+        /* Galería: cada rol resumido en una barra de alcance. */
+        <div className="rol-galeria">
+          {rolesVisibles.map((rc) => {
+            const enUso = counts[rc.key] ?? 0;
+            const alcance = alcanceDeRol(permisos[rc.key]);
+            const pct = Math.round((alcance.conAcceso / alcance.total) * 100);
+            const vistasTel = telefono[rc.key]?.length ?? 0;
+            return (
+              <button
+                key={rc.key}
+                type="button"
+                className="rol-card"
+                style={{ '--rol-color': rc.color } as CSSProperties}
+                onClick={() => setRolAbierto(rc.key)}
+                title={`Ver y ajustar los permisos de ${rc.label}`}
+              >
+                <span className="rol-card-nombre">
+                  {rc.label}
+                  {rc.sistema && <span className="badge" style={{ fontSize: '.65rem' }}>SISTEMA</span>}
                 </span>
-              </div>
+                <span className="rol-card-usuarios">
+                  {enUso === 0 ? 'Sin usuarios asignados' : `${enUso} usuario(s) asignado(s)`}
+                </span>
+                {rc.descripcion && <p className="rol-card-desc">{rc.descripcion}</p>}
 
-              <div className="rol-card-alcance">
-                <div className="rol-card-barra-wrap">
-                  <div
-                    className="rol-card-barra"
-                    style={{ width: `${porcentaje}%`, background: rc.color || 'var(--primary)' }}
-                  />
-                </div>
-                <div className="rol-card-stats">
-                  <span>{scope.conAcceso} de {scope.total} módulos ({porcentaje}%)</span>
-                  {scope.full > 0 && <span>· {scope.full} total</span>}
-                  {scope.escritura > 0 && <span>· {scope.escritura} edición</span>}
-                </div>
-              </div>
-
-              {rc.solo_telefono && (
-                <div className="rol-card-extra">
-                  <span className="tag tag-sm" style={{ background: 'rgba(234, 179, 8, 0.15)', color: 'var(--warning)' }}>
-                    📱 Solo teléfono
+                <span className="rol-alcance-fila">
+                  <span
+                    className="rol-alcance"
+                    role="img"
+                    aria-label={`Ve ${alcance.conAcceso} de ${alcance.total} módulos`}
+                  >
+                    <i style={{ width: `${pct}%` }} />
                   </span>
-                </div>
-              )}
-
-              <div className="rol-card-foot">
-                <span className="rol-card-accion">
-                  {bloqueado ? '🔒 Solo lectura' : '⚙ Ver ficha y permisos →'}
+                  <span className="rol-alcance-cifra">{alcance.conAcceso}/{alcance.total}</span>
                 </span>
-              </div>
-            </article>
-          );
-        })}
-      </div>
+
+                <span className="rol-card-extras">
+                  <span>✎ {alcance.escritura} con escritura</span>
+                  {alcance.full > 0 && <span>★ {alcance.full} full</span>}
+                  {rc.key === 'admin'
+                    ? <span>📱 todas</span>
+                    : (
+                      <span>{vistasTel === 0 ? '📱 sin pantallas' : `📱 ${vistasTel} pantalla(s)`}</span>
+                    )}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {modal.kind === 'crear' && (
         <NuevoRolModal
@@ -348,6 +347,7 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
             await persistirRol(creado.key, def);
             setModal({ kind: 'none' });
             await reload();
+            setRolAbierto(creado.key);
           }}
         />
       )}
@@ -359,17 +359,6 @@ export function RolesPermisosPanel({ readOnly = false, onRolesChanged }: { readO
           actorEmail={user?.email ?? undefined}
           onClose={() => setModal({ kind: 'none' })}
           onCambioAplicado={reload}
-        />
-      )}
-
-      {modal.kind === 'eliminar' && (
-        <ConfirmDialog
-          title="Eliminar rol"
-          message={`Se eliminará el rol "${modal.role.label}". Esto borra también su matriz de permisos. ¿Continuar?`}
-          confirmText="Eliminar"
-          danger
-          onCancel={() => setModal({ kind: 'none' })}
-          onConfirm={() => handleEliminarRol(modal.role)}
         />
       )}
     </div>

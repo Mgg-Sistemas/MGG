@@ -1,7 +1,8 @@
 /* ============================================================
-   MGG · Usuarios, Roles y Permisos
-   Capa visual del rediseño. Solo presentación:
+   Golden Touch · Usuarios, Roles y Permisos
+   Capa visual del rediseño (10/11/2026). Solo presentación:
    ninguna regla de aquí cambia qué puede hacer un rol.
+   Plan: docs/cuaderno/informes/g6-01-usuarios-roles-permisos-orientacion.md
    ============================================================ */
 
 /* ───────── Tarjetas de estado que además filtran ─────────
@@ -98,7 +99,7 @@
 .usr-fila:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 
 /* ───────── Galería de roles ─────────
-   Antes se pintaban N tablas de muchas filas a la vez. Ahora cada rol
+   Antes se pintaban N tablas de 26 filas a la vez. Ahora cada rol
    se resume y la matriz se abre solo cuando se va a editar. */
 .rol-galeria { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 1rem; }
 .rol-card {
@@ -148,7 +149,8 @@
 .rol-ficha-titulo { display: flex; align-items: center; gap: .5rem; font-size: 1.15rem; font-weight: 700; margin: 0; }
 .rol-ficha-color { width: 4px; height: 1.3em; border-radius: 2px; background: var(--rol-color, var(--primary)); }
 
-/* Estado del autoguardado */
+/* Estado del autoguardado: antes era un span de .8rem perdido entre
+   botones, siendo la única confirmación de que un permiso se guardó. */
 .rol-autoguardado {
   display: inline-flex; align-items: center; gap: .35rem;
   font-size: .78rem; font-weight: 600; color: var(--text-dim);
@@ -181,7 +183,9 @@
 .perm-grupo-cuerpo { border-top: 1px solid var(--border); background: var(--surface); }
 
 /* ───────── Matriz de permisos ─────────
-   El objetivo táctil es la celda entera: área de toque (≥44px). */
+   El objetivo táctil era el checkbox de ~13px. Ahora lo es la celda
+   entera: dar un permiso equivocado por un dedo mal puesto no es
+   un error barato. */
 .perm-tabla { width: 100%; border-collapse: collapse; }
 .perm-tabla th {
   font-size: .72rem; text-transform: uppercase; letter-spacing: .06em;
@@ -208,12 +212,14 @@
 .perm-celda input:disabled { cursor: not-allowed; }
 .perm-celda label:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: -2px; }
 
-/* Nota explicativa de Full control */
+/* La regla Full ⇄ lectura+escritura existía en el código pero no se
+   explicaba: las casillas se movían solas y parecía un error. */
 .perm-nota { font-size: .75rem; color: var(--text-dim); margin: .5rem 0 0; padding: 0 .2rem; }
 
 .perm-barra { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .75rem; }
 
-/* ───────── Pantallas de teléfono y depósitos ───────── */
+/* ───────── Pantallas de teléfono y depósitos ─────────
+   Dejan de ser apéndices al fondo de una tarjeta infinita. */
 .rol-lista-opciones { display: grid; gap: .1rem; }
 .rol-opcion {
   display: flex; gap: .6rem; align-items: flex-start;
@@ -232,10 +238,14 @@
 .rol-deposito:hover { background: var(--bg-2); }
 .rol-deposito select { max-width: 170px; }
 
-/* ───────── Bloque de autorizados para aprobar ───────── */
+/* ───────── Bloque de autorizados para aprobar ─────────
+   Trata de quién FIRMA, no de permisos de módulo: deja de
+   interrumpir la lectura de los roles. */
 .rol-seccion-aparte { margin-bottom: 1.5rem; }
 
-/* ───────── Cabecera plegable de «autorizados» ───────── */
+/* ───────── Cabecera plegable de «autorizados» ─────────
+   Es un tema aparte de los roles y ocupaba todo el arranque de la
+   pantalla. Cerrado dice lo esencial; se abre cuando hace falta. */
 .aut-head {
   display: flex; align-items: center; gap: .7rem; width: 100%;
   background: transparent; border: none; padding: 0;
@@ -248,7 +258,11 @@
 .aut-head-resumen { margin-left: auto; display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
 .aut-cuerpo { margin-top: 1rem; }
 
-/* ───────── Fichas de firmante ───────── */
+/* ───────── Fichas de firmante ─────────
+   Era una tabla ancha: nombre, tres casillas desnudas en columnas, la
+   firma mezclada con sus botones y «Quitar» al final. Quién puede
+   aprobar qué se deducía cruzando una casilla con el título de su
+   columna. Ahora cada firmante es una ficha que se lee sola. */
 .aut-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: .9rem; }
 
 .aut-ficha {
@@ -256,6 +270,8 @@
   padding: .95rem 1.05rem;
   background: var(--grad-surface);
   border: 1px solid var(--border);
+  /* El color del borde dice si la ficha está completa: sin firma, lo que
+     apruebe sale sin estampar. */
   border-left: 3px solid var(--success);
   border-radius: var(--r-md);
 }
@@ -277,6 +293,8 @@
   letter-spacing: .07em; color: var(--text-muted); margin-bottom: .4rem;
 }
 
+/* Qué puede aprobar, en palabras. La casilla sigue siendo una casilla
+   (teclado y lector de pantalla), pero se lee como una opción. */
 .aut-opciones { display: flex; flex-direction: column; gap: .3rem; }
 .aut-opcion {
   display: flex; align-items: center; gap: .5rem;
@@ -296,7 +314,7 @@
 .aut-opcion input { width: 16px; height: 16px; accent-color: var(--success); cursor: pointer; }
 .aut-opcion.quieta { cursor: default; }
 
-/* La firma como lienzo */
+/* La firma: un lienzo, no una celda. Cuando falta, se ve que falta. */
 .aut-firma { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
 .aut-firma-lienzo {
   flex: 0 0 auto;
@@ -306,11 +324,15 @@
   border: 1px solid var(--border); padding: 3px; box-sizing: border-box;
   overflow: hidden;
 }
+/* Un ítem de grid no baja de su tamaño de contenido salvo que se le diga:
+   sin esto, una firma alta se salía de la ficha por abajo. */
 .aut-firma-lienzo img {
   min-width: 0; min-height: 0;
   max-width: 100%; max-height: 100%;
   object-fit: contain;
 }
+/* Es un hueco que hay que notar: lo que esa persona apruebe sale sin
+   firma. Con el borde del sistema a secas se perdía en el fondo. */
 .aut-firma-vacio {
   flex: 0 0 auto;
   width: 148px; height: 56px;
@@ -323,10 +345,15 @@
 }
 .aut-firma-acciones { display: flex; gap: .35rem; flex-wrap: wrap; }
 
+/* Resumen de la sección: cuántos firman y cuántos tienen firma cargada. */
 .aut-resumen { display: flex; gap: .5rem; flex-wrap: wrap; align-items: center; margin-bottom: .85rem; }
 
 @media (max-width: 600px) {
   .aut-grid { grid-template-columns: 1fr; }
+}
+
+/* ───────── Teléfono ───────── */
+@media (max-width: 600px) {
   .usr-grid { grid-template-columns: 1fr; }
   .rol-galeria { grid-template-columns: 1fr; }
   .perm-celda { width: 62px; }
@@ -334,6 +361,7 @@
   .rol-ficha-head { gap: .5rem; }
 }
 
+/* Nada se mueve solo, y quien pide menos movimiento no recibe ninguno. */
 @media (prefers-reduced-motion: reduce) {
   .rol-ficha, .rol-alcance i { animation: none; }
   .usr-persona, .rol-card, .perm-grupo-flecha { transition: none; }
