@@ -299,6 +299,7 @@ function eventLabel(ev: string): string {
       finalizada: 'Pedido finalizado',
       revisada_almacen: 'Revisada por almacén',
       mercado_directo: 'Pedido de mercado · directo a cotización (sin revisión de almacén ni aprobación)',
+      compra_fija_directa: 'Compra fija · directo a Compras (sin revisión de almacén ni aprobación)',
       destino_entrega: 'Destino de entrega indicado',
       pagada_sin_caja: 'Pagada sin descontar de caja (Tesorería)',
       retiro_confirmado: 'Retiro confirmado por Compras',
@@ -339,6 +340,7 @@ function eventClass(ev: string): string {
       finalizada: 'ok',
       revisada_almacen: 'info',
       mercado_directo: 'info',
+      compra_fija_directa: 'info',
       retiro_confirmado: 'ok',
       delivery_tomado: 'info',
       delivery_entregado: 'ok',
@@ -5664,7 +5666,7 @@ function CrearOrdenModal({
   // se pide con un NOMBRE GENERAL (no se crea ficha); Compras fija el nombre de inventario al cotizar.
   // 31-10-2026: al EDITAR una SP que ya estaba en curso cuando se prendió, sigue como siempre.
   const flujoCompras = useFlujoCompras();
-  const flujoAlmacen = esOrdenDelFlujoNuevo(orden ?? null, flujoCompras);
+  const flujoAlmacen = !compraFija && esOrdenDelFlujoNuevo(orden ?? null, flujoCompras);
   const [generalCant, setGeneralCant] = useState('1');
   // 30-10-2026 (regla de la administradora): con el flujo prendido, la SP va SIEMPRE con
   // nombres generales salvo que la haga un analista de Compras (o admin): el almacenista
@@ -5952,7 +5954,7 @@ function CrearOrdenModal({
       // Con el flujo de almacén prendido la SP nace «En revisión de almacén» (lo decide la base
       // al crear): se avisa eso, no que fue a aprobación. Apagado, el aviso de siempre.
       if (saved.estado === 'aprobada') {
-        notify(`Pedido de mercado ${saved.codigo}${urgente ? ' · URGENTE' : ''} · directo a cotización (cargar ofertas)`, 'success', { link: '#/app/pedidos', destino: 'admin' });
+        notify(`Compra fija ${saved.codigo}${compraFija?.nombre ? ` (${compraFija.nombre})` : ''}${urgente ? ' · URGENTE' : ''} · directo a Compras (cargar ofertas)`, 'success', { link: '#/app/pedidos', destino: 'admin' });
       } else if (saved.estado === 'revision_almacen') {
         notify(`${saved.codigo}${urgente ? ' · URGENTE' : ''} enviada a Almacén para revisión`, 'success', { link: '#/app/pedidos' });
       } else {

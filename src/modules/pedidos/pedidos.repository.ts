@@ -244,7 +244,7 @@ export async function sincronizarNombreProductos(
   }
 }
 
-import { esPedidoMercado, FINALIDAD_MERCADO } from './mercadoDirecto';
+import { esPedidoDirectoACompras, FINALIDAD_MERCADO } from './mercadoDirecto';
 export { FINALIDAD_MERCADO };
 
 /**
@@ -266,9 +266,9 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
   const codigo = esServicio ? await nextCodigoServicio() : await nextCodigo();
   const total = input.items.reduce((a, i) => a + i.cantidad * i.precio, 0);
   const urgente = !!input.urgente;
-  // 09-11-2026: el pedido de MERCADO nace directo en cotización (aprobada · cargar ofertas):
-  // sin revisión de almacén y sin esperar la aprobación de la SP.
-  const mercado = !esServicio && esPedidoMercado(input);
+  // 19-11-2026: los únicos pedidos que pasan directo a Compras (aprobada · cargar ofertas,
+  // sin revisión de almacén ni esperar aprobación de la SP) son las COMPRAS FIJAS (`compra_fija_id`).
+  const compraFijaDirecta = !esServicio && esPedidoDirectoACompras(input);
   const ahoraIso = new Date().toISOString();
   const historial: EventoHistorial[] = [
     {
@@ -277,7 +277,7 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
       actor: input.solicitante_email,
       ...(urgente ? { detalle: 'ORDEN URGENTE' } : {}),
     },
-    ...(mercado ? [{ at: ahoraIso, evento: 'mercado_directo', actor: input.solicitante_email, detalle: 'Pedido de mercado: directo a cotización (sin revisión de almacén ni aprobación)' }] : []),
+    ...(compraFijaDirecta ? [{ at: ahoraIso, evento: 'compra_fija_directa', actor: input.solicitante_email, detalle: 'Compra fija: directo a Compras (sin revisión de almacén ni aprobación)' }] : []),
   ];
   // El nombre del solicitante se SELLA cuando la orden nace. Si no se escribió
   // uno a mano, se toma el que la persona tiene hoy en su ficha. Sin esto la
@@ -296,13 +296,11 @@ export async function crearOrden(input: CrearOrdenInput): Promise<Orden> {
     ci_solicitante: input.ci_solicitante,
     items: input.items,
     total,
-    // Flujo nuevo (29-10-2026, apagado hasta que se active): la SP de productos pasa
-    // primero por Almacén, que revisa qué tiene; lo que falta llega luego a Compras.
-    // Los pedidos de MERCADO (🛒 Solicitud de Mercado, o unidad COCINA / ALIMENTACION · 09-11-2026)
-    // no pasan por Almacén ni por aprobación: entran directo a cotización.
-    estado: (mercado ? 'aprobada'
+    // Flujo de almacén: toda SP de productos pasa primero por Almacén; únicamente
+    // las COMPRAS FIJAS (`compra_fija_id`) entran directo a Compras (19-11-2026).
+    estado: (compraFijaDirecta ? 'aprobada'
       : !esServicio && await flujoRevisionAlmacenActivo() ? 'revision_almacen' : 'pendiente') as EstadoOrden,
-    ...(mercado ? { aprobada_por: 'sistema · pedido de mercado', aprobada_en: ahoraIso } : {}),
+    ...(compraFijaDirecta ? { aprobada_por: 'sistema · compra fija', aprobada_en: ahoraIso } : {}),
     notas: input.notas ?? null,
     motivo: input.motivo?.trim() || null,
     finalidad: input.finalidad?.trim() || null,

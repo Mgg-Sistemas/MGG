@@ -118,7 +118,7 @@ export function ComprasFijasModal({ productos, proveedores, puedeEditar, onProdu
       </>}>
       <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
         Las compras que se repiten. Cuando a una le llega la fecha, Compras recibe el aviso en la campana. «Generar» abre la solicitud
-        con las cantidades de la última vez (se pueden cambiar) y desde ahí sigue el flujo normal.
+        con las cantidades de la última vez (se pueden cambiar) y pasa directo a Compras.
       </p>
       {(lista ?? []).some((c) => c.sugerida) && (
         <div className="card" style={{ borderLeft: '3px solid var(--info, #3b82f6)', padding: '.6rem .9rem', fontSize: '.84rem' }}>
