@@ -81,6 +81,26 @@ export function textoWhatsappRrhh(p: ParametrosWhatsappRrhh): string {
     p.resumen.topCargos.forEach((c, idx) => {
       lineas.push(`${idx + 1}. *${c.nombre}*: ${fmtMonedaUsd(c.masaUsd)} (${c.personas} colaboradores)`);
     });
+  } else if (p.ambito === 'carga_masiva_nomina') {
+    const totalBsLote = p.filas.reduce((acc, f) => acc + (f.sueldoBsCargaMasiva ?? 0), 0);
+    lineas.push('🏦 *CARGA MASIVA - NÓMINA (MONEDA NACIONAL) · MGG*');
+    lineas.push(`📅 Generado: ${ahora}`);
+    lineas.push(`🏢 Empresas: ${p.empresasTexto}`);
+    lineas.push('');
+    lineas.push('📊 *RESUMEN DEL LOTE BANCARIO:*');
+    lineas.push(`• Registros en lote: *${p.filas.length}*`);
+    lineas.push(`• Total Sueldo Básico (Bs): *Bs ${fmtNum2(totalBsLote)}*`);
+    lineas.push(`• Tasa BCV aplicada: Bs ${fmtNum2(p.resumen.tasaBcvReferencia)}`);
+    if (p.filas.length > 0) {
+      lineas.push('');
+      lineas.push(`📋 *DETALLE (${Math.min(p.filas.length, 15)} de ${p.filas.length}):*`);
+      p.filas.slice(0, 15).forEach((f) => {
+        const corr = f.cargaMasiva?.cm_02_correlativo ?? '';
+        const ced = `${f.cargaMasiva?.cm_03_tipo_doc ?? 'V'}-${(f.cargaMasiva?.cm_04_cedula ?? '').replace(/^0+/, '') || '0'}`;
+        lineas.push(`• ${corr} · *${f.nombreCompleto}* (${ced}): Bs ${fmtNum2(f.sueldoBsCargaMasiva ?? 0)}`);
+      });
+      if (p.filas.length > 15) lineas.push(`_... y ${p.filas.length - 15} registros más en el archivo._`);
+    }
   } else {
     // Ámbito Personal / Directorio
     lineas.push('👥 *REPORTE DE PERSONAL Y NÓMINA · MGG*');

@@ -18,7 +18,15 @@ import type { DefinicionEmpresa } from './empresa';
 import type { CambioSueldoRegistro, FamiliarPersonal } from './personal.repository';
 import type { HistorialTabulador } from './tabulador';
 import { datosDeCuenta, infoTipo, leerCuentas } from './datosBancarios';
-import { edadEn, gradoMasAlto, labelParentesco } from './fichaPersonal';
+import { edadEn, gradoMasAlto, labelParentesco, ordenarPorFicha } from './fichaPersonal';
+import {
+  CLAVES_COLUMNAS_CARGA_MASIVA,
+  COLUMNAS_CARGA_MASIVA_NOMINA,
+  PARAMETROS_CARGA_MASIVA_DEFAULT,
+  construirCamposCargaMasivaPersona,
+  type CamposCargaMasivaFila,
+  type ParametrosCargaMasivaNomina,
+} from './cargaMasivaNomina';
 
 /** Redondeo a 2 decimales para operaciones de moneda y porcentajes. */
 export function round2(n: number): number {
@@ -28,12 +36,13 @@ export function round2(n: number): number {
 /* ───────────── Tipos de configuración ───────────── */
 
 /** Vertiente operativa que se está reportando. */
-export type AmbitoRrhh = 'personal' | 'historico_salarial' | 'historico_cargos';
+export type AmbitoRrhh = 'personal' | 'historico_salarial' | 'historico_cargos' | 'carga_masiva_nomina';
 
 export const AMBITOS_RRHH: { id: AmbitoRrhh; icon: string; label: string; descripcion: string }[] = [
   { id: 'personal', icon: '👥', label: 'Directorio y Personal', descripcion: 'Ficha del personal, datos laborales, estado, contacto, pagos y carga familiar.' },
   { id: 'historico_salarial', icon: '📜', label: 'Histórico Salarial', descripcion: 'Auditoría de aumentos, ajustes de sueldo, motivos y aprobadores.' },
   { id: 'historico_cargos', icon: '💬', label: 'Histórico de Cargos', descripcion: 'Evolución del tabulador salarial por cargo y fechas de vigencia.' },
+  { id: 'carga_masiva_nomina', icon: '🏦', label: 'CARGA MASIVA - NOMINA', descripcion: 'Formato bancario en moneda nacional con códigos, correlativos y rellenos oficiales.' },
 ];
 
 /** Dimensión de agrupación principal de las filas. */
@@ -77,6 +86,8 @@ export const PRESETS_RANGO_RRHH: { id: PresetRangoRrhh; label: string }[] = [
 export interface CampoColumnaRrhh {
   clave: string;
   etiqueta: string;
+  /** Encabezado exacto del modelo bancario cuando aplica a Carga Masiva. */
+  cabeceraModelo?: string;
   descripcion?: string;
   anchoExcel: number;
   alineacion: 'left' | 'right' | 'center';
@@ -154,6 +165,19 @@ export const CAMPOS_REPORTE_RRHH: CampoColumnaRrhh[] = [
   { clave: 'motivo', etiqueta: 'Motivo del Cambio', anchoExcel: 30, alineacion: 'left', formato: 'texto', ambitos: ['historico_salarial', 'historico_cargos'] },
   { clave: 'tipo_cambio', etiqueta: 'Tipo de Movimiento', anchoExcel: 18, alineacion: 'center', formato: 'texto', ambitos: ['historico_salarial'] },
   { clave: 'autor', etiqueta: 'Autorizado Por', anchoExcel: 20, alineacion: 'left', formato: 'texto', ambitos: ['historico_salarial', 'historico_cargos'] },
+
+  // Carga Masiva - Nómina (Moneda Nacional · 44 columnas oficiales del modelo bancario)
+  ...COLUMNAS_CARGA_MASIVA_NOMINA.map(
+    (c): CampoColumnaRrhh => ({
+      clave: c.clave,
+      etiqueta: c.etiqueta,
+      cabeceraModelo: c.cabeceraModelo,
+      anchoExcel: c.anchoModelo,
+      alineacion: c.alineacion,
+      formato: 'texto',
+      ambitos: ['carga_masiva_nomina'],
+    }),
+  ),
 ];
 
 export const CAMPOS_DEFAULT_RRHH: Record<AmbitoRrhh, Record<ModoAgrupacionRrhh, string[]>> = {
@@ -189,6 +213,17 @@ export const CAMPOS_DEFAULT_RRHH: Record<AmbitoRrhh, Record<ModoAgrupacionRrhh, 
     rango_sueldo: ['cargo', 'sueldo_nuevo', 'total_personas'],
     mes: ['fecha_vigencia', 'cargo', 'sueldo_nuevo'],
     detallado: ['fecha_vigencia', 'cargo', 'sueldo_anterior', 'sueldo_nuevo', 'variacion_usd', 'motivo', 'autor', 'total_personas'],
+  },
+  carga_masiva_nomina: {
+    empresa: [...CLAVES_COLUMNAS_CARGA_MASIVA],
+    departamento: [...CLAVES_COLUMNAS_CARGA_MASIVA],
+    cargo: [...CLAVES_COLUMNAS_CARGA_MASIVA],
+    estado: [...CLAVES_COLUMNAS_CARGA_MASIVA],
+    genero: [...CLAVES_COLUMNAS_CARGA_MASIVA],
+    carga_familiar: [...CLAVES_COLUMNAS_CARGA_MASIVA],
+    rango_sueldo: [...CLAVES_COLUMNAS_CARGA_MASIVA],
+    mes: [...CLAVES_COLUMNAS_CARGA_MASIVA],
+    detallado: [...CLAVES_COLUMNAS_CARGA_MASIVA],
   },
 };
 
@@ -277,6 +312,10 @@ export interface FilaReporteRrhh {
   sueldoMinUsd?: number;
   sueldoMaxUsd?: number;
   pctTotal?: number;
+
+  // Campos de Carga Masiva - Nómina (Moneda Nacional)
+  cargaMasiva?: CamposCargaMasivaFila;
+  sueldoBsCargaMasiva?: number;
 }
 
 /* ───────────── Filtros ───────────── */
@@ -675,6 +714,72 @@ export function normalizarHistoricoCargosRrhh(
   });
 }
 
+/** Normaliza la nómina al formato bancario de Carga Masiva - Moneda Nacional (44 columnas con correlativos y códigos). */
+export function normalizarCargaMasivaNominaRrhh(
+  personal: Personal[],
+  mapaEmpresas: Map<string, DefinicionEmpresa>,
+  tasaBcv: number,
+  mapaFamilia?: Map<string, FamiliarPersonal[]>,
+  paramsCargaMasiva?: ParametrosCargaMasivaNomina,
+): FilaReporteRrhh[] {
+  const ordenados = ordenarPorFicha(personal);
+  const inicio = Math.max(1, Math.trunc(paramsCargaMasiva?.correlativoInicio ?? PARAMETROS_CARGA_MASIVA_DEFAULT.correlativoInicio));
+
+  return ordenados.map((p, idx) => {
+    const emp = resolverEmpresa(p.empresa, mapaEmpresas);
+    const familiares = mapaFamilia?.get(p.id) ?? [];
+    const hijos = familiares.filter((f) => f.parentesco === 'hijo');
+    const cantidadHijos = hijos.length;
+    const hijosMenores = hijos.filter((h) => {
+      const edad = edadEn(h.fechaNacimiento);
+      return edad != null && edad < 18;
+    }).length;
+
+    const sBase = Number(p.sueldo_base) || 0;
+    const nombre = `${p.nombre || ''} ${p.apellido || ''}`.trim() || 'Sin nombre';
+    const { sueldoBsAplicado, ...cm } = construirCamposCargaMasivaPersona(p, {
+      correlativo: inicio + idx,
+      tasaBcv,
+      familiares,
+      empresa: mapaEmpresas.get(emp.key),
+      params: paramsCargaMasiva,
+    });
+
+    return {
+      id: p.id,
+      ambito: 'carga_masiva_nomina',
+      empresaKey: emp.key,
+      empresaNombre: emp.nombre,
+      ficha: p.numero_ficha ? String(p.numero_ficha).padStart(3, '0') : undefined,
+      nombreCompleto: nombre,
+      cedula: p.cedula?.trim() || undefined,
+      rif: p.rif?.trim() || undefined,
+      nacionalidad: p.nacionalidad?.trim() || undefined,
+      cargo: p.cargo?.trim() || 'Sin cargo',
+      departamento: p.departamento?.trim() || 'General',
+      estado: p.activo ? 'activo' : 'inactivo',
+      genero: p.genero?.trim() || 'sin_cargar',
+      estadoCivil: p.estado_civil?.trim() || undefined,
+      fechaNacimiento: p.fecha_nacimiento ? p.fecha_nacimiento.slice(0, 10) : undefined,
+      fechaIngreso: p.fecha_ingreso ? p.fecha_ingreso.slice(0, 10) : undefined,
+      gradoInstruccion: p.grado_instruccion?.trim() || gradoMasAlto(p.grados_instruccion) || undefined,
+      tituloObtenido: p.titulo_obtenido?.trim() || undefined,
+      telefono: p.telefono?.trim() || undefined,
+      correo: p.correo?.trim() || undefined,
+      direccion: p.direccion?.trim() || undefined,
+      tieneHijos: cantidadHijos > 0,
+      cantidadHijos,
+      hijosMenores,
+      cargaFamiliar: familiares.length,
+      sueldoBase: sBase,
+      sueldoBs: round2(sBase * tasaBcv),
+      sueldoBsCargaMasiva: sueldoBsAplicado,
+      tasaBcvAplicada: tasaBcv,
+      cargaMasiva: cm,
+    };
+  });
+}
+
 /* ───────────── Filtrado Puro ───────────── */
 
 /** Aplica todos los filtros seleccionados a las filas. */
@@ -741,7 +846,22 @@ export function procesarFilasReporteRrhh(
   filasFiltradas: FilaReporteRrhh[],
   modo: ModoAgrupacionRrhh,
   tasaBcv: number,
+  correlativoInicioCargaMasiva = 1,
 ): FilaReporteRrhh[] {
+  // En Carga Masiva - Nómina siempre va 1 fila por trabajador con correlativo continuo 0000001..N sin saltos
+  if (filasFiltradas.length > 0 && filasFiltradas[0].ambito === 'carga_masiva_nomina') {
+    const inicio = Math.max(1, Math.trunc(correlativoInicioCargaMasiva || 1));
+    return filasFiltradas.map((f, idx) => ({
+      ...f,
+      cargaMasiva: f.cargaMasiva
+        ? {
+            ...f.cargaMasiva,
+            cm_02_correlativo: String(inicio + idx).padStart(7, '0').slice(-7),
+          }
+        : undefined,
+    }));
+  }
+
   if (modo === 'detallado') {
     return [...filasFiltradas].sort((a, b) => {
       const c = (a.departamento || '').localeCompare(b.departamento || '', 'es');
@@ -981,8 +1101,55 @@ export function obtenerMetricasFichaRrhh(
   resumen: ResumenReporteRrhh,
   ambito: AmbitoRrhh,
   columnasSel?: readonly string[] | null,
+  paramsCargaMasiva?: ParametrosCargaMasivaNomina,
 ): MetricaFichaRrhh[] {
   const tieneCol = (clave: string) => !columnasSel || columnasSel.includes(clave);
+
+  if (ambito === 'carga_masiva_nomina') {
+    const cfg = { ...PARAMETROS_CARGA_MASIVA_DEFAULT, ...(paramsCargaMasiva ?? {}) };
+    const pct = Number(cfg.porcentajeSueldoBs) > 0 ? Number(cfg.porcentajeSueldoBs) : 0.2;
+    const totalBsLote = round2(resumen.masaSalarialBs * pct);
+    const ini = Math.max(1, Math.trunc(cfg.correlativoInicio));
+    const fin = Math.max(ini, ini + Math.max(0, resumen.totalPersonas - 1));
+    const rangoCorr = resumen.totalPersonas > 0
+      ? `${String(ini).padStart(7, '0')} al ${String(fin).padStart(7, '0')}`
+      : 'Sin registros';
+
+    return [
+      {
+        clave: 'lote_registros',
+        etiqueta: 'REGISTROS EN CARGA MASIVA',
+        valor: String(resumen.totalPersonas),
+        sub: `Correlativos: ${rangoCorr}`,
+        colorCss: 'var(--primary)',
+        colorRgb: [255, 138, 0],
+      },
+      {
+        clave: 'lote_sueldo_bs',
+        etiqueta: `SUELDO BÁSICO LOTE (${Math.round(pct * 100)}%)`,
+        valor: `Bs ${fmtNum2(totalBsLote)}`,
+        sub: `Base mensual: ${fmtMonedaUsd(resumen.masaSalarialUsd)}`,
+        colorCss: 'var(--success)',
+        colorRgb: [46, 204, 113],
+      },
+      {
+        clave: 'lote_codigos_banco',
+        etiqueta: 'BANCO Y AGENCIA',
+        valor: `Banco ${cfg.codigoBanco} · Ofic. ${cfg.oficinaPrincipal}`,
+        sub: `Cta: ${cfg.tipoCuenta} · Nómina: ${cfg.tipoNomina} · Solicitud: ${cfg.tipoSolicitud}`,
+        colorCss: 'var(--info)',
+        colorRgb: [52, 152, 219],
+      },
+      {
+        clave: 'lote_columnas',
+        etiqueta: 'COLUMNAS DEL MODELO',
+        valor: `${columnasSel ? columnasSel.length : 44} de 44`,
+        sub: 'Exportable en Excel, CSV, TXT y PDF',
+        colorCss: 'var(--warning)',
+        colorRgb: [243, 156, 18],
+      },
+    ];
+  }
 
   if (ambito === 'historico_salarial') {
     const tieneSueldos = tieneCol('sueldo_nuevo') || tieneCol('variacion_usd') || tieneCol('sueldo_anterior');

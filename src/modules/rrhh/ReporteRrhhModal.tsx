@@ -30,6 +30,7 @@ import {
   MODOS_AGRUPACION_RRHH,
   calcularResumenRrhh,
   filtrarFilasRrhh,
+  normalizarCargaMasivaNominaRrhh,
   normalizarHistoricoCargosRrhh,
   normalizarHistoricoSalarialRrhh,
   normalizarPersonalRrhh,
@@ -45,9 +46,19 @@ import {
   descargarRrhhCsv,
   descargarRrhhExcel,
   descargarRrhhPdf,
+  descargarRrhhTxt,
   textoCeldaRrhh,
   type OpcionesExportacionRrhh,
 } from './exportarRrhhDinamico';
+import {
+  OFICINAS_BANCARIAS,
+  PARAMETROS_CARGA_MASIVA_DEFAULT,
+  TIPOS_CONTRATO_BANCO,
+  TIPOS_CUENTA_BANCO,
+  TIPOS_NOMINA_BANCO,
+  TIPOS_SOLICITUD_BANCO,
+  type ParametrosCargaMasivaNomina,
+} from './cargaMasivaNomina';
 import { textoWhatsappRrhh } from './whatsappRrhh';
 
 const CLAVE_PREFS_RRHH = 'mgg.rrhh.reporte_dinamico.v1';
@@ -115,7 +126,14 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
   const [textoBusqueda, setTextoBusqueda] = useState('');
   const [desde, setDesde] = useState('');
   const [hasta, setHasta] = useState('');
-  const [estadoSel, setEstadoSel] = useState<'todos' | 'activo' | 'inactivo'>('todos');
+  const [estadoSel, setEstadoSel] = useState<'todos' | 'activo' | 'inactivo'>(
+    ambitoInicial === 'carga_masiva_nomina' ? 'activo' : 'todos',
+  );
+
+  // Parámetros bancarios para Carga Masiva - Nómina (Moneda Nacional)
+  const [paramsCargaMasiva, setParamsCargaMasiva] = useState<Required<ParametrosCargaMasivaNomina>>(
+    () => ({ ...PARAMETROS_CARGA_MASIVA_DEFAULT }),
+  );
 
   // Columnas activas
   const [columnasSel, setColumnasSel] = useState<string[]>(() => {
@@ -189,7 +207,12 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
   // Al cambiar de ámbito o modo, actualizar las columnas por defecto si el usuario no tiene guardadas
   const cambiarAmbito = (nuevo: AmbitoRrhh) => {
     setAmbito(nuevo);
-    const cols = prefs.columnasPorAmbito?.[nuevo] || CAMPOS_DEFAULT_RRHH[nuevo][agrupacion];
+    if (nuevo === 'carga_masiva_nomina') {
+      setAgrupacion('detallado');
+      setEstadoSel('activo');
+    }
+    const modoEf = nuevo === 'carga_masiva_nomina' ? 'detallado' : agrupacion;
+    const cols = prefs.columnasPorAmbito?.[nuevo] || CAMPOS_DEFAULT_RRHH[nuevo][modoEf];
     setColumnasSel(cols);
   };
 
@@ -245,6 +268,9 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
 
   // Normalización según ámbito
   const filasDetalle = useMemo<FilaReporteRrhh[]>(() => {
+    if (ambito === 'carga_masiva_nomina') {
+      return normalizarCargaMasivaNominaRrhh(personal, mapaEmpresas, tasaBcv, mapaFamilia, paramsCargaMasiva);
+    }
     if (ambito === 'historico_salarial') {
       return normalizarHistoricoSalarialRrhh(cambiosSueldo, personal, mapaEmpresas, tasaBcv, mapaFamilia);
     }
@@ -252,7 +278,7 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
       return normalizarHistoricoCargosRrhh(historialTabulador, personal, tasaBcv);
     }
     return normalizarPersonalRrhh(personal, mapaEmpresas, tasaBcv, mapaFamilia);
-  }, [ambito, personal, cambiosSueldo, historialTabulador, mapaEmpresas, tasaBcv, mapaFamilia]);
+  }, [ambito, personal, cambiosSueldo, historialTabulador, mapaEmpresas, tasaBcv, mapaFamilia, paramsCargaMasiva]);
 
   // Filtros aplicados
   const filtros: FiltrosRrhh = useMemo(
@@ -271,8 +297,8 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
 
   // Agrupación
   const filasProcesadas = useMemo(
-    () => procesarFilasReporteRrhh(filasFiltradas, agrupacion, tasaBcv),
-    [filasFiltradas, agrupacion, tasaBcv],
+    () => procesarFilasReporteRrhh(filasFiltradas, agrupacion, tasaBcv, paramsCargaMasiva.correlativoInicio),
+    [filasFiltradas, agrupacion, tasaBcv, paramsCargaMasiva.correlativoInicio],
   );
 
   // Resumen ejecutivo / KPIs
@@ -281,7 +307,10 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
     [filasFiltradas, tasaBcv, empresas],
   );
 
-  const metricasKpi = useMemo(() => obtenerMetricasFichaRrhh(resumen, ambito, columnasSel), [resumen, ambito, columnasSel]);
+  const metricasKpi = useMemo(
+    () => obtenerMetricasFichaRrhh(resumen, ambito, columnasSel, paramsCargaMasiva),
+    [resumen, ambito, columnasSel, paramsCargaMasiva],
+  );
 
   const tasaTexto = useMemo(
     () => textoInfoTasaRrhh(tasaBcv, tasaInfo.fecha, tasaInfo.disponible, tasaInfo.esDelDia),
@@ -305,7 +334,7 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
   const paramsExport: OpcionesExportacionRrhh = useMemo(
     () => ({
       ambito,
-      agrupacion,
+      agrupacion: ambito === 'carga_masiva_nomina' ? 'detallado' : agrupacion,
       columnasClaves: columnasSel,
       empresasTexto,
       resumen,
@@ -314,8 +343,9 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
       desde: desde || undefined,
       hasta: hasta || undefined,
       tasaBcvTexto: tasaTexto,
+      paramsCargaMasiva,
     }),
-    [ambito, agrupacion, columnasSel, empresasTexto, resumen, filasProcesadas, orientacion, desde, hasta, tasaTexto],
+    [ambito, agrupacion, columnasSel, empresasTexto, resumen, filasProcesadas, orientacion, desde, hasta, tasaTexto, paramsCargaMasiva],
   );
 
   const textoWa = useMemo(
@@ -359,7 +389,15 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
     try {
       descargarRrhhCsv(paramsExport);
     } catch (e) {
-      toast(mensajeError(e, 'No se pudo descargar el CSV'), 'error');
+      toast(mensajeError(e, 'No se pudo generar el CSV'), 'error');
+    }
+  };
+
+  const handleExportarTxt = () => {
+    try {
+      descargarRrhhTxt(paramsExport);
+    } catch (e) {
+      toast(mensajeError(e, 'No se pudo generar el TXT'), 'error');
     }
   };
 
@@ -396,6 +434,9 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
               style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}
             >
               <span>💬</span> {mostrarWhatsapp ? 'Ocultar WhatsApp' : 'WhatsApp'}
+            </button>
+            <button className="btn btn-ghost" onClick={handleExportarTxt} disabled={cargando || !filasProcesadas.length}>
+              📝 TXT
             </button>
             <button className="btn btn-ghost" onClick={handleExportarCsv} disabled={cargando || !filasProcesadas.length}>
               📋 CSV
@@ -501,23 +542,25 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
       {/* 3. Filtros y Dimensiones */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: '.75rem', marginBottom: '1rem' }}>
         {/* Agrupación */}
-        <div>
-          <label style={{ display: 'block', fontSize: '.78rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '.3rem' }}>
-            AGRUPAR POR
-          </label>
-          <select
-            className="select"
-            value={agrupacion}
-            onChange={(e) => cambiarAgrupacion(e.target.value as ModoAgrupacionRrhh)}
-            style={{ width: '100%' }}
-          >
-            {MODOS_AGRUPACION_RRHH.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.icon} {m.label}
-              </option>
-            ))}
-          </select>
-        </div>
+        {ambito !== 'carga_masiva_nomina' && (
+          <div>
+            <label style={{ display: 'block', fontSize: '.78rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '.3rem' }}>
+              AGRUPAR POR
+            </label>
+            <select
+              className="select"
+              value={agrupacion}
+              onChange={(e) => cambiarAgrupacion(e.target.value as ModoAgrupacionRrhh)}
+              style={{ width: '100%' }}
+            >
+              {MODOS_AGRUPACION_RRHH.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.icon} {m.label}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         {/* Filtro Hijos / Carga Familiar (Requerimiento Crítico) */}
         <div>
@@ -586,8 +629,185 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
         </div>
       </div>
 
+      {/* Parámetros Bancarios de Carga Masiva - Nómina (Moneda Nacional) */}
+      {ambito === 'carga_masiva_nomina' && (
+        <div
+          style={{
+            background: 'var(--card-bg, #1a1e24)',
+            padding: '.8rem 1rem',
+            borderRadius: 'var(--radius, 8px)',
+            marginBottom: '1rem',
+            border: '1px solid var(--border)',
+          }}
+        >
+          <div style={{ fontSize: '.82rem', fontWeight: 700, marginBottom: '.6rem', color: 'var(--primary)' }}>
+            🏦 Parámetros de Códigos y Correlativos · Carga Masiva (Moneda Nacional · Banco 0163)
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(185px, 1fr))', gap: '.65rem' }}>
+            <div>
+              <label style={{ display: 'block', fontSize: '.73rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '.25rem' }}>
+                CORRELATIVO INICIAL
+              </label>
+              <input
+                className="input"
+                type="number"
+                min={1}
+                value={paramsCargaMasiva.correlativoInicio}
+                onChange={(e) =>
+                  setParamsCargaMasiva((p) => ({
+                    ...p,
+                    correlativoInicio: Math.max(1, Math.trunc(Number(e.target.value) || 1)),
+                  }))
+                }
+                style={{ width: '100%' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '.73rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '.25rem' }}>
+                SUELDO BÁSICO EN BS
+              </label>
+              <select
+                className="select"
+                value={String(paramsCargaMasiva.porcentajeSueldoBs)}
+                onChange={(e) =>
+                  setParamsCargaMasiva((p) => ({ ...p, porcentajeSueldoBs: Number(e.target.value) || 0.2 }))
+                }
+                style={{ width: '100%' }}
+              >
+                <option value="0.2">20 % Nómina en Bs (Oficial)</option>
+                <option value="0.8">80 % Sueldo en Bs</option>
+                <option value="1">100 % Sueldo Completo en Bs</option>
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '.73rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '.25rem' }}>
+                TIPO DE CUENTA
+              </label>
+              <select
+                className="select"
+                value={paramsCargaMasiva.tipoCuenta}
+                onChange={(e) =>
+                  setParamsCargaMasiva((p) => ({ ...p, tipoCuenta: e.target.value as 'CCVI' | 'VI01' }))
+                }
+                style={{ width: '100%' }}
+              >
+                {TIPOS_CUENTA_BANCO.map((t) => (
+                  <option key={t.codigo} value={t.codigo}>
+                    {t.etiqueta}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '.73rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '.25rem' }}>
+                OFICINA PRINCIPAL
+              </label>
+              <select
+                className="select"
+                value={paramsCargaMasiva.oficinaPrincipal}
+                onChange={(e) =>
+                  setParamsCargaMasiva((p) => ({
+                    ...p,
+                    oficinaPrincipal: e.target.value,
+                    oficinaSecundaria: p.oficinaSecundaria === p.oficinaPrincipal ? e.target.value : p.oficinaSecundaria,
+                  }))
+                }
+                style={{ width: '100%' }}
+              >
+                {OFICINAS_BANCARIAS.map((o) => (
+                  <option key={o.codigo} value={o.codigo}>
+                    {o.etiqueta}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '.73rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '.25rem' }}>
+                OFICINA SECUNDARIA
+              </label>
+              <select
+                className="select"
+                value={paramsCargaMasiva.oficinaSecundaria}
+                onChange={(e) => setParamsCargaMasiva((p) => ({ ...p, oficinaSecundaria: e.target.value }))}
+                style={{ width: '100%' }}
+              >
+                {OFICINAS_BANCARIAS.map((o) => (
+                  <option key={o.codigo} value={o.codigo}>
+                    {o.etiqueta}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '.73rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '.25rem' }}>
+                TIPO DE NÓMINA
+              </label>
+              <select
+                className="select"
+                value={paramsCargaMasiva.tipoNomina}
+                onChange={(e) =>
+                  setParamsCargaMasiva((p) => ({ ...p, tipoNomina: e.target.value as 'W' | 'B' | 'M' | 'S' | 'Y' }))
+                }
+                style={{ width: '100%' }}
+              >
+                {TIPOS_NOMINA_BANCO.map((t) => (
+                  <option key={t.codigo} value={t.codigo}>
+                    {t.etiqueta}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '.73rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '.25rem' }}>
+                TIPO DE CONTRATO
+              </label>
+              <select
+                className="select"
+                value={paramsCargaMasiva.tipoContrato}
+                onChange={(e) =>
+                  setParamsCargaMasiva((p) => ({ ...p, tipoContrato: e.target.value as '1' | '2' }))
+                }
+                style={{ width: '100%' }}
+              >
+                {TIPOS_CONTRATO_BANCO.map((t) => (
+                  <option key={t.codigo} value={t.codigo}>
+                    {t.etiqueta}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: '.73rem', fontWeight: 600, color: 'var(--muted)', marginBottom: '.25rem' }}>
+                SOLICITUD (I / M / D)
+              </label>
+              <select
+                className="select"
+                value={paramsCargaMasiva.tipoSolicitud}
+                onChange={(e) =>
+                  setParamsCargaMasiva((p) => ({ ...p, tipoSolicitud: e.target.value as 'I' | 'M' | 'D' }))
+                }
+                style={{ width: '100%' }}
+              >
+                {TIPOS_SOLICITUD_BANCO.map((t) => (
+                  <option key={t.codigo} value={t.codigo}>
+                    {t.etiqueta}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Rango de fechas para históricos */}
-      {ambito !== 'personal' && (
+      {(ambito === 'historico_salarial' || ambito === 'historico_cargos') && (
         <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <label style={{ fontSize: '.82rem', display: 'flex', alignItems: 'center', gap: '.4rem' }}>
             <span className="muted">Desde:</span>

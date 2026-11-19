@@ -345,6 +345,23 @@ export function previewWorkbook(xlsxMod: unknown, workbook: unknown, filename: s
   abrirVisor({ titulo: 'Excel', filename, cuerpo: cont, blob });
 }
 
+/** Muestra un archivo de texto plano (TXT / CSV) con vista previa monoespaciada + botón Descargar. */
+export function previewTexto(
+  contenido: string,
+  filename: string,
+  titulo = 'Texto',
+  mimeType = 'text/plain;charset=utf-8;',
+): void {
+  const blob = new Blob([contenido], { type: mimeType });
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'background:#0f172a;color:#e2e8f0;padding:1rem;min-height:100%;overflow:auto;';
+  const pre = document.createElement('pre');
+  pre.style.cssText = 'margin:0;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.78rem;line-height:1.45;white-space:pre;';
+  pre.textContent = contenido.replace(/^\uFEFF/, '');
+  wrap.appendChild(pre);
+  abrirVisor({ titulo, filename, cuerpo: wrap, blob });
+}
+
 /** Parchea `jsPDF.prototype.save` para que muestre la vista previa en vez de
  *  descargar. Idempotente: se llama una vez al arrancar la app. */
 export async function instalarPreviewPdf(): Promise<void> {
