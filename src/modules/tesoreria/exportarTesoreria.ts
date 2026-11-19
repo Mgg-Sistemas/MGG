@@ -20,7 +20,7 @@ import { pdfSafe } from '@/shared/lib/pdfSafe';
 import { identidadEmpresa } from '@/shared/lib/empresa';
 import { loadLogoPdfEmpresa, dibujarLogoPdf, anchoLogoPdf } from '@/shared/lib/pdfLogo';
 import { generarBloquesPreparacion, type PreparacionPorPagar } from './pendientesPorPagar';
-import { POR_PAGAR_CERO, TESORERIA_AL_DIA } from './whatsappTesoreria';
+import { POR_PAGAR_CERO, TESORERIA_AL_DIA, CREDITOS_OC_OS_CERO, CREDITOS_AL_DIA } from './whatsappTesoreria';
 import type {
   FilaReporteTesoreria,
   ResumenReporteTesoreria,
@@ -76,7 +76,7 @@ const hoyStr = () => new Date().toISOString().slice(0, 10);
 const TITULO_AMBITO: Record<AmbitoTesoreria, string> = {
   movimientos: 'Reporte de movimientos de Tesorería',
   por_pagar: 'Pendientes por pagar',
-  creditos_cartera: 'Cuentas a crédito (cartera)',
+  creditos_cartera: 'Cuentas a crédito (OC y OS)',
 };
 
 export interface MetadatosExportacionTesoreria {
@@ -100,6 +100,8 @@ export interface MetadatosExportacionTesoreria {
   /** «Por preparar» (solo ámbito por_pagar): totales NATIVOS por método y moneda. Solo
    *  viene cuando el usuario deja encendido su toggle; si no, el reporte sale sin el bloque. */
   preparacion?: PreparacionPorPagar;
+  /** Detalle puntual de cuentas a crédito originadas en Compras (OC y OS) para la tabla anexa en PDF. */
+  creditosComprasDetalle?: FilaReporteTesoreria[];
 }
 
 
@@ -433,7 +435,7 @@ export async function descargarTesoreriaPdf(
   const columnas = columnasVisibles(columnasClaves, meta);
   if (!columnas.length) throw new Error('Selecciona al menos una columna.');
   // 07-11-2026: sin nada por pagar sale la hoja «Tesorería al día».
-  const alDia = !filas.length && meta.ambito === 'por_pagar' && !!meta.alDia;
+  const alDia = !filas.length && (meta.ambito === 'por_pagar' || meta.ambito === 'creditos_cartera') && !!meta.alDia;
   if (!filas.length && !alDia) throw new Error('No hay datos de tesorería para el período seleccionado.');
   const colsClavesValidas = columnas.map((c) => c.clave);
 
@@ -494,10 +496,12 @@ export async function descargarTesoreriaPdf(
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(30, 30, 30);
     doc.setFontSize(16);
-    doc.text(pdfSafe(POR_PAGAR_CERO), W / 2, yc, { align: 'center' });
+    const textoCero = meta.ambito === 'creditos_cartera' ? CREDITOS_OC_OS_CERO : POR_PAGAR_CERO;
+    const textoSub = meta.ambito === 'creditos_cartera' ? CREDITOS_AL_DIA : TESORERIA_AL_DIA;
+    doc.text(pdfSafe(textoCero), W / 2, yc, { align: 'center' });
     doc.setTextColor(21, 128, 61);
     doc.setFontSize(18);
-    doc.text(pdfSafe(TESORERIA_AL_DIA), W / 2, yc + 40, { align: 'center' });
+    doc.text(pdfSafe(textoSub), W / 2, yc + 40, { align: 'center' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(110, 110, 110);
@@ -999,6 +1003,90 @@ export async function descargarTesoreriaPdf(
       footStyles: { fillColor: [241, 245, 249], textColor: [30, 41, 59], fontStyle: 'bold' },
       alternateRowStyles: { fillColor: FONDO_ALT },
       columnStyles,
+    });
+    const lastMainTable = (doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable;
+    y = (lastMainTable?.finalY ?? y) + 14;
+  }
+
+  // 3b. Desglose puntual de Cuentas a Crédito desde Compras (OC y OS)
+  const credDet = meta.creditosComprasDetalle ?? filas.filter((f) => f.es_credito_compras);
+  if (credDet.length > 0 && (esFichas || meta.agrupacion !== 'detallado')) {
+    if (y + 70 > H - 36) { doc.addPage(); y = 36; }
+    const ROJO_CRED: [number, number, number] = [185, 28, 28];
+    const nOc = credDet.filter((c) => c.tipo_credito_compras !== 'OS').length;
+    const nOs = credDet.filter((c) => c.tipo_credito_compras === 'OS').length;
+    const subUsdCred = credDet.reduce((a, c) => a + (c.monto_usd || 0), 0);
+    const subBsCred = credDet.reduce((a, c) => a + (c.monto_bs || 0), 0);
+
+    doc.setFillColor(...ROJO_CRED);
+    doc.rect(M, y, 3.5, 13, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...TINTA);
+    doc.text(
+      pdfSafe(`CUENTAS A CRÉDITO DESDE COMPRAS · OC Y OS (${credDet.length} · OC: ${nOc}, OS: ${nOs})`),
+      M + 8,
+      y + 9.5,
+    );
+    y += 17;
+
+    const headC: string[] = ['#', 'Tipo', 'Código', 'Proveedor', 'Estado / Abonos', 'Método y Datos de Pago'];
+    if (meta.mostrarUsd) headC.push('Saldo ($)');
+    if (meta.mostrarBs) headC.push('Saldo (Bs)');
+
+    const bodyC = credDet.map((c, idx) => {
+      const estTxt = (c.abonado_usd ?? 0) > 0.009 && meta.mostrarUsd
+        ? `Abonado ${fmtUsd(c.abonado_usd)} de ${fmtUsd(c.total_credito_usd ?? c.monto_usd)}`
+        : (c.estado || 'A crédito · por abonos');
+      const row: string[] = [
+        String(idx + 1),
+        c.tipo_credito_compras === 'OS' ? 'OS' : 'OC',
+        pdfSafe(c.codigo || '-'),
+        pdfSafe(c.contraparte || '-'),
+        pdfSafe(estTxt),
+        pdfSafe(c.datos_pago_resumen || c.metodo_pago || '-'),
+      ];
+      if (meta.mostrarUsd) row.push(fmtUsd(c.monto_usd));
+      if (meta.mostrarBs) row.push(fmtBs(c.monto_bs));
+      return row;
+    });
+
+    const footC: string[] = ['TOTAL', `OC:${nOc} OS:${nOs}`, '', '', '', 'SALDO PENDIENTE'];
+    if (meta.mostrarUsd) footC.push(fmtUsd(subUsdCred));
+    if (meta.mostrarBs) footC.push(fmtBs(subBsCred));
+
+    const colStylesC: Record<number, { halign: 'left' | 'right' | 'center'; cellWidth?: number; fontStyle?: 'bold' }> = {
+      0: { halign: 'center', cellWidth: 20 },
+      1: { halign: 'center', cellWidth: 28, fontStyle: 'bold' },
+      2: { halign: 'center', cellWidth: 66, fontStyle: 'bold' },
+      3: { halign: 'left', cellWidth: orient === 'landscape' ? 130 : 95 },
+      4: { halign: 'left', cellWidth: orient === 'landscape' ? 115 : 85 },
+      5: { halign: 'left' },
+    };
+    let nextIdx = 6;
+    if (meta.mostrarUsd) colStylesC[nextIdx++] = { halign: 'right', cellWidth: 64, fontStyle: 'bold' };
+    if (meta.mostrarBs) colStylesC[nextIdx++] = { halign: 'right', cellWidth: 74, fontStyle: 'bold' };
+
+    autoTable(doc, {
+      startY: y,
+      margin: { left: M, right: M, bottom: 24 },
+      head: [headC],
+      body: bodyC,
+      foot: [footC],
+      theme: 'grid',
+      styles: {
+        fontSize: orient === 'landscape' ? 7.6 : 6.9,
+        cellPadding: 2.2,
+        lineColor: BORDE,
+        lineWidth: 0.3,
+        textColor: TINTA,
+        overflow: 'linebreak',
+        valign: 'middle',
+      },
+      headStyles: { fillColor: ROJO_CRED, textColor: [255, 255, 255], fontStyle: 'bold', halign: 'center' },
+      footStyles: { fillColor: [254, 226, 226], textColor: [153, 27, 27], fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [254, 242, 242] },
+      columnStyles: colStylesC,
     });
   }
 

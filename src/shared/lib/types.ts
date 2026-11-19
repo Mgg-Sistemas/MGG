@@ -1520,6 +1520,22 @@ export type EstadoOferta = 'pendiente' | 'aceptada' | 'descartada';
 /** Modo de un costo logístico: incluido en el precio o por cuenta del comprador. */
 export type CostoLogistico = 'incluido' | 'por_cuenta' | null;
 
+/** Cómo funciona una cuenta a crédito desde Compras: plazo en días o primero se recibe y luego se paga. */
+export type CreditoModalidad = 'dias' | 'primero_recibe';
+
+/** Condiciones de vencimiento / recepción cuando la compra o servicio es a crédito (`condiciones_pago === 'credito'`). */
+export interface CreditoDetalle {
+  modalidad?: CreditoModalidad | null;
+  /** Plazo en días en que vence el crédito (ej. 7, 15, 30). */
+  dias?: number | null;
+  /** true = la compra primero se recibe y luego se paga. */
+  primero_recibe?: boolean | null;
+  /** Fecha base YYYY-MM-DD desde la que corre el plazo del crédito. */
+  fecha_inicio?: string | null;
+  /** Fecha de vencimiento YYYY-MM-DD del crédito. */
+  fecha_vencimiento?: string | null;
+}
+
 /** Datos técnicos y logísticos opcionales que el proveedor declara en su oferta. */
 export interface OfertaDetalle {
   marca?: string | null;
@@ -1535,6 +1551,7 @@ export interface OfertaDetalle {
     embalaje?: CostoLogistico;
     seguros?: CostoLogistico;
   } | null;
+  credito?: CreditoDetalle | null;
 }
 
 export interface OfertaProveedor {

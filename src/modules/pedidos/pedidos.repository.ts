@@ -33,17 +33,20 @@ import { calcularDespiece, calcularReparto, esDespiezable, type CorteDespiece } 
 import { recomputeProductoAgg } from '@/modules/inventario/movimientos.repository';
 import type {
   AbonoCredito,
+  CreditoDetalle,
   CuentaCaja,
   EstadoOrden,
   EventoHistorial,
   ItemOrden,
   OfertaAdjunto,
+  OfertaDetalle,
   Orden,
   PagoMetodo,
   Producto,
   Proveedor,
   Usuario,
 } from '@/shared/lib/types';
+import { normalizarCreditoDetalle, sellarVencimientoAlConfirmar } from './creditoVencimiento';
 
 import { CATEGORIA_REEMBOLSO_OC, conceptoReembolsoOc, type RetencionDetalle } from '@/modules/tesoreria/reembolsoPago';
 
@@ -593,6 +596,8 @@ export interface EditarOcInput {
   /** Diferencia declarada frente a la factura (con signo) y su motivo. */
   ajuste?: number | null;
   ajuste_motivo?: string | null;
+  /** Metadatos de la oferta / condición del crédito. */
+  oferta_detalle?: OfertaDetalle | null;
 }
 
 /**
@@ -675,6 +680,13 @@ export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: s
   if (input.igtf !== undefined) patch.igtf = igtfOc || null;
   if (input.iva_incluido !== undefined) patch.iva_incluido = ivaIncluidoOc;
   if (input.ajuste !== undefined) { patch.ajuste = ajusteOc || null; patch.ajuste_motivo = ajusteOc ? ajusteMotivoOc : null; }
+  if (input.oferta_detalle !== undefined) {
+    patch.oferta_detalle = input.oferta_detalle;
+  } else if ((input.condiciones_pago ?? o.condiciones_pago) !== 'credito' && o.oferta_detalle?.credito) {
+    const { credito: _omit, ...restoDetalle } = o.oferta_detalle;
+    void _omit;
+    patch.oferta_detalle = Object.keys(restoDetalle).length ? restoDetalle : null;
+  }
   if (puedeTodo && input.urgente !== undefined) patch.urgente = !!input.urgente;
   if (cambiaProveedor) patch.proveedor_id = input.proveedorId ?? null;
   if (reabre) {
@@ -779,6 +791,8 @@ export async function resincronizarOcDesdeOferta(
     iva_incluido?: boolean | null;
     ajuste?: number | null;
     ajuste_motivo?: string | null;
+    condiciones_pago?: string | null;
+    detalle?: OfertaDetalle | null;
     /** Proveedor de la oferta: en una hija solo se re-sincroniza la de su propio proveedor. */
     proveedor_id?: string | null;
   },
@@ -835,6 +849,8 @@ export async function resincronizarOcDesdeOferta(
     ajuste_motivo: ajusteOf ? (ofBase.ajuste_motivo ?? null) : null,
     oferta_precio_efectivo: efectivoOf,
     oferta_precio_bcv: repEf ? repEf.bcv : null,
+    ...(oferta.condiciones_pago !== undefined && orden.estado === 'oc_creada' ? { condiciones_pago: oferta.condiciones_pago } : {}),
+    ...(oferta.detalle !== undefined ? { oferta_detalle: oferta.detalle } : {}),
   };
   if (actorEmail) {
     patch.historial = appendHistorial(orden, 'oc_editada', actorEmail, {
@@ -1446,18 +1462,54 @@ export async function aprobarOcsEnLote(
   const nowIso = new Date().toISOString();
   for (const o of elegibles) {
     const nuevoEstado = destinoPorCondicion(o.condiciones_pago);
+    const ofertaDetalleConfirmada = nuevoEstado === 'cuenta_abierta' && o.oferta_detalle?.credito
+      ? sellarVencimientoAlConfirmar(o.oferta_detalle, nowIso)
+      : undefined;
     const patch = {
       estado: nuevoEstado,
       oc_aprobada_por: actorEmail,
       oc_aprobada_en: nowIso,
       // Si se indicó destino, lo guardamos; si no, conservamos el que ya tuviera la orden.
       ...(destino ? { almacen_destino: destino } : {}),
+      ...(ofertaDetalleConfirmada !== undefined ? { oferta_detalle: ofertaDetalleConfirmada } : {}),
       historial: appendHistorial(o, `confirmada_${nuevoEstado}`, actorEmail, { oc_codigo: o.oc_codigo, almacen_destino: destino, condicion: o.condiciones_pago }),
     };
     const { error } = await supabase.from(TABLE).update(patch).eq('id', o.id);
     if (error) throw error;
   }
   return elegibles.length;
+}
+
+/**
+ * Actualiza los términos de vencimiento / recepción de una orden a crédito (`oferta_detalle.credito`),
+ * incluso cuando ya está en `cuenta_abierta`, sin reabrir la confirmación del Gerente.
+ */
+export async function actualizarCondicionCreditoOrden(
+  o: Orden,
+  credito: CreditoDetalle | null,
+  actorEmail: string,
+): Promise<Orden> {
+  const baseFecha = o.oc_aprobada_en ?? o.oc_creada_en ?? o.created_at ?? new Date().toISOString();
+  const crNorm = normalizarCreditoDetalle(credito, baseFecha);
+  const nuevoDetalle: OfertaDetalle | null = crNorm
+    ? { ...(o.oferta_detalle ?? {}), credito: crNorm }
+    : (() => {
+        if (!o.oferta_detalle) return null;
+        const { credito: _c, ...rest } = o.oferta_detalle;
+        void _c;
+        return Object.keys(rest).length ? rest : null;
+      })();
+  const patch = {
+    oferta_detalle: nuevoDetalle,
+    historial: appendHistorial(o, 'oc_editada', actorEmail, {
+      motivo: crNorm
+        ? `Condición de crédito: ${crNorm.primero_recibe ? 'Primero recibe y luego paga' : ''}${crNorm.dias ? `${crNorm.primero_recibe ? ' · ' : ''}Vence en ${crNorm.dias} día(s)` : ''}`
+        : 'Condición de crédito limpiada',
+    }),
+  };
+  const { data, error } = await supabase.from(TABLE).update(patch).eq('id', o.id).select('*').single();
+  if (error) throw error;
+  return data as Orden;
 }
 
 /**

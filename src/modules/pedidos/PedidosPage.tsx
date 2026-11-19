@@ -117,6 +117,8 @@ import { CALIDAD_LABELS, calcularPuntualidadAutomatica, validarArchivoFactura } 
 import { FacturasOrdenModal } from './FacturasOrdenModal';
 import { ImagenesSolicitud, ImagenesPorSubir } from './ImagenesSolicitud';
 import { cantidadFacturas } from './facturasOrden.repository';
+import { BannerAlertasCredito } from './CamposCreditoForm';
+import { listarAlertasCreditoPorVencer } from './creditoVencimiento';
 import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSkuLibre, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
 import { normalizarNombre, productosSimilares, type Duplicado } from '@/modules/inventario/duplicados';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
@@ -530,6 +532,13 @@ export function PedidosPage() {
     () => new Map(proveedoresAll.map((p) => [p.id, p])),
     [proveedoresAll]
   );
+  const alertasCredito = useMemo(
+    () => listarAlertasCreditoPorVencer(
+      ordenes.filter((o) => o.estado === 'cuenta_abierta' || Boolean(o.credito_cxp_id)),
+      new Map(proveedoresAll.map((p) => [p.id, p.razon_social])),
+    ),
+    [ordenes, proveedoresAll],
+  );
   // email → "Nombre Apellido" para mostrar personas en vez del correo.
   const personaMap = useMemo<PersonasMap>(
     () => Object.assign(
@@ -857,6 +866,15 @@ export function PedidosPage() {
           </div>
           <button className="btn btn-primary" onClick={() => setComprasFijasOpen(true)}>Ver y generar</button>
         </div>
+      )}
+
+      {/* Alertas de vencimiento de créditos de Compras (19-11-2026). */}
+      {!soloSolicitud && scope === 'oc' && (
+        <BannerAlertasCredito
+          alertas={alertasCredito}
+          contexto="compras"
+          onAccion={(item) => openDetail(item.orden.id)}
+        />
       )}
 
       {/* Alerta de Cocina: hay que restablecer el mercado. El analista monta el pedido MERCADO. */}

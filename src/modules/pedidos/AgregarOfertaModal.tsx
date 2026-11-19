@@ -10,6 +10,8 @@ import { limpiarMontoEs, montoAStrEs, parseMontoEs } from '@/shared/lib/montoEs'
 import { PREFIJOS_RIF, normalizarRif, partirRif } from '@/shared/lib/rif';
 import type { ItemOrden, Orden, OrigenProveedor, Proveedor, OfertaDetalle, CostoLogistico, OfertaProveedor, Producto } from '@/shared/lib/types';
 import { AgregarProductoCompra } from './AgregarProductoCompra';
+import { CamposCreditoForm, validarCamposCredito } from './CamposCreditoForm';
+import { normalizarCreditoDetalle } from './creditoVencimiento';
 import { crearOferta, actualizarOferta, revisarCambioProveedorOferta, subirAdjuntosOferta, adjuntosDeOferta, CONDICIONES_PAGO, descuentoEfectivo, ligarRenglonesAInventario, type EditarOfertaInput } from './ofertas.repository';
 import { resincronizarOcDesdeOferta, listSubOcs, listProductosActivos } from './pedidos.repository';
 import { errorMotivoProveedorOferta } from './proveedorOfertaAceptada';
@@ -577,6 +579,11 @@ export function AgregarOfertaModal({
       toast('Elegí la condición de pago (define el flujo: contado, crédito, contra entrega…)', 'error');
       return;
     }
+    const errCredito = validarCamposCredito(condiciones.trim(), detalle.credito);
+    if (errCredito) {
+      toast(errCredito, 'error');
+      return;
+    }
     // El descuento por pago en efectivo solo aplica cuando la oferta trae AMBOS precios.
     if (precioTotal > 0 && precioEfectivo > 0 && precioEfectivo >= precioTotal) {
       toast('El precio en divisa efectivo debe ser menor al total BCV (es un descuento por pago en efectivo).', 'error');
@@ -606,6 +613,15 @@ export function AgregarOfertaModal({
       toast(errMotivoProv, 'error');
       return;
     }
+    const baseFechaCredito = orden.oc_aprobada_en ?? orden.oc_creada_en ?? orden.created_at ?? new Date().toISOString();
+    const detalleFinal: OfertaDetalle = (() => {
+      if (condiciones.trim() === 'credito') {
+        return { ...detalle, credito: normalizarCreditoDetalle(detalle.credito, baseFechaCredito) };
+      }
+      const { credito: _omit, ...resto } = detalle;
+      void _omit;
+      return resto;
+    })();
     setSubmitting(true);
     // Se quitan los campos locales (_rid/_variante) y se normaliza marca/modelo.
     let itemsLimpios: ItemOrden[] = items.map(({ _rid, _variante, _agregado, precioStr, precioUsdStr, _usoPedido, _ucTocada, _inv, ...rest }) => {
@@ -673,7 +689,7 @@ export function AgregarOfertaModal({
           fecha_entrega_prometida: fechaEntrega || null,
           condiciones_pago: condiciones.trim() || null,
           notas: notas.trim() || null,
-          detalle,
+          detalle: detalleFinal,
           ...adjuntosPatch,
         }, { actor: registradoPorEmail, motivoCambioProveedor: motivoCambioProv });
         // Si el cambio de proveedor pasó a esta orden, se sigue con la orden ya guardada: la de
@@ -691,6 +707,8 @@ export function AgregarOfertaModal({
           iva_incluido: ivaAdentro && ivaMonto > 0,
           ajuste: ajusteMonto !== 0 ? ajusteMonto : null,
           ajuste_motivo: ajusteMonto !== 0 ? (ajusteMotivo.trim() || null) : null,
+          condiciones_pago: condiciones.trim() || null,
+          detalle: detalleFinal,
         };
 
         // Si la oferta editada está aceptada o pertenece al proveedor de la orden/sub-orden,
@@ -778,7 +796,7 @@ export function AgregarOfertaModal({
         fecha_entrega_prometida: fechaEntrega || null,
         condiciones_pago: condiciones.trim() || null,
         notas: notas.trim() || null,
-        detalle,
+        detalle: detalleFinal,
         registrada_por_email: registradoPorEmail,
         pdf_path: adjuntos[0]?.path ?? null,
         pdf_filename: adjuntos[0]?.filename ?? null,
@@ -1283,12 +1301,32 @@ export function AgregarOfertaModal({
         </div>
         <div className="form-row">
           <label>Condiciones del Pago *</label>
-          <select className="select" value={condiciones} onChange={(e) => setCondiciones(e.target.value)} required>
+          <select
+            className="select"
+            value={condiciones}
+            onChange={(e) => {
+              const v = e.target.value;
+              setCondiciones(v);
+              if (v === 'credito' && !detalle.credito) {
+                const base = orden.oc_aprobada_en ?? orden.oc_creada_en ?? orden.created_at ?? new Date().toISOString();
+                setD({ credito: normalizarCreditoDetalle({ modalidad: 'dias', dias: 15 }, base) });
+              }
+            }}
+            required
+          >
             <option value="">— elegir —</option>
             {CONDICIONES_PAGO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
           </select>
         </div>
       </div>
+
+      {condiciones === 'credito' && (
+        <CamposCreditoForm
+          value={detalle.credito}
+          onChange={(credito) => setD({ credito })}
+          fechaBaseIso={orden.oc_aprobada_en ?? orden.oc_creada_en ?? orden.created_at}
+        />
+      )}
 
       <div className="form-row">
         <label>Notas</label>

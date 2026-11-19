@@ -18,12 +18,26 @@ import {
   type ItemResumenPorPagar, type MotivoPagoLote,
 } from './resumenPorPagarWhatsapp';
 
-interface Fila { id: string; codigo: string; proveedor: string; monto: number; moneda: string }
+interface Fila {
+  id: string;
+  codigo: string;
+  proveedor: string;
+  monto: number;
+  moneda: string;
+  esCredito?: boolean;
+  tipoCredito?: 'OC' | 'OS';
+}
 
 const esBs = (m: string | null | undefined) => (m ?? '').toUpperCase() === 'BS';
 
-export function ResumenPorPagarModal({ rows, directos, onClose, creditos = false }: {
-  rows: OrdenPorPagar[]; directos: DirectoFila[]; onClose: () => void;
+function esOrdenServ(r: OrdenPorPagar): boolean {
+  if (r.orden.clase === 'servicio' || r.orden.tipo === 'servicio') return true;
+  const cod = String(r.orden.oc_codigo || r.orden.codigo || '').trim().toUpperCase();
+  return cod.startsWith('CS-') || cod.startsWith('OS-') || cod.startsWith('SV-');
+}
+
+export function ResumenPorPagarModal({ rows, directos, creditosCompras = [], onClose, creditos = false }: {
+  rows: OrdenPorPagar[]; directos: DirectoFila[]; creditosCompras?: OrdenPorPagar[]; onClose: () => void;
   /** 09-11-2026: cuentas a crédito de Compras (OC y servicios): el monto es el SALDO. */
   creditos?: boolean;
 }) {
@@ -33,10 +47,21 @@ export function ResumenPorPagarModal({ rows, directos, onClose, creditos = false
       monto: creditos
         ? Math.max(0, round2((Number(r.orden.total) || 0) - (Number(r.orden.abonado_total) || 0)))
         : Number(r.montoAPagar) || 0,
-      moneda: r.orden.moneda ?? 'USD',
+      moneda: r.orden.total_moneda ?? r.orden.moneda ?? 'USD',
+      esCredito: creditos,
+      tipoCredito: esOrdenServ(r) ? 'OS' as const : 'OC' as const,
     })),
     ...directos.map((f) => ({ id: `dir-${f.kind}-${f.id}`, codigo: f.codigo, proveedor: f.titulo, monto: Number(f.total) || 0, moneda: f.moneda })),
-  ], [rows, directos, creditos]);
+    ...(!creditos ? creditosCompras.map((r) => ({
+      id: `cred-${r.orden.id}`,
+      codigo: r.orden.oc_codigo ?? r.orden.codigo,
+      proveedor: r.proveedorNombre,
+      monto: Math.max(0, round2((Number(r.orden.total) || 0) - (Number(r.orden.abonado_total) || 0))),
+      moneda: r.orden.total_moneda ?? r.orden.moneda ?? 'USD',
+      esCredito: true,
+      tipoCredito: esOrdenServ(r) ? 'OS' as const : 'OC' as const,
+    })) : []),
+  ], [rows, directos, creditosCompras, creditos]);
 
   const [tasa, setTasa] = useState(0);
   useEffect(() => { getTasaHoy().then((t) => setTasa(Number(t.usd) || 0)).catch(() => setTasa(0)); }, []);
@@ -65,6 +90,7 @@ export function ResumenPorPagarModal({ rows, directos, onClose, creditos = false
     const items: ItemResumenPorPagar[] = seleccionadas.map((f) => ({
       codigo: f.codigo, proveedor: f.proveedor, montoUsd: enUsd(f),
       motivo: motivos[f.id] ?? 'si', motivoOtro: otros[f.id] ?? null,
+      esCredito: f.esCredito, tipoCredito: f.tipoCredito,
     }));
     const err = errorResumenPorPagar(items);
     if (err) { toast(err, 'error'); return; }
@@ -106,7 +132,14 @@ export function ResumenPorPagarModal({ rows, directos, onClose, creditos = false
               return (
                 <tr key={f.id} style={{ opacity: marcada ? 1 : 0.5 }}>
                   <td style={{ textAlign: 'center' }}><input type="checkbox" checked={marcada} onChange={() => toggle(f.id)} /></td>
-                  <td className="mono">{f.codigo}</td>
+                  <td className="mono">
+                    {f.codigo}
+                    {!creditos && f.esCredito && (
+                      <span className="badge" style={{ marginLeft: '.35rem', background: '#dc2626', color: '#fff', fontSize: '.64rem', fontWeight: 700 }}>
+                        💳 CRÉDITO {f.tipoCredito ?? 'OC'}
+                      </span>
+                    )}
+                  </td>
                   <td>{f.proveedor}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>
                     {esBs(f.moneda) && tasa <= 0 ? '—' : `$${enUsd(f).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}

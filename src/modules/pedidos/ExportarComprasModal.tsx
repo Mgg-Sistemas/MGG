@@ -29,6 +29,8 @@ import {
   CAMPOS_DETALLE_POR_AMBITO,
   ETIQUETA_TIPO_COMPRA,
   filtrarFilasCompras,
+  filtrarCreditosCompras,
+  normalizarFilasSoloCreditos,
   resumenCompras,
   procesarFilasCompras,
   type AmbitoCompras,
@@ -59,6 +61,7 @@ type Formato = 'resumen' | 'detallado' | 'hibrido';
 const AMBITOS: { id: AmbitoCompras; icon: string; label: string }[] = [
   { id: 'ordenes', icon: '🧾', label: 'Órdenes de Compra' },
   { id: 'items', icon: '📦', label: 'Ítems' },
+  { id: 'creditos', icon: '💳', label: 'Cuentas a Crédito (OC / OS)' },
 ];
 
 const MODOS: { id: ModoAgrupacionCompras; icon: string; label: string; ambito?: AmbitoCompras }[] = [
@@ -127,6 +130,7 @@ export function ExportarComprasModal({ onClose }: Props) {
   const [marcados, setMarcados] = useState<string[]>(prefs.campos);
   const [mostrarUsd, setMostrarUsd] = useState(true);
   const [mostrarBs, setMostrarBs] = useState(true);
+  const [incluirCreditos, setIncluirCreditos] = useState(true);
   const [ordenarPor, setOrdenarPor] = useState<OrdenReporteCompras>('monto');
   const [ordenRanking, setOrdenRanking] = useState<'desc' | 'asc'>('desc');
   const [orientacion, setOrientacion] = useState<'landscape' | 'portrait'>('landscape');
@@ -164,6 +168,7 @@ export function ExportarComprasModal({ onClose }: Props) {
 
   const filasOrdenes = datos?.filasOrdenes ?? [];
   const filasItems = datos?.filasItems ?? [];
+  const creditosCompras = datos?.creditosCompras ?? [];
   const tasaBcv = datos?.tasaBcv ?? 0;
 
   // Filtros comunes (sin categoría; la categoría solo aplica a ítems)
@@ -174,13 +179,16 @@ export function ExportarComprasModal({ onClose }: Props) {
     tiposSel: tiposSel.length ? tiposSel : undefined,
   }), [departamentosSel, proveedoresSel, estadosSel, tiposSel]);
 
-  // Resumen (siempre agrega las tres fuentes y ambos niveles)
+  const creditosActivos = ambito === 'creditos' || incluirCreditos;
+
+  // Resumen (siempre agrega las tres fuentes, niveles y cuentas a crédito OC/OS)
   const resumen: ResumenReporteCompras = useMemo(() => {
     const ordFilt = filtrarFilasCompras(filasOrdenes, filtrosBase);
     const itFilt = filtrarFilasCompras(filasItems, { ...filtrosBase, categoriasSel: categoriasSel.length ? categoriasSel : undefined });
     const cot = departamentosSel.length ? (datos?.cotizaciones ?? []).filter((c) => departamentosSel.includes(c.departamento)) : (datos?.cotizaciones ?? []);
-    return resumenCompras(ordFilt, itFilt, cot, tasaBcv);
-  }, [filasOrdenes, filasItems, filtrosBase, categoriasSel, departamentosSel, datos, tasaBcv]);
+    const credFilt = creditosActivos ? filtrarCreditosCompras(creditosCompras, filtrosBase) : [];
+    return resumenCompras(ordFilt, itFilt, cot, tasaBcv, credFilt);
+  }, [filasOrdenes, filasItems, creditosCompras, creditosActivos, filtrosBase, categoriasSel, departamentosSel, datos, tasaBcv]);
 
   // Resumen mostrado (ranking asc/desc)
   const resumenMostrado: ResumenReporteCompras = useMemo(() => {
@@ -192,8 +200,9 @@ export function ExportarComprasModal({ onClose }: Props) {
     };
   }, [resumen, ordenRanking]);
 
-  // Listado según el ámbito
-  const filasDetalle = ambito === 'ordenes' ? filasOrdenes : filasItems;
+  // Listado según el ámbito: en `creditos` el reporte es EXCLUSIVAMENTE de las OC y OS con cuenta a crédito
+  const filasSoloCreditos = useMemo(() => normalizarFilasSoloCreditos(creditosCompras), [creditosCompras]);
+  const filasDetalle = ambito === 'creditos' ? filasSoloCreditos : ambito === 'ordenes' ? filasOrdenes : filasItems;
   const filtradas = useMemo(() => filtrarFilasCompras(filasDetalle, {
     ...filtrosBase,
     categoriasSel: ambito === 'items' && categoriasSel.length ? categoriasSel : undefined,
@@ -209,11 +218,11 @@ export function ExportarComprasModal({ onClose }: Props) {
       return Array.from(m.entries()).map(([nombre, count]) => ({ nombre, count })).sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
     };
     return {
-      departamentos: cuenta(filasOrdenes.map((f) => f.departamento)),
-      proveedores: cuenta(filasOrdenes.map((f) => f.proveedor).filter((p) => p !== '—')),
+      departamentos: cuenta([...filasOrdenes.map((f) => f.departamento), ...creditosCompras.map((c) => c.departamento)]),
+      proveedores: cuenta([...filasOrdenes.map((f) => f.proveedor), ...creditosCompras.map((c) => c.proveedor)].filter((p) => p !== '—')),
       categorias: cuenta(filasItems.map((f) => f.categoria)),
     };
-  }, [filasOrdenes, filasItems]);
+  }, [filasOrdenes, filasItems, creditosCompras]);
 
   const columnasAmbito = useMemo(() => CAMPOS_REPORTE_COMPRAS.filter((c) => !c.ambito || c.ambito === 'ambos' || c.ambito === ambito), [ambito]);
   const marcadosVisibles = useMemo(() => marcados.filter((c) => columnasAmbito.some((col) => col.clave === c)), [marcados, columnasAmbito]);
@@ -251,16 +260,20 @@ export function ExportarComprasModal({ onClose }: Props) {
   }, [departamentosSel, proveedoresSel, categoriasSel, estadosSel, tiposSel]);
 
   const dinero = (usd: number, bs: number) => (mostrarUsd && mostrarBs ? `${fmtUsd(usd)} · ${fmtBs(bs)}` : mostrarUsd ? fmtUsd(usd) : fmtBs(bs));
+  const sinDatosExportar = ambito === 'creditos' ? false : (resumen.totalCompras === 0 && resumen.creditosCount === 0);
 
   const metaDe = (): MetadatosExportacionCompras => ({
     desde, hasta, ambito, agrupacion, formato,
-    subtituloFiltros, mostrarUsd, mostrarBs, tasaBcv, orientacion,
+    subtituloFiltros, mostrarUsd, mostrarBs, tasaBcv, orientacion, incluirCreditos: creditosActivos,
   });
 
   const descargar = async (fmt: 'pdf' | 'xlsx' | 'csv') => {
     if (!mostrarUsd && !mostrarBs) { toast('Deja encendida al menos una moneda ($ o Bs).', 'warning'); return; }
-    if (formato !== 'resumen' && marcadosVisibles.length === 0) { toast('Marca al menos una columna para el listado.', 'warning'); return; }
-    if (resumen.totalCompras === 0) { toast('No hay compras con los filtros y el período seleccionados.', 'warning'); return; }
+    if (formato !== 'resumen' && ambito !== 'creditos' && marcadosVisibles.length === 0) { toast('Marca al menos una columna para el listado.', 'warning'); return; }
+    if (fmt === 'csv' ? filas.length === 0 : (fmt === 'xlsx' && ambito === 'creditos' ? resumen.creditosCount === 0 : sinDatosExportar)) {
+      toast('No hay compras ni cuentas a crédito con los filtros seleccionados.', 'warning');
+      return;
+    }
     setOcupado(fmt);
     try { localStorage.setItem(CLAVE_CAMPOS, JSON.stringify(marcados)); localStorage.setItem(CLAVE_AMBITO, ambito); localStorage.setItem(CLAVE_AGRUPACION, agrupacion); localStorage.setItem(CLAVE_FORMATO, formato); } catch { /* no crítico */ }
     const meta = metaDe();
@@ -275,7 +288,15 @@ export function ExportarComprasModal({ onClose }: Props) {
     }
   };
 
-  const textoWsp = useMemo(() => textoWhatsappCompras(resumenMostrado, { desde, hasta, mostrarUsd, mostrarBs, tasaBcv }), [resumenMostrado, desde, hasta, mostrarUsd, mostrarBs, tasaBcv]);
+  const textoWsp = useMemo(
+    () => textoWhatsappCompras(resumenMostrado, {
+      desde, hasta, mostrarUsd, mostrarBs, tasaBcv,
+      incluirCreditos: creditosActivos,
+      mostrarCeroCreditos: creditosActivos,
+      soloCreditos: ambito === 'creditos',
+    }),
+    [resumenMostrado, desde, hasta, mostrarUsd, mostrarBs, tasaBcv, creditosActivos, ambito],
+  );
 
   const surf2 = { background: 'var(--surface-2, #182230)', border: '1px solid var(--border)', borderRadius: '8px', padding: '.65rem .8rem' } as const;
   const tituloSec = { fontSize: '.84rem', fontWeight: 600, color: 'var(--text, #f1f5f9)' } as const;
@@ -338,13 +359,17 @@ export function ExportarComprasModal({ onClose }: Props) {
       onClose={onClose}
       footer={
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: '.5rem', flexWrap: 'wrap' }}>
-          <div className="muted" style={{ fontSize: '.8rem' }}>{cargando ? 'Cargando datos...' : `${resumen.totalCompras} compra(s) · ${filas.length} fila(s) en el listado`}</div>
+          <div className="muted" style={{ fontSize: '.8rem' }}>
+            {cargando
+              ? 'Cargando datos...'
+              : `${resumen.totalCompras} compra(s) · ${filas.length} fila(s)${incluirCreditos && resumen.creditosCount > 0 ? ` · ${resumen.creditosCount} a crédito (OC/OS)` : ''}`}
+          </div>
           <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center' }}>
             <button className="btn btn-ghost" onClick={onClose} disabled={!!ocupado}>Cerrar</button>
-            <button className="btn btn-ghost" onClick={() => void descargar('csv')} disabled={!!ocupado || cargando || resumen.totalCompras === 0}>{ocupado === 'csv' ? 'Generando...' : '📝 CSV'}</button>
-            <button className="btn btn-ghost" onClick={() => void descargar('xlsx')} disabled={!!ocupado || cargando || resumen.totalCompras === 0}>{ocupado === 'xlsx' ? 'Generando...' : '📊 Excel'}</button>
-            <button className="btn btn-ghost" onClick={() => setVerWhatsapp(true)} disabled={!!ocupado || cargando || resumen.totalCompras === 0}>💬 WhatsApp</button>
-            <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={!!ocupado || cargando || resumen.totalCompras === 0}>{ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}</button>
+            <button className="btn btn-ghost" onClick={() => void descargar('csv')} disabled={!!ocupado || cargando || filas.length === 0}>{ocupado === 'csv' ? 'Generando...' : '📝 CSV'}</button>
+            <button className="btn btn-ghost" onClick={() => void descargar('xlsx')} disabled={!!ocupado || cargando || sinDatosExportar}>{ocupado === 'xlsx' ? 'Generando...' : '📊 Excel'}</button>
+            <button className="btn btn-ghost" onClick={() => setVerWhatsapp(true)} disabled={!!ocupado || cargando || sinDatosExportar}>💬 WhatsApp</button>
+            <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={!!ocupado || cargando || sinDatosExportar}>{ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}</button>
           </div>
         </div>
       }
@@ -374,7 +399,11 @@ export function ExportarComprasModal({ onClose }: Props) {
             ))}
           </div>
           <div className="muted" style={{ fontSize: '.73rem', marginTop: '.4rem', fontStyle: 'italic' }}>
-            {ambito === 'ordenes' ? 'Una fila por compra (órdenes, compras directas y servicios).' : 'Una fila por ítem de orden (para categorías de inventario e ítem más comprado).'}
+            {ambito === 'creditos'
+              ? 'Exclusivamente las Órdenes de Compra (OC) y Órdenes de Servicio (OS) con cuenta a crédito abierta.'
+              : ambito === 'ordenes'
+                ? 'Una fila por compra (órdenes, compras directas y servicios) + cuentas a crédito OC y OS.'
+                : 'Una fila por ítem de orden (para categorías de inventario e ítem más comprado).'}
           </div>
         </div>
 
@@ -484,6 +513,15 @@ export function ExportarComprasModal({ onClose }: Props) {
             <span style={{ ...tituloSec, fontSize: '.82rem' }}>💱 Mostrar:</span>
             <button type="button" className={`btn btn-xs ${mostrarUsd ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.2rem .7rem' }} onClick={() => setMostrarUsd((v) => !v)}>$ Dólares</button>
             <button type="button" className={`btn btn-xs ${mostrarBs ? 'btn-primary' : 'btn-ghost'}`} style={{ borderRadius: '999px', padding: '.2rem .7rem' }} onClick={() => setMostrarBs((v) => !v)}>Bs Bolívares</button>
+            <button
+              type="button"
+              className={`btn btn-xs ${incluirCreditos ? 'btn-primary' : 'btn-ghost'}`}
+              style={{ borderRadius: '999px', padding: '.2rem .7rem' }}
+              onClick={() => setIncluirCreditos((v) => !v)}
+              title="Incluir en el PDF, Excel y WhatsApp las cuentas a crédito abiertas originadas en Compras (OC y OS)"
+            >
+              💳 Cuentas a crédito (OC/OS)
+            </button>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
             <span style={{ ...tituloSec, fontSize: '.82rem' }}>📊 Ranking:</span>
@@ -512,6 +550,15 @@ export function ExportarComprasModal({ onClose }: Props) {
           <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>TOTAL DE COMPRAS</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f59e0b' }}>{resumen.totalCompras}</div><div className="muted" style={{ fontSize: '.68rem' }}>{dinero(resumen.totalUsd, resumen.totalBs)}</div></div>
           <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>FINALIZADAS</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#22c55e' }}>{resumen.finalizadasCount}</div><div className="muted" style={{ fontSize: '.68rem' }}>{dinero(resumen.finalizadasUsd, resumen.finalizadasBs)}</div></div>
           <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>PENDIENTES</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#eab308' }}>{resumen.pendientesCount}</div><div className="muted" style={{ fontSize: '.68rem' }}>{dinero(resumen.pendientesUsd, resumen.pendientesBs)}</div></div>
+          {incluirCreditos && (
+            <div>
+              <div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>CRÉDITOS (OC / OS)</div>
+              <div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#f87171' }}>
+                {resumen.creditosCount} <span className="muted" style={{ fontSize: '.7rem', fontWeight: 500 }}>({resumen.creditosOcCount} OC · {resumen.creditosOsCount} OS)</span>
+              </div>
+              <div className="muted" style={{ fontSize: '.68rem' }}>Saldo: {dinero(resumen.creditosSaldoUsd, resumen.creditosSaldoBs)}</div>
+            </div>
+          )}
           <div><div className="muted" style={{ fontSize: '.68rem', fontWeight: 600 }}>MÁS GASTÓ</div><div style={{ fontSize: '1.05rem', fontWeight: 700, color: '#38bdf8' }}>{resumenMostrado.deptoQueMasGasto ?? '—'}</div><div className="muted" style={{ fontSize: '.68rem' }}>no incluye compras directas</div></div>
         </div>
 
@@ -591,6 +638,22 @@ export function ExportarComprasModal({ onClose }: Props) {
                     <span style={{ color: '#22c55e' }}>{fmtUsd(t.usd)}</span>
                   </div>
                 ))}
+              </div>
+            )}
+            {incluirCreditos && (
+              <div>
+                <div className="muted" style={{ fontSize: '.72rem', fontWeight: 600, marginBottom: '.3rem' }}>
+                  CUENTAS A CRÉDITO COMPRAS · OC Y OS ({resumenMostrado.creditosCount})
+                </div>
+                {resumenMostrado.cuentasCredito.slice(0, 6).map((c) => (
+                  <div key={c.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '.4rem', fontSize: '.76rem', padding: '.1rem 0' }}>
+                    <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      <strong style={{ color: c.tipo === 'OS' ? '#a78bfa' : '#fb923c' }}>[{c.tipo}]</strong> {c.codigo} · {c.proveedor}
+                    </span>
+                    <span style={{ color: '#f87171', whiteSpace: 'nowrap', fontWeight: 600 }}>{dinero(c.saldo_usd, c.saldo_bs)}</span>
+                  </div>
+                ))}
+                {!resumenMostrado.cuentasCredito.length && <span className="muted" style={{ fontSize: '.74rem' }}>Sin cuentas a crédito abiertas.</span>}
               </div>
             )}
           </div>

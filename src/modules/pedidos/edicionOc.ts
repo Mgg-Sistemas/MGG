@@ -12,6 +12,8 @@
    es una edición humana).
    ============================================================ */
 
+import type { OfertaDetalle } from '../../shared/lib/types';
+
 export interface ItemComparable {
   sku: string;
   nombre?: string;
@@ -37,6 +39,7 @@ export interface OcComparable {
   /** Los precios ya traen el IVA / ajuste declarado (impuestosOc.ts): mueven el total. */
   iva_incluido?: boolean | null;
   ajuste?: number | null;
+  oferta_detalle?: OfertaDetalle | null;
 }
 
 export interface EdicionComparable {
@@ -52,6 +55,7 @@ export interface EdicionComparable {
   /** undefined = no se tocaron. */
   iva_incluido?: boolean | null;
   ajuste?: number | null;
+  oferta_detalle?: OfertaDetalle | null;
 }
 
 const r2 = (n: unknown): number => Math.round((Number(n) || 0) * 100) / 100;
@@ -102,9 +106,23 @@ export function cambianNombres(oc: OcComparable, edicion: EdicionComparable): bo
   return huellaNombres(oc.items) !== huellaNombres(edicion.items);
 }
 
-/** ¿Cambia algo de texto (nota o nombres) que hay que guardar aunque no reabra la OC? */
+/** ¿Cambia la configuración del crédito en `oferta_detalle.credito`? */
+export function cambiaDetalleCredito(oc: OcComparable, edicion: EdicionComparable): boolean {
+  if (edicion.oferta_detalle === undefined) return false;
+  const a = oc.oferta_detalle?.credito ?? null;
+  const b = edicion.oferta_detalle?.credito ?? null;
+  const norm = (c: typeof a) => JSON.stringify({
+    modalidad: c?.modalidad ?? null,
+    dias: c?.dias ?? null,
+    primero_recibe: Boolean(c?.primero_recibe),
+    fecha_vencimiento: c?.fecha_vencimiento ?? null,
+  });
+  return norm(a) !== norm(b);
+}
+
+/** ¿Cambia algo de texto (nota, nombres o metadatos del crédito) que hay que guardar aunque no reabra la OC? */
 export function cambiaTexto(oc: OcComparable, edicion: EdicionComparable): boolean {
-  return cambiaNota(oc, edicion) || cambianNombres(oc, edicion);
+  return cambiaNota(oc, edicion) || cambianNombres(oc, edicion) || cambiaDetalleCredito(oc, edicion);
 }
 
 /* ───────────── Qué campos escribe una edición de OP ─────────────

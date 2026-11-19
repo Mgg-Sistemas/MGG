@@ -23,6 +23,18 @@ export interface OpcionesWhatsappCompras {
   mostrarBs?: boolean;
   /** Tasa BCV del día para mostrar. */
   tasaBcv?: number;
+  /** Si se indica en false, omite el bloque de cuentas a crédito de Compras (por defecto true). */
+  incluirCreditos?: boolean;
+  /** Muestra la línea de 0 pendientes cuando no hay cuentas a crédito abiertas. */
+  mostrarCeroCreditos?: boolean;
+  /** Cuando el ámbito es `creditos`: el mensaje es exclusivamente de las OC y OS con cuenta a crédito. */
+  soloCreditos?: boolean;
+}
+
+const MAX_CREDITOS_WSP = 30;
+
+function unaLinea(s: string | null | undefined): string {
+  return (s || '').replace(/\s+/g, ' ').trim();
 }
 
 /** Número con separador de miles VE y dos decimales, sin símbolo. */
@@ -53,6 +65,40 @@ export function textoWhatsappCompras(resumen: ResumenReporteCompras, opts: Opcio
   };
 
   const L: string[] = [];
+  if (opts.soloCreditos) {
+    const creditos = resumen.cuentasCredito ?? [];
+    L.push(`💳 *Reporte de Cuentas a Crédito · OC y OS*`);
+    L.push(`_${emp.nombre} · ${fechaCorta(opts.desde)} al ${fechaCorta(opts.hasta)}_`);
+    if (opts.tasaBcv && opts.tasaBcv > 0) {
+      L.push(`💱 _Tasa BCV: Bs ${num(opts.tasaBcv)} / $_`);
+    }
+    L.push('');
+    if (!creditos.length) {
+      L.push(`🧾 *CUENTAS A CRÉDITO (OC Y OS) PENDIENTES: 0*`);
+      L.push(`✅ *SIN CUENTAS A CRÉDITO ABIERTAS EN COMPRAS*`);
+      return L.join('\n');
+    }
+    L.push(`📊 *Cuentas abiertas (${resumen.creditosCount}):* OC: ${resumen.creditosOcCount} · OS: ${resumen.creditosOsCount}`);
+    L.push(`🧾 *Monto original:* ${dinero(resumen.creditosTotalUsd, resumen.creditosTotalBs)}`);
+    L.push(`✅ *Abonado:* ${dinero(resumen.creditosAbonadoUsd, resumen.creditosAbonadoBs)}`);
+    L.push(`💰 *Saldo pendiente:* *${dinero(resumen.creditosSaldoUsd, resumen.creditosSaldoBs)}*`);
+    L.push('');
+    const visibles = creditos.slice(0, MAX_CREDITOS_WSP);
+    visibles.forEach((c, idx) => {
+      const em = c.tipo === 'OS' ? '🔧' : '📦';
+      const prov = unaLinea(c.proveedor) && unaLinea(c.proveedor) !== '—' ? ` · ${unaLinea(c.proveedor)}` : '';
+      const tieneAbono = (c.abonado_usd || 0) > 0.009 || (c.abonado_bs || 0) > 0.009;
+      const abonoTxt = tieneAbono
+        ? ` _(abonado ${dinero(c.abonado_usd, c.abonado_bs)} de ${dinero(c.total_usd, c.total_bs)})_`
+        : '';
+      L.push(`${idx + 1}. ${em} *[${c.tipo}] ${unaLinea(c.codigo) || '—'}*${prov} — *Saldo:* ${dinero(c.saldo_usd, c.saldo_bs)}${abonoTxt}`);
+    });
+    if (creditos.length > visibles.length) {
+      L.push(`   _… y ${creditos.length - visibles.length} cuenta(s) más en el PDF_`);
+    }
+    return L.join('\n');
+  }
+
   L.push(`🧾 *Reporte de Compras*`);
   L.push(`_${emp.nombre} · ${fechaCorta(opts.desde)} al ${fechaCorta(opts.hasta)}_`);
   if (opts.tasaBcv && opts.tasaBcv > 0) {
@@ -81,6 +127,30 @@ export function textoWhatsappCompras(resumen: ResumenReporteCompras, opts: Opcio
   if (resumen.comprasDirectasPorCategoriaGasto.length) {
     L.push('');
     L.push(`🧾 *Compras directas (por categoría de gasto):* ${dinero(resumen.totalDirectasUsd, resumen.totalDirectasBs)}`);
+  }
+
+  const incluirCred = opts.incluirCreditos !== false;
+  const creditos = resumen.cuentasCredito ?? [];
+  if (incluirCred && creditos.length > 0) {
+    L.push('');
+    L.push(`💳 *Cuentas a crédito Compras · OC y OS (${resumen.creditosCount}):* ${dinero(resumen.creditosSaldoUsd, resumen.creditosSaldoBs)}`);
+    L.push(`   _OC: ${resumen.creditosOcCount} · OS: ${resumen.creditosOsCount} · Abonado: ${dinero(resumen.creditosAbonadoUsd, resumen.creditosAbonadoBs)} de ${dinero(resumen.creditosTotalUsd, resumen.creditosTotalBs)}_`);
+    const visibles = creditos.slice(0, MAX_CREDITOS_WSP);
+    visibles.forEach((c, idx) => {
+      const em = c.tipo === 'OS' ? '🔧' : '📦';
+      const prov = unaLinea(c.proveedor) && unaLinea(c.proveedor) !== '—' ? ` · ${unaLinea(c.proveedor)}` : '';
+      const tieneAbono = (c.abonado_usd || 0) > 0.009 || (c.abonado_bs || 0) > 0.009;
+      const abonoTxt = tieneAbono
+        ? ` _(abonado ${dinero(c.abonado_usd, c.abonado_bs)} de ${dinero(c.total_usd, c.total_bs)})_`
+        : '';
+      L.push(`${idx + 1}. ${em} *[${c.tipo}] ${unaLinea(c.codigo) || '—'}*${prov} — *Saldo:* ${dinero(c.saldo_usd, c.saldo_bs)}${abonoTxt}`);
+    });
+    if (creditos.length > visibles.length) {
+      L.push(`   _… y ${creditos.length - visibles.length} cuenta(s) más en el PDF_`);
+    }
+  } else if (incluirCred && opts.mostrarCeroCreditos) {
+    L.push('');
+    L.push(`💳 *Cuentas a crédito Compras · OC y OS:* 0 pendientes ✅`);
   }
 
   return L.join('\n');

@@ -29,6 +29,9 @@ export interface ItemResumenPorPagar {
   motivo: MotivoPagoLote;
   /** Lo escrito cuando el motivo es «otro». */
   motivoOtro?: string | null;
+  /** Cuenta a crédito originada en Compras (OC u OS): se expresa por su saldo pendiente. */
+  esCredito?: boolean;
+  tipoCredito?: 'OC' | 'OS';
 }
 
 function num(n: number): string {
@@ -93,18 +96,47 @@ export function textoCreditosAlDia(ahora: Date): string {
  */
 export function textoResumenPorPagar(items: ItemResumenPorPagar[], ahora: Date, opts?: { creditos?: boolean }): string {
   const cred = !!opts?.creditos;
+  const itemsCredMix = !cred ? items.filter((it) => it.esCredito) : [];
   const L: string[] = [];
   L.push(cred ? '🧾 *RESUMEN · CUENTAS A CRÉDITO POR PAGAR*' : '🧾 *RESUMEN · ÓRDENES POR PAGAR*');
   L.push(`📅 *Generado:* ${fechaHoraResumen(ahora)}`);
   L.push('');
-  items.forEach((it, i) => {
-    L.push(`${i + 1}. 🔹 *${unaLinea(it.codigo) || '—'}* · ${unaLinea(it.proveedor) || '—'}`);
-    L.push(`    💵 *${cred ? 'Saldo' : 'A pagar'}:* ${usd(it.montoUsd)} · ${estadoItemResumen(it)}`);
-  });
+
+  if (itemsCredMix.length > 0) {
+    const inmediatas = items.filter((it) => !it.esCredito);
+    if (inmediatas.length > 0) {
+      inmediatas.forEach((it, i) => {
+        L.push(`${i + 1}. 🔹 *${unaLinea(it.codigo) || '—'}* · ${unaLinea(it.proveedor) || '—'}`);
+        L.push(`    💵 *A pagar:* ${usd(it.montoUsd)} · ${estadoItemResumen(it)}`);
+      });
+      L.push('');
+    }
+    const nOc = itemsCredMix.filter((it) => it.tipoCredito !== 'OS').length;
+    const nOs = itemsCredMix.filter((it) => it.tipoCredito === 'OS').length;
+    L.push(`💳 *CUENTAS A CRÉDITO COMPRAS · OC Y OS (${itemsCredMix.length} · OC: ${nOc}, OS: ${nOs})*`);
+    itemsCredMix.forEach((it, i) => {
+      const tag = `[${it.tipoCredito === 'OS' ? 'OS' : 'OC'}] `;
+      L.push(`${i + 1}. 💳 *${tag}${unaLinea(it.codigo) || '—'}* · ${unaLinea(it.proveedor) || '—'}`);
+      L.push(`    💵 *Saldo:* ${usd(it.montoUsd)} · ${estadoItemResumen(it)}`);
+    });
+    const subInm = inmediatas.reduce((a, it) => a + (Number(it.montoUsd) || 0), 0);
+    const subCred = itemsCredMix.reduce((a, it) => a + (Number(it.montoUsd) || 0), 0);
+    L.push('');
+    if (inmediatas.length > 0) {
+      L.push(`🧾 *Subtotal por pagar (${inmediatas.length}):* *${usd(subInm)}*`);
+    }
+    L.push(`💳 *Subtotal cuentas a crédito (${itemsCredMix.length}):* *${usd(subCred)}*`);
+  } else {
+    items.forEach((it, i) => {
+      L.push(`${i + 1}. 🔹 *${unaLinea(it.codigo) || '—'}* · ${unaLinea(it.proveedor) || '—'}`);
+      L.push(`    💵 *${cred ? 'Saldo' : 'A pagar'}:* ${usd(it.montoUsd)} · ${estadoItemResumen(it)}`);
+    });
+    L.push('');
+  }
+
   const total = items.reduce((a, it) => a + (Number(it.montoUsd) || 0), 0);
   const sePagan = items.filter((it) => it.motivo === 'si');
   const totalSi = sePagan.reduce((a, it) => a + (Number(it.montoUsd) || 0), 0);
-  L.push('');
   const unidad = cred ? (items.length === 1 ? 'cuenta' : 'cuentas') : (items.length === 1 ? 'orden' : 'órdenes');
   L.push(`💰 *Total (${items.length} ${unidad}):* *${usd(total)}*`);
   // Si no todas se pagan, cuánto sí sale hoy.

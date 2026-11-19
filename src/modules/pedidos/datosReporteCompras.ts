@@ -22,11 +22,14 @@ import {
   normalizarDirectas,
   normalizarServicios,
   normalizarItemsOrdenes,
+  normalizarCreditosCompras,
   normalizarDepartamento,
   clasificarEstadoOrden,
   SIN_DEPARTAMENTO,
   type ContextoCompras,
   type CotizacionCompras,
+  type CuentaCreditoCompras,
+  type CxPAbiertaResumen,
   type FilaReporteCompras,
 } from './comprasMoldeable';
 
@@ -34,6 +37,8 @@ export interface DatosReporteCompras {
   filasOrdenes: FilaReporteCompras[];
   filasItems: FilaReporteCompras[];
   cotizaciones: CotizacionCompras[];
+  /** Cuentas a crédito abiertas originadas en Compras (OC y OS). */
+  creditosCompras: CuentaCreditoCompras[];
   tasaBcv: number;
   /** Opciones para los filtros del modal. */
   departamentos: string[];
@@ -74,7 +79,7 @@ export async function cargarDatosReporteCompras(desde: string, hasta: string): P
   // Compras directas: SELECT crudo (solo lectura). No se usa `listComprasDirectas()` porque
   // ese dispara `reconciliarComprasDirectasHuerfanas()`, que ESCRIBE en `compras_directas`
   // (auto-reparo de pagos huérfanos). El reporte debe ser solo lectura (spec §3).
-  const [ordenesAll, directasRes, serviciosAll, proveedoresAll, tasaHoy, catRes] = await Promise.all([
+  const [ordenesAll, directasRes, serviciosAll, proveedoresAll, tasaHoy, catRes, cxpRes] = await Promise.all([
     listOrdenes().catch((err) => {
       console.error('Error cargando órdenes para reporte:', err);
       return [];
@@ -87,11 +92,15 @@ export async function cargarDatosReporteCompras(desde: string, hasta: string): P
     listProveedores().catch(() => []),
     getTasaHoy().catch(() => ({ usd: 0 } as { usd: number })),
     supabase.from('productos').select('sku, categoria'),
+    supabase.from('cuentas_por_pagar').select('id, monto, abonado, moneda, estado').eq('estado', 'abierta'),
   ]);
   if (directasRes.error) {
     console.error('Error cargando compras_directas para reporte:', directasRes.error);
   }
   const directasAll = (directasRes.data ?? []) as unknown as CompraDirecta[];
+  const cxpAbiertasPorId = new Map<string, CxPAbiertaResumen>(
+    ((cxpRes.data ?? []) as CxPAbiertaResumen[]).map((c) => [c.id, c]),
+  );
 
   const tasaBcv = Number((tasaHoy as { usd?: number })?.usd) || 0;
 
@@ -116,6 +125,8 @@ export async function cargarDatosReporteCompras(desde: string, hasta: string): P
     ...normalizarServicios(servicios, ctx),
   ];
   const filasItems = normalizarItemsOrdenes(ordenes, ctx);
+  // Cuentas a crédito abiertas originadas en Compras: únicamente OC y OS vigentes con saldo pendiente.
+  const creditosCompras = normalizarCreditosCompras(ordenesAll, ctx, cxpAbiertasPorId);
 
   // Cotizaciones por departamento: ofertas de las órdenes del rango que cuentan
   // (no excluidas). Cada oferta se atribuye al departamento de su orden.
@@ -135,9 +146,10 @@ export async function cargarDatosReporteCompras(desde: string, hasta: string): P
     filasOrdenes,
     filasItems,
     cotizaciones,
+    creditosCompras,
     tasaBcv,
-    departamentos: unicos(filasOrdenes.map((f) => f.departamento)),
+    departamentos: unicos([...filasOrdenes.map((f) => f.departamento), ...creditosCompras.map((c) => c.departamento)]),
     categorias: unicos(filasItems.map((f) => f.categoria)),
-    proveedores: unicos(filasOrdenes.map((f) => f.proveedor).filter((p) => p !== '—')),
+    proveedores: unicos([...filasOrdenes.map((f) => f.proveedor), ...creditosCompras.map((c) => c.proveedor)].filter((p) => p !== '—')),
   };
 }

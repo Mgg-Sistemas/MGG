@@ -48,6 +48,10 @@ export interface FilaPendiente {
   pagos: LineaPago[];
   usd: number;
   bs: number;
+  /** En cuentas a crédito de Compras: distingue Orden de Compra (OC) vs Orden de Servicio (OS). */
+  tipoCredito?: 'OC' | 'OS';
+  totalOriginalUsd?: number;
+  abonadoUsd?: number;
 }
 
 export type ClaveSegmento = 'compras_directas' | 'oc' | 'servicios' | 'servicios_directos' | 'credito';
@@ -477,10 +481,16 @@ export function armarPendientesPorPagar(e: EntradaPendientes): DatosPendientesPo
   const datosProv = e.datosProv ?? {};
   const creditos = e.creditos ?? [];
 
+  const esServicio = (r: OrdenPorPagar) => {
+    if (r.orden.tipo === 'servicio' || r.orden.clase === 'servicio') return true;
+    const cod = String(r.orden.oc_codigo || r.orden.codigo || '').trim().toUpperCase();
+    return cod.startsWith('CS-') || cod.startsWith('OS-') || cod.startsWith('SV-');
+  };
+
   const filaOc = (r: OrdenPorPagar): FilaPendiente => {
     const usd = Number(r.montoAPagar || 0);
     return {
-      codigo: r.orden.oc_codigo || '—',
+      codigo: r.orden.oc_codigo || r.orden.codigo || '—',
       proveedor: r.proveedorNombre || '—',
       estado: r.esperandoMetodo ? 'Esperando método' : 'Lista para pagar',
       listaParaPagar: !r.esperandoMetodo,
@@ -518,19 +528,25 @@ export function armarPendientesPorPagar(e: EntradaPendientes): DatosPendientesPo
     };
   };
   const filaCredito = (r: OrdenPorPagar): FilaPendiente => {
-    const usd = Number(r.orden.total || 0);
+    const total = Number(r.orden.total || 0);
+    const abonado = Math.max(0, Number(r.orden.abonado_total) || 0);
+    const saldo = Math.max(0, redondear2(total - abonado));
+    const moneda = r.orden.total_moneda || r.orden.moneda || 'USD';
+    const { usd, bs } = normMonto(saldo, moneda, tasa);
     return {
-      codigo: r.orden.oc_codigo || '—',
+      codigo: r.orden.oc_codigo || r.orden.codigo || '—',
       proveedor: r.proveedorNombre || '—',
       estado: 'Crédito · se salda por abonos',
       listaParaPagar: false,
       pagos: lineasDePago(r.orden.metodo_pago, r.orden.proveedor_id, datosProv),
       usd,
-      bs: tasa > 0 ? redondear2(usd * tasa) : 0,
+      bs,
+      tipoCredito: esServicio(r) ? 'OS' : 'OC',
+      totalOriginalUsd: normMonto(total, moneda, tasa).usd,
+      abonadoUsd: normMonto(abonado, moneda, tasa).usd,
     };
   };
 
-  const esServicio = (r: OrdenPorPagar) => r.orden.tipo === 'servicio' || r.orden.clase === 'servicio';
   const ocRows = e.rows.filter((r) => !esServicio(r));
   const csRows = e.rows.filter((r) => esServicio(r));
   const comprasPP = (e.comprasDir ?? []).filter((c) => (c.estado === 'por_pagar' || (c.estado as string) === 'abierta') && !c.caja_mov_id && !c.credito_cxp_id);
@@ -556,9 +572,10 @@ export function armarPendientesPorPagar(e: EntradaPendientes): DatosPendientesPo
   };
 }
 
-/** Lee las OC por pagar (solo las que ya tienen método de pago cargado) y a crédito para armar el reporte de Tesorería. */
+/** Lee las OC por pagar (solo las que ya tienen método de pago cargado) y a crédito (con saldo pendiente) para armar el reporte de Tesorería. */
 export async function cargarPendientesPorPagar(opts?: { soloConMetodo?: boolean }): Promise<DatosPendientesPorPagar> {
-  const [rows, creditos] = await Promise.all([listOrdenesPorPagar({ soloConMetodo: opts?.soloConMetodo ?? true }), listOrdenesEnCredito()]);
+  const [rows, creditosRaw] = await Promise.all([listOrdenesPorPagar({ soloConMetodo: opts?.soloConMetodo ?? true }), listOrdenesEnCredito()]);
+  const creditos = creditosRaw.filter((r) => (Number(r.orden.total) || 0) - (Number(r.orden.abonado_total) || 0) > 0.01);
   return cargarConLecturas(rows, creditos);
 }
 

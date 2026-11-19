@@ -21,11 +21,10 @@ import { mensajeError } from '@/shared/lib/errores';
 import type { MovimientoCaja } from '@/shared/lib/types';
 import { listLibroMayor } from './tesoreria.repository';
 import { cargarConLecturas, cargarPendientesPorPagar, generarBloquesPreparacion, lineasDePago, type DatosPendientesPorPagar } from './pendientesPorPagar';
-import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
+import { listOrdenesEnCredito, type OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
+import { listDatosPagoDeProveedores, type DatosPago } from '@/modules/pedidos/datosPago.repository';
 import { supabase } from '@/shared/lib/supabase';
 import type { PagoMetodo } from '@/shared/lib/types';
-import { listCuentasPorPagar, type CuentaPorPagar } from './cuentasPorPagar.repository';
-import { listCuentasPorCobrar, type CuentaPorCobrar } from './cuentasPorCobrar.repository';
 import { getTasaHoy, getTasasUsdDeFechas } from './tasas.repository';
 import {
   CAMPOS_REPORTE_TESORERIA,
@@ -69,7 +68,7 @@ const CLAVE_PREPARAR = 'tesoreria.reporte.preparar.v1';
 const AMBITOS: { id: AmbitoTesoreria; icon: string; label: string }[] = [
   { id: 'movimientos', icon: '📒', label: 'Movimientos de caja' },
   { id: 'por_pagar', icon: '📄', label: 'Pendientes por pagar' },
-  { id: 'creditos_cartera', icon: '🤝', label: 'Cuentas a crédito' },
+  { id: 'creditos_cartera', icon: '🤝', label: 'Cuentas a crédito (OC / OS)' },
 ];
 
 const MODOS: { id: ModoAgrupacionTesoreria; icon: string; label: string }[] = [
@@ -158,8 +157,8 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
   const [movs, setMovs] = useState<MovimientoCaja[]>([]);
   const [pagoPorOrden, setPagoPorOrden] = useState<Map<string, string>>(new Map());
   const [datosPP, setDatosPP] = useState<DatosPendientesPorPagar | null>(null);
-  const [cxp, setCxp] = useState<CuentaPorPagar[]>([]);
-  const [cxc, setCxc] = useState<CuentaPorCobrar[]>([]);
+  const [creditosCompras, setCreditosCompras] = useState<OrdenPorPagar[]>([]);
+  const [datosProvCred, setDatosProvCred] = useState<Record<string, Record<string, DatosPago>>>({});
   const [ctx, setCtx] = useState<ContextoTasas>({ tasaBcvHoy: 0, tasaFecha: null });
 
   // Carga por ámbito + tasas
@@ -199,8 +198,39 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
             : await cargarPendientesPorPagar();
           if (!cancelado) { setDatosPP(datos); setCtx({ tasaBcvHoy: Number(datos.tasa) || tasaBcvHoy, tasaFecha: datos.tasaFecha ?? tasaFecha }); }
         } else {
-          const [p, c] = await Promise.all([listCuentasPorPagar(true), listCuentasPorCobrar(true)]);
-          if (!cancelado) { setCxp(p); setCxc(c); setCtx({ tasaBcvHoy, tasaFecha }); }
+          // Cuentas a crédito: exclusivamente las OC y OS con cuenta a crédito desde Compras.
+          const [credOcOs, ordCxpRes, cxpAbRes, provsRes] = await Promise.all([
+            listOrdenesEnCredito().catch(() => [] as OrdenPorPagar[]),
+            supabase.from('ordenes').select('*').not('credito_cxp_id', 'is', null),
+            supabase.from('cuentas_por_pagar').select('id, monto, abonado, estado').eq('estado', 'abierta'),
+            supabase.from('proveedores').select('id, razon_social'),
+          ]);
+          const abiertas = credOcOs.filter((r) => (Number(r.orden.total) || 0) - (Number(r.orden.abonado_total) || 0) > 0.01);
+          const yaIds = new Set(abiertas.map((r) => r.orden.id));
+          const cxpMap = new Map(((cxpAbRes.data ?? []) as Array<{ id: string; monto: number; abonado: number }>).map((c) => [c.id, c]));
+          const provMap = new Map(((provsRes.data ?? []) as Array<{ id: string; razon_social: string }>).map((p) => [p.id, p.razon_social]));
+          for (const o of (ordCxpRes.data ?? []) as Array<OrdenPorPagar['orden']>) {
+            if (yaIds.has(o.id) || o.estado === 'cancelada' || o.estado === 'rechazada' || o.estado === 'anulada') continue;
+            const cta = o.credito_cxp_id ? cxpMap.get(o.credito_cxp_id) : undefined;
+            if (!cta) continue;
+            const saldoCxp = Math.max(0, (Number(cta.monto) || 0) - (Number(cta.abonado) || 0));
+            if (saldoCxp <= 0.01) continue;
+            const totalOrd = Math.max(saldoCxp, Number(o.total) || Number(cta.monto) || 0);
+            abiertas.push({
+              orden: { ...o, total: totalOrd, abonado_total: Math.max(0, totalOrd - saldoCxp), credito_cxp_id: null },
+              proveedorNombre: (o.proveedor_id && provMap.get(o.proveedor_id)) || '—',
+              esContraEntrega: o.condiciones_pago === 'contra_entrega',
+              montoAPagar: saldoCxp,
+              esperandoMetodo: false,
+            });
+          }
+          const datosProv = await listDatosPagoDeProveedores(abiertas.map((r) => r.orden.proveedor_id))
+            .catch(() => ({} as Record<string, Record<string, DatosPago>>));
+          if (!cancelado) {
+            setCreditosCompras(abiertas);
+            setDatosProvCred(datosProv);
+            setCtx({ tasaBcvHoy, tasaFecha });
+          }
         }
       } catch (e) {
         if (!cancelado) toast(mensajeError(e, 'No se pudieron cargar los datos de Tesorería'), 'error');
@@ -216,11 +246,13 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
   const filasDetalle = useMemo<FilaReporteTesoreria[]>(() => {
     if (ambito === 'movimientos') return normalizarMovimientosTesoreria(movs, ctx, baseTasa, pagoPorOrden);
     if (ambito === 'por_pagar') return datosPP ? normalizarPendientesPorPagar(datosPP) : [];
-    return normalizarCreditosCartera(cxp, cxc, ctx, baseTasa);
-  }, [ambito, movs, pagoPorOrden, datosPP, cxp, cxc, ctx, baseTasa]);
+    return normalizarCreditosCartera([], [], ctx, baseTasa, creditosCompras, datosProvCred);
+  }, [ambito, movs, pagoPorOrden, datosPP, creditosCompras, datosProvCred, ctx, baseTasa]);
 
-  // 07-11-2026: por pagar SIN nada pendiente (sin filtros) → «Tesorería al día» en WhatsApp y PDF.
-  const alDia = ambito === 'por_pagar' && !cargando && !!datosPP && filasDetalle.length === 0;
+  // Sin nada pendiente (sin filtros) en por_pagar o creditos_cartera → «Tesorería al día» en WhatsApp y PDF.
+  const alDia = !cargando && filasDetalle.length === 0 && (
+    (ambito === 'por_pagar' && !!datosPP) || ambito === 'creditos_cartera'
+  );
 
   // Catálogos presentes (para los filtros)
   const catalogos = useMemo(() => {
@@ -308,6 +340,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
       incluirResumen, orientacion, formatoPresentacion, ordenarPor,
       kpisSimplificados,
       preparacion: ambito === 'por_pagar' && incluirPreparar ? datosPP?.preparacion : undefined,
+      creditosComprasDetalle: filtradas.filter((f) => f.es_credito_compras),
       alDia,
     };
     try {

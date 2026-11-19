@@ -19,7 +19,9 @@
    ============================================================ */
 
 import type { MovimientoCaja } from '@/shared/lib/types';
-import type { DatosPendientesPorPagar, ClaveSegmento } from './pendientesPorPagar';
+import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
+import type { DatosPago } from '@/modules/pedidos/datosPago.repository';
+import { lineasDePago, type DatosPendientesPorPagar, type ClaveSegmento } from './pendientesPorPagar';
 import type { CuentaPorPagar } from './cuentasPorPagar.repository';
 import type { CuentaPorCobrar } from './cuentasPorCobrar.repository';
 
@@ -91,6 +93,12 @@ export interface FilaReporteTesoreria {
   // Métricas de grupo (cuando la fila representa un grupo agrupado)
   total_operaciones?: number;
   pct_del_total?: number;        // % respecto al total del período (por |USD|)
+
+  // Metadatos de cuentas a crédito originadas en Compras (OC y OS)
+  es_credito_compras?: boolean;
+  tipo_credito_compras?: 'OC' | 'OS';
+  abonado_usd?: number;
+  total_credito_usd?: number;
 }
 
 /* ───────────── Resumen / KPIs ───────────── */
@@ -421,10 +429,13 @@ const ORIGEN_POR_SEGMENTO: Record<ClaveSegmento, string> = {
 
 /**
  * Aplana el reporte de «pendientes por pagar» (ya armado, con montos en $ y Bs
- * a la tasa BCV del día) a filas del reporte. Solo los segmentos por pagar; las
- * cuentas a crédito van en el ámbito `creditos_cartera`.
+ * a la tasa BCV del día) a filas del reporte, incluyendo las cuentas a crédito
+ * originadas en Compras (OC y OS, por su saldo pendiente).
  */
-export function normalizarPendientesPorPagar(datos: DatosPendientesPorPagar): FilaReporteTesoreria[] {
+export function normalizarPendientesPorPagar(
+  datos: DatosPendientesPorPagar,
+  opts?: { incluirCreditos?: boolean },
+): FilaReporteTesoreria[] {
   const fecha = diaDe(datos.generadoEn);
   const R = Number(datos.tasa) || 0;
   const filas: FilaReporteTesoreria[] = [];
@@ -460,22 +471,122 @@ export function normalizarPendientesPorPagar(datos: DatosPendientesPorPagar): Fi
       });
     }
   }
+
+  if (opts?.incluirCreditos !== false && datos.credito?.filas?.length) {
+    for (let i = 0; i < datos.credito.filas.length; i++) {
+      const f = datos.credito.filas[i];
+      const codUp = String(f.codigo || '').trim().toUpperCase();
+      const esOs = f.tipoCredito === 'OS'
+        || codUp.startsWith('CS-')
+        || codUp.startsWith('OS-')
+        || codUp.startsWith('SV-')
+        || codUp.startsWith('SD-');
+      const tipoCred: 'OC' | 'OS' = esOs ? 'OS' : 'OC';
+      const categoria = esOs ? 'Cuenta a crédito (OS)' : 'Cuenta a crédito (OC)';
+      const origen = esOs ? 'Orden de servicio (crédito)' : 'Orden de compra (crédito)';
+      const textoPago = f.pagos.map((l) => l.texto).filter(Boolean).join(' · ') || null;
+      filas.push({
+        id: `pp-credito-${f.codigo || i}`,
+        ambito: 'por_pagar',
+        fecha,
+        hora: null,
+        codigo: f.codigo,
+        caja_origen: null,
+        caja_destino: null,
+        moneda_original: 'USD',
+        monto_original: round2(f.usd),
+        tipo_movimiento: 'egreso',
+        categoria,
+        subcategoria: null,
+        contraparte: f.proveedor,
+        concepto: datos.credito.titulo,
+        origen_documento: origen,
+        estado: f.estado,
+        metodo_pago: textoPago,
+        datos_pago_resumen: textoPago,
+        tasa_bcv_aplicada: R,
+        monto_usd: round2(f.usd),
+        monto_bs: round2(f.bs),
+        saldo_caja_momento: null,
+        es_credito_compras: true,
+        tipo_credito_compras: tipoCred,
+        abonado_usd: f.abonadoUsd != null ? round2(f.abonadoUsd) : 0,
+        total_credito_usd: f.totalOriginalUsd != null ? round2(f.totalOriginalUsd) : round2(f.usd),
+      });
+    }
+  }
+
   return filas;
 }
 
 /* ───────────── Normalizador: cuentas a crédito (cartera) ───────────── */
 
 /**
- * Normaliza las cuentas a crédito abiertas: CxP (lo que debemos, egreso) y CxC
- * (lo que nos deben, ingreso). El saldo pendiente es monto − abonado/cobrado.
+ * Normaliza las cuentas a crédito abiertas: CxP manuales, cuentas a crédito desde
+ * Compras (OC y OS en `cuenta_abierta`) y CxC (lo que nos deben, ingreso).
+ * El saldo pendiente es monto − abonado/cobrado.
  */
 export function normalizarCreditosCartera(
   cxp: CuentaPorPagar[],
   cxc: CuentaPorCobrar[],
   ctx: ContextoTasas,
   base: BaseTasaTesoreria = 'bcv_dia',
+  creditosCompras: OrdenPorPagar[] = [],
+  datosProv: Record<string, Record<string, DatosPago>> = {},
 ): FilaReporteTesoreria[] {
   const filas: FilaReporteTesoreria[] = [];
+  const cxpIds = new Set(cxp.map((c) => c.id));
+
+  for (const r of creditosCompras) {
+    if (r.orden.credito_cxp_id && cxpIds.has(r.orden.credito_cxp_id)) continue;
+    const total = Math.max(0, Number(r.orden.total) || 0);
+    const abonado = Math.max(0, Number(r.orden.abonado_total) || 0);
+    const saldo = round2(total - abonado);
+    if (saldo <= 0.01) continue;
+    const moneda = r.orden.total_moneda || r.orden.moneda || 'USD';
+    const fecha = diaDe(r.orden.oc_aprobada_en || r.orden.created_at);
+    const R = tasaDeFecha(ctx, fecha, base);
+    const conv = convertirMonto(saldo, moneda, R);
+    const convTot = convertirMonto(total, moneda, R);
+    const convAbo = convertirMonto(abonado, moneda, R);
+    const cod = (r.orden.oc_codigo || r.orden.codigo || '').trim() || null;
+    const codUp = (cod || '').toUpperCase();
+    const esOs = r.orden.clase === 'servicio'
+      || r.orden.tipo === 'servicio'
+      || codUp.startsWith('CS-')
+      || codUp.startsWith('OS-')
+      || codUp.startsWith('SV-');
+    const tipoCred: 'OC' | 'OS' = esOs ? 'OS' : 'OC';
+    const textoPago = lineasDePago(r.orden.metodo_pago, r.orden.proveedor_id, datosProv).map((l) => l.texto).filter(Boolean).join(' · ') || null;
+    filas.push({
+      id: `cxp-oc-${r.orden.id}`,
+      ambito: 'creditos_cartera',
+      fecha,
+      hora: null,
+      codigo: cod,
+      caja_origen: null,
+      caja_destino: null,
+      moneda_original: moneda,
+      monto_original: saldo,
+      tipo_movimiento: 'egreso',
+      categoria: esOs ? 'Cuenta a crédito (OS)' : 'Cuenta a crédito (OC)',
+      subcategoria: null,
+      contraparte: (r.proveedorNombre || '').trim() || '—',
+      concepto: (r.orden.notas || r.orden.motivo || r.orden.finalidad || '').trim() || (esOs ? 'Orden de servicio a crédito' : 'Orden de compra a crédito'),
+      origen_documento: esOs ? 'Orden de servicio (crédito)' : 'Orden de compra (crédito)',
+      estado: abonado > 0 ? 'A crédito · con abonos' : 'A crédito',
+      metodo_pago: textoPago,
+      datos_pago_resumen: textoPago,
+      tasa_bcv_aplicada: R,
+      monto_usd: conv.usd,
+      monto_bs: conv.bs,
+      saldo_caja_momento: null,
+      es_credito_compras: true,
+      tipo_credito_compras: tipoCred,
+      abonado_usd: convAbo.usd,
+      total_credito_usd: convTot.usd,
+    });
+  }
 
   for (const c of cxp) {
     if (c.estado !== 'abierta') continue;

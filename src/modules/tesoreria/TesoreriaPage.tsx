@@ -81,6 +81,8 @@ import {
   getProveedorConDatosPago, guardarDatosPagoProveedor,
 } from '@/modules/pedidos/pedidos.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
+import { BannerAlertasCredito } from '@/modules/pedidos/CamposCreditoForm';
+import { listarAlertasCreditoPorVencer } from '@/modules/pedidos/creditoVencimiento';
 import { listComprasDirectasCredito, getCompraDirectaByCajaMov, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { cargarDirectosPorPagar, FacturasDirecto, PagarDirectoModal, type DirectoFila } from '@/modules/pedidos/DirectosPorPagarModal';
 import { resumenDatosPago, DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
@@ -315,7 +317,15 @@ export function TesoreriaPage() {
   const [directos, setDirectos] = useState<DirectoFila[]>([]);
   const [creditosCount, setCreditosCount] = useState(0);
   const [cobrarCount, setCobrarCount] = useState(0);
+  const [creditosParaAlertas, setCreditosParaAlertas] = useState<OrdenPorPagar[]>([]);
   const [cxpList, setCxpList] = useState<CuentaPorPagar[]>([]);
+  const alertasCredito = useMemo(
+    () => listarAlertasCreditoPorVencer(
+      creditosParaAlertas.map((x) => x.orden),
+      new Map(creditosParaAlertas.map((x) => [x.orden.proveedor_id ?? '', x.proveedorNombre ?? 'Sin proveedor'])),
+    ),
+    [creditosParaAlertas],
+  );
   const [cxcList, setCxcList] = useState<CuentaPorCobrar[]>([]);
   // Dataset COMPLETO de movimientos activos para el Libro Mayor (independiente de
   // los filtros del Registro): así sus sumas Debe/Haber no se descuadran cuando el
@@ -363,7 +373,7 @@ export function TesoreriaPage() {
     const ppConMetodo = pp.filter(tieneMetodoPagoCargado);
     // El contador del botón suma créditos de OC + cuentas por pagar manuales (cliente/proveedor) abiertas.
     setDisp(d); setCajas(cs); setSaldos(sal); setLibro(mov); setLmMovs(lm); setPorPagarCount(ppConMetodo.length + dir.length); setCreditosCount(crPendientes.length + cxp.length); setTransfers(tr); setNominaCount(nc); setCobrarCount(cxc.length); setRetencionListas(ret);
-    setCxpList(cxp); setCxcList(cxc); setDirectos(dir);
+    setCxpList(cxp); setCxcList(cxc); setDirectos(dir); setCreditosParaAlertas(crPendientes);
   }, [fMoneda, fTipo, fDesde, fHasta]);
 
   // Realtime: multiusuario · lo que registra otro usuario (o el otro sistema) se refleja acá.
@@ -453,6 +463,9 @@ export function TesoreriaPage() {
 
       {vista === 'tesoreria' && (
       <>
+          {/* Alertas de vencimiento de créditos de Compras (19-11-2026). */}
+          <BannerAlertasCredito alertas={alertasCredito} contexto="tesoreria" onAccion={() => setModal('creditos')} />
+
           {/* Disponibilidad financiera */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1rem' }}>
             <DispCard titulo="Disponible en USD" valor={monto(disp?.usd ?? 0, 'USD')} />
@@ -4642,6 +4655,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, movil
   movil?: boolean; puedePagar?: boolean;
 }) {
   const [rows, setRows] = useState<OrdenPorPagar[]>([]);
+  const [creditos, setCreditos] = useState<OrdenPorPagar[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<OrdenPorPagar | null>(null);
   // Directo (compra/servicio directo POR PAGAR) seleccionado para pagar.
@@ -4655,8 +4669,12 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, movil
   const reload = useCallback(async () => {
     setLoading(true);
     try {
-      const all = await listOrdenesPorPagar({ soloConMetodo: true });
+      const [all, creds] = await Promise.all([
+        listOrdenesPorPagar({ soloConMetodo: true }),
+        listOrdenesEnCredito().catch(() => [] as OrdenPorPagar[]),
+      ]);
       setRows(all.filter(tieneMetodoPagoCargado));
+      setCreditos(creds.filter((x) => (Number(x.orden.total) || 0) - (Number(x.orden.abonado_total) || 0) > 0.01));
     }
     catch (e) { toast(e instanceof Error ? e.message : 'No se pudo cargar', 'error'); }
     finally { setLoading(false); }
@@ -4699,7 +4717,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, movil
 
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.6rem' }}>
         <BotonReporteTesoreria ambito="por_pagar" ordenesSeleccionadas={seleccionadas}
-          ordenesDisponibles={movil ? rows : undefined} disabled={movil && loading}
+          disabled={movil && loading}
           label={seleccionadas.length ? `📄 Reporte (${seleccionadas.length})` : '📄 Reporte'} />
         <button className="btn btn-sm btn-ghost" disabled={loading} onClick={() => setResumenWa(true)}
           title="Resumen por WhatsApp: se eligen todas o una a una, con el motivo de pago de cada una, el total y la fecha">💬 Resumen WhatsApp</button>
@@ -4829,7 +4847,7 @@ function OrdenesPorPagarModal({ cajas, actor, actorName, userId, directos, movil
         />
       )}
 
-      {resumenWa && <ResumenPorPagarModal rows={rows} directos={directos} onClose={() => setResumenWa(false)} />}
+      {resumenWa && <ResumenPorPagarModal rows={rows} directos={directos} creditosCompras={creditos} onClose={() => setResumenWa(false)} />}
 
       {pagarDir && (
         <PagarDirectoModal
