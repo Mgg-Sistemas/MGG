@@ -131,14 +131,15 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   /* ── 1. Datos personales ── */
   seccion(1, 'Datos personales');
   for (const [a, b] of DATOS_PERSONALES) parDeCampos(a, b);
-  // La dirección va sola: en dos columnas no entra una dirección de verdad.
-  asegurar(46);
+  // La dirección desglosada pide calle/avenida, casa/edificio, piso, N°/apto, referencia, parroquia, zona postal y condición de vivienda.
+  asegurar(52);
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
-  doc.text(textoPdf('Dirección de habitación'), M, y);
+  doc.text(textoPdf('Dirección de habitación: Calle / Avenida · Casa / Edificio · Piso / Nivel · N° Casa / Apto / Local'), M, y);
   doc.setDrawColor(190, 190, 190); doc.setLineWidth(0.5);
-  doc.line(M, y + 15, W - M, y + 15);
-  doc.line(M, y + 32, W - M, y + 32);
-  y += 46;
+  doc.line(M, y + 14, W - M, y + 14);
+  doc.text(textoPdf('Referencia · Parroquia / Municipio / Estado · Zona postal · Vivienda (Propia/Alquilada/Familiar) · Años residencia'), M, y + 25);
+  doc.line(M, y + 39, W - M, y + 39);
+  y += 52;
 
   /* ── 2. Grado de instrucción ──
      Casillas y no una raya: se marca TODO lo que la persona cursó, en los

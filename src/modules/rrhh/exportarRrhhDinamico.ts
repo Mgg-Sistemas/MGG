@@ -29,9 +29,10 @@ import {
 } from './reporteRrhhDinamico';
 import { GRADOS_INSTRUCCION, PARENTESCOS } from './fichaPersonal';
 import {
-  formatearCampoAnchoFijo,
+  construirResumenTxtHoja1,
   type CamposCargaMasivaFila,
   type ParametrosCargaMasivaNomina,
+  type ResumenTxtHoja1,
 } from './cargaMasivaNomina';
 
 const COLOR_NARANJA_RGB: [number, number, number] = [255, 138, 0];
@@ -181,10 +182,23 @@ export function generarNombreArchivoRrhh(ambito: AmbitoRrhh, ext: 'xlsx' | 'pdf'
 
 /* ───────────── Constructores Puros de Contenido (Excel / CSV / TXT) ───────────── */
 
+function resolverResumenHoja1DeFila(f: FilaReporteRrhh, idxFallback: number): ResumenTxtHoja1 {
+  if (f.resumenTxtHoja1) return f.resumenTxtHoja1;
+  return construirResumenTxtHoja1({
+    codigoBanco: f.cargaMasiva?.cm_01_banco,
+    correlativo: Number(f.cargaMasiva?.cm_02_correlativo) || idxFallback + 1,
+    tipoDoc: f.cargaMasiva?.cm_03_tipo_doc ?? 'V',
+    cedula15: f.cargaMasiva?.cm_04_cedula ?? f.cedula ?? '',
+    cuenta20: '',
+    monto15: f.cargaMasiva?.cm_39_sueldo_basico ?? '',
+  });
+}
+
 export function construirDatosExcelCargaMasiva(op: OpcionesExportacionRrhh): {
   cabecerasModelo: string[];
   filasModelo: string[][];
   anchosModelo: number[];
+  filasHoja1: string[][];
   cabecerasControl: string[];
   filasControl: (string | number)[][];
 } {
@@ -193,12 +207,18 @@ export function construirDatosExcelCargaMasiva(op: OpcionesExportacionRrhh): {
   const filasModelo = op.filas.map((f) => columnas.map((c) => textoCeldaRrhh(f, c.clave)));
   const anchosModelo = columnas.map((c) => c.anchoExcel);
 
+  const filasHoja1: string[][] = op.filas.map((f, idx) => {
+    const r = resolverResumenHoja1DeFila(f, idx);
+    return [r.refBanco10, r.cedula10, r.cuenta20, r.monto15];
+  });
+
   const cabecerasControl = [
     'Correlativo',
     'Ficha',
     'Colaborador',
     'Tipo Doc.',
     'Cédula (15 díg.)',
+    'Cuenta Nómina (20 díg.)',
     'Cargo',
     'Cód. Cargo',
     'Cód. Profesión',
@@ -210,24 +230,28 @@ export function construirDatosExcelCargaMasiva(op: OpcionesExportacionRrhh): {
     'Sueldo 15 Dígitos',
   ];
 
-  const filasControl: (string | number)[][] = op.filas.map((f) => [
-    f.cargaMasiva?.cm_02_correlativo ?? '',
-    f.ficha ?? '—',
-    f.nombreCompleto,
-    f.cargaMasiva?.cm_03_tipo_doc ?? 'V',
-    f.cargaMasiva?.cm_04_cedula ?? '',
-    f.cargo,
-    f.cargaMasiva?.cm_41_tipo_cargo ?? '',
-    f.cargaMasiva?.cm_33_profesion ?? '',
-    f.cargaMasiva?.cm_32_nivel_educacion ?? '',
-    f.cargaMasiva?.cm_42_oficina_principal ?? '',
-    f.cargaMasiva?.cm_38_tipo_cuenta ?? '',
-    f.sueldoBase,
-    f.sueldoBsCargaMasiva ?? 0,
-    f.cargaMasiva?.cm_39_sueldo_basico ?? '',
-  ]);
+  const filasControl: (string | number)[][] = op.filas.map((f, idx) => {
+    const r = resolverResumenHoja1DeFila(f, idx);
+    return [
+      f.cargaMasiva?.cm_02_correlativo ?? '',
+      f.ficha ?? '—',
+      f.nombreCompleto,
+      f.cargaMasiva?.cm_03_tipo_doc ?? 'V',
+      f.cargaMasiva?.cm_04_cedula ?? '',
+      r.cuenta20,
+      f.cargo,
+      f.cargaMasiva?.cm_41_tipo_cargo ?? '',
+      f.cargaMasiva?.cm_33_profesion ?? '',
+      f.cargaMasiva?.cm_32_nivel_educacion ?? '',
+      f.cargaMasiva?.cm_42_oficina_principal ?? '',
+      f.cargaMasiva?.cm_38_tipo_cuenta ?? '',
+      f.sueldoBase,
+      f.sueldoBsCargaMasiva ?? 0,
+      f.cargaMasiva?.cm_39_sueldo_basico ?? '',
+    ];
+  });
 
-  return { cabecerasModelo, filasModelo, anchosModelo, cabecerasControl, filasControl };
+  return { cabecerasModelo, filasModelo, anchosModelo, filasHoja1, cabecerasControl, filasControl };
 }
 
 /** Genera el contenido CSV (UTF-8 con BOM, separado por `;`). */
@@ -252,19 +276,16 @@ export function generarContenidoCsvRrhh(op: OpcionesExportacionRrhh): string {
 
 /**
  * Genera el contenido TXT:
- *  - En `carga_masiva_nomina`: formato plano bancario de ancho fijo sin comillas ni encabezados
- *    (idéntico a la macro `ExportText` del modelo oficial `1-FORMATO CARGA MASIVA-MONEDA NACIONAL`).
+ *  - En `carga_masiva_nomina`: formato resumen de la `Hoja1` del Excel bancario
+ *    (`Banco+Correlativo10 Cédula10 Cuenta20 MontoBs15`, ej. `0163000001 V002940602 01630221012211002934 000000000725000`).
  *  - En los demás ámbitos: texto tabulado con encabezados.
  */
 export function generarContenidoTxtRrhh(op: OpcionesExportacionRrhh): string {
-  const columnas = CAMPOS_REPORTE_RRHH.filter((c) => op.columnasClaves.includes(c.clave));
-
   if (op.ambito === 'carga_masiva_nomina') {
-    return op.filas
-      .map((f) => columnas.map((c) => formatearCampoAnchoFijo(textoCeldaRrhh(f, c.clave), c.anchoExcel)).join(''))
-      .join('\r\n');
+    return op.filas.map((f, idx) => resolverResumenHoja1DeFila(f, idx).lineaTxt).join('\r\n');
   }
 
+  const columnas = CAMPOS_REPORTE_RRHH.filter((c) => op.columnasClaves.includes(c.clave));
   const cabeceras = ['N°', ...columnas.map((c) => c.etiqueta)].join('\t');
   const filas = op.filas.map((f, i) =>
     [i + 1, ...columnas.map((c) => textoCeldaRrhh(f, c.clave))].join('\t'),
@@ -286,7 +307,7 @@ export async function descargarRrhhExcel(op: OpcionesExportacionRrhh): Promise<v
   };
 
   if (op.ambito === 'carga_masiva_nomina') {
-    const { cabecerasModelo, filasModelo, anchosModelo, cabecerasControl, filasControl } =
+    const { cabecerasModelo, filasModelo, anchosModelo, filasHoja1, cabecerasControl, filasControl } =
       construirDatosExcelCargaMasiva(op);
 
     // Hoja 1: MODELO (formato bancario puro con celdas de texto `@` para preservar ceros a la izquierda)
@@ -334,7 +355,22 @@ export async function descargarRrhhExcel(op: OpcionesExportacionRrhh): Promise<v
       });
     });
 
-    // Hoja 2: RESUMEN CONTROL (verificación administrativa legible en $ y Bs)
+    // Hoja1: Resumen TXT bancario (Banco+Correlativo 10 díg., Cédula 10 car., Cuenta 20 díg., Monto 15 díg.)
+    const wsHoja1 = XLSX.utils.aoa_to_sheet(filasHoja1);
+    wsHoja1['!cols'] = [{ wch: 14 }, { wch: 14 }, { wch: 24 }, { wch: 18 }];
+    filasHoja1.forEach((fila, rIdx) => {
+      fila.forEach((val, cIdx) => {
+        const addr = XLSX.utils.encode_cell({ r: rIdx, c: cIdx });
+        wsHoja1[addr] = {
+          t: 's',
+          v: String(val ?? ''),
+          z: '@',
+          s: textCellStyle,
+        };
+      });
+    });
+
+    // RESUMEN CONTROL (verificación administrativa legible en $ y Bs)
     const totalUsd = op.filas.reduce((a, f) => a + (f.sueldoBase || 0), 0);
     const totalBs = op.filas.reduce((a, f) => a + (f.sueldoBsCargaMasiva || 0), 0);
     const aoaControl: unknown[][] = [
@@ -344,17 +380,18 @@ export async function descargarRrhhExcel(op: OpcionesExportacionRrhh): Promise<v
       [],
       cabecerasControl,
       ...filasControl,
-      ['TOTALES', '', `${op.filas.length} trabajadores`, '', '', '', '', '', '', '', '', totalUsd, totalBs, ''],
+      ['TOTALES', '', `${op.filas.length} trabajadores`, '', '', '', '', '', '', '', '', '', totalUsd, totalBs, ''],
     ];
     const wsControl = XLSX.utils.aoa_to_sheet(aoaControl);
     wsControl['!cols'] = [
-      { wch: 12 }, { wch: 10 }, { wch: 28 }, { wch: 10 }, { wch: 18 },
+      { wch: 12 }, { wch: 10 }, { wch: 28 }, { wch: 10 }, { wch: 18 }, { wch: 24 },
       { wch: 22 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 10 },
       { wch: 12 }, { wch: 15 }, { wch: 18 }, { wch: 18 },
     ];
 
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, wsModelo, 'MODELO');
+    XLSX.utils.book_append_sheet(wb, wsHoja1, 'Hoja1');
     XLSX.utils.book_append_sheet(wb, wsControl, 'RESUMEN CONTROL');
     previewWorkbook(XLSX, wb, generarNombreArchivoRrhh(op.ambito, 'xlsx'));
     return;

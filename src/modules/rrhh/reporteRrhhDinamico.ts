@@ -24,8 +24,10 @@ import {
   COLUMNAS_CARGA_MASIVA_NOMINA,
   PARAMETROS_CARGA_MASIVA_DEFAULT,
   construirCamposCargaMasivaPersona,
+  construirResumenTxtHoja1,
   type CamposCargaMasivaFila,
   type ParametrosCargaMasivaNomina,
+  type ResumenTxtHoja1,
 } from './cargaMasivaNomina';
 
 /** Redondeo a 2 decimales para operaciones de moneda y porcentajes. */
@@ -316,6 +318,7 @@ export interface FilaReporteRrhh {
   // Campos de Carga Masiva - Nómina (Moneda Nacional)
   cargaMasiva?: CamposCargaMasivaFila;
   sueldoBsCargaMasiva?: number;
+  resumenTxtHoja1?: ResumenTxtHoja1;
 }
 
 /* ───────────── Filtros ───────────── */
@@ -478,7 +481,7 @@ export function formatearDatosPagoRrhh(datosPago: unknown): string | undefined {
   }
   if (typeof datosPago === 'object') {
     const entradas = Object.entries(datosPago as Record<string, unknown>)
-      .filter(([k, v]) => k !== 'cuentas' && v != null && v !== '' && (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'))
+      .filter(([k, v]) => k !== 'cuentas' && k !== 'ficha_bancaria' && v != null && v !== '' && (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean'))
       .map(([k, v]) => `${k}: ${String(v).trim()}`);
     return entradas.length > 0 ? entradas.join(' · ') : undefined;
   }
@@ -737,7 +740,7 @@ export function normalizarCargaMasivaNominaRrhh(
 
     const sBase = Number(p.sueldo_base) || 0;
     const nombre = `${p.nombre || ''} ${p.apellido || ''}`.trim() || 'Sin nombre';
-    const { sueldoBsAplicado, ...cm } = construirCamposCargaMasivaPersona(p, {
+    const { sueldoBsAplicado, resumenTxtHoja1, ...cm } = construirCamposCargaMasivaPersona(p, {
       correlativo: inicio + idx,
       tasaBcv,
       familiares,
@@ -776,6 +779,7 @@ export function normalizarCargaMasivaNominaRrhh(
       sueldoBsCargaMasiva: sueldoBsAplicado,
       tasaBcvAplicada: tasaBcv,
       cargaMasiva: cm,
+      resumenTxtHoja1,
     };
   });
 }
@@ -851,15 +855,31 @@ export function procesarFilasReporteRrhh(
   // En Carga Masiva - Nómina siempre va 1 fila por trabajador con correlativo continuo 0000001..N sin saltos
   if (filasFiltradas.length > 0 && filasFiltradas[0].ambito === 'carga_masiva_nomina') {
     const inicio = Math.max(1, Math.trunc(correlativoInicioCargaMasiva || 1));
-    return filasFiltradas.map((f, idx) => ({
-      ...f,
-      cargaMasiva: f.cargaMasiva
+    return filasFiltradas.map((f, idx) => {
+      const corrNum = inicio + idx;
+      const cmActualizado = f.cargaMasiva
         ? {
             ...f.cargaMasiva,
-            cm_02_correlativo: String(inicio + idx).padStart(7, '0').slice(-7),
+            cm_02_correlativo: String(corrNum).padStart(7, '0').slice(-7),
           }
-        : undefined,
-    }));
+        : undefined;
+      const resumenActualizado = cmActualizado
+        ? construirResumenTxtHoja1({
+            codigoBanco: cmActualizado.cm_01_banco,
+            correlativo: corrNum,
+            tipoDoc: cmActualizado.cm_03_tipo_doc,
+            cedula15: cmActualizado.cm_04_cedula,
+            cuenta20: f.resumenTxtHoja1?.cuenta20,
+            monto15: cmActualizado.cm_39_sueldo_basico,
+          })
+        : f.resumenTxtHoja1;
+
+      return {
+        ...f,
+        cargaMasiva: cmActualizado,
+        resumenTxtHoja1: resumenActualizado,
+      };
+    });
   }
 
   if (modo === 'detallado') {

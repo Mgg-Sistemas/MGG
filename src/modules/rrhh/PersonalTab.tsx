@@ -73,8 +73,31 @@ import { errorCambioCargo, huboCambioCargo } from './cambiosCargo';
 import { HistoricoCargos } from './HistoricoCargos';
 import { HistorialCargoModal } from './HistorialCargoModal';
 import { DatosBancariosPersona } from './DatosBancariosPersona';
+import {
+  CIUDADES_BANCO,
+  CONDICIONES_INMUEBLE_BANCO,
+  ESTADOS_BANCO,
+  FICHA_BANCARIA_NUEVA_DEFAULT,
+  FICHA_BANCARIA_VACIA,
+  FUENTES_INGRESO_BANCO,
+  MUNICIPIOS_BANCO,
+  OFICINAS_BANCARIAS,
+  PAISES_BANCO,
+  PARROQUIAS_BANCO,
+  PROFESIONES_BANCO,
+  REGIONES_BANCO,
+  TIPOS_CARGO_BANCO,
+  TIPOS_CONTRATO_BANCO,
+  TIPOS_CUENTA_BANCO,
+  TIPOS_NOMINA_BANCO,
+  TIPOS_VIVIENDA_BANCO,
+  extraerCuenta20Digitos,
+  leerFichaBancaria,
+  resumenDireccionFichaBancaria,
+  type FichaBancariaPersonal,
+} from './cargaMasivaNomina';
 
-const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', carnet_vence: CARNET_VENCE_POR_DEFECTO, telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', grados_instruccion: [], titulo_obtenido: '', trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '', trabajo_anterior_sueldo: 0, trabajo_anterior_moneda: 'USD', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1 };
+const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedula: '', rif: '', cargo: '', departamento: '', sueldo_base: 0, fecha_ingreso: '', carnet_vence: CARNET_VENCE_POR_DEFECTO, telefono: '', correo: '', contacto_emergencia: '', contacto_emergencia_tlf: '', contacto_emergencia_parentesco: '', genero: '', estado_civil: '', fecha_nacimiento: '', grupo_sanguineo: '', grado_instruccion: '', grados_instruccion: [], titulo_obtenido: '', trabajo_anterior_empresa: '', trabajo_anterior_cargo: '', trabajo_anterior_duracion: '', trabajo_anterior_sueldo: 0, trabajo_anterior_moneda: 'USD', tiene_alergias: null, alergias_detalle: '', tiene_enfermedad: null, enfermedad_detalle: '', nacionalidad: 'VENEZOLANO', direccion: '', foto_url: '', foto_pos_x: 0.5, foto_pos_y: 0.5, foto_zoom: 1, ficha_bancaria: { ...FICHA_BANCARIA_NUEVA_DEFAULT } };
 
 /**
  * La ficha guardada → el formulario.
@@ -89,6 +112,10 @@ const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedul
  * al editar cualquier otra cosa de la persona.
  */
 function formDePersona(p: Personal, empresa: Empresa): Required<PersonalInput> {
+  const fb = leerFichaBancaria(p.datos_pago);
+  if (!fb.cuenta_nomina) {
+    fb.cuenta_nomina = extraerCuenta20Digitos(p.datos_pago, fb);
+  }
   return {
     empresa,
     nombre: p.nombre,
@@ -131,6 +158,7 @@ function formDePersona(p: Personal, empresa: Empresa): Required<PersonalInput> {
     foto_pos_x: p.foto_pos_x == null ? 0.5 : Number(p.foto_pos_x),
     foto_pos_y: p.foto_pos_y == null ? 0.5 : Number(p.foto_pos_y),
     foto_zoom: p.foto_zoom == null ? 1 : Number(p.foto_zoom),
+    ficha_bancaria: fb,
   };
 }
 
@@ -568,10 +596,31 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
   }
 
   function abrirNuevo() {
-    setEditId(null); setForm({ ...VACIO, empresa }); limpiarCambioSueldo(0);
+    setEditId(null); setForm({ ...VACIO, empresa, ficha_bancaria: { ...FICHA_BANCARIA_NUEVA_DEFAULT } }); limpiarCambioSueldo(0);
     setFamiliaForm([]); setFamiliaBorrada([]);
     setError(null); setFormOpen(true);
   }
+  function patchFichaBancaria(patch: Partial<FichaBancariaPersonal>) {
+    setForm((prev) => ({
+      ...prev,
+      ficha_bancaria: {
+        ...(prev.ficha_bancaria ?? FICHA_BANCARIA_VACIA),
+        ...patch,
+      },
+    }));
+  }
+  const parroquiasOpciones = useMemo(
+    () => PARROQUIAS_BANCO.map((x) => ({ value: x.codigo, label: x.etiqueta })),
+    [],
+  );
+  const profesionesOpciones = useMemo(
+    () => PROFESIONES_BANCO.map((x) => ({ value: x.codigo, label: x.etiqueta })),
+    [],
+  );
+  const tiposCargoOpciones = useMemo(
+    () => TIPOS_CARGO_BANCO.map((x) => ({ value: x.codigo, label: x.etiqueta })),
+    [],
+  );
   function editar(p: Personal) {
     setEditId(p.id);
     setForm(formDePersona(p, empresa));
@@ -656,6 +705,11 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
     // que lee el carnet necesita el nombre del alergeno, no el aviso.
     const malSalud = errorCondicionesSalud(form);
     if (malSalud) { setError(malSalud); return; }
+    const ctaNomina = String(form.ficha_bancaria?.cuenta_nomina ?? '').replace(/\D/g, '');
+    if (ctaNomina && ctaNomina.length !== 20) {
+      setError('La cuenta bancaria de nómina debe tener exactamente 20 dígitos (o dejarse vacía si aún se va a aperturar).');
+      return;
+    }
     // El sueldo no se pisa en silencio: si cambió, hay que decir por qué.
     if (editId) {
       const falla = validarCambioSueldo({ anterior: sueldoOriginal, nuevo: form.sueldo_base, motivo: motivoSueldo, vigenteDesde });
@@ -1232,7 +1286,17 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                 />
               </div>
               <VenceCarnetCampo value={form.carnet_vence ?? ''} onChange={(v) => setForm((x) => ({ ...x, carnet_vence: v }))} />
-              <div className="form-row"><label>Teléfono</label><input className="input mono" value={form.telefono ?? ''} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
+              <div className="form-row"><label>Teléfono celular</label><input className="input mono" value={form.telefono ?? ''} onChange={(e) => setForm((f) => ({ ...f, telefono: e.target.value }))} placeholder="0414-1234567" inputMode="tel" /></div>
+              <div className="form-row">
+                <label>Teléfono local / habitación</label>
+                <input
+                  className="input mono"
+                  value={form.ficha_bancaria?.telefono_local ?? ''}
+                  onChange={(e) => patchFichaBancaria({ telefono_local: e.target.value })}
+                  placeholder="0286-9612345"
+                  inputMode="tel"
+                />
+              </div>
               {/* El correo se guarda en minúsculas al grabar: así el mismo
                   correo cargado por dos personas distintas queda igual. */}
               <div className="form-row">
@@ -1396,12 +1460,323 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                   />
                   <small className="hint muted">Si no está, se escribe y queda para la próxima.</small>
                 </div>
+                <div className="form-row" style={{ flex: '1 1 180px', margin: 0 }}>
+                  <label>País de nacimiento</label>
+                  <select
+                    className="select"
+                    value={form.ficha_bancaria?.pais_nacimiento ?? ''}
+                    onChange={(e) => patchFichaBancaria({ pais_nacimiento: e.target.value })}
+                  >
+                    <option value="">Automático según nacionalidad</option>
+                    {PAISES_BANCO.map((p) => (
+                      <option key={p.codigo} value={p.codigo}>{p.etiqueta}</option>
+                    ))}
+                  </select>
+                </div>
               </div>
               <div className="form-row" style={{ marginBottom: 0, marginTop: '.5rem' }}>
-                <label>Dirección</label>
+                <label>Dirección general (resumen carnet / ficha)</label>
                 <input className="input" value={form.direccion ?? ''}
                   onChange={(e) => setForm((x) => ({ ...x, direccion: e.target.value }))}
-                  placeholder="Ciudad, sector, calle…" />
+                  placeholder="Ciudad, sector, calle… (si queda vacío se arma sola con el desglose de abajo)" />
+              </div>
+            </div>
+
+            {/* ── DIRECCIÓN DESGLOSADA Y DATOS BANCARIOS PARA CARGA MASIVA - NÓMINA ── */}
+            <div className="card" style={{ margin: '.7rem 0', padding: '.7rem .8rem' }}>
+              <div style={{ fontWeight: 700, marginBottom: '.15rem' }}>🏠 Dirección detallada y códigos para Carga Masiva - Nómina</div>
+              <div className="muted" style={{ fontSize: '.81rem', marginBottom: '.65rem' }}>
+                Estos campos nutren directamente la pestaña <strong>CARGA MASIVA - NOMINA</strong> (Excel <code>MODELO</code>, <code>Hoja1</code>, CSV, PDF y resumen <code>.TXT</code>). Si algún código queda en «Automático», el reporte lo deduce sin fallar.
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.55rem' }}>
+                <div className="form-row" style={{ margin: 0, gridColumn: 'span 2' }}>
+                  <label>Calle / Avenida</label>
+                  <input
+                    className="input"
+                    maxLength={35}
+                    value={form.ficha_bancaria?.calle_avenida ?? ''}
+                    onChange={(e) => patchFichaBancaria({ calle_avenida: e.target.value.toUpperCase() })}
+                    placeholder="Ej.: AV. PASEO CARONI / CALLE BOLIVAR"
+                  />
+                </div>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label>Casa / Edificio / Manzana</label>
+                  <input
+                    className="input"
+                    maxLength={15}
+                    value={form.ficha_bancaria?.casa_edificio ?? ''}
+                    onChange={(e) => patchFichaBancaria({ casa_edificio: e.target.value.toUpperCase() })}
+                    placeholder="Ej.: CASA / EDIF DIMASE / MZ 4"
+                  />
+                </div>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label>Piso / Nivel</label>
+                  <input
+                    className="input mono"
+                    maxLength={5}
+                    value={form.ficha_bancaria?.piso_nivel ?? ''}
+                    onChange={(e) => patchFichaBancaria({ piso_nivel: e.target.value.toUpperCase() })}
+                    placeholder="PB, 1, 2…"
+                  />
+                </div>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label>N° Casa / Apto / Ofic. / Local</label>
+                  <input
+                    className="input mono"
+                    maxLength={15}
+                    value={form.ficha_bancaria?.apto_local ?? ''}
+                    onChange={(e) => patchFichaBancaria({ apto_local: e.target.value.toUpperCase() })}
+                    placeholder="Ej.: 12, 4B, S/N"
+                  />
+                </div>
+                <div className="form-row" style={{ margin: 0, gridColumn: 'span 2' }}>
+                  <label>Punto de referencia</label>
+                  <input
+                    className="input"
+                    maxLength={30}
+                    value={form.ficha_bancaria?.referencia ?? ''}
+                    onChange={(e) => patchFichaBancaria({ referencia: e.target.value.toUpperCase() })}
+                    placeholder="Ej.: FRENTE AL MODULO / DIAGONAL A…"
+                  />
+                </div>
+
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label>Región</label>
+                  <select
+                    className="select"
+                    value={form.ficha_bancaria?.region ?? ''}
+                    onChange={(e) => patchFichaBancaria({ region: e.target.value })}
+                  >
+                    <option value="">Automático (09 · Guayana)</option>
+                    {REGIONES_BANCO.map((r) => (
+                      <option key={r.codigo} value={r.codigo}>{r.codigo} · {r.etiqueta}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label>Estado</label>
+                  <select
+                    className="select"
+                    value={form.ficha_bancaria?.estado_geo ?? ''}
+                    onChange={(e) => patchFichaBancaria({ estado_geo: e.target.value })}
+                  >
+                    <option value="">Automático (07 · Bolívar)</option>
+                    {ESTADOS_BANCO.map((es) => (
+                      <option key={es.codigo} value={es.codigo}>{es.etiqueta}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label>Ciudad</label>
+                  <select
+                    className="select"
+                    value={form.ficha_bancaria?.ciudad ?? ''}
+                    onChange={(e) => patchFichaBancaria({ ciudad: e.target.value })}
+                  >
+                    <option value="">Automático según dirección</option>
+                    {CIUDADES_BANCO.map((c) => (
+                      <option key={c.codigo} value={c.codigo}>{c.etiqueta}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label>Municipio</label>
+                  <select
+                    className="select"
+                    value={form.ficha_bancaria?.municipio ?? ''}
+                    onChange={(e) => patchFichaBancaria({ municipio: e.target.value })}
+                  >
+                    <option value="">Automático según dirección</option>
+                    {MUNICIPIOS_BANCO.map((m) => (
+                      <option key={m.codigo} value={m.codigo}>{m.etiqueta}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-row" style={{ margin: 0, gridColumn: 'span 2' }}>
+                  <label>Parroquia (código 6 dígitos)</label>
+                  <SearchSelect
+                    options={parroquiasOpciones}
+                    value={form.ficha_bancaria?.parroquia ?? ''}
+                    onChange={(v) => patchFichaBancaria({ parroquia: v })}
+                    placeholder="Automático según dirección (ej. 070106 Unare)…"
+                    allowCreate
+                    sinPreseleccion
+                  />
+                </div>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label>Zona postal</label>
+                  <input
+                    className="input mono"
+                    maxLength={10}
+                    value={form.ficha_bancaria?.zona_postal ?? ''}
+                    onChange={(e) => patchFichaBancaria({ zona_postal: e.target.value.replace(/\D/g, '') })}
+                    placeholder="8050"
+                    inputMode="numeric"
+                  />
+                </div>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label>Condición del inmueble</label>
+                  <select
+                    className="select"
+                    value={form.ficha_bancaria?.condicion_inmueble ?? ''}
+                    onChange={(e) => patchFichaBancaria({ condicion_inmueble: e.target.value as FichaBancariaPersonal['condicion_inmueble'] })}
+                  >
+                    <option value="">Automático (1 · Propia)</option>
+                    {CONDICIONES_INMUEBLE_BANCO.map((c) => (
+                      <option key={c.codigo} value={c.codigo}>{c.etiqueta}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label>Tipo de vivienda</label>
+                  <select
+                    className="select"
+                    value={form.ficha_bancaria?.tipo_vivienda ?? ''}
+                    onChange={(e) => patchFichaBancaria({ tipo_vivienda: e.target.value as FichaBancariaPersonal['tipo_vivienda'] })}
+                  >
+                    <option value="">Automático (1 · Casa)</option>
+                    {TIPOS_VIVIENDA_BANCO.map((t) => (
+                      <option key={t.codigo} value={t.codigo}>{t.etiqueta}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-row" style={{ margin: 0 }}>
+                  <label>Tiempo de residencia (años)</label>
+                  <input
+                    className="input mono"
+                    type="number"
+                    min={1}
+                    max={99}
+                    value={form.ficha_bancaria?.tiempo_residencia ?? ''}
+                    onChange={(e) => patchFichaBancaria({ tiempo_residencia: e.target.value.replace(/\D/g, '').slice(0, 2) })}
+                    placeholder="1"
+                  />
+                </div>
+              </div>
+
+              <div style={{ borderTop: '1px solid var(--border)', marginTop: '.75rem', paddingTop: '.65rem' }}>
+                <div style={{ fontWeight: 600, fontSize: '.82rem', marginBottom: '.5rem', color: 'var(--primary)' }}>
+                  🏦 Cuenta nómina (20 dígitos para el TXT Hoja1) y clasificación bancaria
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: '.55rem' }}>
+                  <div className="form-row" style={{ margin: 0, gridColumn: 'span 2' }}>
+                    <label>
+                      Cuenta bancaria nómina (20 dígitos){' '}
+                      <span className="mono muted" style={{ fontWeight: 400 }}>
+                        ({String(form.ficha_bancaria?.cuenta_nomina ?? '').replace(/\D/g, '').length}/20)
+                      </span>
+                    </label>
+                    <input
+                      className="input mono"
+                      maxLength={20}
+                      value={form.ficha_bancaria?.cuenta_nomina ?? ''}
+                      onChange={(e) => patchFichaBancaria({ cuenta_nomina: e.target.value.replace(/\D/g, '').slice(0, 20) })}
+                      placeholder="01630000000000000000 (opcional si es apertura nueva)"
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label>Profesión bancaria</label>
+                    <SearchSelect
+                      options={profesionesOpciones}
+                      value={form.ficha_bancaria?.profesion_codigo ?? ''}
+                      onChange={(v) => patchFichaBancaria({ profesion_codigo: v.toUpperCase() })}
+                      placeholder="Automático según título/cargo…"
+                      allowCreate
+                      sinPreseleccion
+                    />
+                  </div>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label>Tipo de cargo bancario</label>
+                    <SearchSelect
+                      options={tiposCargoOpciones}
+                      value={form.ficha_bancaria?.tipo_cargo_codigo ?? ''}
+                      onChange={(v) => patchFichaBancaria({ tipo_cargo_codigo: v })}
+                      placeholder="Automático según cargo…"
+                      allowCreate
+                      sinPreseleccion
+                    />
+                  </div>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label>Fuente de ingreso</label>
+                    <select
+                      className="select"
+                      value={form.ficha_bancaria?.fuente_ingreso ?? ''}
+                      onChange={(e) => patchFichaBancaria({ fuente_ingreso: e.target.value as FichaBancariaPersonal['fuente_ingreso'] })}
+                    >
+                      <option value="">1 · SUELDO (Por defecto)</option>
+                      {FUENTES_INGRESO_BANCO.map((fi) => (
+                        <option key={fi.codigo} value={fi.codigo}>{fi.etiqueta}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label>Tipo de contrato</label>
+                    <select
+                      className="select"
+                      value={form.ficha_bancaria?.tipo_contrato ?? ''}
+                      onChange={(e) => patchFichaBancaria({ tipo_contrato: e.target.value as FichaBancariaPersonal['tipo_contrato'] })}
+                    >
+                      <option value="">Según lote (2 · Indefinido)</option>
+                      {TIPOS_CONTRATO_BANCO.map((tc) => (
+                        <option key={tc.codigo} value={tc.codigo}>{tc.etiqueta}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label>Tipo de nómina</label>
+                    <select
+                      className="select"
+                      value={form.ficha_bancaria?.tipo_nomina ?? ''}
+                      onChange={(e) => patchFichaBancaria({ tipo_nomina: e.target.value as FichaBancariaPersonal['tipo_nomina'] })}
+                    >
+                      <option value="">Según lote (B · Quincenal)</option>
+                      {TIPOS_NOMINA_BANCO.map((tn) => (
+                        <option key={tn.codigo} value={tn.codigo}>{tn.etiqueta}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label>Tipo de cuenta</label>
+                    <select
+                      className="select"
+                      value={form.ficha_bancaria?.tipo_cuenta ?? ''}
+                      onChange={(e) => patchFichaBancaria({ tipo_cuenta: e.target.value as FichaBancariaPersonal['tipo_cuenta'] })}
+                    >
+                      <option value="">Según lote (CCVI · Cta. Virtual)</option>
+                      {TIPOS_CUENTA_BANCO.map((tc) => (
+                        <option key={tc.codigo} value={tc.codigo}>{tc.etiqueta}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label>Oficina principal</label>
+                    <select
+                      className="select"
+                      value={form.ficha_bancaria?.oficina_principal ?? ''}
+                      onChange={(e) => patchFichaBancaria({ oficina_principal: e.target.value })}
+                    >
+                      <option value="">Según lote (0405 · Pto. Ordaz)</option>
+                      {OFICINAS_BANCARIAS.map((o) => (
+                        <option key={o.codigo} value={o.codigo}>{o.etiqueta}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="form-row" style={{ margin: 0 }}>
+                    <label>Oficina secundaria</label>
+                    <select
+                      className="select"
+                      value={form.ficha_bancaria?.oficina_secundaria ?? ''}
+                      onChange={(e) => patchFichaBancaria({ oficina_secundaria: e.target.value })}
+                    >
+                      <option value="">Según lote (0405 · Pto. Ordaz)</option>
+                      {OFICINAS_BANCARIAS.map((o) => (
+                        <option key={o.codigo} value={o.codigo}>{o.etiqueta}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -1897,10 +2272,18 @@ function FichaTecnicaModal({ persona, canWrite, onClose, onEditar, onCambiarEsta
       <HistoricoCargos persona={persona} canWrite={canWrite} />
 
       <BloqueFicha titulo="Contacto" pares={[
-        ['Teléfono', persona.telefono || '—'],
+        ['Teléfono celular', persona.telefono || '—'],
+        ...(leerFichaBancaria(persona.datos_pago).telefono_local
+          ? [['Teléfono local', leerFichaBancaria(persona.datos_pago).telefono_local] as [string, string]]
+          : []),
         ['Correo', persona.correo || '—'],
         ['En una emergencia, llamar a', [emergencia || null, persona.contacto_emergencia_tlf || null].filter(Boolean).join(' · ') || '—'],
-        ['Dirección', persona.direccion || '—'],
+        ['Dirección', persona.direccion || resumenDireccionFichaBancaria(leerFichaBancaria(persona.datos_pago)) || '—'],
+        ...(resumenDireccionFichaBancaria(leerFichaBancaria(persona.datos_pago)) &&
+        persona.direccion &&
+        persona.direccion !== resumenDireccionFichaBancaria(leerFichaBancaria(persona.datos_pago))
+          ? [['Desglose habitación', resumenDireccionFichaBancaria(leerFichaBancaria(persona.datos_pago))] as [string, string]]
+          : []),
       ]} />
 
       {leerCuentas(persona.datos_pago).length > 0 && (

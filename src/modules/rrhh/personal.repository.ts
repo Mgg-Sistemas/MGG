@@ -28,6 +28,11 @@ import { normalizarCorreo, type Genero, type Parentesco } from './fichaPersonal'
 import { esCargoDeChofer } from '@/modules/choferes/choferes';
 import { leerCuentas, type CuentaPago } from './datosBancarios';
 import { errorCambioCargo, huboCambioCargo, ordenarCambiosCargo, type CambioCargo } from './cambiosCargo';
+import {
+  combinarDatosPagoConFichaBancaria,
+  resumenDireccionFichaBancaria,
+  type FichaBancariaPersonal,
+} from './cargaMasivaNomina';
 
 const TABLE = 'personal';
 const TABLA_SUELDOS = 'personal_sueldos';
@@ -107,6 +112,8 @@ export interface PersonalInput {
   foto_pos_x?: number | null;
   foto_pos_y?: number | null;
   foto_zoom?: number | null;
+  /** Dirección desglosada y parámetros bancarios para Carga Masiva - Nómina (`datos_pago.ficha_bancaria`). */
+  ficha_bancaria?: FichaBancariaPersonal | null;
 }
 
 const BUCKET_FOTOS = 'carnet-fotos';
@@ -198,7 +205,9 @@ function payload(input: PersonalInput) {
       ? {}
       : normalizarSalud(input)),
     nacionalidad: input.nacionalidad === undefined ? undefined : (input.nacionalidad?.trim().toUpperCase() || null),
-    direccion: input.direccion === undefined ? undefined : (input.direccion?.trim() || null),
+    direccion: input.direccion === undefined
+      ? (input.ficha_bancaria ? (resumenDireccionFichaBancaria(input.ficha_bancaria) || undefined) : undefined)
+      : (input.direccion?.trim() || resumenDireccionFichaBancaria(input.ficha_bancaria) || null),
     contacto_emergencia_parentesco: input.contacto_emergencia_parentesco === undefined ? undefined : (input.contacto_emergencia_parentesco?.trim() || null),
     fecha_ingreso: input.fecha_ingreso || null,
     carnet_vence: input.carnet_vence === undefined ? undefined : (input.carnet_vence || null),
@@ -225,9 +234,15 @@ export async function listCuentasPago(id: string): Promise<CuentaPago[]> {
   return leerCuentas((data as { datos_pago?: unknown } | null)?.datos_pago);
 }
 
-/** Reemplaza la lista completa. Pide la fila de vuelta: sin permiso la base no toca nada y no da error. */
+/** Reemplaza la lista completa preservando `ficha_bancaria` en `datos_pago`. Pide la fila de vuelta: sin permiso la base no toca nada y no da error. */
 export async function guardarCuentasPago(id: string, cuentas: CuentaPago[]): Promise<void> {
-  const { data, error } = await supabase.from(TABLE).update({ datos_pago: { cuentas } }).eq('id', id).select('id');
+  const { data: previo } = await supabase.from(TABLE).select('datos_pago').eq('id', id).maybeSingle();
+  const prevDatosPago = (previo as { datos_pago?: unknown } | null)?.datos_pago;
+  const baseObj =
+    prevDatosPago && typeof prevDatosPago === 'object' && !Array.isArray(prevDatosPago)
+      ? { ...(prevDatosPago as Record<string, unknown>) }
+      : {};
+  const { data, error } = await supabase.from(TABLE).update({ datos_pago: { ...baseObj, cuentas } }).eq('id', id).select('id');
   if (error) throw error;
   if (!data?.length) throw new Error('No se pudieron guardar los datos bancarios: no tienes permiso de escritura en RRHH.');
 }
@@ -564,8 +579,13 @@ async function verificarCedulaLibre(cedula: string | null | undefined, excluirId
 export async function crearPersonal(input: PersonalInput, actorEmail?: string): Promise<Personal> {
   if (!input.nombre.trim()) throw new Error('Indicá el nombre.');
   await verificarCedulaLibre(input.cedula);
+  const datosPago = combinarDatosPagoConFichaBancaria(undefined, input.ficha_bancaria, {
+    nombreCompleto: `${input.nombre} ${input.apellido ?? ''}`.trim(),
+    cedula: input.cedula,
+  });
   const { data, error } = await supabase.from(TABLE).insert({
     ...payload(input),
+    ...(datosPago !== undefined ? { datos_pago: datosPago } : {}),
     sueldo_base: aCentavos(input.sueldo_base),
     created_by: actorEmail ?? null,
   }).select('*').single();
@@ -633,7 +653,7 @@ export async function actualizarPersonal(
   // El sueldo anterior se lee de la BASE, no de la pantalla: si otro lo movió
   // mientras esta ficha estaba abierta, el historial tiene que decir la verdad.
   const { data: actual, error: errLeer } = await supabase
-    .from(TABLE).select('sueldo_base, cargo, departamento').eq('id', id).maybeSingle();
+    .from(TABLE).select('sueldo_base, cargo, departamento, datos_pago').eq('id', id).maybeSingle();
   if (errLeer) throw errLeer;
   const anterior = Number(actual?.sueldo_base) || 0;
   // El cargo tampoco cambia en silencio (04-11-2026): con su fecha y su motivo, al histórico.
@@ -652,7 +672,27 @@ export async function actualizarPersonal(
     await cambiarSueldo(id, nuevo, cambio);
   }
 
-  const { data, error } = await supabase.from(TABLE).update(payload(patch)).eq('id', id).select('*').single();
+  const datosPagoActualizado =
+    patch.ficha_bancaria === undefined
+      ? undefined
+      : (combinarDatosPagoConFichaBancaria(
+          (actual as { datos_pago?: unknown } | null)?.datos_pago,
+          patch.ficha_bancaria,
+          {
+            nombreCompleto: `${patch.nombre} ${patch.apellido ?? ''}`.trim(),
+            cedula: patch.cedula,
+          },
+        ) ?? null);
+
+  const { data, error } = await supabase
+    .from(TABLE)
+    .update({
+      ...payload(patch),
+      ...(datosPagoActualizado !== undefined ? { datos_pago: datosPagoActualizado } : {}),
+    })
+    .eq('id', id)
+    .select('*')
+    .single();
   if (error) throw errorCedulaRepetida(error, patch.cedula);
   const persona = data as Personal;
   if (cambiaCargo) {

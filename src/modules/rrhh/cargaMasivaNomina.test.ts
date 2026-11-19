@@ -4,15 +4,20 @@ import type { DefinicionEmpresa } from './empresa';
 import type { FamiliarPersonal } from './personal.repository';
 import {
   COLUMNAS_CARGA_MASIVA_NOMINA,
+  combinarDatosPagoConFichaBancaria,
+  construirResumenTxtHoja1,
   desglosarDireccionBancaria,
+  extraerCuenta20Digitos,
   formatearFechaBancaria,
   formatearSueldoBancario15,
+  leerFichaBancaria,
   normalizarDocumentoBancario,
   normalizarTelefonosBancarios,
   resolverEstadoCivilBancario,
   resolverNivelEducacionBancario,
   resolverProfesionBancaria,
   resolverTipoCargoBancario,
+  resumenDireccionFichaBancaria,
   separarNombresApellidos,
 } from './cargaMasivaNomina';
 import {
@@ -91,6 +96,46 @@ describe('CARGA MASIVA - NOMINA (Moneda Nacional)', () => {
       telefono: '0286-9612345 / 0414-8887766',
       correo: 'maria.cruz@mgg.com',
       direccion: 'Sector Centro, Calle Bolívar Casa 12, El Callao',
+      datos_pago: {
+        cuentas: [
+          {
+            id: 'c1',
+            tipo: 'transferencia',
+            banco: '0163',
+            cuenta: '01630221012211002934',
+            titular: 'Maria De La Cruz',
+            cedula: 'E-84512369',
+            principal: true,
+          },
+        ],
+        ficha_bancaria: {
+          pais_nacimiento: 'CO',
+          telefono_local: '0286-9991122',
+          calle_avenida: 'CALLE BOLIVAR SECTOR CENTRO',
+          casa_edificio: 'CASA',
+          piso_nivel: 'PB',
+          apto_local: 'CASA 12',
+          referencia: 'FRENTE A LA PLAZA BOLIVAR',
+          region: '09',
+          estado_geo: '07',
+          ciudad: '0702',
+          municipio: '0705',
+          parroquia: '070501',
+          zona_postal: '8056',
+          condicion_inmueble: '2',
+          tipo_vivienda: '1',
+          tiempo_residencia: '4',
+          cuenta_nomina: '01630221012211002934',
+          profesion_codigo: 'LCPU',
+          tipo_cargo_codigo: '007',
+          fuente_ingreso: '1',
+          tipo_contrato: '1',
+          tipo_nomina: 'B',
+          tipo_cuenta: 'VI01',
+          oficina_principal: '0410',
+          oficina_secundaria: '0405',
+        },
+      },
       created_at: '2024-01-01T00:00:00Z',
     },
     {
@@ -198,7 +243,7 @@ describe('CARGA MASIVA - NOMINA (Moneda Nacional)', () => {
     expect(procesadas[0].cargaMasiva?.cm_02_correlativo).toBe('0000001');
     expect(procesadas[1].cargaMasiva?.cm_02_correlativo).toBe('0000002');
 
-    // Verificar María (p2, $750 * 50 * 0.2 = Bs 7.500,00 -> 000000000750000)
+    // Verificar María (toma los datos desglosados guardados en el formulario de registro de personal)
     const maria = procesadas[0].cargaMasiva!;
     expect(maria.cm_01_banco).toBe('0163');
     expect(maria.cm_03_tipo_doc).toBe('E');
@@ -207,11 +252,27 @@ describe('CARGA MASIVA - NOMINA (Moneda Nacional)', () => {
     expect(maria.cm_12_sexo).toBe('F');
     expect(maria.cm_13_estado_civil).toBe('5');
     expect(maria.cm_14_dependientes).toBe('00');
+    expect(maria.cm_15_calle_avenida).toBe('CALLE BOLIVAR SECTOR CENTRO');
+    expect(maria.cm_16_casa_edificio).toBe('CASA');
+    expect(maria.cm_17_piso_nivel).toBe('PB');
+    expect(maria.cm_18_apto_local).toBe('CASA 12');
+    expect(maria.cm_19_referencia).toBe('FRENTE A LA PLAZA BOLIVAR');
+    expect(maria.cm_24_parroquia).toBe('070501');
+    expect(maria.cm_25_zona_postal).toBe('0000008056');
+    expect(maria.cm_26_tlf_local).toBe('02869991122');
+    expect(maria.cm_27_tlf_celular).toBe('04148887766');
+    expect(maria.cm_28_condicion_inmueble).toBe('2');
+    expect(maria.cm_29_tipo_vivienda).toBe('1');
+    expect(maria.cm_31_tiempo_residencia).toBe('04');
     expect(maria.cm_32_nivel_educacion).toBe('05');
     expect(maria.cm_33_profesion).toBe('LCPU');
     expect(maria.cm_34_codigo_industria).toBe('0902');
+    expect(maria.cm_36_tipo_contrato).toBe('1');
+    expect(maria.cm_38_tipo_cuenta).toBe('VI01');
     expect(maria.cm_39_sueldo_basico).toBe('000000000750000');
-    expect(maria.cm_42_oficina_principal).toBe('0405');
+    expect(maria.cm_41_tipo_cargo).toBe('007');
+    expect(maria.cm_42_oficina_principal).toBe('0410');
+    expect(maria.cm_43_oficina_secundaria).toBe('0405');
     expect(maria.cm_44_constante_solicitud).toBe('I');
 
     // Verificar Carlos (p1, 2 dependientes, $500 * 50 * 0.2 = Bs 5.000,00 -> 000000000500000)
@@ -244,7 +305,7 @@ describe('CARGA MASIVA - NOMINA (Moneda Nacional)', () => {
       filas: procesadas,
     };
 
-    // 1. Excel
+    // 1. Excel (incluye MODELO, Hoja1 y RESUMEN CONTROL)
     const excelData = construirDatosExcelCargaMasiva(op);
     expect(excelData.cabecerasModelo).toHaveLength(44);
     expect(excelData.cabecerasModelo[0]).toBe('NUMERO BANCO (NO MODIFICAR)');
@@ -252,6 +313,10 @@ describe('CARGA MASIVA - NOMINA (Moneda Nacional)', () => {
     expect(excelData.filasModelo).toHaveLength(2);
     expect(excelData.filasModelo[0][0]).toBe('0163');
     expect(excelData.filasModelo[0][1]).toBe('0000001');
+    expect(excelData.filasHoja1).toEqual([
+      ['0163000001', 'E084512369', '01630221012211002934', '000000000750000'],
+      ['0163000002', 'V002980635', '00000000000000000000', '000000000500000'],
+    ]);
     expect(excelData.filasControl).toHaveLength(2);
 
     // 2. CSV
@@ -261,17 +326,42 @@ describe('CARGA MASIVA - NOMINA (Moneda Nacional)', () => {
     expect(lineasCsv[0].startsWith('"NUMERO BANCO (NO MODIFICAR)";"CORRELATIVO CLIENTE"')).toBe(true);
     expect(lineasCsv[1].startsWith('"0163";"0000001";')).toBe(true);
 
-    // 3. TXT de ancho fijo (431 caracteres exactos por línea)
+    // 3. TXT tipo resumen de la Hoja1 (Banco+Correlativo10 Cédula10 Cuenta20 MontoBs15)
     const txt = generarContenidoTxtRrhh(op);
     const lineasTxt = txt.split('\r\n');
-    expect(lineasTxt).toHaveLength(2);
-    expect(lineasTxt[0]).toHaveLength(431);
-    expect(lineasTxt[1]).toHaveLength(431);
-    expect(lineasTxt[0].slice(0, 12)).toBe('01630000001E');
-    expect(lineasTxt[1].slice(0, 12)).toBe('01630000002V');
-    expect(lineasTxt[0].endsWith('04050405I')).toBe(true);
+    expect(lineasTxt).toEqual([
+      '0163000001 E084512369 01630221012211002934 000000000750000',
+      '0163000002 V002980635 00000000000000000000 000000000500000',
+    ]);
 
-    // 4. Nombres de archivos y KPIs para PDF / UI
+    // Réplica exacta de la fila 1 de Hoja1 del archivo bancario de referencia
+    const ejemploHoja1 = construirResumenTxtHoja1({
+      codigoBanco: '0163',
+      correlativo: 180719,
+      tipoDoc: 'V',
+      cedula15: '000000002940602',
+      cuenta20: '01630221012211002934',
+      monto15: formatearSueldoBancario15(7250),
+    });
+    expect(ejemploHoja1.lineaTxt).toBe('0163180719 V002940602 01630221012211002934 000000000725000');
+
+    // 4. Persistencia y sincronización de ficha_bancaria con datos_pago.cuentas
+    const fusionado = combinarDatosPagoConFichaBancaria(
+      { cuentas: [] },
+      {
+        calle_avenida: 'AV PASEO CARONI',
+        apto_local: 'EDIF 3 APTO 2A',
+        parroquia: '070106',
+        zona_postal: '8050',
+        cuenta_nomina: '01630405123456789012',
+      },
+      { nombreCompleto: 'Carlos Martínez', cedula: 'V-2980635' },
+    );
+    expect(leerFichaBancaria(fusionado).calle_avenida).toBe('AV PASEO CARONI');
+    expect(extraerCuenta20Digitos(fusionado)).toBe('01630405123456789012');
+    expect(resumenDireccionFichaBancaria(leerFichaBancaria(fusionado))).toContain('AV PASEO CARONI');
+
+    // 5. Nombres de archivos y KPIs para PDF / UI
     expect(generarNombreArchivoRrhh('carga_masiva_nomina', 'xlsx')).toMatch(/^rrhh-carga-masiva-nomina-\d{4}-\d{2}-\d{2}\.xlsx$/);
     expect(generarNombreArchivoRrhh('carga_masiva_nomina', 'csv')).toMatch(/\.csv$/);
     expect(generarNombreArchivoRrhh('carga_masiva_nomina', 'txt')).toMatch(/\.txt$/);

@@ -803,6 +803,9 @@ export function ReporteRrhhModal({ empresaInicial, ambitoInicial = 'personal', p
               </select>
             </div>
           </div>
+          <div style={{ marginTop: '.55rem', fontSize: '.76rem', color: 'var(--muted)' }}>
+            💡 Toma automáticamente los datos desglosados del registro de personal (calle/avenida, casa/edificio, piso, N°/apto, parroquia, teléfono local, cuenta nómina 20 dígitos y códigos bancarios). El botón <strong>📝 TXT</strong> genera el formato resumen de la <strong>Hoja1</strong> (<code>Banco+Correlativo · Cédula · Cuenta 20 díg. · Monto Bs 15 díg.</code>).
+          </div>
         </div>
       )}
 

@@ -8,7 +8,7 @@
    ============================================================ */
 
 import type { Personal } from '@/shared/lib/types';
-import { leerCuentas } from './datosBancarios';
+import { leerCuentas, type CuentaPago } from './datosBancarios';
 import type { DefinicionEmpresa } from './empresa';
 import { gradoMasAlto } from './fichaPersonal';
 import type { FamiliarPersonal } from './personal.repository';
@@ -76,6 +76,267 @@ export const TIPOS_SOLICITUD_BANCO = [
   { codigo: 'I', etiqueta: 'I · INGRESO NUEVO' },
   { codigo: 'M', etiqueta: 'M · CAMBIOS' },
   { codigo: 'D', etiqueta: 'D · DESINCORPORAR' },
+] as const;
+
+export const CONDICIONES_INMUEBLE_BANCO = [
+  { codigo: '1', etiqueta: '1 · PROPIA' },
+  { codigo: '2', etiqueta: '2 · ALQUILADA' },
+  { codigo: '3', etiqueta: '3 · DE UN FAMILIAR' },
+] as const;
+
+export const TIPOS_VIVIENDA_BANCO = [
+  { codigo: '1', etiqueta: '1 · CASA' },
+  { codigo: '2', etiqueta: '2 · QUINTA' },
+  { codigo: '3', etiqueta: '3 · APARTAMENTO' },
+] as const;
+
+export const FUENTES_INGRESO_BANCO = [
+  { codigo: '1', etiqueta: '1 · SUELDO' },
+  { codigo: '2', etiqueta: '2 · SALARIO' },
+  { codigo: '3', etiqueta: '3 · JUBILACION' },
+  { codigo: '4', etiqueta: '4 · INDEPENDIENTE' },
+] as const;
+
+export const PAISES_BANCO = [
+  { codigo: 'VE', etiqueta: 'VE · VENEZUELA' },
+  { codigo: 'CO', etiqueta: 'CO · COLOMBIA' },
+  { codigo: 'BR', etiqueta: 'BR · BRASIL' },
+  { codigo: 'GY', etiqueta: 'GY · GUYANA' },
+  { codigo: 'PE', etiqueta: 'PE · PERU' },
+  { codigo: 'EC', etiqueta: 'EC · ECUADOR' },
+  { codigo: 'CL', etiqueta: 'CL · CHILE' },
+  { codigo: 'CU', etiqueta: 'CU · CUBA' },
+  { codigo: 'AR', etiqueta: 'AR · ARGENTINA' },
+  { codigo: 'BO', etiqueta: 'BO · BOLIVIA' },
+  { codigo: 'UY', etiqueta: 'UY · URUGUAY' },
+  { codigo: 'PY', etiqueta: 'PY · PARAGUAY' },
+  { codigo: 'DO', etiqueta: 'DO · REPUBLICA DOMINICANA' },
+  { codigo: 'MX', etiqueta: 'MX · MEXICO' },
+  { codigo: 'TT', etiqueta: 'TT · TRINIDAD Y TOBAGO' },
+  { codigo: 'ES', etiqueta: 'ES · ESPANA' },
+  { codigo: 'PT', etiqueta: 'PT · PORTUGAL' },
+  { codigo: 'IT', etiqueta: 'IT · ITALIA' },
+  { codigo: 'CN', etiqueta: 'CN · CHINA' },
+  { codigo: 'US', etiqueta: 'US · ESTADOS UNIDOS' },
+] as const;
+
+export const ESTADOS_BANCO = [
+  { codigo: '07', etiqueta: '07 · BOLIVAR' },
+  { codigo: '01', etiqueta: '01 · DISTRITO CAPITAL' },
+  { codigo: '02', etiqueta: '02 · AMAZONAS' },
+  { codigo: '03', etiqueta: '03 · ANZOATEGUI' },
+  { codigo: '04', etiqueta: '04 · APURE' },
+  { codigo: '05', etiqueta: '05 · ARAGUA' },
+  { codigo: '06', etiqueta: '06 · BARINAS' },
+  { codigo: '08', etiqueta: '08 · CARABOBO' },
+  { codigo: '09', etiqueta: '09 · COJEDES' },
+  { codigo: '10', etiqueta: '10 · DELTA AMACURO' },
+  { codigo: '11', etiqueta: '11 · FALCON' },
+  { codigo: '12', etiqueta: '12 · GUARICO' },
+  { codigo: '13', etiqueta: '13 · LARA' },
+  { codigo: '14', etiqueta: '14 · MERIDA' },
+  { codigo: '15', etiqueta: '15 · MIRANDA' },
+  { codigo: '16', etiqueta: '16 · MONAGAS' },
+  { codigo: '17', etiqueta: '17 · NUEVA ESPARTA' },
+  { codigo: '18', etiqueta: '18 · PORTUGUESA' },
+  { codigo: '19', etiqueta: '19 · SUCRE' },
+  { codigo: '20', etiqueta: '20 · TACHIRA' },
+  { codigo: '21', etiqueta: '21 · TRUJILLO' },
+  { codigo: '22', etiqueta: '22 · YARACUY' },
+  { codigo: '23', etiqueta: '23 · ZULIA' },
+  { codigo: '24', etiqueta: '24 · VARGAS (LA GUAIRA)' },
+] as const;
+
+export const CIUDADES_BANCO = [
+  { codigo: '0701', etiqueta: '0701 · PUERTO ORDAZ (BOLIVAR)' },
+  { codigo: '0702', etiqueta: '0702 · SAN FELIX (BOLIVAR)' },
+  { codigo: '0703', etiqueta: '0703 · CIUDAD BOLIVAR (BOLIVAR)' },
+  { codigo: '0101', etiqueta: '0101 · CARACAS (DISTRITO CAPITAL)' },
+  { codigo: '0201', etiqueta: '0201 · PUERTO AYACUCHO (AMAZONAS)' },
+  { codigo: '0301', etiqueta: '0301 · BARCELONA (ANZOATEGUI)' },
+  { codigo: '0302', etiqueta: '0302 · PUERTO LA CRUZ (ANZOATEGUI)' },
+  { codigo: '0303', etiqueta: '0303 · EL TIGRE (ANZOATEGUI)' },
+  { codigo: '0304', etiqueta: '0304 · LECHERIAS (ANZOATEGUI)' },
+  { codigo: '0305', etiqueta: '0305 · ANACO (ANZOATEGUI)' },
+  { codigo: '0402', etiqueta: '0402 · SAN FERNANDO DE APURE' },
+  { codigo: '0504', etiqueta: '0504 · MARACAY (ARAGUA)' },
+  { codigo: '0601', etiqueta: '0601 · BARINAS' },
+  { codigo: '0814', etiqueta: '0814 · VALENCIA (CARABOBO)' },
+  { codigo: '1001', etiqueta: '1001 · TUCUPITA (DELTA AMACURO)' },
+  { codigo: '1101', etiqueta: '1101 · CORO (FALCON)' },
+  { codigo: '1201', etiqueta: '1201 · SAN JUAN DE LOS MORROS (GUARICO)' },
+  { codigo: '1301', etiqueta: '1301 · BARQUISIMETO (LARA)' },
+  { codigo: '1401', etiqueta: '1401 · MERIDA' },
+  { codigo: '1501', etiqueta: '1501 · LOS TEQUES (MIRANDA)' },
+  { codigo: '1601', etiqueta: '1601 · MATURIN (MONAGAS)' },
+  { codigo: '1701', etiqueta: '1701 · PORLAMAR (NUEVA ESPARTA)' },
+  { codigo: '1801', etiqueta: '1801 · GUANARE / ACARIGUA (PORTUGUESA)' },
+  { codigo: '1901', etiqueta: '1901 · CUMANA (SUCRE)' },
+  { codigo: '2001', etiqueta: '2001 · SAN CRISTOBAL (TACHIRA)' },
+  { codigo: '2101', etiqueta: '2101 · TRUJILLO / VALERA' },
+  { codigo: '2201', etiqueta: '2201 · SAN FELIPE (YARACUY)' },
+  { codigo: '2301', etiqueta: '2301 · MARACAIBO (ZULIA)' },
+  { codigo: '2401', etiqueta: '2401 · LA GUAIRA' },
+] as const;
+
+export const MUNICIPIOS_BANCO = [
+  { codigo: '0701', etiqueta: '0701 · CARONI (PUERTO ORDAZ)' },
+  { codigo: '0702', etiqueta: '0702 · HERES / SAN FELIX' },
+  { codigo: '0703', etiqueta: '0703 · CIUDAD BOLIVAR / SUCRE' },
+  { codigo: '0704', etiqueta: '0704 · CEDENO (CAICARA DEL ORINOCO)' },
+  { codigo: '0705', etiqueta: '0705 · EL CALLAO' },
+  { codigo: '0706', etiqueta: '0706 · GRAN SABANA (SANTA ELENA DE UAIREN)' },
+  { codigo: '0707', etiqueta: '0707 · PADRE PEDRO CHIEN (EL PALMAR)' },
+  { codigo: '0708', etiqueta: '0708 · PIAR (UPATA)' },
+  { codigo: '0709', etiqueta: '0709 · RAUL LEONI (CIUDAD PIAR)' },
+  { codigo: '0710', etiqueta: '0710 · ROSCIO (GUASIPATI)' },
+  { codigo: '0711', etiqueta: '0711 · SIFONTES (TUMEREMO / EL DORADO)' },
+  { codigo: '0101', etiqueta: '0101 · LIBERTADOR (CARACAS)' },
+  { codigo: '0301', etiqueta: '0301 · SIMON BOLIVAR (BARCELONA)' },
+  { codigo: '0303', etiqueta: '0303 · SIMON RODRIGUEZ (EL TIGRE)' },
+  { codigo: '1001', etiqueta: '1001 · TUCUPITA (DELTA AMACURO)' },
+  { codigo: '1601', etiqueta: '1601 · MATURIN (MONAGAS)' },
+] as const;
+
+export const PARROQUIAS_BANCO = [
+  { codigo: '070106', etiqueta: '070106 · UNARE (CARONI · CIUDAD GUAYANA)' },
+  { codigo: '070101', etiqueta: '070101 · CACHAMAY (CARONI · CIUDAD GUAYANA)' },
+  { codigo: '070107', etiqueta: '070107 · UNIVERSIDAD (CARONI · CIUDAD GUAYANA)' },
+  { codigo: '070102', etiqueta: '070102 · CHIRICA (CARONI · SAN FELIX)' },
+  { codigo: '070103', etiqueta: '070103 · DALLA COSTA (CARONI · SAN FELIX)' },
+  { codigo: '070104', etiqueta: '070104 · ONCE DE ABRIL (CARONI · SAN FELIX)' },
+  { codigo: '070105', etiqueta: '070105 · SIMON BOLIVAR (CARONI · SAN FELIX)' },
+  { codigo: '070108', etiqueta: '070108 · VISTA AL SOL (CARONI · SAN FELIX)' },
+  { codigo: '070109', etiqueta: '070109 · POZO VERDE (CARONI)' },
+  { codigo: '070110', etiqueta: '070110 · YOCOIMA (CARONI)' },
+  { codigo: '070201', etiqueta: '070201 · AGUA SALADA (HERES · CIUDAD BOLIVAR)' },
+  { codigo: '070202', etiqueta: '070202 · CATEDRAL (HERES · CIUDAD BOLIVAR)' },
+  { codigo: '070203', etiqueta: '070203 · JOSE ANTONIO PAEZ (HERES · CIUDAD BOLIVAR)' },
+  { codigo: '070204', etiqueta: '070204 · LA SABANITA (HERES · CIUDAD BOLIVAR)' },
+  { codigo: '070205', etiqueta: '070205 · MARHUANTA (HERES · CIUDAD BOLIVAR)' },
+  { codigo: '070206', etiqueta: '070206 · VISTA HERMOSA (HERES · CIUDAD BOLIVAR)' },
+  { codigo: '070207', etiqueta: '070207 · ORINOCO (HERES)' },
+  { codigo: '070208', etiqueta: '070208 · PANAPANA (HERES)' },
+  { codigo: '070209', etiqueta: '070209 · ZEA (HERES)' },
+  { codigo: '070301', etiqueta: '070301 · SUCRE / MARIPA' },
+  { codigo: '070401', etiqueta: '070401 · CEDENO (CAICARA DEL ORINOCO)' },
+  { codigo: '070406', etiqueta: '070406 · PIJIGUAOS (CEDENO)' },
+  { codigo: '070501', etiqueta: '070501 · EL CALLAO' },
+  { codigo: '070601', etiqueta: '070601 · GRAN SABANA (SANTA ELENA DE UAIREN)' },
+  { codigo: '070602', etiqueta: '070602 · IKABARU (GRAN SABANA)' },
+  { codigo: '070701', etiqueta: '070701 · PADRE PEDRO CHIEN (EL PALMAR)' },
+  { codigo: '070801', etiqueta: '070801 · PIAR (UPATA)' },
+  { codigo: '070802', etiqueta: '070802 · ANDRES ELOY BLANCO (PIAR)' },
+  { codigo: '070803', etiqueta: '070803 · PEDRO COVA / EL MANTECO (PIAR)' },
+  { codigo: '070901', etiqueta: '070901 · RAUL LEONI (CIUDAD PIAR)' },
+  { codigo: '071001', etiqueta: '071001 · ROSCIO (GUASIPATI)' },
+  { codigo: '071002', etiqueta: '071002 · SALOM / EL MIAMO (ROSCIO)' },
+  { codigo: '071101', etiqueta: '071101 · SIFONTES (TUMEREMO)' },
+  { codigo: '071102', etiqueta: '071102 · DALLA COSTA (EL DORADO)' },
+  { codigo: '071103', etiqueta: '071103 · SAN ISIDRO / LAS CLARITAS (SIFONTES)' },
+  { codigo: '010105', etiqueta: '010105 · CATEDRAL / CARACAS' },
+] as const;
+
+export const PROFESIONES_BANCO = [
+  { codigo: 'OBRE', etiqueta: 'OBRE · OBRERO' },
+  { codigo: 'ANAL', etiqueta: 'ANAL · ANALISTA' },
+  { codigo: 'ASIS', etiqueta: 'ASIS · ASISTENTE' },
+  { codigo: 'COOR', etiqueta: 'COOR · COORDINADOR' },
+  { codigo: 'SUPE', etiqueta: 'SUPE · SUPERVISOR' },
+  { codigo: 'CHOF', etiqueta: 'CHOF · CHOFER' },
+  { codigo: 'SERV', etiqueta: 'SERV · SERVICIOS DE MANTENIMIENTO' },
+  { codigo: 'MECA', etiqueta: 'MECA · MECANICO' },
+  { codigo: 'HERR', etiqueta: 'HERR · HERRERO / SOLDADOR' },
+  { codigo: 'ELEC', etiqueta: 'ELEC · ELECTRONICA / ELECTRICIDAD' },
+  { codigo: 'VIGI', etiqueta: 'VIGI · VIGILANTE' },
+  { codigo: 'CHEF', etiqueta: 'CHEF · CHEF / COCINERO(A)' },
+  { codigo: 'CONS', etiqueta: 'CONS · CONSERJE' },
+  { codigo: 'MENS', etiqueta: 'MENS · MENSAJERO' },
+  { codigo: 'COMP', etiqueta: 'COMP · COMPRADOR' },
+  { codigo: 'VEND', etiqueta: 'VEND · VENDEDOR(A)' },
+  { codigo: 'SECR', etiqueta: 'SECR · SECRETARIA' },
+  { codigo: 'RECE', etiqueta: 'RECE · RECEPCIONISTA' },
+  { codigo: 'CAJE', etiqueta: 'CAJE · CAJERO BANCARIO' },
+  { codigo: 'LADM', etiqueta: 'LADM · ADMINISTRACION' },
+  { codigo: 'LAEM', etiqueta: 'LAEM · ADMINISTRACION DE EMPRESAS' },
+  { codigo: 'LARH', etiqueta: 'LARH · ADMINISTRACION DE RECURSOS HUMANOS' },
+  { codigo: 'LCPU', etiqueta: 'LCPU · CONTADURIA PUBLICA' },
+  { codigo: 'LRIN', etiqueta: 'LRIN · RELACIONES INDUSTRIALES' },
+  { codigo: 'ABOG', etiqueta: 'ABOG · ABOGADO' },
+  { codigo: 'ECON', etiqueta: 'ECON · ECONOMISTA' },
+  { codigo: 'GEOL', etiqueta: 'GEOL · GEOLOGO' },
+  { codigo: 'INGE', etiqueta: 'INGE · INGENIERO' },
+  { codigo: 'INID', etiqueta: 'INID · INGENIERO INDUSTRIAL' },
+  { codigo: 'INME', etiqueta: 'INME · INGENIERO MECANICO' },
+  { codigo: 'INEL', etiqueta: 'INEL · INGENIERO ELECTRICO' },
+  { codigo: 'INET', etiqueta: 'INET · INGENIERO ELECTRONICO' },
+  { codigo: 'INQU', etiqueta: 'INQU · INGENIERO QUIMICO' },
+  { codigo: 'INGM', etiqueta: 'INGM · INGENIERO DE MATERIALES' },
+  { codigo: 'INGA', etiqueta: 'INGA · INGENIERO AMBIENTAL' },
+  { codigo: 'INCI', etiqueta: 'INCI · INGENIERO CIVIL' },
+  { codigo: 'INSI', etiqueta: 'INSI · INGENIERO DE SISTEMAS' },
+  { codigo: 'LINF', etiqueta: 'LINF · INFORMATICA' },
+  { codigo: 'ARQU', etiqueta: 'ARQU · ARQUITECTO' },
+  { codigo: 'TOPO', etiqueta: 'TOPO · TOPOGRAFO' },
+  { codigo: 'MEDI', etiqueta: 'MEDI · MEDICO(A)' },
+  { codigo: 'ENFE', etiqueta: 'ENFE · ENFERMERA' },
+  { codigo: 'LPSI', etiqueta: 'LPSI · PSICOLOGIA' },
+  { codigo: 'TADE', etiqueta: 'TADE · TSU ADMINISTRACION DE EMPRESAS' },
+  { codigo: 'TACF', etiqueta: 'TACF · TSU ADMON CONTABILIDAD Y FINANZAS' },
+  { codigo: 'TRIN', etiqueta: 'TRIN · TSU RELACIONES INDUSTRIALES' },
+  { codigo: 'TINF', etiqueta: 'TINF · TSU INFORMATICA' },
+  { codigo: 'TMIN', etiqueta: 'TMIN · TSU MANTENIMIENTO INDUSTRIAL' },
+  { codigo: 'TMEC', etiqueta: 'TMEC · TSU MECANICA' },
+  { codigo: 'TMEL', etiqueta: 'TMEL · TSU TECNICO ELECTRICISTA' },
+  { codigo: 'TSUG', etiqueta: 'TSUG · TSU GEOLOGIA' },
+  { codigo: 'TQUI', etiqueta: 'TQUI · TSU QUIMICA' },
+  { codigo: 'TSUO', etiqueta: 'TSUO · TSU OBRAS CIVILES' },
+  { codigo: 'SINE', etiqueta: 'SINE · SIN ESTUDIOS' },
+  { codigo: 'OTRO', etiqueta: 'OTRO · OTROS' },
+] as const;
+
+export const TIPOS_CARGO_BANCO = [
+  { codigo: '001', etiqueta: '001 · PRESIDENTE' },
+  { codigo: '029', etiqueta: '029 · VICEPRESIDENTE' },
+  { codigo: '002', etiqueta: '002 · DIRECTOR' },
+  { codigo: '075', etiqueta: '075 · GERENTE GENERAL' },
+  { codigo: '003', etiqueta: '003 · GERENTE' },
+  { codigo: '004', etiqueta: '004 · SUBGERENTE' },
+  { codigo: '015', etiqueta: '015 · JEFE DE AREA' },
+  { codigo: '006', etiqueta: '006 · COORDINADOR(A)' },
+  { codigo: '005', etiqueta: '005 · SUPERVISOR' },
+  { codigo: '009', etiqueta: '009 · ENCARGADO(A)' },
+  { codigo: '041', etiqueta: '041 · ADMINISTRADOR' },
+  { codigo: '007', etiqueta: '007 · ANALISTA' },
+  { codigo: '012', etiqueta: '012 · ESPECIALISTA' },
+  { codigo: '013', etiqueta: '013 · ASISTENTE' },
+  { codigo: '020', etiqueta: '020 · AUXILIAR' },
+  { codigo: '077', etiqueta: '077 · ADJUNTO' },
+  { codigo: '030', etiqueta: '030 · OFICINISTA / ALMACEN' },
+  { codigo: '074', etiqueta: '074 · COMPRADOR' },
+  { codigo: '027', etiqueta: '027 · AUDITOR / CONTADOR' },
+  { codigo: '026', etiqueta: '026 · ASESOR' },
+  { codigo: '045', etiqueta: '045 · CONSULTOR' },
+  { codigo: '032', etiqueta: '032 · ABOGADO' },
+  { codigo: '031', etiqueta: '031 · INGENIERO' },
+  { codigo: '068', etiqueta: '068 · GEOLOGO' },
+  { codigo: '067', etiqueta: '067 · QUIMICO / FISICO' },
+  { codigo: '035', etiqueta: '035 · ARQUITECTO' },
+  { codigo: '028', etiqueta: '028 · PROGRAMADOR / SISTEMAS' },
+  { codigo: '033', etiqueta: '033 · MEDICO / CIRUJANO' },
+  { codigo: '008', etiqueta: '008 · SECRETARIA' },
+  { codigo: '024', etiqueta: '024 · RECEPCIONISTA' },
+  { codigo: '018', etiqueta: '018 · CAJERO(A)' },
+  { codigo: '016', etiqueta: '016 · TECNICO' },
+  { codigo: '017', etiqueta: '017 · OPERADOR' },
+  { codigo: '011', etiqueta: '011 · OBRERO' },
+  { codigo: '021', etiqueta: '021 · CHOFER' },
+  { codigo: '046', etiqueta: '046 · CHEF / COCINERO' },
+  { codigo: '047', etiqueta: '047 · MESONERO' },
+  { codigo: '023', etiqueta: '023 · VIGILANTE' },
+  { codigo: '022', etiqueta: '022 · CONSERJE / MANTENIMIENTO' },
+  { codigo: '010', etiqueta: '010 · VENDEDOR(A)' },
+  { codigo: '078', etiqueta: '078 · OTROS' },
 ] as const;
 
 export const OFICINAS_BANCARIAS = [
@@ -786,7 +1047,246 @@ export function formatearSueldoBancario15(montoBs: number): string {
   return String(centimos).slice(0, 15).padStart(15, '0');
 }
 
-/** Construye los 44 campos bancarios para una ficha de personal. */
+/* ───────────── Ficha Bancaria / Dirección Detallada del Personal ───────────── */
+
+/**
+ * Campos complementarios registrados en el formulario de Personal (`personal.datos_pago.ficha_bancaria`)
+ * para nutrir sin pérdida las 44 columnas de `MODELO` y el resumen de pago `.TXT` (`Hoja1`).
+ */
+export interface FichaBancariaPersonal {
+  pais_nacimiento?: string;
+  telefono_local?: string;
+  calle_avenida?: string;
+  casa_edificio?: string;
+  piso_nivel?: string;
+  apto_local?: string;
+  referencia?: string;
+  region?: string;
+  estado_geo?: string;
+  ciudad?: string;
+  municipio?: string;
+  parroquia?: string;
+  zona_postal?: string;
+  condicion_inmueble?: '1' | '2' | '3' | '';
+  tipo_vivienda?: '1' | '2' | '3' | '';
+  tiempo_residencia?: string;
+  cuenta_nomina?: string;
+  profesion_codigo?: string;
+  tipo_cargo_codigo?: string;
+  fuente_ingreso?: '1' | '2' | '3' | '4' | '';
+  tipo_contrato?: '1' | '2' | '';
+  tipo_nomina?: 'W' | 'B' | 'M' | 'S' | 'Y' | '';
+  tipo_cuenta?: 'CCVI' | 'VI01' | '';
+  oficina_principal?: string;
+  oficina_secundaria?: string;
+}
+
+export const FICHA_BANCARIA_VACIA: Required<FichaBancariaPersonal> = {
+  pais_nacimiento: '',
+  telefono_local: '',
+  calle_avenida: '',
+  casa_edificio: '',
+  piso_nivel: '',
+  apto_local: '',
+  referencia: '',
+  region: '',
+  estado_geo: '',
+  ciudad: '',
+  municipio: '',
+  parroquia: '',
+  zona_postal: '',
+  condicion_inmueble: '',
+  tipo_vivienda: '',
+  tiempo_residencia: '',
+  cuenta_nomina: '',
+  profesion_codigo: '',
+  tipo_cargo_codigo: '',
+  fuente_ingreso: '',
+  tipo_contrato: '',
+  tipo_nomina: '',
+  tipo_cuenta: '',
+  oficina_principal: '',
+  oficina_secundaria: '',
+};
+
+/** Valores predeterminados para una ficha nueva en Guayana / Puerto Ordaz. */
+export const FICHA_BANCARIA_NUEVA_DEFAULT: Required<FichaBancariaPersonal> = {
+  ...FICHA_BANCARIA_VACIA,
+  pais_nacimiento: 'VE',
+  region: '09',
+  estado_geo: '07',
+  ciudad: '0701',
+  municipio: '0701',
+  parroquia: '070106',
+  zona_postal: '8050',
+  condicion_inmueble: '1',
+  tipo_vivienda: '1',
+  tiempo_residencia: '1',
+  fuente_ingreso: '1',
+  tipo_contrato: '2',
+  tipo_nomina: 'B',
+  tipo_cuenta: 'CCVI',
+  oficina_principal: '0405',
+  oficina_secundaria: '0405',
+};
+
+/** Lee `ficha_bancaria` desde `personal.datos_pago` sin fallar ante datos vacíos o antiguos. */
+export function leerFichaBancaria(datosPago: unknown): Required<FichaBancariaPersonal> {
+  const base = { ...FICHA_BANCARIA_VACIA };
+  if (!datosPago || typeof datosPago !== 'object') return base;
+  const raw = (datosPago as Record<string, unknown>).ficha_bancaria;
+  if (!raw || typeof raw !== 'object') return base;
+  const obj = raw as Record<string, unknown>;
+  for (const k of Object.keys(base) as Array<keyof FichaBancariaPersonal>) {
+    const val = obj[k];
+    if (typeof val === 'string' || typeof val === 'number') {
+      (base as Record<string, string>)[k] = String(val).trim();
+    }
+  }
+  return base;
+}
+
+/** Extrae la cuenta bancaria nómina de 20 dígitos desde `ficha_bancaria` o `datos_pago.cuentas`. */
+export function extraerCuenta20Digitos(
+  datosPago?: unknown,
+  ficha?: FichaBancariaPersonal | null,
+  codigoBancoPreferido = CODIGO_BANCO_DEFAULT,
+): string {
+  const fb = ficha ?? leerFichaBancaria(datosPago);
+  const directa = String(fb.cuenta_nomina ?? '').replace(/\D/g, '');
+  if (directa.length === 20) return directa;
+
+  const cuentas = leerCuentas(datosPago).filter((c) => c.tipo === 'transferencia');
+  const con20 = cuentas
+    .map((c) => ({ ...c, digitos: String(c.cuenta ?? '').replace(/\D/g, '') }))
+    .filter((c) => c.digitos.length === 20);
+
+  if (con20.length > 0) {
+    const delBanco = con20.find((c) => c.digitos.startsWith(codigoBancoPreferido) || c.banco === codigoBancoPreferido);
+    if (delBanco) return delBanco.digitos;
+    const principal = con20.find((c) => c.principal);
+    if (principal) return principal.digitos;
+    return con20[0].digitos;
+  }
+
+  return '';
+}
+
+/** Compone una dirección legible a partir de los campos desglosados de `ficha_bancaria`. */
+export function resumenDireccionFichaBancaria(ficha?: FichaBancariaPersonal | null): string {
+  if (!ficha) return '';
+  const partes: string[] = [];
+  if (ficha.calle_avenida?.trim()) partes.push(ficha.calle_avenida.trim());
+  if (ficha.casa_edificio?.trim()) partes.push(ficha.casa_edificio.trim());
+  if (ficha.piso_nivel?.trim()) partes.push(`Piso/Nivel ${ficha.piso_nivel.trim()}`);
+  if (ficha.apto_local?.trim()) partes.push(`N°/Apto ${ficha.apto_local.trim()}`);
+  if (ficha.referencia?.trim()) partes.push(`Ref.: ${ficha.referencia.trim()}`);
+  const par = PARROQUIAS_BANCO.find((x) => x.codigo === ficha.parroquia?.trim());
+  if (par) {
+    const nombrePar = par.etiqueta.split('·')[1]?.trim();
+    if (nombrePar) partes.push(nombrePar);
+  }
+  if (ficha.zona_postal?.trim()) partes.push(`ZP ${ficha.zona_postal.trim()}`);
+  return partes.join(', ');
+}
+
+/**
+ * Fusiona `ficha_bancaria` dentro de `personal.datos_pago` preservando `cuentas` existentes
+ * y sincronizando la cuenta nómina de 20 dígitos si se indicó en el formulario.
+ */
+export function combinarDatosPagoConFichaBancaria(
+  datosPagoActual: unknown,
+  ficha?: FichaBancariaPersonal | null,
+  titularInfo?: { nombreCompleto?: string; cedula?: string | null },
+): Record<string, unknown> | undefined {
+  const actualObj: Record<string, unknown> =
+    datosPagoActual && typeof datosPagoActual === 'object' && !Array.isArray(datosPagoActual)
+      ? { ...(datosPagoActual as Record<string, unknown>) }
+      : {};
+
+  if (ficha === undefined) {
+    return Object.keys(actualObj).length > 0 ? actualObj : undefined;
+  }
+
+  const limpio: Record<string, string> = {};
+  if (ficha) {
+    for (const [k, v] of Object.entries(ficha)) {
+      const s = String(v ?? '').trim();
+      if (s) limpio[k] = k === 'cuenta_nomina' ? s.replace(/\D/g, '').slice(0, 20) : s;
+    }
+  }
+
+  if (Object.keys(limpio).length > 0) {
+    actualObj.ficha_bancaria = limpio;
+  } else {
+    delete actualObj.ficha_bancaria;
+  }
+
+  // Si se cargó una cuenta de 20 dígitos en el formulario de registro, asegurar que figure en `cuentas`
+  const cta20 = limpio.cuenta_nomina ?? '';
+  if (/^\d{20}$/.test(cta20)) {
+    const cuentas = [...leerCuentas(actualObj)];
+    const yaEsta = cuentas.some((c) => String(c.cuenta ?? '').replace(/\D/g, '') === cta20);
+    if (!yaEsta) {
+      const nueva: CuentaPago = {
+        id: globalThis.crypto?.randomUUID?.() ?? `cta-${Date.now()}`,
+        tipo: 'transferencia',
+        banco: cta20.slice(0, 4),
+        cuenta: cta20,
+        tipo_cuenta: 'corriente',
+        titular: titularInfo?.nombreCompleto?.trim() || null,
+        cedula: titularInfo?.cedula?.trim() || null,
+        principal: cuentas.length === 0,
+      };
+      actualObj.cuentas = [...cuentas, nueva];
+    }
+  }
+
+  return Object.keys(actualObj).length > 0 ? actualObj : undefined;
+}
+
+/* ───────────── Formato Resumen TXT · Hoja1 (Pago de Nómina) ───────────── */
+
+export interface ResumenTxtHoja1 {
+  /** Código banco (4 díg.) + correlativo (6 díg.) = 10 dígitos, ej. `0163180719` o `0163000001`. */
+  refBanco10: string;
+  /** Letra documento (`V`/`E`/`P`) + cédula de 9 dígitos con ceros a la izquierda = 10 caracteres, ej. `V002940602`. */
+  cedula10: string;
+  /** Cuenta bancaria nómina de 20 dígitos (o 20 ceros si aún no tiene cuenta asignada). */
+  cuenta20: string;
+  /** Monto en Bs expresado en céntimos sin separadores, 15 dígitos con ceros a la izquierda, ej. `000000000725000`. */
+  monto15: string;
+  /** Línea resumen lista para `.TXT` (`Hoja1` del formato bancario). */
+  lineaTxt: string;
+}
+
+/** Construye la tupla resumen de 4 campos de la `Hoja1` del Excel bancario para exportación `.TXT`. */
+export function construirResumenTxtHoja1(opts: {
+  codigoBanco?: string;
+  correlativo: number;
+  tipoDoc: string;
+  cedula15: string;
+  cuenta20?: string;
+  monto15: string;
+}): ResumenTxtHoja1 {
+  const banco4 = String(opts.codigoBanco || CODIGO_BANCO_DEFAULT).replace(/\D/g, '').padStart(4, '0').slice(-4);
+  const corr6 = String(Math.max(1, Math.trunc(opts.correlativo))).padStart(6, '0').slice(-6);
+  const refBanco10 = `${banco4}${corr6}`;
+
+  const letra = (String(opts.tipoDoc || 'V').trim().toUpperCase()[0] || 'V').replace(/[^VEPJG]/, 'V');
+  const ced9 = String(opts.cedula15 ?? '').replace(/\D/g, '').slice(-9).padStart(9, '0');
+  const cedula10 = `${letra}${ced9}`;
+
+  const ctaDigitos = String(opts.cuenta20 ?? '').replace(/\D/g, '');
+  const cuenta20 = ctaDigitos.length === 20 ? ctaDigitos : ctaDigitos.slice(0, 20).padStart(20, '0');
+
+  const monto15 = String(opts.monto15 ?? '').replace(/\D/g, '').slice(-15).padStart(15, '0');
+  const lineaTxt = `${refBanco10} ${cedula10} ${cuenta20} ${monto15}`;
+
+  return { refBanco10, cedula10, cuenta20, monto15, lineaTxt };
+}
+
+/** Construye los 44 campos bancarios (`MODELO`) + el resumen `Hoja1` (`.TXT`) para una ficha de personal. */
 export function construirCamposCargaMasivaPersona(
   p: Personal,
   opts: {
@@ -796,19 +1296,25 @@ export function construirCamposCargaMasivaPersona(
     empresa?: DefinicionEmpresa;
     params?: ParametrosCargaMasivaNomina;
   },
-): CamposCargaMasivaFila & { sueldoBsAplicado: number } {
+): CamposCargaMasivaFila & { sueldoBsAplicado: number; resumenTxtHoja1: ResumenTxtHoja1 } {
   const cfg: Required<ParametrosCargaMasivaNomina> = {
     ...PARAMETROS_CARGA_MASIVA_DEFAULT,
     ...(opts.params ?? {}),
   };
 
+  const fb = leerFichaBancaria(p.datos_pago);
+
   const banco4 = String(cfg.codigoBanco || CODIGO_BANCO_DEFAULT).replace(/\D/g, '').padStart(4, '0').slice(-4);
-  const correlativo7 = String(Math.max(1, Math.trunc(opts.correlativo))).padStart(7, '0').slice(-7);
+  const correlativoNum = Math.max(1, Math.trunc(opts.correlativo));
+  const correlativo7 = String(correlativoNum).padStart(7, '0').slice(-7);
   const { tipoDoc, cedula15 } = normalizarDocumentoBancario(p.cedula, p.nacionalidad, p.rif, p.datos_pago);
   const { primerApellido, segundoApellido, primerNombre, segundoNombre } = separarNombresApellidos(p.nombre, p.apellido);
 
   const fechaNac8 = formatearFechaBancaria(p.fecha_nacimiento);
-  const paisIso = resolverCodigoPaisBancario(p.nacionalidad, tipoDoc);
+  const nacionalidadIso = resolverCodigoPaisBancario(p.nacionalidad, tipoDoc);
+  const paisNacimientoIso = fb.pais_nacimiento
+    ? resolverCodigoPaisBancario(fb.pais_nacimiento, tipoDoc)
+    : nacionalidadIso;
   const sexo = resolverSexoBancario(p.genero);
   const edoCivil = resolverEstadoCivilBancario(p.estado_civil);
 
@@ -816,12 +1322,66 @@ export function construirCamposCargaMasivaPersona(
   const dependientes2 = String(cantDep).padStart(2, '0');
 
   const dir = desglosarDireccionBancaria(p.direccion, cfg);
-  const { tlfLocal, tlfCelular } = normalizarTelefonosBancarios(p.telefono, p.datos_pago, p.contacto_emergencia_tlf);
+  const calleAvenida = limpiarTextoBancario(fb.calle_avenida, 35) || dir.calleAvenida;
+  const casaEdificio = limpiarTextoBancario(fb.casa_edificio, 15) || dir.casaEdificio;
+  const pisoNivel = limpiarTextoBancario(fb.piso_nivel, 5) || dir.pisoNivel;
+  const aptoLocal = limpiarTextoBancario(fb.apto_local, 15) || dir.aptoLocal;
+  const referencia = fb.referencia ? limpiarTextoBancario(fb.referencia, 30) : dir.referencia;
+  const region = fb.region.replace(/\D/g, '')
+    ? fb.region.replace(/\D/g, '').padStart(2, '0').slice(-2)
+    : dir.region;
+  const estado = fb.estado_geo.replace(/\D/g, '')
+    ? fb.estado_geo.replace(/\D/g, '').padStart(2, '0').slice(-2)
+    : dir.estado;
+  const ciudad = fb.ciudad.replace(/\D/g, '')
+    ? fb.ciudad.replace(/\D/g, '').padStart(4, '0').slice(-4)
+    : dir.ciudad;
+  const municipio = fb.municipio.replace(/\D/g, '')
+    ? fb.municipio.replace(/\D/g, '').padStart(4, '0').slice(-4)
+    : dir.municipio;
+  const parroquia = fb.parroquia.replace(/\D/g, '')
+    ? fb.parroquia.replace(/\D/g, '').padStart(6, '0').slice(-6)
+    : dir.parroquia;
+  const zonaPostal = fb.zona_postal.replace(/\D/g, '')
+    ? fb.zona_postal.replace(/\D/g, '').padStart(10, '0').slice(-10)
+    : dir.zonaPostal;
+
+  const { tlfLocal: tlfLocalAuto, tlfCelular } = normalizarTelefonosBancarios(
+    p.telefono,
+    p.datos_pago,
+    p.contacto_emergencia_tlf,
+  );
+  const tlfLocalManual = aOnceDigitosVe(fb.telefono_local);
+  const tlfLocal = tlfLocalManual && tlfLocalManual !== '00000000000' ? tlfLocalManual : tlfLocalAuto;
+
+  const condicionInmueble =
+    fb.condicion_inmueble === '1' || fb.condicion_inmueble === '2' || fb.condicion_inmueble === '3'
+      ? fb.condicion_inmueble
+      : dir.condicionInmueble;
+  const tipoVivienda =
+    fb.tipo_vivienda === '1' || fb.tipo_vivienda === '2' || fb.tipo_vivienda === '3'
+      ? fb.tipo_vivienda
+      : dir.tipoVivienda;
 
   const correo = limpiarTextoBancario(p.correo, 40);
+  const aniosRes = Math.trunc(Number(fb.tiempo_residencia) || 0);
+  const tiempoResidencia2 = aniosRes > 0 ? String(Math.min(99, aniosRes)).padStart(2, '0') : '01';
+
   const grado = p.grado_instruccion?.trim() || gradoMasAlto(p.grados_instruccion) || undefined;
   const nivelEdu = resolverNivelEducacionBancario(grado);
-  const profesion = resolverProfesionBancaria(p.titulo_obtenido, p.cargo, grado);
+  const profManual = limpiarTextoBancario(fb.profesion_codigo, 4).replace(/[^A-Z0-9]/g, '').slice(0, 4);
+  const profesion = profManual.length === 4 ? profManual : resolverProfesionBancaria(p.titulo_obtenido, p.cargo, grado);
+
+  const fuenteIngreso =
+    fb.fuente_ingreso === '1' || fb.fuente_ingreso === '2' || fb.fuente_ingreso === '3' || fb.fuente_ingreso === '4'
+      ? fb.fuente_ingreso
+      : '1';
+  const tipoContrato = fb.tipo_contrato === '1' || fb.tipo_contrato === '2' ? fb.tipo_contrato : cfg.tipoContrato;
+  const tipoNomina =
+    fb.tipo_nomina === 'W' || fb.tipo_nomina === 'B' || fb.tipo_nomina === 'M' || fb.tipo_nomina === 'S' || fb.tipo_nomina === 'Y'
+      ? fb.tipo_nomina
+      : cfg.tipoNomina;
+  const tipoCuenta = fb.tipo_cuenta === 'CCVI' || fb.tipo_cuenta === 'VI01' ? fb.tipo_cuenta : cfg.tipoCuenta;
 
   const sueldoBaseUsd = Number(p.sueldo_base) || 0;
   const pct = Number(cfg.porcentajeSueldoBs) > 0 ? Number(cfg.porcentajeSueldoBs) : 0.2;
@@ -829,12 +1389,27 @@ export function construirCamposCargaMasivaPersona(
   const sueldo15 = formatearSueldoBancario15(sueldoBsAplicado);
 
   const fechaIng8 = formatearFechaBancaria(p.fecha_ingreso);
-  const tipoCargo3 = resolverTipoCargoBancario(p.cargo);
-  const ofiPrin = String(cfg.oficinaPrincipal || '0405').replace(/\D/g, '').padStart(4, '0').slice(-4);
-  const ofiSec = String(cfg.oficinaSecundaria || ofiPrin).replace(/\D/g, '').padStart(4, '0').slice(-4);
+  const cargoManual = fb.tipo_cargo_codigo.replace(/\D/g, '');
+  const tipoCargo3 = cargoManual ? cargoManual.padStart(3, '0').slice(-3) : resolverTipoCargoBancario(p.cargo);
+
+  const ofiPrinRaw = fb.oficina_principal.replace(/\D/g, '') || String(cfg.oficinaPrincipal || '0405').replace(/\D/g, '');
+  const ofiPrin = (ofiPrinRaw || '0405').padStart(4, '0').slice(-4);
+  const ofiSecRaw = fb.oficina_secundaria.replace(/\D/g, '') || String(cfg.oficinaSecundaria || ofiPrin).replace(/\D/g, '');
+  const ofiSec = (ofiSecRaw || ofiPrin).padStart(4, '0').slice(-4);
+
+  const cuenta20 = extraerCuenta20Digitos(p.datos_pago, fb, banco4);
+  const resumenTxtHoja1 = construirResumenTxtHoja1({
+    codigoBanco: banco4,
+    correlativo: correlativoNum,
+    tipoDoc,
+    cedula15,
+    cuenta20,
+    monto15: sueldo15,
+  });
 
   return {
     sueldoBsAplicado,
+    resumenTxtHoja1,
     cm_01_banco: banco4,
     cm_02_correlativo: correlativo7,
     cm_03_tipo_doc: tipoDoc,
@@ -844,35 +1419,35 @@ export function construirCamposCargaMasivaPersona(
     cm_07_primer_nombre: primerNombre,
     cm_08_segundo_nombre: segundoNombre,
     cm_09_fecha_nacimiento: fechaNac8,
-    cm_10_pais_nacimiento: paisIso,
-    cm_11_nacionalidad: paisIso,
+    cm_10_pais_nacimiento: paisNacimientoIso,
+    cm_11_nacionalidad: nacionalidadIso,
     cm_12_sexo: sexo,
     cm_13_estado_civil: edoCivil,
     cm_14_dependientes: dependientes2,
-    cm_15_calle_avenida: dir.calleAvenida,
-    cm_16_casa_edificio: dir.casaEdificio,
-    cm_17_piso_nivel: dir.pisoNivel,
-    cm_18_apto_local: dir.aptoLocal,
-    cm_19_referencia: dir.referencia,
-    cm_20_region: dir.region,
-    cm_21_estado: dir.estado,
-    cm_22_ciudad: dir.ciudad,
-    cm_23_municipio: dir.municipio,
-    cm_24_parroquia: dir.parroquia,
-    cm_25_zona_postal: dir.zonaPostal,
+    cm_15_calle_avenida: calleAvenida,
+    cm_16_casa_edificio: casaEdificio,
+    cm_17_piso_nivel: pisoNivel,
+    cm_18_apto_local: aptoLocal,
+    cm_19_referencia: referencia,
+    cm_20_region: region,
+    cm_21_estado: estado,
+    cm_22_ciudad: ciudad,
+    cm_23_municipio: municipio,
+    cm_24_parroquia: parroquia,
+    cm_25_zona_postal: zonaPostal,
     cm_26_tlf_local: tlfLocal,
     cm_27_tlf_celular: tlfCelular,
-    cm_28_condicion_inmueble: dir.condicionInmueble,
-    cm_29_tipo_vivienda: dir.tipoVivienda,
+    cm_28_condicion_inmueble: condicionInmueble,
+    cm_29_tipo_vivienda: tipoVivienda,
     cm_30_correo: correo,
-    cm_31_tiempo_residencia: '01',
+    cm_31_tiempo_residencia: tiempoResidencia2,
     cm_32_nivel_educacion: nivelEdu,
     cm_33_profesion: profesion,
     cm_34_codigo_industria: CODIGO_INDUSTRIA_CONSTANTE,
-    cm_35_fuente_ingreso: '1',
-    cm_36_tipo_contrato: cfg.tipoContrato,
-    cm_37_tipo_nomina: cfg.tipoNomina,
-    cm_38_tipo_cuenta: cfg.tipoCuenta,
+    cm_35_fuente_ingreso: fuenteIngreso,
+    cm_36_tipo_contrato: tipoContrato,
+    cm_37_tipo_nomina: tipoNomina,
+    cm_38_tipo_cuenta: tipoCuenta,
     cm_39_sueldo_basico: sueldo15,
     cm_40_fecha_ingreso: fechaIng8,
     cm_41_tipo_cargo: tipoCargo3,

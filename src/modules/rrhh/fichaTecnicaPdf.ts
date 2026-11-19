@@ -21,6 +21,7 @@ import {
   numeroFicha, textoEdad, trabajoAnteriorTexto,
 } from './fichaPersonal';
 import { renglonesSalud } from './condicionesSalud';
+import { leerFichaBancaria, resumenDireccionFichaBancaria } from './cargaMasivaNomina';
 import type { FamiliarPersonal } from './personal.repository';
 
 const raya = (v: string | null | undefined) => {
@@ -122,11 +123,17 @@ export async function verFichaTecnicaPdf(p: Personal, familia: FamiliarPersonal[
 
   const emergencia = [p.contacto_emergencia, p.contacto_emergencia_parentesco]
     .map((x) => String(x ?? '').trim()).filter(Boolean).join(', ');
+  const fb = leerFichaBancaria(p.datos_pago);
+  const desgloseDir = resumenDireccionFichaBancaria(fb);
   bloque('Contacto', [
-    ['Teléfono', raya(p.telefono)],
+    ['Teléfono celular', raya(p.telefono)],
+    ...(fb.telefono_local ? [['Teléfono local', fb.telefono_local] as [string, string]] : []),
     ['Correo', raya(p.correo)],
     ['En una emergencia', [emergencia || null, p.contacto_emergencia_tlf || null].filter(Boolean).join(' · ') || '—'],
-    ['Dirección', raya(p.direccion)],
+    ['Dirección', raya(p.direccion || desgloseDir)],
+    ...(desgloseDir && p.direccion && p.direccion.trim() !== desgloseDir
+      ? [['Desglose habitación', desgloseDir] as [string, string]]
+      : []),
   ]);
 
   // Va antes de los datos laborales a propósito: es lo que hay que saber si a
