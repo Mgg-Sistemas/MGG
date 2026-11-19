@@ -77,3 +77,10 @@ export function resumenAutorizacion(a: Pick<UsuarioAutorizado, 'aprobar_oc' | 'a
   if (a.aprobar_despachos) return base ? `${base} · despachos de ventas` : 'Aprueba despachos de ventas';
   return base || 'Sin autorizaciones';
 }
+
+/** Valor del permiso en la ficha (para los checks). */
+export function tienePermiso(a: Pick<UsuarioAutorizado, 'aprobar_oc' | 'aprobar_salidas' | 'aprobar_despachos'>, p: PermisoAutorizado): boolean {
+  if (p === 'oc') return a.aprobar_oc;
+  if (p === 'salidas') return a.aprobar_salidas;
+  return !!a.aprobar_despachos;
+}

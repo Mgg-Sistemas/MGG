@@ -18,16 +18,27 @@ let labelCache: Record<string, string> = {
   analista: 'Analista',
   obrero: 'Personal de Planta / Obrero',
 };
+let colorCache: Record<string, string> = {};
 
 export function labelRol(role: Role | string | null | undefined): string {
   if (!role) return '—';
   return labelCache[String(role)] ?? String(role);
 }
 
-/** Refresca el caché de etiquetas (llamar tras cargar roles dinámicos). */
+/** Color del rol (`custom_roles.color`), si el caché ya se cargó. */
+export function colorRol(role: Role | string | null | undefined): string | undefined {
+  if (!role) return undefined;
+  return colorCache[String(role)];
+}
+
+/** Refresca el caché de etiquetas y colores (llamar tras cargar roles dinámicos). */
 export function setRolesCache(roles: CustomRole[]): void {
   labelCache = roles.reduce<Record<string, string>>((acc, r) => {
     acc[r.key] = r.label;
+    return acc;
+  }, {});
+  colorCache = roles.reduce<Record<string, string>>((acc, r) => {
+    if (r.color) acc[r.key] = r.color;
     return acc;
   }, {});
 }
@@ -339,3 +350,14 @@ export async function cambiarMiClave(nuevaClave: string): Promise<void> {
     throw new Error('No se encontró la ficha del usuario en el sistema para limpiar la bandera.');
   }
 }
+
+/** Desbloquea un usuario bloqueado por 3 intentos fallidos y resetea su clave. */
+export async function desbloquearUsuario(id: string): Promise<string> {
+  const { error } = await supabase.rpc('admin_desbloquear_usuario', { p_user_id: id });
+  if (error) throw error;
+  const clave = await resetearClave(id);
+  return clave ?? 'mgg2026';
+}
+
+export const restaurarUsuario = desarchivarUsuario;
+export const cambiarEmailUsuario = cambiarCorreoUsuario;

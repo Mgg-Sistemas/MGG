@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Quien } from '@/shared/ui/Quien';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -7,19 +8,19 @@ import { toast } from '@/shared/ui/Toast';
 import { notify } from '@/shared/lib/notify';
 import { dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
-import type { Almacen, Usuario } from '@/shared/lib/types';
-import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
+import type { Usuario } from '@/shared/lib/types';
 import {
   crearUsuario,
   actualizarUsuario,
-  cambiaNombre, listHistorialNombres, listHistorialNombresTodos, MOTIVO_NOMBRE_MINIMO, type CambioNombreUsuario,
-  archivarUsuario,
+  cambiarEmailUsuario,
   labelRol,
   listUsuarios,
   loadRolesAndCache,
   resetearClave,
-  cambiarCorreoUsuario,
+  desbloquearUsuario,
   setEstadoUsuario,
+  archivarUsuario,
+  restaurarUsuario,
   getDepartamentos,
   addDepartamento,
   renombrarDepartamento,
@@ -29,57 +30,63 @@ import {
 import { contarUsuariosPorRol, type CustomRole } from './roles.repository';
 import { RolesPermisosPanel } from './RolesPermisosPanel';
 import { NuevoRolModal, GestionarRolesModal } from './RolesModales';
-import { ResumenActividadModal } from './ResumenActividadModal';
-import { UsuariosArchivadosModal } from './UsuariosArchivadosModal';
-import { HistorialNombresModal } from './HistorialNombresModal';
-import { estaArchivado, puedeArchivarse } from './usuariosArchivados';
 import { useSession } from '@/modules/auth/authStore';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { GestionarCategoriasModal } from '@/shared/ui/GestionarCategoriasModal';
+import { ResumenActividadModal } from './ResumenActividadModal';
+import { norm } from '@/shared/lib/texto';
+import { listHistorialNombres, type CambioNombreUsuario } from './usuarios.repository';
+import { estadoVisible, estaArchivado, filtrarPorEstado, puedeArchivar, type FiltroEstadoUsuario } from './usuariosArchivo';
+import { DirectorioUsuarios } from './DirectorioUsuarios';
+import './usuarios.css';
 
 type View = 'creacion' | 'roles';
+
+/* Cómo se mira el padrón: el Directorio agrupa por departamento (capa de
+   descubrimiento) y la Tabla es la tradicional para trabajar. Se recuerda
+   la última usada en este navegador. */
+type VistaLista = 'directorio' | 'tabla';
+const CLAVE_VISTA = 'mgg.usuarios.v1.vista';
+
+function leerVistaLista(): VistaLista {
+  try {
+    const v = localStorage.getItem(CLAVE_VISTA);
+    if (v === 'tabla' || v === 'directorio') return v;
+  } catch { /* sin almacenamiento */ }
+  return 'directorio';
+}
+
+function guardarVistaLista(v: VistaLista) {
+  try { localStorage.setItem(CLAVE_VISTA, v); } catch { /* no crítico */ }
+}
 
 type ModalKind =
   | { kind: 'none' }
   | { kind: 'create' }
   | { kind: 'edit'; usuario: Usuario }
   | { kind: 'detail'; usuario: Usuario }
-  | { kind: 'reset-confirm'; usuario: Usuario }
-  | { kind: 'email-change'; usuario: Usuario }
-  | { kind: 'toggle-confirm'; usuario: Usuario; targetEstado: 'activo' | 'inactivo' }
-  | { kind: 'archive-confirm'; usuario: Usuario }
-  | { kind: 'archivados' }
   | { kind: 'actividad' }
-  | { kind: 'historial-nombres' }
-  | { kind: 'clave'; email: string; clave: string | null; motivo: 'creado' | 'reseteado' };
+  | { kind: 'reset-confirm'; usuario: Usuario }
+  | { kind: 'desbloquear-confirm'; usuario: Usuario }
+  | { kind: 'clave-temporal'; titulo: string; email: string; clave: string }
+  | { kind: 'toggle-confirm'; usuario: Usuario; targetEstado: 'activo' | 'inactivo' }
+  | { kind: 'archivar-confirm'; usuario: Usuario }
+  | { kind: 'restaurar-confirm'; usuario: Usuario };
 
 type RoleQuickModal = 'none' | 'crear' | 'gestionar';
 
 export function UsuariosPage() {
   const { can, isAdmin } = usePermissions();
   const canWrite = can('usuarios', 'escritura');
-  /** La matriz de roles la edita quien tiene Usuarios full (igual que la base). */
-  const canRoles = can('usuarios', 'full');
+  const canFull = can('usuarios', 'full');
   const [usuarios, setUsuarios] = useState<Usuario[]>([]);
   const [roles, setRoles] = useState<CustomRole[]>([]);
-  /** Roles que puede asignar quien está conectado: el rol Administrador solo lo asigna un administrador (igual que la base). */
-  const rolesAsignables = roles.filter((r) => isAdmin || r.key !== 'admin');
+  const rolesAsignables = useMemo(() => (isAdmin ? roles : roles.filter((r) => r.key !== 'admin')), [roles, isAdmin]);
   const [loading, setLoading] = useState(true);
-  // Historial de renombres de todos los usuarios (07-10-2026): se ve en la fila,
-  // en el detalle y en el botón 📜 de arriba.
-  const [historialNombres, setHistorialNombres] = useState<CambioNombreUsuario[]>([]);
-  const cargarHistorialNombres = useCallback(() => { listHistorialNombresTodos().then(setHistorialNombres).catch(() => undefined); }, []);
-  useEffect(() => { cargarHistorialNombres(); }, [cargarHistorialNombres]);
-  useRealtime(['usuarios_nombre_historial'], cargarHistorialNombres);
-  const ultimoRenombre = useMemo(() => {
-    const m = new Map<string, CambioNombreUsuario>();
-    for (const h of historialNombres) if (!m.has(h.usuario_id)) m.set(h.usuario_id, h);
-    return m;
-  }, [historialNombres]);
   const [error, setError] = useState<string | null>(null);
   const [filterText, setFilterText] = useState('');
-  // Pre-carga el filtro si se llega desde la búsqueda global (?buscar=…).
   const [searchParams, setSearchParams] = useSearchParams();
+
   useEffect(() => {
     const b = searchParams.get('buscar');
     if (b) {
@@ -88,12 +95,14 @@ export function UsuariosPage() {
       next.delete('buscar');
       setSearchParams(next, { replace: true });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
   const [filterRol, setFilterRol] = useState<string>('');
-  const [filterEstado, setFilterEstado] = useState<'activo' | 'inactivo' | ''>('');
+  const [filterEstado, setFilterEstado] = useState<FiltroEstadoUsuario>('');
   const [modal, setModal] = useState<ModalKind>({ kind: 'none' });
   const [view, setView] = useState<View>('creacion');
+  const [vistaLista, setVistaLista] = useState<VistaLista>(leerVistaLista);
+  const cambiarVistaLista = (v: VistaLista) => { setVistaLista(v); guardarVistaLista(v); };
   const [roleQuickModal, setRoleQuickModal] = useState<RoleQuickModal>('none');
   const [conteoRoles, setConteoRoles] = useState<Record<string, number>>({});
   const [lastCreatedRoleKey, setLastCreatedRoleKey] = useState<string | null>(null);
@@ -105,7 +114,6 @@ export function UsuariosPage() {
   const refresh = useCallback(async () => {
     try {
       setError(null);
-      // Todo lo que no depende de `rows` va en un solo lote paralelo.
       const [rows, rolesList, counts, conteoD] = await Promise.all([
         listUsuarios(),
         loadRolesAndCache(),
@@ -116,7 +124,6 @@ export function UsuariosPage() {
       setRoles(rolesList);
       setConteoRoles(counts);
       setConteoDeptos(conteoD);
-      // Único paso dependiente: la taxonomía de departamentos necesita `rows`.
       setDepartamentos(await getDepartamentos(rows));
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Error al cargar usuarios');
@@ -127,64 +134,65 @@ export function UsuariosPage() {
     setLoading(true);
     refresh().finally(() => setLoading(false));
   }, [refresh]);
-  // Realtime: usuarios + roles/permisos (altas, cambios de rol o departamento en vivo).
-  useRealtime(['usuarios', 'roles_permisos', 'custom_roles', 'taxonomias'], () => { void refresh(); });
 
-  const activos = useMemo(() => usuarios.filter((u) => u.estado === 'activo').length, [usuarios]);
-  // Los archivados no cuentan como «deshabilitados a la vista»: viven en su apartado.
-  const inactivos = useMemo(() => usuarios.filter((u) => u.estado === 'inactivo' && !estaArchivado(u)).length, [usuarios]);
+  useRealtime(['usuarios', 'custom_roles', 'taxonomias'], () => { void refresh(); });
+
+  const activos = useMemo(() => usuarios.filter((u) => estadoVisible(u) === 'activo').length, [usuarios]);
+  const inactivos = useMemo(() => usuarios.filter((u) => estadoVisible(u) === 'inactivo').length, [usuarios]);
   const archivados = useMemo(() => usuarios.filter(estaArchivado).length, [usuarios]);
 
+  const listaRef = useRef<HTMLDivElement>(null);
+  const verEstado = (estado: Exclude<FiltroEstadoUsuario, ''>) => {
+    setFilterEstado((prev) => (prev === estado ? '' : estado));
+    listaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const filtered = useMemo(() => {
-    const q = filterText.trim().toLowerCase();
+    const q = norm(filterText);
     const nombreCompleto = (u: Usuario) => `${u.nombre ?? ''} ${u.apellido ?? ''}`.trim() || u.email || '';
-    return usuarios
+    return filtrarPorEstado(usuarios, filterEstado)
       .filter((u) => {
-        if (estaArchivado(u)) return false; // los archivados viven en su propio apartado
         if (filterRol && u.role !== filterRol) return false;
-        if (filterEstado && u.estado !== filterEstado) return false;
         if (q) {
           const hay = [u.nombre, u.apellido, u.email, u.ci, u.role]
-            .map((v) => (v ?? '').toString().toLowerCase())
+            .map((v) => norm(String(v ?? '')))
             .join(' | ');
           if (!hay.includes(q)) return false;
         }
         return true;
       })
-      // Orden alfabético por nombre completo (es-VE).
       .sort((a, b) => nombreCompleto(a).localeCompare(nombreCompleto(b), 'es', { sensitivity: 'base' }));
   }, [usuarios, filterText, filterRol, filterEstado]);
 
   return (
     <div>
-      <div className="page-head" style={{ display: 'block' }}>
-        <h1 style={{ textAlign: 'center', marginBottom: '.5rem' }}>
-          {view === 'creacion' ? 'Creación de Usuario' : 'Roles y Permiso'}
-        </h1>
-        <p className="hint muted" style={{ textAlign: 'center' }}>
-          {view === 'creacion'
-            ? 'Gestión de usuarios del sistema. Crea cuentas con clave por defecto, edita datos, resetea claves olvidadas y habilita/deshabilita accesos.'
-            : 'Configurá la matriz de permisos por rol y por módulo del sistema.'}
-        </p>
-
-        <div className="view-switch" role="tablist" aria-label="Vista de usuarios">
+      <div className="page-head">
+        <div>
+          <h1>Usuarios</h1>
+          <p className="muted" style={{ maxWidth: '70ch' }}>
+            {view === 'creacion'
+              ? 'Gestión de usuarios del sistema. Crea cuentas con clave por defecto, edita datos, resetea claves olvidadas y habilita/deshabilita accesos. Los deshabilitados se pueden archivar para que salgan de la lista.'
+              : 'Define qué puede hacer cada rol sobre cada módulo, qué ve en el teléfono y a qué depósitos entra.'}
+          </p>
+        </div>
+        <div className="view-toggle" role="tablist" aria-label="Vista de usuarios">
           <button
             type="button"
             role="tab"
             aria-selected={view === 'creacion'}
-            className={`view-switch-tab${view === 'creacion' ? ' active' : ''}`}
+            className={view === 'creacion' ? 'active' : ''}
             onClick={() => setView('creacion')}
           >
-            👤 Creación de Usuario
+            👤 Personas
           </button>
           <button
             type="button"
             role="tab"
             aria-selected={view === 'roles'}
-            className={`view-switch-tab${view === 'roles' ? ' active' : ''}`}
+            className={view === 'roles' ? 'active' : ''}
             onClick={() => setView('roles')}
           >
-            🛡 Roles y Permiso
+            🛡 Roles y permisos
           </button>
         </div>
       </div>
@@ -196,54 +204,40 @@ export function UsuariosPage() {
       )}
 
       {view === 'roles' ? (
-        <RolesPermisosPanel readOnly={!canRoles} onRolesChanged={refresh} />
+        <RolesPermisosPanel readOnly={!canFull} onRolesChanged={refresh} />
       ) : (
       <>
-      {/* Tarjetas dinámicas (07-10-2026): al tocarlas se ve la información.
-          Activos / deshabilitados filtran la lista (tocar de nuevo quita el
-          filtro); archivados abre su ventana. */}
       <div className="kpi-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
-        <button
-          type="button"
-          className="kpi"
-          onClick={() => setFilterEstado((f) => (f === 'activo' ? '' : 'activo'))}
-          aria-pressed={filterEstado === 'activo'}
-          title={filterEstado === 'activo' ? 'Quitar el filtro' : 'Ver solo los usuarios activos'}
-          style={{ textAlign: 'left', cursor: 'pointer', width: '100%', outline: filterEstado === 'activo' ? '2px solid var(--primary)' : undefined }}
-        >
-          <div className="label">Usuarios activos</div>
-          <div className="value">{activos}</div>
-          <div className="delta">{filterEstado === 'activo' ? '● Mostrando solo activos · tocá para ver todos' : 'Con acceso al sistema · tocá para verlos'}</div>
-          <div className="icon">✓</div>
-        </button>
-        <button
-          type="button"
-          className="kpi"
-          onClick={() => setFilterEstado((f) => (f === 'inactivo' ? '' : 'inactivo'))}
-          aria-pressed={filterEstado === 'inactivo'}
-          title={filterEstado === 'inactivo' ? 'Quitar el filtro' : 'Ver solo los usuarios deshabilitados'}
-          style={{ textAlign: 'left', cursor: 'pointer', width: '100%', outline: filterEstado === 'inactivo' ? '2px solid var(--danger)' : undefined }}
-        >
-          <div className="label">Usuarios deshabilitados</div>
-          <div className="value">{inactivos}</div>
-          <div className="delta down">{filterEstado === 'inactivo' ? '● Mostrando solo deshabilitados · tocá para ver todos' : 'No pueden ingresar · tocá para verlos'}</div>
-          <div className="icon">⛔</div>
-        </button>
-        <button
-          type="button"
-          className="kpi"
-          onClick={() => setModal({ kind: 'archivados' })}
-          title="Abrir la lista de usuarios archivados"
-          style={{ textAlign: 'left', cursor: 'pointer', width: '100%' }}
-        >
-          <div className="label">Usuarios archivados</div>
-          <div className="value">{archivados}</div>
-          <div className="delta">Fuera de la lista principal · tocá para verlos</div>
-          <div className="icon">🗂</div>
-        </button>
+        {([
+          { estado: 'activo', label: 'Usuarios activos', valor: activos, delta: 'Con acceso al sistema', down: false, icon: '✓' },
+          { estado: 'inactivo', label: 'Usuarios deshabilitados', valor: inactivos, delta: 'No pueden ingresar', down: true, icon: '⛔' },
+          { estado: 'archivado', label: 'Usuarios archivados', valor: archivados, delta: 'Fuera de la lista · se pueden restaurar', down: false, icon: '🗄' },
+        ] as const).map((k) => {
+          const activa = filterEstado === k.estado;
+          return (
+            <div
+              key={k.estado}
+              className="kpi usr-filtro-card"
+              role="button"
+              tabIndex={0}
+              aria-pressed={activa}
+              title={activa ? 'Clic para quitar el filtro' : `Clic para ver solo ${k.label.toLowerCase()}`}
+              onClick={() => verEstado(k.estado)}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); verEstado(k.estado); } }}
+            >
+              <div className="label">{k.label}</div>
+              <div className="value">{k.valor}</div>
+              <div className={`delta${k.down ? ' down' : ''}`}>{k.delta}</div>
+              <div className="usr-filtro-pista">
+                {activa ? '✓ Viendo solo estos · clic para quitar' : '⌕ Clic para filtrar'}
+              </div>
+              <div className="icon">{k.icon}</div>
+            </div>
+          );
+        })}
       </div>
 
-      <div className="filterbar" style={{ marginTop: '1rem' }}>
+      <div className="filterbar" style={{ marginTop: '1rem' }} ref={listaRef}>
         <input
           className="search"
           placeholder="Buscar por nombre, apellido, email, CI…"
@@ -265,33 +259,37 @@ export function UsuariosPage() {
           className="select"
           style={{ maxWidth: 180 }}
           value={filterEstado}
-          onChange={(e) => setFilterEstado(e.target.value as 'activo' | 'inactivo' | '')}
+          onChange={(e) => setFilterEstado(e.target.value as FiltroEstadoUsuario)}
         >
-          <option value="">Todos los estados</option>
+          <option value="">Activos y deshabilitados</option>
           <option value="activo">Activos</option>
           <option value="inactivo">Deshabilitados</option>
+          <option value="archivado">Archivados</option>
         </select>
-        <button
-          className="btn btn-ghost"
-          onClick={() => setModal({ kind: 'archivados' })}
-          style={{ marginLeft: 'auto' }}
-          title="Usuarios que salieron de esta lista: buscalos, desarchivalos o habilitalos"
-        >
-          🗂 Archivados{archivados ? ` (${archivados})` : ''}
-        </button>
+        <div className="view-toggle" role="tablist" aria-label="Cómo ver el listado">
+          <button
+            type="button" role="tab" aria-selected={vistaLista === 'directorio'}
+            className={vistaLista === 'directorio' ? 'active' : ''}
+            onClick={() => cambiarVistaLista('directorio')}
+            title="Agrupados por departamento"
+          >
+            Directorio
+          </button>
+          <button
+            type="button" role="tab" aria-selected={vistaLista === 'tabla'}
+            className={vistaLista === 'tabla' ? 'active' : ''}
+            onClick={() => cambiarVistaLista('tabla')}
+            title="La lista completa con todas las columnas"
+          >
+            Tabla
+          </button>
+        </div>
         <button
           className="btn btn-ghost"
           onClick={() => setModal({ kind: 'actividad' })}
-          title="Quién está conectado y cuánto tiempo dura en el sistema"
+          title="Supervisión: usuarios conectados y tiempo en el sistema"
         >
           📊 Resumen de Actividad
-        </button>
-        <button
-          className="btn btn-ghost"
-          onClick={() => setModal({ kind: 'historial-nombres' })}
-          title="Cuándo se le cambió el nombre a cada usuario, de qué a qué, por qué y quién lo hizo"
-        >
-          📜 Historial de nombres{historialNombres.length ? ` (${historialNombres.length})` : ''}
         </button>
         {canWrite && (
           <button
@@ -309,6 +307,12 @@ export function UsuariosPage() {
         <div className="card">
           <EmptyState message="No hay usuarios que coincidan." icon="◇" />
         </div>
+      ) : vistaLista === 'directorio' ? (
+        <DirectorioUsuarios
+          usuarios={filtered}
+          roles={roles}
+          onAbrir={(u) => setModal({ kind: 'detail', usuario: u })}
+        />
       ) : (
         <div className="table-wrap">
           <table className="table">
@@ -325,37 +329,42 @@ export function UsuariosPage() {
             </thead>
             <tbody>
               {filtered.map((u) => (
-                <tr key={u.id}>
+                <tr
+                  key={u.id}
+                  className="usr-fila"
+                  tabIndex={0}
+                  onClick={() => setModal({ kind: 'detail', usuario: u })}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setModal({ kind: 'detail', usuario: u }); }
+                  }}
+                  title="Ver la ficha de este usuario"
+                >
                   <td>
                     <strong>{[u.nombre, u.apellido].filter(Boolean).join(' ') || u.nombre}</strong>
-                    {ultimoRenombre.get(u.id) && (
-                      <div className="muted" style={{ fontSize: '.7rem' }} title={`Renombrado el ${dateTime(ultimoRenombre.get(u.id)!.created_at)} · ${ultimoRenombre.get(u.id)!.motivo}`}>
-                        📜 antes: {ultimoRenombre.get(u.id)!.nombre_anterior}
-                      </div>
-                    )}
-                    {u.must_change_password && (
-                      <div className="muted" style={{ fontSize: '.7rem' }}>
-                        ⚠ Debe cambiar clave al ingresar
+                    {(u.bloqueado || u.must_change_password) && (
+                      <div className="usr-persona-avisos">
+                        {u.bloqueado && <span className="usr-aviso bloqueado">🔒 Bloqueado · 3 intentos fallidos</span>}
+                        {u.must_change_password && <span className="usr-aviso clave">⚠ Clave pendiente</span>}
                       </div>
                     )}
                   </td>
                   <td className="mono">{u.ci ?? '—'}</td>
                   <td>{u.email}</td>
                   <td>{labelRol(u.role)}</td>
-                  <td><StatusBadge estado={u.estado} /></td>
+                  <td><StatusBadge estado={estadoVisible(u)} /></td>
                   <td className="muted" style={{ fontSize: '.82rem' }}>{dateTime(u.created_at)}</td>
                   <td className="actions">
-                    {canWrite && (isAdmin || u.role !== 'admin') && (
+                    {canWrite && (
                       <button
                         className="btn btn-sm btn-ghost"
-                        onClick={() => setModal({ kind: 'edit', usuario: u })}
+                        onClick={(e) => { e.stopPropagation(); setModal({ kind: 'edit', usuario: u }); }}
                       >
                         Editar
                       </button>
                     )}
                     <button
                       className="btn btn-sm btn-ghost"
-                      onClick={() => setModal({ kind: 'detail', usuario: u })}
+                      onClick={(e) => { e.stopPropagation(); setModal({ kind: 'detail', usuario: u }); }}
                     >
                       Ver
                     </button>
@@ -368,14 +377,6 @@ export function UsuariosPage() {
       )}
 
       </>
-      )}
-
-      {modal.kind === 'actividad' && (
-        <ResumenActividadModal onClose={() => setModal({ kind: 'none' })} />
-      )}
-
-      {modal.kind === 'historial-nombres' && (
-        <HistorialNombresModal historial={historialNombres} onClose={() => setModal({ kind: 'none' })} />
       )}
 
       {modal.kind === 'create' && (
@@ -395,15 +396,10 @@ export function UsuariosPage() {
           }}
           onClose={() => setModal({ kind: 'none' })}
           onCreated={async (email, clave) => {
-            setModal({ kind: 'clave', email, clave, motivo: 'creado' });
+            setModal({ kind: 'clave-temporal', titulo: 'Usuario creado', email, clave });
             await refresh();
           }}
         />
-      )}
-
-      {modal.kind === 'clave' && (
-        <ClaveTemporalModal email={modal.email} clave={modal.clave} motivo={modal.motivo}
-          onClose={() => setModal({ kind: 'none' })} />
       )}
 
       {modal.kind === 'edit' && (
@@ -472,7 +468,7 @@ export function UsuariosPage() {
           usuario={modal.usuario}
           onClose={() => setModal({ kind: 'none' })}
           onResetClave={() => setModal({ kind: 'reset-confirm', usuario: modal.usuario })}
-          onCambiarCorreo={() => setModal({ kind: 'email-change', usuario: modal.usuario })}
+          onDesbloquear={() => setModal({ kind: 'desbloquear-confirm', usuario: modal.usuario })}
           onToggleEstado={() =>
             setModal({
               kind: 'toggle-confirm',
@@ -480,52 +476,65 @@ export function UsuariosPage() {
               targetEstado: modal.usuario.estado === 'activo' ? 'inactivo' : 'activo',
             })
           }
-          onArchivar={canWrite && puedeArchivarse(modal.usuario)
-            ? () => setModal({ kind: 'archive-confirm', usuario: modal.usuario })
-            : null}
           onEdit={() => setModal({ kind: 'edit', usuario: modal.usuario })}
+          onArchivar={() => setModal({ kind: 'archivar-confirm', usuario: modal.usuario })}
+          onRestaurar={() => setModal({ kind: 'restaurar-confirm', usuario: modal.usuario })}
         />
       )}
 
-      {modal.kind === 'archive-confirm' && (
+      {modal.kind === 'archivar-confirm' && (
         <ConfirmDialog
           title="Archivar usuario"
-          message={`${modal.usuario.email} saldrá de la lista de usuarios y pasará al apartado de archivados (sigue deshabilitado). Podés desarchivarlo o habilitarlo desde ahí cuando quieras. ¿Continuar?`}
+          message={`${modal.usuario.email} saldrá de la lista de usuarios. No se borra nada: sus órdenes, salidas e historial siguen mostrando su nombre, y se puede restaurar cuando haga falta. ¿Continuar?`}
           confirmText="Archivar"
           onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
           onConfirm={async () => {
             try {
-              await archivarUsuario(modal.usuario.id, user?.email ?? null);
-              toast('Usuario archivado · lo encontrás en 🗂 Archivados', 'success');
+              await archivarUsuario(modal.usuario.id);
+              toast('Usuario archivado', 'success');
               setModal({ kind: 'none' });
               await refresh();
             } catch (e) {
-              toast(e instanceof Error ? e.message : 'Error al archivar', 'error');
+              toast(e instanceof Error ? e.message : 'No se pudo archivar', 'error');
             }
           }}
         />
       )}
 
-      {modal.kind === 'archivados' && (
-        <UsuariosArchivadosModal
-          usuarios={usuarios}
-          canWrite={canWrite}
-          onClose={() => setModal({ kind: 'none' })}
-          onCambio={refresh}
+      {modal.kind === 'restaurar-confirm' && (
+        <ConfirmDialog
+          title="Restaurar usuario"
+          message={`${modal.usuario.email} volverá a la lista como DESHABILITADO. Si debe volver a ingresar, habilitalo después desde su ficha. ¿Continuar?`}
+          confirmText="Restaurar"
+          onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
+          onConfirm={async () => {
+            try {
+              await restaurarUsuario(modal.usuario.id);
+              toast('Usuario restaurado (deshabilitado)', 'success');
+              setModal({ kind: 'none' });
+              await refresh();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'No se pudo restaurar', 'error');
+            }
+          }}
         />
+      )}
+
+      {modal.kind === 'actividad' && (
+        <ResumenActividadModal onClose={() => setModal({ kind: 'none' })} />
       )}
 
       {modal.kind === 'reset-confirm' && (
         <ConfirmDialog
           title="Resetear clave"
-          message={`La clave de ${modal.usuario.email} se cambiará a "mgg2026" y el usuario deberá cambiarla al ingresar. ¿Continuar?`}
+          message={`Se le asignará a ${modal.usuario.email} la clave inicial "mgg2026" y deberá cambiarla al ingresar. ¿Continuar?`}
           confirmText="Resetear"
           onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
           onConfirm={async () => {
             try {
               const clave = await resetearClave(modal.usuario.id);
-              notify(`Clave reseteada · ${modal.usuario.email}`, 'success', { link: '#/app/usuarios' });
-              setModal({ kind: 'clave', email: modal.usuario.email, clave, motivo: 'reseteado' });
+              notify(`Clave reseteada · ${modal.usuario.email} debe cambiarla al ingresar`, 'success', { link: '#/app/usuarios' });
+              setModal({ kind: 'clave-temporal', titulo: 'Clave reseteada', email: modal.usuario.email, clave: clave ?? 'mgg2026' });
               await refresh();
             } catch (e) {
               toast(e instanceof Error ? e.message : 'Error al resetear', 'error');
@@ -534,14 +543,30 @@ export function UsuariosPage() {
         />
       )}
 
-      {modal.kind === 'email-change' && (
-        <CambiarCorreoModal
-          usuario={modal.usuario}
+      {modal.kind === 'clave-temporal' && (
+        <ClaveTemporalModal
+          titulo={modal.titulo}
+          email={modal.email}
+          clave={modal.clave}
+          onClose={() => setModal({ kind: 'none' })}
+        />
+      )}
+
+      {modal.kind === 'desbloquear-confirm' && (
+        <ConfirmDialog
+          title="Desbloquear usuario"
+          message={`Se desbloqueará a ${modal.usuario.email} y su clave volverá a la inicial "mgg2026". Al ingresar deberá cambiarla obligatoriamente. ¿Continuar?`}
+          confirmText="Desbloquear"
           onCancel={() => setModal({ kind: 'detail', usuario: modal.usuario })}
-          onSaved={async (nuevoEmail) => {
-            notify(`Correo actualizado · ${modal.usuario.email} → ${nuevoEmail}`, 'success', { link: '#/app/usuarios' });
-            setModal({ kind: 'none' });
-            await refresh();
+          onConfirm={async () => {
+            try {
+              const clave = await desbloquearUsuario(modal.usuario.id);
+              notify(`Usuario desbloqueado · ${modal.usuario.email} debe cambiar la clave al ingresar`, 'success', { link: '#/app/usuarios' });
+              setModal({ kind: 'clave-temporal', titulo: 'Usuario desbloqueado', email: modal.usuario.email, clave });
+              await refresh();
+            } catch (e) {
+              toast(e instanceof Error ? e.message : 'No se pudo desbloquear', 'error');
+            }
           }}
         />
       )}
@@ -587,11 +612,9 @@ interface UsuarioFormModalProps {
   onSolicitarNuevoRol: () => void;
   onSolicitarGestionRoles: () => void;
   onSolicitarGestionDeptos: () => void;
-  /** Persistir un departamento nuevo y refrescar el listado. */
   onDeptoAgregado: (nombre: string) => Promise<void>;
   onClose: () => void;
-  /** Usuario creado: su correo y la clave temporal que le generó el servidor. */
-  onCreated: (email: string, claveTemporal: string | null) => void;
+  onCreated: (email: string, claveTemporal: string) => void;
 }
 function UsuarioFormModal({
   roles,
@@ -605,11 +628,7 @@ function UsuarioFormModal({
   onClose,
   onCreated,
 }: UsuarioFormModalProps) {
-  const [nombre, setNombre] = useState('');
-  const [apellido, setApellido] = useState('');
-  const [ci, setCi] = useState('');
-  const [telefono, setTelefono] = useState('');
-  const [email, setEmail] = useState('');
+  const formRef = useRef<HTMLDivElement>(null);
   const [departamento, setDepartamento] = useState<string>('');
   const [nuevoDeptoOpen, setNuevoDeptoOpen] = useState(false);
   const [role, setRole] = useState<string>(roles.find((r) => r.key === 'analista')?.key ?? roles[0]?.key ?? '');
@@ -623,7 +642,14 @@ function UsuarioFormModal({
   }, [recientementeCreado, roles, onRecienteConsumido]);
 
   async function handleSubmit() {
-    if (!nombre.trim() || !apellido.trim() || !ci.trim() || !email.trim()) {
+    const root = formRef.current;
+    const val = (name: string) => (root?.querySelector(`[name="${name}"]`) as HTMLInputElement | null)?.value ?? '';
+    const nombre = onlyLetters(val('u-nombre')).trim();
+    const apellido = onlyLetters(val('u-apellido')).trim();
+    const ci = onlyDigits(val('u-ci'), 8).trim();
+    const email = val('u-email').trim().toLowerCase();
+    const telefono = onlyDigits(val('u-telefono'), 15).trim();
+    if (!nombre || !apellido || !ci || !email) {
       toast('Nombre, apellido, CI y correo son obligatorios', 'error');
       return;
     }
@@ -633,20 +659,19 @@ function UsuarioFormModal({
     }
     setSubmitting(true);
     try {
-      const creado = await crearUsuario({
-        nombre: nombre.trim(),
-        apellido: apellido.trim(),
-        ci: ci.trim(),
-        email: email.trim().toLowerCase(),
+      const { claveTemporal } = await crearUsuario({
+        nombre,
+        apellido,
+        ci,
+        email,
+        telefono,
+        departamento: departamento.trim(),
         role,
-        telefono: telefono.trim() || undefined,
-        departamento: departamento.trim() || undefined,
       });
-      // La clave NO va en la notificación (queda guardada y la ven otros): se muestra una sola vez.
       notify(`Usuario creado: ${email}`, 'success', { link: '#/app/usuarios' });
-      onCreated(email.trim().toLowerCase(), creado.claveTemporal);
+      onCreated(email, claveTemporal ?? 'mgg2026');
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Error al crear', 'error');
+      toast(e instanceof Error ? e.message : 'Error al crear usuario', 'error');
     } finally {
       setSubmitting(false);
     }
@@ -654,7 +679,7 @@ function UsuarioFormModal({
 
   return (
     <Modal
-      title="Agregar nuevo usuario"
+      title="Nuevo usuario"
       size="lg"
       onClose={onClose}
       footer={
@@ -666,68 +691,59 @@ function UsuarioFormModal({
         </>
       }
     >
+      <div ref={formRef}>
       <div className="form-grid">
         <div className="form-row">
-          <label>Nombre</label>
+          <label>Nombre *</label>
           <input
             className="input"
-            value={nombre}
-            onChange={(e) => setNombre(onlyLetters(e.target.value))}
+            name="u-nombre"
+            placeholder="JUAN"
+            onChange={(e) => { e.target.value = onlyLetters(e.target.value); }}
             disabled={submitting}
-            placeholder="Solo letras"
+            autoFocus
           />
         </div>
         <div className="form-row">
-          <label>Apellido</label>
+          <label>Apellido *</label>
           <input
             className="input"
-            value={apellido}
-            onChange={(e) => setApellido(onlyLetters(e.target.value))}
+            name="u-apellido"
+            placeholder="PÉREZ"
+            onChange={(e) => { e.target.value = onlyLetters(e.target.value); }}
             disabled={submitting}
-            placeholder="Solo letras"
           />
         </div>
       </div>
 
       <div className="form-grid">
         <div className="form-row">
-          <label>CI</label>
+          <label>CI *</label>
           <input
             className="input mono"
-            value={ci}
-            onChange={(e) => setCi(onlyDigits(e.target.value, 8))}
+            name="u-ci"
             placeholder="12345678"
+            onChange={(e) => { e.target.value = onlyDigits(e.target.value, 8); }}
             maxLength={8}
             inputMode="numeric"
             disabled={submitting}
           />
         </div>
         <div className="form-row">
-          <label>Correo</label>
+          <label>Teléfono</label>
           <input
-            className="input"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="usuario@empresa.com"
+            className="input mono"
+            name="u-telefono"
+            placeholder="04241234567"
+            onChange={(e) => { e.target.value = onlyDigits(e.target.value, 15); }}
+            maxLength={15}
+            inputMode="numeric"
             disabled={submitting}
           />
         </div>
       </div>
 
       <div className="form-grid">
-        <div className="form-row">
-          <label>Teléfono</label>
-          <input
-            className="input mono"
-            value={telefono}
-            onChange={(e) => setTelefono(onlyDigits(e.target.value, 15))}
-            placeholder="04241234567"
-            maxLength={15}
-            inputMode="numeric"
-            disabled={submitting}
-          />
-        </div>
         <div className="form-row">
           <label>Departamento</label>
           <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -736,28 +752,64 @@ function UsuarioFormModal({
               value={departamento}
               onChange={(e) => setDepartamento(e.target.value)}
               disabled={submitting}
-              style={{ flex: 1, minWidth: 180 }}
+              style={{ flex: 1, minWidth: 160 }}
             >
-              <option value="">— sin asignar —</option>
+              <option value="">(Sin departamento)</option>
               {departamentos.map((d) => (
                 <option key={d} value={d}>{d}</option>
               ))}
             </select>
             <button
               type="button"
-              className="btn btn-sm btn-ghost"
+              className="btn btn-ghost btn-sm"
               onClick={() => setNuevoDeptoOpen(true)}
               disabled={submitting}
-              title="Crear un departamento nuevo (queda disponible para próximas sesiones)"
+              title="Crear un departamento nuevo que quede en la lista"
             >
               + Nuevo
             </button>
             <button
               type="button"
-              className="btn btn-sm btn-ghost"
+              className="btn btn-ghost btn-sm"
               onClick={onSolicitarGestionDeptos}
               disabled={submitting}
-              title="Renombrar o eliminar departamentos"
+              title="Gestionar departamentos existentes (renombrar o eliminar los que no se usen)"
+            >
+              ⚙
+            </button>
+          </div>
+          <small className="muted">Opcional. Organiza las personas por área en el directorio.</small>
+        </div>
+
+        <div className="form-row">
+          <label>Rol *</label>
+          <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <select
+              className="select"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              disabled={submitting}
+              style={{ flex: 1, minWidth: 160 }}
+            >
+              {roles.map((r) => (
+                <option key={r.key} value={r.key}>{r.label}</option>
+              ))}
+            </select>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={onSolicitarNuevoRol}
+              disabled={submitting}
+              title="Crear un rol nuevo"
+            >
+              + Nuevo
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              onClick={onSolicitarGestionRoles}
+              disabled={submitting}
+              title="Gestionar roles existentes"
             >
               ⚙
             </button>
@@ -766,38 +818,16 @@ function UsuarioFormModal({
       </div>
 
       <div className="form-row">
-        <label>Tipo de rol</label>
-        <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <select
-            className="select"
-            value={role}
-            onChange={(e) => setRole(e.target.value)}
-            disabled={submitting}
-            style={{ flex: 1, minWidth: 200 }}
-          >
-            {roles.map((r) => (
-              <option key={r.key} value={r.key}>{r.label}</option>
-            ))}
-          </select>
-          <button
-            type="button"
-            className="btn btn-sm btn-ghost"
-            onClick={onSolicitarNuevoRol}
-            disabled={submitting}
-            title="Crear un rol nuevo (queda disponible para próximas sesiones)"
-          >
-            + Nuevo
-          </button>
-          <button
-            type="button"
-            className="btn btn-sm btn-ghost"
-            onClick={onSolicitarGestionRoles}
-            disabled={submitting}
-            title="Editar nombre/descripción/color de roles"
-          >
-            ⚙
-          </button>
-        </div>
+        <label>Correo electrónico *</label>
+        <input
+          className="input"
+          name="u-email"
+          type="email"
+          placeholder="correo@ejemplo.com"
+          autoComplete="off"
+          disabled={submitting}
+        />
+        <small className="muted">Se le asignará una contraseña temporal para su primer acceso.</small>
       </div>
 
       {nuevoDeptoOpen && (
@@ -812,12 +842,6 @@ function UsuarioFormModal({
           }}
         />
       )}
-
-      <div className="card" style={{ marginTop: '1rem', background: 'var(--bg-2)' }}>
-        <p className="hint muted" style={{ margin: 0, fontSize: '.85rem' }}>
-          🔑 El usuario se creará con la clave inicial <strong className="mono">mgg2026</strong>.
-          En su primer inicio de sesión deberá cambiarla obligatoriamente.
-        </p>
       </div>
     </Modal>
   );
@@ -850,26 +874,12 @@ function UsuarioEditModal({
   onClose,
   onSaved,
 }: UsuarioEditModalProps) {
+  const formRef = useRef<HTMLDivElement>(null);
+  const [departamento, setDepartamento] = useState<string>(usuario.departamento ?? '');
   const [nuevoDeptoOpen, setNuevoDeptoOpen] = useState(false);
-  const [nombre, setNombre] = useState(usuario.nombre ?? '');
-  const [apellido, setApellido] = useState(usuario.apellido ?? '');
-  const [ci, setCi] = useState(usuario.ci ?? '');
-  const [email, setEmail] = useState(usuario.email ?? '');
-  const [telefono, setTelefono] = useState(usuario.telefono ?? '');
-  const [departamento, setDepartamento] = useState(usuario.departamento ?? '');
   const [role, setRole] = useState<string>(usuario.role);
-  // Sectorización de almacén: en qué sedes puede MOVER inventario este usuario.
-  // Lista vacía = sin restricción (ve y mueve todo), que es lo normal para admin,
-  // analistas y gerencia. Antes esto vivía cableado por correo dentro del código.
-  const [sedesAsignadas, setSedesAsignadas] = useState<string[]>(usuario.sedes_asignadas ?? []);
-  const [almacenRecepcion, setAlmacenRecepcion] = useState<string>(usuario.almacen_recepcion ?? '');
   const [submitting, setSubmitting] = useState(false);
-  // Renombre: lo hecho con el nombre viejo se conserva; el cambio queda en el
-  // historial con su motivo (07-10-2026).
-  const [motivoNombre, setMotivoNombre] = useState('');
-  const renombra = cambiaNombre(usuario, { nombre, apellido });
-  const { user: sesion } = useSession();
-  const { appUser: yo } = usePermissions();
+  const [cambiaNombre, setCambiaNombre] = useState(false);
 
   useEffect(() => {
     if (recientementeCreado && roles.some((r) => r.key === recientementeCreado)) {
@@ -878,39 +888,53 @@ function UsuarioEditModal({
     }
   }, [recientementeCreado, roles, onRecienteConsumido]);
 
+  function revisarCambioNombre() {
+    const root = formRef.current;
+    if (!root) return;
+    const n = onlyLetters((root.querySelector('[name="u-nombre"]') as HTMLInputElement | null)?.value ?? '').trim();
+    const a = onlyLetters((root.querySelector('[name="u-apellido"]') as HTMLInputElement | null)?.value ?? '').trim();
+    const cambio = n !== (usuario.nombre ?? '').trim() || a !== (usuario.apellido ?? '').trim();
+    setCambiaNombre(cambio);
+  }
+
   async function handleSubmit() {
-    if (!nombre.trim() || !apellido.trim() || !ci.trim()) {
+    const root = formRef.current;
+    const val = (name: string) => (root?.querySelector(`[name="${name}"]`) as HTMLInputElement | null)?.value ?? '';
+    const nombre = onlyLetters(val('u-nombre')).trim();
+    const apellido = onlyLetters(val('u-apellido')).trim();
+    const ci = onlyDigits(val('u-ci'), 8).trim();
+    const telefono = onlyDigits(val('u-telefono'), 15).trim();
+    const emailNuevo = val('u-email').trim().toLowerCase();
+    const motivoNombre = val('u-motivo-nombre').trim();
+
+    if (!nombre || !apellido || !ci) {
       toast('Nombre, apellido y CI son obligatorios', 'error');
       return;
     }
-    const emailLimpio = email.trim().toLowerCase();
-    const cambioEmail = emailLimpio !== (usuario.email ?? '').trim().toLowerCase();
-    if (cambioEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailLimpio)) {
-      toast('El correo no es válido', 'error');
+    const nombreCambio = nombre !== (usuario.nombre ?? '').trim() || apellido !== (usuario.apellido ?? '').trim();
+    if (nombreCambio && !motivoNombre) {
+      toast('Indica el motivo del cambio de nombre (es obligatorio)', 'error');
       return;
     }
-    if (renombra && motivoNombre.trim().length < MOTIVO_NOMBRE_MINIMO) {
-      toast('Indicá el motivo del cambio de nombre', 'error');
+    const cambiaEmail = emailNuevo && emailNuevo !== usuario.email.toLowerCase();
+    if (cambiaEmail && !/\S+@\S+\.\S+/.test(emailNuevo)) {
+      toast('El correo electrónico nuevo no es válido', 'error');
       return;
     }
+
     setSubmitting(true);
     try {
       await actualizarUsuario(usuario.id, {
-        nombre: nombre.trim(),
-        apellido: apellido.trim(),
-        ci: ci.trim(),
-        telefono: telefono.trim(),
+        nombre,
+        apellido,
+        ci,
+        telefono,
         departamento: departamento.trim(),
         role,
-        sedes_asignadas: sedesAsignadas,
-        almacen_recepcion: sedesAsignadas.length ? almacenRecepcion : null,
-        motivo_cambio_nombre: renombra ? motivoNombre.trim() : null,
-        cambiado_por: { email: sesion?.email ?? 'sistema', nombre: yo?.nombre ?? null },
+        motivo_cambio_nombre: nombreCambio ? motivoNombre : undefined,
       });
-      // El correo es la identidad de login: se cambia vía Edge Function (solo admin),
-      // que actualiza Auth + la tabla usuarios.
-      if (cambioEmail) await cambiarCorreoUsuario(usuario.id, emailLimpio);
-      notify(`Datos actualizados de ${cambioEmail ? emailLimpio : usuario.email}`, 'success', { link: '#/app/usuarios' });
+      if (cambiaEmail) await cambiarEmailUsuario(usuario.id, emailNuevo);
+      notify(`Datos actualizados de ${cambiaEmail ? emailNuevo : usuario.email}`, 'success', { link: '#/app/usuarios' });
       onSaved();
     } catch (e) {
       toast(e instanceof Error ? e.message : 'Error al actualizar', 'error');
@@ -933,13 +957,15 @@ function UsuarioEditModal({
         </>
       }
     >
+      <div ref={formRef}>
       <div className="form-grid">
         <div className="form-row">
           <label>Nombre</label>
           <input
             className="input"
-            value={nombre}
-            onChange={(e) => setNombre(onlyLetters(e.target.value))}
+            name="u-nombre"
+            defaultValue={usuario.nombre ?? ''}
+            onChange={(e) => { e.target.value = onlyLetters(e.target.value); revisarCambioNombre(); }}
             disabled={submitting}
           />
         </div>
@@ -947,43 +973,34 @@ function UsuarioEditModal({
           <label>Apellido</label>
           <input
             className="input"
-            value={apellido}
-            onChange={(e) => setApellido(onlyLetters(e.target.value))}
+            name="u-apellido"
+            defaultValue={usuario.apellido ?? ''}
+            onChange={(e) => { e.target.value = onlyLetters(e.target.value); revisarCambioNombre(); }}
             disabled={submitting}
           />
-        </div>
-        {renombra && (
-          <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-            <label>Motivo del cambio de nombre *</label>
-            <input className="input" value={motivoNombre} onChange={(e) => setMotivoNombre(e.target.value)} disabled={submitting}
-              placeholder="Ej.: estaba mal escrito, cambio legal de apellido…" />
-            <small className="hint muted">
-              Pasa de <strong>{[usuario.nombre, usuario.apellido].filter(Boolean).join(' ')}</strong> a <strong>{`${nombre.trim()} ${apellido.trim()}`.trim()}</strong>.
-              Lo que ya hizo con el nombre anterior se sigue mostrando con ese nombre; el cambio queda en el historial del usuario.
-            </small>
-          </div>
-        )}
-        <div className="form-row" style={{ gridColumn: '1 / -1' }}>
-          <label>Correo <span className="muted" style={{ fontWeight: 400 }}>(correo de inicio de sesión)</span></label>
-          <input
-            className="input"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            disabled={submitting}
-            placeholder="correo@dominio.com"
-          />
-          <small className="hint muted">Cambiar el correo actualiza el inicio de sesión del usuario. La clave no se modifica.</small>
         </div>
       </div>
+
+      {cambiaNombre && (
+        <div className="form-row">
+          <label htmlFor="u-motivo-nombre">Motivo del cambio de nombre *</label>
+          <textarea id="u-motivo-nombre" className="input" name="u-motivo-nombre" rows={2} disabled={submitting}
+            placeholder="Ej.: corrección de la cédula, cambio de apellido por matrimonio, error al registrarlo…" />
+          <small className="muted">
+            Lo que hizo con su nombre anterior <strong>sigue mostrando ese nombre</strong>. El cambio, la fecha, quién lo hizo y
+            el motivo quedan en el <strong>historial de nombres</strong> del usuario.
+          </small>
+        </div>
+      )}
 
       <div className="form-grid">
         <div className="form-row">
           <label>CI</label>
           <input
             className="input mono"
-            value={ci}
-            onChange={(e) => setCi(onlyDigits(e.target.value, 8))}
+            name="u-ci"
+            defaultValue={usuario.ci ?? ''}
+            onChange={(e) => { e.target.value = onlyDigits(e.target.value, 8); }}
             maxLength={8}
             inputMode="numeric"
             disabled={submitting}
@@ -993,8 +1010,9 @@ function UsuarioEditModal({
           <label>Teléfono</label>
           <input
             className="input mono"
-            value={telefono}
-            onChange={(e) => setTelefono(onlyDigits(e.target.value, 15))}
+            name="u-telefono"
+            defaultValue={usuario.telefono ?? ''}
+            onChange={(e) => { e.target.value = onlyDigits(e.target.value, 15); }}
             placeholder="04241234567"
             maxLength={15}
             inputMode="numeric"
@@ -1012,33 +1030,34 @@ function UsuarioEditModal({
               value={departamento}
               onChange={(e) => setDepartamento(e.target.value)}
               disabled={submitting}
-              style={{ flex: 1, minWidth: 180 }}
+              style={{ flex: 1, minWidth: 160 }}
             >
-              <option value="">— sin asignar —</option>
+              <option value="">(Sin departamento)</option>
               {departamentos.map((d) => (
                 <option key={d} value={d}>{d}</option>
               ))}
             </select>
             <button
               type="button"
-              className="btn btn-sm btn-ghost"
+              className="btn btn-ghost btn-sm"
               onClick={() => setNuevoDeptoOpen(true)}
               disabled={submitting}
-              title="Crear un departamento nuevo"
+              title="Crear un departamento nuevo que quede en la lista"
             >
               + Nuevo
             </button>
             <button
               type="button"
-              className="btn btn-sm btn-ghost"
+              className="btn btn-ghost btn-sm"
               onClick={onSolicitarGestionDeptos}
               disabled={submitting}
-              title="Renombrar o eliminar departamentos"
+              title="Gestionar departamentos existentes"
             >
               ⚙
             </button>
           </div>
         </div>
+
         <div className="form-row">
           <label>Rol</label>
           <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
@@ -1047,7 +1066,7 @@ function UsuarioEditModal({
               value={role}
               onChange={(e) => setRole(e.target.value)}
               disabled={submitting}
-              style={{ flex: 1, minWidth: 200 }}
+              style={{ flex: 1, minWidth: 160 }}
             >
               {roles.map((r) => (
                 <option key={r.key} value={r.key}>{r.label}</option>
@@ -1055,7 +1074,7 @@ function UsuarioEditModal({
             </select>
             <button
               type="button"
-              className="btn btn-sm btn-ghost"
+              className="btn btn-ghost btn-sm"
               onClick={onSolicitarNuevoRol}
               disabled={submitting}
               title="Crear un rol nuevo"
@@ -1064,10 +1083,10 @@ function UsuarioEditModal({
             </button>
             <button
               type="button"
-              className="btn btn-sm btn-ghost"
+              className="btn btn-ghost btn-sm"
               onClick={onSolicitarGestionRoles}
               disabled={submitting}
-              title="Editar nombre/descripción/color de roles"
+              title="Gestionar roles existentes"
             >
               ⚙
             </button>
@@ -1075,17 +1094,18 @@ function UsuarioEditModal({
         </div>
       </div>
 
-      <SectorAlmacenFields
-        sedes={sedesAsignadas}
-        onSedes={setSedesAsignadas}
-        almacenRecepcion={almacenRecepcion}
-        onAlmacenRecepcion={setAlmacenRecepcion}
-        disabled={submitting}
-      />
-
-      <p className="hint muted" style={{ fontSize: '.78rem', margin: '.5rem 0 0' }}>
-        El correo no es editable. Si necesitás cambiarlo, deshabilitá este usuario y creá uno nuevo.
-      </p>
+      <div className="form-row">
+        <label>Correo electrónico</label>
+        <input
+          className="input"
+          name="u-email"
+          type="email"
+          defaultValue={usuario.email ?? ''}
+          placeholder="correo@ejemplo.com"
+          autoComplete="off"
+        />
+        <small className="muted">Es el correo con el que inicia sesión. Si lo cambias, el usuario deberá entrar con el nuevo correo (la contraseña no cambia).</small>
+      </div>
 
       {nuevoDeptoOpen && (
         <NuevaTaxonomiaModal
@@ -1099,98 +1119,8 @@ function UsuarioEditModal({
           }}
         />
       )}
-    </Modal>
-  );
-}
-
-/**
- * Sectorización de almacén de un usuario: en qué SEDES puede mover inventario
- * (despachar, trasladar, ajustar, recibir compras y dar de alta productos) y a qué
- * almacén recibe las compras por defecto.
- *
- * Ver, ve todo el inventario siempre: la restricción solo limita MOVER. Sin ninguna
- * sede marcada el usuario queda sin restricción, que es lo correcto para admin,
- * analistas y gerencia. Se sectoriza a los almacenistas, que estaban despachando
- * ítems de la otra sede por error humano.
- */
-function SectorAlmacenFields({ sedes, onSedes, almacenRecepcion, onAlmacenRecepcion, disabled }: {
-  sedes: string[];
-  onSedes: (s: string[]) => void;
-  almacenRecepcion: string;
-  onAlmacenRecepcion: (a: string) => void;
-  disabled?: boolean;
-}) {
-  const [almacenes, setAlmacenes] = useState<Almacen[]>([]);
-  useEffect(() => {
-    let cancel = false;
-    Promise.all([
-      listAlmacenes('principal').catch(() => [] as Almacen[]),
-      listAlmacenes('deposito').catch(() => [] as Almacen[]),
-    ]).then(([p, d]) => { if (!cancel) setAlmacenes([...p, ...d]); });
-    return () => { cancel = true; };
-  }, []);
-
-  // Sedes existentes + las que ya tenga asignadas (aunque su almacén se haya borrado:
-  // así una asignación vieja no desaparece en silencio del formulario).
-  const opcionesSede = useMemo(() => {
-    const set = new Set<string>(sedes);
-    almacenes.forEach((a) => { const v = a.sede?.trim(); if (v) set.add(v); });
-    return Array.from(set).sort((a, b) => a.localeCompare(b, 'es'));
-  }, [almacenes, sedes]);
-
-  // Almacenes de las sedes marcadas, para elegir dónde recibe las compras.
-  const opcionesRecepcion = useMemo(
-    () => almacenes
-      .filter((a) => a.estado === 'activo' && !a.parent_id && sedes.includes(a.sede?.trim() ?? ''))
-      .map((a) => a.nombre)
-      .sort((a, b) => a.localeCompare(b, 'es')),
-    [almacenes, sedes],
-  );
-
-  const toggle = (sede: string) => {
-    onSedes(sedes.includes(sede) ? sedes.filter((x) => x !== sede) : [...sedes, sede]);
-  };
-
-  return (
-    <div className="card" style={{ marginTop: '.75rem', padding: '.7rem .9rem' }}>
-      <div style={{ fontWeight: 600, marginBottom: '.15rem' }}>📦 Almacenes asignados</div>
-      <p className="muted" style={{ fontSize: '.78rem', margin: '0 0 .5rem' }}>
-        Sedes donde este usuario puede <strong>mover</strong> inventario: despachar, trasladar, ajustar,
-        recibir compras y dar de alta productos. <strong>Ver el inventario completo lo puede ver siempre</strong>;
-        lo de otra sede se pide por solicitud de traslado.
-        {' '}Sin ninguna marcada, <strong>no tiene restricción</strong> (admin, analistas, gerencia).
-      </p>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.4rem .9rem' }}>
-        {opcionesSede.length === 0 && <span className="dim" style={{ fontSize: '.82rem' }}>No se pudieron cargar las sedes.</span>}
-        {opcionesSede.map((sede) => (
-          <label key={sede} style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem', cursor: disabled ? 'default' : 'pointer', fontSize: '.84rem' }}>
-            <input type="checkbox" checked={sedes.includes(sede)} onChange={() => toggle(sede)} disabled={disabled} />
-            <span>{sede}</span>
-          </label>
-        ))}
       </div>
-      {sedes.length > 0 && (
-        <div className="form-row" style={{ marginTop: '.6rem' }}>
-          <label>Recibe las compras en</label>
-          <select
-            className="select"
-            value={almacenRecepcion}
-            onChange={(e) => onAlmacenRecepcion(e.target.value)}
-            disabled={disabled}
-          >
-            <option value="">— el almacén principal de su sede —</option>
-            {opcionesRecepcion.map((n) => <option key={n} value={n}>{n}</option>)}
-            {almacenRecepcion && !opcionesRecepcion.includes(almacenRecepcion) && (
-              <option value={almacenRecepcion}>{almacenRecepcion} (ya no existe en esas sedes)</option>
-            )}
-          </select>
-          <small className="hint muted" style={{ fontSize: '.72rem' }}>
-            Destino por defecto al recepcionar una compra. Las compras solo entran a Matanzas o Los Pinos:
-            los centros de acopio reciben por Traslados.
-          </small>
-        </div>
-      )}
-    </div>
+    </Modal>
   );
 }
 
@@ -1201,11 +1131,12 @@ interface NuevaTaxonomiaModalProps {
   onCrear: (nombre: string) => Promise<void>;
 }
 function NuevaTaxonomiaModal({ titulo, placeholder, onClose, onCrear }: NuevaTaxonomiaModalProps) {
-  const [nombre, setNombre] = useState('');
+  const nombreRef = useRef<HTMLInputElement>(null);
+  const [nombreLive, setNombreLive] = useState('');
   const [busy, setBusy] = useState(false);
 
   async function handleCrear() {
-    const v = nombre.trim();
+    const v = (nombreRef.current?.value ?? '').trim();
     if (!v) {
       toast('El nombre no puede estar vacío', 'error');
       return;
@@ -1228,7 +1159,7 @@ function NuevaTaxonomiaModal({ titulo, placeholder, onClose, onCrear }: NuevaTax
       footer={
         <>
           <button className="btn btn-ghost" onClick={onClose} disabled={busy}>Cancelar</button>
-          <button className="btn btn-primary" onClick={handleCrear} disabled={busy || !nombre.trim()}>
+          <button className="btn btn-primary" onClick={handleCrear} disabled={busy || !nombreLive.trim()}>
             {busy ? 'Creando…' : 'Crear'}
           </button>
         </>
@@ -1237,74 +1168,23 @@ function NuevaTaxonomiaModal({ titulo, placeholder, onClose, onCrear }: NuevaTax
       <div className="form-row">
         <label>Nombre</label>
         <input
+          ref={nombreRef}
           className="input"
-          value={nombre}
-          onChange={(e) => setNombre(e.target.value)}
+          defaultValue=""
+          onChange={(e) => setNombreLive(e.target.value)}
           placeholder={placeholder}
           disabled={busy}
           autoFocus
           onKeyDown={(e) => {
             if (e.key === 'Enter') void handleCrear();
+            if (e.key === 'Escape') onClose();
           }}
         />
       </div>
-      <p className="hint muted" style={{ fontSize: '.78rem', margin: '.5rem 0 0' }}>
+      <p className="muted" style={{ fontSize: '.78rem', margin: '.5rem 0 0' }}>
         Queda persistido en Supabase y disponible para próximas sesiones. Podrás
         eliminarlo siempre que no esté en uso.
       </p>
-    </Modal>
-  );
-}
-
-function CambiarCorreoModal({ usuario, onCancel, onSaved }: { usuario: Usuario; onCancel: () => void; onSaved: (email: string) => void | Promise<void> }) {
-  const [email, setEmail] = useState(usuario.email ?? '');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const limpio = email.trim().toLowerCase();
-  const valido = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(limpio);
-  const cambio = limpio !== (usuario.email ?? '').trim().toLowerCase();
-
-  async function guardar() {
-    setError(null);
-    if (!valido) { setError('Escribí un correo válido.'); return; }
-    if (!cambio) { setError('El correo es el mismo que ya tiene.'); return; }
-    setSaving(true);
-    try {
-      await cambiarCorreoUsuario(usuario.id, limpio);
-      await onSaved(limpio);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'No se pudo cambiar el correo.');
-      setSaving(false);
-    }
-  }
-
-  return (
-    <Modal
-      title={`✉ Cambiar correo · ${[usuario.nombre, usuario.apellido].filter(Boolean).join(' ') || usuario.email}`}
-      size="md"
-      onClose={onCancel}
-      footer={
-        <>
-          <button className="btn btn-ghost" onClick={onCancel} disabled={saving}>Cancelar</button>
-          <button className="btn btn-primary" onClick={() => void guardar()} disabled={saving || !valido || !cambio}>
-            {saving ? 'Guardando…' : 'Cambiar correo'}
-          </button>
-        </>
-      }
-    >
-      {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
-      <div className="form-row">
-        <label>Correo actual</label>
-        <input className="input" value={usuario.email ?? '—'} disabled />
-      </div>
-      <div className="form-row" style={{ marginTop: '.6rem' }}>
-        <label>Nuevo correo</label>
-        <input className="input" type="email" value={email} autoFocus
-          onChange={(e) => setEmail(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void guardar(); } }}
-          placeholder="nuevo@correo.com" />
-        <small className="hint muted">Cambia el correo de inicio de sesión y el del sistema. La clave no se modifica.</small>
-      </div>
     </Modal>
   );
 }
@@ -1313,74 +1193,61 @@ interface UsuarioDetailModalProps {
   usuario: Usuario;
   onClose: () => void;
   onResetClave: () => void;
-  onCambiarCorreo: () => void;
+  onDesbloquear: () => void;
   onToggleEstado: () => void;
-  /** Solo llega cuando el usuario se puede archivar (deshabilitado y con permiso). */
-  onArchivar: (() => void) | null;
   onEdit: () => void;
+  onArchivar: () => void;
+  onRestaurar: () => void;
 }
-function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, onToggleEstado, onArchivar, onEdit }: UsuarioDetailModalProps) {
+function UsuarioDetailModal({ usuario, onClose, onResetClave, onDesbloquear, onToggleEstado, onEdit, onArchivar, onRestaurar }: UsuarioDetailModalProps) {
   const isActive = usuario.estado === 'activo';
-  // Historial de nombres: de qué a qué, cuándo, por qué y quién (07-10-2026).
-  const [historialNombres, setHistorialNombres] = useState<CambioNombreUsuario[]>([]);
-  useEffect(() => {
-    let vivo = true;
-    listHistorialNombres(usuario.id).then((h) => { if (vivo) setHistorialNombres(h); }).catch(() => undefined);
-    return () => { vivo = false; };
-  }, [usuario.id, usuario.nombre, usuario.apellido]);
+  const archivado = estaArchivado(usuario);
   return (
     <Modal
       title={`Usuario · ${[usuario.nombre, usuario.apellido].filter(Boolean).join(' ')}`}
       size="lg"
       onClose={onClose}
       footer={
-        <>
-          <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
-          <button className="btn btn-ghost" onClick={onEdit}>✎ Editar datos</button>
-          <button className="btn btn-ghost" onClick={onCambiarCorreo}>
-            ✉ Cambiar correo
-          </button>
-          <button className="btn btn-ghost" onClick={onResetClave}>
-            🔑 Resetear clave
-          </button>
-          {onArchivar && (
-            <button
-              className="btn btn-ghost"
-              onClick={onArchivar}
-              title="Sacarlo de la lista de usuarios; queda en el apartado de archivados"
-            >
-              🗂 Archivar
+        <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', width: '100%', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
+            <button className="btn btn-ghost" onClick={onResetClave} title="Le asigna la clave inicial; deberá cambiarla al ingresar.">
+              🔑 Resetear clave
             </button>
-          )}
-          <button
-            className={isActive ? 'btn btn-danger' : 'btn btn-success'}
-            onClick={onToggleEstado}
-          >
-            {isActive ? 'Deshabilitar usuario' : 'Habilitar usuario'}
-          </button>
-        </>
+            {!archivado && puedeArchivar(usuario) && (
+              <button className="btn btn-ghost" onClick={onArchivar} title="Sale de la lista. No se borra nada.">
+                🗄 Archivar
+              </button>
+            )}
+            {!archivado && (
+              <button
+                className={isActive ? 'btn btn-danger' : 'btn btn-success'}
+                onClick={onToggleEstado}
+              >
+                {isActive ? 'Deshabilitar usuario' : 'Habilitar usuario'}
+              </button>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginLeft: 'auto' }}>
+            {usuario.bloqueado && (
+              <button className="btn btn-success" onClick={onDesbloquear}>
+                🔓 Desbloquear
+              </button>
+            )}
+            {archivado && (
+              <button className="btn btn-success" onClick={onRestaurar} title="Vuelve a la lista como deshabilitado">
+                ↩ Restaurar
+              </button>
+            )}
+            <button className="btn btn-ghost" onClick={onClose}>Cerrar</button>
+            <button className="btn btn-primary" onClick={onEdit}>✎ Editar datos</button>
+          </div>
+        </div>
       }
     >
       <div className="detail-row">
         <div className="k">Nombre completo</div>
-        <div className="v">
-          {[usuario.nombre, usuario.apellido].filter(Boolean).join(' ')}
-          <div style={{ marginTop: '.4rem' }}>
-              <div className="muted" style={{ fontSize: '.72rem', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: '.25rem' }}>📜 Historial de cambios de nombre</div>
-              {historialNombres.length === 0 && <small className="muted">Sin cambios de nombre.</small>}
-              <div style={{ display: 'grid', gap: '.3rem' }}>
-                {historialNombres.map((h) => (
-                  <div key={h.id} className="card" style={{ margin: 0, padding: '.45rem .65rem', fontSize: '.82rem' }}>
-                    <div><strong>{h.nombre_anterior}</strong> → <strong>{h.nombre_nuevo}</strong></div>
-                    <div className="muted" style={{ fontSize: '.76rem' }}>
-                      {dateTime(h.created_at)} · por {h.cambiado_por_nombre || h.cambiado_por || '—'} · Motivo: {h.motivo}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              {historialNombres.length > 0 && <small className="hint muted">Lo registrado con cada nombre anterior se sigue mostrando con ese nombre.</small>}
-            </div>
-        </div>
+        <div className="v">{[usuario.nombre, usuario.apellido].filter(Boolean).join(' ')}</div>
       </div>
       <div className="detail-row">
         <div className="k">CI</div>
@@ -1404,7 +1271,20 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, o
       </div>
       <div className="detail-row">
         <div className="k">Estado</div>
-        <div className="v"><StatusBadge estado={usuario.estado} /></div>
+        <div className="v">
+          <StatusBadge estado={estadoVisible(usuario)} />
+          {archivado && usuario.archivado_en && (
+            <span className="muted" style={{ marginLeft: '.5rem', fontSize: '.8rem' }}>desde {dateTime(usuario.archivado_en)}</span>
+          )}
+        </div>
+      </div>
+      <div className="detail-row">
+        <div className="k">Acceso</div>
+        <div className="v">
+          {usuario.bloqueado
+            ? <span className="badge danger">🔒 Bloqueado (3 intentos fallidos)</span>
+            : <span className="badge success">Normal</span>}
+        </div>
       </div>
       <div className="detail-row">
         <div className="k">Cambio de clave pendiente</div>
@@ -1418,41 +1298,81 @@ function UsuarioDetailModal({ usuario, onClose, onResetClave, onCambiarCorreo, o
         <div className="k">Registrado</div>
         <div className="v">{dateTime(usuario.created_at)}</div>
       </div>
+      <HistorialNombres usuarioId={usuario.id} />
     </Modal>
   );
 }
 
-/** Clave inicial de un usuario recién creado o reseteado (la devuelve el servidor). */
-function ClaveTemporalModal({ email, clave, motivo, onClose }: {
-  email: string; clave: string | null; motivo: 'creado' | 'reseteado'; onClose: () => void;
+function ClaveTemporalModal({ titulo, email, clave, onClose }: {
+  titulo: string; email: string; clave: string; onClose: () => void;
 }) {
-  const [copiada, setCopiada] = useState(false);
   async function copiar() {
-    if (!clave) return;
-    try { await navigator.clipboard.writeText(clave); setCopiada(true); }
-    catch { toast('No se pudo copiar: seleccioná la clave y copiala a mano', 'error'); }
+    try {
+      await navigator.clipboard.writeText(clave);
+      toast('Clave copiada', 'success');
+    } catch {
+      toast('No se pudo copiar: anótala a mano', 'error');
+    }
   }
   return (
-    <Modal title={motivo === 'creado' ? 'Usuario creado' : 'Clave reseteada'} size="sm" onClose={onClose}
-      footer={<button type="button" className="btn btn-primary" onClick={onClose}>Listo</button>}>
-      {clave ? (
-        <div style={{ display: 'grid', gap: '.75rem' }}>
-          <p style={{ margin: 0 }}>Clave inicial de <strong>{email}</strong>:</p>
-          <div style={{ display: 'flex', gap: '.5rem', alignItems: 'center' }}>
-            <code className="mono" style={{ flex: 1, fontSize: '1.25rem', padding: '.6rem .8rem', borderRadius: 8, background: 'var(--bg-2)', userSelect: 'all', letterSpacing: '.04em' }}>
-              {clave}
-            </code>
-            <button type="button" className="btn" onClick={() => void copiar()}>{copiada ? '✔ Copiada' : '📋 Copiar'}</button>
-          </div>
-          <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>
-            Con ella entra la primera vez y el sistema le pide elegir una clave propia.
-          </p>
-        </div>
-      ) : (
-        <p style={{ margin: 0 }}>
-          Listo. La clave inicial de <strong>{email}</strong> es <strong className="mono">mgg2026</strong>.
-        </p>
-      )}
+    <Modal
+      title={`🔑 ${titulo}`}
+      compact
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={copiar}>📋 Copiar clave</button>
+          <button className="btn btn-primary" onClick={onClose}>Listo, ya la anoté</button>
+        </>
+      }
+    >
+      <p style={{ marginTop: 0 }}>Clave temporal de <strong>{email}</strong>:</p>
+      <div
+        className="mono"
+        style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '.08em', textAlign: 'center', padding: '.75rem', border: '1px dashed var(--border)', borderRadius: 8, userSelect: 'all' }}
+      >
+        {clave}
+      </div>
+      <p className="muted" style={{ fontSize: '.85rem', marginBottom: 0 }}>
+        Indicásela a la persona. Al entrar por primera vez el sistema le pide cambiarla
+        obligatoriamente por una propia.
+      </p>
     </Modal>
+  );
+}
+
+function HistorialNombres({ usuarioId }: { usuarioId: string }) {
+  const [cambios, setCambios] = useState<CambioNombreUsuario[] | null>(null);
+  const cargar = useCallback(() => {
+    listHistorialNombres(usuarioId).then(setCambios).catch(() => setCambios([]));
+  }, [usuarioId]);
+  useEffect(() => { cargar(); }, [cargar]);
+  useRealtime(['usuarios_nombres_historial'], cargar);
+
+  return (
+    <div style={{ marginTop: '1rem' }}>
+      <div className="card-title" style={{ marginBottom: '.4rem' }}>🕘 Historial de nombres</div>
+      {cambios === null ? <p className="muted" style={{ margin: 0 }}>Cargando…</p>
+        : !cambios.length ? <p className="muted" style={{ margin: 0, fontSize: '.85rem' }}>Nunca se le ha cambiado el nombre.</p>
+        : (
+          <div className="table-wrap">
+            <table className="table" style={{ fontSize: '.84rem' }}>
+              <thead><tr><th>Fecha</th><th>Nombre anterior</th><th>Nombre nuevo</th><th>Motivo</th><th>Cambiado por</th></tr></thead>
+              <tbody>
+                {cambios.map((c) => (
+                  <tr key={c.id}>
+                    <td style={{ whiteSpace: 'nowrap' }}>{dateTime(c.created_at)}</td>
+                    <td className="muted">{c.nombre_anterior || '—'}</td>
+                    <td><strong>{c.nombre_nuevo || '—'}</strong></td>
+                    <td>{c.motivo}</td>
+                    <td className="muted"><Quien nombre={c.cambiado_por_nombre} correo={c.cambiado_por} vacio="—" /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      <small className="muted">Lo que hizo antes de cada cambio sigue mostrando el nombre que tenía en ese momento.</small>
+    </div>
   );
 }
