@@ -267,8 +267,6 @@ export function LandingPage() {
           © {new Date().getFullYear()} Mineral Group Guayana C.A. · Puerto Ordaz, Estado Bolívar · RIF J-50221930-7
         </div>
       </footer>
-
-      <WhatsAppFab numero="584249349731" mensaje="Hola, escribo desde la página de Mineral Group Guayana." />
     </div>
   );
 }
@@ -357,58 +355,5 @@ function SocialLinks({ compact = false }: { compact?: boolean }) {
         {!compact && <span>info@mineralgroupguayana.com</span>}
       </a>
     </div>
-  );
-}
-
-interface WhatsAppFabProps {
-  /** Número en formato internacional sin '+' ni espacios. */
-  numero: string;
-  mensaje?: string;
-}
-
-function WhatsAppFab({ numero, mensaje }: WhatsAppFabProps) {
-  function abrir() {
-    const ua = navigator.userAgent;
-    const esMovil = /Android|iPhone|iPad|iPod/i.test(ua);
-    const text = encodeURIComponent(mensaje ?? '');
-    // En móvil: esquema wa.me abre la app si está instalada y cae al navegador si no.
-    // En PC: api.whatsapp.com abre WhatsApp Web con la opción "Abrir en aplicación".
-    const url = esMovil
-      ? `https://wa.me/${numero}${text ? `?text=${text}` : ''}`
-      : `https://api.whatsapp.com/send?phone=${numero}${text ? `&text=${text}` : ''}`;
-    window.open(url, '_blank', 'noopener,noreferrer');
-  }
-
-  return (
-    <button
-      type="button"
-      onClick={abrir}
-      aria-label="Contactarnos por WhatsApp"
-      title="Escribinos por WhatsApp"
-      style={{
-        position: 'fixed',
-        right: '1.25rem',
-        bottom: '1.25rem',
-        width: 60,
-        height: 60,
-        borderRadius: '50%',
-        background: '#25D366',
-        color: '#fff',
-        border: 'none',
-        boxShadow: '0 10px 30px rgba(37,211,102,.45), 0 4px 10px rgba(0,0,0,.18)',
-        cursor: 'pointer',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        zIndex: 1000,
-        transition: 'transform .15s ease',
-      }}
-      onMouseEnter={(e) => { e.currentTarget.style.transform = 'scale(1.06)'; }}
-      onMouseLeave={(e) => { e.currentTarget.style.transform = 'scale(1)'; }}
-    >
-      <svg viewBox="0 0 32 32" width="30" height="30" fill="currentColor" aria-hidden="true">
-        <path d="M19.11 17.42c-.27-.13-1.6-.79-1.85-.88-.25-.09-.43-.13-.6.13-.18.27-.69.88-.85 1.06-.16.18-.31.2-.58.07-.27-.13-1.13-.42-2.16-1.33-.8-.71-1.34-1.59-1.49-1.86-.16-.27-.02-.42.12-.55.12-.12.27-.31.4-.47.13-.16.18-.27.27-.45.09-.18.04-.34-.02-.47-.06-.13-.6-1.45-.83-1.98-.22-.52-.44-.45-.6-.46-.16 0-.34 0-.52 0-.18 0-.47.07-.72.34-.25.27-.94.92-.94 2.25 0 1.33.96 2.61 1.09 2.79.13.18 1.89 2.89 4.59 3.94.64.28 1.14.44 1.53.56.64.2 1.22.18 1.68.11.51-.08 1.6-.65 1.83-1.28.23-.63.23-1.16.16-1.28-.07-.11-.25-.18-.52-.31zM16 4C9.37 4 4 9.37 4 16c0 2.26.63 4.38 1.74 6.18L4 28l5.99-1.7C11.74 27.4 13.83 28 16 28c6.63 0 12-5.37 12-12S22.63 4 16 4zm0 22c-1.93 0-3.73-.57-5.24-1.55l-.37-.23-3.55 1 .95-3.43-.23-.36C6.55 19.83 6 17.97 6 16c0-5.51 4.49-10 10-10s10 4.49 10 10-4.49 10-10 10z" />
-      </svg>
-    </button>
   );
 }
