@@ -362,6 +362,27 @@ describe('detalle de las OC pendientes por pagar', () => {
     expect(/️|‍/.test(msg)).toBe(false);
   });
 
+  it('WhatsApp: pendientes por retirar llevan emoji y línea en blanco entre cada una', () => {
+    const r = armarCierre({
+      pedidos: 0, pagadas: 2, porPagar: [],
+      porRetirarOc: [
+        { codigo: 'OC-2026-0258', proveedor: 'CHUTO DIESEL', entrega: '🛵 Delivery', pagada: hoyIso },
+        { codigo: 'OC-2026-0259', proveedor: 'FERRETERIA BABAJI', entrega: '🚚 Carga pesada', pagada: hoyIso },
+      ],
+    }, hoy);
+    const msg = mensajeCierreDiario(r, '2026-10-21T12:45:00.000Z');
+    expect(msg).toContain([
+      '🚚 *ÓRDENES PENDIENTES POR RETIRAR (2)*',
+      '',
+      '📦 1. *OC-2026-0258* · CHUTO DIESEL — 🛵 Delivery · pagada 21/10/2026',
+      '',
+      '📦 2. *OC-2026-0259* · FERRETERIA BABAJI — 🚚 Carga pesada · pagada 21/10/2026',
+      '',
+      '🏢 *MINERAL GROUP GUAYANA C.A.*',
+    ].join('\n'));
+    expect(/️|‍/.test(msg)).toBe(false);
+  });
+
   it('Excel: el detalle y el total van como NÚMERO', async () => {
     const { exportarCierreDiarioExcel } = await import('./cierreDiarioExcel');
     const r = armarCierre({ pedidos: 0, pagadas: 0, pendientesAprobar: [], porPagar: ocs.map((o) => o.entrada), porPagarOc: ocs, tasa: 40 }, hoy);

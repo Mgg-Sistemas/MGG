@@ -16,9 +16,11 @@ const salida: SalidaTelefono = {
 const sinSelector = (t: string) => expect(t).not.toContain('️');
 
 describe('vista de teléfono de inventario · validaciones', () => {
-  it('la salida no deja sacar más de lo que hay en el almacén', () => {
+  it('la salida no deja sacar más de lo que hay en el almacén y exige quién solicitó', () => {
     expect(errorSalida({ productoId: 'p1', cantidad: 5, stock: 3, motivo: 'obra', autorizado: 'X', retorna: false }))
       .toBe('No alcanza: en el almacén hay 3.');
+    expect(errorSalida({ productoId: 'p1', cantidad: 2, stock: 3, motivo: 'obra', autorizado: '', retorna: false }))
+      .toBe('Indica quién solicitó la salida.');
     expect(errorSalida({ productoId: 'p1', cantidad: 2, stock: 3, motivo: 'obra', autorizado: 'X', retorna: null }))
       .toBe('¿Retorna? Marca SÍ o NO.');
     expect(errorSalida({ productoId: 'p1', cantidad: 2, stock: 3, motivo: 'obra', autorizado: 'X', retorna: true })).toBeNull();
@@ -30,10 +32,12 @@ describe('vista de teléfono de inventario · validaciones', () => {
     expect(errorRetorno(salida, 6)).toBeNull();
   });
 
-  it('el traslado pide otro almacén y stock suficiente', () => {
+  it('el traslado pide otro almacén, stock suficiente y quién solicitó cuando se informa', () => {
     const base = { productoId: 'p1', origen: 'Los Pinos', cantidad: 2, stock: 5, motivo: 'reposición' };
     expect(errorTraslado({ ...base, destino: 'Los Pinos' })).toBe('El destino tiene que ser otro almacén.');
     expect(errorTraslado({ ...base, destino: 'General', cantidad: 9 })).toBe('No alcanza: en Los Pinos hay 5.');
+    expect(errorTraslado({ ...base, destino: 'General', solicitado: '   ' })).toBe('Indica quién solicitó el traslado.');
+    expect(errorTraslado({ ...base, destino: 'General', solicitado: 'JUAN PEREZ' })).toBeNull();
     expect(errorTraslado({ ...base, destino: 'General' })).toBeNull();
   });
 });
@@ -71,11 +75,12 @@ describe('vista de teléfono de inventario · mensajes de WhatsApp', () => {
     expect(filtrarPorRetornar([salida, otra], 'pozo').map((s) => s.id)).toEqual(['s1']);
   });
 
-  it('salida con retorno y fotos', () => {
+  it('salida con retorno y fotos muestra Solicitado por', () => {
     const t = mensajeSalida(salida);
     expect(t).toContain('📤 *SALIDA DE ALMACÉN*');
     expect(t).toContain('🔖 *N°:* SAT-0007');
-    expect(t).toContain('✅ *Autorizado por:* LEYDIS RENGEL');
+    expect(t).toContain('👤 *Solicitado por:* LEYDIS RENGEL');
+    expect(t).not.toContain('Autorizado por');
     expect(t).toContain('🔄 *Retorna:* SÍ');
     expect(t).toContain('📷 *Fotos:* 1');
     sinSelector(t);
@@ -89,11 +94,12 @@ describe('vista de teléfono de inventario · mensajes de WhatsApp', () => {
     sinSelector(t);
   });
 
-  it('traslado entre almacenes', () => {
-    const t = mensajeTraslado({ origen: 'Los Pinos', destino: 'General', nombre: 'GUANTES', unidad: 'PAR', cantidad: 3, motivo: 'Para el taller', quedaOrigen: 7, quien: 'ISNER' });
+  it('traslado entre almacenes incluye Solicitado por cuando se indica', () => {
+    const t = mensajeTraslado({ origen: 'Los Pinos', destino: 'General', nombre: 'GUANTES', unidad: 'PAR', cantidad: 3, motivo: 'Para el taller', solicitadoPor: 'ENDER MEJIA', quedaOrigen: 7, quien: 'ISNER' });
     expect(t).toContain('🔁 *TRASLADO ENTRE ALMACENES*');
     expect(t).toContain('🏬 *De:* Los Pinos');
     expect(t).toContain('🔢 *Cantidad:* 3 PAR');
+    expect(t).toContain('👤 *Solicitado por:* ENDER MEJIA');
     expect(t).toContain('📊 *Queda en Los Pinos:* 7 PAR');
     sinSelector(t);
   });
@@ -119,18 +125,18 @@ describe('histórico de salidas (02-11-2026)', () => {
     expect(textoRetorno({ ...salida, retornado: 10 })).toBe('Retornó completo');
   });
 
-  it('la fila lleva N°, fecha, motivo, quién autorizó y quién registró', () => {
+  it('la fila lleva N°, fecha, motivo, quién solicitó y quién registró', () => {
     const f = filaHistoricoSalida(salida, 'ISNER');
     expect(f.titulo).toBe('MANGUERA 2"');
     expect(f.cantidad).toBe('10 MTS');
-    expect(f.lineas).toEqual(['SAT-0007 · 29/10/2026 10:00', 'Motivo: Bomba del pozo 3', 'Autorizó LEYDIS RENGEL · Registró ISNER']);
+    expect(f.lineas).toEqual(['SAT-0007 · 29/10/2026 10:00', 'Motivo: Bomba del pozo 3', 'Solicitado por LEYDIS RENGEL · Registró ISNER']);
     expect(filaHistoricoSalida({ ...salida, autorizado_por: null }).lineas).toHaveLength(2);
   });
 
   it('el comprobante es el mismo de recién registrada', () => {
     expect(comprobanteDeSalida(salida, 'OTRO')).toMatchObject({
       tipo: 'salida', codigo: 'SAT-0007', producto: { nombre: 'MANGUERA 2"', unidad: 'MTS' }, cantidad: 10,
-      detalle: 'Bomba del pozo 3', autorizadoPor: 'LEYDIS RENGEL', retorna: true, fotos: 1,
+      detalle: 'Bomba del pozo 3', solicitadoPor: 'LEYDIS RENGEL', retorna: true, fotos: 1,
       actor: 'isner@x.com', actorName: 'ISNER', at: '2026-10-29T14:00:00Z',
     });
     expect(comprobanteDeSalida({ ...salida, actor: null, actor_name: null }, 'KELVIN')).toMatchObject({ actor: 'KELVIN', actorName: 'KELVIN' });

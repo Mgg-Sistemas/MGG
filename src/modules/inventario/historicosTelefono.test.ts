@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { SolicitudSalida } from '@/shared/lib/types';
 import type { SalidaTelefono } from './inventarioTelefono';
-import { esDelUsuario, mezclarSalidas, mezclarTraslados, movioStock, trasladoDeMovimiento } from './historicosTelefono';
+import {
+  esDelUsuario, mensajeFilaTraslado, mezclarSalidas, mezclarTraslados, movioStock,
+  ordenDeSalidaTelefono, ordenDeTrasladoTelefono, ordenDeTrasladoTelefonoLote, trasladoDeMovimiento,
+} from './historicosTelefono';
 
 const tel = (id: string, actor: string, at: string, almacen = 'General') =>
   ({ id, actor, created_at: at, almacen, fotos: [] }) as unknown as SalidaTelefono;
@@ -46,5 +49,45 @@ describe('salida con varios materiales (04-11-2026)', () => {
     expect(filas).toHaveLength(2);
     const g = filas.find((f) => f.id === 't:a');
     expect(g && g.origen === 'telefono' ? g.grupo.map((x) => x.producto_nombre) : []).toEqual(['CABLE', 'TUBO']);
+  });
+});
+
+describe('Solicitado por en salidas y traslados del teléfono (18-11-2026)', () => {
+  it('pasa Solicitado por a la orden de salida en PDF y al traslado (WhatsApp y PDF)', () => {
+    const s = {
+      ...tel('s1', 'carlos@x.com', '2026-11-18T14:00:00Z'),
+      codigo: 'SAT-CARLOS-0002', producto_id: 'p1', producto_nombre: 'MANGUERA', unidad: 'MTS',
+      cantidad: 5, motivo: 'Mantenimiento', autorizado_por: 'ENDER MEJIA', retorna: false, retornado: 0, retornos: [],
+    } as SalidaTelefono;
+    const os = ordenDeSalidaTelefono(s, 'CARLOS MACHADO', 12);
+    expect(os.sol.solicitante).toBe('ENDER MEJIA');
+    expect(os.opciones.solicitadoPor).toBe('ENDER MEJIA');
+    expect(os.opciones.autorizadoPor).toBeUndefined();
+
+    const mov = trasladoDeMovimiento({
+      id: 'm1', producto_id: 'p1', delta: -4, almacen: 'MATANZA',
+      detalle: 'Transferencia a LOS PINOS · Para taller (teléfono)',
+      solicitante: 'PEDRO ROJAS', at: '2026-11-18T15:00:00Z', ref_codigo: 'TRA-CARLOS-0001',
+      producto: { nombre: 'GUANTES', sku: 'EPP-01', unidad: 'PAR' },
+    });
+    expect(mov?.solicitado_por).toBe('PEDRO ROJAS');
+
+    const ot = ordenDeTrasladoTelefono(mov!, 'CARLOS MACHADO');
+    expect(ot.sol.solicitante).toBe('PEDRO ROJAS');
+    expect(ot.opciones.solicitadoPor).toBe('PEDRO ROJAS');
+    expect(ot.opciones.autorizadoPor).toBeUndefined();
+
+    const otLote = ordenDeTrasladoTelefonoLote({
+      origen: 'MATANZA', destino: 'LOS PINOS', motivo: 'Para taller', solicitadoPor: 'PEDRO ROJAS',
+      quien: 'CARLOS MACHADO', actor: 'carlos@x.com', actorName: 'CARLOS MACHADO', at: '2026-11-18T15:00:00Z',
+      codigo: 'TRA-CARLOS-0001', lineas: [{ producto_id: 'p1', nombre: 'GUANTES', unidad: 'PAR', cantidad: 4, precio: 3 }],
+    });
+    expect(otLote.sol.solicitante).toBe('PEDRO ROJAS');
+    expect(otLote.opciones.solicitadoPor).toBe('PEDRO ROJAS');
+
+    const [fila] = mezclarTraslados([mov!], [], 'MATANZA');
+    const wsp = mensajeFilaTraslado(fila, 'CARLOS MACHADO');
+    expect(wsp).toContain('👤 *Solicitado por:* PEDRO ROJAS');
+    expect(wsp).not.toContain('Autorizado por');
   });
 });

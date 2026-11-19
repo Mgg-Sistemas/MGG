@@ -33,7 +33,7 @@ import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp, type FotosParaWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { adjuntaArchivos } from '@/shared/lib/fotosWhatsapp';
 import { descargarOrdenSalidaPdf, verComprobanteMaterialPdf, type ComprobanteMaterial } from '@/modules/salidas/salidaPdf';
-import { listAutorizadoresActivos } from '@/modules/combustible/combustible.repository';
+import { SolicitanteTelefonoSelect, asegurarSolicitanteTelefono } from './SolicitanteTelefonoSelect';
 import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
 import { RecepcionesTelefono } from './RecepcionesTelefono';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
@@ -779,7 +779,8 @@ function HistoricoTraslados({ almacen, onVolver }: { almacen: string; onVolver: 
       const t = f.traslado;
       const o = f.grupo.length > 1
         ? ordenDeTrasladoTelefonoLote({
-          origen: t.origen, destino: t.destino, motivo: t.motivo, quien: registro(f), actor: t.actor ?? '', actorName: t.actor_name, at: t.at, codigo: t.codigo,
+          origen: t.origen, destino: t.destino, motivo: t.motivo, solicitadoPor: t.solicitado_por,
+          quien: registro(f), actor: t.actor ?? '', actorName: t.actor_name, at: t.at, codigo: t.codigo,
           lineas: f.grupo.map((x) => ({ producto_id: x.producto_id, nombre: x.producto_nombre, unidad: x.unidad, cantidad: x.cantidad, precio: x.precio })),
         })
         : ordenDeTrasladoTelefono(t, registro(f));
@@ -861,7 +862,7 @@ function SalidaDelHistorico({ grupo, quien, onVolver }: { grupo: SalidaTelefono[
         ))}
         <div className="surt-fila"><span>Fecha</span><span>{fechaHoraVE(salida.created_at)}</span></div>
         <div className="surt-fila"><span>Motivo</span><span>{salida.motivo}</span></div>
-        {salida.autorizado_por && <div className="surt-fila"><span>Autorizó</span><span>{salida.autorizado_por}</span></div>}
+        {salida.autorizado_por && <div className="surt-fila"><span>Solicitado por</span><span>{salida.autorizado_por}</span></div>}
         <div className="surt-fila"><span>Retorno</span><span>{textoRetorno(salida)}</span></div>
         {quien && <div className="surt-fila"><span>Registró</span><span>{quien}</span></div>}
       </div>
@@ -1237,16 +1238,6 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
   const [guardandoPre, setGuardandoPre] = useState(false);
   const malLineas = errorLineas(lineas, productos);
 
-  // Quién autoriza (03-11-2026): la MISMA lista que Combustible (catálogo «Autorizados»
-  // del surtidor), pedido de la administradora: «te traigas al de combustible». Antes
-  // salía de los usuarios con «aprobar salidas» en Roles y Permisos.
-  const [autorizadores, setAutorizadores] = useState<string[] | null>(null);
-  const cargarAutorizadores = useCallback(() => {
-    listAutorizadoresActivos().then(setAutorizadores).catch(() => setAutorizadores((xs) => xs ?? []));
-  }, []);
-  useEffect(() => { cargarAutorizadores(); }, [cargarAutorizadores]);
-  useRealtime(['combustible_autorizados'], cargarAutorizadores);
-
   const previas = useMemo(() => fotos.map((f) => URL.createObjectURL(f)), [fotos]);
   useEffect(() => () => { previas.forEach((u) => URL.revokeObjectURL(u)); }, [previas]);
 
@@ -1307,9 +1298,10 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
     }
     setGuardando(true);
     try {
+      const solicitadoFinal = await asegurarSolicitanteTelefono(autorizado, actor);
       let ss = await registrarSalidaTelefonoLote({
         lineas: lineas.map((l) => ({ producto: l.producto, cantidad: leerCantidad(l.cantidad) })),
-        almacen, motivo: motivoFinal, autorizadoPor: autorizado, retorna: !!retorna, actor, actorName,
+        almacen, motivo: motivoFinal, autorizadoPor: solicitadoFinal, retorna: !!retorna, actor, actorName,
         equipo: conMaquina ? equipoMant : null,
       });
       if (fotos.length) {
@@ -1338,14 +1330,14 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
           placeholder="Para qué sale, a quién, a qué equipo…" autoComplete="off" />
       </div>
       <div className="surt-campo">
-        <label htmlFor="inv-tel-salida-autorizado">¿Quién autorizó?</label>
-        <select id="inv-tel-salida-autorizado" className="input surt-input" value={autorizado} onChange={(e) => setAutorizado(e.target.value)}>
-          <option value="">{autorizadores === null ? 'Cargando…' : 'Elegir…'}</option>
-          {(autorizadores ?? []).map((n) => <option key={n} value={n}>{n}</option>)}
-        </select>
-        {autorizadores !== null && !autorizadores.length && (
-          <small className="surt-alerta">No hay autorizados activos en el catálogo de Combustible (Combustible › Catálogo › Autorizados).</small>
-        )}
+        <label htmlFor="inv-tel-salida-solicitado">Solicitado por</label>
+        <SolicitanteTelefonoSelect
+          id="inv-tel-salida-solicitado"
+          value={autorizado}
+          onChange={setAutorizado}
+          actor={actor}
+          disabled={guardando || guardandoPre}
+        />
       </div>
       <div className="surt-campo">
         <span className="surt-rotulo" id="inv-tel-salida-retorna">¿Retorna?</span>
@@ -1411,6 +1403,7 @@ function FormTraslado({ origen, destinos, producto, productos, actor, actorName,
   const [destino, setDestino] = useState('');
   const [lineas, setLineas] = useState<LineaMaterial[]>([{ producto, cantidad: '' }]);
   const [motivo, setMotivo] = useState('');
+  const [solicitado, setSolicitado] = useState('');
   const [confirmando, setConfirmando] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const deNombre = nombreAlmacenVisible(origen);
@@ -1421,7 +1414,7 @@ function FormTraslado({ origen, destinos, producto, productos, actor, actorName,
     if (malLineas) return malLineas;
     for (const l of lineas) {
       const pr = actual(l.producto);
-      const pb = errorTraslado({ productoId: pr.id, origen, destino, cantidad: leerCantidad(l.cantidad), stock: pr.stock_almacen, motivo });
+      const pb = errorTraslado({ productoId: pr.id, origen, destino, cantidad: leerCantidad(l.cantidad), stock: pr.stock_almacen, motivo, solicitado });
       if (pb) return pb;
     }
     return null;
@@ -1440,19 +1433,20 @@ function FormTraslado({ origen, destinos, producto, productos, actor, actorName,
     setGuardando(true);
     const hechos: LineaMaterial[] = [];
     try {
+      const solicitadoFinal = await asegurarSolicitanteTelefono(solicitado, actor);
       // Un N° por traslado, el del almacenista (TRA-ISNER-0001), para todos sus materiales.
       const codigo = await reservarCodigoTelefono('traslado');
       for (const l of lineas) {
-        await trasladarTelefono({ producto: l.producto, origen, destino, cantidad: leerCantidad(l.cantidad), motivo, actor, actorName, codigo });
+        await trasladarTelefono({ producto: l.producto, origen, destino, cantidad: leerCantidad(l.cantidad), motivo, solicitadoPor: solicitadoFinal, actor, actorName, codigo });
         hechos.push(l);
       }
       const at = new Date().toISOString();
       const ls = lineas.map((l) => ({ producto_id: l.producto.id, nombre: l.producto.nombre, sku: l.producto.sku, unidad: l.producto.unidad, cantidad: leerCantidad(l.cantidad), precio: Number(l.producto.precio) || null }));
       toast(lineas.length > 1 ? `Traslado a ${aNombre}: ${lineas.length} materiales` : `Traslado: ${num(ls[0].cantidad)} ${producto.unidad} de ${producto.nombre} a ${aNombre}`, 'success');
       const texto = lineas.length > 1
-        ? mensajeTrasladoLote({ origen, destino, lineas: ls, motivo, quien, cuando: at, codigo })
-        : mensajeTraslado({ origen, destino, nombre: producto.nombre, sku: producto.sku, unidad: producto.unidad, cantidad: ls[0].cantidad, motivo, quedaOrigen: Math.max(0, actual(producto).stock_almacen - ls[0].cantidad), quien, codigo });
-      const orden = ordenDeTrasladoTelefonoLote({ origen, destino, motivo, quien, actor, actorName, at, lineas: ls, codigo });
+        ? mensajeTrasladoLote({ origen, destino, lineas: ls, motivo, solicitadoPor: solicitadoFinal, quien, cuando: at, codigo })
+        : mensajeTraslado({ origen, destino, nombre: producto.nombre, sku: producto.sku, unidad: producto.unidad, cantidad: ls[0].cantidad, motivo, solicitadoPor: solicitadoFinal, quedaOrigen: Math.max(0, actual(producto).stock_almacen - ls[0].cantidad), quien, codigo });
+      const orden = ordenDeTrasladoTelefonoLote({ origen, destino, motivo, solicitadoPor: solicitadoFinal, quien, actor, actorName, at, lineas: ls, codigo });
       onHecho(`Traslado ${codigo} a ${aNombre} registrado${lineas.length > 1 ? ` · ${lineas.length} materiales` : ''}`, texto, undefined,
         () => descargarOrdenSalidaPdf(orden.sol, orden.opciones));
     } catch (err) {
@@ -1475,6 +1469,7 @@ function FormTraslado({ origen, destinos, producto, productos, actor, actorName,
           <div className="surt-fila"><span>De</span><span>{deNombre}</span></div>
           <div className="surt-fila"><span>A</span><span>{aNombre}</span></div>
           <div className="surt-fila"><span>Motivo</span><span>{motivo.trim()}</span></div>
+          <div className="surt-fila"><span>Solicitado por</span><span>{solicitado.trim()}</span></div>
         </div>
         <button type="button" className="btn btn-primary surt-guardar" disabled={guardando} onClick={() => void trasladar()}>
           {guardando ? 'Trasladando…' : `✓ Sí, trasladar a ${aNombre}`}
@@ -1504,7 +1499,17 @@ function FormTraslado({ origen, destinos, producto, productos, actor, actorName,
         <input id="inv-tel-traslado-motivo" className="input surt-input" value={motivo} onChange={(e) => setMotivo(e.target.value)}
           placeholder="Para qué se lleva, quién lo lleva…" autoComplete="off" />
       </div>
-      <button type="submit" className="btn btn-primary surt-guardar" disabled={!destino || !!malLineas}>
+      <div className="surt-campo">
+        <label htmlFor="inv-tel-traslado-solicitado">Solicitado por</label>
+        <SolicitanteTelefonoSelect
+          id="inv-tel-traslado-solicitado"
+          value={solicitado}
+          onChange={setSolicitado}
+          actor={actor}
+          disabled={guardando}
+        />
+      </div>
+      <button type="submit" className="btn btn-primary surt-guardar" disabled={!destino || !!malLineas || !solicitado.trim()}>
         🔁 Revisar traslado{lineas.length > 1 ? ` (${lineas.length} materiales)` : ''}
       </button>
       <button type="button" className="btn btn-ghost btn-grande" onClick={onCancel}>← Otro material</button>
@@ -1575,7 +1580,7 @@ function PorRetornar({ salidas, almacen, canWrite, actor, actorName, quien, onVo
           <div className="surt-fila"><span>Salida</span><span className="mono">{elegida.codigo}</span></div>
           <div className="surt-fila"><span>Salió</span><span>{num(elegida.cantidad)} {u} · {fechaHoraVE(elegida.created_at)}</span></div>
           <div className="surt-fila"><span>Motivo</span><span>{elegida.motivo}</span></div>
-          {elegida.autorizado_por && <div className="surt-fila"><span>Autorizó</span><span>{elegida.autorizado_por}</span></div>}
+          {elegida.autorizado_por && <div className="surt-fila"><span>Solicitado por</span><span>{elegida.autorizado_por}</span></div>}
           {elegida.retornado > 0 && <div className="surt-fila"><span>Ya retornó</span><span>{num(elegida.retornado)} {u}</span></div>}
           <div className="surt-fila"><span>Falta</span><span>{num(falta)} {u}</span></div>
         </div>

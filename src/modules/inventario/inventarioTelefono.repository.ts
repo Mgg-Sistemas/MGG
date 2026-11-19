@@ -124,7 +124,7 @@ export async function listSolicitudesModulo(scope: ScopeSalida, desde: string, h
 export async function listTrasladosTelefono(almacen: string, desde: string, hasta: string): Promise<MovimientoTraslado[]> {
   try {
     return await todasLasFilas<MovimientoTraslado>((d, h) => supabase.from('movimientos')
-      .select('id, producto_id, delta, almacen, detalle, precio_unitario, costo_promedio, actor, actor_name, at, ref_codigo, producto:productos(sku, nombre, unidad)')
+      .select('id, producto_id, delta, almacen, detalle, solicitante, precio_unitario, costo_promedio, actor, actor_name, at, ref_codigo, producto:productos(sku, nombre, unidad)')
       .eq('ref_tipo', 'traslado_telefono').eq('almacen', almacen)
       .gte('at', desdeVE(desde)).lte('at', hastaVE(hasta))
       .order('at', { ascending: false }).order('id', { ascending: false })
@@ -219,7 +219,7 @@ export async function registrarSalidaTelefono(d: {
 }): Promise<SalidaTelefono> {
   const codigo = d.codigo ?? await reservarCodigoSalida();
   const id = crypto.randomUUID();
-  const detalle = `${d.motivo.trim()} · autorizó ${d.autorizadoPor.trim()}${d.retorna ? ' · retorna' : ' · no retorna'} · ${d.almacen} (teléfono)`;
+  const detalle = `${d.motivo.trim()} · solicitado por ${d.autorizadoPor.trim()}${d.retorna ? ' · retorna' : ' · no retorna'} · ${d.almacen} (teléfono)`;
   const mov = await registrarMovimiento({
     producto_id: d.producto.id, tipo: 'salida', delta: -d.cantidad, almacen: d.almacen,
     actor: d.actor, actor_name: d.actorName,
@@ -337,13 +337,15 @@ export async function enlacesFotosSalida(fotos: FotoSalida[]): Promise<string[]>
 
 /** Traslado directo entre almacenes (salida en origen + entrada en destino, con reverso si falla). */
 export async function trasladarTelefono(d: {
-  producto: Producto; origen: string; destino: string; cantidad: number; motivo: string; actor: string; actorName: string | null;
+  producto: Producto; origen: string; destino: string; cantidad: number; motivo: string; solicitadoPor?: string | null;
+  actor: string; actorName: string | null;
   /** N° del traslado (TRA-ISNER-0001), el mismo para todos sus materiales. */
   codigo?: string | null;
 }): Promise<void> {
   await transferir({
     producto_id: d.producto.id, almacenOrigen: d.origen, almacenDestino: d.destino, cantidad: d.cantidad,
-    actor: d.actor, actor_name: d.actorName, ref_tipo: 'traslado_telefono', ref_codigo: d.codigo ?? null,
+    actor: d.actor, actor_name: d.actorName, solicitante: d.solicitadoPor?.trim() || null,
+    ref_tipo: 'traslado_telefono', ref_codigo: d.codigo ?? null,
     detalle: `${d.motivo.trim()} (teléfono)`,
   });
 }

@@ -196,6 +196,7 @@ export function mensajeSalidaModulo(sol: SolicitudSalida, quien?: string | null)
   }
   if (sol.destino) l.push(`📍 *Unidad solicitante:* ${sol.destino}`);
   if (sol.motivo) l.push(`📝 *Motivo:* ${sol.motivo}`);
+  if (sol.solicitante) l.push(`👤 *Solicitado por:* ${sol.solicitante}`);
   l.push(...pieModulo(almacen, quien ?? sol.actor_name ?? sol.actor, sol.ejecutada_en || sol.created_at));
   return l.join('\n');
 }
@@ -213,7 +214,7 @@ export interface OrdenParaPdf { sol: SolicitudSalida; opciones: OpcionesOrdenPdf
  * Lo que la ORDEN DE SALIDA del módulo necesita, armado desde la salida del teléfono.
  * El N° es el SAT de la salida (el teléfono no lleva correlativo por usuario), el
  * precio es el costo del almacén al momento de la salida (el del kardex) y en
- * «Autorizado por» va quien eligió el almacenista.
+ * «Solicitado por» va quien eligió el almacenista.
  */
 export function ordenDeSalidaTelefono(s: SalidaTelefono, quien: string, precio: number | null): OrdenParaPdf {
   const almacen = nombreAlmacenVisible(s.almacen);
@@ -223,12 +224,12 @@ export function ordenDeSalidaTelefono(s: SalidaTelefono, quien: string, precio: 
       id: s.id, codigo: s.codigo, num_usuario: null, scope: 'salida', tipo: 'material', estado: 'ejecutada',
       producto_id: s.producto_id, producto_nombre: s.producto_nombre, almacen_origen: almacen, cantidad: s.cantidad, precio_unit: p,
       items: [{ producto_id: s.producto_id, producto_nombre: s.producto_nombre, cantidad: s.cantidad, precio_unit: p, unidad: s.unidad, almacen }],
-      solicitante: quien, destino: null, motivo: s.motivo, historial: [],
+      solicitante: s.autorizado_por || quien, destino: null, motivo: s.motivo, historial: [],
       aprobada_por: null, actor: s.actor, actor_name: s.actor_name ?? quien, created_at: s.created_at, ejecutada_en: s.created_at,
       mov_ref: 'salida_telefono',
     },
     opciones: {
-      autorizadoPor: s.autorizado_por || '—',
+      solicitadoPor: s.autorizado_por || '—',
       notas: [
         `Retorno: ${textoRetorno(s)}`,
         ...(s.fotos.length ? [`Fotos: ${s.fotos.length}`] : []),
@@ -261,24 +262,26 @@ export function ordenDeSalidaTelefonoLote(ss: SalidaTelefono[], quien: string, p
 
 /** La ORDEN DE TRASLADO de un traslado del teléfono con varios materiales, armada al hacerlo. */
 export function ordenDeTrasladoTelefonoLote(d: {
-  origen: string; destino: string; motivo: string; quien: string; actor: string; actorName: string | null; at: string;
+  origen: string; destino: string; motivo: string; solicitadoPor?: string | null;
+  quien: string; actor: string; actorName: string | null; at: string;
   /** N° del traslado (TRA-ISNER-0001). */
   codigo?: string | null;
   lineas: { producto_id: string; nombre: string; unidad: string | null; cantidad: number; precio: number | null }[];
 }): OrdenParaPdf {
   const origen = nombreAlmacenVisible(d.origen);
   const ref = d.codigo || `TT-${d.at.replace(/\D/g, '').slice(2, 12)}`;
+  const solicitado = d.solicitadoPor?.trim() || null;
   return {
     sol: {
       id: ref, codigo: ref, num_usuario: null, scope: 'traslado', tipo: 'material', estado: 'ejecutada',
       producto_id: d.lineas[0]?.producto_id ?? null, producto_nombre: d.lineas.length > 1 ? `${d.lineas[0].nombre} y ${d.lineas.length - 1} más` : (d.lineas[0]?.nombre ?? ''),
       almacen_origen: origen, almacen_destino: nombreAlmacenVisible(d.destino), cantidad: d.lineas[0]?.cantidad ?? 0, precio_unit: d.lineas[0]?.precio ?? null,
       items: d.lineas.map((l) => ({ producto_id: l.producto_id, producto_nombre: l.nombre, cantidad: l.cantidad, precio_unit: l.precio, unidad: l.unidad, almacen: origen })),
-      solicitante: d.quien, motivo: d.motivo || null, historial: [], aprobada_por: null,
+      solicitante: solicitado || d.quien, motivo: d.motivo || null, historial: [], aprobada_por: null,
       actor: d.actor, actor_name: d.actorName ?? d.quien, created_at: d.at, ejecutada_en: d.at, mov_ref: 'traslado_telefono',
     },
     opciones: {
-      autorizadoPor: 'No requiere (traslado directo desde el teléfono)',
+      solicitadoPor: solicitado || '—',
       notas: ['Registrado desde la vista de teléfono de Inventario y Almacenes.'],
     },
   };
@@ -299,6 +302,7 @@ export interface TrasladoTelefono {
   unidad: string | null;
   cantidad: number;
   motivo: string;
+  solicitado_por?: string | null;
   precio: number | null;
   actor: string | null;
   actor_name: string | null;
@@ -313,6 +317,7 @@ export interface MovimientoTraslado {
   delta: number | string;
   almacen: string | null;
   detalle: string | null;
+  solicitante?: string | null;
   precio_unitario?: number | string | null;
   costo_promedio?: number | string | null;
   actor?: string | null;
@@ -344,7 +349,9 @@ export function trasladoDeMovimiento(m: MovimientoTraslado): TrasladoTelefono | 
   return {
     id: m.id, at: m.at, origen: sale ? almacen : otro, destino: sale ? otro : almacen,
     producto_id: m.producto_id, producto_nombre: m.producto?.nombre || '—', sku: m.producto?.sku ?? null,
-    unidad: m.producto?.unidad ?? null, cantidad: Math.abs(delta), motivo, precio: precio > 0 ? precio : null,
+    unidad: m.producto?.unidad ?? null, cantidad: Math.abs(delta), motivo,
+    solicitado_por: (m.solicitante ?? '').trim() || null,
+    precio: precio > 0 ? precio : null,
     actor: m.actor ?? null, actor_name: m.actor_name ?? null, codigo: m.ref_codigo ?? null,
   };
 }
@@ -391,6 +398,10 @@ export function vistaFilaTraslado(f: FilaTraslado, registro?: string | null): Vi
   if (f.origen === 'telefono') {
     const t = f.traslado;
     const varios = f.grupo.length > 1;
+    const quienes = [
+      t.solicitado_por ? `Solicitado por ${t.solicitado_por}` : '',
+      registro ? `Registró ${registro}` : '',
+    ].filter(Boolean).join(' · ');
     return {
       titulo: varios ? `${t.producto_nombre} y ${f.grupo.length - 1} más` : t.producto_nombre,
       cantidad: varios ? `${f.grupo.length} materiales` : conUnidad(t.cantidad, t.unidad),
@@ -398,7 +409,7 @@ export function vistaFilaTraslado(f: FilaTraslado, registro?: string | null): Vi
         `${numeroTraslado(t)} · ${fechaHoraVE(t.at)}`,
         ruta(t.origen, t.destino),
         t.motivo ? `Motivo: ${t.motivo}` : '',
-        registro ? `Registró ${registro}` : '',
+        quienes,
       ].filter(Boolean),
       estado: 'Trasladado',
       origen: ETIQUETA_ORIGEN_TRASLADO.telefono,
@@ -414,7 +425,7 @@ export function vistaFilaTraslado(f: FilaTraslado, registro?: string | null): Vi
       `${numeroDeSolicitud(sol)} · ${fechaHoraVE(f.at)}`,
       ruta(sol.almacen_origen || ls[0]?.almacen, sol.almacen_destino),
       sol.motivo ? `Motivo: ${sol.motivo}` : '',
-      registro ? `Registró ${registro}` : '',
+      [sol.solicitante ? `Solicitado por ${sol.solicitante}` : '', registro ? `Registró ${registro}` : ''].filter(Boolean).join(' · '),
     ].filter(Boolean),
     estado: 'Ejecutado',
     origen: ETIQUETA_ORIGEN_TRASLADO.modulo,
@@ -428,6 +439,7 @@ export function buscarFilasTraslado(filas: FilaTraslado[], busca: string): FilaT
   return filas.filter((f) => {
     const texto = f.origen === 'telefono'
       ? [f.traslado.producto_nombre, f.traslado.sku ?? '', numeroTraslado(f.traslado), f.traslado.motivo,
+        f.traslado.solicitado_por ?? '',
         f.traslado.origen, f.traslado.destino, nombreAlmacenVisible(f.traslado.origen), nombreAlmacenVisible(f.traslado.destino),
         f.traslado.actor_name ?? '', fechaHoraVE(f.at)].join(' ')
       : textoBuscableSolicitud(f.sol, f.at);
@@ -440,7 +452,8 @@ export function mensajeFilaTraslado(f: FilaTraslado, quien: string): string {
   if (f.origen === 'telefono') {
     const t = f.traslado;
     return mensajeTrasladoLote({
-      origen: t.origen, destino: t.destino, motivo: t.motivo || '—', quien, cuando: t.at, codigo: t.codigo,
+      origen: t.origen, destino: t.destino, motivo: t.motivo || '—', solicitadoPor: t.solicitado_por,
+      quien, cuando: t.at, codigo: t.codigo,
       lineas: f.grupo.map((x) => ({ nombre: x.producto_nombre, sku: x.sku, unidad: x.unidad, cantidad: x.cantidad })),
     });
   }
@@ -452,7 +465,7 @@ export function mensajeFilaTraslado(f: FilaTraslado, quien: string): string {
   if (ls.length === 1) {
     return mensajeTraslado({
       origen, destino, nombre: ls[0].producto_nombre || '—', unidad: ls[0].unidad, cantidad: Number(ls[0].cantidad) || 0,
-      motivo: sol.motivo || '—', quien, cuando,
+      motivo: sol.motivo || '—', solicitadoPor: sol.solicitante, quien, cuando,
     }).replace('🔁 *TRASLADO ENTRE ALMACENES*', `🔁 *TRASLADO ENTRE ALMACENES*\n🔖 *N°:* ${numeroDeSolicitud(sol).replace(/^N° /, '')}`);
   }
   const l = [
@@ -465,24 +478,26 @@ export function mensajeFilaTraslado(f: FilaTraslado, quien: string): string {
     ...ls.map((it) => `• ${it.producto_nombre || '—'}: ${conUnidad(Number(it.cantidad) || 0, it.unidad)}`),
   ];
   if (sol.motivo) l.push(`📝 *Motivo:* ${sol.motivo}`);
+  if (sol.solicitante) l.push(`👤 *Solicitado por:* ${sol.solicitante}`);
   l.push(...pieModulo(origen, quien, cuando));
   return l.join('\n');
 }
 
-/** La ORDEN DE TRASLADO del módulo para un traslado del teléfono (no lleva autorización). */
+/** La ORDEN DE TRASLADO del módulo para un traslado del teléfono. */
 export function ordenDeTrasladoTelefono(t: TrasladoTelefono, quien: string): OrdenParaPdf {
   const origen = nombreAlmacenVisible(t.origen);
+  const solicitado = t.solicitado_por?.trim() || null;
   return {
     sol: {
       id: t.id, codigo: numeroTraslado(t), num_usuario: null, scope: 'traslado', tipo: 'material', estado: 'ejecutada',
       producto_id: t.producto_id, producto_nombre: t.producto_nombre, almacen_origen: origen,
       almacen_destino: nombreAlmacenVisible(t.destino), cantidad: t.cantidad, precio_unit: t.precio,
       items: [{ producto_id: t.producto_id, producto_nombre: t.producto_nombre, cantidad: t.cantidad, precio_unit: t.precio, unidad: t.unidad, almacen: origen }],
-      solicitante: quien, motivo: t.motivo || null, historial: [], aprobada_por: null,
+      solicitante: solicitado || quien, motivo: t.motivo || null, historial: [], aprobada_por: null,
       actor: t.actor, actor_name: t.actor_name ?? quien, created_at: t.at, ejecutada_en: t.at, mov_ref: 'traslado_telefono',
     },
     opciones: {
-      autorizadoPor: 'No requiere (traslado directo desde el teléfono)',
+      solicitadoPor: solicitado || '—',
       notas: ['Registrado desde la vista de teléfono de Inventario y Almacenes.'],
     },
   };

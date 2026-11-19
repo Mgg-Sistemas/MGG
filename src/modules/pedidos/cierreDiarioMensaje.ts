@@ -54,8 +54,10 @@ export function mensajeCierreDiario(r: ResumenCierre, impresoIso: string = new D
   if (pr.length > 0) {
     L.push(`🚚 *ÓRDENES PENDIENTES POR RETIRAR (${pr.length})*`);
     L.push('');
-    pr.forEach((f, i) => L.push(`${i + 1}. ${f.codigo} · ${f.proveedor} — ${f.entrega} · pagada ${f.pagada}`));
-    L.push('');
+    pr.forEach((f, i) => {
+      L.push(`📦 ${i + 1}. *${f.codigo}* · ${f.proveedor} — ${f.entrega} · pagada ${f.pagada}`);
+      L.push('');
+    });
   }
 
   if (r.analistas && r.analistas.length > 0) {

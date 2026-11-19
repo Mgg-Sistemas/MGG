@@ -96,7 +96,7 @@ export function errorSalida(d: {
   if (!(d.cantidad > 0)) return 'Escribe cuánto sale.';
   if (d.cantidad > d.stock) return `No alcanza: en el almacén hay ${num(d.stock)}.`;
   if (d.motivo.trim().length < 3) return 'Escribe el motivo de la salida.';
-  if (!d.autorizado.trim()) return 'Indica quién autorizó la salida.';
+  if (!d.autorizado.trim()) return 'Indica quién solicitó la salida.';
   if (d.retorna === null) return '¿Retorna? Marca SÍ o NO.';
   return null;
 }
@@ -113,7 +113,7 @@ export function errorRetorno(s: Pick<SalidaTelefono, 'retorna' | 'cantidad' | 'r
 
 /** Lo que impide un traslado. `null` = se puede. */
 export function errorTraslado(d: {
-  productoId: string | null; origen: string; destino: string; cantidad: number; stock: number; motivo: string;
+  productoId: string | null; origen: string; destino: string; cantidad: number; stock: number; motivo: string; solicitado?: string;
 }): string | null {
   if (!d.productoId) return 'Elige el material.';
   if (!d.destino.trim()) return 'Elige el almacén destino.';
@@ -121,6 +121,7 @@ export function errorTraslado(d: {
   if (!(d.cantidad > 0)) return 'Escribe cuánto se traslada.';
   if (d.cantidad > d.stock) return `No alcanza: en ${nombreAlmacenVisible(d.origen)} hay ${num(d.stock)}.`;
   if (d.motivo.trim().length < 3) return 'Escribe el motivo del traslado.';
+  if (d.solicitado !== undefined && !d.solicitado.trim()) return 'Indica quién solicitó el traslado.';
   return null;
 }
 
@@ -203,7 +204,7 @@ export function mensajeSalida(s: SalidaTelefono, quien?: string | null): string 
     `🔢 *Cantidad:* ${conUnidad(s.cantidad, s.unidad)}`,
     `📝 *Motivo:* ${s.motivo}`,
   ];
-  if (s.autorizado_por) l.push(`✅ *Autorizado por:* ${s.autorizado_por}`);
+  if (s.autorizado_por) l.push(`👤 *Solicitado por:* ${s.autorizado_por}`);
   l.push(s.retorna ? '🔄 *Retorna:* SÍ' : '❌ *Retorna:* NO');
   if (s.fotos.length) l.push(`📷 *Fotos:* ${s.fotos.length}`);
   l.push(...pie(s.almacen, quien ?? s.actor_name ?? s.actor, s.created_at));
@@ -226,7 +227,7 @@ export function mensajeSalidaLote(ss: SalidaTelefono[], quien?: string | null): 
     ...ss.map((x) => `• ${x.producto_nombre}: ${conUnidad(x.cantidad, x.unidad)}`),
     `📝 *Motivo:* ${s.motivo}`,
   ];
-  if (s.autorizado_por) l.push(`✅ *Autorizado por:* ${s.autorizado_por}`);
+  if (s.autorizado_por) l.push(`👤 *Solicitado por:* ${s.autorizado_por}`);
   l.push(s.retorna ? '🔄 *Retorna:* SÍ' : '❌ *Retorna:* NO');
   if (s.fotos.length) l.push(`📷 *Fotos:* ${s.fotos.length}`);
   l.push(...pie(s.almacen, quien ?? s.actor_name ?? s.actor, s.created_at));
@@ -236,11 +237,14 @@ export function mensajeSalidaLote(ss: SalidaTelefono[], quien?: string | null): 
 /** El aviso de un traslado con varios materiales (04-11-2026). Con uno solo, el de siempre. */
 export function mensajeTrasladoLote(d: {
   origen: string; destino: string; lineas: { nombre: string; sku?: string | null; unidad?: string | null; cantidad: number }[];
-  motivo: string; quien?: string | null; cuando?: string | null; codigo?: string | null;
+  motivo: string; solicitadoPor?: string | null; quien?: string | null; cuando?: string | null; codigo?: string | null;
 }): string {
   if (d.lineas.length === 1) {
     const x = d.lineas[0];
-    return mensajeTraslado({ origen: d.origen, destino: d.destino, nombre: x.nombre, sku: x.sku, unidad: x.unidad, cantidad: x.cantidad, motivo: d.motivo, quien: d.quien, cuando: d.cuando, codigo: d.codigo });
+    return mensajeTraslado({
+      origen: d.origen, destino: d.destino, nombre: x.nombre, sku: x.sku, unidad: x.unidad, cantidad: x.cantidad,
+      motivo: d.motivo, solicitadoPor: d.solicitadoPor, quien: d.quien, cuando: d.cuando, codigo: d.codigo,
+    });
   }
   const l = [
     '🔁 *TRASLADO ENTRE ALMACENES*',
@@ -252,6 +256,7 @@ export function mensajeTrasladoLote(d: {
     ...d.lineas.map((x) => `• ${x.nombre}${x.sku ? ` (${x.sku})` : ''}: ${conUnidad(x.cantidad, x.unidad)}`),
     `📝 *Motivo:* ${d.motivo.trim()}`,
   ];
+  if (d.solicitadoPor?.trim()) l.push(`👤 *Solicitado por:* ${d.solicitadoPor.trim()}`);
   l.push(...pie(d.origen, d.quien, d.cuando));
   return l.join('\n');
 }
@@ -276,7 +281,7 @@ export function mensajeRetorno(s: SalidaTelefono, cantidad: number, nota?: strin
 /** El aviso del traslado entre almacenes. */
 export function mensajeTraslado(d: {
   origen: string; destino: string; nombre: string; sku?: string | null; unidad?: string | null; cantidad: number;
-  motivo: string; quedaOrigen?: number | null; quien?: string | null; cuando?: string | null;
+  motivo: string; solicitadoPor?: string | null; quedaOrigen?: number | null; quien?: string | null; cuando?: string | null;
   /** N° del traslado (TRA-ISNER-0001), desde el 04-11-2026. */
   codigo?: string | null;
 }): string {
@@ -290,6 +295,7 @@ export function mensajeTraslado(d: {
     `🔢 *Cantidad:* ${conUnidad(d.cantidad, d.unidad)}`,
     `📝 *Motivo:* ${d.motivo.trim()}`,
   ];
+  if (d.solicitadoPor?.trim()) l.push(`👤 *Solicitado por:* ${d.solicitadoPor.trim()}`);
   if (d.quedaOrigen != null) l.push(`📊 *Queda en ${nombreAlmacenVisible(d.origen)}:* ${conUnidad(d.quedaOrigen, d.unidad)}`);
   l.push(...pie(d.origen, d.quien, d.cuando));
   return l.join('\n');
@@ -325,7 +331,7 @@ export interface FilaHistoricoSalida { titulo: string; cantidad: string; lineas:
 
 export function filaHistoricoSalida(s: SalidaTelefono, registro?: string | null): FilaHistoricoSalida {
   const quienes = [
-    s.autorizado_por ? `Autorizó ${s.autorizado_por}` : '',
+    s.autorizado_por ? `Solicitado por ${s.autorizado_por}` : '',
     registro ? `Registró ${registro}` : '',
   ].filter(Boolean).join(' · ');
   return {
@@ -341,7 +347,7 @@ export function comprobanteDeSalida(s: SalidaTelefono, quien: string): Comproban
   return {
     tipo: 'salida', codigo: s.codigo, producto: { nombre: s.producto_nombre, unidad: s.unidad },
     almacen: nombreAlmacenVisible(s.almacen), cantidad: s.cantidad, detalle: s.motivo,
-    autorizadoPor: s.autorizado_por, retorna: s.retorna, fotos: s.fotos.length,
+    solicitadoPor: s.autorizado_por, autorizadoPor: s.autorizado_por, retorna: s.retorna, fotos: s.fotos.length,
     actor: s.actor ?? quien, actorName: s.actor_name ?? quien, at: s.created_at,
   };
 }
