@@ -7,6 +7,7 @@ import {
   type SolicitudPermisoForm,
 } from './permisoLaboral';
 import { MGG } from './empresa';
+import { construirSolicitudPermisoPdf } from './solicitudPermisoPdf';
 
 const VALIDA: SolicitudPermisoForm = {
   personal_id: 'persona-1',
@@ -77,5 +78,11 @@ describe('permiso laboral · contenido del PDF', () => {
   it('no pone la línea de horario cuando no aplica', () => {
     const txt = contenidoSolicitudPermiso({ ...VALIDA, horario: '' }, MGG);
     expect(txt).not.toContain('Horario (si aplica): —');
+  });
+
+  it('construye el documento PDF con jsPDF exitosamente', async () => {
+    const doc = await construirSolicitudPermisoPdf(VALIDA, MGG);
+    expect(doc).toBeDefined();
+    expect(doc.internal.pages.length).toBeGreaterThanOrEqual(2); // jsPDF 1-based page array
   });
 });

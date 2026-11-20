@@ -97,6 +97,7 @@ export function contenidoSolicitudPermiso(
     'COMPROMISO DEL TRABAJADOR:',
     COMPROMISO_TRABAJADOR,
     'Firma del trabajador',
+    `${nombre || '—'} · Cédula: ${t.cedula?.trim() || '—'}`,
     'Firma de RRHH',
   );
   return lineas.join('\n');

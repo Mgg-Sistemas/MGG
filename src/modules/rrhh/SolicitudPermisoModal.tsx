@@ -236,14 +236,31 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
         </div>
       )}
 
-      <div className="card" style={{ padding: '.75rem', marginTop: '1rem', background: 'var(--surface-2, transparent)' }}>
-        <strong style={{ fontSize: '.85rem' }}>COMPROMISO DEL TRABAJADOR:</strong>
-        <p style={{ fontSize: '.85rem', marginBottom: 0 }}>{COMPROMISO_TRABAJADOR}</p>
+      <div className="card" style={{ padding: '.75rem', marginTop: '1rem', background: 'var(--surface-2, transparent)', borderLeft: '3px solid var(--primary, #ff8a00)' }}>
+        <strong style={{ fontSize: '.85rem', color: 'var(--primary, #ff8a00)' }}>COMPROMISO DEL TRABAJADOR:</strong>
+        <p style={{ fontSize: '.85rem', marginBottom: 0, textAlign: 'justify', lineHeight: 1.45 }}>{COMPROMISO_TRABAJADOR}</p>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginTop: '1.5rem' }}>
-        <div><div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem' }}>Firma del trabajador</div></div>
-        <div><div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem' }}>Firma de RRHH</div></div>
+        <div>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem' }}>
+            <div style={{ fontWeight: 700 }}>Firma del trabajador</div>
+            {(`${form.trabajador.nombre ?? ''} ${form.trabajador.apellido ?? ''}`.trim()) && (
+              <div style={{ fontSize: '.76rem', marginTop: '.2rem', fontWeight: 600 }}>
+                {`${form.trabajador.nombre} ${form.trabajador.apellido}`.trim().toUpperCase()}
+              </div>
+            )}
+            {form.trabajador.cedula && (
+              <div className="muted" style={{ fontSize: '.72rem' }}>C.I. {form.trabajador.cedula}</div>
+            )}
+          </div>
+        </div>
+        <div>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem' }}>
+            <div style={{ fontWeight: 700 }}>Firma de RRHH</div>
+            <div style={{ fontSize: '.76rem', marginTop: '.2rem' }}>Departamento de Recursos Humanos</div>
+          </div>
+        </div>
       </div>
     </Modal>
   );
