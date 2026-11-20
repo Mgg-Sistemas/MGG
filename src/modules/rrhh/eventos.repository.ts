@@ -4,7 +4,7 @@
    laboral por persona. (Sin prestaciones sociales.)
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { RrhhEvento } from '@/shared/lib/types';
+import type { AdjuntoPermisoLaboral, RrhhEvento, SolicitudPermisoLaboral } from '@/shared/lib/types';
 import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 
 const TABLE = 'rrhh_eventos';
@@ -31,6 +31,10 @@ export interface EventoInput {
   dias?: number | null;
   monto?: number | null;
   descripcion?: string | null;
+  /** Solo permiso: solicitud, soportes y PDF generado. */
+  solicitud?: SolicitudPermisoLaboral | null;
+  adjuntos?: AdjuntoPermisoLaboral[] | null;
+  solicitud_path?: string | null;
 }
 
 export async function crearEvento(input: EventoInput, actorEmail?: string, actorName?: string | null): Promise<RrhhEvento> {
@@ -43,11 +47,27 @@ export async function crearEvento(input: EventoInput, actorEmail?: string, actor
     dias: input.dias != null ? Number(input.dias) : null,
     monto: input.monto != null ? Math.round(Number(input.monto) * 100) / 100 : null,
     descripcion: input.descripcion?.trim() || null,
+    solicitud: input.solicitud ?? null,
+    adjuntos: input.adjuntos ?? [],
+    solicitud_path: input.solicitud_path ?? null,
     creado_por: actorEmail ?? null,
     actor_name: actorName ?? null,
   }).select('*').single();
   if (error) throw error;
   return data as RrhhEvento;
+}
+
+/** Guarda la ruta del PDF y los soportes ya subidos. Verifica que la fila se actualizó. */
+export async function actualizarEventoAdjuntos(
+  id: string,
+  datos: { solicitud_path?: string | null; adjuntos?: AdjuntoPermisoLaboral[] },
+): Promise<void> {
+  const cambios: { solicitud_path?: string | null; adjuntos?: AdjuntoPermisoLaboral[] } = {};
+  if ('solicitud_path' in datos) cambios.solicitud_path = datos.solicitud_path ?? null;
+  if (datos.adjuntos) cambios.adjuntos = datos.adjuntos;
+  const { data, error } = await supabase.from(TABLE).update(cambios).eq('id', id).select('id');
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error('No se pudo guardar los archivos: sin permiso o ya no existía el registro.');
 }
 
 export async function eliminarEvento(id: string): Promise<void> {

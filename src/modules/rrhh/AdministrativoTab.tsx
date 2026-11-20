@@ -1,34 +1,27 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { ConfirmDialog } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
+import { SearchSelect, type SearchOption } from '@/shared/ui/SearchSelect';
+import { FechaVe } from '@/shared/ui/FechaVe';
 import { toast } from '@/shared/ui/Toast';
 import { money, date } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import type { Personal, RrhhEvento } from '@/shared/lib/types';
 import { listPersonal } from './personal.repository';
-import { listEventos, crearEvento, eliminarEvento, type EventoInput } from './eventos.repository';
+import { listEventos, eliminarEvento } from './eventos.repository';
 import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
+import { EventoTipoModal } from './EventoTipoModal';
+import { SolicitudPermisoModal } from './SolicitudPermisoModal';
 
-const TIPOS: { key: RrhhEvento['tipo']; label: string; conMonto?: boolean; conDias?: boolean }[] = [
-  { key: 'vacacion', label: 'Vacaciones', conDias: true },
-  { key: 'permiso', label: 'Permiso', conDias: true },
-  { key: 'utilidad', label: 'Utilidad / Aguinaldo', conMonto: true },
+const TIPOS: { key: RrhhEvento['tipo']; label: string }[] = [
+  { key: 'vacacion', label: 'Vacaciones' },
+  { key: 'permiso', label: 'Permiso' },
+  { key: 'utilidad', label: 'Utilidad / Aguinaldo' },
   { key: 'nota', label: 'Nota / Historial' },
 ];
 const labelTipo = (t: string) => TIPOS.find((x) => x.key === t)?.label ?? t;
 
-const VACIO: EventoInput = { personal_id: '', tipo: 'vacacion', fecha_desde: '', fecha_hasta: '', dias: null, monto: null, descripcion: '' };
-
-/** Días inclusivos entre dos fechas (yyyy-mm-dd). 10/06 → 24/06 = 15 días. */
-function diasInclusive(desde?: string | null, hasta?: string | null): number {
-  if (!desde || !hasta) return 0;
-  const [ay, am, ad] = desde.split('-').map(Number);
-  const [by, bm, bd] = hasta.split('-').map(Number);
-  if (!ay || !by) return 0;
-  const a = new Date(ay, am - 1, ad), b = new Date(by, bm - 1, bd);
-  const d = Math.floor((b.getTime() - a.getTime()) / 86400000) + 1;
-  return d > 0 ? d : 0;
-}
+type ModalState = { tipo: RrhhEvento['tipo']; evento?: RrhhEvento | null } | null;
 
 export function AdministrativoTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_DEFECTO }: {
   canWrite: boolean; actor: string; actorName: string | null; empresa?: Empresa;
@@ -36,8 +29,9 @@ export function AdministrativoTab({ canWrite, actor, actorName, empresa = EMPRES
   const [personal, setPersonal] = useState<Personal[]>([]);
   const [lista, setLista] = useState<RrhhEvento[]>([]);
   const [loading, setLoading] = useState(true);
-  const [form, setForm] = useState<EventoInput>(VACIO);
-  const [guardando, setGuardando] = useState(false);
+  const [personalId, setPersonalId] = useState('');
+  const [tipoNuevo, setTipoNuevo] = useState<RrhhEvento['tipo']>('permiso');
+  const [modal, setModal] = useState<ModalState>(null);
   const [error, setError] = useState<string | null>(null);
   const [filtroTipo, setFiltroTipo] = useState<string>('');
   const [fDesde, setFDesde] = useState('');
@@ -51,7 +45,7 @@ export function AdministrativoTab({ canWrite, actor, actorName, empresa = EMPRES
     ]);
     setPersonal(ps); setLista(ev);
     setLoading(false);
-  }, []);
+  }, [empresa]);
   useEffect(() => { void recargar(); }, [recargar]);
   useRealtime(['rrhh_eventos', 'personal'], () => { void recargar(); });
 
@@ -59,20 +53,20 @@ export function AdministrativoTab({ canWrite, actor, actorName, empresa = EMPRES
     const p = personal.find((x) => x.id === id);
     return p ? `${p.nombre} ${p.apellido}`.trim() : '—';
   };
-  const tipoCfg = TIPOS.find((t) => t.key === form.tipo);
 
-  async function guardar(e: FormEvent) {
-    e.preventDefault(); setError(null);
-    if (!form.personal_id) { setError('Elegí el trabajador.'); return; }
-    setGuardando(true);
-    try {
-      await crearEvento(form, actor, actorName);
-      toast('Registrado', 'success');
-      setForm({ ...VACIO, tipo: form.tipo });
-      await recargar();
-    } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo guardar'); }
-    finally { setGuardando(false); }
+  const opciones: SearchOption[] = personal.filter((p) => p.activo).map((p) => ({
+    value: p.id,
+    label: `${p.nombre} ${p.apellido}`.trim(),
+    hint: p.numero_ficha ? `Ficha ${p.numero_ficha}` : p.cedula ?? undefined,
+    keywords: [p.cedula, p.cargo, p.departamento, p.telefono].filter((x): x is string => !!x),
+  }));
+
+  function abrirFormulario() {
+    if (!personalId) { setError('Elegí el trabajador de la lista.'); return; }
+    setError(null);
+    setModal({ tipo: tipoNuevo });
   }
+
   // El cartel del navegador se reemplaza por el diálogo del sistema.
   const [porBorrar, setPorBorrar] = useState<RrhhEvento | null>(null);
   async function confirmarBorrado() {
@@ -109,62 +103,48 @@ export function AdministrativoTab({ canWrite, actor, actorName, empresa = EMPRES
   }
   const hayFiltroFecha = !!(fDesde || fHasta);
 
-  // Al cambiar una fecha, recalcula automáticamente los días del rango (inclusive).
-  function cambiarFecha(campo: 'fecha_desde' | 'fecha_hasta', valor: string) {
-    setForm((f) => {
-      const next = { ...f, [campo]: valor };
-      const d = diasInclusive(next.fecha_desde, next.fecha_hasta);
-      if (d > 0) next.dias = d;
-      return next;
-    });
-  }
-  const diasRango = diasInclusive(form.fecha_desde, form.fecha_hasta);
-
   return (
     <div>
       {canWrite && (
-        <form onSubmit={guardar} style={{ marginBottom: '1rem' }}>
-          {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Error:</strong> {error}</div>}
+        <div style={{ marginBottom: '1rem' }}>
+          {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}><strong>Revisá:</strong> {error}</div>}
           <div className="card" style={{ padding: '.85rem' }}>
             <div className="card-title" style={{ marginBottom: '.5rem' }}>Registrar (vacaciones · permisos · utilidades · notas)</div>
             <div className="form-grid">
               <div className="form-row">
                 <label>Trabajador</label>
-                <select className="select" value={form.personal_id} onChange={(e) => setForm((f) => ({ ...f, personal_id: e.target.value }))} required>
-                  <option value="">— elegir —</option>
-                  {personal.filter((p) => p.activo).map((p) => <option key={p.id} value={p.id}>{p.nombre} {p.apellido}</option>)}
-                </select>
+                <SearchSelect
+                  options={opciones}
+                  value={personalId}
+                  onChange={(v) => { setPersonalId(v); setError(null); }}
+                  placeholder="Buscar por nombre, cédula, cargo…"
+                  emptyText="Sin trabajadores para esta empresa"
+                />
               </div>
               <div className="form-row">
                 <label>Tipo</label>
-                <select className="select" value={form.tipo} onChange={(e) => setForm((f) => ({ ...f, tipo: e.target.value as RrhhEvento['tipo'] }))}>
+                <select className="select" value={tipoNuevo} onChange={(e) => setTipoNuevo(e.target.value as RrhhEvento['tipo'])}>
                   {TIPOS.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
                 </select>
               </div>
-              <div className="form-row"><label>Desde</label><input className="input" type="date" value={form.fecha_desde ?? ''} max={form.fecha_hasta || undefined} onChange={(e) => cambiarFecha('fecha_desde', e.target.value)} /></div>
-              <div className="form-row"><label>Hasta</label><input className="input" type="date" value={form.fecha_hasta ?? ''} min={form.fecha_desde || undefined} onChange={(e) => cambiarFecha('fecha_hasta', e.target.value)} /></div>
-              {tipoCfg?.conDias && <div className="form-row"><label>Días</label><input className="input mono" type="number" min={0} step="any" value={form.dias ?? ''} onChange={(e) => setForm((f) => ({ ...f, dias: e.target.value === '' ? null : Number(e.target.value) }))} /></div>}
-              {tipoCfg?.conMonto && <div className="form-row"><label>Monto (USD)</label><input className="input mono" type="number" min={0} step="any" value={form.monto ?? ''} onChange={(e) => setForm((f) => ({ ...f, monto: e.target.value === '' ? null : Number(e.target.value) }))} /></div>}
-              <div className="form-row" style={{ gridColumn: '1 / -1' }}><label>Descripción</label><input className="input" value={form.descripcion ?? ''} onChange={(e) => setForm((f) => ({ ...f, descripcion: e.target.value }))} placeholder="Detalle del registro" /></div>
             </div>
-            {diasRango > 0 && (
-              <div className="muted" style={{ marginTop: '.4rem', fontSize: '.84rem' }}>
-                📅 <strong>{diasRango}</strong> día(s) seleccionados en el rango.
-              </div>
-            )}
-            <div style={{ marginTop: '.5rem' }}><button type="submit" className="btn btn-primary" disabled={guardando}>{guardando ? 'Guardando…' : '+ Registrar'}</button></div>
+            <div style={{ marginTop: '.6rem' }}>
+              <button type="button" className="btn btn-primary" style={{ minHeight: 44 }} onClick={abrirFormulario}>
+                Continuar → {labelTipo(tipoNuevo)}
+              </button>
+            </div>
           </div>
-        </form>
+        </div>
       )}
 
       <div style={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-end', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.5rem' }}>
         <div className="form-row" style={{ marginBottom: 0 }}>
           <label style={{ fontSize: '.7rem' }}>Desde</label>
-          <input className="input" type="date" value={fDesde} max={fHasta || undefined} onChange={(e) => setFDesde(e.target.value)} style={{ width: 'auto' }} />
+          <FechaVe value={fDesde} onChange={setFDesde} />
         </div>
         <div className="form-row" style={{ marginBottom: 0 }}>
           <label style={{ fontSize: '.7rem' }}>Hasta</label>
-          <input className="input" type="date" value={fHasta} min={fDesde || undefined} onChange={(e) => setFHasta(e.target.value)} style={{ width: 'auto' }} />
+          <FechaVe value={fHasta} onChange={setFHasta} />
         </div>
         <button type="button" className="btn btn-sm btn-ghost" onClick={rangoHoy} title="Solo hoy">Hoy</button>
         <button type="button" className="btn btn-sm btn-ghost" onClick={rangoMesActual} title="Mes en curso">Este mes</button>
@@ -194,7 +174,12 @@ export function AdministrativoTab({ canWrite, actor, actorName, empresa = EMPRES
                 <td className="mono" style={{ textAlign: 'right' }}>{e.dias != null ? e.dias : '—'}</td>
                 <td className="mono" style={{ textAlign: 'right' }}>{e.monto != null ? money(e.monto) : '—'}</td>
                 <td className="muted">{e.descripcion || '—'}</td>
-                {canWrite && <td style={{ textAlign: 'center' }}><button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(e)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button></td>}
+                {canWrite && <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
+                  {e.tipo === 'permiso' && (
+                    <button className="btn btn-sm btn-ghost" onClick={() => setModal({ tipo: 'permiso', evento: e })} title="Ver solicitud y agregar soportes">📎</button>
+                  )}
+                  <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(e)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>
+                </td>}
               </tr>
             ))}
           </tbody>
@@ -208,6 +193,31 @@ export function AdministrativoTab({ canWrite, actor, actorName, empresa = EMPRES
           confirmText="Eliminar" danger
           onConfirm={() => void confirmarBorrado()}
           onCancel={() => setPorBorrar(null)} />
+      )}
+
+      {modal?.tipo === 'permiso' && (
+        <SolicitudPermisoModal
+          personal={personal}
+          personalId={personalId}
+          empresa={empresa}
+          actor={actor}
+          actorName={actorName}
+          evento={modal.evento}
+          onClose={() => setModal(null)}
+          onGuardado={() => void recargar()}
+        />
+      )}
+      {modal && modal.tipo !== 'permiso' && (
+        <EventoTipoModal
+          tipo={modal.tipo}
+          personal={personal}
+          personalId={personalId}
+          empresa={empresa}
+          actor={actor}
+          actorName={actorName}
+          onClose={() => setModal(null)}
+          onGuardado={() => void recargar()}
+        />
       )}
     </div>
   );

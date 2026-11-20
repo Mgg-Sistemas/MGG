@@ -1467,6 +1467,37 @@ export interface NominaRenglon {
   periodo?: Pick<NominaPeriodo, 'codigo' | 'tipo' | 'periodo_desde' | 'periodo_hasta' | 'tasa_bcv' | 'tasa_brl' | 'tasa_brl_fecha'> | null;
 }
 
+/** Datos del trabajador que se graban con la solicitud de permiso (para el PDF histórico). */
+export interface DatosTrabajadorPermiso {
+  nombre: string;
+  apellido: string;
+  cedula: string;
+  cargo: string;
+  departamento: string;
+  telefono: string;
+}
+
+/** Un soporte/pdf/image subido con la solicitud de permiso laboral (20-11-2026). */
+export interface AdjuntoPermisoLaboral {
+  path: string;
+  filename: string;
+  size?: number | null;
+  type?: string | null;
+}
+
+/** Formulario de «Solicitud de Permiso Laboral» (RRHH → Administrativo). */
+export interface SolicitudPermisoLaboral {
+  fecha_solicitud: string;
+  fecha_inicio: string;
+  fecha_fin: string;
+  tiempo_solicitado: string;
+  horario: string;
+  motivo: string;
+  compromiso: string;
+  trabajador: DatosTrabajadorPermiso;
+  empresa: string;
+}
+
 /** Evento administrativo de RRHH (Fase 3): vacaciones, permisos, utilidades, notas. */
 export interface RrhhEvento {
   id: string;
@@ -1484,6 +1515,10 @@ export interface RrhhEvento {
   nomina_renglon_id?: string | null;
   creado_por?: string | null;
   actor_name?: string | null;
+  /** Solo cuando tipo='permiso': solicitud completa, adjuntos y PDF generado. */
+  solicitud?: SolicitudPermisoLaboral | null;
+  adjuntos?: AdjuntoPermisoLaboral[] | null;
+  solicitud_path?: string | null;
   created_at: string;
 }
 
