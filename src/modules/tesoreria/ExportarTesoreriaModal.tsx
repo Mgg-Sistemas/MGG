@@ -52,7 +52,13 @@ import {
   descargarTesoreriaPdf,
   type MetadatosExportacionTesoreria,
 } from './exportarTesoreria';
-import { textoWhatsappTesoreria } from './whatsappTesoreria';
+import {
+  textoWhatsappTesoreria,
+  CREDITOS_AL_DIA,
+  CREDITOS_OC_OS_CERO,
+  POR_PAGAR_CERO,
+  TESORERIA_AL_DIA,
+} from './whatsappTesoreria';
 import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 
 const CLAVE_CAMPOS = 'tesoreria.reporte.campos.v1';
@@ -250,9 +256,10 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
   }, [ambito, movs, pagoPorOrden, datosPP, creditosCompras, datosProvCred, ctx, baseTasa]);
 
   // Sin nada pendiente (sin filtros) en por_pagar o creditos_cartera → «Tesorería al día» en WhatsApp y PDF.
-  const alDia = !cargando && filasDetalle.length === 0 && (
-    (ambito === 'por_pagar' && !!datosPP) || ambito === 'creditos_cartera'
-  );
+  // Igual que GT: si el reporte viene desde órdenes marcadas, nunca es «al día» global.
+  const alDiaPorPagar = ambito === 'por_pagar' && !ordenesSeleccionadas?.length && !cargando && !!datosPP && filasDetalle.length === 0;
+  const alDiaCreditos = ambito === 'creditos_cartera' && !cargando && filasDetalle.length === 0;
+  const alDia = alDiaPorPagar || alDiaCreditos;
 
   // Catálogos presentes (para los filtros)
   const catalogos = useMemo(() => {
@@ -409,7 +416,7 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
             <button className="btn btn-ghost" onClick={() => void descargar('csv')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'csv' ? 'Generando...' : '📝 CSV'}</button>
             <button className="btn btn-ghost" onClick={() => void descargar('xlsx')} disabled={!!ocupado || cargando || filas.length === 0 || marcadosVisibles.length === 0}>{ocupado === 'xlsx' ? 'Generando...' : '📊 Excel'}</button>
             <button className="btn btn-ghost" onClick={() => setVerWhatsapp(true)} disabled={!!ocupado || cargando || (filas.length === 0 && !alDia)}>💬 WhatsApp</button>
-            <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={!!ocupado || cargando || (filas.length === 0 && !alDia) || marcadosVisibles.length === 0}>{ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}</button>
+            <button className="btn btn-primary" onClick={() => void descargar('pdf')} disabled={!!ocupado || cargando || (filas.length === 0 ? !alDia : marcadosVisibles.length === 0)}>{ocupado === 'pdf' ? 'Generando...' : '📄 PDF'}</button>
           </div>
         </div>
       }
@@ -858,6 +865,11 @@ export function ExportarTesoreriaModal({ ambitoInicial, rangoInicial, ordenesSel
 
           {cargando ? (
             <div style={{ textAlign: 'center', padding: '1.2rem', color: '#94a3b8', fontSize: '.82rem' }}>Cargando datos de Tesorería...</div>
+          ) : filas.length === 0 && alDia ? (
+            <div style={{ textAlign: 'center', padding: '1.2rem', border: '1px solid #16a34a', borderRadius: 8, background: 'rgba(22,163,74,.08)' }}>
+              <div style={{ fontWeight: 800, fontSize: '1rem' }}>📋 {alDiaCreditos ? CREDITOS_OC_OS_CERO : POR_PAGAR_CERO}</div>
+              <div style={{ fontWeight: 800, fontSize: '1rem', color: '#22c55e', marginTop: '.25rem' }}>✅ {alDiaCreditos ? CREDITOS_AL_DIA : TESORERIA_AL_DIA}</div>
+            </div>
           ) : filas.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '1.2rem', color: '#94a3b8', fontSize: '.82rem' }}>No hay datos para el ámbito, período o filtros seleccionados.</div>
           ) : formatoPresentacion === 'fichas' ? (

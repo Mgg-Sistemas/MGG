@@ -16,6 +16,13 @@ describe('Tesorería al día (07-11-2026)', () => {
     expect(t).not.toContain('AL DÍA');
   });
 
+  it('cuentas a crédito sin saldo dice «0» y «al día en cuentas a crédito»', () => {
+    const t = textoWhatsappTesoreria([], { ...opts, ambito: 'creditos_cartera', alDia: true });
+    expect(t).toContain('*CUENTAS A CRÉDITO (OC Y OS) PENDIENTES: 0*');
+    expect(t).toContain('✅ *TESORERÍA AL DÍA EN CUENTAS A CRÉDITO*');
+    expect(t).not.toContain('ÓRDENES PENDIENTES POR PAGAR: 0');
+  });
+
   it('el resumen por lote sin órdenes trae la fecha y «al día», sin U+FE0F', () => {
     const t = textoTesoreriaAlDia(new Date('2026-11-07T14:00:00Z'));
     expect(t).toContain('ÓRDENES PENDIENTES POR PAGAR: 0');
