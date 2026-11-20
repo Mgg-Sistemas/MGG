@@ -17,6 +17,7 @@ const VALIDA: SolicitudPermisoForm = {
   horario: '08:00 a 12:00',
   motivo: 'Trámite médico familiar',
   compromiso: COMPROMISO_TRABAJADOR,
+  empresa: 'MGG',
   trabajador: {
     nombre: 'Ana María',
     apellido: 'Pérez González',
