@@ -1009,8 +1009,9 @@ export async function descargarTesoreriaPdf(
   }
 
   // 3b. Desglose puntual de Cuentas a Crédito desde Compras (OC y OS)
+  // La tabla solo debe aparecer si el usuario seleccionó la presentación tabular (no en fichas).
   const credDet = meta.creditosComprasDetalle ?? filas.filter((f) => f.es_credito_compras);
-  if (credDet.length > 0 && (esFichas || meta.agrupacion !== 'detallado')) {
+  if (credDet.length > 0 && !esFichas) {
     if (y + 70 > H - 36) { doc.addPage(); y = 36; }
     const ROJO_CRED: [number, number, number] = [185, 28, 28];
     const nOc = credDet.filter((c) => c.tipo_credito_compras !== 'OS').length;
