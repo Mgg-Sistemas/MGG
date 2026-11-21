@@ -48,6 +48,12 @@ describe('creditoVencimiento - condiciones y alertas', () => {
       fecha_inicio: HOY,
       fecha_vencimiento: '2026-12-04',
     });
+    expect(normalizarCreditoDetalle({ fecha_vencimiento: '2026-11-25' }, '2026-11-19T12:00:00Z')).toMatchObject({
+      modalidad: 'dias',
+      dias: 6,
+      fecha_inicio: HOY,
+      fecha_vencimiento: '2026-11-25',
+    });
     expect(normalizarCreditoDetalle({ primero_recibe: true })).toMatchObject({
       modalidad: 'primero_recibe',
       primero_recibe: true,

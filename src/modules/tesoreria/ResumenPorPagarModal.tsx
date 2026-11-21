@@ -17,6 +17,7 @@ import {
   ETIQUETA_MOTIVO_LOTE, errorResumenPorPagar, textoResumenPorPagar, textoTesoreriaAlDia, textoCreditosAlDia,
   type ItemResumenPorPagar, type MotivoPagoLote,
 } from './resumenPorPagarWhatsapp';
+import { resolverInfoCredito } from '@/modules/pedidos/creditoVencimiento';
 
 interface Fila {
   id: string;
@@ -26,6 +27,7 @@ interface Fila {
   moneda: string;
   esCredito?: boolean;
   tipoCredito?: 'OC' | 'OS';
+  fechaVencimiento?: string | null;
 }
 
 const esBs = (m: string | null | undefined) => (m ?? '').toUpperCase() === 'BS';
@@ -50,6 +52,7 @@ export function ResumenPorPagarModal({ rows, directos, creditosCompras = [], onC
       moneda: r.orden.total_moneda ?? r.orden.moneda ?? 'USD',
       esCredito: creditos,
       tipoCredito: esOrdenServ(r) ? 'OS' as const : 'OC' as const,
+      fechaVencimiento: creditos ? resolverInfoCredito(r.orden).fechaVencimientoFmt : null,
     })),
     ...directos.map((f) => ({ id: `dir-${f.kind}-${f.id}`, codigo: f.codigo, proveedor: f.titulo, monto: Number(f.total) || 0, moneda: f.moneda })),
     ...(!creditos ? creditosCompras.map((r) => ({
@@ -60,6 +63,7 @@ export function ResumenPorPagarModal({ rows, directos, creditosCompras = [], onC
       moneda: r.orden.total_moneda ?? r.orden.moneda ?? 'USD',
       esCredito: true,
       tipoCredito: esOrdenServ(r) ? 'OS' as const : 'OC' as const,
+      fechaVencimiento: resolverInfoCredito(r.orden).fechaVencimientoFmt,
     })) : []),
   ], [rows, directos, creditosCompras, creditos]);
 
@@ -91,6 +95,7 @@ export function ResumenPorPagarModal({ rows, directos, creditosCompras = [], onC
       codigo: f.codigo, proveedor: f.proveedor, montoUsd: enUsd(f),
       motivo: motivos[f.id] ?? 'si', motivoOtro: otros[f.id] ?? null,
       esCredito: f.esCredito, tipoCredito: f.tipoCredito,
+      fechaVencimiento: f.fechaVencimiento,
     }));
     const err = errorResumenPorPagar(items);
     if (err) { toast(err, 'error'); return; }

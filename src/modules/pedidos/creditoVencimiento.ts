@@ -135,25 +135,26 @@ export function normalizarCreditoDetalle(
   const diasNum = Number(raw.dias);
   const dias = Number.isFinite(diasNum) && diasNum > 0 ? Math.max(1, Math.round(diasNum)) : null;
   const primeroRecibe = raw.modalidad === 'primero_recibe' || Boolean(raw.primero_recibe);
-  const modalidad: CreditoModalidad | null =
-    raw.modalidad === 'primero_recibe' || (primeroRecibe && !dias)
-      ? 'primero_recibe'
-      : dias
-        ? 'dias'
-        : null;
-
   const vencExpl = raw.fecha_vencimiento && YMD_RE.test(raw.fecha_vencimiento.trim())
     ? raw.fecha_vencimiento.trim()
     : null;
+
+  const modalidad: CreditoModalidad | null =
+    raw.modalidad === 'primero_recibe' || (primeroRecibe && !dias && !vencExpl)
+      ? 'primero_recibe'
+      : (dias || vencExpl)
+        ? 'dias'
+        : null;
 
   if (!modalidad && !dias && !primeroRecibe && !vencExpl) return null;
 
   const fechaInicio = isoAYmdCaracas(raw.fecha_inicio) ?? isoAYmdCaracas(fechaBaseIso) ?? null;
   const fechaVencimiento = vencExpl ?? (dias && fechaInicio ? sumarDiasYmd(fechaInicio, dias) : null);
+  const diasFinal = dias ?? (fechaInicio && fechaVencimiento ? diferenciaDiasYmd(fechaInicio, fechaVencimiento) : null);
 
   return {
     modalidad,
-    dias,
+    dias: diasFinal && diasFinal > 0 ? diasFinal : dias,
     primero_recibe: primeroRecibe || null,
     fecha_inicio: fechaInicio,
     fecha_vencimiento: fechaVencimiento,

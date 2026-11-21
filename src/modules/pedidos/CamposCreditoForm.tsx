@@ -1,6 +1,10 @@
-import type { CreditoDetalle, CreditoModalidad } from '../../shared/lib/types';
+import { useState } from 'react';
+import type { CreditoDetalle, CreditoModalidad, Orden } from '../../shared/lib/types';
 import { money } from '../../shared/lib/format';
+import { Modal } from '../../shared/ui/Modal';
+import { toast } from '../../shared/ui/Toast';
 import {
+  diferenciaDiasYmd,
   formatearFechaCortaEs,
   hoyCaracasYmd,
   isoAYmdCaracas,
@@ -10,8 +14,10 @@ import {
   type AlertaCreditoItem,
   type FuenteCredito,
 } from './creditoVencimiento';
+import { actualizarCondicionCreditoOrden } from './pedidos.repository';
 
 const CHIPS_DIAS = [3, 7, 15, 30, 45, 60] as const;
+const YMD_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function validarCamposCredito(
   condicionesPago?: string | null,
@@ -20,8 +26,9 @@ export function validarCamposCredito(
   if (condicionesPago !== 'credito') return null;
   const dias = Number(credito?.dias) || 0;
   const primeroRecibe = credito?.modalidad === 'primero_recibe' || Boolean(credito?.primero_recibe);
-  if (dias >= 1 || primeroRecibe) return null;
-  return 'Indicá los días en los que se vence el crédito o marcá que la compra primero se recibe y luego se paga.';
+  const tieneVenc = Boolean(credito?.fecha_vencimiento && credito.fecha_vencimiento.trim());
+  if (dias >= 1 || primeroRecibe || tieneVenc) return null;
+  return 'Indicá los días o la fecha vigente en que vence el crédito, o marcá que la compra primero se recibe y luego se paga.';
 }
 
 export function CamposCreditoForm({
@@ -34,25 +41,63 @@ export function CamposCreditoForm({
   fechaBaseIso?: string | null;
 }) {
   const modalidadActual: CreditoModalidad =
-    value?.modalidad === 'primero_recibe' || (value?.primero_recibe && !(Number(value?.dias) > 0))
+    value?.modalidad === 'primero_recibe' || (value?.primero_recibe && !(Number(value?.dias) > 0) && !value?.fecha_vencimiento)
       ? 'primero_recibe'
       : 'dias';
   const diasNum = Number(value?.dias) > 0 ? Math.max(1, Math.round(Number(value?.dias))) : '';
   const primeroRecibe = modalidadActual === 'primero_recibe' || Boolean(value?.primero_recibe);
   const baseYmd = isoAYmdCaracas(value?.fecha_inicio) ?? isoAYmdCaracas(fechaBaseIso) ?? hoyCaracasYmd();
-  const vencPreview = typeof diasNum === 'number' && diasNum > 0 ? sumarDiasYmd(baseYmd, diasNum) : null;
+
+  const fechaVencimientoActual =
+    value?.fecha_vencimiento && YMD_RE.test(value.fecha_vencimiento.trim())
+      ? value.fecha_vencimiento.trim()
+      : typeof diasNum === 'number' && diasNum > 0
+        ? sumarDiasYmd(baseYmd, diasNum)
+        : '';
 
   function actualizar(patch: Partial<CreditoDetalle>) {
+    const nextVenc =
+      patch.fecha_vencimiento !== undefined
+        ? patch.fecha_vencimiento
+        : patch.dias && typeof patch.dias === 'number'
+          ? sumarDiasYmd(baseYmd, patch.dias)
+          : (value?.fecha_vencimiento ?? null);
+
     const merged: Partial<CreditoDetalle> = {
       modalidad: modalidadActual,
       dias: typeof diasNum === 'number' ? diasNum : null,
       primero_recibe: primeroRecibe,
-      ...patch,
-      // Recalcular siempre fecha_vencimiento a partir de la base + días nuevos
       fecha_inicio: baseYmd,
-      fecha_vencimiento: undefined,
+      ...patch,
+      fecha_vencimiento: nextVenc,
     };
     onChange(normalizarCreditoDetalle(merged, baseYmd));
+  }
+
+  function onCambiarFechaVigente(nuevaFechaYmd: string) {
+    if (!nuevaFechaYmd) {
+      actualizar({ fecha_vencimiento: null });
+      return;
+    }
+    const diff = diferenciaDiasYmd(baseYmd, nuevaFechaYmd);
+    actualizar({
+      modalidad: 'dias',
+      fecha_vencimiento: nuevaFechaYmd,
+      dias: diff !== null && diff > 0 ? diff : null,
+    });
+  }
+
+  function onCambiarDias(diasVal: number | null) {
+    if (!diasVal || diasVal <= 0) {
+      actualizar({ dias: null, fecha_vencimiento: null });
+      return;
+    }
+    const nuevoVenc = sumarDiasYmd(baseYmd, diasVal);
+    actualizar({
+      modalidad: 'dias',
+      dias: diasVal,
+      fecha_vencimiento: nuevoVenc,
+    });
   }
 
   return (
@@ -84,7 +129,7 @@ export function CamposCreditoForm({
             })
           }
         >
-          ⏳ Días de vencimiento del crédito
+          ⏳ Días de vencimiento / Fecha vigente
         </button>
         <button
           type="button"
@@ -101,45 +146,60 @@ export function CamposCreditoForm({
       </div>
 
       {modalidadActual === 'dias' ? (
-        <div style={{ display: 'grid', gap: '.5rem' }}>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label style={{ fontSize: '.82rem' }}>¿En cuántos días se vence el crédito? *</label>
-            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ display: 'grid', gap: '.65rem' }}>
+          <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.6rem' }}>
+            <div className="form-row" style={{ margin: 0 }}>
+              <label style={{ fontSize: '.82rem', fontWeight: 600 }}>📅 Fecha vigente / vencimiento *</label>
               <input
-                type="number"
-                min={1}
-                max={365}
-                step={1}
+                type="date"
                 className="input mono"
-                style={{ maxWidth: 120 }}
-                placeholder="Ej. 15"
-                value={diasNum}
-                onChange={(e) => {
-                  const n = Math.round(Number(e.target.value) || 0);
-                  actualizar({ modalidad: 'dias', dias: n > 0 ? n : null });
-                }}
+                value={fechaVencimientoActual}
+                onChange={(e) => onCambiarFechaVigente(e.target.value)}
               />
-              <span className="muted" style={{ fontSize: '.82rem' }}>días</span>
-              <div style={{ display: 'inline-flex', gap: '.25rem', flexWrap: 'wrap', marginLeft: '.25rem' }}>
+              <small className="hint muted">Límite acordado con el proveedor.</small>
+            </div>
+
+            <div className="form-row" style={{ margin: 0 }}>
+              <label style={{ fontSize: '.82rem', fontWeight: 600 }}>⏳ Plazo en días</label>
+              <div style={{ display: 'flex', gap: '.35rem', alignItems: 'center' }}>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  step={1}
+                  className="input mono"
+                  style={{ maxWidth: 100 }}
+                  placeholder="Ej. 15"
+                  value={diasNum}
+                  onChange={(e) => {
+                    const n = Math.round(Number(e.target.value) || 0);
+                    onCambiarDias(n > 0 ? n : null);
+                  }}
+                />
+                <span className="muted" style={{ fontSize: '.82rem' }}>días</span>
+              </div>
+              <div style={{ display: 'inline-flex', gap: '.25rem', flexWrap: 'wrap', marginTop: '.3rem' }}>
                 {CHIPS_DIAS.map((d) => (
                   <button
                     key={d}
                     type="button"
                     className={diasNum === d ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
-                    style={{ padding: '.15rem .45rem', fontSize: '.75rem' }}
-                    onClick={() => actualizar({ modalidad: 'dias', dias: d })}
+                    style={{ padding: '.12rem .4rem', fontSize: '.74rem' }}
+                    onClick={() => onCambiarDias(d)}
                   >
                     {d} d
                   </button>
                 ))}
               </div>
             </div>
-            {vencPreview && (
-              <small className="hint" style={{ color: 'var(--primary-3)', fontWeight: 600, marginTop: '.25rem', display: 'block' }}>
-                📅 Vence el {formatearFechaCortaEs(vencPreview)} ({diasNum} {diasNum === 1 ? 'día' : 'días'}) · El sistema alertará a Tesorería y Compras a 2 días y 1 día de vencer.
-              </small>
-            )}
           </div>
+
+          {fechaVencimientoActual && (
+            <div style={{ fontSize: '.82rem', padding: '.4rem .6rem', borderRadius: 'var(--r-sm)', background: 'rgba(245, 177, 51, 0.12)', border: '1px solid rgba(245, 177, 51, 0.35)', color: 'var(--primary-3, #f5b133)' }}>
+              📅 <strong>Vigente hasta el {formatearFechaCortaEs(fechaVencimientoActual)}</strong>
+              {diasNum ? ` (${diasNum} ${diasNum === 1 ? 'día' : 'días'} desde emisión)` : ''} · Se refleja en Compras y Tesorería.
+            </div>
+          )}
 
           <label style={{ display: 'inline-flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontSize: '.83rem' }}>
             <input
@@ -155,53 +215,128 @@ export function CamposCreditoForm({
           <div style={{ fontSize: '.83rem', padding: '.45rem .65rem', borderRadius: 'var(--r-sm)', background: 'rgba(59, 130, 246, 0.10)', border: '1px solid rgba(59, 130, 246, 0.30)' }}>
             📦 <strong>Primero se recibe y luego se paga:</strong> quedará indicado en Compras y en Tesorería que esta compra o servicio debe recibirse primero antes de pagar el crédito.
           </div>
-          <div className="form-row" style={{ margin: 0 }}>
-            <label style={{ fontSize: '.8rem' }}>Días de vencimiento del crédito (opcional)</label>
-            <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <div className="form-grid" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '.6rem' }}>
+            <div className="form-row" style={{ margin: 0 }}>
+              <label style={{ fontSize: '.8rem' }}>Fecha vigente / límite (opcional)</label>
               <input
-                type="number"
-                min={1}
-                max={365}
-                step={1}
+                type="date"
                 className="input mono"
-                style={{ maxWidth: 120 }}
-                placeholder="Sin plazo fijo"
-                value={diasNum}
-                onChange={(e) => {
-                  const n = Math.round(Number(e.target.value) || 0);
-                  actualizar({ modalidad: 'primero_recibe', primero_recibe: true, dias: n > 0 ? n : null });
-                }}
+                value={fechaVencimientoActual}
+                onChange={(e) => onCambiarFechaVigente(e.target.value)}
               />
-              <span className="muted" style={{ fontSize: '.8rem' }}>días</span>
-              <button
-                type="button"
-                className={diasNum === '' ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
-                style={{ padding: '.15rem .45rem', fontSize: '.74rem' }}
-                onClick={() => actualizar({ modalidad: 'primero_recibe', primero_recibe: true, dias: null })}
-              >
-                Sin días fijos
-              </button>
-              {[7, 15, 30].map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  className={diasNum === d ? 'btn btn-sm btn-primary' : 'btn btn-sm btn-ghost'}
-                  style={{ padding: '.15rem .45rem', fontSize: '.74rem' }}
-                  onClick={() => actualizar({ modalidad: 'primero_recibe', primero_recibe: true, dias: d })}
-                >
-                  {d} d
-                </button>
-              ))}
             </div>
-            {vencPreview && (
-              <small className="hint" style={{ color: 'var(--primary-3)', fontWeight: 600, marginTop: '.25rem', display: 'block' }}>
-                📅 Vencimiento estimado: {formatearFechaCortaEs(vencPreview)} · Alerta automática a 2 días y 1 día de vencer.
-              </small>
-            )}
+            <div className="form-row" style={{ margin: 0 }}>
+              <label style={{ fontSize: '.8rem' }}>Días tras recepción (opcional)</label>
+              <div style={{ display: 'flex', gap: '.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  step={1}
+                  className="input mono"
+                  style={{ maxWidth: 100 }}
+                  placeholder="Sin plazo"
+                  value={diasNum}
+                  onChange={(e) => {
+                    const n = Math.round(Number(e.target.value) || 0);
+                    onCambiarDias(n > 0 ? n : null);
+                  }}
+                />
+                <span className="muted" style={{ fontSize: '.8rem' }}>días</span>
+              </div>
+            </div>
           </div>
+          {fechaVencimientoActual && (
+            <small className="hint" style={{ color: 'var(--primary-3)', fontWeight: 600, display: 'block' }}>
+              📅 Vencimiento: {formatearFechaCortaEs(fechaVencimientoActual)} · Alerta automática en Tesorería y Compras.
+            </small>
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+export function ModalEditarCredito({
+  orden,
+  actorEmail,
+  onClose,
+  onSaved,
+}: {
+  orden: Orden;
+  actorEmail: string;
+  onClose: () => void;
+  onSaved: () => Promise<void> | void;
+}) {
+  const [credito, setCredito] = useState<CreditoDetalle | null>(orden.oferta_detalle?.credito ?? null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const total = Number(orden.total) || 0;
+  const abonado = Number(orden.abonado_total) || 0;
+  const saldo = Math.round((total - abonado) * 100) / 100;
+
+  async function handleGuardar() {
+    setError(null);
+    const err = validarCamposCredito('credito', credito);
+    if (err) {
+      setError(err);
+      return;
+    }
+    setSaving(true);
+    try {
+      await actualizarCondicionCreditoOrden(orden, credito, actorEmail);
+      toast('Condiciones de crédito y fecha vigente actualizadas', 'success');
+      await onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo guardar la condición de crédito');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Modal
+      title={`Editar crédito y fecha vigente · ${orden.oc_codigo ?? orden.codigo}`}
+      size="md"
+      onClose={() => !saving && onClose()}
+      footer={
+        <>
+          <button className="btn btn-ghost" onClick={onClose} disabled={saving}>
+            Cancelar
+          </button>
+          <button className="btn btn-primary" onClick={() => void handleGuardar()} disabled={saving}>
+            {saving ? 'Guardando…' : 'Guardar fecha vigente y condiciones'}
+          </button>
+        </>
+      }
+    >
+      <div className="m-tiles" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '.5rem', marginBottom: '.75rem' }}>
+        <div className="card" style={{ margin: 0, padding: '.5rem .7rem' }}>
+          <div className="muted" style={{ fontSize: '.7rem' }}>TOTAL</div>
+          <div className="mono" style={{ fontSize: '1rem', fontWeight: 700 }}>{money(total, orden.moneda ?? 'USD')}</div>
+        </div>
+        <div className="card" style={{ margin: 0, padding: '.5rem .7rem' }}>
+          <div className="muted" style={{ fontSize: '.7rem' }}>ABONADO</div>
+          <div className="mono" style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--primary-3)' }}>{money(abonado, orden.moneda ?? 'USD')}</div>
+        </div>
+        <div className="card" style={{ margin: 0, padding: '.5rem .7rem' }}>
+          <div className="muted" style={{ fontSize: '.7rem' }}>SALDO</div>
+          <div className="mono" style={{ fontSize: '1rem', fontWeight: 700, color: saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>{money(saldo, orden.moneda ?? 'USD')}</div>
+        </div>
+      </div>
+
+      {error && (
+        <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem', padding: '.55rem .75rem' }}>
+          <strong>Error:</strong> {error}
+        </div>
+      )}
+
+      <CamposCreditoForm
+        value={credito}
+        onChange={setCredito}
+        fechaBaseIso={orden.oc_aprobada_en ?? orden.oc_creada_en ?? orden.created_at}
+      />
+    </Modal>
   );
 }
 

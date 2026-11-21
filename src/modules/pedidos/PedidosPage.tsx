@@ -108,7 +108,7 @@ import {
 } from './pedidos.repository';
 import { listOfertasDeOrdenes, labelCondicionPago, descuentoEfectivo, CONDICIONES_PAGO, getPdfOfertaSignedUrl } from './ofertas.repository';
 import { listCajasActivas } from '@/modules/salidas/cajas.repository';
-import type { AbonoCredito, Caja } from '@/shared/lib/types';
+import type { AbonoCredito, Caja, CreditoDetalle } from '@/shared/lib/types';
 import { listDatosPago, requiereDatos, type DatosPago } from './datosPago.repository';
 import { legsDesdeMetodoPago, motivoNoCorregible } from './metodoPagoEdicion';
 import { DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
@@ -117,8 +117,8 @@ import { CALIDAD_LABELS, calcularPuntualidadAutomatica, validarArchivoFactura } 
 import { FacturasOrdenModal } from './FacturasOrdenModal';
 import { ImagenesSolicitud, ImagenesPorSubir } from './ImagenesSolicitud';
 import { cantidadFacturas } from './facturasOrden.repository';
-import { BannerAlertasCredito } from './CamposCreditoForm';
-import { listarAlertasCreditoPorVencer } from './creditoVencimiento';
+import { BannerAlertasCredito, BadgesCondicionCredito, ModalEditarCredito, CamposCreditoForm } from './CamposCreditoForm';
+import { listarAlertasCreditoPorVencer, normalizarCreditoDetalle, resolverInfoCredito } from './creditoVencimiento';
 import { createProducto, getUnidades, getCategorias, addCategoria, siguienteSkuLibre, listProductosConStock, type ProductoConStock } from '@/modules/inventario/inventario.repository';
 import { normalizarNombre, productosSimilares, type Duplicado } from '@/modules/inventario/duplicados';
 import { registrarMovimiento } from '@/modules/inventario/movimientos.repository';
@@ -371,6 +371,7 @@ type ModalKind =
   | { kind: 'confirmar-retiro'; orden: Orden }
   | { kind: 'receive'; orden: Orden }
   | { kind: 'abono'; orden: Orden }
+  | { kind: 'editar-credito'; orden: Orden }
   | { kind: 'finalizar'; orden: Orden }
   | { kind: 'price-history'; sku: string; nombre: string }
   | { kind: 'catalogo' }
@@ -1107,6 +1108,7 @@ export function PedidosPage() {
           onConfirmarRetiro={() => setModal({ kind: 'confirmar-retiro', orden: currentDetail })}
           onReceive={() => setModal({ kind: 'receive', orden: currentDetail })}
           onAbono={() => setModal({ kind: 'abono', orden: currentDetail })}
+          onEditarCredito={() => setModal({ kind: 'editar-credito', orden: currentDetail })}
           onEnviarRecepcion={async () => {
             try {
               await enviarCreditoARecepcion(currentDetail, usuario?.email ?? user?.email ?? 'sistema');
@@ -1541,6 +1543,20 @@ export function PedidosPage() {
         <AbonosModal
           orden={modal.orden}
           onClose={() => setModal({ kind: 'none' })}
+          onEditarCredito={() => setModal({ kind: 'editar-credito', orden: modal.orden })}
+        />
+      )}
+
+      {/* Modal: editar condición de crédito y fecha vigente */}
+      {modal.kind === 'editar-credito' && (
+        <ModalEditarCredito
+          orden={modal.orden}
+          actorEmail={usuario?.email ?? user?.email ?? 'sistema'}
+          onClose={() => setModal({ kind: 'none' })}
+          onSaved={async () => {
+            setModal({ kind: 'none' });
+            await refresh();
+          }}
         />
       )}
 
@@ -2675,9 +2691,11 @@ function RecepcionParcialModal({
 function AbonosModal({
   orden,
   onClose,
+  onEditarCredito,
 }: {
   orden: Orden;
   onClose: () => void;
+  onEditarCredito?: () => void;
 }) {
   const [abonos, setAbonos] = useState<AbonoCredito[]>([]);
   const [cajas, setCajas] = useState<Caja[]>([]);
@@ -2721,6 +2739,25 @@ function AbonosModal({
           <div className="mono" style={{ fontSize: '1.1rem', fontWeight: 700, color: saldo > 0 ? 'var(--warning)' : 'var(--success)' }}>{money(saldo)}</div>
         </div>
       </div>
+
+      {/* Condición de crédito / vigencia */}
+      {(() => {
+        const info = resolverInfoCredito(orden);
+        return (
+          <div className="card" style={{ padding: '.55rem .8rem', marginBottom: '.75rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '.5rem', flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '.45rem', flexWrap: 'wrap' }}>
+              <span className="muted" style={{ fontSize: '.8rem' }}>📅 Vigencia:</span>
+              <BadgesCondicionCredito fuente={orden} />
+              <span style={{ fontSize: '.84rem' }}>{info.resumenLargo}</span>
+            </div>
+            {onEditarCredito && (
+              <button type="button" className="btn btn-sm btn-ghost" onClick={onEditarCredito} title="Modificar la fecha vigente del crédito">
+                ✎ Editar fecha vigente
+              </button>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Los abonos se registran en Tesorería; acá es solo consulta. */}
       <div className="card" style={{ padding: '.65rem .8rem', marginBottom: '.75rem', borderColor: saldo <= 0 ? 'var(--success)' : 'var(--brand, #ff8a00)' }}>
@@ -2972,6 +3009,10 @@ const KanbanCard = memo(function KanbanCard({
             ↻ {changes}
           </span>
         )}
+        {/* Condición de crédito / fecha vigente */}
+        {(orden.estado === 'cuenta_abierta' || orden.condiciones_pago === 'credito') && (
+          <BadgesCondicionCredito fuente={orden} compact />
+        )}
         {/* 04-11-2026 (como en GT): la OC que contiene retención dice si ya se retuvo, y si está pagada. */}
         {(orden.retencion_momento || retencionesDe(orden).length > 0) && (<>
           <span className="badge" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }}
@@ -3121,6 +3162,7 @@ interface OrdenDetailModalProps {
   onConfirmarRetiro: () => void;
   onReceive: () => void;
   onAbono: () => void;
+  onEditarCredito?: () => void;
   onEnviarRecepcion: () => void;
   onFinalizar: () => void;
   onSeePriceHistory: (sku: string, nombre: string) => void;
@@ -3161,6 +3203,7 @@ function OrdenDetailModal({
   onConfirmarRetiro,
   onReceive,
   onAbono,
+  onEditarCredito,
   onEnviarRecepcion,
   onFinalizar,
   onSeePriceHistory,
@@ -3562,6 +3605,16 @@ function OrdenDetailModal({
               que no entra al sistema: necesita el mismo papelito que una OC
               confirmada, pero con el SALDO en vez del total. */}
           {botonWhatsappPago('Mandar el abono por WhatsApp con sus emojis: proveedor, total, lo ya abonado, el saldo pendiente y el método de pago')}
+          {/* Editar la orden completa: ítems, precios, impuestos, condición de crédito o nota */}
+          <button className="btn btn-ghost" onClick={onEditarOc} title="Editar productos, cantidades, precios, condición de crédito o nota de esta orden">
+            ✎ Editar OC
+          </button>
+          {/* Indicar / editar fecha vigente del crédito */}
+          {onEditarCredito && (
+            <button className="btn btn-ghost" onClick={onEditarCredito} title="Indicar o actualizar la fecha vigente (vencimiento), plazo en días y condiciones de crédito">
+              📅 Editar crédito / fecha vigente
+            </button>
+          )}
           {/* 09-11-2026: el método de pago del crédito (sale en el WhatsApp y lo ve Tesorería al abonar). */}
           <button className="btn btn-ghost" onClick={onCorregirPago} title="Indicar con qué método y a qué datos se le paga al proveedor: sale en el WhatsApp y lo ve Tesorería al abonar">
             💳 {(o.metodo_pago ?? []).length ? 'Editar método de pago' : 'Indicar método de pago'}
@@ -3751,13 +3804,37 @@ function OrdenDetailModal({
       </div>
       <div className="detail-row">
         <div className="k">Estado</div>
-        <div className="v">
+        <div className="v" style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
           <EstadoBadge estado={o.estado} />
           {isCuentaAbierta && o.recibida_en && (
-            <span className="badge warning" style={{ marginLeft: '.4rem' }}>📦 Recibido · pendiente por pagar</span>
+            <span className="badge warning">📦 Recibido · pendiente por pagar</span>
+          )}
+          {(isCuentaAbierta || o.condiciones_pago === 'credito') && (
+            <BadgesCondicionCredito fuente={o} />
           )}
         </div>
       </div>
+      {(isCuentaAbierta || o.condiciones_pago === 'credito') && (() => {
+        const info = resolverInfoCredito(o);
+        return (
+          <div className="detail-row">
+            <div className="k">Condición de crédito</div>
+            <div className="v" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <span>{info.resumenLargo}</span>
+              {canManageProcurement && isCuentaAbierta && onEditarCredito && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  onClick={onEditarCredito}
+                  title="Modificar fecha vigente o condiciones de crédito"
+                >
+                  ✎ Editar fecha vigente
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })()}
       <div className="detail-row">
         <div className="k">Proveedor actual</div>
         <div className="v">
@@ -4710,7 +4787,8 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
 
   // ── Todo editable mientras está por aprobar ──
   const puedeTodo = orden.estado === 'oc_creada';
-  const puedeImpuestos = ['oc_creada', 'confirmada_metodo', 'oc_aprobada'].includes(orden.estado);
+  const puedeImpuestos = ['oc_creada', 'confirmada_metodo', 'oc_aprobada', 'cuenta_abierta'].includes(orden.estado);
+  const [creditoDetalle, setCreditoDetalle] = useState<CreditoDetalle | null>(orden.oferta_detalle?.credito ?? null);
   const [unidadSol, setUnidadSol] = useState(orden.solicitante ?? '');
   const [personaSol, setPersonaSol] = useState(orden.ci_solicitante ?? '');
   const [motivo, setMotivo] = useState(orden.motivo ?? '');
@@ -4795,11 +4873,22 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
 
   async function guardar() {
     setError(null); setSaving(true);
+    const baseFecha = orden.oc_aprobada_en ?? orden.oc_creada_en ?? orden.created_at ?? new Date().toISOString();
+    const crNorm = cond === 'credito' ? normalizarCreditoDetalle(creditoDetalle, baseFecha) : null;
+    const nuevoOfertaDetalle = cond === 'credito'
+      ? { ...(orden.oferta_detalle ?? {}), credito: crNorm }
+      : (() => {
+          if (!orden.oferta_detalle) return null;
+          const { credito: _c, ...rest } = orden.oferta_detalle;
+          void _c;
+          return Object.keys(rest).length ? rest : null;
+        })();
     try {
       const guardada = await actualizarOc(orden, {
         items, condiciones_pago: cond || null, notas, proveedorId: proveedorId || null, descuentoObtenido: descuentoObt,
         iva: ivaOc, igtf: igtfOc,
         iva_incluido: ivaAdentro, ajuste: ajusteOc, ajuste_motivo: ajusteOc ? ajusteMotivo : null,
+        oferta_detalle: nuevoOfertaDetalle,
         ...(puedeTodo ? {
           solicitante: unidadSol, ci_solicitante: personaSol, motivo, finalidad, urgente,
         } : {}),
@@ -4995,6 +5084,13 @@ function EditarOcModal({ orden, proveedores = [], proveedorMap, productos = [], 
           {CONDICIONES_PAGO.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
         </select>
       </div>
+      {cond === 'credito' && (
+        <CamposCreditoForm
+          value={creditoDetalle}
+          onChange={setCreditoDetalle}
+          fechaBaseIso={orden.oc_aprobada_en ?? orden.oc_creada_en ?? orden.created_at}
+        />
+      )}
       <div className="form-row"><label>Nota</label><textarea className="input" rows={2} value={notas} onChange={(e) => setNotas(e.target.value)} /></div>
     </Modal>
   );

@@ -81,8 +81,8 @@ import {
   getProveedorConDatosPago, guardarDatosPagoProveedor,
 } from '@/modules/pedidos/pedidos.repository';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
-import { BannerAlertasCredito } from '@/modules/pedidos/CamposCreditoForm';
-import { listarAlertasCreditoPorVencer } from '@/modules/pedidos/creditoVencimiento';
+import { BannerAlertasCredito, BadgesCondicionCredito, ModalEditarCredito } from '@/modules/pedidos/CamposCreditoForm';
+import { listarAlertasCreditoPorVencer, resolverInfoCredito } from '@/modules/pedidos/creditoVencimiento';
 import { listComprasDirectasCredito, getCompraDirectaByCajaMov, type CompraDirecta } from '@/modules/pedidos/compras.repository';
 import { cargarDirectosPorPagar, FacturasDirecto, PagarDirectoModal, type DirectoFila } from '@/modules/pedidos/DirectosPorPagarModal';
 import { resumenDatosPago, DatosPagoFields, validarDatosPago } from '@/shared/ui/DatosPagoFields';
@@ -5127,6 +5127,7 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
   const [savingPago, setSavingPago] = useState(false);
   // 09-11-2026: 💬 resumen por lote de las cuentas a crédito de Compras (¿se pagan o no?).
   const [resumenWa, setResumenWa] = useState(false);
+  const [editandoCreditoOrden, setEditandoCreditoOrden] = useState<Orden | null>(null);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -5275,6 +5276,33 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
                 </div>
               </div>
               {o.recibida_en && <div className="badge warning" style={{ marginBottom: '.6rem' }}>📦 Mercancía ya recibida · crédito pendiente</div>}
+
+              {/* Condición de crédito / Fecha vigente */}
+              {(() => {
+                const info = resolverInfoCredito(o);
+                return (
+                  <div className="card" style={{ padding: '.65rem .85rem', marginBottom: '.75rem', borderColor: info.enAlertaVencimiento ? 'var(--danger, #e5484d)' : 'var(--primary-3, #f5b133)', background: 'rgba(245, 177, 51, 0.05)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                        <strong style={{ fontSize: '.88rem' }}>📅 Fecha vigente / vencimiento:</strong>
+                        <BadgesCondicionCredito fuente={o} />
+                        {info.fechaVencimientoFmt && (
+                          <span className="mono" style={{ fontSize: '.9rem', fontWeight: 700 }}>{info.fechaVencimientoFmt}</span>
+                        )}
+                        <span className="muted" style={{ fontSize: '.78rem' }}>({info.resumenLargo})</span>
+                      </div>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-ghost"
+                        onClick={() => setEditandoCreditoOrden(o)}
+                        title="Modificar la fecha vigente o condiciones de crédito"
+                      >
+                        ✎ Editar fecha vigente
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
 
               {/* Datos del proveedor: identidad + datos de pago (dónde/cómo pagarle). */}
               <div className="card" style={{ marginBottom: '.75rem' }}>
@@ -5454,6 +5482,19 @@ function CuentasCreditoModal({ cajas, actor, actorName, onClose, onChanged }: {
       )}
       <ComprasDirectasCreditoPanel cajas={cajas} actor={actor} actorName={actorName} onChanged={onChanged} />
       </>)}
+
+      {editandoCreditoOrden && (
+        <ModalEditarCredito
+          orden={editandoCreditoOrden}
+          actorEmail={actor}
+          onClose={() => setEditandoCreditoOrden(null)}
+          onSaved={async () => {
+            setEditandoCreditoOrden(null);
+            await onChanged();
+            await cargar();
+          }}
+        />
+      )}
     </Modal>
   );
 }

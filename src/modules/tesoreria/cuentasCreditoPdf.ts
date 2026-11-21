@@ -5,6 +5,7 @@
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, anchoUtilPdf, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 import type { OrdenPorPagar } from '@/modules/pedidos/pedidos.repository';
+import { resolverInfoCredito } from '@/modules/pedidos/creditoVencimiento';
 
 function money(n: number | null | undefined): string {
   return `$ ${Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -44,33 +45,38 @@ export async function descargarResumenCreditosPdf(rows: OrdenPorPagar[]): Promis
   const sumAbon = rows.reduce((a, r) => a + abonadoDe(r), 0);
   const sumSaldo = rows.reduce((a, r) => a + saldoDe(r), 0);
 
-  const body = rows.map((r, i) => [
-    String(i + 1),
-    r.orden.oc_codigo ?? r.orden.codigo,
-    r.proveedorNombre,
-    finalidadDe(r),
-    money(totalDe(r)),
-    money(abonadoDe(r)),
-    money(saldoDe(r)),
-  ]);
+  const body = rows.map((r, i) => {
+    const info = resolverInfoCredito(r.orden);
+    return [
+      String(i + 1),
+      r.orden.oc_codigo ?? r.orden.codigo,
+      r.proveedorNombre,
+      finalidadDe(r),
+      info.fechaVencimientoFmt ?? '—',
+      money(totalDe(r)),
+      money(abonadoDe(r)),
+      money(saldoDe(r)),
+    ];
+  });
 
   autoTable(doc, {
     startY: y,
-    head: [['ITEM', 'N°OC', 'PROVEEDOR', 'FINALIDAD', 'TOTAL $', 'ABONADO $', 'SALDO $']],
+    head: [['ITEM', 'N°OC', 'PROVEEDOR', 'FINALIDAD', 'FECHA VIGENTE', 'TOTAL $', 'ABONADO $', 'SALDO $']],
     body,
-    foot: [['', '', '', 'TOTAL', money(sumTotal), money(sumAbon), money(sumSaldo)]],
+    foot: [['', '', '', '', 'TOTAL', money(sumTotal), money(sumAbon), money(sumSaldo)]],
     styles: { fontSize: 8, cellPadding: 3.5, valign: 'middle', overflow: 'linebreak' },
     headStyles: { fillColor: [210, 210, 210], textColor: [20, 20, 20], fontStyle: 'bold', halign: 'center' },
     footStyles: { fillColor: [255, 138, 0], textColor: [255, 255, 255], fontStyle: 'bold', halign: 'right' },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 30 },
-      1: { halign: 'center', cellWidth: 70 },
-      2: { cellWidth: 150 },
+      0: { halign: 'center', cellWidth: 26 },
+      1: { halign: 'center', cellWidth: 64 },
+      2: { cellWidth: 140 },
       // FINALIDAD toma lo que queda del ancho útil (las demás columnas son fijas).
-      3: { cellWidth: anchoUtilPdf(W) - (30 + 70 + 150 + 80 + 80 + 82) },
-      4: { halign: 'right', cellWidth: 80 },
-      5: { halign: 'right', cellWidth: 80 },
-      6: { halign: 'right', cellWidth: 82 },
+      3: { cellWidth: anchoUtilPdf(W) - (26 + 64 + 140 + 75 + 75 + 75 + 78) },
+      4: { halign: 'center', cellWidth: 75 },
+      5: { halign: 'right', cellWidth: 75 },
+      6: { halign: 'right', cellWidth: 75 },
+      7: { halign: 'right', cellWidth: 78 },
     },
     margin: { ...MARGENES_TABLA_PDF, bottom: MARGEN_PDF + 14 }, // el pie va dentro del marco, bajo la tabla
   });

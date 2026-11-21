@@ -607,13 +607,13 @@ export interface EditarOcInput {
  */
 export async function actualizarOc(o: Orden, input: EditarOcInput, actorEmail: string): Promise<Orden> {
   // Editable mientras no se haya pagado/recibido: «OC creada» (por aprobar),
-  // «Confirmada (indicar método de pago)» o «Confirmada pagar» (ya en Tesorería).
+  // «Confirmada (indicar método de pago)», «Confirmada pagar» (ya en Tesorería) o «Crédito (cuenta abierta)».
   // En «Confirmada (indicar método)» solo un cambio MATERIAL (ítems, precios, proveedor,
   // condición, descuento) la REABRE a «OC creada»; la nota y los nombres se guardan sin reabrir.
-  // En «Confirmada pagar» los cambios de precio se aplican EN SITIO (sigue en pago,
-  // se sincroniza con Tesorería); solo un cambio de PROVEEDOR la reabre a aprobación.
-  const editable = o.estado === 'oc_creada' || o.estado === 'confirmada_metodo' || o.estado === 'oc_aprobada';
-  if (!editable) throw new Error('Solo se puede editar la OC mientras está por aprobar, pendiente de método de pago o confirmada para pagar.');
+  // En «Confirmada pagar» y «Crédito (cuenta abierta)» los cambios de precio/ítems se aplican EN SITIO;
+  // solo un cambio de PROVEEDOR la reabre a aprobación.
+  const editable = o.estado === 'oc_creada' || o.estado === 'confirmada_metodo' || o.estado === 'oc_aprobada' || o.estado === 'cuenta_abierta';
+  if (!editable) throw new Error('Solo se puede editar la OC mientras está por aprobar, pendiente de método de pago, confirmada para pagar o en cuenta abierta (crédito).');
   if (!input.items.length) throw new Error('La OC debe tener al menos un producto.');
   const subtotal = input.items.reduce((a, i) => a + (Number(i.cantidad) || 0) * (Number(i.precio) || 0), 0);
   // Descuento obtenido (negociado): si viene en el input se usa; si no, se conserva el de la OC.
@@ -1503,7 +1503,7 @@ export async function actualizarCondicionCreditoOrden(
     oferta_detalle: nuevoDetalle,
     historial: appendHistorial(o, 'oc_editada', actorEmail, {
       motivo: crNorm
-        ? `Condición de crédito: ${crNorm.primero_recibe ? 'Primero recibe y luego paga' : ''}${crNorm.dias ? `${crNorm.primero_recibe ? ' · ' : ''}Vence en ${crNorm.dias} día(s)` : ''}`
+        ? `Condición de crédito: ${crNorm.fecha_vencimiento ? `Fecha vigente hasta ${crNorm.fecha_vencimiento}` : ''}${crNorm.primero_recibe ? ' · Primero recibe y luego paga' : ''}${crNorm.dias ? ` · Plazo ${crNorm.dias} día(s)` : ''}`
         : 'Condición de crédito limpiada',
     }),
   };

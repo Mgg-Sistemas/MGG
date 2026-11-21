@@ -32,6 +32,7 @@ export interface ItemResumenPorPagar {
   /** Cuenta a crédito originada en Compras (OC u OS): se expresa por su saldo pendiente. */
   esCredito?: boolean;
   tipoCredito?: 'OC' | 'OS';
+  fechaVencimiento?: string | null;
 }
 
 function num(n: number): string {
@@ -117,7 +118,8 @@ export function textoResumenPorPagar(items: ItemResumenPorPagar[], ahora: Date, 
     itemsCredMix.forEach((it, i) => {
       const tag = `[${it.tipoCredito === 'OS' ? 'OS' : 'OC'}] `;
       L.push(`${i + 1}. 💳 *${tag}${unaLinea(it.codigo) || '—'}* · ${unaLinea(it.proveedor) || '—'}`);
-      L.push(`    💵 *Saldo:* ${usd(it.montoUsd)} · ${estadoItemResumen(it)}`);
+      const extraVenc = it.fechaVencimiento ? ` · Vigente hasta ${it.fechaVencimiento}` : '';
+      L.push(`    💵 *Saldo:* ${usd(it.montoUsd)} · ${estadoItemResumen(it)}${extraVenc}`);
     });
     const subInm = inmediatas.reduce((a, it) => a + (Number(it.montoUsd) || 0), 0);
     const subCred = itemsCredMix.reduce((a, it) => a + (Number(it.montoUsd) || 0), 0);
@@ -129,7 +131,8 @@ export function textoResumenPorPagar(items: ItemResumenPorPagar[], ahora: Date, 
   } else {
     items.forEach((it, i) => {
       L.push(`${i + 1}. 🔹 *${unaLinea(it.codigo) || '—'}* · ${unaLinea(it.proveedor) || '—'}`);
-      L.push(`    💵 *${cred ? 'Saldo' : 'A pagar'}:* ${usd(it.montoUsd)} · ${estadoItemResumen(it)}`);
+      const extraVenc = it.esCredito && it.fechaVencimiento ? ` · Vigente hasta ${it.fechaVencimiento}` : '';
+      L.push(`    💵 *${cred ? 'Saldo' : 'A pagar'}:* ${usd(it.montoUsd)} · ${estadoItemResumen(it)}${extraVenc}`);
     });
     L.push('');
   }
