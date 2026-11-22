@@ -3480,7 +3480,7 @@ function OrdenDetailModal({
         </button>
       )}
       {/* Revisión de almacén (29-10-2026): los mensajes salen SOLO con estos botones. */}
-      {flujoAlmacen && !esServicioDet && (
+      {flujoAlmacen && !esServicioDet && !isCuentaAbierta && (
         <button type="button" className="btn btn-ghost"
           title="Ver el mensaje de la Solicitud de Pedido (productos y cantidades) para copiarlo o mandarlo por WhatsApp"
           onClick={() => setMensajeWs({
@@ -3490,7 +3490,7 @@ function OrdenDetailModal({
           💬 WhatsApp de la SP
         </button>
       )}
-      {revisadaAlmacen && (
+      {revisadaAlmacen && !isCuentaAbierta && (
         <button type="button" className="btn btn-ghost"
           title="Ver el mensaje de almacén (qué tiene y qué va a solicitar a Compras) para copiarlo o mandarlo por WhatsApp"
           onClick={() => setMensajeWs({

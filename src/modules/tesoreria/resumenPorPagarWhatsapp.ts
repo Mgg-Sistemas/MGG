@@ -118,7 +118,7 @@ export function textoResumenPorPagar(items: ItemResumenPorPagar[], ahora: Date, 
     itemsCredMix.forEach((it, i) => {
       const tag = `[${it.tipoCredito === 'OS' ? 'OS' : 'OC'}] `;
       L.push(`${i + 1}. 💳 *${tag}${unaLinea(it.codigo) || '—'}* · ${unaLinea(it.proveedor) || '—'}`);
-      const extraVenc = it.fechaVencimiento ? ` · Vigente hasta ${it.fechaVencimiento}` : '';
+      const extraVenc = it.fechaVencimiento ? ` · *Vigente hasta ${it.fechaVencimiento}*` : '';
       L.push(`    💵 *Saldo:* ${usd(it.montoUsd)} · ${estadoItemResumen(it)}${extraVenc}`);
     });
     const subInm = inmediatas.reduce((a, it) => a + (Number(it.montoUsd) || 0), 0);
@@ -131,7 +131,7 @@ export function textoResumenPorPagar(items: ItemResumenPorPagar[], ahora: Date, 
   } else {
     items.forEach((it, i) => {
       L.push(`${i + 1}. 🔹 *${unaLinea(it.codigo) || '—'}* · ${unaLinea(it.proveedor) || '—'}`);
-      const extraVenc = it.esCredito && it.fechaVencimiento ? ` · Vigente hasta ${it.fechaVencimiento}` : '';
+      const extraVenc = it.esCredito && it.fechaVencimiento ? ` · *Vigente hasta ${it.fechaVencimiento}*` : '';
       L.push(`    💵 *${cred ? 'Saldo' : 'A pagar'}:* ${usd(it.montoUsd)} · ${estadoItemResumen(it)}${extraVenc}`);
     });
     L.push('');

@@ -284,6 +284,24 @@ describe('una orden a crédito manda el saldo, no el total', () => {
     expect(tConMetodo).not.toContain('(todavía sin método de pago indicado)');
   });
 
+  it('muestra la vigencia del crédito en negrita cuando está configurada', () => {
+    const ordenCredito = {
+      ...CREDITO,
+      detalle: {
+        credito: {
+          modalidad: 'dias',
+          dias: 15,
+          fecha_inicio: '2026-11-10',
+          fecha_vencimiento: '2026-11-25',
+        },
+      },
+    } as unknown as Orden;
+    const t = textoOrdenPago(ordenCredito, 'DISTRIBUIDORA EL TORETE J&M, C.A');
+    expect(t).toContain('📅 *Vigencia del crédito:*');
+    expect(t).toContain('*25/11/2026*');
+    expect(t).toContain('Plazo: *15 días*');
+  });
+
   it('esCuentaCredito detecta créditos por condición, estado o abonos previos', () => {
     expect(esCuentaCredito({ condiciones_pago: 'credito' })).toBe(true);
     expect(esCuentaCredito({ estado: 'cuenta_abierta' })).toBe(true);

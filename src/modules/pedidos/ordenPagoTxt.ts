@@ -20,6 +20,7 @@ import { dateTime } from '@/shared/lib/format';
 import { retencionesDe, totalRetenciones } from './retencionesOc';
 import { labelCondicionPago } from './ofertas.repository';
 import { OPCIONES_ENTREGA } from './entregaModalidad';
+import { resolverInfoCredito } from './creditoVencimiento';
 
 const etiquetaEntregaTxt = (m: string) => OPCIONES_ENTREGA.find((x) => x.value === m)?.label ?? m;
 // El enlace y el «compartir» son los MISMOS de Combustible/Alimentación: una sola implementación
@@ -177,6 +178,36 @@ export function lineaMontoBs(orden: Orden, tasaBs?: number | null): string | nul
   return `💱 *En Bs:* ${montoTxt(usd * t, 'Bs')} (tasa ${tasaTxt(t)})`;
 }
 
+/**
+ * Línea de vigencia / vencimiento de crédito en negrita para el mensaje de WhatsApp.
+ * Ejemplo: `📅 *Vigencia del crédito:* *25 nov. 2026* (*Vence en 3 días*) · Plazo: *15 días*`
+ */
+export function lineaVigenciaCredito(orden: Orden): string | null {
+  const info = resolverInfoCredito(orden);
+  if (!info.esCredito && !info.fechaVencimiento && !info.dias) return null;
+  if (info.fechaVencimientoFmt) {
+    let estado = '';
+    if (info.diasRestantes !== null) {
+      if (info.diasRestantes < 0) {
+        const abs = Math.abs(info.diasRestantes);
+        estado = ` (*Vencido hace ${abs} ${abs === 1 ? 'día' : 'días'}*)`;
+      } else if (info.diasRestantes === 0) {
+        estado = ' (*Vence HOY*)';
+      } else if (info.diasRestantes <= 2) {
+        estado = ` (*Vence en ${info.diasRestantes} ${info.diasRestantes === 1 ? 'día' : 'días'}*)`;
+      } else {
+        estado = ` (faltan ${info.diasRestantes} días)`;
+      }
+    }
+    const plazo = info.dias ? ` · Plazo: *${info.dias} días*` : '';
+    return `📅 *Vigencia del crédito:* *${info.fechaVencimientoFmt}*${estado}${plazo}`;
+  }
+  if (info.dias) {
+    return `📅 *Vigencia del crédito:* *${info.dias} días*`;
+  }
+  return null;
+}
+
 /** El texto completo. Se exporta aparte para poder probarlo sin tocar el navegador. */
 export function textoOrdenPago(
   orden: Orden, proveedorNombre: string, personas?: PersonasOrden,
@@ -195,6 +226,8 @@ export function textoOrdenPago(
   L.push(...lineasPersonas(personas));
   // Cuándo la aprobó el Gerente (03-11-2026, pedido de la administradora).
   if (orden.oc_aprobada_en) L.push(`📅 *Fecha de aprobación:* ${dateTime(orden.oc_aprobada_en)}`);
+  const vigencia = lineaVigenciaCredito(orden);
+  if (vigencia) L.push(vigencia);
   // Las cotizaciones y cuál escogió el analista, como en el de aprobar (04-11-2026).
   L.push(...lineasCotizaciones(opts?.cotizaciones ?? [], orden.moneda, opts?.tasaBs));
 
@@ -303,6 +336,8 @@ export function textoOrdenAprobacion(
   // Solo CUÁNTOS productos son (pedido del 20-10-2026): el detalle de cada uno se ve en la OC.
   if (productos.length) L.push(`📦 *Productos:* ${productos.length}`);
   if (orden.condiciones_pago) L.push(`📋 *Condición:* ${labelCondicionPago(orden.condiciones_pago)}`);
+  const vigencia = lineaVigenciaCredito(orden);
+  if (vigencia) L.push(vigencia);
   L.push(...lineasCotizaciones(extra?.cotizaciones ?? [], orden.moneda, extra?.tasaBs));
   L.push(`💵 *Total:* ${montoTxt(orden.total, mon)}`);
   L.push('🏢 *MINERAL GROUP GUAYANA C.A.*');
