@@ -262,53 +262,125 @@ export async function construirSolicitudPermisoPdf(
 
   y += altoBox + 20;
 
-  // ── 4. Firmas: Trabajador (con nombre, apellido y cédula) y RRHH ──
+  // ── 4. Firmas: Trabajador, Jefe de Departamento (opcional) y RRHH ──
   salto(95);
   const fy = Math.max(y + 36, LIMITE - 66);
-  const colW = 200;
-  const xIzq = M + 24;
-  const xDer = W - M - colW - 24;
-  const cIzq = xIzq + colW / 2;
-  const cDer = xDer + colW / 2;
 
-  // Líneas de firma
-  doc.setDrawColor(148, 163, 184); // #94a3b8
-  doc.setLineWidth(0.8);
-  doc.line(xIzq, fy, xIzq + colW, fy);
-  doc.line(xDer, fy, xDer + colW, fy);
+  if (solicitud.requiere_firma_jefe && solicitud.jefe_departamento) {
+    const colW = 154;
+    const gap = (CW - 3 * colW) / 2;
+    const x1 = M;
+    const x2 = M + colW + gap;
+    const x3 = W - M - colW;
+    const c1 = x1 + colW / 2;
+    const c2 = x2 + colW / 2;
+    const c3 = x3 + colW / 2;
 
-  // Firma Trabajador
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
-  doc.setTextColor(...TINTA);
-  doc.text('Firma del trabajador', cIzq, fy + 14, { align: 'center' });
+    doc.setDrawColor(148, 163, 184); // #94a3b8
+    doc.setLineWidth(0.8);
+    doc.line(x1, fy, x1 + colW, fy);
+    doc.line(x2, fy, x2 + colW, fy);
+    doc.line(x3, fy, x3 + colW, fy);
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(51, 65, 85);
-  doc.text(textoPdf(nombreCompleto), cIzq, fy + 26, { align: 'center' });
+    // Firma Trabajador
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...TINTA);
+    doc.text('Firma del trabajador', c1, fy + 14, { align: 'center' });
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(...GRIS_TEXTO);
-  const cedulaTexto = t.cedula?.trim() ? `C.I. ${t.cedula.trim()}` : 'C.I.: —';
-  doc.text(textoPdf(cedulaTexto), cIzq, fy + 37, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(51, 65, 85);
+    doc.text(textoPdf(nombreCompleto), c1, fy + 26, { align: 'center', maxWidth: colW });
 
-  // Firma RRHH
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
-  doc.setTextColor(...TINTA);
-  doc.text('Firma de RRHH', cDer, fy + 14, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...GRIS_TEXTO);
+    const cedulaTexto = t.cedula?.trim() ? `C.I. ${t.cedula.trim()}` : 'C.I.: —';
+    doc.text(textoPdf(cedulaTexto), c1, fy + 37, { align: 'center' });
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(51, 65, 85);
-  doc.text('Departamento de Recursos Humanos', cDer, fy + 26, { align: 'center' });
+    // Firma Jefe de Departamento
+    const j = solicitud.jefe_departamento;
+    const nombreJefe = `${j.nombre ?? ''} ${j.apellido ?? ''}`.trim().toUpperCase() || '—';
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...TINTA);
+    doc.text('Firma Jefe de Depto.', c2, fy + 14, { align: 'center' });
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(...GRIS_TEXTO);
-  doc.text(textoPdf(def.razonSocial), cDer, fy + 37, { align: 'center' });
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(51, 65, 85);
+    doc.text(textoPdf(nombreJefe), c2, fy + 26, { align: 'center', maxWidth: colW });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...GRIS_TEXTO);
+    const cargoJefe = j.cargo
+      ? `${j.cargo}${j.departamento ? ` · ${j.departamento}` : ''}`
+      : (j.departamento || (j.cedula ? `C.I. ${j.cedula}` : 'Jefe de Departamento'));
+    doc.text(textoPdf(cargoJefe), c2, fy + 37, { align: 'center', maxWidth: colW });
+
+    // Firma RRHH
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...TINTA);
+    doc.text('Firma de RRHH', c3, fy + 14, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.setTextColor(51, 65, 85);
+    doc.text('Recursos Humanos', c3, fy + 26, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text(textoPdf(def.razonSocial), c3, fy + 37, { align: 'center', maxWidth: colW });
+  } else {
+    const colW = 200;
+    const xIzq = M + 24;
+    const xDer = W - M - colW - 24;
+    const cIzq = xIzq + colW / 2;
+    const cDer = xDer + colW / 2;
+
+    // Líneas de firma
+    doc.setDrawColor(148, 163, 184); // #94a3b8
+    doc.setLineWidth(0.8);
+    doc.line(xIzq, fy, xIzq + colW, fy);
+    doc.line(xDer, fy, xDer + colW, fy);
+
+    // Firma Trabajador
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...TINTA);
+    doc.text('Firma del trabajador', cIzq, fy + 14, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(51, 65, 85);
+    doc.text(textoPdf(nombreCompleto), cIzq, fy + 26, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...GRIS_TEXTO);
+    const cedulaTexto = t.cedula?.trim() ? `C.I. ${t.cedula.trim()}` : 'C.I.: —';
+    doc.text(textoPdf(cedulaTexto), cIzq, fy + 37, { align: 'center' });
+
+    // Firma RRHH
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...TINTA);
+    doc.text('Firma de RRHH', cDer, fy + 14, { align: 'center' });
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(51, 65, 85);
+    doc.text('Departamento de Recursos Humanos', cDer, fy + 26, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...GRIS_TEXTO);
+    doc.text(textoPdf(def.razonSocial), cDer, fy + 37, { align: 'center' });
+  }
 
   // ── Pie de página sutil ──
   doc.setDrawColor(...BORDE);

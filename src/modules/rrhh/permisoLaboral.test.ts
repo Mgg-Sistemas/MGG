@@ -48,6 +48,23 @@ describe('permiso laboral · validación', () => {
     expect(diasInclusivePermiso('2026-11-23', '2026-11-25')).toBe(3);
     expect(diasInclusivePermiso('2026-11-25', '2026-11-23')).toBe(0);
   });
+
+  it('valida la firma opcional del jefe de departamento cuando está marcada', () => {
+    expect(validarSolicitudPermiso({ ...VALIDA, requiere_firma_jefe: true, jefe_departamento: null })).toMatch(/jefe de departamento/i);
+    expect(
+      validarSolicitudPermiso({
+        ...VALIDA,
+        requiere_firma_jefe: true,
+        jefe_departamento: {
+          personal_id: 'p-jefe',
+          nombre: 'Carlos',
+          apellido: 'Rodríguez',
+          cargo: 'Gerente de Planta',
+          departamento: 'Operaciones',
+        },
+      }),
+    ).toBeNull();
+  });
 });
 
 describe('permiso laboral · contenido del PDF', () => {
@@ -84,5 +101,27 @@ describe('permiso laboral · contenido del PDF', () => {
     const doc = await construirSolicitudPermisoPdf(VALIDA, MGG);
     expect(doc).toBeDefined();
     expect(doc.internal.pages.length).toBeGreaterThanOrEqual(2); // jsPDF 1-based page array
+  });
+
+  it('incluye la firma de jefe de departamento en el contenido y construye el PDF con 3 firmas', async () => {
+    const conJefe: SolicitudPermisoForm = {
+      ...VALIDA,
+      requiere_firma_jefe: true,
+      jefe_departamento: {
+        personal_id: 'p-jefe',
+        nombre: 'Carlos',
+        apellido: 'Rodríguez',
+        cedula: 'V-19.876.543',
+        cargo: 'Gerente de Planta',
+        departamento: 'Operaciones',
+      },
+    };
+    const txt = contenidoSolicitudPermiso(conJefe, MGG);
+    expect(txt).toContain('Firma Jefe de Departamento');
+    expect(txt).toContain('Carlos Rodríguez · Gerente de Planta');
+
+    const doc = await construirSolicitudPermisoPdf(conJefe, MGG);
+    expect(doc).toBeDefined();
+    expect(doc.internal.pages.length).toBeGreaterThanOrEqual(2);
   });
 });

@@ -12,6 +12,7 @@ import { listEventos, eliminarEvento } from './eventos.repository';
 import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 import { EventoTipoModal } from './EventoTipoModal';
 import { SolicitudPermisoModal } from './SolicitudPermisoModal';
+import { verSolicitudPermisoPdf } from './solicitudPermisoPdf';
 
 const TIPOS: { key: RrhhEvento['tipo']; label: string }[] = [
   { key: 'vacacion', label: 'Vacaciones' },
@@ -176,9 +177,21 @@ export function AdministrativoTab({ canWrite, actor, actorName, empresa = EMPRES
                 <td className="muted">{e.descripcion || '—'}</td>
                 {canWrite && <td style={{ textAlign: 'center', whiteSpace: 'nowrap' }}>
                   {e.tipo === 'permiso' && (
-                    <button className="btn btn-sm btn-ghost" onClick={() => setModal({ tipo: 'permiso', evento: e })} title="Ver solicitud y agregar soportes">📎</button>
+                    <>
+                      {e.solicitud && (
+                        <button
+                          type="button"
+                          className="btn btn-sm btn-ghost"
+                          onClick={() => void verSolicitudPermisoPdf({ ...e.solicitud!, personal_id: e.personal_id }, empresa)}
+                          title="Ver PDF oficial de la solicitud"
+                        >
+                          📄
+                        </button>
+                      )}
+                      <button type="button" className="btn btn-sm btn-ghost" onClick={() => setModal({ tipo: 'permiso', evento: e })} title="Ver solicitud y agregar soportes">📎</button>
+                    </>
                   )}
-                  <button className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(e)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setPorBorrar(e)} title="Eliminar" style={{ color: 'var(--danger)' }}>🗑</button>
                 </td>}
               </tr>
             ))}

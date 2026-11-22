@@ -7,6 +7,7 @@
    ============================================================ */
 import { isoAVe } from '@/shared/lib/fechaVe';
 import type {
+  DatosJefeDepartamentoPermiso,
   DatosTrabajadorPermiso,
   Personal,
   SolicitudPermisoLaboral,
@@ -51,6 +52,18 @@ export function datosTrabajadorDe(p: Personal): DatosTrabajadorPermiso {
   };
 }
 
+/** Snapshot del jefe de departamento para firma opcional. */
+export function datosJefeDe(p: Personal): DatosJefeDepartamentoPermiso {
+  return {
+    personal_id: p.id,
+    nombre: p.nombre ?? '',
+    apellido: p.apellido ?? '',
+    cedula: p.cedula ?? '',
+    cargo: p.cargo ?? '',
+    departamento: p.departamento ?? '',
+  };
+}
+
 /** Error en palabras, o null cuando se puede guardar. */
 export function validarSolicitudPermiso(f: SolicitudPermisoForm): string | null {
   if (!f.personal_id) return 'Elegí el trabajador de la lista.';
@@ -62,6 +75,9 @@ export function validarSolicitudPermiso(f: SolicitudPermisoForm): string | null 
   if (!f.motivo?.trim()) return 'Indicá el motivo de la ausencia.';
   if (!f.trabajador?.nombre?.trim() && !f.trabajador?.apellido?.trim()) return 'Faltan los datos del trabajador.';
   if (f.compromiso !== COMPROMISO_TRABAJADOR) return 'Falta el compromiso del trabajador.';
+  if (f.requiere_firma_jefe && (!f.jefe_departamento || (!f.jefe_departamento.nombre?.trim() && !f.jefe_departamento.personal_id))) {
+    return 'Elegí el jefe de departamento para la firma.';
+  }
   return null;
 }
 
@@ -98,7 +114,14 @@ export function contenidoSolicitudPermiso(
     COMPROMISO_TRABAJADOR,
     'Firma del trabajador',
     `${nombre || '—'} · Cédula: ${t.cedula?.trim() || '—'}`,
-    'Firma de RRHH',
   );
+  if (f.requiere_firma_jefe && f.jefe_departamento) {
+    const nomJefe = `${f.jefe_departamento.nombre ?? ''} ${f.jefe_departamento.apellido ?? ''}`.trim();
+    lineas.push(
+      'Firma Jefe de Departamento',
+      `${nomJefe || '—'}${f.jefe_departamento.cargo ? ` · ${f.jefe_departamento.cargo}` : ''}`,
+    );
+  }
+  lineas.push('Firma de RRHH');
   return lineas.join('\n');
 }

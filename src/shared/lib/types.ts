@@ -1477,6 +1477,16 @@ export interface DatosTrabajadorPermiso {
   telefono: string;
 }
 
+/** Datos del jefe de departamento para firma opcional en solicitud de permiso (21-11-2026). */
+export interface DatosJefeDepartamentoPermiso {
+  personal_id?: string | null;
+  nombre: string;
+  apellido: string;
+  cedula?: string;
+  cargo?: string;
+  departamento?: string;
+}
+
 /** Un soporte/pdf/image subido con la solicitud de permiso laboral (20-11-2026). */
 export interface AdjuntoPermisoLaboral {
   path: string;
@@ -1496,6 +1506,9 @@ export interface SolicitudPermisoLaboral {
   compromiso: string;
   trabajador: DatosTrabajadorPermiso;
   empresa: string;
+  /** Casilla opcional: firma de jefe de departamento (21-11-2026). */
+  requiere_firma_jefe?: boolean;
+  jefe_departamento?: DatosJefeDepartamentoPermiso | null;
 }
 
 /** Evento administrativo de RRHH (Fase 3): vacaciones, permisos, utilidades, notas. */

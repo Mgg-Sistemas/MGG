@@ -21,6 +21,7 @@ import {
 import type { Empresa } from './empresa';
 import {
   COMPROMISO_TRABAJADOR,
+  datosJefeDe,
   datosTrabajadorDe,
   diasInclusivePermiso,
   hoyIsoPermiso,
@@ -37,7 +38,14 @@ import { verSolicitudPermisoPdf } from './solicitudPermisoPdf';
 const VACIO_TRABAJADOR = { nombre: '', apellido: '', cedula: '', cargo: '', departamento: '', telefono: '' };
 
 function inicial(personal: Personal[], personalId: string, empresa: Empresa, evento?: RrhhEvento | null): SolicitudPermisoForm {
-  if (evento?.solicitud) return { ...evento.solicitud, personal_id: evento.personal_id };
+  if (evento?.solicitud) {
+    return {
+      ...evento.solicitud,
+      personal_id: evento.personal_id,
+      requiere_firma_jefe: evento.solicitud.requiere_firma_jefe ?? false,
+      jefe_departamento: evento.solicitud.jefe_departamento ?? null,
+    };
+  }
   const p = personal.find((x) => x.id === personalId);
   return {
     personal_id: personalId,
@@ -50,6 +58,8 @@ function inicial(personal: Personal[], personalId: string, empresa: Empresa, eve
     compromiso: COMPROMISO_TRABAJADOR,
     trabajador: p ? datosTrabajadorDe(p) : { ...VACIO_TRABAJADOR },
     empresa,
+    requiere_firma_jefe: false,
+    jefe_departamento: null,
   };
 }
 
@@ -79,9 +89,27 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
     keywords: [p.cedula, p.cargo, p.departamento, p.telefono].filter((x): x is string => !!x),
   }));
 
+  const opcionesJefe: SearchOption[] = personal
+    .filter((p) => p.activo || p.id === form.jefe_departamento?.personal_id)
+    .map((p) => ({
+      value: p.id,
+      label: `${p.nombre} ${p.apellido}`.trim(),
+      hint: p.cargo ? `${p.cargo}${p.departamento ? ` · ${p.departamento}` : ''}` : p.cedula ?? undefined,
+      keywords: [p.cedula, p.cargo, p.departamento, p.telefono].filter((x): x is string => !!x),
+    }));
+
   function elegirTrabajador(id: string) {
     const p = personal.find((x) => x.id === id);
     setForm((f) => ({ ...f, personal_id: id, trabajador: p ? datosTrabajadorDe(p) : { ...VACIO_TRABAJADOR } }));
+    setError(null);
+  }
+
+  function elegirJefe(id: string) {
+    const p = personal.find((x) => x.id === id);
+    setForm((f) => ({
+      ...f,
+      jefe_departamento: p ? datosJefeDe(p) : null,
+    }));
     setError(null);
   }
 
@@ -139,6 +167,7 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
         const creado = await guardarSolicitudPermiso(form, nuevos, actor, actorName);
         setAdjuntos(creado.adjuntos ?? []); setNuevos([]);
         toast('Solicitud guardada con su PDF', 'success');
+        void verSolicitudPermisoPdf(form, form.empresa);
       }
       onGuardado();
       onClose();
@@ -156,7 +185,7 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
       onClose={() => { if (!guardando) onClose(); }}
       footer={<>
         <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
-        <button className="btn" onClick={() => void verPdf()} disabled={guardando || edicion}>📄 Vista previa del PDF</button>
+        <button className="btn" onClick={() => void verPdf()} disabled={guardando}>📄 Vista previa del PDF</button>
         <button className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>
           {guardando ? 'Guardando…' : edicion ? '📎 Guardar soportes' : '💾 Guardar solicitud'}
         </button>
@@ -211,6 +240,45 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
         </div>
       </div>
 
+      <div className="card" style={{ padding: '.75rem', marginTop: '.75rem', background: 'var(--surface-2, transparent)' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: edicion ? 'default' : 'pointer', fontWeight: 600, fontSize: '.85rem' }}>
+          <input
+            type="checkbox"
+            checked={!!form.requiere_firma_jefe}
+            disabled={edicion}
+            onChange={(e) => {
+              const checked = e.target.checked;
+              setForm((f) => ({
+                ...f,
+                requiere_firma_jefe: checked,
+                jefe_departamento: checked ? f.jefe_departamento : null,
+              }));
+            }}
+          />
+          <span>✍️ Incluir firma de jefe del departamento (opcional)</span>
+        </label>
+        {form.requiere_firma_jefe && (
+          <div style={{ marginTop: '.6rem' }}>
+            <label style={{ fontSize: '.8rem', display: 'block', marginBottom: '.3rem' }}>Jefe de departamento *</label>
+            <SearchSelect
+              options={opcionesJefe}
+              value={form.jefe_departamento?.personal_id ?? ''}
+              onChange={elegirJefe}
+              placeholder="Buscar por nombre, cédula, cargo o departamento…"
+              emptyText="Sin trabajadores disponibles"
+              disabled={edicion}
+            />
+            {form.jefe_departamento && (
+              <div className="muted" style={{ fontSize: '.75rem', marginTop: '.35rem' }}>
+                Firma: <strong>{form.jefe_departamento.nombre} {form.jefe_departamento.apellido}</strong>
+                {form.jefe_departamento.cargo ? ` · ${form.jefe_departamento.cargo}` : ''}
+                {form.jefe_departamento.departamento ? ` (${form.jefe_departamento.departamento})` : ''}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
       <h3 style={{ fontSize: '.85rem', margin: '1rem 0 .5rem', color: 'var(--primary, #ff8a00)' }}>SOPORTES (PDF o imágenes, máx. 4)</h3>
       <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
         <input ref={camara} type="file" accept="image/*" capture="environment" multiple hidden onChange={(e) => agregarArchivos(e.target.files)} />
@@ -241,7 +309,7 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
         <p style={{ fontSize: '.85rem', marginBottom: 0, textAlign: 'justify', lineHeight: 1.45 }}>{COMPROMISO_TRABAJADOR}</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2rem', marginTop: '1.5rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: form.requiere_firma_jefe ? '1fr 1fr 1fr' : '1fr 1fr', gap: form.requiere_firma_jefe ? '1rem' : '2rem', marginTop: '1.5rem' }}>
         <div>
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem' }}>
             <div style={{ fontWeight: 700 }}>Firma del trabajador</div>
@@ -255,6 +323,25 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
             )}
           </div>
         </div>
+        {form.requiere_firma_jefe && (
+          <div>
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem' }}>
+              <div style={{ fontWeight: 700 }}>Firma Jefe de Depto.</div>
+              {form.jefe_departamento ? (
+                <>
+                  <div style={{ fontSize: '.76rem', marginTop: '.2rem', fontWeight: 600 }}>
+                    {`${form.jefe_departamento.nombre} ${form.jefe_departamento.apellido}`.trim().toUpperCase()}
+                  </div>
+                  {form.jefe_departamento.cargo && (
+                    <div className="muted" style={{ fontSize: '.72rem' }}>{form.jefe_departamento.cargo}</div>
+                  )}
+                </>
+              ) : (
+                <div className="muted" style={{ fontSize: '.72rem', fontStyle: 'italic', marginTop: '.2rem' }}>Pendiente por seleccionar</div>
+              )}
+            </div>
+          </div>
+        )}
         <div>
           <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem' }}>
             <div style={{ fontWeight: 700 }}>Firma de RRHH</div>
