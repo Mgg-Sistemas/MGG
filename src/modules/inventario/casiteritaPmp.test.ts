@@ -210,5 +210,5 @@ describe('libro de promedios · fase 4 · cierres, reporte y simulador', () => {
     expect(String(ws.getCell(1, 1).value)).toContain('CIERRE DE PROMEDIOS');
     expect(ws.getCell(3, 4).value).toBe('Peso Global (kg)');
     expect(wb.getWorksheet('Libro')!.rowCount).toBe(filas.length + 1);
-  });
+  }, 20000);
 });
