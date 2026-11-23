@@ -220,10 +220,10 @@ async function _resolverTasaHoy(): Promise<TasaHoy> {
       const valorUsd = Number(dataApi?.promedio ?? dataApi?.price);
       if (Number.isFinite(valorUsd) && valorUsd > 0) {
         const u = round2(valorUsd);
-        void supabase.from('config').upsert(
+        void Promise.resolve(supabase.from('config').upsert(
           { key: CONFIG_KEY, value: { usd: u, eur: snap?.eur ?? null, fecha: fechaEfectiva }, updated_at: new Date().toISOString() },
           { onConflict: 'key' },
-        ).catch(() => {});
+        )).catch(() => {});
         return {
           usd: u,
           eur: snap?.eur ?? null,
