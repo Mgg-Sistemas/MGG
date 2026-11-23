@@ -1,0 +1,65 @@
+/* ============================================================
+   MGG · Ajustes
+   Capa visual del bloque G6. Solo presentación: el guardado del
+   perfil, las preferencias, la biometría y la sesión no cambian.
+   ============================================================ */
+
+/* ───────── Carnet de identidad ─────────
+   Correo, rol y estado salían DOS veces: en la cabecera de Perfil y otra
+   vez en la tarjeta «Sesión». Ahora se dicen una sola vez, arriba, y es
+   lo primero que ve quien entra. */
+.aju-carnet {
+  display: flex; align-items: center; gap: 1.1rem; flex-wrap: wrap;
+  padding: 1.25rem 1.5rem; margin-bottom: 1rem;
+  background: var(--grad-surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--rol-color, var(--primary));
+  border-radius: var(--r-lg);
+}
+.aju-carnet-datos { min-width: 0; flex: 1 1 240px; }
+.aju-carnet-nombre { font-size: 1.25rem; font-weight: 700; color: var(--text); line-height: 1.2; }
+.aju-carnet-correo {
+  display: block; font-family: var(--font-mono); font-size: .82rem;
+  color: var(--text-muted); margin-top: .15rem;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.aju-carnet-marcas { display: flex; gap: .4rem; flex-wrap: wrap; margin-top: .5rem; }
+.aju-carnet-ingreso {
+  flex: 0 0 auto; text-align: right;
+  font-size: .76rem; color: var(--text-dim);
+}
+.aju-carnet-ingreso strong { display: block; font-size: .82rem; color: var(--text-muted); font-weight: 600; }
+
+/* Perfil manda; lo demás lo acompaña. Antes todas las tarjetas caían en un
+   auto-fit y el orden en pantalla dependía del ancho. */
+.aju-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+.aju-card { padding: 1.5rem; }
+
+/* Las dos preferencias de Pedidos son preguntas distintas y antes iban sin
+   etiqueta, una debajo de la otra. */
+.aju-preferencia { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.aju-preferencia:last-child { margin-bottom: 0; }
+.aju-preferencia-label {
+  font-size: .75rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .07em; color: var(--text-muted);
+  flex: 0 0 auto; min-width: 6.5rem;
+}
+.aju-preferencia .view-toggle { margin-left: 0; }
+
+@media (max-width: 900px) {
+  .aju-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .aju-carnet { padding: 1rem; gap: .8rem; }
+  .aju-carnet-ingreso { text-align: left; width: 100%; }
+  .aju-card { padding: 1.1rem; }
+  .aju-preferencia { align-items: stretch; flex-direction: column; gap: .35rem; }
+  .aju-preferencia-label { min-width: 0; }
+  .aju-preferencia .view-toggle { width: 100%; }
+  .aju-preferencia .view-toggle button { flex: 1; justify-content: center; }
+}

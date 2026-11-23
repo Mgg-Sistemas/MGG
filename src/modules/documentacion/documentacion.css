@@ -1,0 +1,78 @@
+/* ============================================================
+   MGG · Documentación
+   Capa visual del bloque G6. Solo presentación: el correlativo, la
+   emisión, la anulación y los vencimientos no cambian.
+   ============================================================ */
+
+/* ───────── Título del apartado ─────────
+   Antes, lo único que decía en cuál de los dos estabas era qué botón
+   del conmutador había quedado encendido. */
+.doc-apartado { margin: 0 0 .9rem; }
+.doc-apartado-titulo { margin: 0; font-size: 1.05rem; font-weight: 700; }
+.doc-apartado-nota { margin: .15rem 0 0; font-size: .82rem; color: var(--text-muted); }
+
+/* ───────── Tira de vencimientos ─────────
+   No filtra nada: es un estado del archivo, no un control. */
+.doc-avisos {
+  display: flex; align-items: center; gap: .5rem; flex-wrap: wrap;
+  margin-bottom: .75rem;
+}
+.doc-avisos-texto { font-size: .8rem; color: var(--text-muted); }
+
+/* ───────── Archivo por vigencia ─────────
+   En una tabla alfabética, «el permiso vence en 9 días» pesa lo mismo que
+   «vence en 2027»: hay que leerla entera para encontrar lo urgente. El
+   archivo agrupa por lo único que apura — cuánto le queda a cada papel. */
+.doc-bloque { margin-bottom: 1.4rem; }
+.doc-bloque-head { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.doc-bloque-titulo {
+  margin: 0; font-size: .82rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .07em;
+}
+.doc-bloque-n {
+  display: inline-grid; place-items: center;
+  min-width: 1.4rem; height: 1.4rem; padding: 0 .3rem;
+  border-radius: 999px;
+  background: var(--bg-1); border: 1px solid var(--border);
+  color: var(--text-muted); font-size: .72rem; font-weight: 700;
+  font-family: var(--font-mono);
+}
+.doc-bloque-head::after { content: ""; flex: 1; height: 1px; background: var(--border); min-width: 1rem; }
+.doc-bloque.vencido .doc-bloque-titulo { color: var(--danger); }
+.doc-bloque.por_vencer .doc-bloque-titulo { color: var(--warning); }
+.doc-bloque.vigente .doc-bloque-titulo { color: var(--success); }
+.doc-bloque.sin .doc-bloque-titulo { color: var(--text-muted); }
+
+.doc-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: .8rem; }
+
+.doc-card {
+  display: flex; flex-direction: column; gap: .55rem;
+  padding: .85rem .95rem;
+  background: var(--grad-surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--borde-estado, var(--border-strong));
+  border-radius: var(--r-md);
+}
+.doc-card.vencido { --borde-estado: var(--danger); }
+.doc-card.por_vencer { --borde-estado: var(--warning); }
+.doc-card.vigente { --borde-estado: var(--success); }
+
+.doc-card-titulo { font-weight: 700; font-size: .92rem; color: var(--text); }
+.doc-card-desc { font-size: .76rem; color: var(--text-muted); margin: .15rem 0 0; }
+.doc-card-meta { display: flex; gap: .45rem; align-items: center; flex-wrap: wrap; }
+
+/* El plazo en palabras: «vence en 9 días» se entiende sin restar fechas. */
+.doc-plazo { font-size: .8rem; font-weight: 600; }
+.doc-plazo .doc-plazo-fecha { font-family: var(--font-mono); font-weight: 500; color: var(--text-muted); }
+.doc-card.vencido .doc-plazo { color: var(--danger); }
+.doc-card.por_vencer .doc-plazo { color: var(--warning); }
+
+.doc-card-pie {
+  display: flex; align-items: center; gap: .4rem; flex-wrap: wrap;
+  padding-top: .5rem; border-top: 1px solid var(--border);
+}
+.doc-card-quien { font-size: .72rem; color: var(--text-dim); margin-right: auto; }
+
+@media (max-width: 600px) {
+  .doc-cards { grid-template-columns: 1fr; }
+}

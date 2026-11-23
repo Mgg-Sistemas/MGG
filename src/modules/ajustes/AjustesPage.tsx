@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/shared/lib/supabase';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -7,7 +7,8 @@ import { BiometriaModal } from '@/modules/auth/BiometriaModal';
 import { toast } from '@/shared/ui/Toast';
 import { dateTime } from '@/shared/lib/format';
 import type { Usuario } from '@/shared/lib/types';
-import { labelRol } from '@/modules/usuarios/usuarios.repository';
+import { colorRol, labelRol } from '@/modules/usuarios/usuarios.repository';
+import { Iniciales } from '@/shared/ui/Iniciales';
 import {
   getNotifPrefs,
   playNotificationPattern,
@@ -25,6 +26,7 @@ import {
   setTodosModulosNotif,
   type ModuloNotifKey,
 } from '@/shared/lib/webpush';
+import './ajustes.css';
 
 const VIEW_KEY = 'mgg.view.pedidos';
 const SCOPE_KEY = 'mgg.scope.pedidos';
@@ -195,52 +197,56 @@ export function AjustesPage() {
     navigate('/cambiar-clave', { state: { from: '/app/ajustes' } });
   }
 
-  if (loading) return <div className="p-8">Cargando…</div>;
+  if (loading) return <div className="card"><p className="muted" style={{ margin: 0 }}>Cargando…</p></div>;
+
+  const rolColor = colorRol(usuario?.role);
 
   return (
     <div>
       <div className="page-head">
         <div>
           <h1>Ajustes</h1>
-          <p className="hint muted">Configura tu perfil y preferencias del sistema.</p>
+          <p className="muted hint">Configura tu perfil y preferencias del sistema.</p>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 1fr))', gap: '1rem', alignItems: 'start' }}>
+      {/* El carnet: quién eres, una sola vez. Correo, rol y estado salían
+          repetidos en Perfil y en Sesión. */}
+      <div className="aju-carnet" style={{ '--rol-color': rolColor } as CSSProperties}>
+        <Iniciales
+          nombre={nombre} apellido={apellido} respaldo={user?.email}
+          color={rolColor} tamano="lg"
+        />
+        <div className="aju-carnet-datos">
+          <div className="aju-carnet-nombre">{[nombre, apellido].filter(Boolean).join(' ') || '—'}</div>
+          <span className="aju-carnet-correo">{user?.email}</span>
+          <div className="aju-carnet-marcas">
+            <span className="badge primary">{labelRol(usuario?.role)}</span>
+            {usuario?.estado === 'activo'
+              ? <span className="badge success">Activo</span>
+              : <span className="badge danger">Inactivo</span>}
+            {usuario?.departamento && <span className="badge">{usuario.departamento}</span>}
+          </div>
+        </div>
+        {session?.user?.last_sign_in_at && (
+          <div className="aju-carnet-ingreso">
+            <strong>Último ingreso</strong>
+            {dateTime(session.user.last_sign_in_at)}
+          </div>
+        )}
+      </div>
+
+      <div className="aju-grid">
 
         {/* Perfil */}
-        <div className="card" style={{ padding: '1.5rem' }}>
+        <div className="card aju-card">
           <div className="card-title" style={{ marginBottom: '1rem' }}>
             <span>Perfil</span>
           </div>
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem' }}>
-            <div
-              className="avatar"
-              style={{
-                width: 60, height: 60, borderRadius: '50%',
-                overflow: 'hidden',
-                background: '#fff',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                border: '2px solid var(--border)',
-                flexShrink: 0,
-              }}
-            >
-              <img
-                src="/image.jpeg"
-                alt="Avatar"
-                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-              />
-            </div>
-            <div>
-              <div style={{ fontSize: '1.05rem', fontWeight: 600 }}>
-                {[nombre, apellido].filter(Boolean).join(' ') || '—'}
-              </div>
-              <div className="muted mono" style={{ fontSize: '.82rem' }}>{user?.email}</div>
-              <div style={{ marginTop: '.4rem' }}>
-                <span className="badge primary">{labelRol(usuario?.role)}</span>
-              </div>
-            </div>
-          </div>
+          {/* Quién eres ya lo dice el carnet de arriba: aquí solo se edita. */}
+          <p className="muted" style={{ marginTop: 0, fontSize: '.84rem' }}>
+            Tus datos personales. El correo de acceso lo cambia un administrador.
+          </p>
 
           <div className="form-grid">
             <div className="form-row">
@@ -291,7 +297,7 @@ export function AjustesPage() {
         </div>
 
         {/* Notificaciones */}
-        <div className="card" style={{ padding: '1.5rem' }}>
+        <div className="card aju-card">
           <div className="card-title" style={{ marginBottom: '1rem' }}>
             <span>Notificaciones</span>
           </div>
@@ -491,7 +497,7 @@ export function AjustesPage() {
         </div>
 
         {/* Seguridad */}
-        <div className="card" style={{ padding: '1.5rem' }}>
+        <div className="card aju-card">
           <div className="card-title" style={{ marginBottom: '1rem' }}>
             <span>Seguridad</span>
           </div>
@@ -512,7 +518,7 @@ export function AjustesPage() {
         </div>
 
         {/* Preferencias de vista */}
-        <div className="card" style={{ padding: '1.5rem' }}>
+        <div className="card aju-card">
           <div className="card-title" style={{ marginBottom: '1rem' }}>
             <span>Vista preferida (Pedidos)</span>
           </div>
@@ -520,45 +526,39 @@ export function AjustesPage() {
             Modo por defecto del módulo Pedidos/Compras. Igualmente puedes alternar dentro del módulo.
           </p>
 
-          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.85rem' }}>
-            <button className={`chip${viewPref === 'kanban' ? ' chip-active' : ''}`} onClick={() => setView('kanban')}>▦ Kanban</button>
-            <button className={`chip${viewPref === 'lista' ? ' chip-active' : ''}`} onClick={() => setView('lista')}>☰ Lista</button>
+          {/* Son dos preguntas distintas y antes iban sin etiqueta, una debajo
+              de la otra: nada decía cuál era cuál. */}
+          <div className="aju-preferencia">
+            <span className="aju-preferencia-label" id="aju-como">Cómo se ve</span>
+            <div className="view-toggle" role="tablist" aria-labelledby="aju-como">
+              <button type="button" role="tab" aria-selected={viewPref === 'kanban'}
+                className={viewPref === 'kanban' ? 'active' : ''} onClick={() => setView('kanban')}>▦ Kanban</button>
+              <button type="button" role="tab" aria-selected={viewPref === 'lista'}
+                className={viewPref === 'lista' ? 'active' : ''} onClick={() => setView('lista')}>☰ Lista</button>
+            </div>
           </div>
-          <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap' }}>
-            <button className={`chip${scopePref === 'pedidos' ? ' chip-active' : ''}`} onClick={() => setScope('pedidos')}>✉ Solicitud de Pedido</button>
-            <button className={`chip${scopePref === 'oc' ? ' chip-active' : ''}`} onClick={() => setScope('oc')}>🧾 Órdenes de Compra</button>
+          <div className="aju-preferencia">
+            <span className="aju-preferencia-label" id="aju-que">Qué abre</span>
+            <div className="view-toggle" role="tablist" aria-labelledby="aju-que">
+              <button type="button" role="tab" aria-selected={scopePref === 'pedidos'}
+                className={scopePref === 'pedidos' ? 'active' : ''} onClick={() => setScope('pedidos')}>✉ Solicitud de Pedido</button>
+              <button type="button" role="tab" aria-selected={scopePref === 'oc'}
+                className={scopePref === 'oc' ? 'active' : ''} onClick={() => setScope('oc')}>🧾 Órdenes de Compra</button>
+            </div>
           </div>
         </div>
 
         {/* Sesión */}
-        <div className="card" style={{ padding: '1.5rem' }}>
+        <div className="card aju-card">
           <div className="card-title" style={{ marginBottom: '1rem' }}>
             <span>Sesión</span>
           </div>
-          <div className="detail-row">
-            <div className="k">Correo</div>
-            <div className="v mono">{user?.email}</div>
-          </div>
-          <div className="detail-row">
-            <div className="k">Rol</div>
-            <div className="v">{labelRol(usuario?.role)}</div>
-          </div>
-          <div className="detail-row">
-            <div className="k">Estado</div>
-            <div className="v">
-              {usuario?.estado === 'activo'
-                ? <span className="badge success">Activo</span>
-                : <span className="badge danger">Inactivo</span>}
-            </div>
-          </div>
-          {session?.user?.last_sign_in_at && (
-            <div className="detail-row">
-              <div className="k">Inicio de sesión</div>
-              <div className="v muted" style={{ fontSize: '.85rem' }}>
-                {dateTime(session.user.last_sign_in_at)}
-              </div>
-            </div>
-          )}
+          {/* Correo, rol, estado y último ingreso los dice el carnet de
+              arriba: repetirlos aquí era decir dos veces lo mismo. */}
+          <p className="muted" style={{ marginTop: 0, fontSize: '.85rem' }}>
+            Al cerrar sesión vuelves a la pantalla de ingreso. Tus datos y preferencias
+            quedan guardados.
+          </p>
           <div style={{ marginTop: '1rem', display: 'flex', gap: '.5rem' }}>
             <button className="btn btn-danger" onClick={handleLogout}>
               ⎋ Cerrar sesión

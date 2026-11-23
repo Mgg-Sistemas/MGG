@@ -18,11 +18,32 @@ import {
   type UserSession, type ActividadEvento, type ResumenUsuario,
 } from './auditoria.repository';
 import { descargarAuditoriaOverviewPdf, descargarAuditoriaUsuarioPdf, descargarAuditoriaMovimientosPdf } from './auditoriaPdf';
+import { Iniciales } from '@/shared/ui/Iniciales';
+import './auditoria.css';
 
 const hoyISO = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD local
 const haceDiasISO = (n: number) => new Date(Date.now() - n * 86400000).toLocaleDateString('en-CA');
 const num = (n: number) => Number(n || 0).toLocaleString('es-VE');
 const dt = (iso: string) => dateTime(iso);
+const diaLegible = (iso: string) => new Intl.DateTimeFormat('es-VE', { weekday: 'long', day: 'numeric', month: 'long' })
+  .format(new Date(`${iso}T12:00:00`));
+const horaDe = (iso: string) => new Date(iso).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' });
+
+/** Actividad agrupada por día, con lo más reciente primero. */
+function agruparActividad(items: ActividadEvento[]): { dia: string; eventos: ActividadEvento[] }[] {
+  const m = new Map<string, ActividadEvento[]>();
+  for (const a of items) {
+    const dia = diaLocal(a.ts);
+    if (!m.has(dia)) m.set(dia, []);
+    m.get(dia)!.push(a);
+  }
+  return Array.from(m.entries())
+    .sort((a, b) => b[0].localeCompare(a[0]))
+    .map(([dia, eventos]) => ({ dia, eventos }));
+}
+
+/** Cuántas acciones de cada día se listan en el panorama. */
+const EVENTOS_POR_DIA = 8;
 
 interface FilaUsuario extends ResumenUsuario { nAcciones: number; conectadoAhora: boolean; }
 
@@ -35,6 +56,8 @@ export function AuditoriaPage() {
   const [conectados, setConectados] = useState<UserSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [sel, setSel] = useState<string | null>(null); // email del detalle
+  // Cuántos días del timeline se muestran de entrada en el panorama.
+  const [diasVisibles, setDiasVisibles] = useState(3);
 
   const cargar = useCallback(async () => {
     setLoading(true);
@@ -98,7 +121,7 @@ export function AuditoriaPage() {
   const labelToEmail = new Map(filas.map((f) => [(f.nombre ?? f.email).split('@')[0], f.email]));
 
   return (
-    <div>
+    <div className="auditoria-page">
       {sel ? (
         <DetalleUsuario email={sel} nombre={nombreDe(sel)} desde={desde} hasta={hasta}
           sesiones={sesiones.filter((s) => (s.email ?? '').toLowerCase() === sel)}
@@ -124,7 +147,7 @@ export function AuditoriaPage() {
                 void descargarAuditoriaMovimientosPdf({ desde, hasta, usuarios })
                   .catch((e) => toast(e instanceof Error ? e.message : 'No se pudo generar el PDF', 'error'));
               }}>↓ PDF movimientos por usuario</button>
-            <div style={{ display: 'flex', gap: '.5rem', marginLeft: 'auto', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div className="aud-periodo">
               <div className="form-row" style={{ margin: 0 }}><label style={{ fontSize: '.72rem' }}>Desde</label><input className="input" type="date" value={desde} max={hasta} onChange={(e) => setDesde(e.target.value)} /></div>
               <div className="form-row" style={{ margin: 0 }}><label style={{ fontSize: '.72rem' }}>Hasta</label><input className="input" type="date" value={hasta} min={desde} max={hoyISO()} onChange={(e) => setHasta(e.target.value)} /></div>
               <div style={{ display: 'flex', gap: '.25rem' }}>
@@ -160,34 +183,111 @@ export function AuditoriaPage() {
             <BarChart data={accionesPorDia} height={200} yFormatter={(v) => num(v)} emptyMessage="Sin acciones en el período." />
           </div>
 
+          {/* Lo que pasó, en orden. Los gráficos decían CUÁNTO, pero no
+              QUÉ: para ver un hecho concreto había que entrar a la ficha
+              de alguien. */}
+          <div className="card" style={{ marginBottom: '1rem' }}>
+            <div className="card-title" style={{ marginBottom: '.6rem' }}>🔎 Lo que pasó</div>
+            {loading ? (
+              <div className="aud-cargando"><p className="muted">Cargando…</p></div>
+            ) : !actividad.length ? (
+              <p className="muted" style={{ margin: 0 }}>Sin acciones registradas en el período.</p>
+            ) : (
+              <>
+                {agruparActividad(actividad).slice(0, diasVisibles).map(({ dia, eventos }) => (
+                  <div key={dia} className="aud-dia">
+                    <div className="aud-dia-head">
+                      {diaLegible(dia)} <span className="aud-dia-n">· {eventos.length} acción(es)</span>
+                    </div>
+                    <ol className="aud-riel">
+                      {eventos.slice(0, EVENTOS_POR_DIA).map((a, i) => {
+                        const info = moduloDeTabla(a.tabla);
+                        return (
+                          <li key={`${a.tabla}-${a.ts}-${i}`} className="aud-evento">
+                            <span className="aud-evento-icono" aria-hidden="true">{iconoAccion(a.accion)}</span>
+                            <div className="aud-evento-cuerpo">
+                              <div className="aud-evento-titulo">
+                                {a.accion}
+                                <span className="aud-evento-quien"> · {a.actor_name || a.actor}</span>
+                              </div>
+                              <div className="aud-evento-detalle">
+                                {tieneDetalle(a) ? queHizoCorto(a) : 'sin detalle registrado'}
+                              </div>
+                              <div className="aud-evento-marcas">
+                                <span className="aud-modulo">{info.icon} {info.modulo}</span>
+                              </div>
+                            </div>
+                            <span className="aud-evento-hora">{horaDe(a.ts)}</span>
+                          </li>
+                        );
+                      })}
+                    </ol>
+                    {eventos.length > EVENTOS_POR_DIA && (
+                      <p className="muted" style={{ marginLeft: '1.35rem', fontSize: '.76rem' }}>
+                        …y {eventos.length - EVENTOS_POR_DIA} acción(es) más ese día. Entra a la ficha de una persona para ver las suyas completas.
+                      </p>
+                    )}
+                  </div>
+                ))}
+                {agruparActividad(actividad).length > diasVisibles && (
+                  <button type="button" className="btn btn-sm btn-ghost" onClick={() => setDiasVisibles((n) => n + 5)}>
+                    Ver días anteriores
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* Usuarios en el período: same personas del Directorio, se leen
+              igual. Antes eran columnas de cifras sueltas. */}
           <div className="card">
-            <div className="card-title">👥 Detalle por usuario <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>(clic para ver su actividad)</span></div>
-            {loading ? <EmptyState message="Cargando…" icon="◔" /> : (
-              <div className="table-wrap">
-                <table className="table" style={{ margin: 0 }}>
-                  <thead><tr>
-                    <th>Usuario</th><th style={{ textAlign: 'right' }}>Tiempo conectado</th><th style={{ textAlign: 'right' }}>Sesiones</th>
-                    <th style={{ textAlign: 'right' }}>Acciones</th><th>Última conexión</th><th></th>
-                  </tr></thead>
-                  <tbody>
-                    {!filas.length && <tr><td colSpan={6}><EmptyState message="Sin actividad en el período." icon="🕵" /></td></tr>}
-                    {filas.map((f) => (
-                      <tr key={f.email} style={{ cursor: 'pointer' }} onClick={() => setSel(f.email)}>
-                        <td>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-                            {f.conectadoAhora && <span title="Conectado ahora" style={{ width: 8, height: 8, borderRadius: '50%', background: '#10b981', flexShrink: 0 }} />}
-                            <div><strong>{f.nombre ?? f.email.split('@')[0]}</strong><br/><span className="muted" style={{ fontSize: '.72rem' }}>{f.email}</span></div>
-                          </div>
-                        </td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{fmtDuracion(f.msConectado)}</td>
-                        <td className="mono" style={{ textAlign: 'right' }}>{num(f.nSesiones)}</td>
-                        <td className="mono" style={{ textAlign: 'right', fontWeight: 700 }}>{num(f.nAcciones)}</td>
-                        <td className="muted" style={{ fontSize: '.8rem' }}>{f.ultima ? dt(f.ultima) : '—'}</td>
-                        <td style={{ textAlign: 'right' }}><span className="muted">ver ›</span></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            <div className="card-title" style={{ marginBottom: '.6rem' }}>👥 Usuarios en el período</div>
+            {loading ? (
+              <div className="aud-cargando"><EmptyState message="Cargando…" icon="◔" /></div>
+            ) : !filas.length ? (
+              <p className="muted" style={{ margin: 0 }}>Sin actividad en el período.</p>
+            ) : (
+              <div className="aud-personas">
+                {(() => {
+                  const tope = Math.max(1, ...filas.map((f) => f.msConectado));
+                  return filas.map((f) => (
+                    <button
+                      key={f.email}
+                      type="button"
+                      className={`aud-persona${f.conectadoAhora ? ' conectado' : ''}`}
+                      onClick={() => setSel(f.email)}
+                      title={`Ver el detalle de ${f.nombre ?? f.email}`}
+                    >
+                      <span className="aud-persona-head">
+                        <Iniciales nombre={f.nombre} respaldo={f.email}
+                          color={f.conectadoAhora ? 'var(--success)' : undefined} />
+                        <span className="aud-persona-datos">
+                          <span className="aud-persona-nombre">{f.nombre ?? f.email.split('@')[0]}</span>
+                          <span className="aud-persona-correo">{f.email}</span>
+                        </span>
+                        {f.conectadoAhora && <span className="badge success">● Conectado</span>}
+                      </span>
+                      <span className="aud-cifras">
+                        <span className="aud-cifra fuerte">
+                          <span className="aud-cifra-valor">{fmtDuracion(f.msConectado)}</span>
+                          <span className="aud-cifra-label">Conectado</span>
+                        </span>
+                        <span className="aud-cifra">
+                          <span className="aud-cifra-valor">{num(f.nSesiones)}</span>
+                          <span className="aud-cifra-label">Sesiones</span>
+                        </span>
+                        <span className="aud-cifra">
+                          <span className="aud-cifra-valor">{num(f.nAcciones)}</span>
+                          <span className="aud-cifra-label">Acciones</span>
+                        </span>
+                      </span>
+                      <span className="aud-peso" role="img" aria-label={`${fmtDuracion(f.msConectado)} conectado en el período`}>
+                        <i style={{ width: `${Math.round((f.msConectado / tope) * 100)}%` }} />
+                      </span>
+                      {f.ultima && <span className="muted" style={{ fontSize: '.7rem' }}>Última conexión: {dt(f.ultima)}</span>}
+                    </button>
+                  ));
+                })()}
               </div>
             )}
           </div>
@@ -284,28 +384,34 @@ function DetalleUsuario({ email, nombre, desde, hasta, sesiones, actividad, cone
 
         <div className="card">
           <div className="card-title">📝 Actividad <span className="muted" style={{ fontWeight: 400, fontSize: '.8rem' }}>({num(actividadFiltrada.length)})</span></div>
-          <div className="table-wrap" style={{ maxHeight: 420, overflowY: 'auto' }}>
-            <table className="table" style={{ margin: 0, fontSize: '.82rem' }}>
-              <thead><tr><th>Fecha y hora</th><th>Módulo</th><th>Acción</th><th>Qué</th></tr></thead>
-              <tbody>
-                {!actividadFiltrada.length && <tr><td colSpan={4} className="muted" style={{ textAlign: 'center', padding: '1rem' }}>Sin acciones.</td></tr>}
-                {actividadFiltrada.map((a, i) => {
-                  const info = moduloDeTabla(a.tabla);
-                  return (
-                    <tr key={`${a.tabla}-${a.ts}-${i}`} style={{ cursor: 'pointer' }} onClick={() => setSelEvento(a)} title="Ver detalle de la acción">
-                      <td className="muted" style={{ whiteSpace: 'nowrap' }}>{dt(a.ts)}</td>
-                      <td><span title={a.tabla}>{info.icon} {info.modulo}</span></td>
-                      <td><span className="badge">{iconoAccion(a.accion)} {a.accion}</span></td>
-                      <td style={{ maxWidth: 340 }} title={queHizo(a)}>
-                        {tieneDetalle(a)
-                          ? queHizoCorto(a)
-                          : <span className="muted">sin detalle registrado</span>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div style={{ maxHeight: 420, overflowY: 'auto' }}>
+            {!actividadFiltrada.length ? (
+              <p className="muted" style={{ padding: '1rem 0', margin: 0 }}>Sin acciones.</p>
+            ) : agruparActividad(actividadFiltrada).map(({ dia, eventos }) => (
+              <div key={dia} className="aud-dia">
+                <div className="aud-dia-head">
+                  {diaLegible(dia)} <span className="aud-dia-n">· {eventos.length} acción(es)</span>
+                </div>
+                <ol className="aud-riel">
+                  {eventos.map((a, i) => {
+                    const info = moduloDeTabla(a.tabla);
+                    return (
+                      <li key={`${a.tabla}-${a.ts}-${i}`} className="aud-evento">
+                        <span className="aud-evento-icono" aria-hidden="true">{iconoAccion(a.accion)}</span>
+                        <button type="button" className="aud-evento-cuerpo" onClick={() => setSelEvento(a)} title="Ver detalle de la acción">
+                          <span className="aud-evento-titulo">{a.accion}</span>
+                          <span className="aud-evento-detalle">
+                            {tieneDetalle(a) ? queHizoCorto(a) : 'sin detalle registrado'}
+                          </span>
+                          <span className="aud-evento-marcas"><span className="aud-modulo">{info.icon} {info.modulo}</span></span>
+                        </button>
+                        <span className="aud-evento-hora">{horaDe(a.ts)}</span>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </div>
+            ))}
           </div>
         </div>
       </div>
