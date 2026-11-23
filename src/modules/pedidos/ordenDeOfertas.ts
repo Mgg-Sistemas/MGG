@@ -22,23 +22,49 @@
 export interface OrdenConPadre {
   id: string;
   parent_orden_id?: string | null;
+  /** Alias que usa el chat de compras para el mismo vínculo madre/hija. */
+  op_padre_id?: string | null;
+}
+
+/**
+ * Padre de una orden, cualquiera sea el campo con el que quedó guardado el vínculo.
+ * `asignarProveedoresAOrden` escribe `parent_orden_id`, pero el chat de compras
+ * ya usa `op_padre_id` para el mismo vínculo. Si la lectura mirara solo el
+ * primero, esa OC hija se trataría como orden normal: consultaría sus ofertas y
+ * vería únicamente la aceptada, sin las N cotizaciones de la madre.
+ */
+export function padreDeOfertas(orden: OrdenConPadre): string | null {
+  return orden.parent_orden_id || orden.op_padre_id || null;
 }
 
 /**
  * Id de la orden que guarda las ofertas. Para una sub-OC multiproveedor es su
  * madre; para una orden normal, ella misma.
  *
- * Se sube UN solo nivel a propósito: `parent_orden_id` apunta al padre directo,
- * no a la raíz del árbol. Con una sub-sub-orden (ej. SP-2026-0098-1-1) las
- * ofertas quedan en SP-2026-0098-1, que es de donde el panel las lee.
+ * Se sube UN solo nivel a propósito: el padre apunta al directo, no a la raíz
+ * del árbol. Con una sub-sub-orden (ej. SP-2026-0098-1-1) las ofertas quedan en
+ * SP-2026-0098-1, que es de donde el panel las lee.
  */
 export function ordenDeOfertas(orden: OrdenConPadre): string {
-  return orden.parent_orden_id || orden.id;
+  return padreDeOfertas(orden) || orden.id;
 }
 
 /** ¿Esta orden cuelga de otra? Se usa para explicarle al usuario dónde quedó la oferta. */
 export function esSubOrden(orden: OrdenConPadre): boolean {
-  return !!orden.parent_orden_id;
+  return !!padreDeOfertas(orden);
+}
+
+/**
+ * La oferta aceptada PARA ESTA OC, no para la SP entera. En un reparto hay una
+ * oferta `aceptada` por proveedor, así que mirar solo el estado marca todas como
+ * escogidas (o, en una madre, ninguna con seguridad). La regla es la misma que
+ * usa el WhatsApp: si la OC ya tiene proveedor, solo cuenta la de ese proveedor.
+ */
+export function esOfertaAceptadaDeEstaOc<T extends { estado?: string | null; proveedor_id?: string | null }>(
+  oferta: T,
+  orden: { proveedor_id?: string | null },
+): boolean {
+  return oferta.estado === 'aceptada' && (!orden.proveedor_id || oferta.proveedor_id === orden.proveedor_id);
 }
 
 /**

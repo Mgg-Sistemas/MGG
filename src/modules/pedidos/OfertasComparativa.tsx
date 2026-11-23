@@ -18,7 +18,7 @@ import { aprobarOrdenConOferta, fijarDestinoEntregaOc, sincronizarOrdenConOferta
 import type { DestinoEntregaOc } from './AceptarOfertaModal';
 import { skusSinCotizar, recortarOfertaAHija } from './subOc';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
-import { ordenDeOfertas, ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
+import { esOfertaAceptadaDeEstaOc, esSubOrden, ordenDeOfertas, ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
 import { AceptarOfertaModal } from './AceptarOfertaModal';
 import { ImagenesSolicitud } from './ImagenesSolicitud';
 import type { ItemOrden } from '@/shared/lib/types';
@@ -135,7 +135,7 @@ export function OfertasComparativa({
   // Orden HIJA (sub-OC multiproveedor): las ofertas viven en la orden PADRE. En la hija se
   // muestran TODAS las ofertas del padre (como una orden normal, con la elegida marcada) y un
   // aviso de los artículos que quedaron pendientes por asignar a otro proveedor.
-  const esHija = !!orden.parent_orden_id;
+  const esHija = esSubOrden(orden);
   // El código de la OP madre = el de la hija sin el sufijo «-N» (ej. SP-2026-0064-1 → SP-2026-0064).
   const codigoMadre = esHija ? orden.codigo.replace(/-\d+$/, '') : orden.codigo;
 
@@ -464,7 +464,11 @@ export function OfertasComparativa({
             {scored.map((s) => {
               const prov = proveedorMap.get(s.oferta.proveedor_id);
               const recomendada = s.recomendada && s.oferta.estado === 'pendiente';
-              const aceptada = s.oferta.estado === 'aceptada';
+              // 23/11/2026: en un reparto hay una oferta «aceptada» por OC hija. Marcar como
+              // escogida la de ESTA OC (la misma regla del WhatsApp) deja ver las N cotizaciones
+              // sin que todas aparezcan como la elegida.
+              const aceptada = esOfertaAceptadaDeEstaOc(s.oferta, orden);
+              const aceptadaOtraOc = esHija && s.oferta.estado === 'aceptada' && !aceptada;
               // Una hija SIN proveedor (reabierta, o creada por el reparto sin adjudicar) puede
               // volver a elegir CUALQUIER oferta ya decidida de la madre —'aceptada' o
               // 'descartada'— mientras ninguna hermana viva tenga ese proveedor.
@@ -587,11 +591,16 @@ export function OfertasComparativa({
                     <td>
                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: '.35rem' }}>
                         {s.oferta.estado === 'pendiente' && <span className="badge warning">Pendiente</span>}
-                        {s.oferta.estado === 'aceptada' && (() => {
+                        {(aceptada || aceptadaOtraOc) && (() => {
                           const sub = subOcPorProv.get(s.oferta.proveedor_id);
                           return (
                             <span style={{ display: 'inline-flex', flexDirection: 'column', gap: '.15rem', alignItems: 'flex-start' }}>
-                              <span className="badge success">Aceptada</span>
+                              <span
+                                className={aceptada ? 'badge success' : 'badge'}
+                                title={aceptada ? 'Cotización elegida para esta OC' : 'Esta cotización se eligió para otra OC de la misma solicitud'}
+                              >
+                                {aceptada ? 'Aceptada' : 'Aceptada en otra OC'}
+                              </span>
                               {sub && (
                                 <span className="muted" style={{ fontSize: '.7rem', whiteSpace: 'nowrap' }}>
                                   orden de {sub.items} ítem(s){sub.codigo ? ` · ${sub.codigo}` : ''}

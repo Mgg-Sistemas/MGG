@@ -132,7 +132,7 @@ import { OfertasComparativa } from './OfertasComparativa';
 import { AsignarProveedoresModal } from './AsignarProveedoresModal';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { AgregarProductoCompra } from './AgregarProductoCompra';
-import { ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
+import { esOfertaAceptadaDeEstaOc, esSubOrden, ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
 import { avisoDeCuadre, desglosarOc } from './cuadreOc';
 import { etiquetaAjuste, etiquetaIva, ivaDesdePorcentaje, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
 import { fijarNumeroAdministracionProveedor } from '@/modules/proveedores/numeroAdministracion.repository';
@@ -3256,7 +3256,10 @@ function OrdenDetailModal({
   const puedeTrazabilidad = ['recibida', 'finalizada', 'pagada'].includes(o.estado);
   const isFinalizada = o.estado === 'finalizada';
   // Las ofertas (añadir proveedor) se gestionan SOLO desde la pestaña Órdenes de Compra.
-  const mostrarOfertas = enOc && ['aprobada', 'desistida_proveedor', 'oc_creada', 'confirmada_metodo', 'oc_aprobada', 'pagada'].includes(o.estado);
+  // 23/11/2026: una OC hija SIEMPRE es etapa de compra, aunque se abra desde la pestaña
+  // de solicitudes (enOc=false). Sin esto la comparativa quedaba oculta y solo se veía
+  // el snapshot de la oferta aceptada en el encabezado.
+  const mostrarOfertas = (enOc || esSubOrden(o)) && ['aprobada', 'desistida_proveedor', 'oc_creada', 'confirmada_metodo', 'oc_aprobada', 'pagada'].includes(o.estado);
 
   // Crédito: ¿está totalmente pagado? (los abonos se hacen en Tesorería).
   const creditoSaldadoDet = isCuentaAbierta && (Number(o.abonado_total) || 0) >= Number(o.total) - 0.01;
@@ -3405,8 +3408,7 @@ function OrdenDetailModal({
       const ofs = unificarPorProveedor(await listOfertasDeOrdenes(ordenesConOfertasDe(o)), ordenesConOfertasDe(o)[0]);
       // 04-11-2026: el ✅ solo en la que escogió el analista PARA ESTA OC. En una SP repartida
       // entre proveedores hay varias «aceptadas» (una por sub-OC) y salían todas con ✅.
-      const esLaDeEstaOc = (of: (typeof ofs)[number]) =>
-        of.estado === 'aceptada' && (!o.proveedor_id || of.proveedor_id === o.proveedor_id);
+      const esLaDeEstaOc = (of: (typeof ofs)[number]) => esOfertaAceptadaDeEstaOc(of, o);
       return ofs
         .map((of) => ({
           proveedor: proveedorMap.get(of.proveedor_id)?.razon_social ?? '—',
