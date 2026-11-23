@@ -331,8 +331,9 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
   doc.text('Sistema de Gestión de Inventarios', MARGIN, y + 12);
 
   // Datos a la derecha (label en negrita + valor)
+  const solicitanteNombre = esDesdeTelefono ? solicitadoTelefono : (sol.solicitante?.trim() || creo || '—');
   const datos: Array<[string, string]> = [
-    ['Solicitado por', esDesdeTelefono ? solicitadoTelefono : (sol.solicitante || creo || '—')],
+    ['Solicitado por', solicitanteNombre],
     [esTraslado ? 'Almacén destino' : 'Unidad Solicitante', (esTraslado ? sol.almacen_destino : sol.destino) || '—'],
     ...(sol.chofer ? [['Chofer / responsable', `${sol.chofer}${sol.chofer_cedula ? ` · C.I. ${sol.chofer_cedula}` : ''}`] as [string, string]] : []),
     ...(sol.vehiculo ? [['Vehículo', `${sol.vehiculo}${sol.vehiculo_placa ? ` · ${sol.vehiculo_placa}` : ''}`] as [string, string]] : []),
@@ -343,6 +344,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
     ['Estado', sol.estado === 'ejecutada' && sol.mov_ref === 'manual_externo'
       ? (sol.scope === 'traslado' ? 'Cerrada sin mover stock' : 'Cerrada sin descontar')
       : (SOL_ESTADO_TXT[sol.estado] ?? sol.estado)],
+    ...((creo && creo !== solicitanteNombre && !esDesdeTelefono) ? [['Registrado por', creo] as [string, string]] : []),
     esDesdeTelefono ? ['Registrado por', creo || '—'] : ['Autorizado por', autoriza.nombre],
   ];
   // Una orden cancelada dice quién la canceló y por qué: el papel no puede
@@ -469,10 +471,10 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
   doc.line(MARGIN, fy, MARGIN + colW, fy);
   doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
-  doc.text(esDesdeTelefono ? 'Solicitado por' : 'Solicitado / Creado por', MARGIN + colW / 2, fy + 14, { align: 'center' });
+  doc.text('Solicitado por', MARGIN + colW / 2, fy + 14, { align: 'center' });
   doc.text(esDesdeTelefono ? 'Registrado por' : 'Autorizado por', cxAutoriza, fy + 14, { align: 'center' });
   doc.setFont('helvetica', 'normal');
-  doc.text(esDesdeTelefono ? solicitadoTelefono : (creo || '—'), MARGIN + colW / 2, fy + 27, { align: 'center', maxWidth: colW });
+  doc.text(esDesdeTelefono ? solicitadoTelefono : (sol.solicitante?.trim() || creo || '—'), MARGIN + colW / 2, fy + 27, { align: 'center', maxWidth: colW });
   doc.text(esDesdeTelefono ? (creo || '—') : autoriza.nombre, cxAutoriza, fy + 27, { align: 'center', maxWidth: colW });
 
   doc.setFontSize(8); doc.setTextColor(120);

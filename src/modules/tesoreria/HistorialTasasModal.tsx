@@ -87,6 +87,7 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
   const [copUsd, setCopUsd] = useState<number | null>(null);
   useEffect(() => { getTasasMercado().then((m) => setCopUsd(m.copUsd)).catch(() => { /* sin conexión */ }); }, []);
   // Corrección manual
+  const [mFecha, setMFecha] = useState<string>(() => iso(new Date()));
   const [mMoneda, setMMoneda] = useState<string>('USD');
   const [mTasa, setMTasa] = useState('');
   // Monedas con tasa (todas las del sistema menos Bs, que es la base).
@@ -150,9 +151,10 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
     if (!Number.isFinite(v) || v <= 0) { toast('Indicá una tasa válida', 'error'); return; }
     setBusy(true);
     try {
-      await setTasaManual({ moneda: mMoneda, tasa: v });
+      await setTasaManual({ moneda: mMoneda, tasa: v, fecha: mFecha || undefined });
       setMTasa('');
-      onRefreshed?.(await getTasaHoy());
+      const t = await getTasaHoy();
+      onRefreshed?.(t);
       toast('Tasa corregida', 'success');
       await reload();
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo guardar', 'error'); }
@@ -182,8 +184,12 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
 
       {isAdmin && (
         <div className="card" style={{ marginBottom: '1rem' }}>
-          <div className="card-title"><span>Corregir tasa de hoy (manual)</span></div>
+          <div className="card-title"><span>Corregir tasa (manual)</span></div>
           <div style={{ display: 'flex', gap: '.6rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+            <div className="form-row" style={{ margin: 0 }}>
+              <label>Fecha</label>
+              <input className="input" type="date" value={mFecha} onChange={(e) => setMFecha(e.target.value)} />
+            </div>
             <div className="form-row" style={{ margin: 0 }}>
               <label>Moneda</label>
               <select className="select" value={mMoneda} onChange={(e) => setMMoneda(e.target.value)}>
@@ -196,6 +202,9 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
             </div>
             <button className="btn btn-sm btn-primary" onClick={guardarManual} disabled={busy}>Guardar</button>
           </div>
+          <small className="hint muted" style={{ display: 'block', marginTop: '.35rem' }}>
+            En feriados bancarios o lunes sin cotización, podés cargar la corrección manual de hoy o registrar la del día siguiente.
+          </small>
         </div>
       )}
 

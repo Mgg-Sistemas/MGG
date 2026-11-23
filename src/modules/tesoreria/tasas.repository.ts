@@ -49,6 +49,14 @@ export function hoyVE(): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(new Date());
 }
 
+/** Fecha del día siguiente (YYYY-MM-DD) en horario de Venezuela. */
+export function diaSiguienteVE(fechaIso?: string): string {
+  const f = fechaIso || hoyVE();
+  const d = new Date(`${f}T12:00:00-04:00`);
+  d.setDate(d.getDate() + 1);
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Caracas' }).format(d);
+}
+
 /** Lee el snapshot guardado en config (puede ser de un día anterior). */
 async function leerSnapshot(): Promise<TasaHoy | null> {
   const { data } = await supabase.from('config').select('value').eq('key', CONFIG_KEY).maybeSingle();
@@ -87,9 +95,64 @@ export async function getTasaHoy(): Promise<TasaHoy> {
 
 async function _resolverTasaHoy(): Promise<TasaHoy> {
   const hoy = hoyVE();
-  const snap = await leerSnapshot();
-  if (snap && snap.fecha === hoy && snap.usd != null) return snap;
+  const manana = diaSiguienteVE(hoy);
 
+  // 1. Verificación directa en base de datos (`tasa_cambio`):
+  //    Regla de la empresa (feriados bancarios / fines de semana / corrección manual):
+  //    a) Si hay corrección MANUAL registrada para hoy o para mañana, esa manda sobre cualquier otra.
+  //    b) Si hoy es feriado bancario / lunes sin cotización, y ya está disponible la tasa del DÍA SIGUIENTE (mañana), se toma la del día siguiente.
+  //    c) Si hay tasa registrada de hoy.
+  try {
+    const { data: filas, error: errRows } = await supabase
+      .from('tasa_cambio')
+      .select('fecha, moneda, tasa, fuente')
+      .in('moneda', ['USD', 'EUR'])
+      .in('fecha', [hoy, manana])
+      .order('fecha', { ascending: false });
+
+    if (!errRows && filas && filas.length > 0) {
+      const rows = filas as Array<{ fecha: string; moneda: MonedaTasa; tasa: number; fuente: string }>;
+
+      // a) Corrección manual: si existe para hoy o mañana, toma prioridad absoluta
+      const usdManual = rows.find((r) => r.moneda === 'USD' && r.fuente === 'manual');
+      const eurManual = rows.find((r) => r.moneda === 'EUR' && r.fuente === 'manual');
+      if (usdManual) {
+        return {
+          usd: Number(usdManual.tasa),
+          eur: eurManual ? Number(eurManual.tasa) : null,
+          fecha: usdManual.fecha,
+        };
+      }
+
+      // b) Tasa del día siguiente disponible (mañana): ej. en feriado bancario donde BCV fijó para el próximo día hábil
+      const usdManana = rows.find((r) => r.moneda === 'USD' && r.fecha === manana);
+      const eurManana = rows.find((r) => r.moneda === 'EUR' && r.fecha === manana);
+      if (usdManana) {
+        return {
+          usd: Number(usdManana.tasa),
+          eur: eurManana ? Number(eurManana.tasa) : null,
+          fecha: usdManana.fecha,
+        };
+      }
+
+      // c) Tasa registrada de hoy
+      const usdHoy = rows.find((r) => r.moneda === 'USD' && r.fecha === hoy);
+      const eurHoy = rows.find((r) => r.moneda === 'EUR' && r.fecha === hoy);
+      if (usdHoy) {
+        return {
+          usd: Number(usdHoy.tasa),
+          eur: eurHoy ? Number(eurHoy.tasa) : null,
+          fecha: usdHoy.fecha,
+        };
+      }
+    }
+  } catch { /* si falla la lectura de tabla, continuamos con snapshot/edge */ }
+
+  // 2. Snapshot guardado en config (si es de hoy o de mañana)
+  const snap = await leerSnapshot();
+  if (snap && (snap.fecha === hoy || snap.fecha === manana) && snap.usd != null) return snap;
+
+  // 3. Consultar vía Edge Function
   try {
     const { data, error } = await supabase.functions.invoke<
       { ok: true; usd: number; eur: number | null; fecha: string } | { error: string }
@@ -98,7 +161,7 @@ async function _resolverTasaHoy(): Promise<TasaHoy> {
   } catch { /* sin conexión / función no desplegada: usamos lo último conocido */ }
 
   if (snap) return snap;
-  // Último recurso: última fila por moneda del historial.
+  // 4. Último recurso: última conocida en el historial
   return ultimaConocida();
 }
 
@@ -117,12 +180,15 @@ export async function refrescarTasa(): Promise<TasaHoy> {
 async function ultimaConocida(): Promise<TasaHoy> {
   const { data } = await supabase
     .from('tasa_cambio')
-    .select('fecha, moneda, tasa')
+    .select('fecha, moneda, tasa, fuente')
     .order('fecha', { ascending: false })
-    .limit(8);
-  const rows = (data ?? []) as Array<{ fecha: string; moneda: MonedaTasa; tasa: number }>;
-  const usdRow = rows.find((r) => r.moneda === 'USD');
-  const eurRow = rows.find((r) => r.moneda === 'EUR');
+    .order('fuente', { ascending: false })
+    .limit(10);
+  const rows = (data ?? []) as Array<{ fecha: string; moneda: MonedaTasa; tasa: number; fuente: string }>;
+  const usdRows = rows.filter((r) => r.moneda === 'USD');
+  const usdRow = usdRows.find((r) => r.fuente === 'manual') ?? usdRows[0];
+  const eurRows = rows.filter((r) => r.moneda === 'EUR');
+  const eurRow = eurRows.find((r) => r.fuente === 'manual') ?? eurRows[0];
   return {
     usd: usdRow ? Number(usdRow.tasa) : null,
     eur: eurRow ? Number(eurRow.tasa) : null,
@@ -132,16 +198,17 @@ async function ultimaConocida(): Promise<TasaHoy> {
 
 /** Tasa USD del BCV de una fecha (YYYY-MM-DD), o null si no está registrada. La manual manda. */
 export async function getTasaUsdDeFecha(fecha: string): Promise<number | null> {
+  const hoy = hoyVE();
+  if (fecha === hoy) {
+    const th = await getTasaHoy();
+    if (th.usd != null) return th.usd;
+  }
   const { data, error } = await supabase.from('tasa_cambio').select('tasa, fuente')
     .eq('moneda', 'USD').eq('fecha', fecha);
   if (error) throw error;
   const rows = (data ?? []) as Array<{ tasa: number; fuente: string | null }>;
   const r = rows.find((x) => x.fuente === 'manual') ?? rows[0];
   if (r) return Number(r.tasa);
-  if (fecha === hoyVE()) {
-    const hoy = await getTasaHoy();
-    if (hoy.fecha === fecha && hoy.usd != null) return hoy.usd;
-  }
   return null;
 }
 
@@ -172,29 +239,39 @@ export async function setTasaManual(input: { moneda: string; tasa: number; fecha
   const tasa = input.moneda === 'BRL' ? round4(Number(input.tasa) || 0) : round2(Number(input.tasa) || 0);
   if (tasa <= 0) throw new Error('La tasa debe ser mayor que 0.');
   const fecha = input.fecha || hoyVE();
+  const hoy = hoyVE();
 
   const { error } = await supabase
     .from('tasa_cambio')
     .upsert({ fecha, moneda: input.moneda, tasa, fuente: 'manual' }, { onConflict: 'fecha,moneda,fuente' });
   if (error) throw error;
 
-  // Si es la tasa de hoy, actualizamos el snapshot (conservando la otra moneda).
-  if (fecha === hoyVE()) {
+  // Si es la tasa de hoy o del día siguiente/futura, actualizamos el snapshot en config
+  if (fecha >= hoy) {
     const snap = (await leerSnapshot()) ?? { usd: null, eur: null, fecha };
     const nuevo = {
       usd: input.moneda === 'USD' ? tasa : snap.usd,
       eur: input.moneda === 'EUR' ? tasa : snap.eur,
       fecha,
     };
-    await supabase.from('config').upsert(
-      { key: CONFIG_KEY, value: nuevo, updated_at: new Date().toISOString() },
-      { onConflict: 'key' },
-    );
+    try {
+      await supabase.from('config').upsert(
+        { key: CONFIG_KEY, value: nuevo, updated_at: new Date().toISOString() },
+        { onConflict: 'key' },
+      );
+    } catch { /* permiso config */ }
   }
 
   // USDT/COP cargadas a mano también alimentan el gráfico (serie histórica).
   const par = input.moneda === 'USDT' ? 'USDT_VES' : input.moneda === 'COP' ? 'COP_USD' : input.moneda === 'BRL' ? 'BRL_USD' : null;
-  if (par) await supabase.from('tasa_snapshot').insert({ par, tasa, fuente: 'manual' });
+  if (par) {
+    try {
+      await supabase.from('tasa_snapshot').insert({ par, tasa, fuente: 'manual' });
+    } catch { /* tabla snapshot */ }
+  }
+
+  // Invalidar caché en memoria y notificar a la interfaz de inmediato
+  bustTasasCache();
 }
 
 /** Historial de tasas filtrable por rango de fecha y moneda. */
@@ -213,6 +290,11 @@ export async function listHistorialTasas(filtros: { desde?: string; hasta?: stri
  *  que cargó Tesorería, igual que en el snapshot de hoy). Sirve para valorar
  *  compras directas en Bs que no guardaron su tasa al montar. */
 export async function tasaBcvEnFecha(fecha: string): Promise<{ tasa: number; fecha: string } | null> {
+  const hoy = hoyVE();
+  if (fecha === hoy) {
+    const th = await getTasaHoy().catch(() => null);
+    if (th?.usd != null) return { tasa: th.usd, fecha: th.fecha || hoy };
+  }
   const { data, error } = await supabase
     .from('tasa_cambio')
     .select('tasa, fecha')
