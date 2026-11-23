@@ -6,6 +6,7 @@ import { usePermissions } from '@/modules/auth/PermissionsContext';
 import type { TasaCambio, TasaHoy } from '@/shared/lib/types';
 import { getTasaHoy, getTasasMercado, listHistorialTasas, refrescarBrl, refrescarCop, refrescarTasa, setTasaManual, ultimaTasaBrl } from './tasas.repository';
 import { listMonedas } from './monedas';
+import { CalendarioBancarioView } from './CalendarioBancarioView';
 
 /** Formatea una tasa (Bs por unidad) con 2 decimales en es-VE. */
 function bs(n: number | null | undefined): string {
@@ -74,6 +75,7 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
 }) {
   const { isAdmin: esAdmin, can } = usePermissions();
   const isAdmin = esAdmin || can('tesoreria', 'full');
+  const [tab, setTab] = useState<'tasas' | 'calendario'>('tasas');
   const [filtros, setFiltros] = useState<{ desde: string; hasta: string; moneda: string }>({ desde: '', hasta: '', moneda: '' });
   const [filas, setFilas] = useState<TasaCambio[]>([]);
   const [loading, setLoading] = useState(true);
@@ -171,8 +173,32 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
   );
 
   return (
-    <Modal title="Historial de tasas" size="lg" onClose={onClose} footer={footer}>
-      <div className="card" style={{ marginBottom: '1rem' }}>
+    <Modal title={tab === 'tasas' ? 'Historial de tasas' : 'Calendario bancario (SUDEBAN)'} size="lg" onClose={onClose} footer={footer}>
+      {/* Pestañas principales */}
+      <div style={{ display: 'flex', gap: '.4rem', marginBottom: '1rem', borderBottom: '1px solid var(--border)', paddingBottom: '.5rem' }}>
+        <button
+          type="button"
+          className={`btn btn-sm ${tab === 'tasas' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setTab('tasas')}
+          style={{ fontSize: '.84rem', fontWeight: tab === 'tasas' ? 700 : 500 }}
+        >
+          💵 Tasas de cambio
+        </button>
+        <button
+          type="button"
+          className={`btn btn-sm ${tab === 'calendario' ? 'btn-primary' : 'btn-ghost'}`}
+          onClick={() => setTab('calendario')}
+          style={{ fontSize: '.84rem', fontWeight: tab === 'calendario' ? 700 : 500 }}
+        >
+          📅 Calendario bancario (SUDEBAN)
+        </button>
+      </div>
+
+      {tab === 'calendario' ? (
+        <CalendarioBancarioView fechaHoy={tasaHoy?.fecha ?? undefined} />
+      ) : (
+        <>
+          <div className="card" style={{ marginBottom: '1rem' }}>
         <div style={{ display: 'flex', gap: '1.5rem', flexWrap: 'wrap' }}>
           <div><div className="muted" style={{ fontSize: '.72rem' }}>USD (BCV) hoy</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{bs(tasaHoy?.usd)}</strong></div>
           <div><div className="muted" style={{ fontSize: '.72rem' }}>EUR hoy</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{bs(tasaHoy?.eur)}</strong></div>
@@ -262,6 +288,8 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
           </tbody>
         </table>
       </div>
+        </>
+      )}
     </Modal>
   );
 }
