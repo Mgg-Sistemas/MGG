@@ -442,18 +442,20 @@ export function InventarioMovilView() {
           {!loading && !productos.length && (
             <p className="muted">{nombreAlm} no tiene productos todavía.{puedeMoverAqui ? ' Carga el primero con «Producto nuevo».' : ''}</p>
           )}
-          {lista.map((p) => (
-            <button key={p.id} type="button" className="surt-mov"
-              onClick={() => { if (puedeMoverAqui) { setElegido(p); if (paso === 'inicio') setPaso('entrada'); } }}
-              disabled={!puedeMoverAqui || (pideStock && !(p.stock_almacen > 0))}>
-              <span className="icono" aria-hidden>📦</span>
-              <span style={{ minWidth: 0 }}>
-                <div className="titulo">{p.nombre}</div>
-                <div className="sub">{p.sku} · {p.categoria}</div>
-              </span>
-              <span className="litros">{num(p.stock_almacen)} <small style={{ fontWeight: 600 }}>{p.unidad}</small></span>
-            </button>
-          ))}
+          <div className="surt-lista-items">
+            {lista.map((p) => (
+              <button key={p.id} type="button" className="surt-mov"
+                onClick={() => { if (puedeMoverAqui) { setElegido(p); if (paso === 'inicio') setPaso('entrada'); } }}
+                disabled={!puedeMoverAqui || (pideStock && !(p.stock_almacen > 0))}>
+                <span className="icono" aria-hidden>📦</span>
+                <span style={{ minWidth: 0 }}>
+                  <div className="titulo">{p.nombre}</div>
+                  <div className="sub">{p.sku} · {p.categoria}</div>
+                </span>
+                <span className="litros">{num(p.stock_almacen)} <small style={{ fontWeight: 600 }}>{p.unidad}</small></span>
+              </button>
+            ))}
+          </div>
         </section>
       )}
     </div>
@@ -703,28 +705,30 @@ function HistoricoSalidas({ almacen, soloDe, onVolver }: { almacen: string; solo
               : `${filas.length} salida(s) en esas fechas`}
           </h2>
           {!filas.length && <p className="muted">No hay salidas de {nombreAlmacenVisible(almacen)} en esas fechas.</p>}
-          {lista.slice(0, tope).map((f) => {
-            const v = vistaFilaSalida(f, registro(f));
-            return (
-              <div key={f.id} className="surt-mov surt-hist">
-                <span className="icono" aria-hidden>📤</span>
-                <span style={{ minWidth: 0 }}>
-                  <div className="titulo">{v.titulo}</div>
-                  {v.lineas.map((l) => <div key={l} className="sub">{l}</div>)}
-                  <div className="sub"><strong>{v.estado}</strong> · {v.origen}{f.origen === 'telefono' && f.salida.fotos.length ? ` · 📷 ${f.salida.fotos.length}` : ''}</div>
-                </span>
-                <span className="litros">−{v.cantidad}</span>
-                <div className="surt-hist-acciones">
-                  <BotonPdf
-                    abrir={() => (f.origen === 'telefono' ? verOrdenSalidaTelefono(f.grupo, registro(f)) : descargarOrdenSalidaPdf(f.sol))}
-                    className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
-                  <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidaId(f.id); window.scrollTo(0, 0); }}>
-                    💬 WhatsApp
-                  </button>
+          <div className="surt-lista-items">
+            {lista.slice(0, tope).map((f) => {
+              const v = vistaFilaSalida(f, registro(f));
+              return (
+                <div key={f.id} className="surt-mov surt-hist">
+                  <span className="icono" aria-hidden>📤</span>
+                  <span style={{ minWidth: 0 }}>
+                    <div className="titulo">{v.titulo}</div>
+                    {v.lineas.map((l) => <div key={l} className="sub">{l}</div>)}
+                    <div className="sub"><strong>{v.estado}</strong> · {v.origen}{f.origen === 'telefono' && f.salida.fotos.length ? ` · 📷 ${f.salida.fotos.length}` : ''}</div>
+                  </span>
+                  <span className="litros">−{v.cantidad}</span>
+                  <div className="surt-hist-acciones">
+                    <BotonPdf
+                      abrir={() => (f.origen === 'telefono' ? verOrdenSalidaTelefono(f.grupo, registro(f)) : descargarOrdenSalidaPdf(f.sol))}
+                      className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
+                    <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidaId(f.id); window.scrollTo(0, 0); }}>
+                      💬 WhatsApp
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
           {lista.length > tope && (
             <button type="button" className="btn btn-ghost btn-grande" style={{ width: '100%' }} onClick={() => setTope((t) => t + POR_TANDA)}>
               Ver más ({lista.length - tope} restantes)
@@ -821,26 +825,28 @@ function HistoricoTraslados({ almacen, onVolver }: { almacen: string; onVolver: 
               : `${filas.length} traslado(s) en esas fechas`}
           </h2>
           {!filas.length && <p className="muted">No hay traslados de {nombreAlmacenVisible(almacen)} en esas fechas.</p>}
-          {lista.slice(0, tope).map((f) => {
-            const v = vistaFilaTraslado(f, registro(f));
-            return (
-              <div key={f.id} className="surt-mov surt-hist">
-                <span className="icono" aria-hidden>🔁</span>
-                <span style={{ minWidth: 0 }}>
-                  <div className="titulo">{v.titulo}</div>
-                  {v.lineas.map((l) => <div key={l} className="sub">{l}</div>)}
-                  <div className="sub"><strong>{v.estado}</strong> · {v.origen}</div>
-                </span>
-                <span className="litros">{v.cantidad}</span>
-                <div className="surt-hist-acciones">
-                  <BotonPdf abrir={() => pdfDe(f)} className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
-                  <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidoId(f.id); window.scrollTo(0, 0); }}>
-                    💬 WhatsApp
-                  </button>
+          <div className="surt-lista-items">
+            {lista.slice(0, tope).map((f) => {
+              const v = vistaFilaTraslado(f, registro(f));
+              return (
+                <div key={f.id} className="surt-mov surt-hist">
+                  <span className="icono" aria-hidden>🔁</span>
+                  <span style={{ minWidth: 0 }}>
+                    <div className="titulo">{v.titulo}</div>
+                    {v.lineas.map((l) => <div key={l} className="sub">{l}</div>)}
+                    <div className="sub"><strong>{v.estado}</strong> · {v.origen}</div>
+                  </span>
+                  <span className="litros">{v.cantidad}</span>
+                  <div className="surt-hist-acciones">
+                    <BotonPdf abrir={() => pdfDe(f)} className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
+                    <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidoId(f.id); window.scrollTo(0, 0); }}>
+                      💬 WhatsApp
+                    </button>
+                  </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
           {lista.length > tope && (
             <button type="button" className="btn btn-ghost btn-grande" style={{ width: '100%' }} onClick={() => setTope((t) => t + POR_TANDA)}>
               Ver más ({lista.length - tope} restantes)
@@ -1673,17 +1679,19 @@ function PorRetornar({ salidas, almacen, canWrite, actor, actorName, quien, onVo
         </>
       )}
       {!salidas.length && <p className="muted">No hay nada pendiente por retornar en este almacén.</p>}
-      {lista.map((s) => (
-        <button key={s.id} type="button" className="surt-mov" disabled={!canWrite} onClick={() => elegir(s)}>
-          <span className="icono" aria-hidden>📦</span>
-          <span style={{ minWidth: 0 }}>
-            <div className="titulo">{s.producto_nombre}</div>
-            <div className="sub">{s.codigo} · {fechaHoraVE(s.created_at)} · {s.motivo}</div>
-            {s.retornado > 0 && <div className="sub">Ya retornó {num(s.retornado)} de {num(s.cantidad)}</div>}
-          </span>
-          <span className="litros">{num(pendienteRetorno(s))} <small>{s.unidad}</small></span>
-        </button>
-      ))}
+      <div className="surt-lista-items">
+        {lista.map((s) => (
+          <button key={s.id} type="button" className="surt-mov" disabled={!canWrite} onClick={() => elegir(s)}>
+            <span className="icono" aria-hidden>📦</span>
+            <span style={{ minWidth: 0 }}>
+              <div className="titulo">{s.producto_nombre}</div>
+              <div className="sub">{s.codigo} · {fechaHoraVE(s.created_at)} · {s.motivo}</div>
+              {s.retornado > 0 && <div className="sub">Ya retornó {num(s.retornado)} de {num(s.cantidad)}</div>}
+            </span>
+            <span className="litros">{num(pendienteRetorno(s))} <small>{s.unidad}</small></span>
+          </button>
+        ))}
+      </div>
     </section>
   );
 }

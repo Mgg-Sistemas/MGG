@@ -132,6 +132,11 @@
 .btn-grande { min-height: 52px; font-size: 1.05rem; padding: .6rem 1rem; }
 
 .surt-lista h2 { font-size: .8rem; margin: 1.25rem 0 .5rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.surt-lista-items {
+  display: flex;
+  flex-direction: column;
+  gap: .5rem;
+}
 .surt-mov {
   display: grid; grid-template-columns: auto 1fr auto; gap: .75rem; align-items: center;
   width: 100%; min-height: 64px; padding: .75rem .9rem; margin-bottom: .5rem;
@@ -307,3 +312,28 @@
 .spa-revisadas .sub { font-size: .78rem; color: var(--text-muted); margin-top: .15rem; }
 .spa-rev-detalle { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: .6rem 1.4rem; padding: .3rem 0 .4rem; }
 @media (max-width: 900px) { .spa-rev-detalle { grid-template-columns: 1fr; } }
+
+/* ── Mejoras responsive para pantallas amplias (desktop / tablet) ── */
+@media (min-width: 769px) {
+  .surtidor {
+    max-width: 1040px;
+    margin: 0 auto;
+    padding-bottom: 3rem;
+  }
+  .surt-acciones:not(.comidas):not(.resguardo) {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+  .surt-lista-items {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: .75rem;
+  }
+  .surt-lista-items .surt-mov {
+    margin-bottom: 0;
+  }
+  .surt-form {
+    max-width: 680px;
+    margin: 1rem auto;
+  }
+}
+
