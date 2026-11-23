@@ -11,6 +11,7 @@
 //   BCV_API_URL (opcional; default pydolarve BCV)
 
 import { createClient } from 'npm:@supabase/supabase-js@2.45.4';
+import { fechaEfectivaBcv } from '../_shared/calendarioBancario.ts';
 
 const CORS = {
   'Access-Control-Allow-Origin': '*',
@@ -56,14 +57,26 @@ Deno.serve(async (req) => {
   if (!supabaseUrl || !serviceKey) return json({ error: 'Supabase env vars faltantes' }, 500);
   const supabase = createClient(supabaseUrl, serviceKey);
 
-  const fecha = fechaHoyVE();
+  const fechaHoy = fechaHoyVE();
+  const infoBancario = fechaEfectivaBcv(fechaHoy);
+  // Cuando sea feriado bancario o fin de semana, la tasa rige para el próximo día hábil (ej: martes)
+  const fecha = infoBancario.fecha;
 
   // 1) Cache: si ya tenemos la del día y no se fuerza, devolvemos lo guardado.
   if (!payload.force) {
     const { data: cfg } = await supabase.from('config').select('value').eq('key', 'tesoreria.tasa_hoy').maybeSingle();
     const v = cfg?.value as { usd?: number; eur?: number; fecha?: string } | undefined;
-    if (v && v.fecha === fecha && typeof v.usd === 'number') {
-      return json({ ok: true, usd: v.usd, eur: v.eur ?? null, fecha, cached: true });
+    if (v && (v.fecha === fecha || v.fecha === fechaHoy) && typeof v.usd === 'number') {
+      return json({
+        ok: true,
+        usd: v.usd,
+        eur: v.eur ?? null,
+        fecha: v.fecha ?? fecha,
+        esBancario: infoBancario.esBancario,
+        proximoDiaHabil: infoBancario.fecha,
+        motivoBancario: infoBancario.motivo,
+        cached: true,
+      });
     }
   }
 
@@ -100,18 +113,44 @@ Deno.serve(async (req) => {
   eur = eur != null ? round2(eur) : null;
 
   // 3) Guardar en historial (upsert por fecha+moneda+fuente).
-  const filas: Array<{ fecha: string; moneda: string; tasa: number; fuente: string }> = [
-    { fecha, moneda: 'USD', tasa: usd, fuente: 'bcv' },
-  ];
-  if (eur != null) filas.push({ fecha, moneda: 'EUR', tasa: eur, fuente: 'bcv' });
+  const fechasAGuardar = new Set<string>([fecha]);
+  if (infoBancario.esBancario) {
+    fechasAGuardar.add(fechaHoy);
+  }
+
+  const filas: Array<{ fecha: string; moneda: string; tasa: number; fuente: string }> = [];
+  for (const f of fechasAGuardar) {
+    filas.push({ fecha: f, moneda: 'USD', tasa: usd, fuente: 'bcv' });
+    if (eur != null) filas.push({ fecha: f, moneda: 'EUR', tasa: eur, fuente: 'bcv' });
+  }
+
   const { error: upErr } = await supabase.from('tasa_cambio').upsert(filas, { onConflict: 'fecha,moneda,fuente' });
   if (upErr) return json({ error: 'No se pudo guardar el historial', detail: upErr.message }, 500);
 
-  // 4) Snapshot del día en config.
+  // 4) Snapshot del día en config (con fecha efectiva y metadata bancaria).
+  const configValue = {
+    usd,
+    eur,
+    fecha,
+    esBancario: infoBancario.esBancario,
+    proximoDiaHabil: infoBancario.fecha,
+    motivoBancario: infoBancario.motivo,
+    fechaCalendario: fechaHoy,
+  };
+
   await supabase.from('config').upsert(
-    { key: 'tesoreria.tasa_hoy', value: { usd, eur, fecha }, updated_at: new Date().toISOString() },
+    { key: 'tesoreria.tasa_hoy', value: configValue, updated_at: new Date().toISOString() },
     { onConflict: 'key' },
   );
 
-  return json({ ok: true, usd, eur, fecha, cached: false });
+  return json({
+    ok: true,
+    usd,
+    eur,
+    fecha,
+    esBancario: infoBancario.esBancario,
+    proximoDiaHabil: infoBancario.fecha,
+    motivoBancario: infoBancario.motivo,
+    cached: false,
+  });
 });

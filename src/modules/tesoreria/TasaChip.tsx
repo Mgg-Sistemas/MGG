@@ -62,7 +62,7 @@ export function TasaChip() {
         type="button"
         className="tasa-chip"
         onClick={() => setOpen(true)}
-        title={`Tasas de referencia (Bs por USD) · BCV ${r2(tasa.usd)}${binance != null ? ` · Binance ${r2(binance)}${margen != null ? ` · ahorro ${r2(margen)} %` : ''}` : ''} · ${tasa.fecha ?? ''} · clic para ver el historial`}
+        title={`Tasas de referencia (Bs por USD) · BCV ${r2(tasa.usd)}${tasa.esBancario ? ` · Rige al ${tasa.diaNombre ?? 'martes'} (feriado bancario)` : ''}${binance != null ? ` · Binance ${r2(binance)}${margen != null ? ` · ahorro ${r2(margen)} %` : ''}` : ''} · ${tasa.fecha ?? ''} · clic para ver el historial`}
         style={{
           display: 'inline-flex', alignItems: 'center', gap: '.5rem',
           background: 'transparent', border: '1px solid var(--border)', color: 'var(--text)',
@@ -83,7 +83,24 @@ export function TasaChip() {
             )}
           </>
         )}
-        <span className="muted tc-fecha" style={{ fontSize: '.7rem' }}>{fechaCorta(tasa.fecha)}</span>
+        <span className="muted tc-fecha" style={{ fontSize: '.7rem', display: 'inline-flex', alignItems: 'center', gap: '.25rem' }}>
+          {fechaCorta(tasa.fecha)}
+          {tasa.esBancario && (
+            <span
+              style={{
+                color: '#f59e0b',
+                background: 'rgba(245, 158, 11, 0.15)',
+                padding: '1px 4px',
+                borderRadius: '3px',
+                fontWeight: 600,
+                fontSize: '.68rem',
+              }}
+              title={`Feriado Bancario (${tasa.motivoBancario ?? 'Bancario'}): Tasa oficial efectiva para el próximo día hábil (${tasa.diaNombre ?? 'martes'} ${tasa.fecha})`}
+            >
+              🏛 Bancario
+            </span>
+          )}
+        </span>
       </button>
       {open && <HistorialTasasModal tasaHoy={tasa} onClose={() => setOpen(false)} onRefreshed={setTasa} />}
     </>

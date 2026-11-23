@@ -178,7 +178,17 @@ export function HistorialTasasModal({ tasaHoy, onClose, onRefreshed }: {
           <div><div className="muted" style={{ fontSize: '.72rem' }}>EUR hoy</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{bs(tasaHoy?.eur)}</strong></div>
           <div><div className="muted" style={{ fontSize: '.72rem' }}>COP (TRM Colombia)</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{copUsdFmt(copUsd)}</strong></div>
           <div><div className="muted" style={{ fontSize: '.72rem' }}>Real brasileño (R$)</div><strong className="mono" style={{ fontSize: '1.1rem' }}>{brlUsdFmt(brlUsd)}</strong></div>
-          <div><div className="muted" style={{ fontSize: '.72rem' }}>Fecha</div><strong>{tasaHoy?.fecha ? date(tasaHoy.fecha) : '—'}</strong></div>
+          <div>
+            <div className="muted" style={{ fontSize: '.72rem' }}>Fecha valor</div>
+            <strong>
+              {tasaHoy?.fecha ? date(tasaHoy.fecha) : '—'}
+              {tasaHoy?.esBancario && (
+                <span className="badge warning" style={{ fontSize: '.68rem', marginLeft: '.35rem' }} title={tasaHoy.motivoBancario ?? 'Feriado bancario'}>
+                  Feriado bancario
+                </span>
+              )}
+            </strong>
+          </div>
         </div>
       </div>
 

@@ -170,6 +170,12 @@ export interface TasaHoy {
   usd: number | null;
   eur: number | null;
   fecha: string | null;
+  /** En feriados bancarios o fines de semana: fecha valor efectiva (ej. martes tras lunes bancario) */
+  fechaValor?: string | null;
+  esBancario?: boolean;
+  motivoBancario?: string | null;
+  diaNombre?: string | null;
+  etiquetaBancaria?: string | null;
 }
 
 /** Caja de la tesorería (cuenta de dinero con saldo). */
