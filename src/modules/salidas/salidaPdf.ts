@@ -344,8 +344,8 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
     ['Estado', sol.estado === 'ejecutada' && sol.mov_ref === 'manual_externo'
       ? (sol.scope === 'traslado' ? 'Cerrada sin mover stock' : 'Cerrada sin descontar')
       : (SOL_ESTADO_TXT[sol.estado] ?? sol.estado)],
-    ...((creo && creo !== solicitanteNombre && !esDesdeTelefono) ? [['Registrado por', creo] as [string, string]] : []),
-    esDesdeTelefono ? ['Registrado por', creo || '—'] : ['Autorizado por', autoriza.nombre],
+    ...((creo && creo !== solicitanteNombre) ? [['Registrado por', creo] as [string, string]] : []),
+    ['Autorizado por', autoriza.nombre],
   ];
   // Una orden cancelada dice quién la canceló y por qué: el papel no puede
   // quedar como si estuviera viva.
@@ -455,13 +455,13 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
   }
   const colW = (PAGE_W - MARGIN * 2 - 40) / 2;
   const cxAutoriza = MARGIN + colW + 40 + colW / 2;
-  // La firma escaneada va SOLO si quien aprobó es su dueña (en el módulo). En teléfono va a mano.
-  if (!esDesdeTelefono && firmaCargada) {
+  // Firma escaneada del autorizante si corresponde
+  if (firmaCargada) {
     try {
       const sw = 150, sh = 52;
       doc.addImage(firmaCargada.dataUrl, firmaCargada.formato, cxAutoriza - sw / 2, fy - sh + 8, sw, sh);
     } catch { /* firma opcional */ }
-  } else if (!esDesdeTelefono && firmaSalidas && autoriza.firma) {
+  } else if (firmaSalidas && autoriza.firma) {
     try {
       const sw = 150, sh = 52;  // mediano (proporción de firma2)
       doc.addImage(firmaSalidas, 'JPEG', cxAutoriza - sw / 2, fy - sh + 8, sw, sh);
@@ -472,10 +472,10 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
   doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
   doc.text('Solicitado por', MARGIN + colW / 2, fy + 14, { align: 'center' });
-  doc.text(esDesdeTelefono ? 'Registrado por' : 'Autorizado por', cxAutoriza, fy + 14, { align: 'center' });
+  doc.text('Autorizado por', cxAutoriza, fy + 14, { align: 'center' });
   doc.setFont('helvetica', 'normal');
-  doc.text(esDesdeTelefono ? solicitadoTelefono : (sol.solicitante?.trim() || creo || '—'), MARGIN + colW / 2, fy + 27, { align: 'center', maxWidth: colW });
-  doc.text(esDesdeTelefono ? (creo || '—') : autoriza.nombre, cxAutoriza, fy + 27, { align: 'center', maxWidth: colW });
+  doc.text(solicitanteNombre, MARGIN + colW / 2, fy + 27, { align: 'center', maxWidth: colW });
+  doc.text(autoriza.nombre, cxAutoriza, fy + 27, { align: 'center', maxWidth: colW });
 
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, limiteInferiorPdf(PAGE_H));

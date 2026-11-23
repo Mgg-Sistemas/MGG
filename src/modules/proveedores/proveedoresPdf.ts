@@ -44,7 +44,7 @@ export async function descargarProveedoresPdf(
   ]);
 
   // Si recibimos FilaProveedor legacy:
-  const esLegacy = datos.length > 0 && 'razonSocial' in (datos[0] as object);
+  const esLegacy = datos.length > 0 && ('razon' in (datos[0] as object) || 'razonSocial' in (datos[0] as object));
 
   let head: string[];
   let filas: string[][];
@@ -56,8 +56,8 @@ export async function descargarProveedoresPdf(
     head = ['RIF', 'RAZÓN SOCIAL', 'CONTACTO / TELÉFONO', 'EMAIL', 'CATEGORÍAS', 'ESTADO'];
     filas = filasLegacy.map((f) => [
       f.rif,
-      f.razonSocial,
-      [f.contacto, f.telefono && `Tel. ${f.telefono}`, f.telefonoAdmin && `Admin. ${f.telefonoAdmin}`].filter(Boolean).join('\n') || '—',
+      f.razon,
+      [f.contacto, f.telefono && `Tel. ${f.telefono}`, f.numeroAdm && `Admin. ${f.numeroAdm}`].filter(Boolean).join('\n') || '—',
       f.email || '—',
       f.categorias || '—',
       f.estado,

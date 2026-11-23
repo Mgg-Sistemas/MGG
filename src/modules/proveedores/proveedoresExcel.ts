@@ -27,7 +27,7 @@ async function construirLibro(
   const keys = opts.keys && opts.keys.length ? opts.keys : CAMPOS_POR_DEFECTO;
   const XLSX = (await import('xlsx-js-style')) as unknown as XlsxLike;
 
-  const esLegacy = datos.length > 0 && 'razonSocial' in (datos[0] as object);
+  const esLegacy = datos.length > 0 && ('razon' in (datos[0] as object) || 'razonSocial' in (datos[0] as object));
 
   let head: string[];
   let filas: string[][];
@@ -39,10 +39,10 @@ async function construirLibro(
     anchos = [16, 38, 24, 16, 18, 30, 40, 30, 14, 11];
     filas = filasLegacy.map((f) => [
       f.rif,
-      f.razonSocial,
+      f.razon,
       f.contacto,
       f.telefono,
-      f.telefonoAdmin,
+      f.numeroAdm,
       f.email,
       f.direccion,
       f.categorias,

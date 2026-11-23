@@ -28,12 +28,15 @@ import { RUTA_TELEFONO } from '@/modules/auth/vistasTelefono';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useQuien } from '@/shared/lib/directorioUsuarios';
 import { hoyVenezuela, rangoRapido } from '@/shared/lib/rangosFecha';
-import type { Almacen, SolicitudSalida } from '@/shared/lib/types';
+import type { Almacen, SolicitudSalida, Usuario } from '@/shared/lib/types';
 import { toast } from '@/shared/ui/Toast';
 import { CompartirWhatsapp, type FotosParaWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { adjuntaArchivos } from '@/shared/lib/fotosWhatsapp';
 import { descargarOrdenSalidaPdf, verComprobanteMaterialPdf, type ComprobanteMaterial } from '@/modules/salidas/salidaPdf';
 import { SolicitanteTelefonoSelect, asegurarSolicitanteTelefono } from './SolicitanteTelefonoSelect';
+import { SearchCreateSelect } from '@/shared/ui/SearchSelect';
+import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
+import { ensureUnidadSolicitante, listCatalogoPedido } from '@/modules/pedidos/pedidos.repository';
 import { AtajosTelefono } from '@/shared/ui/AtajosTelefono';
 import { RecepcionesTelefono } from './RecepcionesTelefono';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
@@ -1224,7 +1227,33 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
   const [lineas, setLineas] = useState<LineaMaterial[]>([{ producto, cantidad: '' }]);
   const [motivo, setMotivo] = useState('');
   const [autorizado, setAutorizado] = useState('');
+  const [unidad, setUnidad] = useState('');
+  const [usuarios, setUsuarios] = useState<Usuario[]>([]);
+  const [unidadesOpciones, setUnidadesOpciones] = useState<string[]>([]);
   const [retorna, setRetorna] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    let cancel = false;
+    Promise.all([
+      listUsuarios().catch(() => [] as Usuario[]),
+      listCatalogoPedido('unidad_solicitante', true).catch(() => []),
+    ]).then(([usrs, cats]) => {
+      if (cancel) return;
+      setUsuarios(usrs);
+      const catNombres = cats.map((c) => c.nombre.trim()).filter(Boolean);
+      const usrDeptos = usrs.map((u) => u.departamento?.trim()).filter(Boolean) as string[];
+      const combinadas = Array.from(new Set([...catNombres, ...usrDeptos])).sort((a, b) => a.localeCompare(b, 'es'));
+      setUnidadesOpciones(combinadas);
+    });
+    return () => { cancel = true; };
+  }, []);
+
+  function handleUsuarioElegido(u: Usuario | null) {
+    if (u?.departamento?.trim()) {
+      setUnidad(u.departamento.trim());
+    }
+  }
+
   // 12-11-2026: ¿el material va al mantenimiento de una máquina? → entrega a Maquinaria.
   // Si la base todavía no tiene las entregas, la pregunta no se hace (y sale el aviso).
   const entregasOk = useEntregasDisponibles();
@@ -1253,7 +1282,10 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
     if (!motivo.trim()) return toast('Por favor escribe el motivo de la salida para solicitar la autorización por WhatsApp.', 'warning');
     setGuardandoPre(true);
     try {
-      const motivoFinal = conMaquina ? motivoConMaquina(motivo, equipoMant.nombre) : motivo;
+      let motivoFinal = conMaquina ? motivoConMaquina(motivo, equipoMant.nombre) : motivo;
+      if (unidad.trim()) {
+        motivoFinal = `[${unidad.trim()}] ${motivoFinal.trim()}`;
+      }
       const pre = await guardarPreSalida({
         almacen,
         motivo: motivoFinal,
@@ -1286,11 +1318,16 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
   async function guardar(e: FormEvent) {
     e.preventDefault();
     if (malLineas) return toast(malLineas, 'error');
+    if (!autorizado.trim()) return toast('Por favor indica quién solicitó el material.', 'warning');
+    if (!unidad.trim()) return toast('Por favor indica la unidad solicitante.', 'warning');
     if (preguntaMant && paraMant === null) return toast('Indica si el material es para el mantenimiento de una máquina.', 'error');
     const errMant = preguntaMant ? errorEntregaMantenimiento(!!paraMant, equipoMant.id) : null;
     if (errMant) return toast(errMant, 'error');
     // El motivo lleva la máquina: así queda en el kardex y en el PDF de la salida.
-    const motivoFinal = conMaquina ? motivoConMaquina(motivo, equipoMant.nombre) : motivo;
+    let motivoFinal = conMaquina ? motivoConMaquina(motivo, equipoMant.nombre) : motivo;
+    if (unidad.trim()) {
+      motivoFinal = `[${unidad.trim()}] ${motivoFinal.trim()}`;
+    }
     for (const l of lineas) {
       const pr = productos.find((x) => x.id === l.producto.id) ?? l.producto;
       const problema = errorSalida({ productoId: pr.id, cantidad: leerCantidad(l.cantidad), stock: pr.stock_almacen, motivo: motivoFinal, autorizado, retorna });
@@ -1298,11 +1335,13 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
     }
     setGuardando(true);
     try {
+      void ensureUnidadSolicitante(unidad.trim(), actor);
       const solicitadoFinal = await asegurarSolicitanteTelefono(autorizado, actor);
       let ss = await registrarSalidaTelefonoLote({
         lineas: lineas.map((l) => ({ producto: l.producto, cantidad: leerCantidad(l.cantidad) })),
         almacen, motivo: motivoFinal, autorizadoPor: solicitadoFinal, retorna: !!retorna, actor, actorName,
         equipo: conMaquina ? equipoMant : null,
+        destino: unidad.trim() || null,
       });
       if (fotos.length) {
         try { ss = await subirFotosSalidaLote(ss, fotos); }
@@ -1336,6 +1375,20 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
           value={autorizado}
           onChange={setAutorizado}
           actor={actor}
+          disabled={guardando || guardandoPre}
+          usuarios={usuarios}
+          onSelectUsuario={handleUsuarioElegido}
+        />
+      </div>
+      <div className="surt-campo">
+        <label htmlFor="inv-tel-salida-unidad">Unidad solicitante</label>
+        <SearchCreateSelect
+          id="inv-tel-salida-unidad"
+          options={unidadesOpciones}
+          value={unidad}
+          onChange={setUnidad}
+          placeholder="Unidad o departamento solicitante…"
+          emptyText="Escribe la unidad solicitante para usarla"
           disabled={guardando || guardandoPre}
         />
       </div>
@@ -1385,7 +1438,7 @@ function FormSalida({ almacen, producto, productos, actor, actorName, onCancel, 
         <button
           type="submit"
           className="btn btn-primary surt-guardar"
-          disabled={guardando || guardandoPre || !!malLineas || retorna === null || !autorizado.trim()
+          disabled={guardando || guardandoPre || !!malLineas || retorna === null || !autorizado.trim() || !unidad.trim()
             || (preguntaMant && (paraMant === null || (paraMant && !equipoMant.id)))}
         >
           {guardando ? 'Guardando…' : lineas.length > 1 ? `✓ Salida (${lineas.length} materiales)` : '✓ Guardar salida'}

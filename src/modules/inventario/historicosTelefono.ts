@@ -219,12 +219,19 @@ export interface OrdenParaPdf { sol: SolicitudSalida; opciones: OpcionesOrdenPdf
 export function ordenDeSalidaTelefono(s: SalidaTelefono, quien: string, precio: number | null): OrdenParaPdf {
   const almacen = nombreAlmacenVisible(s.almacen);
   const p = precio && precio > 0 ? precio : null;
+  let destino: string | null = null;
+  let motivo = s.motivo;
+  const match = s.motivo.match(/^\[(.*?)\]\s*(.*)$/);
+  if (match) {
+    destino = match[1].trim();
+    motivo = match[2].trim();
+  }
   return {
     sol: {
       id: s.id, codigo: s.codigo, num_usuario: null, scope: 'salida', tipo: 'material', estado: 'ejecutada',
       producto_id: s.producto_id, producto_nombre: s.producto_nombre, almacen_origen: almacen, cantidad: s.cantidad, precio_unit: p,
       items: [{ producto_id: s.producto_id, producto_nombre: s.producto_nombre, cantidad: s.cantidad, precio_unit: p, unidad: s.unidad, almacen }],
-      solicitante: s.autorizado_por || quien, destino: null, motivo: s.motivo, historial: [],
+      solicitante: s.autorizado_por || quien, destino, motivo, historial: [],
       aprobada_por: null, actor: s.actor, actor_name: s.actor_name ?? quien, created_at: s.created_at, ejecutada_en: s.created_at,
       mov_ref: 'salida_telefono',
     },

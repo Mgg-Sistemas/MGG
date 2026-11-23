@@ -6,7 +6,7 @@
    persona nueva a la lista si todavía no existe (tanto para Salidas como
    para Traslados en la vista de teléfono).
    ============================================================ */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   crearCatalogo,
   listAutorizadoresActivos,
@@ -16,6 +16,7 @@ import {
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { SearchCreateSelect } from '@/shared/ui/SearchSelect';
 import { toast } from '@/shared/ui/Toast';
+import type { Usuario } from '@/shared/lib/types';
 
 const sinAcentos = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
@@ -54,6 +55,8 @@ export function SolicitanteTelefonoSelect({
   actor,
   disabled,
   placeholder = '🔍 Buscar o escribir persona…',
+  usuarios = [],
+  onSelectUsuario,
 }: {
   id?: string;
   value: string;
@@ -61,6 +64,8 @@ export function SolicitanteTelefonoSelect({
   actor?: string | null;
   disabled?: boolean;
   placeholder?: string;
+  usuarios?: Usuario[];
+  onSelectUsuario?: (u: Usuario | null) => void;
 }) {
   const [opciones, setOpciones] = useState<string[]>([]);
   const [agregando, setAgregando] = useState(false);
@@ -74,8 +79,28 @@ export function SolicitanteTelefonoSelect({
   useEffect(() => { cargar(); }, [cargar]);
   useRealtime(['combustible_autorizados'], cargar);
 
+  const nombresUsuarios = useMemo(() => {
+    return usuarios.map((u) => `${u.nombre} ${u.apellido ?? ''}`.trim()).filter(Boolean);
+  }, [usuarios]);
+
+  const opcionesCombinadas = useMemo(() => {
+    return Array.from(new Set([...nombresUsuarios, ...opciones])).sort((a, b) => a.localeCompare(b, 'es'));
+  }, [nombresUsuarios, opciones]);
+
   const limpio = formatoSolicitanteTelefono(value).trim();
-  const yaExiste = limpio === '' || opciones.some((o) => sinAcentos(o) === sinAcentos(limpio));
+  const yaExiste = limpio === '' || opcionesCombinadas.some((o) => sinAcentos(o) === sinAcentos(limpio));
+
+  function handleCambio(v: string) {
+    const valLimpio = formatoSolicitanteTelefono(v);
+    onChange(valLimpio);
+    if (onSelectUsuario) {
+      const u = usuarios.find((usr) => {
+        const full = `${usr.nombre} ${usr.apellido ?? ''}`.trim();
+        return full.toLowerCase() === valLimpio.toLowerCase() || usr.email.toLowerCase() === valLimpio.toLowerCase();
+      }) ?? null;
+      onSelectUsuario(u);
+    }
+  }
 
   async function agregarALista() {
     if (!limpio || agregando) return;
@@ -83,7 +108,7 @@ export function SolicitanteTelefonoSelect({
     try {
       const canonico = await asegurarSolicitanteTelefono(limpio, actor);
       setOpciones((prev) => [...new Set([...prev, canonico])].sort((a, b) => a.localeCompare(b, 'es')));
-      onChange(canonico);
+      handleCambio(canonico);
       toast(`«${canonico}» añadido a la lista.`, 'success');
     } finally {
       setAgregando(false);
@@ -95,9 +120,9 @@ export function SolicitanteTelefonoSelect({
       <div className="surt-buscable">
         <SearchCreateSelect
           id={id}
-          options={opciones}
+          options={opcionesCombinadas}
           value={value}
-          onChange={(v) => onChange(formatoSolicitanteTelefono(v))}
+          onChange={handleCambio}
           placeholder={placeholder}
           emptyText="Sin coincidencias: escribe el nombre para añadirlo"
           disabled={disabled}

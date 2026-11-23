@@ -1,6 +1,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { normalizarRif } from '@/shared/lib/rif';
 import type { EstadoGenerico, Orden, Proveedor } from '@/shared/lib/types';
+import { puntoValido, type PuntoMapa } from './ubicacionProveedor';
 
 export type ProveedorInput = Omit<Proveedor, 'id' | 'created_at' | 'updated_at'>;
 export type ProveedorPatch = Partial<ProveedorInput>;
@@ -170,3 +171,24 @@ export async function getOrdenesByProveedor(proveedorId: string): Promise<Orden[
   if (error) throw error;
   return (data ?? []) as Orden[];
 }
+
+export async function guardarUbicacion(id: string, punto: PuntoMapa | null): Promise<void> {
+  const { error } = await supabase.from('proveedores')
+    .update({ lat: punto?.lat ?? null, lng: punto?.lng ?? null })
+    .eq('id', id);
+  if (error) throw new Error(error.message || 'No se pudo guardar la ubicación del proveedor.');
+}
+
+/** La ubicación que trae la fila (select *), validada. */
+export function ubicacionDe(p: Proveedor | null | undefined): PuntoMapa | null {
+  const r = p as (Proveedor & { lat?: unknown; lng?: unknown }) | null | undefined;
+  return r ? puntoValido(r.lat, r.lng) : null;
+}
+
+/** Guarda el número de administración en la ficha del proveedor. Va por RPC porque quien
+ *  indica el método de pago (Compras) puede no tener permiso de escritura en Proveedores. */
+export async function fijarNumeroAdministracion(proveedorId: string, numero: string): Promise<void> {
+  const { error } = await supabase.rpc('proveedor_fijar_numero_administracion', { p_proveedor_id: proveedorId, p_numero: numero });
+  if (error) throw new Error(error.message || 'No se pudo guardar el número de administración del proveedor.');
+}
+

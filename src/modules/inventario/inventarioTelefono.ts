@@ -195,6 +195,13 @@ export function mensajeEntrada(d: {
 
 /** El aviso de la salida. */
 export function mensajeSalida(s: SalidaTelefono, quien?: string | null): string {
+  let destino: string | null = null;
+  let motivo = s.motivo;
+  const match = s.motivo.match(/^\[(.*?)\]\s*(.*)$/);
+  if (match) {
+    destino = match[1].trim();
+    motivo = match[2].trim();
+  }
   const l = [
     '📤 *SALIDA DE ALMACÉN*',
     `🔖 *N°:* ${s.codigo}`,
@@ -202,7 +209,8 @@ export function mensajeSalida(s: SalidaTelefono, quien?: string | null): string 
     '',
     `📦 *Material:* ${s.producto_nombre}`,
     `🔢 *Cantidad:* ${conUnidad(s.cantidad, s.unidad)}`,
-    `📝 *Motivo:* ${s.motivo}`,
+    ...(destino ? [`📍 *Unidad solicitante:* ${destino}`] : []),
+    `📝 *Motivo:* ${motivo}`,
   ];
   if (s.autorizado_por) l.push(`👤 *Solicitado por:* ${s.autorizado_por}`);
   l.push(s.retorna ? '🔄 *Retorna:* SÍ' : '❌ *Retorna:* NO');
@@ -218,6 +226,13 @@ export function mensajeSalida(s: SalidaTelefono, quien?: string | null): string 
 export function mensajeSalidaLote(ss: SalidaTelefono[], quien?: string | null): string {
   if (ss.length <= 1) return ss[0] ? mensajeSalida(ss[0], quien) : '';
   const s = ss[0];
+  let destino: string | null = null;
+  let motivo = s.motivo;
+  const match = s.motivo.match(/^\[(.*?)\]\s*(.*)$/);
+  if (match) {
+    destino = match[1].trim();
+    motivo = match[2].trim();
+  }
   const l = [
     '📤 *SALIDA DE ALMACÉN*',
     `🔖 *N°:* ${s.codigo}`,
@@ -225,7 +240,8 @@ export function mensajeSalidaLote(ss: SalidaTelefono[], quien?: string | null): 
     '',
     `📦 *Materiales (${ss.length}):*`,
     ...ss.map((x) => `• ${x.producto_nombre}: ${conUnidad(x.cantidad, x.unidad)}`),
-    `📝 *Motivo:* ${s.motivo}`,
+    ...(destino ? [`📍 *Unidad solicitante:* ${destino}`] : []),
+    `📝 *Motivo:* ${motivo}`,
   ];
   if (s.autorizado_por) l.push(`👤 *Solicitado por:* ${s.autorizado_por}`);
   l.push(s.retorna ? '🔄 *Retorna:* SÍ' : '❌ *Retorna:* NO');
@@ -330,6 +346,13 @@ export function textoRetorno(s: Pick<SalidaTelefono, 'retorna' | 'cantidad' | 'r
 export interface FilaHistoricoSalida { titulo: string; cantidad: string; lineas: string[]; retorno: string }
 
 export function filaHistoricoSalida(s: SalidaTelefono, registro?: string | null): FilaHistoricoSalida {
+  let destino: string | null = null;
+  let motivo = s.motivo;
+  const match = s.motivo.match(/^\[(.*?)\]\s*(.*)$/);
+  if (match) {
+    destino = match[1].trim();
+    motivo = match[2].trim();
+  }
   const quienes = [
     s.autorizado_por ? `Solicitado por ${s.autorizado_por}` : '',
     registro ? `Registró ${registro}` : '',
@@ -337,16 +360,29 @@ export function filaHistoricoSalida(s: SalidaTelefono, registro?: string | null)
   return {
     titulo: s.producto_nombre,
     cantidad: conUnidad(s.cantidad, s.unidad),
-    lineas: [`${s.codigo} · ${fechaHoraVE(s.created_at)}`, `Motivo: ${s.motivo}`, quienes].filter(Boolean),
+    lineas: [
+      `${s.codigo} · ${fechaHoraVE(s.created_at)}`,
+      motivo ? `Motivo: ${motivo}` : '',
+      destino ? `Unidad solicitante: ${destino}` : '',
+      quienes,
+    ].filter(Boolean),
     retorno: textoRetorno(s),
   };
 }
 
 /** El comprobante en PDF de una salida: igual recién registrada que desde el histórico. */
 export function comprobanteDeSalida(s: SalidaTelefono, quien: string): ComprobanteMaterial {
+  let destino: string | null = null;
+  let motivo = s.motivo;
+  const match = s.motivo.match(/^\[(.*?)\]\s*(.*)$/);
+  if (match) {
+    destino = match[1].trim();
+    motivo = match[2].trim();
+  }
   return {
     tipo: 'salida', codigo: s.codigo, producto: { nombre: s.producto_nombre, unidad: s.unidad },
-    almacen: nombreAlmacenVisible(s.almacen), cantidad: s.cantidad, detalle: s.motivo,
+    almacen: nombreAlmacenVisible(s.almacen), cantidad: s.cantidad, detalle: motivo,
+    destino: destino || null,
     solicitadoPor: s.autorizado_por, autorizadoPor: s.autorizado_por, retorna: s.retorna, fotos: s.fotos.length,
     actor: s.actor ?? quien, actorName: s.actor_name ?? quien, at: s.created_at,
   };

@@ -180,12 +180,13 @@ export async function registrarSalidaTelefonoLote(d: {
   retorna: boolean; actor: string; actorName: string | null;
   /** 12-11-2026: máquina a cuyo mantenimiento va el material (queda en el kardex). */
   equipo?: { id: string; nombre: string } | null;
+  destino?: string | null;
 }): Promise<SalidaTelefono[]> {
   const codigo = await reservarCodigoSalida();
   const hechas: SalidaTelefono[] = [];
   for (const l of d.lineas) {
     try {
-      hechas.push(await registrarSalidaTelefono({ ...d, producto: l.producto, cantidad: l.cantidad, codigo }));
+      hechas.push(await registrarSalidaTelefono({ ...d, producto: l.producto, cantidad: l.cantidad, codigo, destino: d.destino }));
     } catch (e) {
       if (!hechas.length) throw e;
       throw new Error(`Salida ${codigo}: quedaron registrados ${hechas.length} material(es), pero «${l.producto.nombre}» no salió: ${err(e, 'error').message}`);
@@ -216,15 +217,16 @@ export async function registrarSalidaTelefono(d: {
   codigo?: string;
   /** 12-11-2026: máquina a cuyo mantenimiento va el material (queda en el kardex). */
   equipo?: { id: string; nombre: string } | null;
+  destino?: string | null;
 }): Promise<SalidaTelefono> {
   const codigo = d.codigo ?? await reservarCodigoSalida();
   const id = crypto.randomUUID();
-  const detalle = `${d.motivo.trim()} · solicitado por ${d.autorizadoPor.trim()}${d.retorna ? ' · retorna' : ' · no retorna'} · ${d.almacen} (teléfono)`;
+  const detalle = `${d.motivo.trim()}${d.destino ? ` · Unidad: ${d.destino.trim()}` : ''} · solicitado por ${d.autorizadoPor.trim()}${d.retorna ? ' · retorna' : ' · no retorna'} · ${d.almacen} (teléfono)`;
   const mov = await registrarMovimiento({
     producto_id: d.producto.id, tipo: 'salida', delta: -d.cantidad, almacen: d.almacen,
     actor: d.actor, actor_name: d.actorName,
     ref_tipo: 'salida_telefono', ref_id: id, ref_codigo: String(codigo),
-    solicitante: d.autorizadoPor.trim(), detalle,
+    solicitante: d.autorizadoPor.trim(), destino: d.destino?.trim() ?? null, detalle,
     equipo_id: d.equipo?.id ?? null, equipo_nombre: d.equipo?.nombre ?? null,
   });
   const { data, error } = await supabase.rpc('inv_tel_registrar_salida', {

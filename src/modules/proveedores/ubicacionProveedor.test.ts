@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
-import { buscarDireccion, coordsTxt, parsearCoordenadas, parsearNominatim, puedeConsultar, puntoValido, urlNominatim } from './ubicacionProveedor';
+import {
+  buscarDireccion,
+  coordsTxt,
+  interpretarEntradaUbicacion,
+  parsearCoordenadas,
+  parsearNominatim,
+  puedeConsultar,
+  puntoValido,
+  urlNominatim,
+} from './ubicacionProveedor';
 
 describe('Proveedores · ubicación en el mapa', () => {
   it('punto válido: números en rango y distinto de 0,0', () => {
@@ -13,15 +22,60 @@ describe('Proveedores · ubicación en el mapa', () => {
     expect(puntoValido(Number.NaN, 1)).toBeNull();
   });
 
-  it('coordenadas pegadas o enlace de Google Maps', () => {
+  it('coordenadas pegadas o enlace de Google Maps y otros formatos', () => {
     expect(parsearCoordenadas('8.2869, -62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
     expect(parsearCoordenadas('8.2869 -62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
+    expect(parsearCoordenadas('(8.2869, -62.7467)')).toEqual({ lat: 8.2869, lng: -62.7467 });
+    expect(parsearCoordenadas('[8.2869, -62.7467]')).toEqual({ lat: 8.2869, lng: -62.7467 });
+    expect(parsearCoordenadas('Lat: 8.2869, Lng: -62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
+    expect(parsearCoordenadas('8.2869 N, 62.7467 W')).toEqual({ lat: 8.2869, lng: -62.7467 });
+    expect(parsearCoordenadas('8.2869° N, 62.7467° O')).toEqual({ lat: 8.2869, lng: -62.7467 });
+
+    // Google Maps URLs
     expect(parsearCoordenadas('https://www.google.com/maps/place/X/@8.2869,-62.7467,17z')).toEqual({ lat: 8.2869, lng: -62.7467 });
     expect(parsearCoordenadas('https://maps.google.com/?q=8.2869,-62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
+    expect(parsearCoordenadas('https://maps.google.com/maps?daddr=8.2869,-62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
+    expect(parsearCoordenadas('https://www.google.com/maps/search/8.2869,-62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
     expect(parsearCoordenadas('https://www.google.com/maps/place/data=!3d8.2869!4d-62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
+
+    // OpenStreetMap & Waze
+    expect(parsearCoordenadas('https://www.openstreetmap.org/?mlat=8.2869&mlon=-62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
+    expect(parsearCoordenadas('https://waze.com/ul?ll=8.2869,-62.7467')).toEqual({ lat: 8.2869, lng: -62.7467 });
+
+    // DMS & DDM
+    const dms = parsearCoordenadas('8°17\'12.8"N 62°44\'48.1"W');
+    expect(dms).not.toBeNull();
+    expect(dms!.lat).toBeCloseTo(8.286888, 3);
+    expect(dms!.lng).toBeCloseTo(-62.746694, 3);
+
+    const dmsOeste = parsearCoordenadas('8°17\'12.8"N, 62°44\'48.1"O');
+    expect(dmsOeste).not.toBeNull();
+    expect(dmsOeste!.lng).toBeCloseTo(-62.746694, 3);
+
     expect(parsearCoordenadas('Av. Las Américas, Puerto Ordaz')).toBeNull();
     expect(parsearCoordenadas('')).toBeNull();
     expect(parsearCoordenadas('120, 50')).toBeNull();
+  });
+
+  it('interpretarEntradaUbicacion: clasifica correctamente URLs, coordenadas y direcciones textuales', () => {
+    // 1. Coordenadas
+    const resCoord = interpretarEntradaUbicacion('8.2869, -62.7467');
+    expect(resCoord.tipo).toBe('coordenadas');
+    expect(resCoord.punto).toEqual({ lat: 8.2869, lng: -62.7467 });
+
+    // 2. URL de mapas
+    const resUrl = interpretarEntradaUbicacion('https://www.google.com/maps/place/Local/@8.286900,-62.746700,16z');
+    expect(resUrl.tipo).toBe('url');
+    expect(resUrl.punto).toEqual({ lat: 8.2869, lng: -62.7467 });
+
+    // 3. Dirección textual
+    const resDir = interpretarEntradaUbicacion('PUERTO ORDAZ, FRENTE MATERIALES GRAN SABANA');
+    expect(resDir.tipo).toBe('direccion');
+    expect(resDir.punto).toBeNull();
+
+    // 4. Vacío
+    const resVacio = interpretarEntradaUbicacion('');
+    expect(resVacio.tipo).toBe('vacio');
   });
 
   it('coordsTxt a 6 decimales', () => {

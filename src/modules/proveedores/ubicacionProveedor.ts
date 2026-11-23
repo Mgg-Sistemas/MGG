@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Proveedores · ubicación en el mapa (03/11/2026)
+   Golden Touch · Proveedores · ubicación en el mapa (03/11/2026)
 
    El punto del local del proveedor (proveedores.lat / lng) para Delivery:
    ruta del motorizado y «proveedor más cercano». Acá vive lo que no toca
@@ -28,26 +28,217 @@ export function coordsTxt(p: PuntoMapa): string {
 }
 
 /**
- * Coordenadas escritas o pegadas: «8.2869, -62.7467», «8.2869 -62.7467» o un
- * enlace de Google Maps (…/@8.2869,-62.7467,15z o …?q=8.2869,-62.7467).
- * `null` si el texto no son coordenadas (entonces se busca como dirección).
+ * Coordenadas escritas o pegadas:
+ * Interpreta automáticamente un único campo que puede recibir:
+ *   1. Dirección física textual («Puerto Ordaz, Frente Materiales Gran Sabana»)
+ *   2. Coordenadas decimales («8.2869, -62.7467», «8.2869 -62.7467», «(8.2869, -62.7467)»)
+ *   3. Coordenadas con cardinalidad («8.2869° N, 62.7467° W», «8.2869 N, 62.7467 O»)
+ *   4. Grados, Minutos y Segundos DMS («8°17'12.8"N 62°44'48.1"W»)
+ *   5. Grados y Minutos Decimales DDM («8° 17.213' N, 62° 44.802' W»)
+ *   6. Enlaces web de Google Maps (@lat,lng / ?q=lat,lng / destination= / /search/ / !3d!4d)
+ *   7. Enlaces web de OpenStreetMap, Apple Maps, Waze, Bing Maps, Geo URI
+ *   8. Códigos Plus Code OLC («76MV+CR Ciudad Guayana» o «67WV76MV+CR»)
+ *
+ * Devuelve `PuntoMapa` con { lat, lng } si se detectan coordenadas o URL con posición,
+ * o `null` si el texto es una dirección para consultar en Nominatim.
  */
 export function parsearCoordenadas(texto: string | null | undefined): PuntoMapa | null {
-  const t = String(texto ?? '').trim();
+  let t = String(texto ?? '').trim();
   if (!t) return null;
+
+  try {
+    if (t.includes('%')) t = decodeURIComponent(t);
+  } catch {
+    // Si no es un URI bien formado, usar el texto original
+  }
+
+  // 1. URLs de mapas: Google Maps, Apple Maps, Waze, OSM, Bing
+  // 1a. @lat,lng
   const arroba = t.match(/@(-?\d{1,2}(?:\.\d+)?),\s*(-?\d{1,3}(?:\.\d+)?)/);
-  if (arroba) return puntoValido(arroba[1], arroba[2]);
-  const q = t.match(/[?&](?:q|query|ll|destination)=(-?\d{1,2}(?:\.\d+)?)(?:,|%2C)\s*(-?\d{1,3}(?:\.\d+)?)/i);
-  if (q) return puntoValido(q[1], q[2]);
-  const par = t.match(/^(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)$/);
-  if (par) return puntoValido(par[1], par[2]);
+  if (arroba) {
+    const p = puntoValido(arroba[1], arroba[2]);
+    if (p) return p;
+  }
+
+  // 1b. Parámetros de consulta (?q=, query=, ll=, sll=, destination=, daddr=, saddr=, center=, point=)
+  const qParam = t.match(/[?&](?:q|query|ll|sll|destination|daddr|saddr|center|point)=(-?\d{1,2}(?:\.\d+)?)(?:,|%2C|\s+)\s*(-?\d{1,3}(?:\.\d+)?)/i);
+  if (qParam) {
+    const p = puntoValido(qParam[1], qParam[2]);
+    if (p) return p;
+  }
+
+  // 1c. Rutas con /search/lat,lng o /dir/lat,lng o /place/.../lat,lng
+  const rutaUrl = t.match(/\/(?:search|dir|place)\/(?:[^\/]*\/)*(-?\d{1,2}(?:\.\d+)?)[,;](-?\d{1,3}(?:\.\d+)?)/i);
+  if (rutaUrl) {
+    const p = puntoValido(rutaUrl[1], rutaUrl[2]);
+    if (p) return p;
+  }
+
+  // 1d. Protobuf de Google Maps (!3dlat!4dlng)
   const proto = t.match(/!3d(-?\d{1,2}(?:\.\d+)?).*?!4d(-?\d{1,3}(?:\.\d+)?)/);
-  if (proto) return puntoValido(proto[1], proto[2]);
-  // 04/11/2026: el «código» que da Google Maps al compartir un punto (Plus Code), p. ej.
-  // «76MV+CR Ciudad Guayana, Bolívar, Venezuela» o el completo «67WV76MV+CR».
+  if (proto) {
+    const p = puntoValido(proto[1], proto[2]);
+    if (p) return p;
+  }
+
+  // 1e. OpenStreetMap (?mlat=...&mlon=... o #map=zoom/lat/lng)
+  const osmParam = t.match(/[?&]mlat=(-?\d{1,2}(?:\.\d+)?).*?[?&]mlon=(-?\d{1,3}(?:\.\d+)?)/i);
+  if (osmParam) {
+    const p = puntoValido(osmParam[1], osmParam[2]);
+    if (p) return p;
+  }
+  const osmHash = t.match(/#map=\d+\/(-?\d{1,2}(?:\.\d+)?)\/(-?\d{1,3}(?:\.\d+)?)/i);
+  if (osmHash) {
+    const p = puntoValido(osmHash[1], osmHash[2]);
+    if (p) return p;
+  }
+
+  // 1f. Waze (to=ll.lat,lng)
+  const waze = t.match(/to=ll\.(-?\d{1,2}(?:\.\d+)?)[,;](-?\d{1,3}(?:\.\d+)?)/i);
+  if (waze) {
+    const p = puntoValido(waze[1], waze[2]);
+    if (p) return p;
+  }
+
+  // 1g. Bing Maps (?cp=lat~lng o where1=lat,lng)
+  const bing = t.match(/[?&]cp=(-?\d{1,2}(?:\.\d+)?)~(-?\d{1,3}(?:\.\d+)?)/i);
+  if (bing) {
+    const p = puntoValido(bing[1], bing[2]);
+    if (p) return p;
+  }
+  const bingWhere = t.match(/[?&]where1=(-?\d{1,2}(?:\.\d+)?)[,;](-?\d{1,3}(?:\.\d+)?)/i);
+  if (bingWhere) {
+    const p = puntoValido(bingWhere[1], bingWhere[2]);
+    if (p) return p;
+  }
+
+  // 1h. Geo URI (geo:lat,lng)
+  const geoUri = t.match(/geo:(-?\d{1,2}(?:\.\d+)?),(-?\d{1,3}(?:\.\d+)?)/i);
+  if (geoUri) {
+    const p = puntoValido(geoUri[1], geoUri[2]);
+    if (p) return p;
+  }
+
+  // 2. Grados, Minutos y Segundos (DMS): «8°17'12.8"N 62°44'48.1"W» o con «O» (Oeste)
+  const dms = t.match(/(\d{1,2})[°\s]+(\d{1,2})['\s]+(\d{1,2}(?:\.\d+)?)["]?\s*([NSns])[,;\s]+(\d{1,3})[°\s]+(\d{1,2})['\s]+(\d{1,2}(?:\.\d+)?)["]?\s*([EWEOewoe])/);
+  if (dms) {
+    const latDeg = Number(dms[1]) + Number(dms[2]) / 60 + Number(dms[3]) / 3600;
+    const lat = dms[4].toUpperCase() === 'S' ? -latDeg : latDeg;
+    const lngDeg = Number(dms[5]) + Number(dms[6]) / 60 + Number(dms[7]) / 3600;
+    const lng = ['W', 'O'].includes(dms[8].toUpperCase()) ? -lngDeg : lngDeg;
+    const p = puntoValido(lat, lng);
+    if (p) return p;
+  }
+
+  // 3. Grados y Minutos Decimales (DDM): «8° 17.213' N, 62° 44.802' W»
+  const ddm = t.match(/(\d{1,2})[°\s]+(\d{1,2}(?:\.\d+)?)\s*[']?\s*([NSns])[,;\s]+(\d{1,3})[°\s]+(\d{1,2}(?:\.\d+)?)\s*[']?\s*([EWEOewoe])/);
+  if (ddm) {
+    const latDeg = Number(ddm[1]) + Number(ddm[2]) / 60;
+    const lat = ddm[3].toUpperCase() === 'S' ? -latDeg : latDeg;
+    const lngDeg = Number(ddm[4]) + Number(ddm[5]) / 60;
+    const lng = ['W', 'O'].includes(ddm[6].toUpperCase()) ? -lngDeg : lngDeg;
+    const p = puntoValido(lat, lng);
+    if (p) return p;
+  }
+
+  // 4. Decimales con Cardinalidad: «8.2869° N, 62.7467° W» o «8.2869 N, 62.7467 O»
+  const decCard = t.match(/(-?\d{1,2}(?:\.\d+)?)\s*°?\s*([NSns])[,;\s]+(-?\d{1,3}(?:\.\d+)?)\s*°?\s*([EWEOewoe])/);
+  if (decCard) {
+    const lat = Math.abs(Number(decCard[1])) * (decCard[2].toUpperCase() === 'S' ? -1 : 1);
+    const lng = Math.abs(Number(decCard[3])) * (['W', 'O'].includes(decCard[4].toUpperCase()) ? -1 : 1);
+    const p = puntoValido(lat, lng);
+    if (p) return p;
+  }
+
+  // 5. Formato etiquetado (lat: 8.2869, lon: -62.7467)
+  const etiquetado = t.match(/(?:lat|latitud|latitude)[:\s=]+(-?\d{1,2}(?:\.\d+)?)[,\s]+(?:lon|lng|longitud|longitude)[:\s=]+(-?\d{1,3}(?:\.\d+)?)/i);
+  if (etiquetado) {
+    const p = puntoValido(etiquetado[1], etiquetado[2]);
+    if (p) return p;
+  }
+
+  // 6. Par decimal directo (con o sin paréntesis/corchetes): «8.2869, -62.7467», «(8.2869, -62.7467)»
+  const parLimpio = t.replace(/^[\[\(]/, '').replace(/[\]\)]$/, '').trim();
+  const par = parLimpio.match(/^(-?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*(-?\d{1,3}(?:\.\d+)?)$/);
+  if (par) {
+    const p = puntoValido(par[1], par[2]);
+    if (p) return p;
+  }
+
+  // 7. Plus Codes (Open Location Code, ej: 76MV+CR Ciudad Guayana)
   const plus = decodificarPlusCode(t);
   if (plus) return plus;
+
+  // 8. Coordenadas decimales embebidas en cualquier texto si hay al menos 3 decimales
+  const embebido = t.match(/(-?\d{1,2}\.\d{3,})\s*[,;\s]\s*(-?\d{1,3}\.\d{3,})/);
+  if (embebido) {
+    const p = puntoValido(embebido[1], embebido[2]);
+    if (p) return p;
+  }
+
   return null;
+}
+
+export type TipoInterpretacion = 'coordenadas' | 'url' | 'direccion' | 'vacio';
+
+export interface InterpretacionUbicacion {
+  tipo: TipoInterpretacion;
+  punto: PuntoMapa | null;
+  etiqueta: string;
+  textoOriginal: string;
+  esUrlCorta?: boolean;
+}
+
+/**
+ * Interpreta inteligentemente el contenido de un único campo de entrada para determinar
+ * si el usuario escribió una dirección, pegó coordenadas o pegó una URL de mapas.
+ */
+export function interpretarEntradaUbicacion(entrada: string | null | undefined): InterpretacionUbicacion {
+  const texto = String(entrada ?? '').trim();
+  if (!texto) {
+    return { tipo: 'vacio', punto: null, etiqueta: '', textoOriginal: '' };
+  }
+
+  const esUrl = /^https?:\/\//i.test(texto) || /^www\./i.test(texto) || /^geo:/i.test(texto);
+  const esUrlCorta = /(?:maps\.app\.goo\.gl|goo\.gl\/maps)/i.test(texto);
+  const coords = parsearCoordenadas(texto);
+
+  if (esUrl) {
+    if (coords) {
+      return {
+        tipo: 'url',
+        punto: coords,
+        etiqueta: `Enlace web · Coordenadas extraídas: ${coordsTxt(coords)}`,
+        textoOriginal: texto,
+        esUrlCorta: false,
+      };
+    }
+    return {
+      tipo: 'url',
+      punto: null,
+      etiqueta: esUrlCorta
+        ? 'Enlace corto de Google Maps detectado: ábrelo en navegador y copia la URL completa con coordenadas o pega las coordenadas directas'
+        : 'Enlace web sin coordenadas explícitas',
+      textoOriginal: texto,
+      esUrlCorta,
+    };
+  }
+
+  if (coords) {
+    return {
+      tipo: 'coordenadas',
+      punto: coords,
+      etiqueta: `Coordenadas detectadas: ${coordsTxt(coords)}`,
+      textoOriginal: texto,
+    };
+  }
+
+  return {
+    tipo: 'direccion',
+    punto: null,
+    etiqueta: 'Dirección física / punto de referencia para buscar en el mapa',
+    textoOriginal: texto,
+  };
 }
 
 /* ── Plus Codes (Open Location Code, el «76MV+CR» de Google Maps) ── */
