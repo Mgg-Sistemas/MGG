@@ -1,15 +1,15 @@
 /* ============================================================
-   MGG · Delivery · editar fotos de un pedido ENTREGADO (03/11/2026)
+   MGG · Delivery · fotos de un pedido (03/11/2026 · corregido 23/11/2026)
    Lo usan el tablero de la PC (DeliveryPage) y el teléfono (DeliveryMovilView).
-   Pueden: admin, quien tenga escritura en Delivery y el motorizado que lo entregó
-   (la base lo vuelve a revisar en delivery_editar_fotos).
+   Pedido ABIERTO: se agregan con `delivery_fotos` (el dueño lo puede hacer).
+   Pedido ENTREGADO: se corrigen con `delivery_editar_fotos` (la base revisa permisos).
    ============================================================ */
 import { useEffect, useState } from 'react';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { previewGaleria } from '@/shared/lib/reportePreview';
-import { MAX_FOTOS_DELIVERY, rotuloFotos, type FotoDelivery, type OrigenDelivery, type TipoFotoDelivery } from './delivery';
-import { editarFotosDelivery, urlFotoDelivery } from './delivery.repository';
+import { MAX_FOTOS_DELIVERY, rotuloFotos, rutaGuardadoFotos, type FotoDelivery, type OrigenDelivery, type TipoFotoDelivery } from './delivery';
+import { editarFotosDelivery, subirFotosDelivery, urlFotoDelivery } from './delivery.repository';
 
 type Tipo = TipoFotoDelivery;
 
@@ -24,8 +24,8 @@ export function puedeEditarFotosDelivery(
   return p.estado === 'entregado' && !!p.pedido_id && (admin || escritura || !!p.es_mio);
 }
 
-export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo, fotosEntrega, fotosFactura = SIN_FOTOS, onClose, onGuardado }: {
-  pedidoId: string; origen: OrigenDelivery | null | undefined; titulo: string;
+export function EditarFotosDeliveryModal({ pedidoId, estado, origen, titulo, fotosRecibo, fotosEntrega, fotosFactura = SIN_FOTOS, onClose, onGuardado }: {
+  pedidoId: string; estado: string; origen: OrigenDelivery | null | undefined; titulo: string;
   fotosRecibo: FotoDelivery[]; fotosEntrega: FotoDelivery[];
   /** 11/11/2026: fotos de la factura del proveedor (solo compras). */
   fotosFactura?: FotoDelivery[];
@@ -45,7 +45,10 @@ export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo
     return () => { vivo = false; };
   }, [fotosRecibo, fotosEntrega, fotosFactura]);
 
-  const cambios = (['recibo', 'entrega', 'factura'] as Tipo[]).filter((t) => nuevos[t].length || quitadas[t].length);
+  const tipos: Tipo[] = estado === 'entregado'
+    ? (origen === 'almacen' ? ['recibo', 'entrega'] : ['recibo', 'factura', 'entrega'])
+    : ['recibo', 'entrega'];
+  const cambios = tipos.filter((t) => nuevos[t].length || quitadas[t].length);
 
   function agregar(tipo: Tipo, lista: FileList | null) {
     const archivos = Array.from(lista ?? []);
@@ -63,12 +66,23 @@ export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo
 
   async function guardar() {
     if (!cambios.length) { onClose(); return; }
+    const noDisponible = cambios.find((t) => !rutaGuardadoFotos(estado, t) || (estado !== 'entregado' && quitadas[t].length > 0));
+    if (noDisponible) {
+      toast(estado === 'entregado'
+        ? 'Ese tipo de foto no se puede guardar con el pedido en este estado. Recargá la pantalla e intentá de nuevo.'
+        : 'Con el pedido abierto se pueden agregar fotos, pero no quitar las que ya están. Recargá la pantalla e intentá de nuevo.', 'error');
+      return;
+    }
     setGuardando(true);
     try {
       let sinBorrar = 0;
       for (const t of cambios) {
-        const r = await editarFotosDelivery(pedidoId, t, quedan[t], nuevos[t], quitadas[t]);
-        sinBorrar += r.sinBorrar;
+        if (estado === 'entregado') {
+          const r = await editarFotosDelivery(pedidoId, t, quedan[t], nuevos[t], quitadas[t]);
+          sinBorrar += r.sinBorrar;
+        } else {
+          await subirFotosDelivery(pedidoId, t, quedan[t], nuevos[t]);
+        }
       }
       toast(sinBorrar ? `Fotos guardadas (${sinBorrar} archivo(s) no se pudieron borrar del almacenamiento).` : 'Fotos guardadas.', sinBorrar ? 'warning' : 'success');
       onGuardado();
@@ -99,9 +113,11 @@ export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo
                   </button>
                 )
                 : <div className="muted" style={{ height: 110, display: 'grid', placeItems: 'center', border: '1px dashed var(--border)', borderRadius: 8, fontSize: '.8rem' }}>📷</div>}
-              <button type="button" className="btn btn-danger btn-sm" disabled={guardando}
-                style={{ position: 'absolute', top: 4, right: 4 }} aria-label={`Quitar ${f.filename}`}
-                onClick={() => setConfirmar({ tipo, foto: f })}>✕</button>
+              {estado === 'entregado' && (
+                <button type="button" className="btn btn-danger btn-sm" disabled={guardando}
+                  style={{ position: 'absolute', top: 4, right: 4 }} aria-label={`Quitar ${f.filename}`}
+                  onClick={() => setConfirmar({ tipo, foto: f })}>✕</button>
+              )}
             </div>
           ))}
           {nuevos[tipo].map((f, i) => (
@@ -115,9 +131,12 @@ export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo
         </div>
         {!total && <p className="muted" style={{ margin: '.3rem 0 0' }}>Sin fotos.</p>}
         {total < MAX_FOTOS_DELIVERY && (
-          <div className="dlv-subir" style={{ marginTop: '.5rem' }}>
-            <label htmlFor={id} className="btn btn-ghost btn-sm" style={{ cursor: 'pointer' }}>➕ Agregar fotos</label>
-            <input id={id} type="file" accept="image/*" multiple disabled={guardando} style={{ display: 'none' }}
+          <div className="dlv-subir" style={{ marginTop: '.5rem', display: 'flex', flexWrap: 'wrap', gap: '.5rem' }}>
+            <label htmlFor={`${id}-camara`} className="btn btn-ghost" style={{ cursor: 'pointer', minHeight: 44 }}>📷 Tomar foto</label>
+            <input id={`${id}-camara`} type="file" accept="image/*" capture="environment" disabled={guardando} style={{ display: 'none' }}
+              onChange={(e) => { agregar(tipo, e.target.files); e.target.value = ''; }} />
+            <label htmlFor={`${id}-galeria`} className="btn btn-ghost" style={{ cursor: 'pointer', minHeight: 44 }}>🖼 Elegir de la galería</label>
+            <input id={`${id}-galeria`} type="file" accept="image/*" multiple disabled={guardando} style={{ display: 'none' }}
               onChange={(e) => { agregar(tipo, e.target.files); e.target.value = ''; }} />
           </div>
         )}
@@ -135,7 +154,7 @@ export function EditarFotosDeliveryModal({ pedidoId, origen, titulo, fotosRecibo
           </button>
         </>}>
         {grupo('recibo')}
-        {origen !== 'almacen' && grupo('factura')}
+        {tipos.includes('factura') && grupo('factura')}
         {grupo('entrega')}
       </Modal>
       {confirmar && (

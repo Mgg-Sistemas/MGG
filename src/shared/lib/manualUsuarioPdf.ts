@@ -238,6 +238,19 @@ const SECCIONES: Seccion[] = [
     ],
   },
   {
+    icono: '🚚',
+    titulo: 'Delivery (retirar y entregar pedidos)',
+    intro:
+      'Es la pantalla del motorizado, en el teléfono, y el tablero de la PC para seguir cada pedido que se retira del proveedor o del Almacén Los Pinos y se lleva a su destino.',
+    puntos: [
+      'FOTOS DESDE EL CELULAR (corregido el 23/11/2026): antes, al intentar cargar fotos en un pedido Aceptado o En ruta, la pantalla decía que las guardaba pero la base las rechazaba y no quedaba ninguna. Ahora se guardan de verdad en cuanto se presiona "Guardar". Si algo falla, aparece el error en palabras sencillas y no se dice "guardado".',
+      'Para agregar fotos se abren las fotos del pedido y se elige "📷 Tomar foto" (abre la cámara) o "🖼 Elegir de la galería" (abre las fotos del teléfono, se pueden elegir varias). Sirve en el celular y en la PC. Hasta 5 fotos por grupo.',
+      'Mientras el pedido está Aceptado o En ruta se pueden agregar las fotos del producto al recibirlo y las de la entrega. En ese estado NO se ofrece la factura del proveedor ni se pueden quitar fotos que ya estaban: para eso hay que esperar a que el pedido esté Entregado.',
+      'Cuando el pedido ya está ENTREGADO se puede entrar a "Editar fotos" para corregir los tres grupos (recibo, factura del proveedor y entrega): se pueden agregar más fotos y quitar las que ya estaban. Al quitar una se pide confirmación; al guardar se borra el archivo y queda anotado en el historial del pedido.',
+      'La factura del proveedor solo aparece al editar un pedido ENTREGADO que venga de una compra (no de un retiro en Almacén). Los permisos los vuelve a revisar la base de datos: el motorizado dueño del pedido, quien tenga escritura en Delivery/Carga pesada y el administrador pueden editar; los demás no.',
+    ],
+  },
+  {
     icono: '⚒',
     titulo: 'Proveedores',
     captura: 'proveedores',

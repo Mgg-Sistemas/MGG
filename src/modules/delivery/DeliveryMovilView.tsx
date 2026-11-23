@@ -810,6 +810,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
       {fotosModalDe && fotosModalDe.pedido_id && (
         <EditarFotosDeliveryModal
           pedidoId={fotosModalDe.pedido_id}
+          estado={fotosModalDe.estado}
           origen={fotosModalDe.origen}
           titulo={esRetiroAlmacen(fotosModalDe) ? `Fotos de ${fotosModalDe.codigo}` : `Fotos de ${ocDe(fotosModalDe)}`}
           fotosRecibo={fotosModalDe.fotos_recibo}

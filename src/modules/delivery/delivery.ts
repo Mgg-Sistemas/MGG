@@ -21,6 +21,7 @@
    el Almacén Los Pinos y lo entrega A la unidad / persona que lo pidió.
    ============================================================ */
 import { etiquetaSedeEntrega } from '@/shared/lib/types';
+import type { TipoFotoDeliveryRuta } from './rutaFotosDelivery';
 
 /** Clave del interruptor en `sistema_interruptores` / config. */
 export const INTERRUPTOR_DELIVERY = 'compras_delivery';
@@ -233,7 +234,11 @@ export function almacenVisible(a: string | null | undefined): string {
 
 /** Cómo se rotulan las fotos: «al recibir» del proveedor o «al retirar en Almacén». */
 /** 11/11/2026: 'factura' = fotos de la factura del proveedor que sube el delivery. */
-export type TipoFotoDelivery = 'recibo' | 'entrega' | 'factura';
+export type TipoFotoDelivery = TipoFotoDeliveryRuta;
+
+// 23/11/2026: se reexporta para los componentes y se prueba sin imports en `rutaFotosDelivery.ts`.
+export type { RutaFotosDelivery } from './rutaFotosDelivery';
+export { rutaGuardadoFotos } from './rutaFotosDelivery';
 
 export function rotuloFotos(origen: OrigenDelivery | null | undefined, tipo: TipoFotoDelivery): string {
   if (tipo === 'factura') return 'Factura del proveedor';

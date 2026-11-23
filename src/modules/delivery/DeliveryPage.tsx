@@ -554,7 +554,7 @@ function FotosModal({ pedido, onClose, onCambio }: { pedido: PedidoDelivery; onC
         <button className="btn btn-primary" onClick={onClose}>Cerrar</button>
       </>}>
       {editar && pedido.pedido_id && (
-        <EditarFotosDeliveryModal pedidoId={pedido.pedido_id} origen={pedido.origen} titulo={titulo}
+        <EditarFotosDeliveryModal pedidoId={pedido.pedido_id} estado={pedido.estado} origen={pedido.origen} titulo={titulo}
           fotosRecibo={pedido.fotos_recibo} fotosEntrega={pedido.fotos_entrega} fotosFactura={pedido.fotos_factura}
           onClose={() => setEditar(false)} onGuardado={() => { onCambio(); onClose(); }} />
       )}
