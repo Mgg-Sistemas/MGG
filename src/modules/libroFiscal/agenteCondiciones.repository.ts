@@ -11,7 +11,8 @@
 import { supabase } from '@/shared/lib/supabase';
 import type { ClaveImpuesto } from './entes.repository';
 import { errorRetencion } from './erroresRetencion';
-import { tablaDisponible } from './disponibilidad';
+import { faltaEnFechaRango } from './parametrosNumeros';
+import { regimenPorEmpresaDisponible } from './disponibilidad';
 
 const T_CONDICIONES = 'retencion_agente_condiciones';
 
@@ -25,6 +26,8 @@ export const CONDICIONES: { key: CondicionAgente; label: string; porImpuesto: bo
 
 export interface CondicionRegistrada {
   id: string;
+  /** Multi-empresa (D2): la empresa de esta condición. null si la base aún no trae la columna. */
+  empresaId: string | null;
   impuestoClave: ClaveImpuesto | null;
   condicion: CondicionAgente;
   valor: boolean;
@@ -41,7 +44,7 @@ const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
 export function aCondicion(r: Record<string, unknown>): CondicionRegistrada {
   return {
-    id: String(r.id), impuestoClave: texto(r.impuesto_clave) as ClaveImpuesto | null,
+    id: String(r.id), empresaId: texto(r.empresa_id), impuestoClave: texto(r.impuesto_clave) as ClaveImpuesto | null,
     condicion: r.condicion as CondicionAgente, valor: r.valor === true,
     desde: String(r.desde ?? ''), hasta: texto(r.hasta), motivo: String(r.motivo ?? ''), fuente: texto(r.fuente),
     actualizadoEn: texto(r.actualizado_en), actualizadoPor: texto(r.actualizado_por),
@@ -55,10 +58,14 @@ export function condicionVigente(xs: CondicionRegistrada[], impuesto: ClaveImpue
     .sort((a, b) => b.desde.localeCompare(a.desde))[0] ?? null;
 }
 
-/** El historial completo, el más nuevo primero. */
-export async function listCondiciones(): Promise<CondicionRegistrada[]> {
-  if (!(await tablaDisponible(T_CONDICIONES))) return [];
-  const { data, error } = await supabase.from(T_CONDICIONES).select('*').order('desde', { ascending: false });
+/**
+ * El historial completo, el más nuevo primero. D2: con el régimen por empresa en la base
+ * y una empresa dada, solo las de ESA empresa; si no (o sin empresa), todas (GT como hoy).
+ */
+export async function listCondiciones(empresaId?: string | null): Promise<CondicionRegistrada[]> {
+  let q = supabase.from(T_CONDICIONES).select('*').order('desde', { ascending: false });
+  if (empresaId && (await regimenPorEmpresaDisponible())) q = q.eq('empresa_id', empresaId);
+  const { data, error } = await q;
   if (error) throw errorRetencion(error, 'No se pudo leer el régimen de la empresa.');
   return (data ?? []).map((r) => aCondicion(r as Record<string, unknown>));
 }
@@ -88,20 +95,34 @@ export function faltaEnCondicion(c: CondicionNueva): string | null {
   if (porImpuesto && !c.impuestoClave) return 'Indica el impuesto de esa condición.';
   if (!porImpuesto && c.impuestoClave) return 'Contribuyente especial es de la empresa, no de un impuesto.';
   if (!FECHA.test(c.desde)) return 'Indica desde qué fecha vale.';
-  if (c.hasta && (!FECHA.test(c.hasta) || c.hasta < c.desde)) return 'La fecha «hasta» no puede ser anterior a «desde».';
+  const faltaDesde = faltaEnFechaRango(c.desde, 'la fecha «desde»');
+  if (faltaDesde) return faltaDesde;
+  if (c.hasta) {
+    if (!FECHA.test(c.hasta)) return 'La fecha «hasta» no es válida.';
+    const faltaHasta = faltaEnFechaRango(c.hasta, 'la fecha «hasta»');
+    if (faltaHasta) return faltaHasta;
+    if (c.hasta < c.desde) return 'La fecha «hasta» no puede ser anterior a «desde».';
+  }
   if (!c.motivo.trim()) return 'Indica el motivo: queda en el historial del régimen.';
   return null;
 }
 
-/** Registra un cambio del régimen desde una fecha. No se edita lo anterior: queda en el historial. */
-export async function registrarCondicion(c: CondicionNueva): Promise<string> {
+/**
+ * Registra un cambio del régimen desde una fecha. No se edita lo anterior: queda en el
+ * historial. D2: con el régimen por empresa en la base, la condición se marca para ESA
+ * empresa (empresa_id en el payload; la RLS no lo mira, solo puede('retenciones')/admin);
+ * sin la columna (D2 sin aplicar) cae al default GT de la base.
+ */
+export async function registrarCondicion(c: CondicionNueva, empresaId?: string | null): Promise<string> {
   const falta = faltaEnCondicion(c);
   if (falta) throw new Error(falta);
-  const { data, error } = await supabase.from(T_CONDICIONES).insert({
+  const fila: Record<string, unknown> = {
     impuesto_clave: c.condicion === 'contribuyente_especial' ? null : c.impuestoClave,
     condicion: c.condicion, valor: c.valor, desde: c.desde, hasta: c.hasta || null,
     motivo: c.motivo.trim(), fuente: c.fuente?.trim() || null,
-  }).select('id');
+  };
+  if (empresaId && (await regimenPorEmpresaDisponible())) fila.empresa_id = empresaId;
+  const { data, error } = await supabase.from(T_CONDICIONES).insert(fila).select('id');
   if (error) {
     throw errorRetencion(error, 'No se pudo guardar el régimen.', {
       unico: 'Ya hay un cambio de esa condición que empieza en esa fecha: elige otra fecha.',
@@ -146,11 +167,24 @@ export async function actualizarCondicion(id: string, c: Partial<CondicionNueva>
   const updateData: Record<string, unknown> = {};
   if (c.desde !== undefined) {
     if (!FECHA.test(c.desde)) throw new Error('Indica una fecha válida (AAAA-MM-DD).');
+    const faltaDesde = faltaEnFechaRango(c.desde, 'la fecha «desde»');
+    if (faltaDesde) throw new Error(faltaDesde);
     updateData.desde = c.desde;
   }
-  if (c.hasta !== undefined) updateData.hasta = c.hasta || null;
+  if (c.hasta !== undefined) {
+    if (c.hasta) {
+      if (!FECHA.test(c.hasta)) throw new Error('La fecha «hasta» no es válida.');
+      const faltaHasta = faltaEnFechaRango(c.hasta, 'la fecha «hasta»');
+      if (faltaHasta) throw new Error(faltaHasta);
+      if (c.desde && c.hasta < c.desde) throw new Error('La fecha «hasta» no puede ser anterior a «desde».');
+    }
+    updateData.hasta = c.hasta || null;
+  }
   if (c.valor !== undefined) updateData.valor = c.valor;
-  if (c.motivo !== undefined) updateData.motivo = c.motivo.trim();
+  if (c.motivo !== undefined) {
+    if (!c.motivo.trim()) throw new Error('Indica el motivo: queda en el historial del régimen.');
+    updateData.motivo = c.motivo.trim();
+  }
   if (c.fuente !== undefined) updateData.fuente = c.fuente?.trim() || null;
   if (c.impuestoClave !== undefined) updateData.impuesto_clave = c.impuestoClave;
   if (c.condicion !== undefined) updateData.condicion = c.condicion;
@@ -161,7 +195,7 @@ export async function actualizarCondicion(id: string, c: Partial<CondicionNueva>
       unico: 'Ya hay un registro con esa misma fecha de inicio.',
     });
   }
-  if (!data?.length) throw new Error('No se guardó el cambio del régimen: sin permiso de escritura en Retenciones, o ya no existe.');
+  if (!data?.length) throw new Error('No se actualizó el régimen: sin permiso de escritura en Retenciones, o el registro ya no existe.');
 }
 
 /** Elimina un registro del régimen. */

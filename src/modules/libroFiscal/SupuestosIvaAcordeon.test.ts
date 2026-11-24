@@ -15,7 +15,7 @@ describe('SupuestosIvaAcordeon constantes y opciones', () => {
   it('los textos son descriptivos y claros para el usuario fiscal', () => {
     const textos = MOTIVOS_IVA_CIEN_LISTA.map(([_, txt]) => txt);
     expect(textos.some((t) => t.includes('IVA no está discriminado'))).toBe(true);
-    expect(textos.some((t) => t.includes('requisitos de facturación'))).toBe(true);
+    expect(textos.some((t) => t.includes('requisitos de facturación legal'))).toBe(true);
     expect(textos.some((t) => t.includes('Portal Fiscal'))).toBe(true);
   });
 });

@@ -18,14 +18,10 @@ function consulta(tabla: string) {
 }
 
 vi.mock('@/shared/lib/supabase', () => ({ supabase: { from: (t: string) => consulta(t), rpc: (...a: unknown[]) => rpc(...a) } }));
-vi.mock('./disponibilidad', () => ({
-  tablaDisponible: async (t?: string) => t === 'retencion_facturas_resumen' || t === 'retencion_decisiones' || t === 'retencion_documentos',
-  r2Disponible: async () => false,
-  v2rDisponible: async () => true,
-}));
+vi.mock('./disponibilidad', () => ({ tablaDisponible: async () => false, r2Disponible: async () => false, v2rDisponible: async () => true }));
 
 import {
-  aFacturaResumen, aNoAplica, buscarFacturasRetenibles, listNoAplica, pendientesComoTipos, registrarFacturaSola, retenerDespues, textoBusqueda,
+  aFacturaResumen, aNoAplica, buscarFacturasRetenibles, listNoAplica, pendientesComoTipos, retenerDespues, textoBusqueda,
 } from './facturasResumen.repository';
 
 // Datos inventados.
@@ -56,14 +52,6 @@ describe('facturas registradas (R10)', () => {
     expect(m).toContainEqual(['eq', 'proveedor_id', 'p-1']);
     expect(m).toContainEqual(['ilike', 'buscar', '%j-0000%']);
     expect(textoBusqueda('50%_x')).toBe('50x');
-  });
-
-  it('factura sola: solo_documento y sin líneas', async () => {
-    rpc.mockResolvedValueOnce({ data: { factura: { id: 'd-9', rol: 'practicada', moneda: 'Bs' }, lineas: [] }, error: null });
-    const r = await registrarFacturaSola({ direccion: 'practicada', docKind: 'manual', facturaNro: '1', actor: 'yo@ejemplo.com' });
-    expect(r.factura.id).toBe('d-9');
-    expect(rpc.mock.calls[0][0]).toBe('retencion_factura_registrar');
-    expect(rpc.mock.calls[0][1]).toMatchObject({ p_factura: { solo_documento: true }, p_lineas: [] });
   });
 
   it('retener después: retencion_lineas_registrar sobre el documento, con las líneas como en el registro', async () => {

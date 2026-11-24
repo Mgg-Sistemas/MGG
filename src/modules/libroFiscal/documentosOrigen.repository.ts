@@ -10,7 +10,6 @@
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
-import { tablaDisponible } from './disponibilidad';
 import type { ModuloDirecto } from '@/modules/pedidos/adjuntosDirectos.repository';
 
 const T_PUENTE = 'retencion_documento_origenes';
@@ -59,14 +58,88 @@ export function aFacturaDeOrigen(r: Record<string, unknown>): FacturaDeOrigen {
 }
 
 /** Construye la semilla para abrir el modal de registro de factura desde un archivo de compras. */
-export function semillaDeFacturaOrigen(f: FacturaDeOrigen) {
+export function semillaDeFacturaOrigen(
+  f: FacturaDeOrigen,
+  datosOrigen?: {
+    contraparteId?: string | null;
+    contraparteNombre?: string | null;
+    contraparteRif?: string | null;
+    moneda?: 'Bs' | 'USD';
+    facturaTotal?: number | null;
+    baseImponible?: number | null;
+    iva?: number | null;
+  },
+) {
   return {
     direccion: 'practicada' as const,
     docKind: f.origen.tipo,
     docId: f.origen.id,
     adjuntoId: f.adjuntoId,
     adjunto: { nombre: f.nombre, bucket: f.bucket, path: f.path },
+    ...(datosOrigen ?? {}),
   };
+}
+
+/** Carga los datos del origen (OC, compra directa o servicio directo) para prellenar la semilla de factura. */
+export async function cargarSemillaDeFacturaOrigen(f: FacturaDeOrigen) {
+  const base = semillaDeFacturaOrigen(f);
+  if (!f.origen.id) return base;
+  try {
+    if (f.origen.tipo === 'oc') {
+      const { data: o } = await supabase
+        .from('ordenes')
+        .select('proveedor_id, total_moneda, total, iva_monto, igtf_monto')
+        .eq('id', f.origen.id)
+        .maybeSingle();
+      if (!o) return base;
+      const provId = texto(o.proveedor_id);
+      let nombre: string | null = null;
+      let rif: string | null = null;
+      if (provId) {
+        const { data: p } = await supabase.from('proveedores').select('razon_social, rif').eq('id', provId).maybeSingle();
+        nombre = texto(p?.razon_social);
+        rif = texto(p?.rif);
+      }
+      const total = Number(o.total) || 0;
+      const iva = Number(o.iva_monto) || 0;
+      const igtf = Number(o.igtf_monto) || 0;
+      return semillaDeFacturaOrigen(f, {
+        contraparteId: provId,
+        contraparteNombre: nombre,
+        contraparteRif: rif,
+        moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
+        facturaTotal: total,
+        baseImponible: Math.max(0, total - iva - igtf),
+        iva,
+      });
+    }
+    const tabla = f.origen.tipo === 'compra_directa' ? 'compras_directas' : 'servicios_directos';
+    const { data: d } = await supabase
+      .from(tabla)
+      .select('proveedor_id, proveedor_nombre, moneda, gasto')
+      .eq('id', f.origen.id)
+      .maybeSingle();
+    if (!d) return base;
+    const provId = texto(d.proveedor_id);
+    let nombre = texto(d.proveedor_nombre);
+    let rif: string | null = null;
+    if (provId) {
+      const { data: p } = await supabase.from('proveedores').select('razon_social, rif').eq('id', provId).maybeSingle();
+      nombre = nombre ?? texto(p?.razon_social);
+      rif = texto(p?.rif);
+    }
+    const total = Number(d.gasto) || 0;
+    return semillaDeFacturaOrigen(f, {
+      contraparteId: provId,
+      contraparteNombre: nombre,
+      contraparteRif: rif,
+      moneda: d.moneda === 'Bs' ? 'Bs' : 'USD',
+      facturaTotal: total > 0 ? total : null,
+      baseImponible: total > 0 ? total : null,
+    });
+  } catch {
+    return base;
+  }
 }
 
 
@@ -76,41 +149,11 @@ export function semillaDeFacturaOrigen(f: FacturaDeOrigen) {
  */
 export async function facturasPorRegistrar(origenIds?: string[]): Promise<FacturaDeOrigen[]> {
   if (origenIds && !origenIds.length) return [];
-  if (await tablaDisponible(V_ESTADO)) {
-    try {
-      let q = supabase.from(V_ESTADO).select('*').eq('registrado', false);
-      if (origenIds) q = q.in('origen_id', origenIds);
-      const { data, error } = await q.order('subido_en');
-      if (!error && data) return data.map((r) => aFacturaDeOrigen(r as Record<string, unknown>));
-    } catch { /* continuar al fallback */ }
-  }
-
-  // Fallback nativo MGG: leer adjuntos_directos de compras/órdenes
-  try {
-    let q = supabase.from('adjuntos_directos').select('*').in('modulo', ['orden_factura', 'compra', 'servicio']);
-    if (origenIds) q = q.in('ref_id', origenIds);
-    const { data, error } = await q.order('created_at', { ascending: false }).limit(50);
-    if (error || !data) return [];
-    return data.map((r: any) => ({
-      adjuntoId: String(r.id),
-      modulo: r.modulo,
-      origen: {
-        tipo: r.modulo === 'orden_factura' ? 'oc' : r.modulo === 'compra' ? 'compra_directa' : 'servicio_directo',
-        id: String(r.ref_id),
-      },
-      bucket: String(r.bucket || 'adjuntos'),
-      path: String(r.path || ''),
-      nombre: String(r.nombre || 'factura'),
-      contentType: r.content_type || null,
-      subidoPor: r.subido_por || null,
-      subidoEn: String(r.created_at || ''),
-      registrado: false,
-      documentos: [],
-      esFactura: r.modulo === 'orden_factura' ? true : (r.es_factura ?? true),
-    }));
-  } catch {
-    return [];
-  }
+  let q = supabase.from(V_ESTADO).select('*').eq('registrado', false);
+  if (origenIds) q = q.in('origen_id', origenIds);
+  const { data, error } = await q.order('subido_en');
+  if (error) throw errorRetencion(error, 'No se pudieron leer las facturas por registrar.');
+  return (data ?? []).map((r) => aFacturaDeOrigen(r as Record<string, unknown>));
 }
 
 /** Agrupa por origen: id del origen → sus archivos. */
@@ -138,7 +181,6 @@ export interface OrigenSinFactura { origen: Origen; codigo: string | null; desde
  *  Respecto a las órdenes de compra (y recepciones), solo considera las que corresponden al período
  *  en que la empresa es agente de retención. */
 export async function origenesSinFactura(): Promise<OrigenSinFactura[]> {
-  if (!(await tablaDisponible(V_SIN_FACTURA))) return [];
   const [desdeAgente, { data, error }] = await Promise.all([
     fechaDesdeAgenteRetencion(),
     supabase.from(V_SIN_FACTURA).select('*').order('desde', { ascending: true, nullsFirst: false }),
@@ -182,7 +224,6 @@ export function aDocumentoDeOrigen(r: Record<string, unknown>): DocumentoDeOrige
 
 /** Los orígenes que cubre una factura. */
 export async function origenesDeDocumento(documentoId: string): Promise<DocumentoDeOrigen[]> {
-  if (!(await tablaDisponible(V_POR_ORIGEN))) return [];
   const { data, error } = await supabase.from(V_POR_ORIGEN).select('*').eq('documento_id', documentoId);
   if (error) throw errorRetencion(error, 'No se pudo leer qué órdenes cubre la factura.');
   return (data ?? []).map((r) => aDocumentoDeOrigen(r as Record<string, unknown>));
@@ -215,9 +256,6 @@ export async function origenesDelProveedor(proveedorId: string, limite = 60): Pr
 
 /** La factura también cubre otra orden, compra o servicio (del mismo proveedor). */
 export async function cubrirOrigen(documentoId: string, origen: Origen): Promise<string> {
-  if (!(await tablaDisponible(T_PUENTE))) {
-    throw new Error('La función de cubrir múltiples orígenes requiere la tabla retencion_documento_origenes.');
-  }
   const { data, error } = await supabase.from(T_PUENTE).insert({ documento_id: documentoId, [COLUMNA_ORIGEN[origen.tipo]]: origen.id }).select('id');
   if (error) throw errorRetencion(error, 'No se pudo enlazar la factura con la orden.');
   const id = (data as { id: string }[] | null)?.[0]?.id;
@@ -227,7 +265,6 @@ export async function cubrirOrigen(documentoId: string, origen: Origen): Promise
 
 /** Quita un enlace agregado a mano (no el del origen principal ni el que salió de un archivo). */
 export async function dejarDeCubrir(enlace: Pick<DocumentoDeOrigen, 'enlaceId' | 'adjuntoId'>, principal: Origen | null, origen: Origen): Promise<void> {
-  if (!(await tablaDisponible(T_PUENTE))) return;
   if (enlace.adjuntoId) throw new Error('Ese enlace salió del archivo de factura: no se quita.');
   if (principal && principal.tipo === origen.tipo && principal.id === origen.id) throw new Error('Es la orden principal de la factura: no se quita.');
   const { data, error } = await supabase.from(T_PUENTE).delete().eq('id', enlace.enlaceId).select('id');

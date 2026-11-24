@@ -14,6 +14,7 @@ describe('página de Contabilidad', () => {
     const menus = [...html.matchAll(/<button role="tab"[^>]*>([^<]*)<\/button>/g)].map((m) => m[1]);
     expect(menus).toEqual([
       'Comprobantes',
+      '📊 Reporte Dinámico',
       'Por Contabilizar',
       'Plan de Cuentas',
       'Estados Financieros',

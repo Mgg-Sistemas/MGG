@@ -4,7 +4,6 @@ const cola: Array<{ data: unknown; error: unknown }> = [];
 const llamadas: { tabla: string; metodos: unknown[][] }[] = [];
 const rpc = vi.fn();
 let hayTablas = true;
-let hayV2R = true;
 
 function consulta(tabla: string) {
   const reg = { tabla, metodos: [] as unknown[][] };
@@ -24,7 +23,7 @@ vi.mock('@/shared/lib/supabase', () => ({ supabase: { from: (t: string) => consu
 vi.mock('./disponibilidad', () => ({
   tablaDisponible: async (t: string) => hayTablas && (t === 'retencion_impuestos' || t === 'retencion_periodos'),
   r2Disponible: async () => hayTablas,
-  v2rDisponible: async () => hayV2R,
+  v2rDisponible: async () => true,
 }));
 
 import {
@@ -33,7 +32,6 @@ import {
 import { registrarRetencion, type NuevaRetencion } from './retencionesFiscal.repository';
 import { CONFIG_RETENCION_DEFECTO, numeroConFormato } from './retencionesCalculo';
 import { errorRetencion } from './erroresRetencion';
-import { numerarSinV2R } from './retencionFacturas.repository';
 import { rifValido } from '@/shared/lib/rif';
 
 // Datos inventados: un RIF de prueba con su dígito verificador correcto.
@@ -41,7 +39,7 @@ const RIF = (() => {
   for (let d = 0; d <= 9; d += 1) if (rifValido(`J-00000001-${d}`)) return `J-00000001-${d}`;
   throw new Error('sin RIF de prueba');
 })();
-beforeEach(() => { cola.length = 0; llamadas.length = 0; rpc.mockReset(); hayTablas = true; hayV2R = true; });
+beforeEach(() => { cola.length = 0; llamadas.length = 0; rpc.mockReset(); hayTablas = true; });
 
 describe('períodos (V3R): piezas puras', () => {
   const p = (over: Record<string, unknown> = {}) => aPeriodo({ id: 'p-1', tipo: 'IVA', periodo: '202610', tramo: 1, periodicidad: 'quincenal', desde: '2026-10-01', hasta: '2026-10-15', ...over });
@@ -124,52 +122,16 @@ describe('V2R: el número dado se valida con la serie de retencion_impuestos', (
     expect(numeroConFormato('0000000120', 'N10')).toBe(true);
     expect(numeroConFormato('0000000120', 'AAAAMM8')).toBe(false);
   });
-});
 
-describe('sin V2R (la base de hoy): el front pide el número como hasta ahora', () => {
-  const nuevaIva = (over: Partial<NuevaRetencion> = {}): NuevaRetencion => ({
-    tipo: 'iva', direccion: 'practicada', docKind: 'manual', contraparteRif: RIF, contraparteNombre: 'Proveedor de prueba',
-    facturaNumero: '000123', facturaFecha: '2026-10-05', periodo: '202610', quincena: 1, baseImponible: 1000, impuesto: 160,
-    porcentaje: 75, montoRetenido: 120, actor: 'prueba@ejemplo.com', ...over,
-  } as NuevaRetencion);
-
-  it('suelto: pide siguiente_numero_retencion y lo arma AAAAMM + 8', async () => {
-    hayV2R = false; hayTablas = false;
-    cola.push({ data: [], error: null });
-    cola.push({ data: { id: 'r-1', rol: 'practicada', tipo: 'IVA', estado: 'registrada', comprobante_nro: '20261000000007' }, error: null });
-    rpc.mockResolvedValueOnce({ data: 7, error: null });
-    await registrarRetencion(nuevaIva(), CONFIG_RETENCION_DEFECTO);
-    expect(rpc).toHaveBeenCalledWith('siguiente_numero_retencion', { p_tipo: 'IVA', p_periodo: '202610' });
+  // Con V2R (la base de hoy) el front ya no numera: una practicada sin número
+  // escrito se inserta sin número y lo pone la base. (P-BD-3: fuera el camino viejo
+  // que pedía siguiente_numero_retencion desde el front.)
+  it('practicada sin número escrito: el front NO numera, inserta sin número (la base lo pone)', async () => {
+    cola.push({ data: [], error: null });                                   // doble registro
+    cola.push({ data: { id: 'r-1', rol: 'practicada', tipo: 'ISLR', estado: 'registrada', comprobante_nro: '20261000000001' }, error: null }); // insert
+    await registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO);
+    expect(rpc).not.toHaveBeenCalled();
     const ins = llamadas[1].metodos.find((m) => m[0] === 'insert')?.[1] as Record<string, unknown>;
-    expect(ins).toMatchObject({ numero: 7, comprobante_nro: '20261000000007' });
-  });
-
-  it('suelto: una recibida no pide número', async () => {
-    hayV2R = false; hayTablas = false;
-    cola.push({ data: [], error: null });
-    cola.push({ data: { id: 'r-2', rol: 'sufrida', tipo: 'IVA', estado: 'registrada', comprobante_nro: 'C-1' }, error: null });
-    await registrarRetencion(nuevaIva({ direccion: 'recibida', numeroComprobante: 'C-1' }), CONFIG_RETENCION_DEFECTO);
-    expect(rpc).not.toHaveBeenCalled();
-  });
-
-  it('factura: cada línea practicada sin número (no IGTF) lo pide y viaja en comprobante_nro', async () => {
-    hayV2R = false;
-    rpc.mockResolvedValueOnce({ data: 7, error: null }).mockResolvedValueOnce({ data: 31, error: null });
-    const ls = await numerarSinV2R({ direccion: 'practicada', periodo: '202610', facturaFecha: '2026-10-05' }, [
-      { tipo: 'iva', base: 1000, porcentaje: 75, monto: 120 },
-      { tipo: 'islr', base: 1000, porcentaje: 2, monto: 20 },
-      { tipo: 'igtf', base: 100, porcentaje: 3, monto: 3 },
-      { tipo: 'municipal', base: 1000, porcentaje: 1, monto: 10, comprobanteNro: '20261000000099' },
-    ]);
-    expect(ls.map((l) => l.comprobanteNro ?? null)).toEqual(['20261000000007', '20261000000031', null, '20261000000099']);
-    expect(rpc).toHaveBeenCalledTimes(2);
-  });
-
-  it('factura: con V2R o en una recibida, no pide números', async () => {
-    const l = [{ tipo: 'iva' as const, base: 1000, porcentaje: 75, monto: 120 }];
-    expect(await numerarSinV2R({ direccion: 'practicada', periodo: '202610' }, l)).toBe(l);
-    hayV2R = false;
-    expect(await numerarSinV2R({ direccion: 'recibida', periodo: '202610' }, l)).toBe(l);
-    expect(rpc).not.toHaveBeenCalled();
+    expect(ins).toMatchObject({ numero: null, comprobante_nro: null });
   });
 });

@@ -1,191 +1,187 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { previewArchivo } from '@/shared/lib/reportePreview';
 import { notify } from '@/shared/lib/notify';
-import { money, montoMoneda, num, dateTime } from '@/shared/lib/format';
+import { money, num, dateTime } from '@/shared/lib/format';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { useSession } from '@/modules/auth/authStore';
-import { Link, Navigate } from 'react-router-dom';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
-import { RUTA_RETENCIONES_TELEFONO } from '@/modules/usuarios/permisos.repository';
-import { BuzonFacturasExternasView } from './BuzonFacturasExternasView';
 import { labelCondicionPago } from '@/modules/pedidos/ofertas.repository';
 import {
   listRetencionesPendientes, listRetencionesHechas, finalizarRetencion,
-  urlRetencion, comprobantesDeOrden, labelRetencionModo,
+  urlRetencion, comprobantesDeOrden, labelRetencionModo, labelRetencionMomento,
   TIPOS_RETENCION, type RetencionItem, type TipoRetencion,
 } from './retenciones.repository';
+import { badgeEstatusKanban, badgeImpuestoOrden } from './retencionesKanban';
+import { urlSoporteCola, type SoporteCola } from './soporteCola';
+import { estadoRetencionDeOrden, badgeEstadoRetencion, textoPago } from './estadoRetencion';
+import { montosPagadosDeOrdenes, type MontoPagado } from './pagoOrden.repository';
 import type { Orden } from '@/shared/lib/types';
-import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
-import { listRetenciones, tipoAGt } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import { LibroFiscalView, ConfiguracionFiscalModal, RegistrarRetencionModal, type FocoLibro, type SemillaRetencion } from '@/modules/libroFiscal/LibroFiscal';
+import { getConfigRetencion, listRetenciones, tipoAGt, tipoDeGt } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import { listImpuestos } from '@/modules/libroFiscal/impuestos.repository';
+import { soloImpuestosActivos, filtrarActivos, type ImpuestosActivos, type FichaRetencionVista } from './impuestosVista';
 import { impuestosQuePractica, noAplicaDisponible, noAplicaPorOrden } from '@/modules/libroFiscal/noAplica.repository';
-import { listCondiciones, empresaEsAgenteEnFecha, type CondicionRegistrada } from '@/modules/libroFiscal/agenteCondiciones.repository';
 import { NoAplicaModal, type ObjetivoNoAplica } from '@/modules/libroFiscal/NoAplicaModal';
 import { PeriodosRetencion } from '@/modules/libroFiscal/PeriodosRetencion';
 import { AuditoriaRetenciones } from '@/modules/libroFiscal/AuditoriaRetenciones';
 import { RegistrarFacturaRetencion, type SemillaFactura } from '@/modules/libroFiscal/RegistrarFacturaRetencion';
-import { FacturasPorRegistrar } from '@/modules/libroFiscal/FacturasPorRegistrar';
-import { AvisoSinFactura } from '@/modules/libroFiscal/AvisoSinFactura';
-import type { FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
+import { semillaFacturaDesdeBuzon, semillaFacturaDesdeOrdenArchivo, semillaRetencionDesdeOrden } from '@/modules/libroFiscal/semillasRetencion';
+import { cargarSemillaDeFacturaOrigen, facturasPorRegistrar, type FacturaDeOrigen } from '@/modules/libroFiscal/documentosOrigen.repository';
+import { ColaPorHacerView } from './ColaPorHacerView';
+import { construirColaPorHacer, type ItemColaPorHacer } from './colaPorHacer';
 import { v3Disponible } from '@/modules/libroFiscal/periodosRetencion.repository';
-import { fechaTasaBcv, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
-import { diaVE, getTasasUsdDeFechas, hoyVE } from '@/modules/tesoreria/tasas.repository';
+import { buzonDisponible } from '@/modules/libroFiscal/disponibilidad';
+import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion, type TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
+import { hoyVE } from '@/modules/tesoreria/tasas.repository';
 import { aplicarFiltros, conteoOpcion, paginar, type FiltroLista } from '@/modules/libroFiscal/listas';
 import { BarraLista, Paginador, type ControlFiltro } from '@/modules/libroFiscal/ListaControles';
 import { ReportesView } from './ReportesView';
-import { OcPorRetenerPanel } from './OcPorRetenerPanel';
-import { useFlujoRevisionAlmacen } from '@/modules/pedidos/revisionAlmacen.repository';
+import { BuzonFacturasExternasView } from './BuzonFacturasExternasView';
+import { listFacturasBuzon, ultimaCreacionBuzon, actualizarEstatusFacturaBuzon, type FacturaBuzon } from './facturasBuzon.repository';
+// Multi-empresa (andamiaje F-ME2): empresa actual arriba del módulo. Oculto y
+// sin efecto mientras la base no traiga la empresa en las retenciones.
+import { useEmpresaActual, esEmpresaGt } from './empresaActual';
+import { rifValido } from '@/shared/lib/rif';
+import { list as listProveedores, insert as insertProveedor } from '@/modules/proveedores/proveedores.repository';
+import { EmpresaActualSelector } from './EmpresaActualSelector';
+import { EditorFichasFiscalesEmpresa } from './EditorFichasFiscalesEmpresa';
+import { Link } from 'react-router-dom';
 import '@/modules/libroFiscal/libroFiscal.css';
 import '@/modules/libroFiscal/libroFiscalV8.css';
 import { norm } from '@/shared/lib/texto';
 
-type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes' | 'auditoria' | 'buzon' | 'otras_empresas' | 'oc_por_retener';
+type Vista = 'pendientes' | 'hechas' | 'libro' | 'agrupada' | 'periodos' | 'reportes' | 'auditoria' | 'buzon';
 
-/** Qué documento es un código, en palabras: el personal no tiene por qué saber las siglas. */
-function nombreDocumento(codigo: string | null | undefined): string {
-  const c = String(codigo ?? '').toUpperCase();
-  if (c.startsWith('OC-')) return 'Orden de compra';
-  if (c.startsWith('CS-')) return 'Control de servicio';
-  if (c.startsWith('OP-') || c.startsWith('SP-')) return 'Solicitud de pedido';
-  if (c.startsWith('SS-')) return 'Solicitud de servicio';
-  return 'Compra';
+// C-g: marca por-navegador de hasta dónde se «vio» el buzón (el sello de creación de la
+// factura más nueva ya vista). El badge cuenta las creadas después de esa marca; al abrir
+// el buzón se actualiza y el badge se limpia. Es una comodidad por usuario, no dato fiscal.
+const CLAVE_BUZON_VISTO = 'gt.retenciones.buzon.visto';
+function leerBuzonVisto(): string | null {
+  try { return localStorage.getItem(CLAVE_BUZON_VISTO); } catch { return null; }
+}
+function guardarBuzonVisto(v: string): void {
+  try { localStorage.setItem(CLAVE_BUZON_VISTO, v); } catch { /* sin localStorage: el badge es best-effort */ }
 }
 
-/** Estatus legible de la orden según las columnas del kanban de Compras / Servicios. */
-export function labelEstadoKanban(estado: string | null | undefined, tipo?: string | null): string {
-  if (!estado) return '—';
-  if (tipo === 'servicio') {
-    switch (estado) {
-      case 'pendiente': return 'Solicitado';
-      case 'aprobada': return 'Aprobado (cotizar)';
-      case 'oc_creada': return 'Por aprobación';
-      case 'cuenta_abierta': return 'Crédito';
-      case 'confirmada_metodo': return 'Por método de pago';
-      case 'oc_aprobada': return 'Confirmado pagar';
-      case 'por_recibir': return 'Por realizar';
-      case 'pagada': return 'Pagado';
-      case 'recibida': return 'Servicio realizado';
-      case 'finalizada': return 'Finalizado';
-      case 'cancelada': return 'Cancelado';
-    }
-  }
-  switch (estado) {
-    case 'pendiente': return 'Pendiente cotizar';
-    case 'aprobada': return 'Pendiente (cargar ofertas)';
-    case 'oc_creada': return 'Por aprobación Gerente';
-    case 'cuenta_abierta': return 'Crédito / cuenta abierta';
-    case 'confirmada_metodo': return 'Confirmada (método de pago)';
-    case 'oc_aprobada': return 'Confirmada pagar';
-    case 'por_recibir': return 'Pendiente por recepción';
-    case 'pagada': return 'Pagada';
-    case 'recibida': return 'Recibida';
-    case 'finalizada': return 'Finalizada';
-    case 'anulada': return 'Anulada';
-    case 'cancelada': return 'Cancelada';
-    case 'desistida_proveedor': return 'Proveedor desistió';
-    default: return estado.replace(/_/g, ' ');
-  }
-}
-
-/** Información visual sobre si la orden viene o no con impuestos y su desglose. */
-export function infoImpuestoOrden(o: Orden): {
-  tieneIva: boolean;
-  tieneIgtf: boolean;
-  label: string;
-  badgeClass: string;
-  detalle: string;
-} {
-  const iva = Math.max(0, Number(o.iva ?? o.iva_monto ?? 0));
-  const igtf = Math.max(0, Number(o.igtf ?? o.igtf_monto ?? 0));
-  const moneda = o.total_moneda === 'Bs' ? 'Bs' : (o.moneda ?? 'USD');
-
-  if (iva > 0) {
-    if (o.iva_incluido) {
-      return {
-        tieneIva: true,
-        tieneIgtf: igtf > 0,
-        label: `IVA incluido (${montoMoneda(iva, moneda)})`,
-        badgeClass: 'lfv8-pill impuesto-incluido',
-        detalle: `Precios con IVA adentro: ${montoMoneda(iva, moneda)}${igtf > 0 ? ` + IGTF ${montoMoneda(igtf, moneda)}` : ''}`,
-      };
-    }
-    return {
-      tieneIva: true,
-      tieneIgtf: igtf > 0,
-      label: `Con IVA (${montoMoneda(iva, moneda)})`,
-      badgeClass: 'lfv8-pill impuesto-con-iva',
-      detalle: `IVA adicional: ${montoMoneda(iva, moneda)}${igtf > 0 ? ` + IGTF ${montoMoneda(igtf, moneda)}` : ''}`,
-    };
-  }
-
-  if (igtf > 0) {
-    return {
-      tieneIva: false,
-      tieneIgtf: true,
-      label: `Solo IGTF (${montoMoneda(igtf, moneda)})`,
-      badgeClass: 'lfv8-pill impuesto-igtf',
-      detalle: `Sin IVA · IGTF: ${montoMoneda(igtf, moneda)}`,
-    };
-  }
-
-  return {
-    tieneIva: false,
-    tieneIgtf: false,
-    label: 'Sin IVA (exenta)',
-    badgeClass: 'lfv8-pill impuesto-sin-iva',
-    detalle: 'Esta orden no tiene IVA registrado en compras (exenta o sin desglose fiscal)',
-  };
-}
-
-/** Quien solo usa el teléfono va a la vista móvil. Va aparte para que los hooks de la pantalla no queden detrás de un return. */
 export function RetencionesPage() {
-  const { soloTelefono } = usePermissions();
-  if (soloTelefono) return <Navigate to={`/app/${RUTA_RETENCIONES_TELEFONO}`} replace />;
-  return <RetencionesPantalla />;
-}
-
-function RetencionesPantalla() {
   const { user } = useSession();
-  const { can, appUser } = usePermissions();
+  const { can, appUser, puedeVista, isAdmin } = usePermissions();
   const canWrite = can('retenciones', 'escritura');
   const actor = user?.email ?? 'sistema';
   const actorName = appUser?.nombre ?? null;
 
   const [vista, setVista] = useState<Vista>('agrupada');
-  // Flujo nuevo de compras (30-10-2026): «OC por retener» (antes / después de pagar).
-  const flujoNuevoCompras = useFlujoRevisionAlmacen();
   const [parametros, setParametros] = useState(false);
+  const [configFiscal, setConfigFiscal] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [pendientes, setPendientes] = useState<RetencionItem[]>([]);
   const [hechas, setHechas] = useState<RetencionItem[]>([]);
+  const [facturasCompras, setFacturasCompras] = useState<FacturaDeOrigen[]>([]);
+  const [facturasBuzon, setFacturasBuzon] = useState<FacturaBuzon[]>([]);
   const [registradas, setRegistradas] = useState<Registradas>(new Map());
-  const [tasasDoc, setTasasDoc] = useState<TasasDoc>(new Map());
+  const [pagosOc, setPagosOc] = useState<Map<string, MontoPagado>>(new Map());
   const [conV3, setConV3] = useState(false);
   useEffect(() => { v3Disponible().then(setConV3).catch(() => setConV3(false)); }, []);
+  // R11: el buzón de facturas del teléfono, solo con sus tablas en la base.
+  const [conBuzon, setConBuzon] = useState(false);
+  useEffect(() => { buzonDisponible().then(setConBuzon).catch(() => setConBuzon(false)); }, []);
+  // C4a (D6): el buzón se muestra si está en la base Y activado en Parámetros (config.buzonActivo).
+  const buzonVisible = conBuzon && configFiscal.buzonActivo !== false;
+  // C-g: contador PERSISTENTE de facturas nuevas en el buzón (no depende de tener la vista
+  // abierta). «Nuevas» = creadas después de la última vez que se abrió el buzón.
+  const [buzonNuevas, setBuzonNuevas] = useState(0);
+  const buzonVistoRef = useRef<string | null>(leerBuzonVisto());
+  const buzonUltimaRef = useRef<string>('');
+  const refrescarBuzonNuevas = useCallback(async () => {
+    try {
+      const facs = await listFacturasBuzon();
+      const ultima = ultimaCreacionBuzon(facs);
+      buzonUltimaRef.current = ultima;
+      // Primera vez (sin marca): se toma lo actual como ya visto, el badge no alarma de golpe.
+      if (buzonVistoRef.current === null) { buzonVistoRef.current = ultima; guardarBuzonVisto(ultima); }
+      const visto = buzonVistoRef.current ?? '';
+      setBuzonNuevas(facs.filter((f) => f.createdAt > visto).length);
+    } catch { /* el badge es best-effort: sin lectura, queda como estaba */ }
+  }, []);
+  useEffect(() => { if (conBuzon) void refrescarBuzonNuevas(); }, [conBuzon, refrescarBuzonNuevas]);
+  // Al abrir el buzón (teléfono o vista PC) se marca lo visto y el badge se limpia.
+  const marcarBuzonVisto = useCallback(() => {
+    if (buzonUltimaRef.current) { buzonVistoRef.current = buzonUltimaRef.current; guardarBuzonVisto(buzonUltimaRef.current); }
+    setBuzonNuevas(0);
+  }, []);
+  // Multi-empresa (andamiaje): la empresa actual del módulo. En single-empresa
+  // queda inerte (multiempresa=false) y el selector no se muestra.
+  const { multiempresa, empresas, empresaId, empresaActual, setEmpresaId } = useEmpresaActual();
+  // La ficha fiscal a usar para config/régimen: solo para una empresa NO-GT. GT (o
+  // single-empresa) → null, y el libro/registro/reportes usan la config global (R1), como hoy.
+  const empresaFicha = multiempresa && empresaActual && !esEmpresaGt(empresaActual) ? empresaActual : null;
+  // «Por realizar» nace del flujo de compras de Golden Touch; una empresa NO-GT
+  // (empresaFicha no-null) no tiene ese flujo. esGt=true para GT o single-empresa.
+  const esGt = empresaFicha == null;
   const [loading, setLoading] = useState(true);
-  const [sel, setSel] = useState<RetencionItem | null>(null);
+  // El detalle puede venir de la cola «Por hacer»: ahí el soporte no es siempre
+  // factura_recepcion_path (puede ser del Buzón o un archivo subido por Compras).
+  const [sel, setSel] = useState<(RetencionItem & { soporteCola?: SoporteCola }) | null>(null);
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
   // P03: registrar el documento fiscal desde un archivo de factura que subió Compras.
   const [registrarFactura, setRegistrarFactura] = useState<SemillaFactura | null>(null);
+  // «Ver en libro» de la cola: foco contextual para que el libro abra filtrado
+  // por esa factura (y, si está pendiente, por el listado de facturas por registrar).
+  const [focoLibro, setFocoLibro] = useState<FocoLibro | null>(null);
+  // D: la factura del Buzón que se está registrando (para marcarla 'retenida' al terminar y
+  // registrar bajo SU empresa). Reusa el MISMO registro; no se duplica ningún formulario.
+  const [buzonEnRegistro, setBuzonEnRegistro] = useState<FacturaBuzon | null>(null);
   // D48: «no aplica» por impuesto, sin número de comprobante (con R10 en la base).
   const [conNoAplica, setConNoAplica] = useState(false);
   useEffect(() => { noAplicaDisponible().then(setConNoAplica).catch(() => setConNoAplica(false)); }, []);
   const [noAplica, setNoAplica] = useState<ObjetivoNoAplica | null>(null);
-  // Con R10: «Por realizar» pide solo los impuestos que la empresa practica hoy según Parámetros › Régimen.
+  // D2: «Por realizar» pide solo los impuestos que la empresa practica, leídos de la
+  // ÚNICA fuente (la RPC retencion_empresa_practica, por empresa cuando la base lo trae).
+  // La base enforcea el régimen a la fecha de cada factura; el tablero resuelve a hoy.
   const [practica, setPractica] = useState<Set<ImpuestoPendiente> | null>(null);
-  useEffect(() => {
-    impuestosQuePractica(IMPUESTOS_PENDIENTES.map((t) => tipoAGt(t.key)), hoyVE())
-      .then((s) => setPractica(s ? new Set(IMPUESTOS_PENDIENTES.map((t) => t.key).filter((k) => s.has(tipoAGt(k)))) : null))
-      .catch(() => setPractica(null));
-  }, []);
+  // La pestaña Períodos necesita también IGTF y ESTADAL (el tablero solo mira iva/islr/municipal).
+  // Misma llamada a la RPC: se derivan los dos conjuntos sin duplicar consultas.
+  const [practicaClaves, setPracticaClaves] = useState<Set<string> | null>(null);
+  const cargarPractica = useCallback(() => {
+    const claves: string[] = [
+      ...IMPUESTOS_PENDIENTES.map((t) => tipoAGt(t.key)),
+      'IGTF',
+      'ESTADAL',
+    ];
+    impuestosQuePractica(claves, hoyVE(), empresaId ?? 'empresa-golden-touch')
+      .then((s) => {
+        setPracticaClaves(s);
+        setPractica(s ? new Set(IMPUESTOS_PENDIENTES.map((t) => t.key).filter((k) => s.has(tipoAGt(k)))) : null);
+      })
+      .catch(() => { setPracticaClaves(null); setPractica(null); });
+  }, [empresaId]);
+  useEffect(() => { cargarPractica(); }, [cargarPractica]);
 
-  // Régimen fiscal con historial de condiciones para validar vigencias fecha por fecha
-  const [condiciones, setCondiciones] = useState<CondicionRegistrada[] | null>(null);
-  const cargarCondiciones = useCallback(() => {
-    listCondiciones().then(setCondiciones).catch(() => setCondiciones([]));
+  // Las vistas (tarjetas, filtros y columnas por impuesto) salen de los impuestos
+  // ACTIVOS de la tabla, no de una lista fija: un impuesto deshabilitado desaparece.
+  // Si no se puede leer o no hay datos, se cae a la lista fija (no se rompe la pantalla).
+  const [impuestosActivos, setImpuestosActivos] = useState<ImpuestosActivos | null>(null);
+  // La ficha de cada impuesto (direcciones que admite, formato de su serie) para los modales de registro.
+  const [fichasImpuesto, setFichasImpuesto] = useState<Map<TipoImpuesto, FichaRetencionVista> | null>(null);
+  const cargarImpuestosActivos = useCallback(() => {
+    listImpuestos()
+      .then((xs) => {
+        setFichasImpuesto(new Map(xs.map((i) => [tipoDeGt(i.clave), {
+          admitePracticada: i.admitePracticada, admiteSufrida: i.admiteSufrida, serieFormato: i.serieFormato, numera: i.numera,
+        }] as const)));
+        const activos = xs.filter((i) => i.activo !== false);
+        if (!activos.length) { setImpuestosActivos(null); return; }
+        setImpuestosActivos({
+          claves: new Set(activos.map((i) => tipoDeGt(i.clave))),
+          orden: new Map(activos.map((i) => [tipoDeGt(i.clave), i.orden] as const)),
+        });
+      })
+      .catch(() => { setImpuestosActivos(null); setFichasImpuesto(null); });
   }, []);
-  useEffect(() => { cargarCondiciones(); }, [cargarCondiciones]);
+  useEffect(() => { cargarImpuestosActivos(); }, [cargarImpuestosActivos]);
+
 
   // Búsqueda, filtros, orden y página de las dos listas de OC (Por realizar y Realizadas).
   const [fDesde, setFDesde] = useState('');
@@ -200,10 +196,14 @@ function RetencionesPantalla() {
   useEffect(() => { setPag(1); }, [vista, fDesde, fHasta, fTipo, fTesoreria, fTexto, orden]);
 
   const reload = useCallback(async () => {
-    const [p, h, libro] = await Promise.all([
-      listRetencionesPendientes().catch(() => [] as RetencionItem[]),
+    const cfg = await getConfigRetencion().catch(() => CONFIG_RETENCION_DEFECTO);
+    setConfigFiscal(cfg);
+    const [p, h, libro, fc, fb] = await Promise.all([
+      listRetencionesPendientes(cfg.estadosKanbanRetencion).catch(() => [] as RetencionItem[]),
       listRetencionesHechas().catch(() => [] as RetencionItem[]),
       listRetenciones({ direccion: 'practicada' }).catch(() => []),
+      facturasPorRegistrar().catch(() => [] as FacturaDeOrigen[]),
+      listFacturasBuzon().catch(() => [] as FacturaBuzon[]),
     ]);
     const reg: Registradas = new Map();
     for (const r of libro) {
@@ -213,24 +213,17 @@ function RetencionesPantalla() {
       reg.set(r.docId, s);
     }
     // Lo marcado «no aplica» cuenta como resuelto para ese impuesto.
-    const na = await noAplicaPorOrden(p.map((i) => i.orden.id)).catch(() => new Map<string, Set<TipoImpuesto>>());
+    const na = await noAplicaPorOrden([...p, ...h].map((i) => i.orden.id)).catch(() => new Map<string, Set<TipoImpuesto>>());
     for (const [id, tipos] of na) {
       const s = reg.get(id) ?? new Set<TipoImpuesto>();
       for (const t of tipos) s.add(t);
       reg.set(id, s);
     }
     setPendientes(p); setHechas(h); setRegistradas(reg);
-    const docs = p.map((i) => {
-      const d = fechaDocumento(i.orden);
-      return { id: i.orden.id, fecha: fechaTasaBcv(d.fecha), origen: d.origen };
-    });
-    const porFecha = await getTasasUsdDeFechas(docs.map((d) => d.fecha)).catch(() => new Map<string, number>());
-    const td: TasasDoc = new Map();
-    for (const d of docs) {
-      const tasa = porFecha.get(d.fecha);
-      if (tasa) td.set(d.id, { tasa, fecha: d.fecha, origen: d.origen });
-    }
-    setTasasDoc(td);
+    setFacturasCompras(fc); setFacturasBuzon(fb);
+    // Monto neto con que Tesorería pagó las OC ya pagadas (lectura cruzada, solo lectura).
+    const idsPagadas = [...p, ...h].filter((i) => i.orden.retencion_pagada).map((i) => i.orden.id);
+    setPagosOc(await montosPagadosDeOrdenes(idsPagadas).catch(() => new Map<string, MontoPagado>()));
   }, []);
 
   useEffect(() => {
@@ -240,41 +233,89 @@ function RetencionesPantalla() {
     return () => { cancel = true; };
   }, [reload]);
 
-  // Realtime multiusuario: lo que registra otro (o paga Tesorería o cambia en Régimen) se refleja al instante.
-  useRealtime(['ordenes', 'retenciones', 'retencion_decisiones', 'retencion_agente_condiciones'], () => {
+  // Realtime multiusuario: lo que registra otro (o paga Tesorería o cambia en Régimen/Parámetros) se refleja al instante.
+  // C-g: se suma `retencion_facturas_externas` (solo con el buzón en la base) para que una
+  // factura cargada desde el teléfono refresque el contador de nuevas aunque la vista esté cerrada.
+  useRealtime(['ordenes', 'retenciones', 'retencion_decisiones', 'retencion_agente_condiciones', 'parametros', 'retencion_impuestos',
+    'adjuntos_directos', 'retencion_documento_origenes',
+    ...(conBuzon ? ['retencion_facturas_externas'] : [])], () => {
+    cargarImpuestosActivos();
     void reload();
-    cargarCondiciones();
+    cargarPractica();
+    if (conBuzon) void refrescarBuzonNuevas();
   });
 
-  // Una OC sigue «por realizar» mientras le quede un impuesto sin registrar en el libro.
-  const porRealizar = useMemo(
-    () => pendientes.filter((i) => impuestosPendientesDeOrden(i.orden, registradas, practica, condiciones).length > 0),
-    [pendientes, registradas, practica, condiciones],
+  // Cola unificada «Por hacer»: facturas con archivo adjunto listas para retener, por empresa.
+  const colaPorHacer = useMemo(
+    () => construirColaPorHacer({
+      empresaId,
+      esGt,
+      facturasBuzon,
+      facturasCompras,
+      pendientesOrdenes: pendientes,
+      registradas,
+      practica,
+      configFiscal,
+      impuestosActivos: impuestosActivos?.claves ?? null,
+    }),
+    [empresaId, esGt, facturasBuzon, facturasCompras, pendientes, registradas, practica, configFiscal, impuestosActivos],
   );
 
   // La semilla del registro sale del archivo: su orden y, si es una OC que ya está en la lista, proveedor y montos.
-  function semillaDeFactura(f: FacturaDeOrigen): SemillaFactura {
-    const s: SemillaFactura = {
-      direccion: 'practicada', docKind: f.origen.tipo, docId: f.origen.id,
-      adjuntoId: f.adjuntoId, adjunto: { nombre: f.nombre, bucket: f.bucket, path: f.path },
-    };
+  async function abrirDesdeFactura(f: FacturaDeOrigen) {
     const item = f.origen.tipo === 'oc' ? [...pendientes, ...hechas].find((i) => i.orden.id === f.origen.id) : undefined;
-    if (!item) return s;
-    const o = item.orden;
-    const ivaReal = Math.max(0, Number(o.iva ?? o.iva_monto ?? 0));
-    const igtfReal = Math.max(0, Number(o.igtf ?? o.igtf_monto ?? 0));
-    const exentoReal = Math.max(0, Number((o as unknown as { exento?: number }).exento ?? 0));
-    const baseCalc = Math.max(0, Number(o.total || 0) - ivaReal - igtfReal - exentoReal);
-    return {
-      ...s, contraparteId: o.proveedor_id, contraparteNombre: item.proveedorNombre,
-      moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
-      facturaTotal: o.total, baseImponible: baseCalc, iva: ivaReal,
-    };
+    if (item) {
+      setRegistrarFactura(semillaFacturaDesdeOrdenArchivo(f, item));
+      return;
+    }
+    const semilla = await cargarSemillaDeFacturaOrigen(f);
+    setRegistrarFactura(semilla);
+  }
+
+  // D (puente Buzón → Libro): el rol retención (vista PC) toma una factura cargada en el
+  // buzón y abre el MISMO registro, sembrado con sus datos y BAJO la empresa de la factura
+  // (cada empresa retiene en su libro). La ficha sale de las empresas ya cargadas; GT → null.
+  function fichaDeBuzon(empId: string) {
+    const e = empresas.find((x) => x.id === empId);
+    return e && !esEmpresaGt(e) ? e : null;
+  }
+  async function abrirDesdeBuzon(fac: FacturaBuzon) {
+    // El registro exige un proveedor registrado: lo buscamos por RIF. Si existe, se
+    // selecciona; si no existe y el RIF es válido, se CREA (reusa proveedores.insert) para
+    // poder retener. Con RIF inválido/vacío se abre sin proveedor y el registro lo pide.
+    const rif = (fac.proveedorRif ?? '').trim();
+    let contraparteId: string | undefined;
+    if (rif) {
+      const lista = await listProveedores().catch(() => [] as Awaited<ReturnType<typeof listProveedores>>);
+      const existe = lista.find((p) => (p.rif ?? '').trim().toUpperCase() === rif.toUpperCase());
+      if (existe) {
+        contraparteId = existe.id;
+      } else if (rifValido(rif)) {
+        const nuevo = await insertProveedor({ rif, razon_social: (fac.proveedorNombre || rif).trim(), categorias: [], estado: 'activo', origen: 'nacional' }).catch(() => null);
+        contraparteId = nuevo?.id;
+      }
+    }
+    setBuzonEnRegistro(fac);
+    setRegistrarFactura(semillaFacturaDesdeBuzon(fac, contraparteId));
+  }
+
+  // «Ver en libro» deja de ser un enlace genérico: lleva la factura de la fila.
+  function abrirEnLibro(item: ItemColaPorHacer) {
+    const desde = item.fecha && /^\d{4}-\d{2}/.test(item.fecha) ? `${item.fecha.slice(0, 7)}-01` : '';
+    const origenId = item.rawFacturaOrigen?.origen?.id ?? item.rawOrdenItem?.orden?.id ?? null;
+    const etiqueta = [item.codigo, item.proveedorRif].filter(Boolean).join(' · ') || item.proveedorNombre;
+    setFocoLibro({
+      texto: item.codigo || item.proveedorRif || item.proveedorNombre,
+      desde,
+      origenIds: origenId ? [origenId] : [],
+      titulo: etiqueta,
+    });
+    setVista('agrupada');
   }
 
   const proveedorIdsPendientes = useMemo(
-    () => new Set(porRealizar.map((i) => i.orden.proveedor_id).filter(Boolean) as string[]),
-    [porRealizar],
+    () => new Set(colaPorHacer.map((i) => i.rawOrdenItem?.orden.proveedor_id).filter(Boolean) as string[]),
+    [colaPorHacer],
   );
 
   // La lista de la vista: búsqueda y fechas (las de siempre), filtros con su conteo y orden.
@@ -304,10 +345,11 @@ function RetencionesPantalla() {
     },
     ...(vista === 'hechas' ? [{
       campo: 'tipo', etiqueta: 'Tipo de retención', valor: fTipo,
-      opciones: TIPOS_RETENCION.map((t): [string, string] => [t.key, t.label]),
-      pasa: ({ orden: o }: RetencionItem, v: string) => comprobantesDeOrden(o).some((c) => c.tipo === v),
+      opciones: soloImpuestosActivos(TIPOS_RETENCION, impuestosActivos).map((t): [string, string] => [t.key, t.label]),
+      pasa: ({ orden: o }: RetencionItem, v: string) =>
+        comprobantesDeOrden(o).some((c) => c.tipo === v) || Boolean(registradas.get(o.id)?.has(v as TipoImpuesto)),
     }] : []),
-  ], [vista, fTesoreria, fTipo]);
+  ], [vista, fTesoreria, fTipo, registradas, impuestosActivos]);
 
   const filas = useMemo(() => {
     const fecha = ({ orden: o }: RetencionItem) => String((vista === 'hechas' ? o.retencion_finalizada_en : o.metodo_pago_en) ?? '');
@@ -338,16 +380,31 @@ function RetencionesPantalla() {
           Retenciones por factura: aplicables, registradas y no aplicables.
         </p>
         <div className="lfv8-cabeza-acciones">
-          <Link to="/app/retenciones/telefono" className="btn btn-ghost" title="Vista teléfono para carga de facturas externas">📱 Vista teléfono</Link>
+          {multiempresa && (
+            <EmpresaActualSelector empresas={empresas} empresaId={empresaId} onChange={setEmpresaId} />
+          )}
           <button className="btn btn-ghost" onClick={() => setParametros(true)}>⚙ Parámetros</button>
+          {buzonVisible && puedeVista('retenciones') && (
+            <Link to="/app/retenciones/telefono" className="btn btn-ghost" style={{ textDecoration: 'none', position: 'relative' }} title={buzonNuevas > 0 ? `${buzonNuevas} factura(s) nueva(s) en el buzón` : 'Abrir vista móvil de facturas'} onClick={marcarBuzonVisto}>
+              📱 Teléfono
+              {buzonNuevas > 0 && (
+                <span style={{ marginLeft: 6, background: 'var(--danger)', color: '#fff', borderRadius: 999, padding: '0 6px', fontSize: '.7rem', fontWeight: 700 }}>
+                  {buzonNuevas}
+                </span>
+              )}
+            </Link>
+          )}
           <nav className="view-toggle" role="tablist" aria-label="Pantallas del módulo" style={{ margin: 0 }}>
             <button className={vista === 'pendientes' ? 'active' : ''} onClick={() => setVista('pendientes')}>
-              Por realizar{porRealizar.length ? ` (${porRealizar.length})` : ''}
+              Por hacer{colaPorHacer.length ? ` (${colaPorHacer.length})` : ''}
             </button>
             <button className={vista === 'hechas' ? 'active' : ''} onClick={() => setVista('hechas')}>Realizadas</button>
-            {flujoNuevoCompras && <button className={vista === 'oc_por_retener' ? 'active' : ''} onClick={() => setVista('oc_por_retener')}>🧾 OC por retener (flujo nuevo)</button>}
             <button className={vista === 'agrupada' || vista === 'libro' ? 'active' : ''} onClick={() => setVista('agrupada')}>📒 Libro fiscal</button>
-            <button className={vista === 'buzon' || vista === 'otras_empresas' ? 'active' : ''} onClick={() => setVista('buzon')}>📬 Buzón Móvil</button>
+            {buzonVisible && (
+              <button className={vista === 'buzon' ? 'active' : ''} onClick={() => { setVista('buzon'); marcarBuzonVisto(); }}>
+                📥 Buzón Móvil{buzonNuevas > 0 ? ` (${buzonNuevas})` : ''}
+              </button>
+            )}
             {conV3 && <button className={vista === 'periodos' ? 'active' : ''} onClick={() => setVista('periodos')}>Períodos</button>}
             <button className={vista === 'reportes' ? 'active' : ''} onClick={() => setVista('reportes')}>Reportes</button>
             <button className={vista === 'auditoria' ? 'active' : ''} onClick={() => setVista('auditoria')}>🛡️ Auditoría</button>
@@ -358,39 +415,43 @@ function RetencionesPantalla() {
       {/* El período en curso de cada impuesto se ve en «Períodos» (resumen por impuesto). */}
 
       {/* ── Libro fiscal consolidado (con switch interno entre vista por factura, lista o por impuesto) ── */}
-      {/* ── Otras Empresas (Buzón de facturas y retenciones de otras razones sociales) ── */}
-      {(vista === 'buzon' || vista === 'otras_empresas') && <BuzonFacturasExternasView />}
-
       {(vista === 'agrupada' || vista === 'libro') && (
-        <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} />
+        <LibroFiscalView canWrite={canWrite} actor={actor} actorName={actorName} empresaId={empresaId} empresaFicha={empresaFicha} foco={focoLibro} />
       )}
 
       {/* ── Períodos fiscales (v8: filtros + atención + timeline) ── */}
       {/* Períodos solo con V3R en la base: generar el año, declarar y reabrir. */}
-      {vista === 'periodos' && conV3 && <PeriodosRetencion puedeEditar={canWrite} />}
+      {vista === 'periodos' && conV3 && (
+        <PeriodosRetencion puedeEditar={canWrite} impuestosActivos={impuestosActivos} practicaClaves={practicaClaves} />
+      )}
 
       {/* ── Reportes ── */}
-      {vista === 'reportes' && <ReportesView actor={actor} />}
+      {vista === 'reportes' && <ReportesView actor={actor} empresaId={empresaId} empresaFicha={empresaFicha} />}
 
       {/* ── Auditoría Fiscal (concisa y explícita) ── */}
       {vista === 'auditoria' && <AuditoriaRetenciones />}
 
-      {vista === 'oc_por_retener' && flujoNuevoCompras && <OcPorRetenerPanel canWrite={canWrite} />}
+      {/* ── Buzón Móvil y Multi-Empresa (facturas externas y soportes) ── */}
+      {vista === 'buzon' && buzonVisible && <BuzonFacturasExternasView onRegistrar={abrirDesdeBuzon} />}
 
-      {/* ── Por realizar (v8): grid, pills, acciones inline ── */}
-      {/* P03: lo que falta de Compras (recepciones sin factura) y sus archivos de factura por registrar. */}
+      {/* ── Por hacer: cola unificada con archivo obligatorio por empresa ── */}
       {vista === 'pendientes' && (
-        <>
-          <AvisoSinFactura rutaDe={(o) => `/app/pedidos?detalle=${encodeURIComponent(o.origen.id)}`} />
-          <FacturasPorRegistrar puedeRegistrar={canWrite} onRegistrar={(f) => setRegistrarFactura(semillaDeFactura(f))} />
-        </>
-      )}
-      {vista === 'pendientes' && (
-        <PorRealizarView
-          items={porRealizar} registradas={registradas} practica={practica} condiciones={condiciones} tasasDoc={tasasDoc} loading={loading} canWrite={canWrite}
-          onVer={setSel} onVista={() => setVista('agrupada')}
-          onRegistrar={setRegistrar}
+        <ColaPorHacerView
+          items={colaPorHacer}
+          empresaNombre={empresaActual?.nombre}
+          loading={loading}
+          canWrite={canWrite}
+          onRegistrarBuzon={abrirDesdeBuzon}
+          onRegistrarArchivo={(f) => { void abrirDesdeFactura(f); }}
+          onRegistrarOrden={(item) => {
+            const pends = item.orden
+              ? impuestosPendientesDeOrden(item.orden, registradas, practica, configFiscal, impuestosActivos)
+              : ['iva' as const];
+            setRegistrar(semillaRetencionDesdeOrden(item, pends));
+          }}
+          onVerDetalle={(item, soporte) => setSel({ ...item, soporteCola: soporte })}
           onNoAplica={conNoAplica && canWrite ? setNoAplica : undefined}
+          onVerEnLibro={abrirEnLibro}
         />
       )}
 
@@ -428,38 +489,40 @@ function RetencionesPantalla() {
               {!loading && !filas.length && (
                 <tr><td colSpan={9}><EmptyState icon="🧾" message="Sin retenciones en el historial con esos filtros" /></td></tr>
               )}
-              {!loading && pagina.filas.map(({ orden: o, proveedorNombre }) => (
-                <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel({ orden: o, proveedorNombre })}>
-                  <td className="mono">
-                    <div>{o.oc_codigo ?? '—'}</div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.2rem', marginTop: '.2rem' }}>
-                      {o.estado && (
-                        <span className={`lfv8-pill kanban-${o.estado}`} style={{ fontSize: '.68rem' }}>
-                          {labelEstadoKanban(o.estado, o.tipo)}
+              {!loading && pagina.filas.map(({ orden: o, proveedorNombre }) => {
+                const kanban = badgeEstatusKanban(o.estado);
+                const impOc = badgeImpuestoOrden(o);
+                const estRet = estadoRetencionDeOrden(o, impuestosPendientesDeOrden(o, registradas, practica, configFiscal, impuestosActivos), registradas.get(o.id), pagosOc.get(o.id) ?? null);
+                const badgeRet = badgeEstadoRetencion(estRet);
+                return (
+                  <tr key={o.id} className="row-selectable" style={{ cursor: 'pointer' }} onClick={() => setSel({ orden: o, proveedorNombre })}>
+                    <td className="mono">
+                      <div>{o.oc_codigo ?? '—'}</div>
+                      <div style={{ display: 'flex', gap: '.25rem', marginTop: '2px', flexWrap: 'wrap' }}>
+                        <span className={badgeRet.className} title={badgeRet.tooltip} style={{ fontSize: '.65rem', padding: '1px 4px' }}>
+                          {badgeRet.label}
                         </span>
-                      )}
-                      {(() => {
-                        const info = infoImpuestoOrden(o);
-                        return (
-                          <span className={info.badgeClass} style={{ fontSize: '.68rem' }} title={info.detalle}>
-                            {info.label}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  </td>
-                  <td className="mono">{o.codigo}</td>
+                        <span className={kanban.className} title={kanban.tooltip} style={{ fontSize: '.65rem', padding: '1px 4px' }}>
+                          {kanban.label}
+                        </span>
+                        <span className={impOc.className} title={impOc.tooltip} style={{ fontSize: '.65rem', padding: '1px 4px' }}>
+                          {impOc.label}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="mono">{o.codigo}</td>
                   <td>{proveedorNombre}</td>
                   <td>{labelCondicionPago(o.condiciones_pago)}</td>
-                  <td>{labelRetencionModo(o.retencion_modo)}</td>
+                  <td>{labelRetencionModo(o.retencion_modo)}{o.retencion_momento && <div className="muted" style={{ fontSize: '.74rem' }}>{labelRetencionMomento(o.retencion_momento)}</div>}</td>
                   <td className="mono" style={{ textAlign: 'right' }}>{money(o.total)}</td>
-                  <td>{o.retencion_pagada ? <span className="badge" style={{ color: 'var(--success)' }}>✓ Pagada</span> : <span className="muted">Por pagar</span>}</td>
+                  <td>{o.retencion_pagada ? <span className="badge" style={{ color: 'var(--success)' }}>{textoPago(estRet)}</span> : <span className="muted">Por pagar</span>}</td>
                   <td className="muted">{o.retencion_finalizada_en ? dateTime(o.retencion_finalizada_en) : '—'}</td>
                   <td style={{ textAlign: 'right' }} onClick={(e) => e.stopPropagation()}>
                     <button className="btn btn-sm btn-primary" onClick={() => setSel({ orden: o, proveedorNombre })}>Ver</button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -472,18 +535,29 @@ function RetencionesPantalla() {
 
       {sel && (
         <RetencionModal
-          item={sel} canWrite={canWrite} actor={actor} actorName={actorName}
+          item={sel} soporte={sel.soporteCola} canWrite={canWrite} actor={actor} impuestosActivos={impuestosActivos}
+          tieneResueltosEnLibro={Boolean(registradas.get(sel.orden.id)?.size) || impuestosPendientesDeOrden(sel.orden, registradas, practica, configFiscal, impuestosActivos).length === 0}
           onClose={() => setSel(null)}
           onSaved={async () => { setSel(null); await reload(); }}
         />
       )}
       {parametros && (
-        <ConfiguracionFiscalModal puedeEditar={canWrite} onClose={() => setParametros(false)} />
+        <ConfiguracionFiscalModal
+          puedeEditar={canWrite}
+          editorFiscalEmpresas={multiempresa ? <EditorFichasFiscalesEmpresa puedeEditar={canWrite} /> : null}
+          empresasRegimen={multiempresa ? empresas.map((e) => ({ id: e.id, nombre: e.nombreCorto || e.nombre })) : []}
+          empresaRegimenId={empresaId}
+          puedeBorrarRegimen={isAdmin}
+          onClose={() => {
+            setParametros(false);
+            void reload();
+          }}
+        />
       )}
       {registrar && (
         <RegistrarRetencionModal
-          semilla={registrar} actor={actor} actorName={actorName}
-          proveedorIdsPendientes={proveedorIdsPendientes}
+          semilla={registrar} actor={actor} actorName={actorName} empresaId={empresaId} empresaFicha={empresaFicha}
+          proveedorIdsPendientes={proveedorIdsPendientes} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto}
           onClose={() => setRegistrar(null)}
           onHecho={async () => { setRegistrar(null); await reload().catch(() => {}); }}
         />
@@ -495,26 +569,37 @@ function RetencionesPantalla() {
       )}
       {registrarFactura && (
         <RegistrarFacturaRetencion
-          semilla={registrarFactura} actor={actor} actorName={actorName}
-          onClose={() => setRegistrarFactura(null)}
-          onHecho={async () => { setRegistrarFactura(null); await reload().catch(() => {}); }}
+          semilla={registrarFactura} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto}
+          empresaId={buzonEnRegistro ? buzonEnRegistro.empresaId : empresaId}
+          empresaFicha={buzonEnRegistro ? fichaDeBuzon(buzonEnRegistro.empresaId) : empresaFicha}
+          onClose={() => { setRegistrarFactura(null); setBuzonEnRegistro(null); }}
+          onHecho={async () => {
+            const buz = buzonEnRegistro;
+            setRegistrarFactura(null); setBuzonEnRegistro(null);
+            // Reusa actualizarEstatusFacturaBuzon; el realtime del buzón refresca solo.
+            if (buz) await actualizarEstatusFacturaBuzon(buz.id, 'retenida').catch(() => {});
+            await reload().catch(() => {});
+          }}
         />
       )}
     </div>
   );
 }
 
-function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: {
-  item: RetencionItem; canWrite: boolean; actor: string; actorName: string | null; onClose: () => void; onSaved: () => void;
+function RetencionModal({ item, soporte, canWrite, actor, tieneResueltosEnLibro, impuestosActivos, onClose, onSaved }: {
+  item: RetencionItem; soporte?: SoporteCola; canWrite: boolean; actor: string; tieneResueltosEnLibro?: boolean; impuestosActivos?: ImpuestosActivos | null; onClose: () => void; onSaved: () => void;
 }) {
   const o = item.orden;
   const yaFinalizada = !!o.retencion_finalizada;
   const comprobantes = useMemo(() => comprobantesDeOrden(o), [o]);
+  // Solo se piden comprobantes de impuestos activos (uno deshabilitado no aparece).
+  const tiposComprobante = useMemo(() => soloImpuestosActivos(TIPOS_RETENCION, impuestosActivos ?? null), [impuestosActivos]);
   const [archivos, setArchivos] = useState<Partial<Record<TipoRetencion, File>>>({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const algunArchivo = (Object.values(archivos) as (File | undefined)[]).some(Boolean);
+  const puedeSinArchivo = Boolean(tieneResueltosEnLibro || comprobantes.length > 0);
 
   function setArchivo(tipo: TipoRetencion, file: File | null) {
     setArchivos((m) => ({ ...m, [tipo]: file ?? undefined }));
@@ -525,13 +610,21 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
     catch { toast('No se pudo abrir el comprobante', 'error'); }
   }
 
+  async function abrirSoporte() {
+    if (!soporte) return;
+    try {
+      previewArchivo(await urlSoporteCola(soporte), soporte.archivoNombre);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo abrir el soporte', 'error');
+    }
+  }
+
   async function handleFinalizar(e: FormEvent) {
     e.preventDefault(); setError(null);
-    if (!algunArchivo) { setError('Carga al menos un comprobante (IVA, ISLR o Municipal).'); return; }
+    if (!algunArchivo && !puedeSinArchivo) { setError('Carga al menos un comprobante (IVA, ISLR o Municipal) o registra los impuestos en el Libro Fiscal.'); return; }
     setSaving(true);
     try {
-      void actorName;
-      await finalizarRetencion({ orden: o, archivos, actor });
+      await finalizarRetencion({ orden: o, archivos, actor, permitirSinArchivo: puedeSinArchivo });
       notify(`Retención registrada · OC ${o.oc_codigo ?? o.codigo}`, 'success', { link: '#/app/retenciones' });
       onSaved();
     } catch (err) { setError(err instanceof Error ? err.message : 'No se pudo finalizar la retención.'); setSaving(false); }
@@ -555,16 +648,10 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
         <div className="card-title" style={{ marginBottom: '.4rem' }}>Detalle de la orden de compra</div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '.4rem .9rem', fontSize: '.86rem' }}>
           <div><span className="muted">Proveedor:</span> <strong>{item.proveedorNombre}</strong></div>
-          <div><span className="muted">Estatus Compras:</span>{' '}{o.estado ? <span className={`lfv8-pill kanban-${o.estado}`}>{labelEstadoKanban(o.estado, o.tipo)}</span> : '—'}</div>
-          <div><span className="muted">Impuestos OC:</span>{' '}
-            {(() => {
-              const info = infoImpuestoOrden(o);
-              return <span className={info.badgeClass}>{info.label}</span>;
-            })()}
-          </div>
           <div><span className="muted">Tlf. de administración del proveedor:</span> <strong className="mono">{o.numero_administracion || '—'}</strong></div>
           <div><span className="muted">Condición:</span> {labelCondicionPago(o.condiciones_pago)}</div>
           <div><span className="muted">Retención:</span> {labelRetencionModo(o.retencion_modo)}</div>
+          {o.retencion_momento && <div><span className="muted">Cuándo se retiene:</span> {labelRetencionMomento(o.retencion_momento)}</div>}
           <div><span className="muted">Total:</span> <strong className="mono">{money(o.total)}</strong></div>
           <div><span className="muted">Tesorería:</span> {o.retencion_pagada ? <strong style={{ color: 'var(--success)' }}>✓ Pagada{o.retencion_pagada_en ? ` · ${dateTime(o.retencion_pagada_en)}` : ''}</strong> : 'Por pagar'}</div>
         </div>
@@ -572,9 +659,11 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
         {/* Factura del proveedor cargada al finalizar la OC */}
         <div style={{ marginTop: '.55rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
           <span className="muted" style={{ fontSize: '.86rem' }}>Factura del proveedor:</span>
-          {o.factura_recepcion_path
-            ? <button type="button" className="btn btn-sm btn-ghost" onClick={() => descargar(o.factura_recepcion_path!)}>🧾 Ver factura{o.factura_recepcion_nombre ? ` · ${o.factura_recepcion_nombre}` : ''}</button>
-            : <span className="muted" style={{ fontSize: '.84rem' }}>— sin factura cargada —</span>}
+          {soporte
+            ? <button type="button" className="btn btn-sm btn-ghost" onClick={() => void abrirSoporte()}>📎 Ver soporte · {soporte.archivoNombre}</button>
+            : o.factura_recepcion_path
+              ? <button type="button" className="btn btn-sm btn-ghost" onClick={() => descargar(o.factura_recepcion_path!)}>🧾 Ver factura{o.factura_recepcion_nombre ? ` · ${o.factura_recepcion_nombre}` : ''}</button>
+              : <span className="muted" style={{ fontSize: '.84rem' }}>— sin factura cargada —</span>}
         </div>
 
         <div className="table-wrap" style={{ marginTop: '.5rem' }}>
@@ -610,7 +699,7 @@ function RetencionModal({ item, canWrite, actor, actorName, onClose, onSaved }: 
           <div className="muted" style={{ fontSize: '.8rem', marginBottom: '.5rem' }}>
             Carga <strong>al menos uno</strong> de los comprobantes (PDF o imagen). Al finalizar, la retención queda registrada y se refleja en Tesorería.
           </div>
-          {TIPOS_RETENCION.map((t) => (
+          {tiposComprobante.map((t) => (
             <div key={t.key} className="form-row">
               <label>{t.label}</label>
               <input className="input" type="file" accept="application/pdf,image/*" onChange={(e) => setArchivo(t.key, e.target.files?.[0] ?? null)} />
@@ -638,347 +727,33 @@ const IMPUESTOS_PENDIENTES: { key: ImpuestoPendiente; label: string }[] = [
 /** Impuestos registrados en el libro, por id de la OC. */
 type Registradas = Map<string, Set<TipoImpuesto>>;
 
-/** Tasa BCV del día del documento (OC o CS), por id, con el rótulo de qué fecha se usó. */
-type TasaDoc = { tasa: number; fecha: string; origen: string };
-type TasasDoc = Map<string, TasaDoc>;
-
-/** Día del documento: emisión de la OC/CS; si no la tiene, su creación. Nunca el pago. */
-function fechaDocumento(o: Orden): { fecha: string; origen: string } {
-  const origen = o.tipo === 'servicio' ? 'CS' : 'OC';
-  if (o.oc_emitida_en) return { fecha: diaVE(o.oc_emitida_en), origen: `emisión ${origen}` };
-  return { fecha: diaVE(o.oc_creada_en ?? o.created_at), origen: `creación ${origen}` };
-}
-
-/** El equivalente en la otra moneda, a la tasa del día del documento. */
-function equivalente(o: Orden, t: TasaDoc | undefined): { monto: string; tasa: string } | null {
-  if (!t) return null;
-  const enBs = o.total_moneda === 'Bs';
-  return {
-    monto: `≈ ${enBs ? montoMoneda(o.total / t.tasa, 'USD') : montoMoneda(o.total * t.tasa, 'Bs')}`,
-    tasa: `BCV ${num(t.tasa)} del ${t.fecha.slice(8, 10)}/${t.fecha.slice(5, 7)} (${t.origen})`,
-  };
-}
-
 /**
- * Lo que falta: ni el comprobante del flujo anterior ni una retención vigente en el libro.
- * Con `practica` (R10), solo los impuestos que la empresa practica según su Régimen.
- * Valida la vigencia de agente de retención a la fecha del documento (OC o CS).
+ * Lo que falta de una orden: ni el comprobante del flujo anterior ni una retención
+ * vigente en el libro, SOLO para los impuestos que la empresa practica. D2: «practica»
+ * es la ÚNICA fuente (la RPC retencion_empresa_practica, resuelta a hoy en `practica`);
+ * si la RPC no está (degradación), se cae a las banderas de la config (GT). El Régimen
+ * por fecha lo enforcea la base al registrar, así que el tablero a-hoy no deja pasar
+ * nada fuera de régimen. Ya no se reconcilia con condiciones ni con el flag legado.
  */
 function impuestosPendientesDeOrden(
   o: Orden,
   reg: Registradas,
   practica: Set<ImpuestoPendiente> | null = null,
-  condiciones: CondicionRegistrada[] | null = null,
+  config?: ConfigRetencion | null,
+  activos: ImpuestosActivos | null = null,
 ): ImpuestoPendiente[] {
   const ya = reg.get(o.id);
   const out: ImpuestoPendiente[] = [];
+  const retiene = (k: ImpuestoPendiente, flag: 'esAgenteRetencionIva' | 'retieneIslr' | 'retieneMunicipal') =>
+    (practica ? practica.has(k) : (config ? config[flag] !== false : true));
 
-  const fechaDoc = fechaDocumento(o).fecha;
-  let retieneIva = true;
-  if (condiciones && condiciones.length > 0) {
-    retieneIva = empresaEsAgenteEnFecha(condiciones, fechaDoc, 'IVA');
-  } else if (practica) {
-    retieneIva = practica.has('iva');
-  }
+  if (retiene('iva', 'esAgenteRetencionIva') && !o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
+  if (retiene('islr', 'retieneIslr') && !o.retencion_islr_path && !ya?.has('islr')) out.push('islr');
+  if (retiene('municipal', 'retieneMunicipal') && !o.retencion_municipal_path && !ya?.has('municipal')) out.push('municipal');
 
-  // IVA: solo aplica si la orden tiene IVA gravable y la empresa es agente de retención a la fecha
-  const ivaReal = Math.max(0, Number(o.iva ?? o.iva_monto ?? 0));
-  const tieneIvaGravable = ivaReal > 0 || (!!o.iva_incluido && Number(o.total || 0) > 0);
-  if (retieneIva && tieneIvaGravable && !o.retencion_iva_path && !ya?.has('iva')) out.push('iva');
-  if ((!practica || practica.has('islr')) && !o.retencion_islr_path && !ya?.has('islr')) out.push('islr');
-  if ((!practica || practica.has('municipal')) && !o.retencion_municipal_path && !ya?.has('municipal')) out.push('municipal');
-
-  return out;
+  // Un impuesto deshabilitado en Parámetros no pide retención.
+  return filtrarActivos(out, activos);
 }
 
-function PorRealizarView({ items, registradas, practica, condiciones, tasasDoc, loading, canWrite, onVer, onVista, onRegistrar, onNoAplica }: {
-  items: RetencionItem[]; registradas: Registradas; practica: Set<ImpuestoPendiente> | null; condiciones: CondicionRegistrada[] | null; tasasDoc: TasasDoc; loading: boolean; canWrite: boolean;
-  onVer: (item: RetencionItem) => void; onVista: () => void;
-  onRegistrar: (semilla: SemillaRetencion) => void;
-  /** Solo con R10 y permiso: marcar que un impuesto no aplica. */
-  onNoAplica?: (o: ObjetivoNoAplica) => void;
-}) {
-  const [q, setQ] = useState('');
-  const [fImp, setFImp] = useState('');
-  const [ord, setOrd] = useState<'antiguo' | 'reciente' | 'proveedor'>('antiguo');
-  const [pag, setPag] = useState(1);
-  const tam = 25;
 
-  useEffect(() => { setPag(1); }, [q, fImp, ord]);
-
-  const retenidosSinRegistrar = useMemo(
-    () => items.filter((i) => i.orden.retencion_aplicada && !i.orden.retencion_finalizada && !registradas.has(i.orden.id)),
-    [items, registradas],
-  );
-
-  const alertas = useMemo(
-    () => items.filter((i) => {
-      const o = i.orden;
-      if (!o.retencion_monto || o.retencion_monto <= 0) return false;
-      return o.retencion_monto > o.total;
-    }),
-    [items],
-  );
-
-  const filtradas = useMemo(() => {
-    const txt = norm(q);
-    return items.filter(({ orden: o, proveedorNombre }) => {
-      if (txt) {
-        const hay = norm(`${o.oc_codigo ?? ''} ${o.codigo} ${proveedorNombre} ${o.numero_administracion ?? ''}`);
-        if (!hay.includes(txt)) return false;
-      }
-      if (fImp) {
-        const pends = impuestosPendientesDeOrden(o, registradas, practica, condiciones);
-        if (!pends.includes(fImp as ImpuestoPendiente)) return false;
-      }
-      return true;
-    });
-  }, [items, registradas, practica, condiciones, q, fImp]);
-
-  const ordenadas = useMemo(() => {
-    const xs = [...filtradas];
-    const fecha = (i: RetencionItem) => String(i.orden.metodo_pago_en ?? i.orden.created_at ?? '');
-    xs.sort(ord === 'reciente' ? (a, b) => fecha(b).localeCompare(fecha(a))
-      : ord === 'proveedor' ? (a, b) => a.proveedorNombre.localeCompare(b.proveedorNombre)
-        : (a, b) => fecha(a).localeCompare(fecha(b)));
-    return xs;
-  }, [filtradas, ord]);
-
-  const totalPags = Math.max(1, Math.ceil(ordenadas.length / tam));
-  const pagActual = Math.min(pag, totalPags);
-  const visible = ordenadas.slice((pagActual - 1) * tam, pagActual * tam);
-
-  const conteoImp = useMemo(() => {
-    const c: Record<string, number> = { iva: 0, islr: 0, municipal: 0 };
-    for (const i of items) {
-      for (const k of impuestosPendientesDeOrden(i.orden, registradas, practica, condiciones)) c[k]++;
-    }
-    return c;
-  }, [items, registradas, practica, condiciones]);
-
-  return (
-    <>
-      {/* Retenido al pagar, sin registrar */}
-      {retenidosSinRegistrar.length > 0 && (
-        <div className="lfv8-pagar">
-          <h3>Retenido al pagar, falta cargarlo en el libro ({retenidosSinRegistrar.length})</h3>
-          <p className="lfv8-huella">Lo retenido en el pago que todavía no está en el libro, incluidos los servicios directos. Al registrar, se usa la tasa de la factura y la del pago queda como referencia.</p>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '.15rem' }}>
-            {retenidosSinRegistrar.slice(0, 10).map(({ orden: o, proveedorNombre }) => (
-              <div key={o.id} className="lfv8-pagar-fila">
-                <span>
-                  <b className="mono">{o.oc_codigo ?? o.codigo}</b> · {nombreDocumento(o.oc_codigo ?? o.codigo)} · {proveedorNombre}
-                  {o.retencion_monto != null && <> · retenido {montoMoneda(o.retencion_monto, o.total_moneda)}</>}
-                  {o.retencion_tasa != null && <> · tasa del pago {num(o.retencion_tasa)}</>}
-                </span>
-                {canWrite && (
-                  <span className="lfv8-pagar-acc">
-                    <button className="btn btn-sm lfv8-btn-reg" onClick={() => onVer({ orden: o, proveedorNombre })}>Registrar</button>
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-          {retenidosSinRegistrar.length > 10 && (
-            <p className="lfv8-huella">Se muestran 10 de {retenidosSinRegistrar.length}.</p>
-          )}
-        </div>
-      )}
-
-      {/* Alertas */}
-      {alertas.map(({ orden: o, proveedorNombre }) => (
-        <div key={`alerta-${o.id}`} className="lfv8-alerta-media">
-          <span>{o.oc_codigo ?? o.codigo} · {proveedorNombre}: El monto pagado al proveedor supera el debido: verificar la retención de IVA de la compra.</span>
-        </div>
-      ))}
-
-      {/* Barra de búsqueda y filtros */}
-      <div className="lfv8-barra">
-        <div className="lfv8-buscar">
-          <input
-            type="search" className="input lfv8-buscar-q" value={q} onChange={(e) => setQ(e.target.value)}
-            placeholder="Buscar por proveedor, RIF, factura u OC" aria-label="Buscar por proveedor, RIF, factura u OC"
-          />
-          <span className="lfv8-barra-res" role="status">{filtradas.length} resultado(s)</span>
-        </div>
-        <div className="lfv8-barra-filtros">
-          <label className="lfv8-campo">
-            <span>Impuesto</span>
-            <select className="lfv8-select" value={fImp} onChange={(e) => setFImp(e.target.value)}>
-              <option value="">Todos</option>
-              {IMPUESTOS_PENDIENTES.map((t) => (
-                <option key={t.key} value={t.key}>{t.label} ({conteoImp[t.key]})</option>
-              ))}
-            </select>
-          </label>
-          <label className="lfv8-campo">
-            <span>Ordenar por</span>
-            <select className="lfv8-select" value={ord} onChange={(e) => setOrd(e.target.value as typeof ord)}>
-              <option value="antiguo">Más antiguo primero</option>
-              <option value="reciente">Más reciente primero</option>
-              <option value="proveedor">Proveedor (A–Z)</option>
-            </select>
-          </label>
-        </div>
-      </div>
-
-      <p className="lfv8-huella">Cada fila es una compra ya pagada o por pagar (orden de compra «OC» o control de servicio «CS»). Sigue aquí mientras le falte cargar la retención de algún impuesto (IVA, ISLR o ISAE), o marcar que no aplica.</p>
-
-      {/* Grid table */}
-      <div className="lfv8-sis" style={{ '--cols': '1fr 1.5fr 1fr .9fr 1fr 2.4fr' } as React.CSSProperties}>
-        <div className="lfv8-sis-cab">
-          <span>Compra</span>
-          <span>Proveedor</span>
-          <span>Retenciones cargadas</span>
-          <span style={{ textAlign: 'right' }}>Total</span>
-          <span>Pendiente</span>
-          <span></span>
-        </div>
-
-        {loading && <div className="lfv8-sis-vacio">Cargando…</div>}
-        {!loading && !ordenadas.length && <div className="lfv8-sis-vacio">Sin registros para los filtros aplicados.</div>}
-
-        {!loading && visible.map(({ orden: o, proveedorNombre }) => {
-          const fechaDoc = fechaDocumento(o).fecha;
-          const pends = impuestosPendientesDeOrden(o, registradas, practica, condiciones);
-          const ivaRealDoc = Math.max(0, Number(o.iva ?? o.iva_monto ?? 0));
-          const tieneIvaGravableDoc = ivaRealDoc > 0 || (!!o.iva_incluido && Number(o.total || 0) > 0);
-          const aplicablesDeOrden = (condiciones && condiciones.length > 0)
-            ? IMPUESTOS_PENDIENTES.filter((t) => t.key === 'iva' ? (empresaEsAgenteEnFecha(condiciones, fechaDoc, 'IVA') && tieneIvaGravableDoc) : (!practica || practica.has(t.key)))
-            : (practica
-              ? IMPUESTOS_PENDIENTES.filter((t) => t.key === 'iva' ? (practica.has('iva') && tieneIvaGravableDoc) : practica.has(t.key))
-              : IMPUESTOS_PENDIENTES.filter((t) => t.key === 'iva' ? tieneIvaGravableDoc : true));
-          const total = aplicablesDeOrden.length;
-          const regs = Math.max(0, total - pends.length);
-          return (
-            <div key={o.id} className="lfv8-sis-fila">
-              <span data-l="Compra">
-                <span className="mono">{o.oc_codigo ?? o.codigo}</span>
-                <small>{nombreDocumento(o.oc_codigo ?? o.codigo)}</small>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '.25rem', marginTop: '.25rem' }}>
-                  {o.estado && (
-                    <span
-                      className={`lfv8-pill kanban-${o.estado}`}
-                      title={`Estatus en el kanban de Compras: ${labelEstadoKanban(o.estado, o.tipo)}`}
-                    >
-                      {labelEstadoKanban(o.estado, o.tipo)}
-                    </span>
-                  )}
-                  {(() => {
-                    const info = infoImpuestoOrden(o);
-                    return (
-                      <span className={info.badgeClass} title={info.detalle}>
-                        {info.label}
-                      </span>
-                    );
-                  })()}
-                </div>
-              </span>
-              <span data-l="Proveedor">
-                {proveedorNombre}
-                {o.numero_administracion && <small>{o.numero_administracion}</small>}
-              </span>
-              <span data-l="Retenciones cargadas">
-                {regs > 0 ? `${regs} de ${total} impuestos` : 'Ninguna todavía'}
-              </span>
-              <span className="n" data-l="Total">
-                {montoMoneda(o.total, o.total_moneda)}
-                {(() => {
-                  const info = infoImpuestoOrden(o);
-                  return (
-                    <small className={info.tieneIva ? 'impuesto-tag-iva' : 'muted'} style={{ display: 'block', fontSize: '.74rem', marginTop: '.1rem' }}>
-                      {info.tieneIva ? (o.iva_incluido ? '✓ IVA incluido' : '+ IVA') : 'Sin IVA'}
-                    </small>
-                  );
-                })()}
-                {(() => {
-                  const eq = equivalente(o, tasasDoc.get(o.id));
-                  if (!eq) return <small className="muted" style={{ display: 'block' }}>sin tasa BCV del día</small>;
-                  return (<>
-                    <small style={{ display: 'block', whiteSpace: 'nowrap' }}>{eq.monto}</small>
-                    <small className="muted" style={{ display: 'block', whiteSpace: 'nowrap' }}>{eq.tasa}</small>
-                  </>);
-                })()}
-              </span>
-              <span data-l="Pendiente">
-                {pends.map((k) => {
-                  const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
-                  return <span key={k} className="lfv8-pill falta">{lbl}</span>;
-                })}
-                {pends.length === 0 && <span className="lfv8-pill ok">Completa</span>}
-              </span>
-              <span className="lfv8-sis-acc">
-                {pends.map((k) => {
-                  const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
-                  const ivaReal = Math.max(0, Number(o.iva ?? o.iva_monto ?? 0));
-                  const igtfReal = Math.max(0, Number(o.igtf ?? o.igtf_monto ?? 0));
-                  const exentoReal = Math.max(0, Number((o as unknown as { exento?: number }).exento ?? 0));
-                  const baseCalc = Math.max(0, Number(o.total || 0) - ivaReal - igtfReal - exentoReal);
-                  return (
-                    <button key={k} className="btn btn-sm lfv8-btn-reg" onClick={() => onRegistrar({
-                      direccion: 'practicada',
-                      tipoInicial: k,
-                      // Las OC de servicio también viven en `ordenes`: van por orden_id, no por servicio_directo_id.
-                      docKind: 'oc',
-                      docId: o.id, codigo: o.oc_codigo ?? o.codigo,
-                      contraparteId: o.proveedor_id, contraparteNombre: proveedorNombre,
-                      moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD',
-                      total: o.total, baseImponible: baseCalc, iva: ivaReal,
-                    })}>
-                      Registrar {lbl}
-                    </button>
-                  );
-                })}
-                {onNoAplica && pends.map((k) => {
-                  const lbl = IMPUESTOS_PENDIENTES.find((t) => t.key === k)?.label ?? k;
-                  return (
-                    <button key={`na-${k}`} className="btn btn-sm btn-ghost" title={`Al ${lbl} de esta compra no le corresponde retención`}
-                      onClick={() => onNoAplica({
-                        ordenId: o.id, codigo: o.oc_codigo ?? o.codigo, proveedorId: o.proveedor_id ?? null, proveedorNombre,
-                        moneda: o.total_moneda === 'Bs' ? 'Bs' : 'USD', total: o.total ?? null,
-                        impuestoClave: tipoAGt(k), impuestoNombre: lbl,
-                      })}>
-                      {lbl}: no aplica
-                    </button>
-                  );
-                })}
-                {o.factura_recepcion_path
-                  ? <button className="btn btn-sm btn-ghost" onClick={(e) => { e.stopPropagation(); void descargarFactura(o); }}>📎 Factura</button>
-                  : <button className="btn btn-sm btn-ghost" disabled title="Sin archivo de factura en Compras">📎 Sin archivo</button>}
-                {o.oc_codigo && (
-                  <a className="btn btn-sm btn-ghost" href={`#/app/pedidos?detalle=${encodeURIComponent(o.id)}`}>Ver OC</a>
-                )}
-                <button
-                  className="btn btn-sm btn-primary"
-                  title="Abrir comprobante para cargar archivos o finalizar retención"
-                  onClick={() => onVer({ orden: o, proveedorNombre })}
-                >
-                  {pends.length === 0 ? '✓ Finalizar retención' : 'Ver detalle'}
-                </button>
-                <button className="btn btn-sm btn-ghost" onClick={onVista}>Ver en vista agrupada</button>
-              </span>
-            </div>
-          );
-        })}
-
-        {!loading && ordenadas.length > tam && (
-          <div className="lfv8-sis-pag">
-            <span><b>{ordenadas.length}</b> documento(s) · página {pagActual} de {totalPags}</span>
-            <span className="lfv8-sis-pag-btns">
-              <button className="btn btn-ghost" disabled={pagActual <= 1} onClick={() => setPag(pagActual - 1)}>‹ Anterior</button>
-              <button className="btn btn-ghost" disabled={pagActual >= totalPags} onClick={() => setPag(pagActual + 1)}>Siguiente ›</button>
-            </span>
-          </div>
-        )}
-      </div>
-    </>
-  );
-}
-
-async function descargarFactura(o: Orden) {
-  try {
-    const url = await urlRetencion(o.factura_recepcion_path!);
-    previewArchivo(url, o.factura_recepcion_nombre ?? 'factura');
-  } catch { toast('No se pudo abrir la factura', 'error'); }
-}
 

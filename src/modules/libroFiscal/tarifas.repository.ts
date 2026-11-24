@@ -13,19 +13,13 @@ import { supabase } from '@/shared/lib/supabase';
 import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
-import { faltaEnClaveMinusculas, faltaNoNegativo, faltaPct } from './parametrosNumeros';
+import { faltaEnClaveMinusculas, faltaEnFechaRango, faltaNoNegativo, faltaPct } from './parametrosNumeros';
 
 const T_TARIFAS = 'retencion_tarifas';
 const T_VERSIONES = 'retencion_tarifa_versiones';
 const T_TRAMOS = 'retencion_tarifa_tramos';
 
-export const r5Disponible = async () => {
-  const [tarifas, versiones] = await Promise.all([
-    tablaDisponible(T_TARIFAS),
-    tablaDisponible(T_VERSIONES),
-  ]);
-  return Boolean(tarifas && versiones);
-};
+export const r5Disponible = () => tablaDisponible(T_TARIFAS);
 
 export type UnidadTarifa = 'UT' | 'Bs';
 export const UNIDADES_TARIFA: UnidadTarifa[] = ['UT', 'Bs'];
@@ -143,18 +137,21 @@ export interface Aplicacion { tramo: Tramo; pct: number; sustraendo: number; mon
 /** Aplica unos tramos a una base, como retencion_tarifa_aplicar: en UT, la base se lleva a UT y el sustraendo vuelve a Bs. */
 export function aplicarTramos(tramos: Tramo[], unidad: UnidadTarifa, base: number, ut: number | null): Aplicacion | null {
   const factor = unidad === 'UT' ? (ut && ut > 0 ? ut : null) : 1;
-  if (factor == null || !Number.isFinite(base)) return null;
+  if (factor == null || !Number.isFinite(base) || base < 0) return null;
   const b = base / factor;
-  const tramo = [...tramos].sort((a, b2) => b2.desdeMonto - a.desdeMonto).find((t) => t.desdeMonto < b || t.desdeMonto === 0);
+  const topesPrevios = new Set(tramos.map((x) => x.hastaMonto).filter((h): h is number => h != null));
+  const tramo = [...tramos]
+    .sort((a, b2) => b2.desdeMonto - a.desdeMonto)
+    .find((t) => (topesPrevios.has(t.desdeMonto) ? b > t.desdeMonto : b >= t.desdeMonto) && (t.hastaMonto == null || b <= t.hastaMonto));
   if (!tramo) return null;
   const sustraendo = r2(tramo.sustraendo * factor);
-  return { tramo, pct: tramo.pct, sustraendo, monto: Math.max(0, r2((base * tramo.pct) / 100 - tramo.sustraendo * factor)) };
+  const impuestoBruto = r2((base * tramo.pct) / 100);
+  return { tramo, pct: tramo.pct, sustraendo, monto: Math.max(0, r2(impuestoBruto - sustraendo)) };
 }
 
 /* ───────── Lectura ───────── */
 
 export async function listTarifas(): Promise<Tarifa[]> {
-  if (!(await r5Disponible())) return [];
   const { data, error } = await supabase.from(T_TARIFAS).select(`*, ${T_VERSIONES}(*, ${T_TRAMOS}(*))`).order('nombre');
   if (error) throw errorRetencion(error, 'No se pudieron leer las tarifas.');
   return (data ?? []).map((r) => aTarifa(r as Record<string, unknown>));
@@ -197,6 +194,8 @@ export async function crearTarifa(t: TarifaNueva): Promise<string> {
 /** Versión nueva desde una fecha (sin publicar; la base cierra la anterior el día antes). Puede copiar los tramos de otra. */
 export async function nuevaVersionTarifa(tarifaId: string, desde: string, motivo: string, opciones: { fuente?: string | null; copiarTramos?: Tramo[] } = {}): Promise<string> {
   if (!FECHA.test(desde)) throw new Error('Indica desde qué fecha vale la versión.');
+  const faltaDesde = faltaEnFechaRango(desde, 'la fecha «desde» de la versión');
+  if (faltaDesde) throw new Error(faltaDesde);
   if (!motivo.trim()) throw new Error('Indica el motivo: queda en el historial.');
   const { data, error } = await supabase.from(T_VERSIONES)
     .insert({ tarifa_id: tarifaId, desde, motivo: motivo.trim(), fuente: opciones.fuente?.trim() || null }).select('id');

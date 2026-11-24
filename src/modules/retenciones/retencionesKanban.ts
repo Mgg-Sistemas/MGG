@@ -1,65 +1,68 @@
 /* ============================================================
-   MGG · Retenciones · Estatus Kanban de Compras en Retenciones
-   Define y gestiona qué estatus del flujo de Compras / Servicios
-   son considerados elegibles para retención en el módulo de Retenciones.
-   Configurable desde Parámetros.
+   Golden Touch · Retenciones · Estatus Kanban & Impuestos de Orden
+   
+   Provee los badges e identificadores visuales en el módulo de Retenciones
+   para mostrar el estatus de la orden en el Kanban de Compras y advertir
+   claramente si la orden viene o no con IVA cargado desde Compras.
    ============================================================ */
 
-export interface EstatusKanbanInfo {
-  key: string;
+import type { EstadoOrden, Orden } from '@/shared/lib/types';
+import { money } from '@/shared/lib/format';
+
+export interface BadgeInfo {
   label: string;
-  descripcion: string;
-  recomendado: boolean;
-  esTerminalCancelado?: boolean;
+  className: string;
+  tooltip?: string;
 }
 
-/** Estatus recomendados y activos por defecto para el cálculo y lista de retenciones. */
-export const ESTATUS_KANBAN_DEFECTO: string[] = [
-  'confirmada_metodo',
-  'oc_aprobada',
-  'cuenta_abierta',
-  'por_recibir',
-  'pagada',
-  'recibida',
-  'finalizada',
-];
-
-/** Catálogo completo de estatus del Kanban de Compras / Servicios. */
-export const LISTA_ESTATUS_KANBAN: EstatusKanbanInfo[] = [
-  { key: 'confirmada_metodo', label: 'Confirmada método de pago', descripcion: 'Con método de pago indicado, lista para validación', recomendado: true },
-  { key: 'oc_aprobada', label: 'Confirmada pagar', descripcion: 'Aprobada por gerencia para emisión de pago en Tesorería', recomendado: true },
-  { key: 'cuenta_abierta', label: 'Crédito / Cuenta abierta', descripcion: 'Compras a crédito de proveedores habituales', recomendado: true },
-  { key: 'por_recibir', label: 'Pendiente por recepción', descripcion: 'Compra con pago tramitado, en espera de recepción física', recomendado: true },
-  { key: 'pagada', label: 'Pagada', descripcion: 'Pago ejecutado por Tesorería', recomendado: true },
-  { key: 'recibida', label: 'Recibida / Servicio realizado', descripcion: 'Mercancía o servicio recibido a satisfacción', recomendado: true },
-  { key: 'finalizada', label: 'Finalizada', descripcion: 'Compra cerrada con recepción y pago completados', recomendado: true },
-  { key: 'oc_creada', label: 'Por aprobación Gerente', descripcion: 'Borrador de OC pendiente de aprobación gerencial', recomendado: false },
-  { key: 'aprobada', label: 'Pendiente cargar ofertas', descripcion: 'Etapa inicial de cotizaciones y selección de proveedor', recomendado: false },
-  { key: 'pendiente', label: 'Solicitado / Pendiente cotizar', descripcion: 'Requerimiento o solicitud inicial de compra', recomendado: false },
-  { key: 'cancelada', label: 'Cancelada', descripcion: 'Orden cancelada desde Compras (no genera retención)', recomendado: false, esTerminalCancelado: true },
-  { key: 'anulada', label: 'Anulada', descripcion: 'Orden anulada administrativamente (no genera retención)', recomendado: false, esTerminalCancelado: true },
-  { key: 'desistida_proveedor', label: 'Proveedor desistió', descripcion: 'Proveedor no aceptó o desistió del pedido', recomendado: false, esTerminalCancelado: true },
-];
-
-/** Retorna la lista de estatus habilitados según la configuración o los recomendados por defecto. */
-export function estatusKanbanHabilitados(estatusGuardados?: string[] | null): string[] {
-  if (Array.isArray(estatusGuardados) && estatusGuardados.length > 0) {
-    return estatusGuardados;
+export function badgeEstatusKanban(estado?: EstadoOrden | string | null): BadgeInfo {
+  switch (estado) {
+    case 'pagada':
+      return { label: '✓ Pagada', className: 'badge success', tooltip: 'Pagada por Tesorería' };
+    case 'oc_aprobada':
+      return { label: 'Confirmada pagar', className: 'badge warning', tooltip: 'En cola para pago en Tesorería' };
+    case 'por_recibir':
+      return { label: 'Por recibir', className: 'badge info', tooltip: 'Esperando recepción de mercancía' };
+    case 'recibida':
+      return { label: 'Recibida', className: 'badge info', tooltip: 'Mercancía recibida en almacén' };
+    case 'cuenta_abierta':
+      return { label: 'Crédito', className: 'badge warning', tooltip: 'Compra a crédito (cuenta abierta)' };
+    case 'finalizada':
+      return { label: 'Finalizada', className: 'badge', tooltip: 'Proceso de compra finalizado' };
+    case 'confirmada_metodo':
+      return { label: 'Método de pago', className: 'badge', tooltip: 'Aprobada, por indicar método de pago' };
+    case 'oc_creada':
+      return { label: 'Por aprobación', className: 'badge', tooltip: 'Esperando aprobación de Gerencia' };
+    case 'aprobada':
+      return { label: 'Aprobada', className: 'badge', tooltip: 'OP aprobada para cotizar' };
+    case 'oc_emitida':
+      return { label: 'Emitida', className: 'badge', tooltip: 'Orden emitida al proveedor' };
+    case 'cancelada':
+      return { label: 'Cancelada', className: 'badge danger', tooltip: 'Orden cancelada' };
+    case 'desistida_proveedor':
+      return { label: 'Desistida', className: 'badge danger', tooltip: 'Proveedor desistió' };
+    default:
+      return { label: estado || 'Sin estatus', className: 'badge', tooltip: estado ?? undefined };
   }
-  return ESTATUS_KANBAN_DEFECTO;
 }
 
-/** Verifica si un estado de orden califica según los estatus permitidos configurados. */
-export function ordenTieneEstatusRetencion(
-  estado: string | null | undefined,
-  estatusPermitidos: string[] = ESTATUS_KANBAN_DEFECTO,
-): boolean {
-  if (!estado) return false;
-  return estatusPermitidos.includes(estado);
-}
-
-/** Comprueba si una orden se encuentra en un estado terminal de cancelación. */
-export function esOrdenCanceladaOAnulada(estado: string | null | undefined): boolean {
-  if (!estado) return false;
-  return ['cancelada', 'anulada', 'desistida_proveedor'].includes(estado);
+export function badgeImpuestoOrden(o: Pick<Orden, 'iva_aplicado' | 'iva_monto' | 'iva_pct' | 'total_moneda'>): BadgeInfo & { tieneImpuesto: boolean } {
+  const tiene = !!o.iva_aplicado && Number(o.iva_monto ?? 0) > 0;
+  if (tiene) {
+    const pct = Number(o.iva_pct ?? 16);
+    const monto = money(Number(o.iva_monto));
+    const mon = o.total_moneda === 'Bs' ? 'Bs' : '$';
+    return {
+      tieneImpuesto: true,
+      label: `Con IVA (${pct}%)`,
+      className: 'badge info',
+      tooltip: `La OC registra IVA por ${mon} ${monto}`,
+    };
+  }
+  return {
+    tieneImpuesto: false,
+    label: 'Sin IVA en OC',
+    className: 'badge',
+    tooltip: 'Esta orden no tiene IVA registrado en Compras (revisar factura física del proveedor)',
+  };
 }

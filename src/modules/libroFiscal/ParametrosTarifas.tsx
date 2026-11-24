@@ -86,15 +86,24 @@ const aFila = (t: Tramo): FilaTramo => ({ id: t.id, desde: numeroATexto(t.desdeM
 function EditorTramos({ tarifa, version, puedeEditar, onCambio }: { tarifa: Tarifa; version: VersionTarifa; puedeEditar: boolean; onCambio: () => void }) {
   const editable = puedeEditar && !version.cerrada;
   const [filas, setFilas] = useState<FilaTramo[]>(version.tramos.map(aFila));
+  const [versionIdActual, setVersionIdActual] = useState(version.id);
   const [trabajando, setTrabajando] = useState(false);
-  useEffect(() => { setFilas(version.tramos.map(aFila)); }, [version]);
+  const tramosServidor = useMemo(() => version.tramos.map(aFila), [version.tramos]);
+  const cambio = JSON.stringify(filas) !== JSON.stringify(tramosServidor);
+  useEffect(() => {
+    if (version.id !== versionIdActual) {
+      setVersionIdActual(version.id);
+      setFilas(tramosServidor);
+    } else if (!cambio) {
+      setFilas(tramosServidor);
+    }
+  }, [version.id, versionIdActual, tramosServidor, cambio]);
   const leidos = useMemo(() => filasATramos(filas), [filas]);
   const ilegible = 'error' in leidos ? leidos.error : null;
   // Lo que la base rechaza al guardar (rangos de cada tramo): se dice antes, no solo al publicar.
   const faltaGuardar = ilegible ?? ('valor' in leidos ? faltaEnTramos(leidos.valor) : null);
   const problemas = 'error' in leidos ? [leidos.error] : revisarTramos(leidos.valor);
   const set = (i: number, p: Partial<FilaTramo>) => setFilas((xs) => xs.map((x, j) => (j === i ? { ...x, ...p } : x)));
-  const cambio = JSON.stringify(filas) !== JSON.stringify(version.tramos.map(aFila));
 
   async function quitar(i: number) {
     const f = filas[i];
@@ -186,9 +195,14 @@ function ProbarTarifaModal({ tarifa, onClose }: { tarifa: Tarifa; onClose: () =>
   const [res, setRes] = useState<Awaited<ReturnType<typeof probarTarifa>> | 'nada' | null>(null);
   useEffect(() => {
     if (tarifa.unidad !== 'UT') return;
+    let vivo = true;
     import('./parametros.repository').then(async ({ r3Disponible, parametroEnFecha }) => {
-      if (await r3Disponible()) { const v = await parametroEnFecha(null, 'ut', fecha); if (typeof v === 'number') setUt(numeroATexto(v)); }
+      if (!(await r3Disponible()) || !vivo) return;
+      const v = await parametroEnFecha(null, 'ut', fecha);
+      if (!vivo) return;
+      setUt(typeof v === 'number' ? numeroATexto(v) : '');
     }).catch(() => undefined);
+    return () => { vivo = false; };
   }, [tarifa.unidad, fecha]);
   const baseLeida = leerObligatorio(base, 'la base', 'Indica la base.');
   const utLeida = leerOpcional(ut, 'la UT');

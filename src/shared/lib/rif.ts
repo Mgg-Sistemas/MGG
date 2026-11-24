@@ -19,20 +19,9 @@ export function partirRif(rif: string): { letra: string; numero: string } {
   return { letra, numero };
 }
 
-/** Limpia un RIF quitando guiones y espacios (ej.: J123456789). */
-export function limpiarRif(rif: string | null | undefined): string {
+/** Normaliza un RIF a J123456789 (sin guiones ni espacios, en mayúsculas). */
+export function normalizarRif(rif: string | null | undefined): string {
   return String(rif ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
-}
-
-/**
- * Forma ÚNICA de guardar el RIF (14-10-2026): «LETRA-DÍGITOS», sin puntos, guiones ni
- * espacios en el número («J-123456789»). La usan el formulario de Proveedores, el alta
- * de proveedor desde una oferta y el alta rápida desde compra o servicio directo, así
- * «J-12345678-9» y «J-123456789» son el mismo proveedor. Sin dígitos devuelve ''.
- */
-export function normalizarRif(rif?: string | null): string {
-  const { letra, numero } = partirRif(rif ?? '');
-  return numero ? `${letra}-${numero}` : '';
 }
 
 /**
@@ -41,7 +30,7 @@ export function normalizarRif(rif?: string | null): string {
  * que conviene cazarlo cuando se carga y no cuando hay que presentarlo.
  */
 export function rifValido(rif: string | null | undefined): boolean {
-  const v = limpiarRif(rif);
+  const v = normalizarRif(rif);
   if (!/^[JGVEPC]\d{9}$/.test(v)) return false;
   return digitoVerificadorRif(v[0], v.slice(1, 9)) === Number(v[9]);
 }
@@ -64,7 +53,7 @@ export function digitoVerificadorRif(letra: string, ocho: string): number {
  * dígito equivocado, letra que no existe, texto como «S/R»).
  */
 export function completarRif(rif: string | null | undefined): string | null {
-  const v = limpiarRif(rif);
+  const v = normalizarRif(rif);
   if (rifValido(v)) return v;
   const m = /^([JGVEPC])(\d{1,8})$/.exec(v);
   if (!m) return null;
@@ -74,7 +63,34 @@ export function completarRif(rif: string | null | undefined): string | null {
 
 /** El RIF con guiones, como se escribe en los documentos: J-50129993-5. */
 export function formatearRif(rif: string | null | undefined): string {
-  const v = limpiarRif(rif);
+  const v = normalizarRif(rif);
   if (!/^[A-Z]\d{9}$/.test(v)) return String(rif ?? '');
   return `${v[0]}-${v.slice(1, 9)}-${v[9]}`;
+}
+
+/**
+ * El CI o RIF de unos datos de pago, como se escribe (04/11/2026): «RIF: J-50046044-9»,
+ * «CI: V-12345678», «Pasaporte: P-1131881». Si no trae letra, se toma la del RIF del
+ * proveedor cuando son los mismos números; si no, 9 números = RIF jurídico (J) y
+ * hasta 8 = cédula venezolana (V). Lo que no tiene forma de documento se deja tal cual.
+ */
+export function documentoIdentidad(
+  raw: string | null | undefined,
+  rifProveedor?: string | null,
+): { etiqueta: 'RIF' | 'CI' | 'Pasaporte' | 'CI/RIF'; valor: string } | null {
+  const texto = String(raw ?? '').trim();
+  if (!texto) return null;
+  const m = /^([JGVEPC])?(\d{5,10})$/.exec(normalizarRif(texto));
+  if (!m) return { etiqueta: 'CI/RIF', valor: texto };
+  const digitos = m[2];
+  let letra = m[1];
+  if (!letra) {
+    const prov = normalizarRif(rifProveedor);
+    if (/^[JGVEPC]\d+$/.test(prov) && (prov.slice(1) === digitos || prov.slice(1, 9) === digitos)) letra = prov[0];
+    else letra = digitos.length >= 9 ? 'J' : 'V';
+  }
+  if (letra === 'P') return { etiqueta: 'Pasaporte', valor: `P-${digitos}` };
+  if (digitos.length === 9) return { etiqueta: 'RIF', valor: `${letra}-${digitos.slice(0, 8)}-${digitos[8]}` };
+  if (letra === 'J' || letra === 'G' || letra === 'C') return { etiqueta: 'RIF', valor: `${letra}-${digitos}` };
+  return { etiqueta: 'CI', valor: `${letra}-${digitos}` };
 }

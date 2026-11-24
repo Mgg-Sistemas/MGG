@@ -23,13 +23,13 @@ import { verEstadoExcel, verEstadoPdf } from './librosExport';
 import type { ContParametros } from './tipos';
 
 /** El último mes con comprobantes contabilizados (AAAA-MM): con qué abren los estados. */
-function useUltimoMes(): string {
+function useUltimoMes(empresaClave?: string): string {
   const [mes, setMes] = useState('');
   useEffect(() => {
-    listComprobantes()
+    listComprobantes(empresaClave)
       .then((l) => setMes((l.filter((c) => c.estado === 'contabilizado').reduce((m, c) => (c.fecha > m ? c.fecha : m), '') || new Date().toISOString()).slice(0, 7)))
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudieron leer los comprobantes.', 'error'));
-  }, []);
+  }, [empresaClave]);
   return mes;
 }
 
@@ -125,8 +125,8 @@ function Detalle({ detallar, setDetallar, conCodigo, setConCodigo }: { detallar:
 
 /* ───────────── Balance General ───────────── */
 
-export function BalanceGeneralVista({ parametros }: { parametros: ContParametros }) {
-  const ultimo = useUltimoMes();
+export function BalanceGeneralVista({ parametros, empresaClave }: { parametros: ContParametros; empresaClave?: string }) {
+  const ultimo = useUltimoMes(empresaClave);
   const [hasta, setHasta] = useState('');
   const [moneda, setMoneda] = useMonedaVista();
   const [detallar, setDetallar] = useState(false);
@@ -136,10 +136,10 @@ export function BalanceGeneralVista({ parametros }: { parametros: ContParametros
   useEffect(() => { if (ultimo && !hasta) setHasta(finDeMes(ultimo)); }, [ultimo, hasta]);
   useEffect(() => {
     if (!hasta) return;
-    getBalanceGeneral({ hasta, moneda, detallar })
+    getBalanceGeneral({ hasta, moneda, detallar }, empresaClave)
       .then(setDatos)
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo armar el balance general.', 'error'));
-  }, [hasta, moneda, detallar]);
+  }, [hasta, moneda, detallar, empresaClave]);
 
   const titulo = datos?.titulo ?? 'Balance General';
   const cuadra = datos ? cuadraBalance(datos).every(Boolean) : true;
@@ -168,8 +168,8 @@ export function BalanceGeneralVista({ parametros }: { parametros: ContParametros
 
 /* ───────────── Estado de Resultados ───────────── */
 
-export function EstadoResultadosVista({ parametros }: { parametros: ContParametros }) {
-  const ultimo = useUltimoMes();
+export function EstadoResultadosVista({ parametros, empresaClave }: { parametros: ContParametros; empresaClave?: string }) {
+  const ultimo = useUltimoMes(empresaClave);
   const [mes, setMes] = useState('');
   const [variante, setVariante] = useState<VarianteResultados>('acumulado');
   const [moneda, setMoneda] = useMonedaVista();
@@ -181,10 +181,10 @@ export function EstadoResultadosVista({ parametros }: { parametros: ContParametr
   useEffect(() => { if (ultimo && !mes) setMes(ultimo); }, [ultimo, mes]);
   useEffect(() => {
     if (!mes) return;
-    getEstadoResultados({ variante, corte: mes, moneda, detallar, incluirCierre })
+    getEstadoResultados({ variante, corte: mes, moneda, detallar, incluirCierre }, empresaClave)
       .then(setDatos)
       .catch((e: unknown) => toast(e instanceof Error ? e.message : 'No se pudo armar el estado de resultados.', 'error'));
-  }, [mes, variante, moneda, detallar, incluirCierre]);
+  }, [mes, variante, moneda, detallar, incluirCierre, empresaClave]);
 
   const titulo = `${datos?.titulo ?? 'Estado de Resultados'} · ${NOMBRE_VARIANTE[variante]}`;
   const rango = datos ? (datos.columnas.length === 1 ? `Del ${date(datos.columnas[0].desde)} al ${date(datos.columnas[0].hasta)}` : datos.columnas.map((c) => c.etiqueta).join(' · ')) : '';

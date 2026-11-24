@@ -9,7 +9,7 @@
    ============================================================ */
 import { calcularConRegla, condicionesQueFallan, type ResultadoMotor } from './motorReglas';
 import { r7Disponible, reglasVigentes, type ReglaGuardada } from './reglas.repository';
-import { cargarDatosPrueba, contextoDePrueba, type EntradaPrueba } from './probarRegla';
+import { cargarDatosPrueba, contextoDePrueba, loQueUsa, type DatosPrueba, type EntradaPrueba } from './probarRegla';
 
 export interface CalculoConRegla { regla: ReglaGuardada; resultado: ResultadoMotor }
 
@@ -19,8 +19,15 @@ export async function calcularConReglaVigente(impuestoClave: string, entrada: En
   const reglas = (await reglasVigentes(impuestoClave, entrada.fecha, false))
     .filter((r) => r.estado === 'vigente')
     .sort((a, b) => a.prioridad - b.prioridad || a.nombre.localeCompare(b.nombre) || b.version - a.version);
+  const cache = new Map<string, Promise<DatosPrueba>>();
   for (const regla of reglas) {
-    const datos = await cargarDatosPrueba(regla, entrada);
+    const firma = JSON.stringify({ imp: regla.impuestoClave, usa: loQueUsa(regla) });
+    let prom = cache.get(firma);
+    if (!prom) {
+      prom = cargarDatosPrueba(regla, entrada);
+      cache.set(firma, prom);
+    }
+    const datos = await prom;
     const ctx = contextoDePrueba(entrada, datos);
     if (condicionesQueFallan(regla, ctx).length === 0) return { regla, resultado: calcularConRegla(regla, ctx) };
   }

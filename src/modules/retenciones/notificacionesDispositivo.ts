@@ -1,16 +1,16 @@
 /* ============================================================
-   MGG · Retenciones · Notificaciones en Pantalla / Móvil
+   Golden Touch · Retenciones · Notificaciones en Pantalla / Móvil
    (Web Notifications API + Vibración + Sonido + Título de Pestaña)
 
    100% Web Nativo: NO requiere instalar ninguna app ni archivo
    en el dispositivo móvil. Funciona directamente en Google Chrome,
    Safari (iOS 16.4+), Edge y navegadores móviles.
-   Alineado 1:1 con la arquitectura de Golden Touch (GT).
    ============================================================ */
 
-import { playSonidoFacturaLlegada } from './notificacionesRetencion';
+import { reproducirSonidoFacturaNueva } from './soundRetenciones';
+import type { FacturaExternaBuzon } from './facturasBuzon.repository';
 
-const PREF_AVISOS_PANTALLA = 'mgg.retenciones.avisos_pantalla';
+const PREF_AVISOS_PANTALLA = 'gt.retenciones.avisos_pantalla';
 
 let _avisosMemoria = true;
 let _intervaloTitulo: number | null = null;
@@ -35,23 +35,15 @@ export function getEstadoPermisoNotificacion(): 'granted' | 'denied' | 'default'
 /** Comprueba si el usuario tiene activados los avisos en pantalla en este equipo */
 export function isAvisosPantallaHabilitados(): boolean {
   if (typeof window === 'undefined') return _avisosMemoria;
-  try {
-    const v = localStorage.getItem(PREF_AVISOS_PANTALLA);
-    return v === null ? true : v === '1';
-  } catch {
-    return _avisosMemoria;
-  }
+  const v = localStorage.getItem(PREF_AVISOS_PANTALLA);
+  return v === null ? true : v === '1';
 }
 
 /** Guarda la preferencia del usuario en el navegador */
 export function setAvisosPantallaHabilitados(habilitado: boolean): void {
   _avisosMemoria = habilitado;
   if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(PREF_AVISOS_PANTALLA, habilitado ? '1' : '0');
-  } catch {
-    // Si cookies/storage están restringidas
-  }
+  localStorage.setItem(PREF_AVISOS_PANTALLA, habilitado ? '1' : '0');
 }
 
 /**
@@ -91,7 +83,7 @@ export function detenerAlertaTitulo(): void {
 /**
  * Hace parpadear el título de la pestaña si la ventana está minimizada o en segundo plano.
  */
-export function activarAlertaTitulo(textoAviso: string): void {
+function activarAlertaTitulo(textoAviso: string): void {
   if (typeof window === 'undefined' || typeof document === 'undefined') return;
   if (_intervaloTitulo !== null) return; // ya activo
 
@@ -99,7 +91,7 @@ export function activarAlertaTitulo(textoAviso: string): void {
   let alternar = false;
 
   _intervaloTitulo = window.setInterval(() => {
-    document.title = alternar ? textoAviso : (_tituloOriginal || 'MGG · Retenciones');
+    document.title = alternar ? textoAviso : (_tituloOriginal || 'Golden Touch');
     alternar = !alternar;
   }, 1000);
 
@@ -113,34 +105,20 @@ export function activarAlertaTitulo(textoAviso: string): void {
   window.addEventListener('click', limpiar);
 }
 
-export interface FacturaAvisoInput {
-  id?: string;
-  empresa?: string;
-  empresaNombre?: string;
-  proveedorNombre?: string;
-  numeroFactura?: string;
-  montoTotal?: number;
-  moneda?: string;
-}
-
 /**
- * Dispara una alerta integral cuando llega una nueva factura (Idéntica a GT):
- * 1. Campanilla de audio distintiva de Retenciones (Do5 → Mi5 → Sol5).
- * 2. Vibración táctil del dispositivo móvil (2 pulsos cortos: 200ms vibra, 100ms pausa, 200ms vibra).
- * 3. Parpadeo en el título de la pestaña si el navegador está minimizado o en otra pestaña.
- * 4. Banner nativo en barra de estado del móvil/PC (si el usuario autorizó los avisos en el navegador).
+ * Dispara una alerta integral cuando llega una nueva factura:
+ * 1. Banner nativo en barra de estado del móvil/PC (si hay permiso).
+ * 2. Vibración del dispositivo móvil (2 pulsos cortos).
+ * 3. Campanilla de audio distintiva de Retenciones.
+ * 4. Parpadeo en el título de la pestaña si el navegador está minimizado.
  */
 export function lanzarAvisoFactura(
-  fac: FacturaAvisoInput,
+  fac: Partial<FacturaExternaBuzon> & { id?: string },
   opciones?: { conSonido?: boolean }
 ): void {
-  // 1. Sonido distintivo fiscal (si aplica)
+  // 1. Sonido distintivo (si aplica)
   if (opciones?.conSonido !== false) {
-    try {
-      playSonidoFacturaLlegada();
-    } catch {
-      /* AudioContext restringido */
-    }
+    reproducirSonidoFacturaNueva();
   }
 
   // 2. Vibración táctil en móvil (200ms vibra, 100ms pausa, 200ms vibra)
@@ -152,22 +130,24 @@ export function lanzarAvisoFactura(
     }
   }
 
-  // 3. Si no están habilitados los avisos en pantalla en las preferencias del usuario, detener aquí
+  // 3. Si no están habilitados los avisos en pantalla, detener aquí
   if (!isAvisosPantallaHabilitados()) return;
 
-  const empresa = fac.empresa || fac.empresaNombre || 'Empresa';
+  const empresa = fac.empresaNombre || 'Empresa';
   const proveedor = fac.proveedorNombre || 'Proveedor';
-  const moneda = fac.moneda || 'USD';
-  const monto = fac.montoTotal ?? 0;
+  // En bolívares si se puede (es lo que se informa); si no, en dólares.
+  const enBs = fac.moneda !== 'USD' || (fac.montoBs ?? 0) > 0;
+  const monto = (enBs && fac.moneda === 'USD' ? fac.montoBs : fac.montoTotal) ?? 0;
   const montoFmt = Number(monto).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-  const titulo = `🧾 Factura Recibida · ${empresa}`;
-  const cuerpo = `${proveedor}\nFactura: ${fac.numeroFactura || 'S/N'} · ${moneda === 'USD' ? '$' : 'Bs'} ${montoFmt}`;
+  const numero = fac.facturaNumero?.trim() || '—';
+  const titulo = `🧾 Factura recibida · ${empresa}`;
+  const cuerpo = `${proveedor}\nFactura: ${numero} · ${enBs ? 'Bs' : '$'} ${montoFmt}`;
 
   // 4. Parpadeo en el título de la pestaña (visible aun con la pestaña en segundo plano)
   activarAlertaTitulo(`(1) 🧾 ${empresa}: ${proveedor}`);
 
-  // 5. Notificación nativa del sistema operativo (sin instalar nada)
+  // 5. Notificación nativa del sistema operativo
   if (isNotificacionesSoportadas() && Notification.permission === 'granted') {
     try {
       const notif = new Notification(titulo, {
@@ -184,7 +164,7 @@ export function lanzarAvisoFactura(
         notif.close();
       };
     } catch {
-      /* Si el navegador restringe Notification() por política de contexto */
+      /* Si el navegador rechaza Notification() por política de contexto */
     }
   }
 }

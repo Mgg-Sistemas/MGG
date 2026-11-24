@@ -14,7 +14,7 @@
 import type { ContCambio } from '../tipos';
 import { almacenamientoDelNavegador, type Almacenamiento } from './almacen';
 
-export const CLAVE_CAMBIOS = 'mgg.contabilidad.cambios';
+export const CLAVE_CAMBIOS = 'gt.contabilidad.cambios';
 const VERSION = 1;
 
 const copia = <T>(x: T): T => (x === undefined ? x : (JSON.parse(JSON.stringify(x)) as T));

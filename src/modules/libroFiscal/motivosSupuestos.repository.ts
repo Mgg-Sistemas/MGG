@@ -46,49 +46,19 @@ const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 /** Hoy en Venezuela (no en UTC: después de las 20:00 ya sería mañana). */
 const hoyIso = hoyVenezuela;
 
-function esColumnaInexistente(e: { code?: string; message?: string } | null | undefined): boolean {
-  if (!e) return false;
-  if (e.code === '42703' || e.code === 'PGRST204') return true;
-  return /column .* does not exist|could not find the .* column/i.test(e.message ?? '');
-}
-
-function esFuncionInexistente(e: { code?: string; message?: string } | null | undefined): boolean {
-  if (!e) return false;
-  if (e.code === '42883' || e.code === 'PGRST202') return true;
-  return /could not find the function|function .* does not exist/i.test(e.message ?? '');
-}
-
 const vigencia = (r: Record<string, unknown>): Vigencia => ({
-  desde: String(r.desde ?? r.vigente_desde ?? '2020-01-01'),
-  hasta: texto(r.hasta ?? r.vigente_hasta),
-  activo: r.activo !== false,
-  orden: Number(r.orden ?? 0) || 0,
-  fuente: texto(r.fuente),
-  nota: texto(r.nota ?? r.motivo ?? r.fundamento),
+  desde: String(r.desde ?? ''), hasta: texto(r.hasta), activo: r.activo !== false,
+  orden: Number(r.orden ?? 0) || 0, fuente: texto(r.fuente), nota: texto(r.nota),
 });
 
 export function aMotivo(r: Record<string, unknown>): MotivoNoAplica {
-  return {
-    ...vigencia(r),
-    id: String(r.id),
-    impuestoClave: texto(r.impuesto_clave ?? r.tipo),
-    texto: String(r.texto ?? ''),
-    requiereTexto: r.requiere_texto === true,
-    actualizadoPor: texto(r.actualizado_por),
-  };
+  return { ...vigencia(r), id: String(r.id), impuestoClave: texto(r.impuesto_clave), texto: String(r.texto ?? ''),
+    requiereTexto: r.requiere_texto === true, actualizadoPor: texto(r.actualizado_por) };
 }
 
 export function aSupuesto(r: Record<string, unknown>): Supuesto {
-  const imp = r.impuesto_clave ?? r.impuesto ?? '';
-  return {
-    ...vigencia(r),
-    id: String(r.id),
-    impuestoClave: String(imp).toUpperCase(),
-    codigo: String(r.codigo ?? ''),
-    texto: String(r.texto ?? ''),
-    pct: Number(r.pct ?? 0),
-    actualizadoPor: texto(r.actualizado_por),
-  };
+  return { ...vigencia(r), id: String(r.id), impuestoClave: String(r.impuesto_clave ?? ''), codigo: String(r.codigo ?? ''),
+    texto: String(r.texto ?? ''), pct: Number(r.pct ?? 0), actualizadoPor: texto(r.actualizado_por) };
 }
 
 /* ───────── Piezas puras ───────── */
@@ -141,65 +111,29 @@ export function supuestoRepetido(s: { impuestoClave: string; codigo: string }, l
 /* ───────── Lectura ───────── */
 
 export async function listMotivos(): Promise<MotivoNoAplica[]> {
-  try {
-    const { data, error } = await supabase.from(T_MOTIVOS).select('*').order('orden').order('texto');
-    if (!error && data) return data.map((r) => aMotivo(r as Record<string, unknown>));
-  } catch { /* fallback */ }
-  const { data, error } = await supabase.from(T_MOTIVOS).select('*');
+  const { data, error } = await supabase.from(T_MOTIVOS).select('*').order('impuesto_clave', { nullsFirst: true }).order('orden').order('texto');
   if (error) throw errorRetencion(error, 'No se pudieron leer los motivos.');
   return (data ?? []).map((r) => aMotivo(r as Record<string, unknown>));
 }
 
 export async function listSupuestos(): Promise<Supuesto[]> {
-  if (!(await r6Disponible())) return [];
-  const { data, error } = await supabase.from(T_SUPUESTOS).select('*').order('orden').order('codigo');
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const alt = await supabase.from(T_SUPUESTOS).select('*').order('codigo');
-      if (alt.error) throw errorRetencion(alt.error, 'No se pudieron leer los supuestos.');
-      return (alt.data ?? []).map((r) => aSupuesto(r as Record<string, unknown>));
-    }
-    throw errorRetencion(error, 'No se pudieron leer los supuestos.');
-  }
+  const { data, error } = await supabase.from(T_SUPUESTOS).select('*').order('impuesto_clave').order('orden').order('codigo');
+  if (error) throw errorRetencion(error, 'No se pudieron leer los supuestos.');
   return (data ?? []).map((r) => aSupuesto(r as Record<string, unknown>));
 }
 
 /** Los motivos de «No aplica» que valen para un impuesto en una fecha (los generales incluidos). */
 export async function motivosVigentes(impuesto: string, fecha: string): Promise<MotivoNoAplica[]> {
-  try {
-    const { data, error } = await supabase.rpc('retencion_motivos_vigentes', { p_impuesto: impuesto, p_fecha: fecha });
-    if (!error && data) return ((data ?? []) as Record<string, unknown>[]).map(aMotivo);
-  } catch { /* RPC fallback */ }
-
-  const impMin = impuesto.toLowerCase();
-  try {
-    const { data, error } = await supabase.from(T_MOTIVOS).select('*')
-      .or(`tipo.eq.${impMin},tipo.is.null`)
-      .eq('activo', true)
-      .order('orden');
-    if (!error && data) return data.map((r) => aMotivo(r as Record<string, unknown>));
-  } catch { /* fallback */ }
-
-  try {
-    const { data } = await supabase.from(T_MOTIVOS).select('*').eq('activo', true);
-    return ((data ?? []) as Record<string, unknown>[]).map(aMotivo);
-  } catch {
-    return [];
-  }
+  const { data, error } = await supabase.rpc('retencion_motivos_vigentes', { p_impuesto: impuesto, p_fecha: fecha });
+  if (error) throw errorRetencion(error, 'No se pudieron leer los motivos.');
+  return ((data ?? []) as Record<string, unknown>[]).map(aMotivo);
 }
 
 /** Los supuestos de un impuesto en una fecha. Sin R6, null: la pantalla usa las casillas fijas. */
 export async function supuestosVigentes(impuesto: string, fecha: string): Promise<Supuesto[] | null> {
   if (!(await r6Disponible())) return null;
   const { data, error } = await supabase.rpc('retencion_supuestos_vigentes', { p_impuesto: impuesto, p_fecha: fecha });
-  if (error) {
-    if (esFuncionInexistente(error)) {
-      const todos = await listSupuestos();
-      const impUp = impuesto.trim().toUpperCase();
-      return todos.filter((s) => s.impuestoClave === impUp && vigenteEn(s, fecha));
-    }
-    throw errorRetencion(error, 'No se pudieron leer los supuestos.');
-  }
+  if (error) throw errorRetencion(error, 'No se pudieron leer los supuestos.');
   return ((data ?? []) as Record<string, unknown>[]).map(aSupuesto);
 }
 
@@ -230,22 +164,7 @@ export async function guardarMotivo(m: MotivoDatos, nota: string, id?: string): 
   const fila = filaMotivo(m, nota);
   const q = id ? supabase.from(T_MOTIVOS).update(fila).eq('id', id) : supabase.from(T_MOTIVOS).insert(fila);
   const { data, error } = await q.select('id');
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const filaMgg = {
-        tipo: m.impuestoClave ? m.impuestoClave.toLowerCase() : null,
-        texto: m.texto.trim(),
-        requiere_texto: m.requiereTexto,
-        orden: m.orden,
-        activo: m.activo ?? true,
-      };
-      const qAlt = id ? supabase.from(T_MOTIVOS).update(filaMgg).eq('id', id) : supabase.from(T_MOTIVOS).insert(filaMgg);
-      const alt = await qAlt.select('id');
-      if (alt.error) throw errorRetencion(alt.error, 'No se pudo guardar el motivo.', { unico: 'Ya hay un motivo con ese texto para ese impuesto.', regla: 'Revisa el motivo: texto de 3 letras o más y «hasta» después de «desde».' });
-      return exigirFila(alt.data, 'el motivo');
-    }
-    throw errorRetencion(error, 'No se pudo guardar el motivo.', { unico: 'Ya hay un motivo con ese texto para ese impuesto.', regla: 'Revisa el motivo: texto de 3 letras o más y «hasta» después de «desde».' });
-  }
+  if (error) throw errorRetencion(error, 'No se pudo guardar el motivo.', { unico: 'Ya hay un motivo con ese texto para ese impuesto.', regla: 'Revisa el motivo: texto de 3 letras o más y «hasta» después de «desde».' });
   return exigirFila(data, 'el motivo');
 }
 
@@ -256,26 +175,7 @@ export async function guardarSupuesto(s: SupuestoDatos, nota: string, id?: strin
   const fila = filaSupuesto(s, nota);
   const q = id ? supabase.from(T_SUPUESTOS).update(fila).eq('id', id) : supabase.from(T_SUPUESTOS).insert(fila);
   const { data, error } = await q.select('id');
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const filaMgg = {
-        impuesto: s.impuestoClave.toLowerCase(),
-        codigo: s.codigo.trim(),
-        texto: s.texto.trim(),
-        pct: s.pct,
-        vigente_desde: s.desde,
-        vigente_hasta: s.hasta || null,
-        fuente: s.fuente?.trim() || null,
-        motivo: nota.trim(),
-        activo: s.activo ?? true,
-      };
-      const qAlt = id ? supabase.from(T_SUPUESTOS).update(filaMgg).eq('id', id) : supabase.from(T_SUPUESTOS).insert(filaMgg);
-      const alt = await qAlt.select('id');
-      if (alt.error) throw errorRetencion(alt.error, 'No se pudo guardar el supuesto.', { unico: 'Ese impuesto ya tiene un supuesto con ese código.', regla: 'Revisa el supuesto: % de 0 a 100 y «hasta» después de «desde».' });
-      return exigirFila(alt.data, 'el supuesto');
-    }
-    throw errorRetencion(error, 'No se pudo guardar el supuesto.', { unico: 'Ese impuesto ya tiene un supuesto con ese código.', regla: 'Revisa el supuesto: % de 0 a 100 y «hasta» después de «desde».' });
-  }
+  if (error) throw errorRetencion(error, 'No se pudo guardar el supuesto.', { unico: 'Ese impuesto ya tiene un supuesto con ese código.', regla: 'Revisa el supuesto: % de 0 a 100 y «hasta» después de «desde».' });
   return exigirFila(data, 'el supuesto');
 }
 
@@ -283,29 +183,13 @@ export async function guardarSupuesto(s: SupuestoDatos, nota: string, id?: strin
 export async function activarMotivo(id: string, activo: boolean, nota: string): Promise<void> {
   if (!nota.trim()) throw new Error('Indica el motivo del cambio.');
   const { data, error } = await supabase.from(T_MOTIVOS).update({ activo, nota: nota.trim() }).eq('id', id).select('id');
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const alt = await supabase.from(T_MOTIVOS).update({ activo }).eq('id', id).select('id');
-      if (alt.error) throw errorRetencion(alt.error, 'No se pudo cambiar el motivo.');
-      exigirFila(alt.data, 'el cambio');
-      return;
-    }
-    throw errorRetencion(error, 'No se pudo cambiar el motivo.');
-  }
+  if (error) throw errorRetencion(error, 'No se pudo cambiar el motivo.');
   exigirFila(data, 'el cambio');
 }
 
 export async function activarSupuesto(id: string, activo: boolean, nota: string): Promise<void> {
   if (!nota.trim()) throw new Error('Indica el motivo del cambio.');
   const { data, error } = await supabase.from(T_SUPUESTOS).update({ activo, nota: nota.trim() }).eq('id', id).select('id');
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const alt = await supabase.from(T_SUPUESTOS).update({ activo, motivo: nota.trim() }).eq('id', id).select('id');
-      if (alt.error) throw errorRetencion(alt.error, 'No se pudo cambiar el supuesto.');
-      exigirFila(alt.data, 'el cambio');
-      return;
-    }
-    throw errorRetencion(error, 'No se pudo cambiar el supuesto.');
-  }
+  if (error) throw errorRetencion(error, 'No se pudo cambiar el supuesto.');
   exigirFila(data, 'el cambio');
 }

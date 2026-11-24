@@ -22,7 +22,7 @@
 import type { EstadoSimulacion } from '../tipos';
 import { estadoDesdeBd } from './datosBd';
 
-export const CLAVE_SIMULACION = 'mgg.contabilidad.simulacion';
+export const CLAVE_SIMULACION = 'gt.contabilidad.simulacion';
 
 /** Lo mínimo de localStorage que usa el almacén. */
 export interface Almacenamiento {

@@ -17,4 +17,24 @@ describe('AdminRepo · documentos ampliados (costo, aviso, prioridad, badge, sub
     expect(docs).toHaveLength(1);
     expect(docs[0]).toMatchObject({ prioridad: 'media', badgeTexto: 'RUPDAE-26', subcarpetaId: 'carpeta-fantasma', avisoDias: 60 });
   });
+
+  it('resolverActorVisible: convierte cuentas de correo unidas en nombres institucionales limpios dejando el correo secundario', async () => {
+    const { resolverActorVisible } = await import('./admin.repository');
+
+    const tributos = resolverActorVisible('impuestostributosgt@gmail.com');
+    expect(tributos.nombre).toBe('Impuestos y Tributos GT');
+    expect(tributos.correo).toBe('impuestostributosgt@gmail.com');
+
+    const admin = resolverActorVisible('administraciongt@gmail.com');
+    expect(admin.nombre).toBe('Administración GT');
+    expect(admin.correo).toBe('administraciongt@gmail.com');
+
+    const personal = resolverActorVisible('juan.perez@empresa.com');
+    expect(personal.nombre).toBe('Juan Perez');
+    expect(personal.correo).toBe('juan.perez@empresa.com');
+
+    const directo = resolverActorVisible('Administrador');
+    expect(directo.nombre).toBe('Administrador');
+    expect(directo.correo).toBeNull();
+  });
 });

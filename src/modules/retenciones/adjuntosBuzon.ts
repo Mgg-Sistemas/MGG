@@ -1,6 +1,6 @@
 /* ============================================================
-   MGG · Retenciones · Validación y gestión de adjuntos
-   para el Buzón de Facturas Móvil (alineado con Golden Touch)
+   Golden Touch · Retenciones · Validación y gestión de adjuntos
+   para el Buzón de Facturas Móvil
 
    Reglas estrictas:
    - Máximo 4 imágenes (JPG, PNG, WEBP).
@@ -10,6 +10,7 @@
 
 import { supabase } from '@/shared/lib/supabase';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
+import { errorStorage } from '@/modules/libroFiscal/erroresRetencion';
 
 export const MAX_IMAGENES_FACTURA = 4;
 export const MAX_PDFS_FACTURA = 2;
@@ -46,6 +47,17 @@ export interface ValidacionArchivos {
   error: string | null;
   valido: boolean;
 }
+
+/** ¿Es una foto HEIC/HEIF de iPhone? Se detecta por tipo o por extensión (a veces el tipo llega vacío). */
+export function esHeic(f: File): boolean {
+  return /hei[cf]/i.test(f.type) || /\.hei[cf]$/i.test(f.name);
+}
+
+/** Mensaje claro para una foto HEIC de iPhone que no se puede guardar. */
+const mensajeHeic = (nombre: string) =>
+  `La foto «${nombre}» está en formato HEIC/HEIF de iPhone y no se puede guardar directamente. `
+  + 'En el iPhone, cambia Ajustes › Cámara › Formato a «Más compatible» (así salen en JPG), '
+  + 'o abre la foto y súbela como captura de pantalla.';
 
 /** Clasifica una lista de archivos en imágenes y PDFs */
 export function clasificarArchivos(archivos: readonly File[]): { imagenes: File[]; pdfs: File[]; otros: File[] } {
@@ -86,11 +98,14 @@ export function validarArchivosFactura(
   }
 
   if (otros.length > 0) {
+    const heic = otros.find(esHeic);
     return {
       imagenes: [],
       pdfs: [],
       valido: false,
-      error: `El archivo «${otros[0].name}» no es compatible. Solo se admiten imágenes (JPG/PNG) y documentos PDF.`,
+      error: heic
+        ? mensajeHeic(heic.name)
+        : `El archivo «${otros[0].name}» no es compatible. Solo se admiten imágenes (JPG/PNG) y documentos PDF.`,
     };
   }
 
@@ -120,18 +135,31 @@ export function validarArchivosFactura(
 export const validarAdjuntosBuzon = (archivos: readonly File[], imgExist = 0, pdfExist = 0) =>
   validarArchivosFactura(archivos, imgExist, pdfExist);
 
-/** Prepara y comprime imágenes antes de subirlas */
+/** Los tipos que acepta el almacenamiento del buzón (el resto se rechaza al subir). */
+export const TIPOS_GUARDABLES = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+
+/**
+ * Achica las fotos antes de subirlas (salen en JPEG). Una foto que el navegador
+ * no puede convertir (p. ej. HEIC del iPhone) no se puede guardar: se avisa
+ * antes de subir nada.
+ */
 export async function prepararImagenesParaSubida(imagenes: readonly File[]): Promise<File[]> {
-  const comprimidas: File[] = [];
+  const listas: File[] = [];
   for (const img of imagenes) {
+    let lista = img;
     try {
-      const c = await comprimirImagen(img);
-      comprimidas.push(c);
+      lista = await comprimirImagen(img, { maximo: 1920, calidad: 0.82 });
     } catch {
-      comprimidas.push(img);
+      /* se queda la original; abajo se ve si se puede guardar */
     }
+    if (!TIPOS_GUARDABLES.includes(lista.type)) {
+      throw new Error(esHeic(img)
+        ? mensajeHeic(img.name)
+        : `La foto «${img.name}» está en un formato que no se puede guardar (solo JPG, PNG o WEBP). Tómala de nuevo con la cámara en formato JPG o haz una captura de pantalla de ella.`);
+    }
+    listas.push(lista);
   }
-  return comprimidas;
+  return listas;
 }
 
 export async function prepararAdjuntosBuzon(archivos: readonly File[]): Promise<File[]> {
@@ -140,33 +168,28 @@ export async function prepararAdjuntosBuzon(archivos: readonly File[]): Promise<
   return [...imgsListas, ...pdfs];
 }
 
-/** Sube un archivo al bucket de Supabase con fallback seguro */
-export async function subirArchivoBuzon(
-  archivoOId: File | string,
-  facturaIdOArchivo: string | File,
-  tipoOpcional?: 'imagen' | 'pdf',
-): Promise<AdjuntoFacturaItem> {
-  const archivo = archivoOId instanceof File ? archivoOId : (facturaIdOArchivo as File);
-  const facturaId = typeof archivoOId === 'string' ? archivoOId : (facturaIdOArchivo as string);
-  const tipo = tipoOpcional || (archivo.type.startsWith('image/') ? 'imagen' : 'pdf');
+/**
+ * Sube un archivo de una factura del buzón, antes de guardar la factura (quien
+ * solo tiene lectura carga facturas, pero no puede modificarlas después). Si no
+ * se sube, se avisa: un soporte que no está en el almacenamiento no se registra.
+ */
+export async function subirArchivoBuzon(facturaId: string, archivo: File): Promise<AdjuntoFacturaItem> {
+  const tipo = archivo.type.startsWith('image/') ? 'imagen' : 'pdf';
+  // La base acepta «<id de la factura>/<nombre>», con el nombre de hasta 200 caracteres.
+  const safeName = archivo.name.replace(/[^a-zA-Z0-9._-]/g, '_').replace(/\.{2,}/g, '.').slice(-150);
+  const path = `${facturaId}/${Date.now()}_${safeName}`;
 
-  const timestamp = Date.now();
-  const safeName = archivo.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-  const path = `${facturaId}/${timestamp}_${crypto.randomUUID()}_${safeName}`;
-
-  // Si no sube, se dice: antes el error se tragaba y el soporte quedaba anotado sin archivo.
   const { data, error } = await supabase.storage.from(BUCKET_BUZON).upload(path, archivo, {
     upsert: false,
     contentType: archivo.type,
   });
-  if (error) throw new Error(`No se pudo subir «${archivo.name}»: ${error.message}`);
-  const uploadedPath = data?.path ?? path;
+  if (error) throw errorStorage(error, `el archivo «${archivo.name}»`);
 
   return {
-    id: `adj-${timestamp}-${Math.random().toString(36).slice(2, 6)}`,
+    id: crypto.randomUUID(),
     facturaId,
     tipo,
-    path: uploadedPath,
+    path: data?.path ?? path,
     nombreOriginal: archivo.name,
     nombre: archivo.name,
     tamanoBytes: archivo.size,
@@ -176,15 +199,22 @@ export async function subirArchivoBuzon(
   };
 }
 
-/**
- * Enlace firmado y temporal (10 min) a un soporte. Las facturas no van por URL
- * pública: el bucket es privado y solo las ve quien tiene Retenciones.
- */
-export async function obtenerUrlAdjunto(path: string): Promise<string> {
-  if (!path) return '';
-  const bucket = path.startsWith('facturas_externas/') ? 'compras-oc' : BUCKET_BUZON;
-  const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 600);
-  if (error || !data?.signedUrl) return '';
-  return data.signedUrl;
+/** Borra archivos ya subidos (cuando la factura no se llegó a guardar o se borra). */
+export async function borrarArchivosBuzon(paths: readonly string[]): Promise<void> {
+  if (!paths.length) return;
+  const { error } = await supabase.storage.from(BUCKET_BUZON).remove([...paths]);
+  if (error) throw new Error('No se pudieron borrar los archivos de la factura. Vuelve a intentarlo.');
 }
 
+/** Minutos que vale el enlace firmado de un soporte (el mismo que usa el diseño aprobado). */
+export const MINUTOS_ENLACE_ADJUNTO = 10;
+
+/**
+ * Enlace firmado de un adjunto, válido diez minutos. Los soportes de las facturas
+ * nunca se sirven con enlace público.
+ */
+export async function obtenerUrlAdjunto(path: string): Promise<string> {
+  const { data, error } = await supabase.storage.from(BUCKET_BUZON).createSignedUrl(path, MINUTOS_ENLACE_ADJUNTO * 60);
+  if (error || !data?.signedUrl) throw new Error('No se pudo abrir el archivo: sin permiso, o ya no está guardado.');
+  return data.signedUrl;
+}

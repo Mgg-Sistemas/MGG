@@ -23,7 +23,7 @@ vi.mock('@/shared/lib/supabase', () => ({
   },
 }));
 
-import { esTablaInexistente, olvidarDisponibilidad, r1Disponible, tablaDisponible } from './disponibilidad';
+import { buzonDisponible, columnaDisponible, esTablaInexistente, olvidarDisponibilidad, r1Disponible, tablaDisponible } from './disponibilidad';
 
 beforeEach(() => { respuestas.clear(); preguntas.length = 0; olvidarDisponibilidad(); });
 
@@ -67,6 +67,24 @@ describe('¿está la tabla en la base?', () => {
     olvidarDisponibilidad();
     respuestas.set('retencion_contraparte_perfiles', { error: { code: 'PGRST205', message: 'Could not find the table' } });
     expect(await r1Disponible()).toBe(false);
+  });
+});
+
+describe('¿está la columna? (una versión del paquete sobre otra)', () => {
+  it('pregunta por la columna; si no está (42703) o no está la tabla, no existe', async () => {
+    expect(await columnaDisponible('retencion_facturas_externas', 'tipo_documento')).toBe(true);
+    expect(preguntas[0].metodos).toContainEqual(['select', 'tipo_documento']);
+    olvidarDisponibilidad();
+    respuestas.set('retencion_facturas_externas', { error: { code: '42703', message: 'column retencion_facturas_externas.tipo_documento does not exist' } });
+    expect(await columnaDisponible('retencion_facturas_externas', 'tipo_documento')).toBe(false);
+  });
+
+  it('el buzón pide R12: la columna tipo_documento y la tabla de empresas', async () => {
+    expect(await buzonDisponible()).toBe(true);
+    olvidarDisponibilidad();
+    // R11 sin R12: la tabla existe pero la columna no → el buzón no se muestra
+    respuestas.set('retencion_facturas_externas', { error: { code: '42703', message: 'column ... tipo_documento does not exist' } });
+    expect(await buzonDisponible()).toBe(false);
   });
 });
 

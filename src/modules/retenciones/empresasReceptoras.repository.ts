@@ -1,22 +1,30 @@
 /* ============================================================
-   MGG · Retenciones · Empresas receptoras (Multi-Empresa)
-   Alineado 1:1 con Golden Touch empresasReceptoras.repository.ts
+   Golden Touch · Retenciones · Empresas receptoras (Multi-Empresa)
 
-   Permite clasificar las facturas y retenciones según la empresa
-   receptora (Mineral Group Guayana C.A., Golden Touch 1127 C.A.,
-   Minería TS / MTO, etc.).
-   
-   Doble propósito por rol:
-   1. Para Facturas (móvil/campo): selección táctil rápida o tipear
-      cualquier empresa/código con un botón ("✏ Escribir otra").
-   2. Para Retención / Impuestos (oficina): gestión completa de la
-      ficha fiscal (RIF, domicilio fiscal, municipio, licencia,
-      régimen de agente IVA/ISLR, reportes independientes sin afectar a MGG).
+   Las empresas que reciben las facturas del buzón y su ficha fiscal
+   (RIF, domicilio, municipio, licencia, régimen de agente IVA/ISLR).
+
+   Todo se lee y se guarda en la base (retencion_empresas_receptoras):
+   no hay empresas de fábrica ni copia en el navegador. Si la base no
+   guarda, se avisa con el motivo.
    ============================================================ */
 
 import { supabase } from '@/shared/lib/supabase';
-import { EMPRESA_NOMBRE, EMPRESA_RIF, EMPRESA_DOMICILIO, EMPRESA_EMAIL } from '@/shared/lib/empresa';
 import { rifEmpresaParaGuardar } from '@/modules/libroFiscal/parametrosEmpresa';
+import { errorRetencion } from '@/modules/libroFiscal/erroresRetencion';
+import { columnaDisponible } from '@/modules/libroFiscal/disponibilidad';
+import { errorPorcentajesIva } from '@/modules/libroFiscal/retencionesFiscal.repository';
+
+const TABLA = 'retencion_empresas_receptoras';
+
+/**
+ * ¿La ficha de empresa trae ya los campos fiscales por empresa (F-ME1)? Se pregunta
+ * por `pct_iva_especial`. Sin ellos, el editor fiscal por empresa se oculta y no se
+ * intenta escribir esas columnas (degradación segura).
+ */
+export function fichaFiscalEmpresaDisponible(): Promise<boolean> {
+  return columnaDisponible(TABLA, 'pct_iva_especial');
+}
 
 export interface EmpresaReceptora {
   id: string;
@@ -36,243 +44,153 @@ export interface EmpresaReceptora {
   estado?: string;
   licenciaMunicipal?: string;
 
-  // Régimen fiscal y condición de agente
-  esAgenteRetencionIva?: boolean;
-  esContribuyenteEspecial?: boolean;
-  retieneIslr?: boolean;
-  retieneMunicipal?: boolean;
+  // % y alícuotas de la empresa. El RÉGIMEN (qué retiene: IVA/ISLR/ISAE) NO vive acá:
+  // su única fuente es L6 (Parámetros → Régimen), vía la RPC retencion_empresa_practica.
+  // Los % los lee configDesdeFicha para una empresa NO-GT; su recorte definitivo es de D3.
   pctIvaGeneral?: number;
+  /** % de retención de IVA al contribuyente especial (F-ME1, default 100). */
+  pctIvaEspecial?: number;
+  /** Alícuota del IGTF de la empresa (F-ME1, default 3). */
+  pctIgtf?: number;
+  /** Alícuota general del IVA para el desglose «IVA incluido» (F-ME1, default 16). */
+  ivaAlicuota?: number;
+  /** Alícuota del Impuesto Municipal (ISAE) de la empresa según su municipio (F-ME1, default = la global de hoy). */
+  alicuotaMunicipal?: number;
   imprimirOriginalYCopia?: boolean;
 }
 
-export const EMPRESAS_POR_DEFECTO: EmpresaReceptora[] = [
-  {
-    id: 'empresa-mgg',
-    clave: 'mgg',
-    nombre: EMPRESA_NOMBRE || 'Mineral Group Guayana C.A.',
-    nombreCorto: 'MGG',
-    rif: EMPRESA_RIF || 'J-50221930-7',
-    colorBadge: '#2563eb',
-    activo: true,
-    orden: 1,
-    direccionFiscal: EMPRESA_DOMICILIO || 'Zona Industrial Los Pinos, Puerto Ordaz, Estado Bolívar',
-    municipio: 'Caroní',
-    estado: 'Bolívar',
-    email: EMPRESA_EMAIL || 'administracion@mgg.com',
-    esAgenteRetencionIva: true,
-    esContribuyenteEspecial: true,
-    retieneIslr: true,
-    retieneMunicipal: true,
-    pctIvaGeneral: 75,
-    imprimirOriginalYCopia: true,
-  },
-  {
-    id: 'empresa-golden-touch',
-    clave: 'golden_touch',
-    nombre: 'Golden Touch 1127 C.A.',
-    nombreCorto: 'Golden Touch',
-    rif: 'J-50112745-6',
-    colorBadge: '#eab308',
-    activo: true,
-    orden: 2,
-    direccionFiscal: 'Caracas / Bolívar, Venezuela',
-    municipio: 'Caroní',
-    estado: 'Bolívar',
-    email: 'administracion@goldentouch1127.com',
-    esAgenteRetencionIva: true,
-    esContribuyenteEspecial: false,
-    retieneIslr: true,
-    retieneMunicipal: true,
-    pctIvaGeneral: 75,
-    imprimirOriginalYCopia: true,
-  },
-  {
-    id: 'empresa-mineria-ts',
-    clave: 'mineria_ts',
-    nombre: 'Minería TS C.A.',
-    nombreCorto: 'Minería TS / MTO',
-    rif: 'J-50348912-3',
-    colorBadge: '#d97706',
-    activo: true,
-    orden: 3,
-    direccionFiscal: 'El Callao, Estado Bolívar, Venezuela',
-    municipio: 'El Callao',
-    estado: 'Bolívar',
-    email: 'contacto@minerats.com',
-    esAgenteRetencionIva: true,
-    esContribuyenteEspecial: false,
-    retieneIslr: true,
-    retieneMunicipal: false,
-    pctIvaGeneral: 75,
-    imprimirOriginalYCopia: true,
-  },
-];
+export type EmpresaReceptoraInput = Omit<EmpresaReceptora, 'id' | 'clave' | 'orden'> & { id?: string; clave?: string; orden?: number };
 
-const LOCAL_STORAGE_KEY = 'mgg.retenciones.empresas_receptoras';
-let _memoriaEmpresas: EmpresaReceptora[] = [...EMPRESAS_POR_DEFECTO];
-
-function leerCacheLocal(): EmpresaReceptora[] {
-  if (typeof window === 'undefined') return _memoriaEmpresas;
-  try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (!raw) return EMPRESAS_POR_DEFECTO;
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : EMPRESAS_POR_DEFECTO;
-  } catch {
-    return EMPRESAS_POR_DEFECTO;
-  }
-}
-
-function guardarCacheLocal(empresas: EmpresaReceptora[]): void {
-  _memoriaEmpresas = empresas;
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(empresas));
-  } catch {
-    /* ignore */
-  }
-}
+const texto = (v: unknown): string | undefined => (v == null || v === '' ? undefined : String(v));
 
 function mapearFilaEmpresa(r: Record<string, unknown>, idx: number): EmpresaReceptora {
   return {
     id: String(r.id),
     clave: String(r.clave || r.id),
-    nombre: String(r.nombre || 'Empresa sin nombre'),
-    nombreCorto: r.nombre_corto ? String(r.nombre_corto) : (r.nombreCorto ? String(r.nombreCorto) : undefined),
-    rif: String(r.rif || 'S/RIF'),
-    colorBadge: String(r.color_badge || r.colorBadge || '#64748b'),
+    nombre: String(r.nombre ?? ''),
+    nombreCorto: texto(r.nombre_corto),
+    rif: String(r.rif ?? ''),
+    colorBadge: String(r.color_badge || '#64748b'),
     activo: r.activo !== false,
     orden: Number(r.orden ?? idx + 1),
-    email: r.email ? String(r.email) : undefined,
-    telefono: r.telefono ? String(r.telefono) : undefined,
-    direccionFiscal: r.direccion_fiscal ? String(r.direccion_fiscal) : (r.direccionFiscal ? String(r.direccionFiscal) : undefined),
-    municipio: r.municipio ? String(r.municipio) : undefined,
-    estado: r.estado ? String(r.estado) : undefined,
-    licenciaMunicipal: r.licencia_municipal ? String(r.licencia_municipal) : (r.licenciaMunicipal ? String(r.licenciaMunicipal) : undefined),
-    esAgenteRetencionIva: r.es_agente_iva != null ? Boolean(r.es_agente_iva) : (r.esAgenteRetencionIva != null ? Boolean(r.esAgenteRetencionIva) : true),
-    esContribuyenteEspecial: r.es_contribuyente_especial != null ? Boolean(r.es_contribuyente_especial) : (r.esContribuyenteEspecial != null ? Boolean(r.esContribuyenteEspecial) : false),
-    retieneIslr: r.retiene_islr != null ? Boolean(r.retiene_islr) : (r.retieneIslr != null ? Boolean(r.retieneIslr) : true),
-    retieneMunicipal: r.retiene_municipal != null ? Boolean(r.retiene_municipal) : (r.retieneMunicipal != null ? Boolean(r.retieneMunicipal) : true),
-    pctIvaGeneral: r.pct_iva_general != null ? Number(r.pct_iva_general) : (r.pctIvaGeneral != null ? Number(r.pctIvaGeneral) : 75),
-    imprimirOriginalYCopia: r.imprimir_original_y_copia != null ? Boolean(r.imprimir_original_y_copia) : (r.imprimirOriginalYCopia != null ? Boolean(r.imprimirOriginalYCopia) : true),
+    email: texto(r.email),
+    telefono: texto(r.telefono),
+    direccionFiscal: texto(r.direccion_fiscal),
+    municipio: texto(r.municipio),
+    estado: texto(r.estado),
+    licenciaMunicipal: texto(r.licencia_municipal),
+    pctIvaGeneral: r.pct_iva_general != null ? Number(r.pct_iva_general) : 75,
+    // Los campos fiscales de F-ME1 quedan en undefined si la base no los trae todavía:
+    // así el guardado no los escribe (no rompe pre-F-ME1) y la config cae en su default.
+    pctIvaEspecial: r.pct_iva_especial != null ? Number(r.pct_iva_especial) : undefined,
+    pctIgtf: r.pct_igtf != null ? Number(r.pct_igtf) : undefined,
+    ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : undefined,
+    alicuotaMunicipal: r.alicuota_municipal != null ? Number(r.alicuota_municipal) : undefined,
+    imprimirOriginalYCopia: r.imprimir_original_y_copia !== false,
   };
 }
 
+/** Las empresas guardadas en la base, en su orden. Sin empresas, la lista viene vacía. */
 export async function listEmpresasReceptoras(): Promise<EmpresaReceptora[]> {
-  try {
-    const { data, error } = await supabase
-      .from('retencion_empresas_receptoras')
-      .select('*')
-      .order('orden', { ascending: true })
-      .order('nombre', { ascending: true });
+  const { data, error } = await supabase
+    .from(TABLA)
+    .select('*')
+    .order('orden', { ascending: true })
+    .order('nombre', { ascending: true });
+  if (error) throw errorRetencion(error, 'No se pudieron leer las empresas.');
+  return (data ?? []).map((r, idx) => mapearFilaEmpresa(r as Record<string, unknown>, idx));
+}
 
-    if (!error && data && data.length > 0) {
-      const mapeadas: EmpresaReceptora[] = data.map((r, idx) => mapearFilaEmpresa(r as Record<string, unknown>, idx));
-      guardarCacheLocal(mapeadas);
-      return mapeadas;
-    }
-  } catch {
-    /* fallback a cache local */
+/** La clave interna de la empresa, sacada de su nombre (no se muestra en pantalla). */
+export function claveDeEmpresa(nombre: string): string {
+  return nombre
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 30);
+}
+
+/** Qué falta o está mal en la ficha; null si se puede guardar. */
+export function faltaEnEmpresa(empresa: EmpresaReceptoraInput): string | null {
+  if (!empresa.nombre?.trim()) return 'Indica el nombre (razón social) de la empresa.';
+  if (!String(empresa.rif ?? '').trim()) return 'Indica el RIF de la empresa.';
+  if (empresa.nombre.trim().length > 200) return 'El nombre de la empresa va hasta 200 caracteres.';
+  if ((empresa.nombreCorto?.trim().length ?? 0) > 60) return 'El nombre corto de la empresa va hasta 60 caracteres.';
+  const rif = rifEmpresaParaGuardar(empresa.rif);
+  if (rif.error) return rif.error;
+  if (rif.rif.startsWith('C')) return 'El RIF de la empresa no puede empezar por C: letra J, G, V, E o P.';
+  // Los % de retención de IVA y las alícuotas van de 0 a 100 (en pantalla el IVA se elige
+  // entre 75 y 100; aquí se valida el rango por si llega otro valor).
+  for (const [etq, v] of [
+    ['de retención de IVA', empresa.pctIvaGeneral ?? 75],
+    ['de retención de IVA al contribuyente especial', empresa.pctIvaEspecial],
+    ['del IGTF', empresa.pctIgtf],
+    ['general del IVA', empresa.ivaAlicuota],
+    ['del ISAE (municipal)', empresa.alicuotaMunicipal],
+  ] as const) {
+    if (v != null && (!Number.isFinite(v) || v < 0 || v > 100)) return `El % ${etq} va de 0 a 100.`;
   }
-  return leerCacheLocal();
+  if (empresa.email?.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(empresa.email.trim())) return 'El correo de la empresa no es válido.';
+  return null;
 }
 
 /**
- * Guarda o actualiza una empresa receptora.
- * Valida el RIF si se ingresa.
+ * Guarda una empresa nueva o los cambios de una existente.
+ * Devuelve lo que quedó en la base.
  */
-export async function guardarEmpresaReceptora(
-  empresa: Omit<EmpresaReceptora, 'id' | 'clave' | 'orden'> & { id?: string; clave?: string; orden?: number },
-): Promise<EmpresaReceptora> {
-  const id = empresa.id || `emp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-  const claveCalculada = (empresa.clave || empresa.nombreCorto || empresa.nombre)
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .slice(0, 30);
+export async function guardarEmpresaReceptora(empresa: EmpresaReceptoraInput): Promise<EmpresaReceptora> {
+  const falta = faltaEnEmpresa(empresa);
+  if (falta) throw new Error(falta);
+  // A2: el % de retención de IVA solo puede ser 75 o 100 (Providencia SNAT/2025/000054),
+  // igual que la config de GT. El select de la UI ya lo protege; el repo lo cierra también.
+  const faltaIva = errorPorcentajesIva({ pctIvaGeneral: empresa.pctIvaGeneral ?? 75, pctIvaEspecial: empresa.pctIvaEspecial ?? 100 });
+  if (faltaIva) throw new Error(faltaIva);
+  const nombre = empresa.nombre.trim();
 
-  // Si tiene RIF, verificar con rifEmpresaParaGuardar
-  let rifNormalizado = empresa.rif?.trim().toUpperCase() || 'S/RIF';
-  if (rifNormalizado && rifNormalizado !== 'S/RIF') {
-    const r = rifEmpresaParaGuardar(rifNormalizado);
-    if (!r.error && r.rif) {
-      rifNormalizado = r.rif;
-    }
-  }
-
-  const registro: EmpresaReceptora = {
-    id,
-    clave: claveCalculada || id,
-    nombre: empresa.nombre.trim(),
-    nombreCorto: empresa.nombreCorto?.trim() || undefined,
-    rif: rifNormalizado,
-    colorBadge: empresa.colorBadge || '#2563eb',
+  const filaBase = {
+    clave: empresa.clave || claveDeEmpresa(empresa.nombreCorto || nombre) || `empresa_${Date.now()}`,
+    nombre,
+    nombre_corto: empresa.nombreCorto?.trim() || null,
+    rif: rifEmpresaParaGuardar(empresa.rif).rif,
+    color_badge: empresa.colorBadge || '#2563eb',
     activo: empresa.activo !== false,
-    orden: empresa.orden || 10,
-    email: empresa.email?.trim() || undefined,
-    telefono: empresa.telefono?.trim() || undefined,
-    direccionFiscal: empresa.direccionFiscal?.trim() || undefined,
-    municipio: empresa.municipio?.trim() || undefined,
-    estado: empresa.estado?.trim() || undefined,
-    licenciaMunicipal: empresa.licenciaMunicipal?.trim() || undefined,
-    esAgenteRetencionIva: empresa.esAgenteRetencionIva ?? true,
-    esContribuyenteEspecial: empresa.esContribuyenteEspecial ?? false,
-    retieneIslr: empresa.retieneIslr ?? true,
-    retieneMunicipal: empresa.retieneMunicipal ?? false,
-    pctIvaGeneral: empresa.pctIvaGeneral ?? 75,
-    imprimirOriginalYCopia: empresa.imprimirOriginalYCopia ?? true,
+    orden: empresa.orden ?? 10,
+    email: empresa.email?.trim() || null,
+    telefono: empresa.telefono?.trim() || null,
+    direccion_fiscal: empresa.direccionFiscal?.trim() || null,
+    municipio: empresa.municipio?.trim() || null,
+    estado: empresa.estado?.trim() || null,
+    licencia_municipal: empresa.licenciaMunicipal?.trim() || null,
   };
 
-  try {
-    const { error } = await supabase.from('retencion_empresas_receptoras').upsert({
-      id: registro.id,
-      clave: registro.clave,
-      nombre: registro.nombre,
-      nombre_corto: registro.nombreCorto || null,
-      rif: registro.rif,
-      color_badge: registro.colorBadge,
-      activo: registro.activo,
-      orden: registro.orden,
-      email: registro.email || null,
-      telefono: registro.telefono || null,
-      direccion_fiscal: registro.direccionFiscal || null,
-      municipio: registro.municipio || null,
-      estado: registro.estado || null,
-      licencia_municipal: registro.licenciaMunicipal || null,
-      es_agente_iva: registro.esAgenteRetencionIva,
-      es_contribuyente_especial: registro.esContribuyenteEspecial,
-      retiene_islr: registro.retieneIslr,
-      retiene_municipal: registro.retieneMunicipal,
-      pct_iva_general: registro.pctIvaGeneral,
-      imprimir_original_y_copia: registro.imprimirOriginalYCopia,
-      updated_at: new Date().toISOString(),
-    });
-    if (error) {
-      console.warn('Upsert en retencion_empresas_receptoras no disponible, usando fallback local:', error.message);
-    }
-  } catch {
-    // Fallback a localStorage
-  }
+  // Lo por-empresa del comprobante que SÍ gobierna esta ficha: la alícuota municipal (ISAE)
+  // y si imprime en Original y Copia. Se escriben solo si vienen definidos (presence-gate), así
+  // el alta/edición de identidad en el buzón no los pisa. El RÉGIMEN (qué retiene) y los %
+  // nacionales NO se escriben desde aquí: su fuente es L6 (Parámetros → Régimen) y R3
+  // (Parámetros → Valores); el editor único nunca manda esos campos.
+  const filaFiscal: Record<string, unknown> = {};
+  if (empresa.alicuotaMunicipal !== undefined) filaFiscal.alicuota_municipal = empresa.alicuotaMunicipal;
+  if (empresa.imprimirOriginalYCopia !== undefined) filaFiscal.imprimir_original_y_copia = empresa.imprimirOriginalYCopia;
+  const fila = { ...filaBase, ...filaFiscal };
 
-  // Guardar en cache local siempre para disponibilidad inmediata
-  const actuales = leerCacheLocal();
-  const idx = actuales.findIndex((e) => e.id === registro.id || e.clave === registro.clave);
-  if (idx >= 0) {
-    actuales[idx] = registro;
-  } else {
-    actuales.push(registro);
-  }
-  guardarCacheLocal(actuales);
-
-  return registro;
+  const textos = { unico: 'Ya hay una empresa con ese nombre corto: usa otro.' };
+  // El autor y las fechas los pone la base.
+  const { data, error } = empresa.id
+    ? await supabase.from(TABLA).update(fila).eq('id', empresa.id).select('*')
+    : await supabase.from(TABLA).insert({ id: crypto.randomUUID(), ...fila }).select('*');
+  if (error) throw errorRetencion(error, 'No se pudo guardar la empresa.', textos);
+  const guardada = (data ?? [])[0] as Record<string, unknown> | undefined;
+  if (!guardada) throw new Error('No se guardó la empresa: sin permiso para modificarla, o ya no existe.');
+  return mapearFilaEmpresa(guardada, 0);
 }
 
+/** Borra una empresa sin facturas (con escritura en Retenciones). Con facturas cargadas, la base no la deja borrar: se desactiva. */
 export async function eliminarEmpresaReceptora(id: string): Promise<void> {
-  try {
-    await supabase.from('retencion_empresas_receptoras').delete().eq('id', id);
-  } catch {
-    /* ignore */
-  }
-  const actuales = leerCacheLocal().filter((e) => e.id !== id);
-  guardarCacheLocal(actuales.length > 0 ? actuales : EMPRESAS_POR_DEFECTO);
+  const { data, error } = await supabase.from(TABLA).delete().eq('id', id).select('id');
+  if (error?.code === '23503') throw new Error('No se puede borrar: tiene facturas cargadas. Desactívala para que no aparezca al cargar.');
+  if (error) throw errorRetencion(error, 'No se pudo borrar la empresa.');
+  if (!data?.length) throw new Error('No se borró la empresa: sin permiso para borrarla, o ya no existe.');
 }

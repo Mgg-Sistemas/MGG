@@ -63,7 +63,7 @@ export async function reabrirPeriodo(id: string, motivo: string): Promise<Result
 const T_PERIODOS = 'retencion_periodos';
 export const v3Disponible = () => tablaDisponible(T_PERIODOS);
 
-export type Declara = 'mgg' | 'gt' | 'otro_sistema';
+export type Declara = 'gt' | 'otro_sistema';
 
 export interface PeriodoFiscal {
   id: string;
@@ -92,7 +92,7 @@ export function aPeriodo(r: Record<string, unknown>): PeriodoFiscal {
     tramo: tramo === 1 || tramo === 2 ? tramo : 0,
     periodicidad: (r.periodicidad as PeriodoFiscal['periodicidad']) ?? 'mensual',
     desde: String(r.desde ?? ''), hasta: String(r.hasta ?? ''), vence: texto(r.vence),
-    declara: r.declara === 'otro_sistema' ? 'otro_sistema' : (r.declara === 'gt' ? 'gt' : 'mgg'),
+    declara: r.declara === 'otro_sistema' ? 'otro_sistema' : 'gt',
     declaradoEn: texto(r.declarado_en), declaradoPor: texto(r.declarado_por),
     reabiertoEn: texto(r.reabierto_en), reabiertoPor: texto(r.reabierto_por), reabiertoMotivo: texto(r.reabierto_motivo),
   };
@@ -144,23 +144,12 @@ export async function cambiarVence(id: string, vence: string | null): Promise<vo
   if (!data?.length) throw new Error('No se cambió el vencimiento: sin permiso de escritura en Retenciones, o el período ya no existe.');
 }
 
-/** Cambia quién declara el período (MGG/GT o el otro sistema), con su motivo. Un período declarado no cambia. */
+/** Cambia quién declara el período (GT o el otro sistema), con su motivo. Un período declarado no cambia. */
 export async function cambiarDeclara(id: string, declara: Declara, motivo: string): Promise<void> {
   const m = motivo.trim();
   if (!m) throw new Error('Indica por qué cambia quién declara el período.');
-
-  const { data, error } = await supabase.from(T_PERIODOS)
-    .update({ declara, motivo_cambio: m }).eq('id', id).select('id');
-  if (error) {
-    if (/motivo_cambio|column/i.test(error.message || '')) {
-      const { data: dMgg, error: errMgg } = await supabase.from(T_PERIODOS)
-        .update({ declara: (declara === 'otro_sistema' ? 'otro_sistema' : 'mgg'), declara_motivo: m }).eq('id', id).select('id');
-      if (errMgg) throw errorRetencion(errMgg, 'No se pudo cambiar quién declara.');
-      if (!dMgg?.length) throw new Error('No se cambió: sin permiso de escritura en Retenciones, o el período ya no existe.');
-      return;
-    }
-    throw errorRetencion(error, 'No se pudo cambiar quién declara.');
-  }
+  const { data, error } = await supabase.from(T_PERIODOS).update({ declara, motivo_cambio: m }).eq('id', id).select('id');
+  if (error) throw errorRetencion(error, 'No se pudo cambiar quién declara.');
   if (!data?.length) throw new Error('No se cambió: sin permiso de escritura en Retenciones, o el período ya no existe.');
 }
 
@@ -173,13 +162,11 @@ export async function periodoEstaCerrado(tipoImpuesto: string, fechaIso: string)
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return null;
   const disponible = await v3Disponible().catch(() => false);
   if (!disponible) return null;
-  const imp = tipoImpuesto.trim();
-  const variantes = [...new Set([imp, imp.toUpperCase(), imp.toLowerCase(), 'TODOS', 'todos'])];
   try {
     const { data, error } = await supabase
       .from(T_PERIODOS)
       .select('*')
-      .in('tipo', variantes)
+      .eq('tipo', tipoImpuesto)
       .lte('desde', d)
       .gte('hasta', d)
       .not('declarado_en', 'is', null)
@@ -190,3 +177,4 @@ export async function periodoEstaCerrado(tipoImpuesto: string, fechaIso: string)
   } catch { /* continuar si no hay acceso */ }
   return null;
 }
+

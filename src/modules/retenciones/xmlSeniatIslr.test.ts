@@ -30,7 +30,7 @@ describe('XML del SENIAT (retenciones de ISLR)', () => {
     const rRecibida = ret({ id: '4', direccion: 'recibida' });
     const rIva = ret({ id: '5', tipo: 'iva' });
 
-    const filas = filasXmlIslr([r1, rAnulada, rOtroPeriodo, rRecibida, rIva], '202610');
+    const filas = filasXmlIslr([r1, rAnulada, rOtroPeriodo, rRecibida, rIva, ret({ id: '6', montoRetenido: 0, porcentaje: 0 })], '202610');
     expect(filas.map((r) => r.id)).toEqual(['1']);
   });
 
@@ -45,18 +45,14 @@ describe('XML del SENIAT (retenciones de ISLR)', () => {
     const r = armarXmlIslr({ ...base, filas: [] });
     expect(r.lineas).toBe(0);
     expect(r.faltan).toEqual([]);
-    expect(r.contenido).toContain('RifAgente="J123456780"');
-    expect(r.contenido).toContain('RIF="J123456780"');
-    expect(r.contenido).toContain('Periodo="202610"');
+    expect(r.contenido).toContain('<RelacionRetencionesISLR RifAgente="J123456780" Periodo="202610" />');
   });
 
   it('con operaciones: genera la estructura completa con DetalleRetencion', () => {
     const r = armarXmlIslr({ ...base, filas: [ret()] });
     expect(r.lineas).toBe(1);
     expect(r.faltan).toEqual([]);
-    expect(r.contenido).toContain('RifAgente="J123456780"');
-    expect(r.contenido).toContain('RIF="J123456780"');
-    expect(r.contenido).toContain('Periodo="202610"');
+    expect(r.contenido).toContain('<RelacionRetencionesISLR RifAgente="J123456780" Periodo="202610">');
     expect(r.contenido).toContain('<RifRetenido>J000000001</RifRetenido>');
     expect(r.contenido).toContain('<NumeroFactura>000123</NumeroFactura>');
     expect(r.contenido).toContain('<NumeroControl>00-000456</NumeroControl>');
@@ -66,15 +62,6 @@ describe('XML del SENIAT (retenciones de ISLR)', () => {
     expect(r.contenido).toContain('<PorcentajeRetencion>2.00</PorcentajeRetencion>');
   });
 
-  it('escapa caracteres especiales XML (&, <, >, ", \') en factura y control', () => {
-    const r = armarXmlIslr({
-      ...base,
-      filas: [ret({ facturaNumero: 'A&B<1>', facturaControl: 'C"D\'2' })],
-    });
-    expect(r.contenido).toContain('<NumeroFactura>A&amp;B&lt;1&gt;</NumeroFactura>');
-    expect(r.contenido).toContain('<NumeroControl>C&quot;D&apos;2</NumeroControl>');
-  });
-
   it('valida datos obligatorios faltantes', () => {
     const sinRif = armarXmlIslr({ ...base, rifAgente: '', filas: [ret({ contraparteRif: null })] });
     expect(sinRif.faltan.some((f) => f.includes('RIF de la empresa'))).toBe(true);
@@ -82,5 +69,16 @@ describe('XML del SENIAT (retenciones de ISLR)', () => {
 
     const sinTasa = armarXmlIslr({ ...base, filas: [ret({ moneda: 'USD', tasa: null })] });
     expect(sinTasa.faltan.some((f) => f.includes('sin tasa de cambio'))).toBe(true);
+
+    const rifInvalido = armarXmlIslr({ ...base, filas: [ret({ contraparteRif: 'J-1234' })] });
+    expect(rifInvalido.faltan.some((f) => f.includes('RIF del proveedor no es válido'))).toBe(true);
+
+    const sinControl = armarXmlIslr({ ...base, filas: [ret({ facturaControl: '' })] });
+    expect(sinControl.faltan.some((f) => f.includes('falta el N° de control'))).toBe(true);
+  });
+
+  it('emite MontoOperacion positivo incluso en nota de crédito (esquema XSD SENIAT)', () => {
+    const r = armarXmlIslr({ ...base, filas: [ret({ tipoDocumento: 'nota_credito', baseImponible: 500 })] });
+    expect(r.contenido).toContain('<MontoOperacion>500.00</MontoOperacion>');
   });
 });

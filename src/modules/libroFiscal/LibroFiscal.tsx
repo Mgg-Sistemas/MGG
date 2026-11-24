@@ -21,7 +21,7 @@
 
    La cuenta no se hace aquí: viene de `retencionesCalculo.ts`.
    ============================================================ */
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { toast } from '@/shared/ui/Toast';
@@ -41,32 +41,34 @@ import { ParametrosEntes } from './ParametrosEntes';
 import { ParametrosFirmaSello } from './ParametrosFirmaSello';
 import { ParametrosPerfiles } from './ParametrosPerfiles';
 import { ParametrosRegimen } from './ParametrosRegimen';
+import { usePuedePracticarEmpresa } from './practicaEmpresa';
 import { completarRif, formatearRif, rifValido } from '@/shared/lib/rif';
 import { rutaFichaProveedor, textoRifInvalido } from './mensajeRif';
 import { EMPRESA_RIF } from '@/shared/lib/empresa';
 import { razonSocialAgente } from './comprobanteRetencionPdf';
 import { SupuestosIvaAcordeon } from './SupuestosIvaAcordeon';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
+import type { EstadoOrden } from '@/shared/lib/types';
+import { badgeEstatusKanban } from '@/modules/retenciones/retencionesKanban';
 import {
-  CONFIG_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
-  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, enBolivares, fechaTasaBcv,
+  CONFIG_RETENCION_DEFECTO, ESTADOS_KANBAN_RETENCION_DEFECTO, DIRECCIONES, ESTADOS_RETENCION, SUJETOS, TIPOS_IMPUESTO,
+  calcularIgtf, calcularRetencionIslr, calcularRetencionIva, calcularRetencionLocal, conceptoConAlicuotaEmpresa, configDesdeFicha, enBolivares, fechaTasaBcv,
   formatoComprobante, formatoSerie,
   labelDireccion, labelImpuesto, labelSujeto, limiteEntregaComprobante,
-  motivoNoPuedePracticar, periodoDe, puedePracticar, quincenaDe, resumenLibro, significadoRetencion, totalesPorMoneda,
+  motivoNoPuedePracticar, periodoDe, quincenaDe, resumenLibro, significadoRetencion, totalesPorMoneda,
   type CalculoRetencion, type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
-  type EstadoRetencion, type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
+  type EstadoRetencion, type FichaFiscalEmpresa, type MotivosIvaCien, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
-import { LISTA_ESTATUS_KANBAN, ESTATUS_KANBAN_DEFECTO } from './retencionesKanban';
 import {
   activarConcepto, adjuntarComprobante, anularRetencion, getAlicuotasLocales, getConfigRetencion, guardarConcepto,
-  guardarConfigRetencion, guardarTiposLicencia, listConceptos, listRetenciones, listTiposLicencia, registrarRetencion, sujetoAGt, tipoAGt,
+  guardarConfigRetencion, guardarTiposLicencia, listConceptos, listRetenciones, listTiposLicencia, registrarRetencion, sujetoAGt, tipoAGt, tipoDeGt,
   urlComprobante,
   PORCENTAJES_IVA,
   consultarCorrelativoEstimado,
   type AlicuotasLocales, type CorrelativoEstimado, type DocKind, type NuevaRetencion, type RetencionPracticada, type TipoLicencia,
 } from './retencionesFiscal.repository';
 import { etiquetaDocumentoRespaldo, faltaEnLaCarga, leerMonto, numeroATexto, validarDocumentoRespaldo } from './validarCarga';
-import { faltaEnFechaEntrega, avisoEntregaIvaTardia } from './facturaDocumento';
+import { faltaEnDatosFactura, faltaEnFechaRetencion, faltaEnFechaEntrega, faltaEnBaseImponible, avisoEntregaIvaTardia, avisoRetenidoSuperaBase } from './facturaDocumento';
 import { montoEscrito, municipioDeLinea } from './lineasRegistro';
 import { CampoMonto } from './CampoMonto';
 import { formatoParaImprimir, r8Disponible } from './formatos.repository';
@@ -80,7 +82,7 @@ import { SearchSelect } from '@/shared/ui/SearchSelect';
 import { list as listProveedores } from '@/modules/proveedores/proveedores.repository';
 import type { Proveedor } from '@/shared/lib/types';
 import { useDescartar } from './confirmarDescartar';
-import { p03Disponible, v2rDisponible } from './disponibilidad';
+import { p03Disponible, v2rDisponible, buzonDisponible } from './disponibilidad';
 import { RegistrarFacturaRetencion, type SemillaFactura } from './RegistrarFacturaRetencion';
 import { FacturasPorRegistrar } from './FacturasPorRegistrar';
 import { semillaDeFacturaOrigen } from './documentosOrigen.repository';
@@ -90,6 +92,7 @@ import { r7Disponible } from './reglas.repository';
 import { calcularConReglaVigente, columnasDeRegla, type CalculoConRegla } from './reglaRegistro';
 import { sugerirSujetoPorRif } from './residenciaSujeto';
 import { esCeroSinMotivo, validarMotivoCero } from './motivoCero';
+import { vistaCorrelativoCero } from './correlativoVista';
 import { RANGOS_RAPIDOS, rangoActivo, rangoRapido } from '@/shared/lib/rangosFecha';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { rotuloImpuesto, rotuloSerie, rotuloSujeto } from './rotulos';
@@ -98,6 +101,9 @@ import { BuscadorFactura } from './BuscadorFactura';
 import { FacturasRegistradas } from './FacturasRegistradas';
 import { filasNoAplica, lineaRetenerDespues, precargaDeFactura } from './registroSuelto';
 import { dateTime } from '@/shared/lib/format';
+import { useRealtime } from '@/shared/lib/useRealtime';
+import { listImpuestos } from './impuestos.repository';
+import { soloImpuestosActivos, admiteDireccion, type ImpuestosActivos, type FichaRetencionVista } from '@/modules/retenciones/impuestosVista';
 
 function monto(n: number | null | undefined, moneda: string): string {
   const v = Number(n || 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -136,10 +142,29 @@ function rutaDocumento(kind: DocKind, id: string | null): string | null {
 
 type VistaLibro = 'lista' | 'factura' | 'impuesto' | 'sin';
 
-export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicial = 'factura' }: {
+/** Contexto que llega desde la cola «Por hacer» al pulsar «Ver en libro». */
+export interface FocoLibro {
+  /** Número de factura/OC (o RIF) con el que se precarga el buscador del libro. */
+  texto: string;
+  /** Fecha de la factura: se usa como `desde` para no perder períodos anteriores. */
+  desde?: string;
+  /** Si la factura está pendiente, abre el listado de facturas por registrar solo para ese origen. */
+  origenIds?: string[];
+  /** Etiqueta legible para el mensaje cuando aún no hay retenciones registradas. */
+  titulo?: string;
+}
+
+export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicial = 'factura', empresaId = null, empresaFicha = null, foco = null }: {
   canWrite?: boolean; actor: string; actorName: string | null; vistaInicial?: VistaLibro;
+  /** Foco opcional desde la cola de Retenciones. null = apertura normal del libro. */
+  foco?: FocoLibro | null;
+  /** Multi-empresa: el libro se filtra a esta empresa. null = single-empresa (todo, como hoy). */
+  empresaId?: string | null;
+  /** Multi-empresa: la ficha de la empresa NO-GT (régimen y %); null = GT/single (config global). */
+  empresaFicha?: FichaFiscalEmpresa | null;
 }) {
   const { can } = usePermissions();
+  // Abrir el documento de origen en Pedidos: Impuestos conserva `pedidos` (base).
   const canVerPedidos = can('pedidos', 'lectura');
 
   // Desde el 07/10/2026 la empresa retiene IVA: el libro abre en lo que
@@ -147,12 +172,16 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   const [direccion, setDireccion] = useState<'' | DireccionRetencion>('practicada');
   const [tipo, setTipo] = useState<'' | TipoImpuesto>('');
   const [estado, setEstado] = useState<'' | EstadoRetencion | 'anulada'>('');
-  const [desde, setDesde] = useState(primeroDelMes());
+  const [desde, setDesde] = useState(foco?.desde || primeroDelMes());
   const [hasta, setHasta] = useState(hoyIso());
-  const [texto, setTexto] = useState('');
+  const [texto, setTexto] = useState(foco?.texto ?? '');
 
   const [filas, setFilas] = useState<RetencionPracticada[]>([]);
   const [config, setConfig] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
+  // D2b: ¿practica la empresa el impuesto? NO-GT lee la RPC (L6); GT/single, puedePracticar(config).
+  // Una sola fuente, también en el libro. Fecha estable (hoy) para no re-consultar en cada render.
+  const hoyRegimen = useMemo(() => hoyVenezuela().slice(0, 10), []);
+  const puedePracticarEmpresa = usePuedePracticarEmpresa(empresaFicha, empresaId, hoyRegimen);
   const [loading, setLoading] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [anular, setAnular] = useState<RetencionPracticada | null>(null);
@@ -160,20 +189,36 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   const [registrar, setRegistrar] = useState<SemillaRetencion | null>(null);
   // Con V2R o fallback nativo: una factura con varias líneas de impuesto en un solo registro.
   const [conFacturaVarias, setConFacturaVarias] = useState(true);
-  useEffect(() => { v2rDisponible().then((v) => { if (v) setConFacturaVarias(true); }).catch(() => {}); }, []);
+  useEffect(() => { v2rDisponible().then((v) => setConFacturaVarias(Boolean(v))).catch(() => setConFacturaVarias(false)); }, []);
   const [facturaVarias, setFacturaVarias] = useState(false);
   // P03: una factura registrada puede cubrir varias órdenes del mismo proveedor.
   const [conP03, setConP03] = useState(true);
-  useEffect(() => { p03Disponible().then((v) => { if (v) setConP03(true); }).catch(() => {}); }, []);
+  useEffect(() => { p03Disponible().then((v) => setConP03(Boolean(v))).catch(() => setConP03(false)); }, []);
   const [expandidos, setExpandidos] = useState<Set<string>>(new Set());
   // R10: «Facturas registradas», retener después sobre una de ellas y los «no aplica» en «Sin retención».
   const [conR10, setConR10] = useState(true);
-  useEffect(() => { r10Disponible().then((v) => { if (v) setConR10(true); }).catch(() => {}); }, []);
+  useEffect(() => { r10Disponible().then((v) => setConR10(Boolean(v))).catch(() => setConR10(false)); }, []);
   const [verFacturas, setVerFacturas] = useState(false);
   const [verFacturasCompras, setVerFacturasCompras] = useState(false);
+  const [focoOrigenIds, setFocoOrigenIds] = useState<string[]>([]);
+  const [focoActual, setFocoActual] = useState<FocoLibro | null>(foco);
   const [semillaCompra, setSemillaCompra] = useState<SemillaFactura | undefined>(undefined);
   const [retenerSobre, setRetenerSobre] = useState<FacturaResumen | null>(null);
   const [modalArc, setModalArc] = useState<{ anio: number; proveedorRif: string } | null>(null);
+
+  // Un «Ver en libro» desde la cola debe sentirse contextual: se precarga la
+  // búsqueda, se amplía el rango y, si la factura aún está pendiente, se abre
+  // directamente el listado de facturas por registrar filtrado a ese origen.
+  useEffect(() => {
+    if (!foco) return;
+    setFocoActual(foco);
+    setTexto(foco.texto);
+    if (foco.desde) setDesde(foco.desde);
+    if (foco.origenIds?.length) {
+      setFocoOrigenIds(foco.origenIds);
+      setVerFacturasCompras(true);
+    }
+  }, [foco]);
 
   const proveedoresConIslr = useMemo(() => {
     const mapa = new Map<string, string>();
@@ -186,20 +231,17 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   }, [filas]);
 
   const [dispDigital, setDispDigital] = useState<{ tieneLogo: boolean; tieneFirma: boolean; tieneSello: boolean; tieneAlguno: boolean }>({
-    tieneLogo: true, tieneFirma: false, tieneSello: false, tieneAlguno: true,
+    tieneLogo: true, tieneFirma: false, tieneSello: true, tieneAlguno: true,
   });
-  const [imprimirLogo, setImprimirLogo] = useState<boolean>(() => {
-    try { return localStorage.getItem('retenciones:imprimirConLogo') !== 'false'; } catch { return true; }
-  });
-  const [imprimirFirma, setImprimirFirma] = useState<boolean>(() => {
-    try { return localStorage.getItem('retenciones:imprimirConFirma') !== 'false'; } catch { return true; }
-  });
-  const [imprimirSello, setImprimirSello] = useState<boolean>(() => {
-    try { return localStorage.getItem('retenciones:imprimirConSello') !== 'false'; } catch { return true; }
-  });
-  const [imprimirOriginalYCopia, setImprimirOriginalYCopia] = useState<boolean>(() => {
-    try { return localStorage.getItem('retenciones:imprimirOriginalYCopia') !== 'false'; } catch { return true; }
-  });
+  // C2: incluir logo/firma/sello en el comprobante es FORMATO del documento → su fuente es
+  // la config (un solo editor en Parámetros). Estos estados son un override NO persistente
+  // para quitar algo en un PDF puntual; se sincronizan con la config al cargar (sin localStorage).
+  const [imprimirLogo, setImprimirLogo] = useState(true);
+  const [imprimirFirma, setImprimirFirma] = useState(true);
+  const [imprimirSello, setImprimirSello] = useState(true);
+  // C1: «Original y Copia» ya no tiene espejo en localStorage ni estado propio: su única
+  // fuente es la config (single) / la ficha (multi, vía configDesdeFicha). El PDF lo lee
+  // de `config` directamente (opciones ?? config ?? true), así que no se pasa aparte.
 
   useEffect(() => {
     let vivo = true;
@@ -215,14 +257,17 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
 
   const reload = useCallback(async () => {
     const [rs, cfg] = await Promise.all([
-      listRetenciones({ desde: desde || undefined, hasta: hasta || undefined, incluirAnuladas: true }),
+      listRetenciones({ desde: desde || undefined, hasta: hasta || undefined, incluirAnuladas: true, empresaId: empresaId ?? undefined }),
       getConfigRetencion().catch(() => CONFIG_RETENCION_DEFECTO),
     ]);
-    setFilas(rs); setConfig(cfg); setErrorCarga(null);
-    if (cfg.imprimirOriginalYCopia !== undefined) {
-      setImprimirOriginalYCopia(cfg.imprimirOriginalYCopia !== false);
-    }
-  }, [desde, hasta]);
+    // Multi-empresa: una empresa NO-GT usa el régimen y los % de su ficha.
+    const cfgEmpresa = empresaFicha ? configDesdeFicha(cfg, empresaFicha) : cfg;
+    setFilas(rs); setConfig(cfgEmpresa); setErrorCarga(null);
+    // C2: el override de impresión arranca de la config (formato del documento).
+    setImprimirLogo(cfgEmpresa.incluirLogo !== false);
+    setImprimirFirma(cfgEmpresa.incluirFirma !== false);
+    setImprimirSello(cfgEmpresa.incluirSello !== false);
+  }, [desde, hasta, empresaId, empresaFicha]);
 
   useEffect(() => {
     let cancel = false;
@@ -233,6 +278,30 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       .finally(() => { if (!cancel) setLoading(false); });
     return () => { cancel = true; };
   }, [reload]);
+
+  // Los impuestos ACTIVOS de la tabla mandan sobre la lista fija: uno deshabilitado
+  // desaparece de tarjetas, filtros, columnas, casillas y del modal de registro. Si no
+  // se puede leer (o la tabla está vacía), se cae a la lista fija: la pantalla no se rompe.
+  const [impuestosActivos, setImpuestosActivos] = useState<ImpuestosActivos | null>(null);
+  // La ficha de cada impuesto (direcciones que admite, formato de su serie) para el modal de registro.
+  const [fichasImpuesto, setFichasImpuesto] = useState<Map<TipoImpuesto, FichaRetencionVista> | null>(null);
+  const cargarImpuestosActivos = useCallback(() => {
+    listImpuestos()
+      .then((xs) => {
+        setFichasImpuesto(new Map(xs.map((i) => [tipoDeGt(i.clave), {
+          admitePracticada: i.admitePracticada, admiteSufrida: i.admiteSufrida, serieFormato: i.serieFormato, numera: i.numera,
+        }] as const)));
+        const activos = xs.filter((i) => i.activo !== false);
+        if (!activos.length) { setImpuestosActivos(null); return; }
+        setImpuestosActivos({
+          claves: new Set(activos.map((i) => tipoDeGt(i.clave))),
+          orden: new Map(activos.map((i) => [tipoDeGt(i.clave), i.orden] as const)),
+        });
+      })
+      .catch(() => { setImpuestosActivos(null); setFichasImpuesto(null); });
+  }, []);
+  useEffect(() => { cargarImpuestosActivos(); }, [cargarImpuestosActivos]);
+  useRealtime(['retencion_impuestos'], () => { cargarImpuestosActivos(); });
 
   // La búsqueda, los filtros y el orden se aplican en pantalla: así cada opción
   // dice cuántas retenciones quedan con los demás filtros puestos.
@@ -245,7 +314,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
 
   const filtros = useMemo<FiltroLista<RetencionPracticada>[]>(() => [
     { campo: 'direccion', etiqueta: 'Quién retuvo', valor: direccion, opciones: DIRECCIONES.map((d): [string, string] => [d.key, d.label]), pasa: (r, v) => r.direccion === v },
-    { campo: 'tipo', etiqueta: 'Impuesto', valor: tipo, opciones: TIPOS_IMPUESTO.map((t): [string, string] => [t.key, t.corto]), pasa: (r, v) => r.tipo === v },
+    { campo: 'tipo', etiqueta: 'Impuesto', valor: tipo, opciones: soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos).map((t): [string, string] => [t.key, t.corto]), pasa: (r, v) => r.tipo === v },
     {
       campo: 'estado', etiqueta: 'Estado', valor: estado,
       opciones: [...ESTADOS_RETENCION.map((e): [string, string] => [e.key, e.label]), ['anulada', 'Anuladas']],
@@ -256,7 +325,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       opciones: [['con_orden', 'Con OC / CS'], ['fuera_sistema', 'Fuera del sistema']] as [string, string][],
       pasa: (r: RetencionPracticada, v: string) => (v === 'fuera_sistema' ? fueraDelSistema(r) : !fueraDelSistema(r)),
     }] : []),
-  ], [direccion, tipo, estado, filtroOrigen]);
+  ], [direccion, tipo, estado, filtroOrigen, impuestosActivos]);
 
   const base = useMemo(() => filas.filter((r) => buscaEn(texto, r.contraparteNombre, r.contraparteRif, r.numeroComprobante,
     r.facturaNumero, r.docCodigo, r.conceptoNombre)), [filas, texto]);
@@ -280,7 +349,10 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
     tipo: r.tipo, direccion: r.direccion, estado: r.estado, monto: r.montoRetenido, anulada: r.anulada, moneda: r.moneda, tipoDocumento: r.tipoDocumento,
   }))), [visibles]);
 
-  const quitarFiltros = () => { setDireccion(''); setTipo(''); setEstado(''); setFiltroOrigen(''); setTexto(''); };
+  const quitarFiltros = () => {
+    setDireccion(''); setTipo(''); setEstado(''); setFiltroOrigen(''); setTexto('');
+    setFocoActual(null); setFocoOrigenIds([]); setVerFacturasCompras(false);
+  };
 
   // «Sin retención»: lo registrado en 0 con su motivo, agrupado por factura.
   const sinRetencion = useMemo(() => {
@@ -325,45 +397,34 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
     pendientes: number; registradas: number;
   };
 
-  const impuestosTarjeta = useMemo(() => {
-    const activos = TIPOS_IMPUESTO.filter((t) => t.key !== 'igtf');
-    return activos;
-  }, []);
+  // El IGTF no es tarjeta (es costo, ni se practica ni se sufre); del resto, solo los activos.
+  const impuestosTarjeta = useMemo(
+    () => soloImpuestosActivos(TIPOS_IMPUESTO.filter((t) => t.key !== 'igtf'), impuestosActivos),
+    [impuestosActivos],
+  );
 
-  const conteosPorImpuesto = useMemo(() => {
-    const m: Record<string, { pendientes: number; registradas: number; declaradas: number; anuladas: number }> = {};
-    for (const t of impuestosTarjeta) m[t.key] = { pendientes: 0, registradas: 0, declaradas: 0, anuladas: 0 };
-    for (const r of visibles) {
-      if (r.tipo === 'igtf') continue;
-      const c = m[r.tipo];
-      if (!c) continue;
-      if (r.anulada) c.anuladas++;
-      else if (r.estado === 'declarada') c.declaradas++;
-      else if (r.estado === 'registrada') c.registradas++;
-      else c.pendientes++;
-    }
-    return m;
-  }, [visibles, impuestosTarjeta]);
-
-  const proveedores = useMemo<ProveedorAgrupado[]>(() => {
+  const agruparPorProveedor = useCallback((fuente: RetencionPracticada[]): ProveedorAgrupado[] => {
     const provMap = new Map<string, Map<string, FacturaAgrupada>>();
     const provInfo = new Map<string, { nombre: string | null; rif: string | null }>();
-    for (const r of visibles) {
+    for (const r of fuente) {
       const pk = r.contraparteRif ?? r.contraparteNombre ?? 'sin-proveedor';
       if (!provMap.has(pk)) { provMap.set(pk, new Map()); provInfo.set(pk, { nombre: r.contraparteNombre, rif: r.contraparteRif }); }
       const fMap = provMap.get(pk)!;
       const fk = r.facturaNumero ?? r.docCodigo ?? r.id;
+      const totalFila = r.facturaTotal ?? (r.baseImponible + (r.impuesto ?? 0) + (r.exento ?? 0));
       if (!fMap.has(fk)) fMap.set(fk, {
         key: fk, num: r.facturaNumero ?? '—',
         doc: r.docCodigo, docKind: r.docKind, docId: r.docId,
         documentoId: null, proveedorId: r.contraparteId,
         fecha: r.facturaFecha ?? r.createdAt.slice(0, 10),
-        moneda: r.moneda, total: r.baseImponible,
+        moneda: r.moneda, total: totalFila,
         tipoDocumento: r.tipoDocumento,
         facturaAfectadaNro: r.facturaAfectadaNro,
         retenciones: new Map(),
       });
       const fa = fMap.get(fk)!;
+      if (r.facturaTotal != null) fa.total = r.facturaTotal;
+      else if (totalFila > fa.total) fa.total = totalFila;
       const actual = fa.retenciones.get(r.tipo);
       // Priorizar la vigente: si ya hay una no-anulada, no dejar que una anulada la tape.
       if (!actual || (actual.anulada && !r.anulada)) {
@@ -378,15 +439,52 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       const info = provInfo.get(pk)!;
       const facturas = [...fMap.values()];
       let pendientes = 0, registradas = 0;
-      for (const f of facturas) for (const r of f.retenciones.values()) {
-        if (r.anulada) continue;
-        if (r.estado === 'registrada' || r.estado === 'declarada') registradas++;
-        else pendientes++;
+      for (const f of facturas) {
+        const esPracticada = [...f.retenciones.values()].some((r) => r.direccion === 'practicada');
+        for (const t of impuestosTarjeta) {
+          const r = f.retenciones.get(t.key as TipoImpuesto);
+          if (r && !r.anulada) {
+            if (r.estado === 'registrada' || r.estado === 'declarada') registradas++;
+            else pendientes++;
+          } else if (!r && esPracticada && puedePracticarEmpresa(t.key as TipoImpuesto, config)) {
+            pendientes++;
+          }
+        }
       }
       result.push({ ...info, facturas, pendientes, registradas });
     }
     return result;
-  }, [visibles]);
+  }, [impuestosTarjeta, config, puedePracticarEmpresa]);
+
+  const proveedores = useMemo<ProveedorAgrupado[]>(() => agruparPorProveedor(visibles), [agruparPorProveedor, visibles]);
+  const proveedoresPagina = useMemo<ProveedorAgrupado[]>(() => agruparPorProveedor(pagina.filas), [agruparPorProveedor, pagina.filas]);
+
+  const conteosPorImpuesto = useMemo(() => {
+    const m: Record<string, { pendientes: number; registradas: number; declaradas: number; anuladas: number }> = {};
+    for (const t of impuestosTarjeta) m[t.key] = { pendientes: 0, registradas: 0, declaradas: 0, anuladas: 0 };
+    for (const r of visibles) {
+      if (r.tipo === 'igtf') continue;
+      const c = m[r.tipo];
+      if (!c) continue;
+      if (r.anulada) c.anuladas++;
+      else if (r.estado === 'declarada') c.declaradas++;
+      else if (r.estado === 'registrada') c.registradas++;
+      else c.pendientes++;
+    }
+    for (const prov of proveedores) {
+      for (const f of prov.facturas) {
+        const esPracticada = [...f.retenciones.values()].some((r) => r.direccion === 'practicada');
+        if (!esPracticada) continue;
+        for (const t of impuestosTarjeta) {
+          const r = f.retenciones.get(t.key as TipoImpuesto);
+          if (!r && puedePracticarEmpresa(t.key as TipoImpuesto, config)) {
+            m[t.key].pendientes++;
+          }
+        }
+      }
+    }
+    return m;
+  }, [visibles, impuestosTarjeta, proveedores, config, puedePracticarEmpresa]);
 
   async function verComprobante(r: RetencionPracticada) {
     try {
@@ -396,7 +494,6 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
         incluirLogo: imprimirLogo,
         incluirFirma: imprimirFirma,
         incluirSello: imprimirSello,
-        imprimirOriginalYCopia,
       });
     } catch (e) { toast(e instanceof Error ? e.message : 'No se pudo generar el comprobante', 'error'); }
   }
@@ -413,7 +510,6 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
         incluirLogo: imprimirLogo,
         incluirFirma: imprimirFirma,
         incluirSello: imprimirSello,
-        imprimirOriginalYCopia,
       });
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron generar los comprobantes', 'error');
@@ -436,7 +532,12 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   }
 
   // La relación para el SENIAT es por impuesto y de lo que la empresa practicó.
-  const relacionables = visibles.filter((r) => r.direccion === 'practicada' && !r.anulada);
+  const relacionables = visibles.filter((r) => r.direccion === 'practicada' && !r.anulada && r.montoRetenido > 0);
+  // Las declaraciones oficiales TXT/XML para el SENIAT consideran la totalidad del rango/período cargado, sin truncar por búsqueda en pantalla.
+  const declarablesSeniat = useMemo(
+    () => filas.filter((r) => r.direccion === 'practicada' && !r.anulada && r.montoRetenido > 0),
+    [filas],
+  );
   async function verRelacion() {
     if (!tipo) { toast('Seleccionar un impuesto para generar la relación.', 'error'); return; }
     if (!relacionables.length) { toast('No hay retenciones practicadas en el rango para la relación.', 'error'); return; }
@@ -447,16 +548,22 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   }
 
   async function exportarSeniatIva() {
-    if (!relacionables.length) { toast('No hay retenciones de IVA practicadas.', 'error'); return; }
+    const ivaRows = declarablesSeniat.filter((r) => r.tipo === 'iva');
+    if (!ivaRows.length) { toast('No hay retenciones de IVA practicadas.', 'error'); return; }
+    const periodosIva = [...new Set(ivaRows.map((r) => (r.periodo || '').replace(/\D/g, '').slice(0, 6)).filter(Boolean))];
+    if (periodosIva.length > 1) {
+      toast(`El rango seleccionado abarca varios períodos (${periodosIva.join(', ')}). Filtra un solo mes para declarar al SENIAT.`, 'error');
+      return;
+    }
     try {
       const { armarTxtIva } = await import('@/modules/retenciones/txtSeniatIva');
-      const periodoRef = (relacionables[0]?.periodo || hasta || hoyVenezuela()).replace(/\D/g, '').slice(0, 6);
+      const periodoRef = periodosIva[0] || (hasta || hoyVenezuela()).replace(/\D/g, '').slice(0, 6);
       const res = armarTxtIva({
         rifAgente: config.rif || EMPRESA_RIF,
         razonSocial: razonSocialAgente(config),
         periodo: periodoRef,
         campo2: 'operaciones',
-        filas: relacionables,
+        filas: ivaRows,
       });
       if (res.faltan.length) {
         toast(`Faltan datos fiscales: ${res.faltan[0]}`, 'error');
@@ -475,21 +582,27 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
   }
 
   async function exportarSeniatIslr() {
-    if (!relacionables.length) { toast('No hay retenciones de ISLR practicadas.', 'error'); return; }
+    const islrRows = declarablesSeniat.filter((r) => r.tipo === 'islr');
+    if (!islrRows.length) { toast('No hay retenciones de ISLR practicadas.', 'error'); return; }
+    const periodosIslr = [...new Set(islrRows.map((r) => (r.periodo || '').replace(/\D/g, '').slice(0, 6)).filter(Boolean))];
+    if (periodosIslr.length > 1) {
+      toast(`El rango seleccionado abarca varios períodos (${periodosIslr.join(', ')}). Filtra un solo mes para declarar al SENIAT.`, 'error');
+      return;
+    }
     try {
-      const { armarXmlIslr } = await import('@/modules/retenciones/xmlSeniatIslr');
-      const periodoRef = (relacionables[0]?.periodo || hasta || hoyVenezuela()).replace(/\D/g, '').slice(0, 6);
+      const { armarXmlIslr, bytesIso88591 } = await import('@/modules/retenciones/xmlSeniatIslr');
+      const periodoRef = periodosIslr[0] || (hasta || hoyVenezuela()).replace(/\D/g, '').slice(0, 6);
       const res = armarXmlIslr({
         rifAgente: config.rif || EMPRESA_RIF,
         razonSocial: razonSocialAgente(config),
         periodo: periodoRef,
-        filas: relacionables,
+        filas: islrRows,
       });
       if (res.faltan.length) {
         toast(`Faltan datos fiscales: ${res.faltan[0]}`, 'error');
         return;
       }
-      const blob = new Blob([res.contenido], { type: 'application/xml;charset=iso-8859-1' });
+      const blob = new Blob([bytesIso88591(res.contenido) as unknown as BlobPart], { type: 'application/xml;charset=iso-8859-1' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url; a.download = res.nombre;
@@ -572,7 +685,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
             <span>Impuesto</span>
             <div className="lfv8-chips" role="group" aria-label="Impuesto">
               <button type="button" className="lfv8-chip" aria-pressed={tipo === ''} onClick={() => setTipo('')}>Todos</button>
-              {TIPOS_IMPUESTO.map((t) => (
+              {soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos).map((t) => (
                 <button key={t.key} type="button" className="lfv8-chip"
                   aria-pressed={tipo === t.key} onClick={() => setTipo(tipo === t.key ? '' : t.key as TipoImpuesto)}>
                   {t.corto}
@@ -659,10 +772,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                 <input
                   type="checkbox"
                   checked={imprimirLogo}
-                  onChange={(e) => {
-                    setImprimirLogo(e.target.checked);
-                    try { localStorage.setItem('retenciones:imprimirConLogo', String(e.target.checked)); } catch {}
-                  }}
+                  onChange={(e) => setImprimirLogo(e.target.checked)}
                 />
                 <span>Logo</span>
               </label>
@@ -672,10 +782,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                 <input
                   type="checkbox"
                   checked={imprimirFirma}
-                  onChange={(e) => {
-                    setImprimirFirma(e.target.checked);
-                    try { localStorage.setItem('retenciones:imprimirConFirma', String(e.target.checked)); } catch {}
-                  }}
+                  onChange={(e) => setImprimirFirma(e.target.checked)}
                 />
                 <span>Firma</span>
               </label>
@@ -685,26 +792,24 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                 <input
                   type="checkbox"
                   checked={imprimirSello}
-                  onChange={(e) => {
-                    setImprimirSello(e.target.checked);
-                    try { localStorage.setItem('retenciones:imprimirConSello', String(e.target.checked)); } catch {}
-                  }}
+                  onChange={(e) => setImprimirSello(e.target.checked)}
                 />
                 <span>Sello</span>
               </label>
             )}
           </div>
         )}
-        <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}>↓ PDF del libro</button>
+        <button className="btn btn-ghost" onClick={() => void verLibroPdf()} disabled={!visibles.length}
+          title={!visibles.length ? 'Sin filas para exportar con estos filtros' : 'Descargar el libro en PDF'}>↓ PDF del libro</button>
         <button className="btn btn-ghost" onClick={() => void verRelacion()} disabled={!tipo || !relacionables.length}
           title={!tipo ? 'Seleccionar un impuesto para generar la relación' : 'Relación por proveedor para el SENIAT'}>↓ Relación</button>
         {tipo === 'iva' && (
           <button className="btn btn-ghost" onClick={() => void exportarSeniatIva()} disabled={!relacionables.length}
-            title="Exportar archivo TXT para declaración informativa de retenciones de IVA ante el SENIAT">↓ TXT SENIAT</button>
+            title={!relacionables.length ? 'Sin filas para exportar con estos filtros' : 'Exportar archivo TXT para declaración informativa de retenciones de IVA ante el SENIAT'}>↓ TXT SENIAT</button>
         )}
         {tipo === 'islr' && (
           <button className="btn btn-ghost" onClick={() => void exportarSeniatIslr()} disabled={!relacionables.length}
-            title="Exportar archivo XML para declaración informativa de retenciones de ISLR ante el SENIAT">↓ XML SENIAT</button>
+            title={!relacionables.length ? 'Sin filas para exportar con estos filtros' : 'Exportar archivo XML para declaración informativa de retenciones de ISLR ante el SENIAT'}>↓ XML SENIAT</button>
         )}
         {tipo === 'islr' && (
           <button className="btn btn-ghost" onClick={() => setModalArc({ anio: new Date().getFullYear(), proveedorRif: '' })} disabled={!filas.length}
@@ -725,8 +830,8 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
         )}
         {canWrite && (
           <button className="btn btn-ghost" onClick={() => setRegistrar({})}
-            title="Cargar una retención suelta individual o practicada por un cliente">
-            + Retención individual
+            title="Cargar una retención suelta, sin factura ni orden de compra">
+            + Retención suelta
           </button>
         )}
       </div>
@@ -736,7 +841,11 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       {!loading && errorCarga && <EmptyState icon="⚠" message={`No se pudo leer el libro: ${errorCarga}`} />}
       {!loading && !errorCarga && !visibles.length && vista !== 'sin' && (
         <div className="lfv8-vacio">
-          <p>{filas.length ? 'Ninguna retención coincide con la búsqueda o los filtros.' : 'Sin retenciones en ese rango de fechas.'}</p>
+          <p>
+            {focoActual
+              ? `No hay retenciones registradas para ${focoActual.titulo || focoActual.texto}. ${focoActual.origenIds?.length ? 'Se abrió el listado de facturas pendientes para registrarla.' : 'Regístrala con «+ Registrar factura con retenciones».'}`
+              : (filas.length ? 'Ninguna retención coincide con la búsqueda o los filtros.' : 'Sin retenciones en ese rango de fechas.')}
+          </p>
           <button className="btn" onClick={quitarFiltros}>Quitar filtros</button>
         </div>
       )}
@@ -745,7 +854,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       {!loading && !errorCarga && visibles.length > 0 && vista === 'factura' && (
         <>
           <p className="lfv8-contador">{visibles.length} retención(es) en {proveedores.length} proveedor(es).</p>
-          {proveedores.map((prov) => {
+          {proveedoresPagina.map((prov) => {
             const pk = prov.rif ?? prov.nombre ?? 'sin';
             const MAX_VISIBLE = 5;
             const abierto = expandidos.has(pk) || prov.facturas.length <= MAX_VISIBLE;
@@ -807,7 +916,7 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                         role="group" aria-label={`Retenciones de la factura ${f.num}`}>
                         {impuestosTarjeta.map((t) => {
                           const r = f.retenciones.get(t.key as TipoImpuesto);
-                          const aplica = puedePracticar(t.key as TipoImpuesto, config);
+                          const aplica = puedePracticarEmpresa(t.key as TipoImpuesto, config);
                           if (!r) {
                             if (!aplica) {
                               return (
@@ -826,6 +935,44 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                                     <button type="button" className="lfv8-mini registrar"
                                       onClick={() => {
                                         const rExistente = [...f.retenciones.values()][0];
+                                        if (conFacturaVarias && f.documentoId) {
+                                          const retenidoMap: FacturaResumen['retenido'] = {};
+                                          for (const [k, rv] of f.retenciones.entries()) {
+                                            if (!rv.anulada) {
+                                              retenidoMap[tipoAGt(k)] = { lineas: 1, monto: rv.montoRetenido, montoBs: rv.montoBs, estados: [rv.estado] };
+                                            }
+                                          }
+                                          const pendientesGt = impuestosTarjeta
+                                            .map((x) => x.key as TipoImpuesto)
+                                            .filter((k) => puedePracticarEmpresa(k, config) && (!f.retenciones.get(k) || f.retenciones.get(k)!.anulada))
+                                            .map((k) => tipoAGt(k));
+                                          setRetenerSobre({
+                                            documentoId: f.documentoId,
+                                            direccion: 'practicada',
+                                            tipoDocumento: f.tipoDocumento ?? 'factura',
+                                            facturaAfectadaNro: f.facturaAfectadaNro ?? null,
+                                            facturaNro: f.num !== '—' ? f.num : null,
+                                            facturaControl: rExistente?.facturaControl ?? null,
+                                            facturaFecha: f.fecha ?? null,
+                                            facturaTotal: f.total,
+                                            exento: rExistente?.exento ?? null,
+                                            ivaMonto: rExistente?.impuesto ?? null,
+                                            moneda: f.moneda,
+                                            tasa: rExistente?.tasa ?? null,
+                                            proveedorId: f.proveedorId ?? rExistente?.contraparteId ?? null,
+                                            rif: prov.rif ?? rExistente?.contraparteRif ?? null,
+                                            razonSocial: prov.nombre ?? rExistente?.contraparteNombre ?? null,
+                                            docKind: f.docKind,
+                                            docId: f.docId,
+                                            createdAt: rExistente?.createdAt ?? '',
+                                            retenido: retenidoMap,
+                                            decisiones: {},
+                                            pendientes: [tipoAGt(t.key as TipoImpuesto), ...pendientesGt.filter((x) => x !== tipoAGt(t.key as TipoImpuesto))],
+                                            retenible: true,
+                                          });
+                                          setFacturaVarias(true);
+                                          return;
+                                        }
                                         setRegistrar({
                                           direccion: 'practicada',
                                           tipoInicial: t.key as TipoImpuesto,
@@ -843,8 +990,8 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                                           facturaFecha: f.fecha ?? null,
                                         });
                                       }}
-                                      title={`Cargar retención de ${t.corto} para la Factura ${f.num}`}>
-                                      + Retener
+                                      title={`Practicar ${t.corto} y los demás impuestos pendientes de la Factura ${f.num}`}>
+                                      + Retener pendientes
                                     </button>
                                   </span>
                                 )}
@@ -889,7 +1036,9 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                                         facturaControl: r.facturaControl,
                                         facturaFecha: r.facturaFecha ?? f.fecha,
                                         baseImponible: r.baseImponible || f.total,
+                                        facturaTotal: r.facturaTotal ?? f.total,
                                         iva: r.impuesto,
+                                        sinDerechoCreditoIva: r.sinDerechoCreditoIva,
                                         total: f.total,
                                         moneda: r.moneda,
                                         docId: r.docId ?? f.docId,
@@ -965,16 +1114,17 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
 
       {/* ── Vista por impuesto (columnas) ── */}
       {!loading && !errorCarga && visibles.length > 0 && vista === 'impuesto' && (
+        <>
         <div className="lfv8-columnas" style={{ '--n': impuestosTarjeta.length } as React.CSSProperties}>
           {impuestosTarjeta.map((t) => {
-            const del = visibles.filter((r) => r.tipo === t.key);
+            const del = pagina.filas.filter((r) => r.tipo === t.key);
             const pendientes = del.filter((r) => !r.anulada && r.estado !== 'registrada' && r.estado !== 'declarada');
             const registradas = del.filter((r) => !r.anulada && (r.estado === 'registrada' || r.estado === 'declarada'));
             return (
               <section key={t.key} className="lfv8-columna">
                 <header>
                   <h3>{t.corto}</h3>
-                  <span className="lfv8-contador">{pendientes.length} pendientes · {registradas.length} registradas</span>
+                  <span className="lfv8-contador">{(conteosPorImpuesto[t.key]?.pendientes ?? pendientes.length)} pendientes · {registradas.length} registradas</span>
                 </header>
                 <h4>Pendientes ({pendientes.length})</h4>
                 {pendientes.map((r) => {
@@ -1015,6 +1165,8 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
             );
           })}
         </div>
+        <Paginador pagina={pagina} tam={tam} unidad="retención(es)" onPagina={setPag} onTam={(t) => { setTam(t); setPag(1); }} />
+        </>
       )}
 
       {/* ── Una fila por retención (el libro) ── */}
@@ -1062,7 +1214,9 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
                           facturaControl: r.facturaControl,
                           facturaFecha: r.facturaFecha,
                           baseImponible: r.baseImponible,
+                          facturaTotal: r.facturaTotal,
                           iva: r.impuesto,
+                          sinDerechoCreditoIva: r.sinDerechoCreditoIva,
                           moneda: r.moneda,
                           docId: r.docId,
                           docKind: r.docKind,
@@ -1224,12 +1378,12 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       )}
 
       {registrar && (
-        <RegistrarRetencionModal semilla={registrar} actor={actor} actorName={actorName}
+        <RegistrarRetencionModal semilla={registrar} actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto} empresaId={empresaId} empresaFicha={empresaFicha}
           onClose={() => setRegistrar(null)}
           onHecho={async () => { setRegistrar(null); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
       )}
       {facturaVarias && (
-        <RegistrarFacturaRetencion actor={actor} actorName={actorName}
+        <RegistrarFacturaRetencion actor={actor} actorName={actorName} impuestosActivos={impuestosActivos} fichasImpuesto={fichasImpuesto} empresaId={empresaId} empresaFicha={empresaFicha}
           semilla={retenerSobre ? { documento: retenerSobre } : semillaCompra}
           onClose={() => { setFacturaVarias(false); setRetenerSobre(null); setSemillaCompra(undefined); }}
           onHecho={async () => { setFacturaVarias(false); setRetenerSobre(null); setSemillaCompra(undefined); await reload().catch(() => { /* se reintenta al filtrar */ }); }} />
@@ -1242,6 +1396,8 @@ export function LibroFiscalView({ canWrite = true, actor, actorName, vistaInicia
       {verFacturasCompras && (
         <Modal title="Facturas de Compras sin registrar en Retenciones" size="xl" onClose={() => setVerFacturasCompras(false)}>
           <FacturasPorRegistrar
+            origenIds={focoOrigenIds.length ? focoOrigenIds : undefined}
+            titulo={focoActual ? `Facturas pendientes de ${focoActual.titulo || focoActual.texto}` : undefined}
             puedeRegistrar={canWrite}
             onRegistrar={(f) => {
               setVerFacturasCompras(false);
@@ -1275,7 +1431,6 @@ export interface SemillaRetencion {
   iva?: number;
   baseImponible?: number;
   sinDerechoCreditoIva?: number | null;
-  ivaIncluido?: boolean;
   porcentaje?: number | null;
   facturaNumero?: string | null;
   facturaControl?: string | null;
@@ -1283,13 +1438,27 @@ export interface SemillaRetencion {
   sustituyeAComprobante?: string | null;
 }
 
-export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, onHecho, proveedorIdsPendientes }: {
+// C-c (líder): «¿Quién retuvo?» (Recibida/Practicada) es un control de VENTAS. En el
+// flujo de compras —este registro suelto— la retención es SIEMPRE practicada, así que
+// el control se oculta y la dirección queda fija en 'practicada'. Reversible: con
+// OFRECER_DIRECCION = true vuelve el toggle. El modelo (DIRECCIONES, 'recibida'…) queda
+// intacto a propósito: «recibida» sigue existiendo para ventas.
+const OFRECER_DIRECCION: boolean = false;
+
+export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, onHecho, proveedorIdsPendientes, impuestosActivos, fichasImpuesto, empresaId = null, empresaFicha = null }: {
   semilla: SemillaRetencion;
   actor: string;
   actorName: string | null;
   onClose: () => void;
   onHecho: () => void;
   proveedorIdsPendientes?: Set<string>;
+  impuestosActivos?: ImpuestosActivos | null;
+  /** La ficha de cada impuesto: gatea la dirección admitida y da el formato de su serie. */
+  fichasImpuesto?: Map<TipoImpuesto, FichaRetencionVista> | null;
+  /** Multi-empresa: la empresa receptora que queda marcada en la retención. null = single-empresa. */
+  empresaId?: string | null;
+  /** Multi-empresa: la ficha fiscal de la empresa NO-GT (régimen y %); null = GT/single. */
+  empresaFicha?: FichaFiscalEmpresa | null;
 }) {
   const [configBase, setConfig] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   // Con R3, la UT y los % salen de los valores vigentes a la fecha de la factura; sin R3, del JSON.
@@ -1306,7 +1475,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
 
-  const [direccion, setDireccion] = useState<DireccionRetencion>(semilla.direccion ?? 'practicada');
+  const [direccion, setDireccion] = useState<DireccionRetencion>(OFRECER_DIRECCION ? (semilla.direccion ?? 'practicada') : 'practicada');
   const verProveedores = usePermissions().can('proveedores');
   const [tipo, setTipo] = useState<TipoImpuesto>(semilla.tipoInicial ?? 'iva');
   const [sujeto, setSujeto] = useState<SujetoRetenido>('pj_domiciliada');
@@ -1331,8 +1500,10 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   const [fechaEntrega, setFechaEntrega] = useState(hoyIso());
   // Dato interno separado de exento: lo pide el requirente, no el Art. 18.8 de la 43.484.
   const [sinDerechoStr, setSinDerechoStr] = useState(semilla.sinDerechoCreditoIva != null ? numeroATexto(semilla.sinDerechoCreditoIva) : '');
-  const [facturaTotalStr, setFacturaTotalStr] = useState(numeroATexto(semilla.facturaTotal ?? semilla.total ?? 0));
+  // D2b: ¿practica la empresa el impuesto? NO-GT lee la RPC (L6); GT/single, puedePracticar(config).
+  const puedePracticarEmpresa = usePuedePracticarEmpresa(empresaFicha, empresaId, facturaFecha);
   const [tasaBcv, setTasaBcv] = useState<{ tasa: number | null; nota: string } | null>(null);
+  const [facturaTotalStr, setFacturaTotalStr] = useState(numeroATexto(semilla.facturaTotal ?? semilla.total ?? 0));
   const [baseStr, setBaseStr] = useState(numeroATexto(semilla.baseImponible ?? semilla.total ?? 0));
   const [ivaStr, setIvaStr] = useState(numeroATexto(semilla.iva ?? 0));
   const [pctStr, setPctStr] = useState(semilla.porcentaje != null ? numeroATexto(semilla.porcentaje) : '');
@@ -1351,7 +1522,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   });
   const descartarAvisoSinDoc = () => {
     setAvisoSinDocDescartado(true);
-    try { localStorage.setItem('gt_aviso_sin_doc_descartado', 'true'); } catch {}
+    try { localStorage.setItem('gt_aviso_sin_doc_descartado', 'true'); } catch { /* ignorar */ }
   };
   const { marcarSucio, pedirCierre, dialogo } = useDescartar(onClose, saving);
   // R10: el N° de factura busca entre las facturas ya registradas; al elegir una, se retiene sobre ella.
@@ -1378,24 +1549,28 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 
   // Consulta reactiva del correlativo estimado según el impuesto y el período
   const [correlativoEstimado, setCorrelativoEstimado] = useState<CorrelativoEstimado | null>(null);
+  const textoCero = useMemo(() => vistaCorrelativoCero(correlativoEstimado), [correlativoEstimado]);
   useEffect(() => {
     if (direccion !== 'practicada' || tipo === 'igtf') {
       setCorrelativoEstimado(null);
       return;
     }
     const periodo = periodoDe(facturaFecha || fechaRetencion || hoyIso());
+    // El formato del número sale de la ficha del impuesto (R2); sin ficha, del mapeo fijo.
+    const fmtFicha = fichasImpuesto?.get(tipo)?.serieFormato;
     let activo = true;
 
-    consultarCorrelativoEstimado(tipo, periodo)
+    consultarCorrelativoEstimado(tipo, periodo, fmtFicha, empresaId)
       .then((c) => {
         if (activo) setCorrelativoEstimado(c);
       })
       .catch(() => {
         if (activo) {
+          const fmt = fmtFicha ?? formatoSerie(tipo);
           setCorrelativoEstimado({
             numero: 1,
-            comprobante: formatoComprobante(periodo, 1, tipo),
-            formato: formatoSerie(tipo),
+            comprobante: formatoComprobante(periodo, 1, tipo, fmt),
+            formato: fmt,
             explicacion: `Correlativo sugerido para ${rotuloImpuesto(tipo)}.`,
           });
         }
@@ -1404,12 +1579,13 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     return () => {
       activo = false;
     };
-  }, [direccion, tipo, facturaFecha, fechaRetencion]);
+  }, [direccion, tipo, facturaFecha, fechaRetencion, fichasImpuesto, empresaId]);
 
   useEffect(() => {
     void Promise.all([getConfigRetencion(), listConceptos(true), listProveedores()])
       .then(([c, cs, ps]) => {
-        setConfig(c); setConceptos(cs);
+        // Multi-empresa: una empresa NO-GT trae su régimen y % de su ficha.
+        setConfig(empresaFicha ? configDesdeFicha(c, empresaFicha) : c); setConceptos(cs);
         const activos = ps.filter((p) => p.estado === 'activo');
         setProveedores(activos);
         if (semilla.contraparteId) {
@@ -1422,8 +1598,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           }
         }
       })
-      .catch((e) => setError(e instanceof Error ? `No se pudo leer la configuración: ${e.message}` : 'No se pudo leer la configuración.'));
-  }, []);
+      .catch((e) => { setError(e instanceof Error ? `No se pudo leer la configuración: ${e.message}` : 'No se pudo leer la configuración.'); });
+  }, [semilla.contraparteId, empresaFicha]);
 
   // La tasa es la BCV de la fecha de la factura (sábado y domingo: la del lunes), no la del día en que se registra.
   // En Bs también se lee: sirve para informar el equivalente en $, no se guarda.
@@ -1497,10 +1673,17 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     setFacturaNumero(p.facturaNumero);
     setFacturaControl(p.facturaControl);
     setFacturaFecha(p.facturaFecha);
+    setFacturaTotalStr(numeroATexto(f.facturaTotal ?? 0));
     setMoneda(p.moneda);
     if (p.tasaStr) setTasaStr(p.tasaStr);
     if (p.tipo) setTipo(p.tipo);
     marcarSucio();
+  }
+
+  /** Mientras el total no se haya editado aparte, sigue a la base al escribirla. */
+  function cambiarBase(v: string) {
+    if (!facturaTotalStr.trim() || nDec(facturaTotalStr) === nDec(baseStr)) setFacturaTotalStr(v);
+    setBaseStr(v);
   }
 
   function elegirProveedor(id: string) {
@@ -1525,8 +1708,8 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     const base = nDec(baseStr);
     if (tipo === 'iva') return calcularRetencionIva({ baseImponible: base, ivaFactura: nDec(ivaStr), motivos, supuesto }, config);
     if (tipo === 'islr') return calcularRetencionIslr({ montoPago: base, concepto, moneda, tasa: nDec(tasaStr) }, config);
-    if (tipo === 'igtf') return calcularIgtf({ montoPago: base, enDivisas: moneda !== 'Bs' }, config);
-    return calcularRetencionLocal({ montoPago: base, concepto }, tipo);
+    if (tipo === 'igtf') return calcularIgtf({ montoPago: base, enDivisas: true }, config);
+    return calcularRetencionLocal({ montoPago: base, concepto: conceptoConAlicuotaEmpresa(concepto, config) }, tipo);
   }, [tipo, baseStr, ivaStr, motivos, supuesto, concepto, config, moneda, tasaStr]);
 
   const esManual = direccion === 'recibida';
@@ -1561,7 +1744,14 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     const cual = `regla «${reglaCalc.regla.nombre}» (versión ${reglaCalc.regla.version})`;
     return {
       ...calculoHoy,
-      baseImponible: r.base, impuesto: r.impuesto, porcentaje: r.pct ?? 0,
+      baseImponible: r.base, impuesto: r.impuesto,
+      impuestoCausado: calculoHoy.tipo === 'iva'
+        ? r.impuesto
+        : calculoHoy.tipo === 'islr'
+          // El motor ya restó el sustraendo en el paso 5: el causado es el bruto.
+          ? Math.round((r.impuesto + r.sustraendo) * 100) / 100
+          : calculoHoy.impuestoCausado,
+      porcentaje: r.pct ?? 0,
       sustraendo: r.sustraendo, montoRetenido: r.monto,
       explicacion: r.aplica ? `Calculado con la ${cual}, vigente al ${fechaCorta(facturaFecha)}.` : `No se retiene según la ${cual}: ${r.motivo ?? 'sin motivo'}.`,
     };
@@ -1587,16 +1777,16 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
   // D43: el mensaje dice cuál RIF y dónde se corrige (practicada: en la ficha del proveedor).
   const textoRif = rifMal ? textoRifInvalido({ direccion, rif, nombre: contraparte }) : null;
   const equivalenteUsd = moneda === 'Bs' && tasaBcv?.tasa ? montoFinal / tasaBcv.tasa : null;
-  const entregaTardia = tipo === 'iva' ? avisoEntregaIvaTardia(facturaFecha, fechaRetencion, fechaEntrega) : null;
   const montosIlegibles = ([
-    ['Total factura', facturaTotalStr, tipo === 'iva' || tipo === 'islr'],
-    ['Sin derecho a crédito IVA', sinDerechoStr, tipo === 'iva' && sinDerechoStr.trim() !== ''],
+    ['Total de la factura o nota de débito', facturaTotalStr, tipo === 'iva' || tipo === 'islr'],
     ['Base imponible', baseStr, true],
     ['IVA de la factura', ivaStr, tipo === 'iva'],
+    ['Sin derecho a crédito IVA', sinDerechoStr, tipo === 'iva' && sinDerechoStr.trim() !== ''],
     ['Tasa', tasaStr, moneda !== 'Bs'],
     ['% retenido', pctStr, esManual],
     ['Monto retenido', montoStr, esManual],
   ] as Array<[string, string, boolean]>).filter(([, v, aplica]) => aplica && leerMonto(v) == null).map(([n]) => n);
+  const entregaTardia = tipo === 'iva' ? avisoEntregaIvaTardia(facturaFecha, fechaRetencion, fechaEntrega) : null;
 
   async function emitir() {
     setError(null);
@@ -1616,10 +1806,16 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     if (textoRif) { setError(textoRif.error); return; }
     if (sinDocumento && !observacion.trim()) { setError('Sin documento del sistema: indica en la observación de dónde viene esta retención.'); return; }
     if (moneda !== 'Bs' && !(tasa > 0)) { setError('Indica la tasa de cambio para convertir la retención a bolívares.'); return; }
-    const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(fechaRetencion)) { setError('Indica la fecha de la retención (emisión del comprobante).'); return; }
-    const faltaEntrega = faltaEnFechaEntrega(fechaEntrega, fechaRetencion, hoyIso());
-    if (faltaEntrega) { setError(faltaEntrega); return; }
+    // Mismos datos fiscales que el registro por factura: el IGTF no lleva N° de factura/control (es percepción).
+    if (tipo === 'igtf') {
+      const falta = faltaEnLaCarga({ tipo, facturaNumero, facturaFecha }); if (falta) { setError(falta); return; }
+    } else {
+      const falta = faltaEnDatosFactura({ nro: facturaNumero, control: facturaControl, fecha: facturaFecha }, hoyIso()); if (falta) { setError(falta); return; }
+    }
+    const faltaFechaRet = faltaEnFechaRetencion(fechaRetencion, facturaFecha, hoyIso()); if (faltaFechaRet) { setError(faltaFechaRet); return; }
+    const faltaEntrega = faltaEnFechaEntrega(fechaEntrega, fechaRetencion, hoyIso()); if (faltaEntrega) { setError(faltaEntrega); return; }
+    if ((tipo === 'iva' || tipo === 'islr') && nDec(facturaTotalStr) < 0) { setError('El total de la factura o nota de débito no puede ser negativo.'); return; }
+    const faltaBase = faltaEnBaseImponible(esManual ? nDec(baseStr) : calculo.baseImponible); if (faltaBase) { setError(faltaBase); return; }
     if (!esManual) {
       const errorDoc = validarDocumentoRespaldo(tipoArchivo, otroDetalle, !!archivo);
       if (errorDoc) { setError(errorDoc); return; }
@@ -1629,7 +1825,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
     try {
       const periodo = periodoDe(facturaFecha);
       const nueva: NuevaRetencion = {
-        tipo, direccion,
+        tipo, direccion, empresaId,
         docKind: semilla.docKind ?? 'manual',
         docId: semilla.docId ?? null, docCodigo: semilla.codigo ?? null,
         contraparteId: proveedorId || semilla.contraparteId || null,
@@ -1640,7 +1836,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         facturaControl: facturaControl.trim() || null,
         facturaFecha: facturaFecha || null,
         fechaRetencion,
-        fechaEntrega: fechaEntrega.trim() || null,
+        fechaEntrega,
         periodo, quincena: tipo === 'iva' ? quincenaDe(facturaFecha) : null,
         numeroComprobante: esManual ? (numero.trim() || null) : null,
         conceptoId: esManual ? null : (concepto?.id ?? null),
@@ -1703,7 +1899,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           {error && <small style={{ color: 'var(--danger)', marginRight: 'auto', maxWidth: '60%' }}>No se registró: {error}</small>}
           <button type="button" className="btn btn-ghost" onClick={pedirCierre} disabled={saving}>Cancelar</button>
           <button type="button" className="btn btn-primary" onClick={() => void emitir()} disabled={saving}>
-            {saving ? 'Guardando…' : (esCero ? 'Registrar en 0 con motivo' : `Registrar · ${moneda !== 'Bs' && montoBs > 0 ? monto(montoBs, 'Bs') : monto(montoFinal, moneda)}`)}
+            {saving ? 'Guardando…' : (esCero ? 'Registrar en 0 con motivo' : `Registrar · ${moneda !== 'Bs' && tasa > 0 ? monto(montoBs, 'Bs') : monto(montoFinal, moneda)}`)}
           </button>
         </>
       }>
@@ -1716,21 +1912,27 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       )}
 
       {/* La dirección primero: cambia el significado de todo lo demás */}
+      {OFRECER_DIRECCION && (
       <div className="form-row">
         <label>¿Quién retuvo?</label>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {DIRECCIONES.map((d) => (
-            <label key={d.key} className="card" style={{
-              margin: 0, padding: '.45rem .8rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '.4rem',
-              borderColor: direccion === d.key ? 'var(--primary)' : 'var(--border)',
+          {DIRECCIONES.map((d) => {
+            // La ficha del impuesto manda: si no admite esa dirección, no se ofrece (sin ficha, las dos).
+            const noAdmite = !admiteDireccion(fichasImpuesto?.get(tipo), d.key);
+            return (
+            <label key={d.key} className="card" title={noAdmite ? `${labelImpuesto(tipo)} no admite «${d.label.toLowerCase()}» según su ficha.` : undefined} style={{
+              margin: 0, padding: '.45rem .8rem', cursor: noAdmite ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '.4rem',
+              borderColor: direccion === d.key ? 'var(--primary)' : 'var(--border)', opacity: noAdmite ? 0.5 : 1,
             }}>
-              <input type="radio" checked={direccion === d.key} disabled={!!elegida} onChange={() => setDireccion(d.key)} />
+              <input type="radio" checked={direccion === d.key} disabled={!!elegida || noAdmite} onChange={() => setDireccion(d.key)} />
               <span style={{ fontWeight: 600 }}>{d.label}</span>
             </label>
-          ))}
+            );
+          })}
         </div>
         <small className="hint muted">{significadoRetencion(tipo, direccion)}</small>
       </div>
+      )}
 
       {avisoFecha && (
         <div className="card" style={{ borderColor: 'var(--warning)', marginBottom: '.5rem' }}>
@@ -1819,11 +2021,13 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       <div className="form-row">
         <label>Impuesto</label>
         <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
-          {/* Con una factura ya registrada elegida, solo sus impuestos pendientes. */}
-          {TIPOS_IMPUESTO.filter((t) => !precarga || precarga.impuestos.includes(t.key)).map((t) => {
-            const noPuede = direccion === 'practicada' && !puedePracticar(t.key, config);
+          {/* Solo los impuestos activos; con una factura ya registrada elegida, solo sus pendientes. */}
+          {soloImpuestosActivos(TIPOS_IMPUESTO, impuestosActivos ?? null)
+            .filter((t) => (!precarga || precarga.impuestos.includes(t.key)) && admiteDireccion(fichasImpuesto?.get(t.key), direccion)).map((t) => {
+            const noPuede = direccion === 'practicada' && !puedePracticarEmpresa(t.key, config);
+            const motivoNoPuede = noPuede ? (empresaFicha ? `La empresa no practica retención de ${labelImpuesto(t.key)} según su régimen (Parámetros → Régimen).` : (motivoNoPuedePracticar(t.key, config) ?? '')) : undefined;
             return (
-              <label key={t.key} className="card" title={noPuede ? motivoNoPuedePracticar(t.key, config) ?? '' : undefined} style={{
+              <label key={t.key} className="card" title={motivoNoPuede} style={{
                 margin: 0, padding: '.4rem .7rem', cursor: noPuede ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '.4rem',
                 borderColor: tipo === t.key ? 'var(--primary)' : 'var(--border)', opacity: noPuede ? 0.5 : 1,
               }}>
@@ -1876,6 +2080,9 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
           supuestosIva={supuestosIva}
           pctGeneral={config.pctIvaGeneral}
           pctActual={supuesto?.pct ?? calculo.porcentaje}
+          ivaFactura={nDec(ivaStr)}
+          moneda={moneda}
+          onLimpiarMotivos={() => setMotivos({} as MotivosIvaCien)}
           onChange={(codigo, valor) => setMotivos((prev) => ({ ...prev, [codigo]: valor } as MotivosIvaCien))}
         />
       )}
@@ -1897,7 +2104,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         </div>
         <div className="form-row" style={{ flex: '1 1 150px' }}>
           <label>Fecha de la factura</label>
-          <input className="input" type="date" value={facturaFecha} readOnly={!!elegida} onChange={(e) => setFacturaFecha(e.target.value)} />
+          <input className="input" type="date" value={facturaFecha} max={hoyIso()} readOnly={!!elegida} onChange={(e) => setFacturaFecha(e.target.value)} />
           <small className="hint muted">Define el período{tipo === 'iva' ? ' y la quincena' : ''} y la tasa.</small>
         </div>
         <div className="form-row" style={{ flex: '1 1 150px' }}>
@@ -1965,15 +2172,15 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
                 color: 'var(--brand, #ff8a00)',
                 letterSpacing: '.02em',
               }}
-              title={correlativoEstimado?.explicacion || 'Correlativo asignado según el impuesto'}
+              title={esCero ? textoCero.titulo : (correlativoEstimado?.explicacion || 'Correlativo asignado según el impuesto')}
             >
-              <span>{correlativoEstimado?.comprobante || 'Asignando…'}</span>
+              <span>{esCero ? textoCero.valor : (correlativoEstimado?.comprobante || 'Asignando…')}</span>
               <small className="muted" style={{ fontWeight: 400, fontSize: '.75rem' }}>
-                {correlativoEstimado ? `#${correlativoEstimado.numero}` : ''}
+                {!esCero && correlativoEstimado ? `#${correlativoEstimado.numero}` : ''}
               </small>
             </div>
             <small className="hint muted">
-              {correlativoEstimado?.explicacion || `Correlativo asignado para ${rotuloImpuesto(tipo)}.`}
+              {esCero ? textoCero.hint : (correlativoEstimado?.explicacion || `Correlativo asignado para ${rotuloImpuesto(tipo)}.`)}
             </small>
           </div>
         ) : null}
@@ -1986,7 +2193,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         )}
         <div className="form-row" style={{ flex: '1 1 150px' }}>
           <label>Base imponible</label>
-          <input className="input mono" value={baseStr} onChange={(e) => setBaseStr(e.target.value)} inputMode="decimal" />
+          <input className="input mono" value={baseStr} onChange={(e) => cambiarBase(e.target.value)} inputMode="decimal" />
           {tipo !== 'iva' && <small className="hint muted">El monto de la factura sin IVA, sobre el que se calcula la retención.</small>}
         </div>
         {tipo === 'iva' && (
@@ -2114,7 +2321,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
             </div>
             {/* Ante el fisco la retención va en bolívares: con factura en $, el monto principal es el convertido. */}
             <div className="mono" style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)' }}>
-              {moneda === 'Bs' ? monto(montoFinal, moneda) : (montoBs > 0 ? monto(montoBs, 'Bs') : 'Falta la tasa')}
+              {moneda === 'Bs' ? monto(montoFinal, moneda) : (tasa > 0 ? monto(montoBs, 'Bs') : 'Falta la tasa')}
             </div>
             {moneda !== 'Bs' && (
               <div className="muted mono" style={{ fontSize: '.78rem' }}>
@@ -2146,6 +2353,11 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
         <p className="muted" style={{ margin: '.4rem 0 0', fontSize: '.8rem' }}>
           {esManual ? significadoRetencion(tipo, direccion) : calculo.explicacion}
         </p>
+        {/* C8: aviso de cordura NO bloqueante en una recibida (el retenido viene del comprobante del cliente). */}
+        {direccion === 'recibida' && (() => {
+          const aviso = avisoRetenidoSuperaBase(montoFinal, nDec(baseStr), nDec(ivaStr));
+          return aviso ? <div className="lfv8-alerta-media" style={{ margin: '.4rem 0 0' }}><span>⚠️ {aviso}</span></div> : null;
+        })()}
         {montosIlegibles.length > 0 && (
           <p style={{ margin: '.3rem 0 0', fontSize: '.8rem', color: 'var(--warning)' }}>
             No se entiende {montosIlegibles.join(', ')}: el cálculo no los toma. Escribe 1.234,56 o 1234,56.
@@ -2154,7 +2366,7 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
       </div>
       <div className="hint muted" style={{ fontSize: '.74rem' }}>
         {direccion === 'practicada' && tipo !== 'igtf'
-          ? `Al registrar, la base le asigna el número de comprobante: ${rotuloSerie(correlativoEstimado?.formato ?? (!conV2R ? 'AAAAMM8' : formatoSerie(tipo))).toLowerCase()}. El número no se reusa.${facturaFecha && tipo === 'iva' ? ` Emitir y entregar el comprobante de IVA a más tardar dentro de los primeros 2 días hábiles del período siguiente (${fechaCorta(limiteEntregaComprobante(facturaFecha))}, sin contar feriados).` : ''}`
+          ? `Al registrar, la base le asigna el número de comprobante: ${rotuloSerie(correlativoEstimado?.formato ?? (!conV2R ? 'AAAAMM8' : fichasImpuesto?.get(tipo)?.serieFormato ?? formatoSerie(tipo))).toLowerCase()}. El número no se reusa.${facturaFecha && tipo === 'iva' ? ` Emitir y entregar el comprobante de IVA a más tardar dentro de los primeros 2 días hábiles del período siguiente (${fechaCorta(limiteEntregaComprobante(facturaFecha))}, sin contar feriados).` : ''}`
           : 'Queda en el libro fiscal del período, con su comprobante imprimible.'}
       </div>
       </div>
@@ -2167,15 +2379,11 @@ export function RegistrarRetencionModal({ semilla, actor, actorName, onClose, on
 /* ═══════════════════ Parámetros fiscales ═══════════════════ */
 
 type SeccionPa = 'motivos' | 'entes' | 'perfiles' | 'licencias' | 'empresa' | 'firma' | 'vencimientos'
-  | 'impuestos' | 'valores' | 'supuestos' | 'numeracion' | 'regimen' | 'formatos' | 'interruptores' | 'kanban';
+  | 'impuestos' | 'valores' | 'supuestos' | 'numeracion' | 'regimen' | 'formatos' | 'interruptores'
+  | 'compras' | 'empresas_fiscal' | 'buzon_telefono';
 interface DefSeccionPa { key: SeccionPa; capa: 'ajustes' | 'avanzados'; titulo: string; linea: string; que: string; ingresa: string; efecto: string; noCambia: string; }
 
 const AJUSTES_PA: DefSeccionPa[] = [
-  { key: 'kanban', capa: 'ajustes', titulo: 'Estatus del Kanban de Compras', linea: 'Qué estatus del kanban aplican para retenciones.',
-    que: 'Los estatus del flujo de Compras / Servicios que se toman en cuenta en «Por realizar».',
-    ingresa: 'Las columnas del kanban elegibles. Las órdenes canceladas y anuladas quedan excluidas por defecto.',
-    efecto: 'Solo las órdenes en los estatus seleccionados se muestran en «Por realizar» y computan para retenciones.',
-    noCambia: 'Las retenciones ya registradas ni los comprobantes emitidos.' },
   { key: 'motivos', capa: 'ajustes', titulo: 'Motivos de «No aplica»', linea: 'Las razones para marcar que una factura no lleva retención.',
     que: 'Las razones que se eligen al marcar que una factura no lleva retención.', ingresa: 'El texto del motivo y el impuesto en que se ofrece (o todos).',
     efecto: 'Se ofrecen al registrar una retención en 0 %, según el impuesto y la fecha de la factura.', noCambia: 'Lo ya registrado conserva el texto de su motivo, aunque el motivo se edite o se desactive.' },
@@ -2188,15 +2396,28 @@ const AJUSTES_PA: DefSeccionPa[] = [
   { key: 'licencias', capa: 'ajustes', titulo: 'Tipos de licencia', linea: 'Los tipos de licencia de actividad económica que se eligen en el perfil.',
     que: 'Los tipos de licencia de actividad económica que se eligen en el perfil fiscal de cada proveedor.', ingresa: 'El nombre del tipo.',
     efecto: 'Son las opciones del tipo de licencia en el perfil fiscal de cada proveedor.', noCambia: 'Un perfil que ya tiene un tipo lo conserva, aunque el tipo se desactive.' },
-  { key: 'empresa', capa: 'ajustes', titulo: 'Datos de la empresa', linea: 'Los datos del agente de retención que van en cada comprobante.',
+  { key: 'empresa', capa: 'ajustes', titulo: 'Datos de la empresa base', linea: 'Los datos del agente de retención que van en cada comprobante (single-empresa).',
     que: 'Los datos de la empresa que se imprimen en cada comprobante como agente de retención.', ingresa: 'Razón social, RIF, dirección fiscal, municipio, alícuota ISAE y timbre estadal.',
     efecto: 'Los comprobantes nuevos llevan estos datos.', noCambia: 'Los emitidos conservan los datos de su emisión. El régimen fiscal está en Ajustes avanzados.' },
+  { key: 'compras', capa: 'ajustes', titulo: 'Flujo de compras y kanban', linea: 'Estatus del kanban a abordar e impuestos a practicar.',
+    que: 'Controla qué compras aparecen en «Por realizar» según su estatus en el Kanban y qué impuestos practica la empresa.',
+    ingresa: 'Selección de estatus permitidos (Confirmada pagar, Pagada, etc.) y qué impuestos retiene la empresa (IVA, ISLR, ISAE).',
+    efecto: 'Filtra las órdenes que entran a Retenciones y define si se exigen IVA, ISLR y/o ISAE.',
+    noCambia: 'Las retenciones ya emitidas o registradas en el libro fiscal.' },
   { key: 'firma', capa: 'ajustes', titulo: 'Firma y sello', linea: 'La firma, el sello y el logo de la empresa en los comprobantes.',
     que: 'Las imágenes de la empresa que van en cada comprobante: logo, firma (con su firmante) y sello.', ingresa: 'Una imagen PNG o JPG de hasta 1 MB, vigente desde una fecha.',
     efecto: 'Los comprobantes nuevos llevan la versión vigente a su fecha de emisión. Sin imagen, el recuadro queda en blanco para firmar a mano.', noCambia: 'Los comprobantes emitidos conservan la versión con que salieron.' },
   { key: 'vencimientos', capa: 'ajustes', titulo: 'Avisos de vencimiento', linea: 'Cuándo avisar de licencias, declaraciones y actividades que vencen.',
     que: 'Los avisos de lo que vence: licencias, declaraciones y actividades con fecha «hasta».', ingresa: 'Con cuántos días de anticipación se avisa y si los avisos están encendidos.',
     efecto: 'Cambia la lista de vencimientos de la cabecera y los avisos del registro.', noCambia: 'Ninguna fecha ni ningún monto: solo cuándo se avisa.' },
+  { key: 'empresas_fiscal', capa: 'ajustes', titulo: 'Config fiscal por empresa', linea: 'El régimen y los porcentajes de cada empresa (multi-empresa).',
+    que: 'La configuración fiscal de cada empresa receptora: régimen (agente de IVA, especial, ISLR, ISAE) y porcentajes (IVA, IGTF, alícuota, ISAE).',
+    ingresa: 'Por cada empresa: sus banderas de régimen, sus % de retención y su licencia municipal.',
+    efecto: 'El libro, el registro y los reportes de esa empresa usan su propio régimen y sus %.', noCambia: 'La identidad de la empresa (nombre, RIF) se edita en el buzón. Lo ya registrado conserva sus valores.' },
+  { key: 'buzon_telefono', capa: 'ajustes', titulo: 'Buzón / Vista teléfono', linea: 'Activar el buzón de facturas del teléfono y el padrón de empresas receptoras.',
+    que: 'Si el buzón (vista teléfono) está disponible en el módulo y qué empresas reciben facturas.',
+    ingresa: 'El interruptor de activación del buzón. (El padrón de empresas se edita acá y en el buzón.)',
+    efecto: 'Enciende o apaga la pestaña del buzón y la vista de teléfono en Retenciones.', noCambia: 'Las facturas ya cargadas en el buzón.' },
 ];
 const AVANZADOS_PA: DefSeccionPa[] = [
   { key: 'impuestos', capa: 'avanzados', titulo: 'Impuestos y reglas', linea: 'Conceptos del ISLR: porcentaje por sujeto y si están activos.',
@@ -2222,7 +2443,7 @@ const AVANZADOS_PA: DefSeccionPa[] = [
     efecto: 'Se aplica al momento en las propuestas y en el registro.', noCambia: 'Las retenciones registradas.' },
 ];
 /** Solo se muestran las secciones que guardan en la base; las demás vuelven cuando exista su tabla (R1, R2, R3, R6). */
-const CONECTADAS_PA = new Set<SeccionPa>(['empresa', 'licencias', 'impuestos', 'valores', 'regimen', 'kanban']);
+const CONECTADAS_PA = new Set<SeccionPa>(['empresa', 'licencias', 'impuestos', 'valores', 'regimen', 'compras']);
 /** Las de R1 y R6 aparecen solas cuando sus tablas existen en la base. */
 const CONECTADAS_R1 = new Set<SeccionPa>(['entes', 'firma', 'perfiles']);
 const CONECTADAS_R6 = new Set<SeccionPa>(['motivos', 'supuestos']);
@@ -2238,7 +2459,18 @@ const DEF_VALORES_R3: DefSeccionPa = {
 };
 const AVISO_AVANZADOS ='Estos cambios afectan cálculos, números o fechas de declaración. Lo ya emitido no cambia.';
 
-export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar: boolean; onClose: () => void }) {
+export function ConfiguracionFiscalModal({ puedeEditar, onClose, editorFiscalEmpresas = null, empresasRegimen = [], empresaRegimenId = null, puedeBorrarRegimen = false }: {
+  puedeEditar: boolean;
+  onClose: () => void;
+  /** Multi-empresa: el editor de config fiscal por empresa (se inyecta desde Retenciones para no invertir la dependencia). Null → la sección no aparece. */
+  editorFiscalEmpresas?: ReactNode;
+  /** D2: empresas (datos planos) para el selector de Régimen por empresa; vacío = single-empresa. */
+  empresasRegimen?: { id: string; nombre: string }[];
+  /** D2: empresa actual del módulo, como selección inicial del Régimen. */
+  empresaRegimenId?: string | null;
+  /** D2: borrar una fila del régimen es admin-only (la tabla no tiene política DELETE para otros). */
+  puedeBorrarRegimen?: boolean;
+}) {
   const [cfg, setCfg] = useState<ConfigRetencion>(CONFIG_RETENCION_DEFECTO);
   const [locales, setLocales] = useState<AlicuotasLocales>({ municipal: 0, estadal: 0 });
   const [conceptos, setConceptos] = useState<ConceptoRetencion[]>([]);
@@ -2257,18 +2489,29 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   const [r3, setR3] = useState(false);
   const [r6, setR6] = useState(false);
   const [r8, setR8] = useState(false);
+  const [conBuzon, setConBuzon] = useState(false);
   useEffect(() => {
     void r8Disponible().then(setR8).catch(() => setR8(false));
     void r1Disponible().then(setR1).catch(() => setR1(false));
     void r2Disponible().then(setR2).catch(() => setR2(false));
     void r3Disponible().then(setR3).catch(() => setR3(false));
     void r6Disponible().then(setR6).catch(() => setR6(false));
+    void buzonDisponible().then(setConBuzon).catch(() => setConBuzon(false));
   }, []);
-  const visible = (s: DefSeccionPa) => CONECTADAS_PA.has(s.key) || (r1 && CONECTADAS_R1.has(s.key)) || (r6 && CONECTADAS_R6.has(s.key)) || (r8 && CONECTADAS_R8.has(s.key));
+  const visible = (s: DefSeccionPa) => s.key === 'empresas_fiscal'
+    ? editorFiscalEmpresas != null   // solo con multi-empresa (Retenciones inyecta el editor)
+    : s.key === 'buzon_telefono'
+      ? conBuzon                      // C4a: solo con el buzón en la base
+      : CONECTADAS_PA.has(s.key) || (r1 && CONECTADAS_R1.has(s.key)) || (r6 && CONECTADAS_R6.has(s.key)) || (r8 && CONECTADAS_R8.has(s.key));
   const AJUSTES_VIS = AJUSTES_PA.filter(visible);
   const AVANZADOS_VIS = AVANZADOS_PA.filter(visible);
 
-  const { marcarSucio, pedirCierre, dialogo } = useDescartar(onClose, saving);
+  const { marcarSucio: marcarSucioBase, pedirCierre, dialogo } = useDescartar(onClose, saving);
+  const [hayCambios, setHayCambios] = useState(false);
+  const marcarSucio = useCallback(() => {
+    setHayCambios(true);
+    marcarSucioBase();
+  }, [marcarSucioBase]);
 
   const recargar = useCallback(async () => {
     const [c, l, cs] = await Promise.all([getConfigRetencion(), getAlicuotasLocales(), listConceptos(false)]);
@@ -2278,7 +2521,10 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
     void recargar().catch((e) => setError(e instanceof Error ? e.message : 'No se pudieron leer los parámetros.'));
   }, [recargar]);
 
-  const set = <K extends keyof ConfigRetencion>(k: K, v: ConfigRetencion[K]) => setCfg((p) => ({ ...p, [k]: v }));
+  const set = <K extends keyof ConfigRetencion>(k: K, v: ConfigRetencion[K]) => {
+    marcarSucio();
+    setCfg((p) => ({ ...p, [k]: v }));
+  };
   const soloLectura = !puedeEditar;
 
   async function guardar() {
@@ -2294,7 +2540,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
     setSaving(true); setError(null);
     try {
       await guardarConfigRetencion({ ...cfg, rif: rifEmpresa.rif || cfg.rif }, locales, { conservarRegimen: r1, conservarParametros: r3 });
-      try { localStorage.setItem('retenciones:imprimirOriginalYCopia', String(cfg.imprimirOriginalYCopia !== false)); } catch {}
+      // C1: sin espejo en localStorage — «Original y Copia» se guarda en la config (su única fuente).
       toast('Parámetros fiscales guardados', 'success');
       onClose();
     } catch (e) {
@@ -2311,9 +2557,14 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   function resumen(k: SeccionPa): string {
     switch (k) {
       case 'empresa': return cfg.rif ? `RIF ${cfg.rif} · ${cfg.imprimirOriginalYCopia !== false ? 'Original y Copia' : 'Solo Original'}` : 'Sin configurar';
-      case 'kanban': {
-        const activos = cfg.estatusKanbanRetencion ?? ESTATUS_KANBAN_DEFECTO;
-        return `${activos.length} estatus elegible(s) · Canceladas excluidas`;
+      case 'compras': {
+        const nEstados = cfg.estadosKanbanRetencion?.length ?? ESTADOS_KANBAN_RETENCION_DEFECTO.length;
+        const imps = [
+          cfg.esAgenteRetencionIva ? 'IVA' : null,
+          cfg.retieneIslr !== false ? 'ISLR' : null,
+          cfg.retieneMunicipal !== false ? 'ISAE' : null,
+        ].filter(Boolean);
+        return `${nEstados} estatus kanban · Retiene: ${imps.length ? imps.join(', ') : 'ninguno'}`;
       }
       case 'regimen': return `Agente IVA: ${cfg.esAgenteRetencionIva ? 'sí' : 'no'} · Especial: ${cfg.esContribuyenteEspecial ? 'sí' : 'no'}`;
       case 'valores': return `UT Bs ${cfg.valorUt} · IGTF ${cfg.pctIgtf} %`;
@@ -2325,7 +2576,7 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
   const capaActual = seccion ? TODAS_PA[seccion].capa : capa;
   const tituloModal = capaActual === 'avanzados' ? '⚙ Parámetros · Ajustes avanzados' : '⚙ Parámetros de retenciones';
   // Con R1 y R3, Régimen y Valores guardan desde sus propias pantallas (con fecha), no con el botón general.
-  const seccionGuardable = seccion === 'empresa' || seccion === 'kanban' || (seccion === 'regimen' && !(r1 && r3)) || (seccion === 'valores' && !r3);
+  const seccionGuardable = seccion === 'empresa' || seccion === 'compras' || (seccion === 'regimen' && !(r1 && r3)) || (seccion === 'valores' && !r3) || hayCambios;
 
   return (
     <>
@@ -2408,6 +2659,13 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           {/* ── Empresa ── */}
           {seccion === 'empresa' && (
             <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
+              {/* C5: con multi-empresa, lo fiscal de cada empresa va en «Config fiscal por empresa».
+                  Esta sección es la empresa BASE (single-empresa). */}
+              {empresasRegimen.length > 1 && (
+                <p className="hint muted" style={{ fontSize: '.82rem', margin: '0 0 .6rem' }}>
+                  Con varias empresas, los datos fiscales de cada una se editan en <strong>Config fiscal por empresa</strong>. Aquí van los datos de la empresa base (single-empresa).
+                </p>
+              )}
               <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
                 <div className="form-row" style={{ flex: '1 1 220px' }}>
                   <label>Razón social</label>
@@ -2472,92 +2730,122 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
                 <p className="muted" style={{ margin: '.35rem 0 0', fontSize: '.8rem', lineHeight: 1.4 }}>
                   Cumplimiento de Providencias SENIAT (SNAT/2025/000054 IVA y Art. 24 D. 1808 ISLR). Si se desactiva, el comprobante se emitirá en una sola página (Solo Original).
                 </p>
+                {/* C2: incluir logo/firma/sello en el comprobante = formato del documento (una fuente). */}
+                <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', marginTop: '.5rem', paddingTop: '.5rem', borderTop: '1px solid var(--border)' }}>
+                  {([['incluirLogo', 'Incluir logo'], ['incluirFirma', 'Incluir firma'], ['incluirSello', 'Incluir sello']] as const).map(([campo, etiqueta]) => (
+                    <label key={campo} style={{ display: 'flex', alignItems: 'center', gap: '.4rem', cursor: 'pointer', fontSize: '.84rem' }}>
+                      <input type="checkbox" checked={cfg[campo] !== false} onChange={(e) => set(campo, e.target.checked)} />
+                      <span>{etiqueta}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="muted" style={{ margin: '.35rem 0 0', fontSize: '.78rem' }}>
+                  Se estampan si están cargados en Parámetros → Firma y sello. Al exportar se puede quitar alguno para un PDF puntual sin cambiar esta configuración.
+                </p>
               </div>
 
               {r3 && <p className="hint muted" style={{ fontSize: '.82rem' }}>Las alícuotas del ISAE y del timbre estadal están en Ajustes avanzados › Valores con vigencia.</p>}
               <p className="hint muted" style={{ fontSize: '.82rem' }}>El régimen fiscal (agente de retención de IVA, contribuyente especial) está en Ajustes avanzados › Régimen fiscal de la empresa.</p>
+              <p className="hint muted" style={{ fontSize: '.82rem' }}>Los estatus de órdenes de compra e impuestos retenidos se configuran en Ajustes › Flujo de compras y kanban.</p>
             </fieldset>
           )}
 
-          {/* ── Estatus del Kanban de Compras ── */}
-          {seccion === 'kanban' && (
+          {/* ── Flujo de compras y kanban ── */}
+          {seccion === 'compras' && (
             <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
-              <div className="card" style={{ background: 'var(--bg-2)', marginBottom: '.8rem', border: '1px solid var(--border)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.6rem' }}>
+              <div className="card" style={{ background: 'var(--bg-2)', marginBottom: '1rem', border: '1px solid var(--border)' }}>
+                <strong style={{ display: 'block', marginBottom: '.35rem', fontSize: '.92rem' }}>
+                  🏛️ Impuestos que practica la empresa en compras
+                </strong>
+                <p className="muted" style={{ margin: 0, fontSize: '.82rem', lineHeight: 1.4 }}>
+                  D2b: qué impuestos retiene la empresa (agente de IVA, ISLR, municipal) se define en
+                  {' '}<strong>Parámetros → Régimen</strong>, por empresa y con fecha. Una sola fuente: el tablero
+                  {' '}«Por realizar» y el registro lo leen de ahí. (Antes se marcaba aquí, al JSON; eso era un espejo que divergía del régimen.)
+                </p>
+              </div>
+
+              <div className="card" style={{ background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.5rem', marginBottom: '.5rem' }}>
                   <div>
-                    <strong style={{ fontSize: '.95rem' }}>Estatus de órdenes que se abordan en Retenciones</strong>
-                    <p className="muted" style={{ margin: '.2rem 0 0', fontSize: '.82rem' }}>
-                      Solo las órdenes con los estatus seleccionados se mostrarán en «Por realizar». Las órdenes canceladas y anuladas están excluidas por defecto.
-                    </p>
+                    <strong style={{ display: 'block', fontSize: '.92rem' }}>
+                      🏷️ Estatus del Kanban de Compras a abordar en Retenciones
+                    </strong>
+                    <span className="muted" style={{ fontSize: '.8rem' }}>
+                      Solo las órdenes de compra en estos estatus aparecerán en «Por realizar».
+                    </span>
                   </div>
-                  <div style={{ display: 'flex', gap: '.4rem', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '.4rem' }}>
                     <button
                       type="button"
                       className="btn btn-sm btn-ghost"
-                      onClick={() => set('estatusKanbanRetencion', [...ESTATUS_KANBAN_DEFECTO])}
+                      onClick={() => set('estadosKanbanRetencion', ESTADOS_KANBAN_RETENCION_DEFECTO)}
                     >
-                      Restablecer recomendados
+                      Restablecer habituales
                     </button>
                     <button
                       type="button"
                       className="btn btn-sm btn-ghost"
-                      onClick={() => set('estatusKanbanRetencion', LISTA_ESTATUS_KANBAN.filter((s) => !s.esTerminalCancelado).map((s) => s.key))}
+                      onClick={() => set('estadosKanbanRetencion', [
+                        'oc_aprobada', 'pagada', 'por_recibir', 'recibida', 'cuenta_abierta', 'finalizada',
+                      ])}
                     >
-                      Marcar todos los activos
+                      Marcar todos
                     </button>
                   </div>
                 </div>
 
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '.6rem' }}>
-                  {LISTA_ESTATUS_KANBAN.map((s) => {
-                    const activos = cfg.estatusKanbanRetencion ?? ESTATUS_KANBAN_DEFECTO;
-                    const checked = activos.includes(s.key);
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(260px, 1fr))', gap: '.5rem', marginTop: '.5rem' }}>
+                  {[
+                    { key: 'oc_aprobada' as EstadoOrden, label: 'Confirmada pagar', desc: 'OC autorizada y lista para pago por Tesorería.' },
+                    { key: 'pagada' as EstadoOrden, label: 'Pagada', desc: 'OC con pago total o abono registrado en Tesorería.' },
+                    { key: 'por_recibir' as EstadoOrden, label: 'Por recibir', desc: 'OC pagada con recepción pendiente en almacén/obra.' },
+                    { key: 'recibida' as EstadoOrden, label: 'Recibida', desc: 'Mercancía o servicio recibido a satisfacción.' },
+                    { key: 'cuenta_abierta' as EstadoOrden, label: 'Crédito', desc: 'Compra a crédito pendiente de saldo.' },
+                    { key: 'finalizada' as EstadoOrden, label: 'Finalizada', desc: 'OC culminada con soporte de factura cargado.' },
+                  ].map((opt) => {
+                    const seleccionados = cfg.estadosKanbanRetencion ?? ESTADOS_KANBAN_RETENCION_DEFECTO;
+                    const checked = seleccionados.includes(opt.key);
+                    const badge = badgeEstatusKanban(opt.key);
                     return (
                       <label
-                        key={s.key}
+                        key={opt.key}
                         style={{
-                          display: 'flex',
-                          alignItems: 'flex-start',
-                          gap: '.6rem',
-                          padding: '.6rem .75rem',
-                          background: checked ? 'var(--bg-1)' : 'transparent',
-                          border: `1px solid ${checked ? 'var(--primary)' : 'var(--border)'}`,
-                          borderRadius: '6px',
-                          cursor: 'pointer',
-                          opacity: s.esTerminalCancelado && !checked ? 0.75 : 1,
+                          display: 'flex', alignItems: 'flex-start', gap: '.55rem', padding: '.55rem .7rem',
+                          borderRadius: 'var(--r-md)', background: checked ? 'var(--bg-1)' : 'transparent',
+                          border: `1px solid ${checked ? 'var(--border)' : 'var(--border-subtle, #333)'}`,
+                          cursor: 'pointer', transition: 'all .15s ease',
                         }}
                       >
                         <input
                           type="checkbox"
                           checked={checked}
-                          onChange={(e) => {
-                            const next = e.target.checked
-                              ? [...activos, s.key]
-                              : activos.filter((k: string) => k !== s.key);
-                            set('estatusKanbanRetencion', next);
-                          }}
                           style={{ marginTop: '.2rem' }}
+                          onChange={(e) => {
+                            const s = new Set(seleccionados);
+                            if (e.target.checked) s.add(opt.key);
+                            else s.delete(opt.key);
+                            set('estadosKanbanRetencion', Array.from(s));
+                          }}
                         />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
-                            <span style={{ fontWeight: 600, fontSize: '.86rem' }}>{s.label}</span>
-                            <span className={`lfv8-pill kanban-${s.key}`} style={{ fontSize: '.7rem', padding: '1px 6px' }}>
-                              {s.key}
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
+                            <span className={badge.className} style={{ fontSize: '.68rem', padding: '1px 5px', lineHeight: 1.2 }}>
+                              {badge.label}
                             </span>
+                            <strong style={{ fontSize: '.84rem' }}>{opt.label}</strong>
                           </div>
-                          <p className="muted" style={{ margin: '.2rem 0 0', fontSize: '.76rem', lineHeight: 1.3 }}>
-                            {s.descripcion}
-                          </p>
-                          {s.esTerminalCancelado && (
-                            <span style={{ display: 'inline-block', color: 'var(--danger)', fontSize: '.72rem', marginTop: '.2rem', fontWeight: 600 }}>
-                              ⚠️ Cancelada / Anulada (no genera retención)
-                            </span>
-                          )}
+                          <div className="muted" style={{ fontSize: '.75rem', marginTop: '.2rem', lineHeight: 1.3 }}>
+                            {opt.desc}
+                          </div>
                         </div>
                       </label>
                     );
                   })}
                 </div>
+
+                <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.75rem', lineHeight: 1.4 }}>
+                  ℹ️ <strong>Exclusión permanente:</strong> Las órdenes con estatus <em>Cancelada</em>, <em>Desistida por proveedor</em> o <em>Rechazada</em> nunca se abordan para retención por norma contable y tributaria.
+                </p>
               </div>
             </fieldset>
           )}
@@ -2566,24 +2854,11 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           {seccion === 'regimen' && (
             <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
               {/* Con R1, las dos condiciones llevan fecha e historial y las escribe su propia pantalla. */}
-              {r1 && <ParametrosRegimen puedeEditar={puedeEditar} />}
+              {r1 && <ParametrosRegimen puedeEditar={puedeEditar} empresas={empresasRegimen} empresaIdInicial={empresaRegimenId} puedeBorrar={puedeBorrarRegimen} />}
               <div className="card" style={{ background: 'var(--bg-2)' }}>
-                {!r1 && (<>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600 }}>
-                  <input type="checkbox" checked={cfg.esAgenteRetencionIva} onChange={(e) => set('esAgenteRetencionIva', e.target.checked)} />
-                  La empresa está designada agente de retención de IVA
-                </label>
-                <p className="muted" style={{ margin: '.3rem 0 .6rem', fontSize: '.82rem' }}>
-                  Hoy está en <strong>{cfg.esAgenteRetencionIva ? 'sí' : 'no'}</strong>. Con la casilla marcada se calcula y se registra la retención de IVA que la empresa practica.
-                </p>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600 }}>
-                  <input type="checkbox" checked={cfg.esContribuyenteEspecial} onChange={(e) => set('esContribuyenteEspecial', e.target.checked)} />
-                  La empresa es contribuyente especial
-                </label>
-                <p className="muted" style={{ margin: '.3rem 0 .5rem', fontSize: '.82rem' }}>
-                  Hoy está en <strong>{cfg.esContribuyenteEspecial ? 'sí' : 'no'}</strong>. El contribuyente especial también retiene IVA y, además, percibe el IGTF.
-                </p>
-                </>)}
+                {/* D2b: el régimen se edita arriba, en Parámetros → Régimen (L6). Se quitó el
+                    fallback de casillas al JSON (solo aparecía sin R1): escribía un espejo que
+                    divergía de L6. Una sola fuente, un solo editor. */}
                 {r3 && <p className="muted" style={{ margin: 0, fontSize: '.82rem' }}>Los porcentajes de retención del IVA (general y art. 5) están en Ajustes avanzados › Valores con vigencia.</p>}
                 {!r3 && (<>
                 {r1 && <p className="muted" style={{ margin: '0 0 .5rem', fontSize: '.82rem' }}>Porcentajes de retención del IVA (se guardan con el botón Guardar):</p>}
@@ -2647,14 +2922,28 @@ export function ConfiguracionFiscalModal({ puedeEditar, onClose }: { puedeEditar
           {/* ── Tipos de licencia ── */}
           {seccion === 'licencias' && <SeccionLicencias puedeEditar={puedeEditar} />}
 
-          {/* ── Avisos de vencimiento ── */}
-          {seccion === 'vencimientos' && <SeccionVencimientos puedeEditar={puedeEditar} />}
+          {/* C6: las secciones mock numeracion/interruptores/vencimientos se quitaron (eran
+              duplicados latentes de Períodos/motorReglas/ParametrosImpuestos, ocultos por visible()). */}
 
-          {/* ── Períodos y numeración ── */}
-          {seccion === 'numeracion' && <SeccionNumeracion puedeEditar={puedeEditar} />}
+          {/* ── Multi-empresa: config fiscal por empresa (editor inyectado desde Retenciones) ── */}
+          {seccion === 'empresas_fiscal' && editorFiscalEmpresas}
 
-          {/* ── Interruptores de reglas ── */}
-          {seccion === 'interruptores' && <SeccionInterruptores puedeEditar={puedeEditar} />}
+          {/* ── C4a (D6): Buzón / Vista teléfono: activar/ocultar. El padrón de empresas viene en C4b. ── */}
+          {seccion === 'buzon_telefono' && (
+            <fieldset disabled={soloLectura} style={{ border: 0, padding: 0, margin: 0 }}>
+              <div className="card" style={{ background: 'var(--bg-2)', border: '1px solid var(--border)' }}>
+                <strong style={{ display: 'block', marginBottom: '.35rem', fontSize: '.88rem' }}>📥 Buzón de facturas / Vista teléfono</strong>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '.6rem', cursor: 'pointer', fontWeight: 600 }}>
+                  <input type="checkbox" checked={cfg.buzonActivo !== false} onChange={(e) => set('buzonActivo', e.target.checked)} />
+                  <span>Activar el buzón y la vista de teléfono en Retenciones</span>
+                </label>
+                <p className="muted" style={{ margin: '.35rem 0 0', fontSize: '.8rem', lineHeight: 1.4 }}>
+                  Si se desactiva, se ocultan la pestaña «Buzón Móvil» y el acceso «📱 Teléfono» del módulo. Las facturas ya cargadas no se tocan.
+                </p>
+              </div>
+              <p className="hint muted" style={{ fontSize: '.82rem' }}>El padrón de empresas receptoras se gestiona en el buzón; su edición unificada aquí llega en una próxima actualización.</p>
+            </fieldset>
+          )}
         </>
         );
       })()}
@@ -2731,127 +3020,6 @@ function SeccionLicencias({ puedeEditar }: { puedeEditar: boolean }) {
   );
 }
 
-function SeccionVencimientos({ puedeEditar }: { puedeEditar: boolean }) {
-  const [cfg, setCfg] = useState({
-    avisosActivos: true,
-    diasLicencia: 30,
-    diasDeclaracion: 5,
-    diasActividad: 15,
-  });
-
-  return (
-    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
-      <div className="card" style={{ background: 'var(--bg-2)', margin: '0 0 .6rem' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', fontWeight: 600 }}>
-          <input type="checkbox" checked={cfg.avisosActivos} onChange={(e) => setCfg((p) => ({ ...p, avisosActivos: e.target.checked }))} />
-          Avisos de vencimiento activos
-        </label>
-        <p className="muted" style={{ margin: '.2rem 0 0', fontSize: '.82rem' }}>
-          Al desactivar, no se muestra la lista de vencimientos en la cabecera ni los avisos al registrar.
-        </p>
-      </div>
-      <div style={{ display: 'flex', gap: '.8rem', flexWrap: 'wrap' }}>
-        <div className="form-row" style={{ flex: '1 1 180px' }}>
-          <label>Días antes del vencimiento de licencia</label>
-          <input className="input mono" type="number" min={0} value={cfg.diasLicencia}
-            onChange={(e) => setCfg((p) => ({ ...p, diasLicencia: Number(e.target.value) }))} />
-        </div>
-        <div className="form-row" style={{ flex: '1 1 180px' }}>
-          <label>Días antes del vencimiento de declaración</label>
-          <input className="input mono" type="number" min={0} value={cfg.diasDeclaracion}
-            onChange={(e) => setCfg((p) => ({ ...p, diasDeclaracion: Number(e.target.value) }))} />
-        </div>
-        <div className="form-row" style={{ flex: '1 1 180px' }}>
-          <label>Días antes del vencimiento de actividad</label>
-          <input className="input mono" type="number" min={0} value={cfg.diasActividad}
-            onChange={(e) => setCfg((p) => ({ ...p, diasActividad: Number(e.target.value) }))} />
-        </div>
-      </div>
-    </fieldset>
-  );
-}
-
-function SeccionNumeracion({ puedeEditar }: { puedeEditar: boolean }) {
-  const [periodos, setPeriodos] = useState([
-    { imp: 'IVA', freq: 'quincenal' as 'quincenal' | 'mensual', inicio: '', cierre: '', ultimoNumero: '', serie: '' },
-    { imp: 'ISLR', freq: 'mensual' as 'quincenal' | 'mensual', inicio: '', cierre: '', ultimoNumero: '', serie: '' },
-    { imp: 'ISAE', freq: 'mensual' as 'quincenal' | 'mensual', inicio: '', cierre: '', ultimoNumero: '', serie: '' },
-  ]);
-
-  function setP(i: number, k: string, v: string) {
-    setPeriodos((prev) => prev.map((p, j) => j === i ? { ...p, [k]: v } : p));
-  }
-
-  return (
-    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
-      <div style={{ display: 'grid', gap: '1rem' }}>
-        {periodos.map((p, i) => (
-          <div key={p.imp} className="card" style={{ margin: 0 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '.5rem' }}>
-              <strong>{p.imp}</strong>
-              <select className="select" style={{ width: 'auto' }} value={p.freq}
-                onChange={(e) => setP(i, 'freq', e.target.value)}>
-                <option value="quincenal">Quincenal</option>
-                <option value="mensual">Mensual</option>
-              </select>
-            </div>
-            <p className="muted" style={{ fontSize: '.82rem', margin: '0 0 .5rem' }}>
-              {p.freq === 'quincenal' ? 'Cada mes se divide en dos quincenas (1–15 y 16–fin).' : 'Un período por mes calendario.'}
-            </p>
-            <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap' }}>
-              <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
-                <label>Inicio del período en curso</label>
-                <input className="input" type="date" value={p.inicio} onChange={(e) => setP(i, 'inicio', e.target.value)} />
-              </div>
-              <div className="form-row" style={{ flex: '1 1 140px', margin: 0 }}>
-                <label>Cierre</label>
-                <input className="input" type="date" value={p.cierre} onChange={(e) => setP(i, 'cierre', e.target.value)} />
-              </div>
-              <div className="form-row" style={{ flex: '1 1 180px', margin: 0 }}>
-                <label>Último N° de comprobante emitido</label>
-                <input className="input mono" value={p.ultimoNumero} onChange={(e) => setP(i, 'ultimoNumero', e.target.value)} placeholder="Ej.: 00000244" />
-              </div>
-              <div className="form-row" style={{ flex: '1 1 120px', margin: 0 }}>
-                <label>Serie</label>
-                <input className="input mono" value={p.serie} onChange={(e) => setP(i, 'serie', e.target.value)} placeholder="Ej.: 2026" />
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-      <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>Un período no cruza de un mes a otro. El número se propone al registrar y avanza consecutivamente.</p>
-    </fieldset>
-  );
-}
-
-function SeccionInterruptores({ puedeEditar }: { puedeEditar: boolean }) {
-  const [reglas, setReglas] = useState([
-    { id: 'auto_iva', label: 'Proponer IVA automáticamente en cada factura', desc: 'Si el proveedor tiene perfil fiscal, se propone la retención de IVA al crear la factura.', activo: true },
-    { id: 'auto_islr', label: 'Proponer ISLR según concepto y actividad', desc: 'Se busca el concepto por el tipo de servicio/producto y se propone el porcentaje.', activo: true },
-    { id: 'auto_isae', label: 'Proponer ISAE en servicios', desc: 'Todo servicio genera retención de ISAE según la actividad económica del proveedor.', activo: true },
-    { id: 'bloquear_sin_perfil', label: 'Bloquear registro sin perfil fiscal', desc: 'No permite registrar una retención si el proveedor no tiene perfil fiscal configurado.', activo: false },
-    { id: 'validar_numero', label: 'Validar número de comprobante consecutivo', desc: 'Rechaza un número que no sea el siguiente al último emitido en la serie.', activo: true },
-    { id: 'exigir_factura', label: 'Exigir N° de factura al registrar', desc: 'No permite registrar sin el número de la factura del proveedor.', activo: false },
-  ]);
-
-  return (
-    <fieldset disabled={!puedeEditar} style={{ border: 0, padding: 0, margin: 0 }}>
-      <div style={{ display: 'grid', gap: '.5rem' }}>
-        {reglas.map((r) => (
-          <div key={r.id} className="card" style={{ margin: 0, display: 'flex', gap: '.7rem', alignItems: 'flex-start', padding: '.65rem .8rem' }}>
-            <input type="checkbox" checked={r.activo} style={{ marginTop: '.15rem' }}
-              onChange={() => setReglas((prev) => prev.map((x) => x.id === r.id ? { ...x, activo: !x.activo } : x))} />
-            <div>
-              <div style={{ fontWeight: 600, fontSize: '.9rem' }}>{r.label}</div>
-              <div className="muted" style={{ fontSize: '.8rem' }}>{r.desc}</div>
-            </div>
-          </div>
-        ))}
-      </div>
-      <p className="hint muted" style={{ fontSize: '.78rem', marginTop: '.6rem' }}>Cada cambio se aplica al momento. Las retenciones ya registradas no se recalculan.</p>
-    </fieldset>
-  );
-}
 
 function CatalogoConceptos({ conceptos, puedeEditar, onCambio }: {
   conceptos: ConceptoRetencion[]; puedeEditar: boolean; onCambio: () => void;
@@ -2922,8 +3090,8 @@ function CatalogoConceptos({ conceptos, puedeEditar, onCambio }: {
                 <td style={{ whiteSpace: 'nowrap' }}>
                   {puedeEditar && c.tipo === 'islr' && (edit?.id === c.id ? (
                     <>
-                      <button className="btn btn-sm btn-primary" onClick={() => void guardarPct(c)}>✓</button>
-                      <button className="btn btn-sm btn-ghost" onClick={() => setEdit(null)}>✕</button>
+                      <button className="btn btn-sm btn-primary" onClick={() => void guardarPct(c)} title="Guardar el porcentaje" aria-label="Guardar el porcentaje">✓</button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setEdit(null)} title="Cancelar" aria-label="Cancelar">✕</button>
                     </>
                   ) : (
                     <>

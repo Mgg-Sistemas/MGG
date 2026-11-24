@@ -101,7 +101,7 @@ export function ParametrosValores({ puedeEditar }: { puedeEditar: boolean }) {
       )}
 
       {editar && claves && (
-        <ValorModal renglon={editar.renglon} modo={editar.modo} claves={claves} impuestos={impuestos}
+        <ValorModal renglon={editar.renglon} modo={editar.modo} claves={claves} filas={filas} impuestos={impuestos}
           onClose={() => setEditar(null)} onHecho={() => { setEditar(null); void cargar(); }} />
       )}
       {altaClave && <ClaveModal onClose={() => setAltaClave(false)} onHecho={() => { setAltaClave(false); void cargar(); }} />}
@@ -112,8 +112,10 @@ export function ParametrosValores({ puedeEditar }: { puedeEditar: boolean }) {
 
 function CampoValor({ tipo, valor, onValor }: { tipo: TipoValor; valor: string; onValor: (v: string) => void }) {
   if (tipo === 'si_no') {
+    const norm = valor === 'true' || valor === 'si' ? 'si' : valor === 'false' || valor === 'no' ? 'no' : '';
     return (
-      <select className="select" value={valor === 'true' || valor === 'si' ? 'si' : 'no'} onChange={(e) => onValor(e.target.value)}>
+      <select className="select" value={norm} onChange={(e) => onValor(e.target.value)}>
+        <option value="">— elige —</option>
         <option value="si">Sí</option><option value="no">No</option>
       </select>
     );
@@ -127,16 +129,18 @@ function CampoValor({ tipo, valor, onValor }: { tipo: TipoValor; valor: string; 
   );
 }
 
-function ValorModal({ renglon, modo, claves, impuestos, onClose, onHecho }: {
-  renglon: Renglon | null; modo: 'nuevo' | 'corregir' | 'alta'; claves: ClaveParametro[];
+function ValorModal({ renglon, modo, claves, filas, impuestos, onClose, onHecho }: {
+  renglon: Renglon | null; modo: 'nuevo' | 'corregir' | 'alta'; claves: ClaveParametro[]; filas: Renglon[];
   impuestos: { clave: string; nombre: string | null }[]; onClose: () => void; onHecho: () => void;
 }) {
-  const vigente = renglon ? valorEnFecha(renglon.versiones, renglon.impuesto, renglon.clave.clave) : null;
-  const ultima = renglon?.versiones[0] ?? null;
-  const minimo = modo === 'nuevo' ? desdeMinimo(ultima) : null;
   const [clave, setClave] = useState(renglon?.clave.clave ?? claves.find((k) => k.activo)?.clave ?? '');
   const [impuesto, setImpuesto] = useState<string>(renglon?.impuesto ?? '');
   const k = claves.find((x) => x.clave === clave) ?? null;
+  const imp = k?.ambito === 'impuesto' ? impuesto || null : null;
+  const renglonEfectivo = renglon ?? filas.find((f) => f.clave.clave === clave && f.impuesto === imp) ?? null;
+  const vigente = renglonEfectivo ? valorEnFecha(renglonEfectivo.versiones, renglonEfectivo.impuesto, renglonEfectivo.clave.clave) : null;
+  const ultima = renglonEfectivo?.versiones[0] ?? null;
+  const minimo = modo !== 'corregir' ? desdeMinimo(ultima) : null;
   const [crudo, setCrudo] = useState(vigente ? (typeof vigente.valor === 'number' ? numeroATexto(vigente.valor) : String(vigente.valor)) : '');
   const [desde, setDesde] = useState(minimo && minimo > hoyIso() ? minimo : hoyIso());
   const [fuente, setFuente] = useState(modo === 'corregir' ? vigente?.fuente ?? '' : '');
@@ -144,7 +148,6 @@ function ValorModal({ renglon, modo, claves, impuestos, onClose, onHecho }: {
   const [guardando, setGuardando] = useState(false);
 
   const leido = k ? leerValor(k.tipoValor, crudo) : { error: 'Elige qué valor.' };
-  const imp = k?.ambito === 'impuesto' ? impuesto || null : null;
   const falta = 'error' in leido ? leido.error
     : !k ? 'Elige qué valor.'
       : faltaEnRangoValor(k, leido.valor) ?? (modo === 'corregir' ? (motivo.trim() ? null : 'Indica el motivo de la corrección.')

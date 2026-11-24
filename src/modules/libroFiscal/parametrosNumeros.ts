@@ -105,12 +105,18 @@ export interface TextosPrueba { tasa: string; pago: string; base: string; iva: s
 export function entradaDePrueba(e: Omit<EntradaPrueba, 'tasa' | 'pago' | 'baseImponible' | 'iva'>, t: TextosPrueba): Leido<EntradaPrueba> {
   const tasa = e.moneda === 'Bs' ? { valor: null } : leerOpcional(t.tasa, 'la tasa');
   if ('error' in tasa) return tasa;
+  if (e.moneda !== 'Bs' && tasa.valor != null && tasa.valor <= 0) {
+    return { error: 'La tasa tiene que ser mayor a cero.' };
+  }
   const pago = leerConDefecto(t.pago, 'el pago', 0);
   if ('error' in pago) return pago;
+  if (pago.valor < 0) return { error: 'El pago no puede ser negativo.' };
   const base = leerConDefecto(t.base, 'la base imponible', 0);
   if ('error' in base) return base;
+  if (base.valor < 0) return { error: 'La base imponible no puede ser negativa.' };
   const iva = leerConDefecto(t.iva, 'el IVA', 0);
   if ('error' in iva) return iva;
+  if (iva.valor < 0) return { error: 'El IVA no puede ser negativo.' };
   return { valor: { ...e, tasa: tasa.valor || null, pago: pago.valor, baseImponible: base.valor, iva: iva.valor } };
 }
 

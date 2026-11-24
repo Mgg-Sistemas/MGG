@@ -19,7 +19,7 @@ import {
   quitarPaso, retirarRegla, type ReglaGuardada,
 } from './reglas.repository';
 import { cargarDatosPrueba, correrPrueba, loQueUsa, type EntradaPrueba, type ResultadoPrueba } from './probarRegla';
-import { fechaCorta } from './parametrosR1';
+import { desdeMinimo, fechaCorta } from './parametrosR1';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { entradaDePrueba, leerPrioridad, pistaLeido } from './parametrosNumeros';
 import {
@@ -291,7 +291,7 @@ function Pasos({ regla, editable, cat, onCambio }: { regla: ReglaGuardada; edita
               {editable && <button type="button" className="btn btn-sm btn-ghost" onClick={() => setEditando(editando === n ? null : n)}>{p ? 'Editar' : 'Usar'}</button>}
               {editable && p && n !== 1 && <button type="button" className="btn btn-sm btn-ghost" onClick={() => void quitarPaso(regla.id, n).then(() => { toast('Paso quitado.', 'success'); onCambio(); }).catch((e) => toast(mensaje(e, 'No se pudo quitar.'), 'error'))}>Quitar</button>}
             </div>
-            {editando === n && <EditorPaso reglaId={regla.id} paso={n} actual={p} cat={cat} onHecho={() => { setEditando(null); onCambio(); }} />}
+            {editando === n && <EditorPaso key={`${regla.id}-${n}`} reglaId={regla.id} paso={n} actual={p} cat={cat} onHecho={() => { setEditando(null); onCambio(); }} />}
           </div>
         );
       })}
@@ -514,7 +514,8 @@ function NuevaReglaModal({ impuestoClave, onClose, onHecho }: { impuestoClave: s
 }
 
 function EstadoReglaModal({ regla, accion, onClose, onHecho }: { regla: ReglaGuardada; accion: 'activar' | 'retirar' | 'version'; onClose: () => void; onHecho: (id?: string) => void }) {
-  const [fecha, setFecha] = useState(hoyIso());
+  const minVersion = accion === 'version' ? desdeMinimo(regla) : null;
+  const [fecha, setFecha] = useState(minVersion && minVersion > hoyIso() ? minVersion : hoyIso());
   const [motivo, setMotivo] = useState('');
   const [guardando, setGuardando] = useState(false);
   const titulo = { activar: 'Activar', retirar: 'Retirar', version: 'Nueva versión de' }[accion];

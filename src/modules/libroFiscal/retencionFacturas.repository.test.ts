@@ -55,6 +55,14 @@ describe('traducción al contrato de la función (columnas de GT)', () => {
     expect(p.sujeto).toBe('PJD');
   });
 
+  it('multi-empresa: sin empresaId la cabecera NO lleva empresa_id (single-empresa, como hoy)', () => {
+    expect('empresa_id' in pFacturaDe(factura())).toBe(false);
+  });
+
+  it('multi-empresa: con empresaId la cabecera lo marca (el trigger R13 lo copia a las líneas)', () => {
+    expect(pFacturaDe(factura({ empresaId: 'emp-1' })).empresa_id).toBe('emp-1');
+  });
+
   it('una recibida no lleva proveedor_id (la contraparte es un cliente); guarda RIF y nombre', () => {
     const p = pFacturaDe(factura({ direccion: 'recibida', contraparteId: 'cli-1' }));
     expect(p.rol).toBe('sufrida');
@@ -186,6 +194,18 @@ describe('lectura cabecera + líneas', () => {
     expect(m).toContainEqual(['eq', 'retenciones.comprobante_periodo', '202610']);
     expect(m.some((x) => x[0] === 'eq' && x[1] === 'periodo')).toBe(false);
     expect(res[0].factura.periodo).toBe('202610');
+  });
+
+  it('multi-empresa: con empresaId filtra las facturas de esa empresa', async () => {
+    colaFrom.push({ data: [], error: null });
+    await listFacturas({ empresaId: 'emp-1' });
+    expect(llamadasFrom[0].metodos).toContainEqual(['eq', 'empresa_id', 'emp-1']);
+  });
+
+  it('single-empresa: sin empresaId no se filtra por empresa', async () => {
+    colaFrom.push({ data: [], error: null });
+    await listFacturas({ direccion: 'practicada' });
+    expect(llamadasFrom[0].metodos.some((x) => x[0] === 'eq' && x[1] === 'empresa_id')).toBe(false);
   });
 
   it('aFacturaCabecera deduce el documento de origen y la dirección', () => {

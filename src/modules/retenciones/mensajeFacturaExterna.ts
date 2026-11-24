@@ -1,11 +1,11 @@
 /* ============================================================
-   MGG · Retenciones · Formato de Mensaje para WhatsApp
-   (Resumen de Factura Externa / Soportes Cargados - alineado con Golden Touch)
+   Golden Touch · Retenciones · Formato de Mensaje para WhatsApp
+   (Resumen de Factura Externa / Soportes Cargados)
 
    Genera el texto limpio con emojis estándar para compartir
    en grupos de WhatsApp desde el teléfono o la PC.
    ============================================================ */
-import type { FacturaExternaBuzon } from './facturasBuzon.repository';
+import { rotuloNumeroFactura, type FacturaExternaBuzon } from './facturasBuzon.repository';
 
 export const EMOJI_ESTATUS: Record<FacturaExternaBuzon['estatus'], string> = {
   recibida: '🟡',
@@ -15,10 +15,10 @@ export const EMOJI_ESTATUS: Record<FacturaExternaBuzon['estatus'], string> = {
 };
 
 export const ROTULO_ESTATUS: Record<FacturaExternaBuzon['estatus'], string> = {
-  recibida: 'Recibida (Pendiente por procesar)',
-  en_revision: 'En revisión contable',
-  retenida: 'Retención practicada / Lista',
-  descartada: 'Descartada / No aplica retención',
+  recibida: 'Recibida',
+  en_revision: 'En revisión',
+  retenida: 'Retención hecha',
+  descartada: 'Descartada',
 };
 
 const montoVe = (n: number) =>
@@ -40,25 +40,27 @@ export function mensajeFacturaExterna(fac: FacturaExternaBuzon): string {
   if (fac.proveedorRif) {
     lineas.push(`🆔 *RIF:* ${fac.proveedorRif}`);
   }
-  lineas.push(`📄 *N° Factura:* ${fac.facturaNumero}`);
+  lineas.push(`📄 *Factura:* ${rotuloNumeroFactura(fac.facturaNumero)}`);
   if (fac.facturaControl) {
     lineas.push(`🔢 *N° Control:* ${fac.facturaControl}`);
   }
   lineas.push(`📅 *Fecha de emisión:* ${fechaCorta(fac.facturaFecha)}`);
 
+  // El monto que se informa es en bolívares; el de dólares va como referencia.
   if (fac.moneda === 'USD') {
-    lineas.push(`💵 *Monto:* $ ${montoVe(fac.montoTotal)}`);
     if (fac.tasa && fac.tasa > 0) {
-      lineas.push(`📈 *Tasa:* ${montoVe(fac.tasa)} Bs/$`);
-      lineas.push(`🇻🇪 *Equivalente Bs:* Bs ${montoVe(fac.montoBs)}`);
+      lineas.push(`🇻🇪 *Monto:* Bs ${montoVe(fac.montoBs)}`);
+      lineas.push(`💵 *En dólares:* $ ${montoVe(fac.montoTotal)} (tasa ${montoVe(fac.tasa)} Bs por $)`);
+    } else {
+      lineas.push(`💵 *Monto:* $ ${montoVe(fac.montoTotal)} (sin tasa para pasarlo a bolívares)`);
     }
   } else {
     lineas.push(`🇻🇪 *Monto:* Bs ${montoVe(fac.montoTotal)}`);
   }
 
   const emoji = EMOJI_ESTATUS[fac.estatus] || '📌';
-  const labelEstatus = ROTULO_ESTATUS[fac.estatus] || fac.estatus;
-  lineas.push(`${emoji} *Estatus:* ${labelEstatus}`);
+  const labelEstatus = ROTULO_ESTATUS[fac.estatus] || '—';
+  lineas.push(`${emoji} *Estado:* ${labelEstatus}`);
 
   if (fac.descripcion) {
     lineas.push(`📝 *Descripción:* ${fac.descripcion}`);
@@ -72,7 +74,7 @@ export function mensajeFacturaExterna(fac: FacturaExternaBuzon): string {
   if (fotos > 0 || pdfs > 0) {
     const partes: string[] = [];
     if (fotos > 0) partes.push(`${fotos} foto${fotos > 1 ? 's' : ''}`);
-    if (pdfs > 0) partes.push(`${pdfs} PDF${pdfs > 1 ? 's' : ''}`);
+    if (pdfs > 0) partes.push(`${pdfs} PDF`);
     lineas.push(`📎 *Soportes:* ${partes.join(' y ')}`);
   } else {
     lineas.push(`📎 *Soportes:* Sin soportes adjuntos`);
@@ -85,4 +87,3 @@ export function mensajeFacturaExterna(fac: FacturaExternaBuzon): string {
 
   return lineas.join('\n');
 }
-

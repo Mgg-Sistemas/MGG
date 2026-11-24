@@ -1,0 +1,416 @@
+[
+  {
+    "id": "76c5c053-1c3b-42ad-8cd7-b44f478f041f",
+    "desde": "2026-10-21",
+    "hasta": null,
+    "estado": "en_prueba",
+    "fuente": null,
+    "motivo": "Regla inicial: reproduce el cálculo actual. En prueba hasta compararla con el simulador.",
+    "nombre": "Estadal",
+    "version": 1,
+    "prioridad": 100,
+    "created_at": "2026-10-21T14:25:17.573157+00:00",
+    "actualizado_en": "2026-10-21T15:30:54.355359+00:00",
+    "impuesto_clave": "ESTADAL",
+    "actualizado_por": "postgres",
+    "retencion_regla_pasos": [
+      {
+        "id": "046fd44e-f865-4136-ab58-6c72d4d9bef5",
+        "paso": 1,
+        "valores": {
+          "componentes": [
+            {
+              "campo": "pago",
+              "signo": "+"
+            }
+          ]
+        },
+        "regla_id": "76c5c053-1c3b-42ad-8cd7-b44f478f041f",
+        "operacion": "componer_base",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "7b781ef7-0b87-4dff-8b75-babeb4bd5016",
+        "paso": 4,
+        "valores": {
+          "parametro": "alicuota"
+        },
+        "regla_id": "76c5c053-1c3b-42ad-8cd7-b44f478f041f",
+        "operacion": "pct_parametro",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "a41708ef-df1a-48f5-98f3-c61faf1c74d5",
+        "paso": 8,
+        "valores": {
+          "decimales": 2
+        },
+        "regla_id": "76c5c053-1c3b-42ad-8cd7-b44f478f041f",
+        "operacion": "redondear",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      }
+    ],
+    "retencion_regla_condiciones": [
+      {
+        "id": "a1fdb9a1-4619-4817-8dd5-6905220a4670",
+        "pieza": "direccion",
+        "valor": "practicada",
+        "operador": "es",
+        "regla_id": "76c5c053-1c3b-42ad-8cd7-b44f478f041f",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      }
+    ]
+  },
+  {
+    "id": "8b0427bb-9cb7-4562-abe5-c4efc0cc8d6e",
+    "desde": "2026-10-21",
+    "hasta": null,
+    "estado": "en_prueba",
+    "fuente": null,
+    "motivo": "Regla inicial: reproduce el cálculo actual. En prueba hasta compararla con el simulador.",
+    "nombre": "IGTF",
+    "version": 1,
+    "prioridad": 100,
+    "created_at": "2026-10-21T14:25:17.573157+00:00",
+    "actualizado_en": "2026-10-21T15:30:54.355359+00:00",
+    "impuesto_clave": "IGTF",
+    "actualizado_por": "postgres",
+    "retencion_regla_pasos": [
+      {
+        "id": "b63da84f-83cb-452c-a2be-ad022d7abfa9",
+        "paso": 1,
+        "valores": {
+          "componentes": [
+            {
+              "campo": "pago_divisas",
+              "signo": "+"
+            }
+          ]
+        },
+        "regla_id": "8b0427bb-9cb7-4562-abe5-c4efc0cc8d6e",
+        "operacion": "componer_base",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "d44c4123-e059-45e2-a3f2-1d9d4d52c5da",
+        "paso": 4,
+        "valores": {
+          "parametro": "alicuota"
+        },
+        "regla_id": "8b0427bb-9cb7-4562-abe5-c4efc0cc8d6e",
+        "operacion": "pct_parametro",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "b22df637-a0f2-46dd-bdd6-7c429dda4c3c",
+        "paso": 8,
+        "valores": {
+          "decimales": 2
+        },
+        "regla_id": "8b0427bb-9cb7-4562-abe5-c4efc0cc8d6e",
+        "operacion": "redondear",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      }
+    ],
+    "retencion_regla_condiciones": []
+  },
+  {
+    "id": "49d40b6f-30a4-4e46-ba16-f879e42d973d",
+    "desde": "2026-10-21",
+    "hasta": null,
+    "estado": "en_prueba",
+    "fuente": null,
+    "motivo": "Regla inicial: reproduce el cálculo actual. En prueba hasta compararla con el simulador.",
+    "nombre": "ISLR por concepto",
+    "version": 1,
+    "prioridad": 100,
+    "created_at": "2026-10-21T14:25:17.573157+00:00",
+    "actualizado_en": "2026-10-21T15:30:54.355359+00:00",
+    "impuesto_clave": "ISLR",
+    "actualizado_por": "postgres",
+    "retencion_regla_pasos": [
+      {
+        "id": "2eb9bb4b-72f0-40ee-b6c1-992134fa12a5",
+        "paso": 1,
+        "valores": {
+          "porcion": "clasificacion",
+          "componentes": [
+            {
+              "campo": "pago",
+              "signo": "+"
+            }
+          ]
+        },
+        "regla_id": "49d40b6f-30a4-4e46-ba16-f879e42d973d",
+        "operacion": "componer_base",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "f5417fa8-8b1a-4a31-b5ca-657a30d13782",
+        "paso": 2,
+        "valores": {
+          "tasa": "bcv_fecha_factura"
+        },
+        "regla_id": "49d40b6f-30a4-4e46-ba16-f879e42d973d",
+        "operacion": "convertir_moneda",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "b1c0718c-6ac6-4ba4-b0bb-07e61574ee05",
+        "paso": 3,
+        "valores": {
+          "desde": "clasificacion"
+        },
+        "regla_id": "49d40b6f-30a4-4e46-ba16-f879e42d973d",
+        "operacion": "comparar_minimo",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "64eefd8e-950a-416c-b5d1-a6dafcc0dbe9",
+        "paso": 4,
+        "valores": {
+          "clasificacion": "islr_conceptos"
+        },
+        "regla_id": "49d40b6f-30a4-4e46-ba16-f879e42d973d",
+        "operacion": "pct_clasificacion",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "0089f1a9-a03d-4417-897d-0518131e0638",
+        "paso": 5,
+        "valores": {
+          "desde": "clasificacion"
+        },
+        "regla_id": "49d40b6f-30a4-4e46-ba16-f879e42d973d",
+        "operacion": "restar_sustraendo",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "dd40ce77-571a-4fd8-850b-4a68fd46328a",
+        "paso": 7,
+        "valores": {
+          "minimo": 0
+        },
+        "regla_id": "49d40b6f-30a4-4e46-ba16-f879e42d973d",
+        "operacion": "topes",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "71f36ebf-72ae-4403-b90f-cb3d02d8718a",
+        "paso": 8,
+        "valores": {
+          "decimales": 2
+        },
+        "regla_id": "49d40b6f-30a4-4e46-ba16-f879e42d973d",
+        "operacion": "redondear",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      }
+    ],
+    "retencion_regla_condiciones": [
+      {
+        "id": "82c20cb2-6ef0-437a-a9a7-5ea6452a85fc",
+        "pieza": "clasificacion",
+        "valor": {
+          "clasificacion": "islr_conceptos"
+        },
+        "operador": "es",
+        "regla_id": "49d40b6f-30a4-4e46-ba16-f879e42d973d",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "f6a8aa95-716e-4053-ad8f-09d200acc167",
+        "pieza": "direccion",
+        "valor": "practicada",
+        "operador": "es",
+        "regla_id": "49d40b6f-30a4-4e46-ba16-f879e42d973d",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      }
+    ]
+  },
+  {
+    "id": "c26eac06-c8b0-41a9-bec1-0e7e4144e491",
+    "desde": "2026-10-21",
+    "hasta": null,
+    "estado": "en_prueba",
+    "fuente": null,
+    "motivo": "Regla inicial: reproduce el cálculo actual. En prueba hasta compararla con el simulador.",
+    "nombre": "IVA",
+    "version": 1,
+    "prioridad": 100,
+    "created_at": "2026-10-21T14:25:17.573157+00:00",
+    "actualizado_en": "2026-10-21T15:30:54.355359+00:00",
+    "impuesto_clave": "IVA",
+    "actualizado_por": "postgres",
+    "retencion_regla_pasos": [
+      {
+        "id": "f4f3f8e4-c39f-4372-af8e-1f4126430554",
+        "paso": 1,
+        "valores": {
+          "componentes": [
+            {
+              "campo": "iva",
+              "signo": "+"
+            }
+          ]
+        },
+        "regla_id": "c26eac06-c8b0-41a9-bec1-0e7e4144e491",
+        "operacion": "componer_base",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "4f0d300d-66e2-44f8-907e-3c545e0121f6",
+        "paso": 6,
+        "valores": {
+          "parametro": "pct_retencion",
+          "supuestos": "pct_retencion_art5"
+        },
+        "regla_id": "c26eac06-c8b0-41a9-bec1-0e7e4144e491",
+        "operacion": "retener_pct",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "150a4d0d-5df6-4e56-b399-ee6e8cc177d9",
+        "paso": 8,
+        "valores": {
+          "decimales": 2
+        },
+        "regla_id": "c26eac06-c8b0-41a9-bec1-0e7e4144e491",
+        "operacion": "redondear",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      }
+    ],
+    "retencion_regla_condiciones": [
+      {
+        "id": "70d3476c-92cc-4a45-ba34-9f94efaf8d88",
+        "pieza": "condicion_agente",
+        "valor": [
+          "agente_retencion",
+          "contribuyente_especial"
+        ],
+        "operador": "en",
+        "regla_id": "c26eac06-c8b0-41a9-bec1-0e7e4144e491",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "e63a4b44-076d-4553-a4b9-ba84e551c9b1",
+        "pieza": "direccion",
+        "valor": "practicada",
+        "operador": "es",
+        "regla_id": "c26eac06-c8b0-41a9-bec1-0e7e4144e491",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      }
+    ]
+  },
+  {
+    "id": "18bdc3bd-f3c5-4693-88ca-171ff839325c",
+    "desde": "2026-10-21",
+    "hasta": null,
+    "estado": "en_prueba",
+    "fuente": null,
+    "motivo": "Regla inicial: reproduce el cálculo actual. En prueba hasta compararla con el simulador.",
+    "nombre": "ISAE",
+    "version": 1,
+    "prioridad": 100,
+    "created_at": "2026-10-21T14:25:17.573157+00:00",
+    "actualizado_en": "2026-10-21T15:30:54.355359+00:00",
+    "impuesto_clave": "MUNICIPAL",
+    "actualizado_por": "postgres",
+    "retencion_regla_pasos": [
+      {
+        "id": "2ef4218a-1708-4551-bb89-1e28dede9871",
+        "paso": 1,
+        "valores": {
+          "componentes": [
+            {
+              "campo": "pago",
+              "signo": "+"
+            }
+          ]
+        },
+        "regla_id": "18bdc3bd-f3c5-4693-88ca-171ff839325c",
+        "operacion": "componer_base",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "c49c3c9e-c1fe-423c-90f0-cfcabbc3ff2e",
+        "paso": 4,
+        "valores": {
+          "parametro": "alicuota"
+        },
+        "regla_id": "18bdc3bd-f3c5-4693-88ca-171ff839325c",
+        "operacion": "pct_parametro",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      },
+      {
+        "id": "601cc71a-6b9a-4bb7-84d4-1a6cdf4e2a65",
+        "paso": 8,
+        "valores": {
+          "decimales": 2
+        },
+        "regla_id": "18bdc3bd-f3c5-4693-88ca-171ff839325c",
+        "operacion": "redondear",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      }
+    ],
+    "retencion_regla_condiciones": [
+      {
+        "id": "07134cfa-2014-438d-bd3a-af739b7bd81f",
+        "pieza": "direccion",
+        "valor": "practicada",
+        "operador": "es",
+        "regla_id": "18bdc3bd-f3c5-4693-88ca-171ff839325c",
+        "created_at": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_en": "2026-10-21T14:25:17.573157+00:00",
+        "actualizado_por": "postgres"
+      }
+    ]
+  }
+]

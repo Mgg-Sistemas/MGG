@@ -28,13 +28,18 @@ import { ExportarDocumentosModal } from './ExportarDocumentosModal';
 import { RenovarDocumentoModal } from './RenovarDocumentoModal';
 import { CampoVigenciaVencimiento } from './CampoVigenciaVencimiento';
 import { obtenerListaResponsables, type CentroAcopio } from './administracionCentrosResponsables';
+import { mensajeErrorSubidaAdmin } from './adminErrores';
 import { responsablesEfectivosDocumento, nombrePorEmail } from './administracionResponsabilidad';
 import { gestionDelDocumento } from './administracionHonorarios';
 import type { Gestion, Profesional } from './admin.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { usePermissions } from '@/modules/auth/PermissionsContext';
 import { useSession } from '@/modules/auth/authStore';
-import type { Responsabilidad } from './admin.repository';
+import { useQuien } from '@/shared/lib/directorioUsuarios';
+import {
+  resolverActorVisible,
+  type Responsabilidad,
+} from './admin.repository';
 import type { Usuario } from '@/shared/lib/types';
 import {
   GestionarCarpetasModal,
@@ -61,7 +66,7 @@ import {
 } from './admin.repository';
 
 const MAX_ARCHIVOS_POR_INTENTO = 10;
-const MAX_TAMANO_BYTES = 25 * 1024 * 1024; // 25 MB
+const MAX_TAMANO_BYTES = 150 * 1024 * 1024; // 150 MB (para admitir PDFs pesados de +50 MB y optimizarlos en navegador)
 
 const fFecha = new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
 const fFechaHora = new Intl.DateTimeFormat('es-VE', {
@@ -140,14 +145,19 @@ export function DocumentosTab({
 
   const { appUser } = usePermissions();
   const { user } = useSession();
+  const quien = useQuien();
   const currentActor = useMemo(() => {
     if (appUser) {
-      const nombreCompleto = (appUser.nombre || '').trim();
+      const nombreCompleto = appUser.nombre?.trim() || '';
       if (nombreCompleto) return nombreCompleto;
-      if (appUser.email) return appUser.email;
     }
-    return user?.email || 'Administrador';
-  }, [appUser, user]);
+    if (user?.email) {
+      const res = quien(user.email);
+      if (res && !res.includes('@')) return res;
+      return resolverActorVisible(user.email, quien).nombre;
+    }
+    return 'Administrador';
+  }, [appUser, user, quien]);
 
   // Carpetas configuradas (estándar + personalizadas con notas)
   const [carpetas, setCarpetas] = useState<InfoCarpetaDoc[]>(() => leerCarpetasPersonalizadas(empresaClave));
@@ -383,7 +393,7 @@ export function DocumentosTab({
 
     for (const f of permitidos) {
       if (f.size > MAX_TAMANO_BYTES) {
-        toast(`«${f.name}» supera el límite de 25 MB y fue omitido.`, 'error');
+        toast(`«${f.name}» supera el límite máximo de 150 MB (${tamanoFmt(f.size)}) y fue omitido.`, 'error');
         continue;
       }
 
@@ -433,7 +443,7 @@ export function DocumentosTab({
 
     for (let i = 0; i < total; i += 1) {
       const item = archivosEnEspera[i];
-      setProgresoLote({ actual: i + 1, total, nombre: item.file.name });
+      setProgresoLote({ actual: i + 1, total, nombre: `Procesando «${item.file.name}» (${tamanoFmt(item.file.size)})` });
 
       try {
         await repo.subirDocumento(
@@ -454,10 +464,13 @@ export function DocumentosTab({
             notaTramite: item.notaTramite || null,
           },
           currentActor,
+          (msg) => {
+            setProgresoLote({ actual: i + 1, total, nombre: `${msg} · «${item.file.name}»` });
+          },
         );
         exitosos += 1;
       } catch (e) {
-        toast(`Error al subir «${item.file.name}»: ${e instanceof Error ? e.message : 'falló'}`, 'error');
+        toast(mensajeErrorSubidaAdmin(e, item.file.name), 'error');
       }
     }
 
@@ -751,7 +764,7 @@ export function DocumentosTab({
             Arrastra y suelta tus archivos aquí (PDF o Imágenes)
           </div>
           <div className="muted" style={{ fontSize: '.75rem', marginTop: '.25rem' }}>
-            Hasta {MAX_ARCHIVOS_POR_INTENTO} archivos por intento · Máx 25 MB por archivo · El sistema clasifica automáticamente Rupdae, Mintras, Inces, IVSS, Carta Constitutiva, Cédulas, etc.
+            Hasta {MAX_ARCHIVOS_POR_INTENTO} archivos por intento · Admite archivos pesados de +50 MB (hasta 150 MB, optimizados automáticamente en el navegador a ~2-3 MB para cuidar el almacenamiento) · El sistema clasifica automáticamente Rupdae, Mintras, Inces, IVSS, Carta Constitutiva, Cédulas, etc.
           </div>
         </div>
       )}
@@ -1121,7 +1134,7 @@ export function DocumentosTab({
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: '.85rem' }}>
             <p className="muted hint" style={{ margin: 0, fontSize: '.78rem', background: 'rgba(56, 189, 248, 0.08)', padding: '.45rem .65rem', borderRadius: 6, border: '1px solid rgba(56, 189, 248, 0.2)' }}>
-              💡 <strong>Carga rápida:</strong> Puedes subir todos los archivos de inmediato. La clasificación (carpeta, vencimiento, responsable, etc.) puede asignarse o ajustarse en cualquier momento desde la tabla o el botón «Detalle».
+              💡 <strong>Carga rápida y optimizada:</strong> Admite archivos pesados de +50 MB (hasta 150 MB). Los PDFs e imágenes pesadas se comprimen y optimizan automáticamente en el navegador antes de enviarse para proteger la cuota de la base de datos y acelerar la carga.
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '.75rem', maxHeight: '460px', overflowY: 'auto', paddingRight: '.25rem' }}>
@@ -1156,6 +1169,21 @@ export function DocumentosTab({
                         {idx + 1}. {item.file.name}
                       </span>
                       <span className="muted mono" style={{ fontSize: '.74rem' }}>({tamanoFmt(item.file.size)})</span>
+                      {item.file.size > 2.5 * 1024 * 1024 && (
+                        <span
+                          className="badge"
+                          style={{
+                            background: 'rgba(16, 185, 129, 0.15)',
+                            color: '#10b981',
+                            border: '1px solid rgba(16, 185, 129, 0.4)',
+                            fontSize: '.68rem',
+                            fontWeight: 700,
+                          }}
+                          title="Este archivo se optimizará y comprimirá automáticamente en el navegador antes de subirlo"
+                        >
+                          ⚡ Optimización automática (~90% ahorro)
+                        </span>
+                      )}
                       {duplicadoEnBD && (
                         <span
                           className="badge"
@@ -1433,8 +1461,13 @@ export function DocumentosTab({
                           }}
                         >
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem' }}>
-                              <strong style={{ color: '#ff8a00' }}>👤 {h.actor || 'Usuario'}</strong>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', flexWrap: 'wrap' }}>
+                              <strong style={{ color: '#ff8a00' }}>👤 {resolverActorVisible(h.actor, quien).nombre}</strong>
+                              {resolverActorVisible(h.actor, quien).correo && (
+                                <span className="muted hint mono" style={{ fontSize: '.68rem', opacity: 0.75 }}>
+                                  ({resolverActorVisible(h.actor, quien).correo})
+                                </span>
+                              )}
                               <span
                                 className="adm-chip"
                                 style={{
@@ -1917,7 +1950,14 @@ export function DocumentosTab({
                       }}
                     >
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <strong style={{ color: '#ff8a00' }}>👤 {h.actor || 'Usuario'}</strong>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '.3rem', flexWrap: 'wrap' }}>
+                          <strong style={{ color: '#ff8a00' }}>👤 {resolverActorVisible(h.actor, quien).nombre}</strong>
+                          {resolverActorVisible(h.actor, quien).correo && (
+                            <span className="muted hint mono" style={{ fontSize: '.64rem', opacity: 0.75 }}>
+                              ({resolverActorVisible(h.actor, quien).correo})
+                            </span>
+                          )}
+                        </div>
                         <span className="muted mono" style={{ fontSize: '.68rem' }}>
                           {fFechaHora.format(new Date(h.fecha))}
                         </span>

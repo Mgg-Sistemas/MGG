@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Contabilidad · Modal para Gestionar Empresas
+   Golden Touch · Contabilidad · Modal para Gestionar Empresas
    
    Permite ver, crear y actualizar las entidades jurídicas del grupo
    (tabla `admin_empresas`), compartidas entre Administración y Contabilidad.
@@ -78,7 +78,7 @@ export function GestionEmpresasContablesModal({
     const rif = draft.rif.trim().toUpperCase() || null;
 
     if (!clave || clave.length < 2) {
-      toast('La clave de la empresa debe tener al menos 2 caracteres (p. ej. MGG).', 'warning');
+      toast('La clave de la empresa debe tener al menos 2 caracteres (p. ej. GT, MGG).', 'warning');
       return;
     }
     if (!nombre) {
@@ -165,7 +165,7 @@ export function GestionEmpresasContablesModal({
               <span className="muted" style={{ fontSize: '.8rem', display: 'block', marginBottom: '.25rem' }}>Clave (Acrónimo)</span>
               <input
                 className="input mono"
-                placeholder="Ej. MGG"
+                placeholder="Ej. GT"
                 maxLength={8}
                 value={draft.clave}
                 disabled={Boolean(editandoId) || guardando}
@@ -176,7 +176,7 @@ export function GestionEmpresasContablesModal({
               <span className="muted" style={{ fontSize: '.8rem', display: 'block', marginBottom: '.25rem' }}>Razón Social / Nombre Oficial</span>
               <input
                 className="input"
-                placeholder="Ej. MINERAL GROUP GUAYANA C.A."
+                placeholder="Ej. GOLDEN TOUCH 1127, C.A."
                 value={draft.nombre}
                 disabled={guardando}
                 onChange={(e) => setDraft({ ...draft, nombre: e.target.value })}
@@ -186,7 +186,7 @@ export function GestionEmpresasContablesModal({
               <span className="muted" style={{ fontSize: '.8rem', display: 'block', marginBottom: '.25rem' }}>RIF Fiscal</span>
               <input
                 className="input mono"
-                placeholder="J-50221930-7"
+                placeholder="J-12345678-9"
                 value={draft.rif}
                 disabled={guardando}
                 onChange={(e) => setDraft({ ...draft, rif: e.target.value.toUpperCase() })}

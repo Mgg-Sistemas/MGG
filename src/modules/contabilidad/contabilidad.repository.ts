@@ -12,6 +12,8 @@
    almacenamiento falso); la aplicación usa las funciones de abajo.
    ============================================================ */
 
+import { isSupabaseConfigured, supabase } from '@/shared/lib/supabase';
+import * as supabaseRepo from './supabaseContabilidad.repository';
 import { hoyISO } from '@/shared/lib/format';
 import {
   codigoComprobante, descripcionReverso, erroresDeComprobante, ladoDe, mensajeMesCerrado, mismoCorrelativo, montosDeRenglon, periodoDeFecha,
@@ -43,7 +45,7 @@ import {
 import { AlmacenSimulado, almacen as almacenDeLaApp } from './simulacion/almacen';
 import { AlmacenCambios, almacenCambios as almacenCambiosDeLaApp } from './simulacion/almacenCambios';
 import { cargarDocumentos } from './simulacion/datosBd';
-import { PARAMETROS_MGG, CENTROS_COSTO_MGG, generarPlanCuentasMGG } from './planCuentasMgg';
+import { PARAMETROS_GT, CENTROS_COSTO_GT, generarPlanCuentasGT } from './planCuentasGt';
 import type {
   ContAuxiliar, ContCambio, ContCentroCosto, ContCierre, ContComprobante, ContComprobanteLinea, ContCuenta, ContEjercicio, ContIntegracion,
   ContEsquemaEf, ContMapeo, ContMoneda, ContMonedaLocal, ContPais, ContTasa, ContParametros, ContPeriodo, ContRegla, ContReglaLinea, ContTipoComprobante, CuentaInput, EstadoSimulacion, Moneda,
@@ -104,7 +106,7 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
 
   async function getParametros(empresaClave?: string): Promise<ContParametros> {
     const p = (await almacen.leer()).cont_parametros;
-    if (empresaClave && empresaClave !== 'MGG') {
+    if (empresaClave && empresaClave !== 'GT') {
       return { ...p, empresa_clave: empresaClave };
     }
     return p;
@@ -143,7 +145,7 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
       const padre = codigoPadre(codigo);
       const cuenta: ContCuenta = {
         id: `cta-${codigo}`,
-        empresa_clave: input.empresa_clave ?? 'MGG',
+        empresa_clave: input.empresa_clave ?? 'GT',
         codigo,
         nombre: input.nombre.trim().toUpperCase(),
         nivel: nivelDe(codigo),
@@ -300,7 +302,9 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
         });
       } else {
         comp = {
-          id, ejercicio_id: periodo.ejercicio_id, ...cabecera, origen: 'manual', origen_modulo: null, origen_tabla: null, origen_id: null,
+          id,
+          empresa_clave: cab.empresa_clave ?? 'GT',
+          ejercicio_id: periodo.ejercicio_id, ...cabecera, origen: 'manual', origen_modulo: null, origen_tabla: null, origen_id: null,
           numero_lote: null, modificado: false, regla_id: null, reverso_de_id: null,
           historial: [{ at: ahora, evento: 'grabado', actor, origen: 'manual' }],
           created_at: ahora, created_by: actor, updated_at: null, updated_by: null,
@@ -768,7 +772,7 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
     return almacen.modificar((e) => {
       falla(validarCentroCosto(x, e.cont_centros_costo));
       const codigo = x.codigo.trim().toUpperCase();
-      const c: ContCentroCosto = { id: `cc-${codigo}`, empresa_clave: x.empresa_clave ?? 'MGG', codigo, nombre: x.nombre.trim().toUpperCase(), padre_id: x.padre_id, tipo: x.tipo, origen_clave: null, activo: true };
+      const c: ContCentroCosto = { id: `cc-${codigo}`, empresa_clave: x.empresa_clave ?? 'GT', codigo, nombre: x.nombre.trim().toUpperCase(), padre_id: x.padre_id, tipo: x.tipo, origen_clave: null, activo: true };
       e.cont_centros_costo.push(c);
       return c;
     });
@@ -796,7 +800,7 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
     return almacen.modificar((e) => {
       falla(validarAuxiliar(x, e.cont_auxiliares));
       const n = normalizarAuxiliar(x);
-      const a: ContAuxiliar = { id: `aux-${n.tipo}-${n.codigo}`, empresa_clave: x.empresa_clave ?? 'MGG', ...n, origen_tabla: null, origen_id: null, activo: true };
+      const a: ContAuxiliar = { id: `aux-${n.tipo}-${n.codigo}`, empresa_clave: x.empresa_clave ?? 'GT', ...n, origen_tabla: null, origen_id: null, activo: true };
       e.cont_auxiliares.push(a);
       return a;
     });
@@ -951,35 +955,34 @@ export function crearRepositorio(almacen: AlmacenSimulado, fuentes: FuentesExter
     });
   }
 
-  async function aplicarPlanMGG(empresaClave: string = 'MGG'): Promise<void> {
+  async function aplicarPlanGoldenTouch(): Promise<void> {
     await almacen.modificar((estado) => {
-      estado.cont_parametros.empresa_nombre = PARAMETROS_MGG.empresa_nombre;
-      estado.cont_parametros.centro_costo_defecto_id = PARAMETROS_MGG.centro_costo_defecto_id;
-      for (const cc of CENTROS_COSTO_MGG) {
-        const item = { ...cc, empresa_clave: empresaClave };
-        const existe = estado.cont_centros_costo.find((x) => x.codigo === cc.codigo && (!x.empresa_clave || x.empresa_clave === empresaClave));
+      estado.cont_parametros.empresa_nombre = PARAMETROS_GT.empresa_nombre;
+      estado.cont_parametros.centro_costo_defecto_id = PARAMETROS_GT.centro_costo_defecto_id;
+      for (const cc of CENTROS_COSTO_GT) {
+        const existe = estado.cont_centros_costo.find((x) => x.codigo === cc.codigo);
         if (existe) {
-          Object.assign(existe, item);
+          Object.assign(existe, cc);
         } else {
-          estado.cont_centros_costo.push(item as ContCentroCosto);
+          estado.cont_centros_costo.push(cc as ContCentroCosto);
         }
       }
-      const cuentasMGG = generarPlanCuentasMGG();
-      for (const cta of cuentasMGG) {
-        const item = { ...cta, empresa_clave: empresaClave };
-        const existe = estado.cont_cuentas.find((x) => x.codigo === cta.codigo && (!x.empresa_clave || x.empresa_clave === empresaClave));
+      const cuentasGT = generarPlanCuentasGT();
+      for (const cta of cuentasGT) {
+        const existe = estado.cont_cuentas.find((x) => x.codigo === cta.codigo);
         if (existe) {
-          Object.assign(existe, item);
+          Object.assign(existe, cta);
         } else {
-          estado.cont_cuentas.push(item);
+          estado.cont_cuentas.push(cta);
         }
       }
     });
   }
 
   return {
+    fuenteInformes,
     listCuentas, getParametros, listEjercicios, listPeriodos, listMonedas, listTiposComprobante,
-    crearCuenta, cambiarActivaCuenta, reiniciarDatosEjemplo, aplicarPlanMGG, aplicarPlanGoldenTouch: aplicarPlanMGG, aplicarPlanOficial: aplicarPlanMGG,
+    crearCuenta, cambiarActivaCuenta, reiniciarDatosEjemplo, aplicarPlanGoldenTouch,
     listCentrosCosto, listAuxiliares, getTasa, listComprobantes, getComprobante,
     grabarComprobante, reversarComprobante,
     getLibroDiario, getMayorAnalitico, getMovimientosAuxiliares, getBalanceComprobacion,
@@ -1116,16 +1119,398 @@ function nuevoId(prefijo: string): string {
 
 const repo = crearRepositorio(almacenDeLaApp, FUENTES_BD, almacenCambiosDeLaApp);
 
+let forzarModo: 'supabase' | 'simulacion' | null = null;
+
+export function setModoContabilidad(modo: 'supabase' | 'simulacion' | null) {
+  forzarModo = modo;
+}
+
+export function esModoSupabaseActivo(): boolean {
+  if (forzarModo === 'simulacion') return false;
+  if (forzarModo === 'supabase') return true;
+  return isSupabaseConfigured;
+}
+
+export async function verificarConexionSupabase(empresaClave?: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  try {
+    let q = supabase.from('cont_parametros').select('empresa_clave', { count: 'exact', head: true });
+    if (empresaClave) q = q.eq('empresa_clave', empresaClave);
+    const { count, error } = await q;
+    return !error && (count ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function getParametros(empresaClave?: string): Promise<ContParametros> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.getParametros(empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: usando parámetros del simulador por fallback:', e);
+    }
+  }
+  return repo.getParametros(empresaClave);
+}
+
+export async function listCuentas(empresaClave?: string): Promise<ContCuenta[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      const res = await supabaseRepo.listCuentas(empresaClave);
+      if (res.length > 0) return res;
+    } catch (e) {
+      console.warn('Contabilidad: usando cuentas del simulador por fallback:', e);
+    }
+  }
+  return repo.listCuentas(empresaClave);
+}
+
+export async function listEjercicios(empresaClave?: string): Promise<ContEjercicio[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      const res = await supabaseRepo.listEjercicios(empresaClave);
+      if (res.length > 0) return res;
+    } catch (e) {
+      console.warn('Contabilidad: usando ejercicios del simulador por fallback:', e);
+    }
+  }
+  return repo.listEjercicios(empresaClave);
+}
+
+export async function listPeriodos(empresaClave?: string): Promise<ContPeriodo[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      const res = await supabaseRepo.listPeriodos(empresaClave);
+      if (res.length > 0) return res;
+    } catch (e) {
+      console.warn('Contabilidad: usando períodos del simulador por fallback:', e);
+    }
+  }
+  return repo.listPeriodos(empresaClave);
+}
+
+export async function listTiposComprobante(): Promise<ContTipoComprobante[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      const res = await supabaseRepo.listTiposComprobante();
+      if (res.length > 0) return res;
+    } catch (e) {
+      console.warn('Contabilidad: usando tipos de comprobante del simulador por fallback:', e);
+    }
+  }
+  return repo.listTiposComprobante();
+}
+
+export async function listCentrosCosto(empresaClave?: string): Promise<ContCentroCosto[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      const res = await supabaseRepo.listCentrosCosto(empresaClave);
+      if (res.length > 0) return res;
+    } catch (e) {
+      console.warn('Contabilidad: usando centros de costo del simulador por fallback:', e);
+    }
+  }
+  return repo.listCentrosCosto(empresaClave);
+}
+
+export async function listAuxiliares(empresaClave?: string): Promise<ContAuxiliar[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      const res = await supabaseRepo.listAuxiliares(empresaClave);
+      if (res.length > 0) return res;
+    } catch (e) {
+      console.warn('Contabilidad: usando auxiliares del simulador por fallback:', e);
+    }
+  }
+  return repo.listAuxiliares(empresaClave);
+}
+
+export async function listComprobantes(empresaClave?: string): Promise<ContComprobante[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.listComprobantes(empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: usando comprobantes del simulador por fallback:', e);
+    }
+  }
+  return repo.listComprobantes(empresaClave);
+}
+
+export async function getComprobante(id: string): Promise<ComprobanteCompleto> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.getComprobante(id);
+    } catch {
+      // Intentar simulador
+    }
+  }
+  return repo.getComprobante(id);
+}
+
+export async function grabarComprobante(
+  input: { id?: string; cabecera: CabeceraBorrador; renglones: RenglonBorrador[] },
+  actor: string,
+): Promise<ContComprobante> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.grabarComprobante(input, actor);
+    } catch (e) {
+      if (forzarModo === 'supabase') throw e;
+      console.warn('Contabilidad: fallback a simulador tras error en Supabase:', e);
+    }
+  }
+  return repo.grabarComprobante(input, actor);
+}
+
+export async function reversarComprobante(id: string, motivo: string, actor: string): Promise<ContComprobante> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.reversarComprobante(id, motivo, actor);
+    } catch (e) {
+      if (forzarModo === 'supabase') throw e;
+      console.warn('Contabilidad: fallback a simulador tras error al reversar en Supabase:', e);
+    }
+  }
+  return repo.reversarComprobante(id, motivo, actor);
+}
+
+export async function crearCuenta(input: CuentaInput, actor: string): Promise<ContCuenta> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.crearCuenta(input, actor);
+    } catch (e) {
+      if (forzarModo === 'supabase') throw e;
+      console.warn('Contabilidad: fallback a simulador tras error al crear cuenta:', e);
+    }
+  }
+  return repo.crearCuenta(input, actor);
+}
+
+export async function cambiarActivaCuenta(id: string, activa: boolean): Promise<void> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.cambiarActivaCuenta(id, activa);
+    } catch (e) {
+      if (forzarModo === 'supabase') throw e;
+      console.warn('Contabilidad: fallback a simulador tras error al cambiar estado cuenta:', e);
+    }
+  }
+  return repo.cambiarActivaCuenta(id, activa);
+}
+
+export async function modificarTiposDeParametros(
+  campos: Pick<ContParametros, 'tipo_comprobante_defecto_id' | 'tipo_diferencial_id' | 'tipo_cierre_id' | 'tipo_apertura_id'>,
+  actor?: string,
+  empresaClave?: string,
+): Promise<ContParametros> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.modificarTiposDeParametros(campos, actor, empresaClave);
+    } catch (e) {
+      if (forzarModo === 'supabase') throw e;
+      console.warn('Contabilidad: fallback a simulador tras error al modificar tipos en Parámetros:', e);
+    }
+  }
+  return repo.modificarTiposDeParametros(campos);
+}
+
+export async function getLibroDiario(desde: string, hasta: string, moneda: MonedaInforme, empresaClave?: string): Promise<LibroDiario> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.getLibroDiario(desde, hasta, moneda, empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para Libro Diario:', e);
+    }
+  }
+  return repo.getLibroDiario(desde, hasta, moneda, empresaClave);
+}
+
+export async function getMayorAnalitico(filtro: FiltroMayor, empresaClave?: string): Promise<CuentaMayor[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.getMayorAnalitico(filtro, empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para Mayor Analítico:', e);
+    }
+  }
+  return repo.getMayorAnalitico(filtro, empresaClave);
+}
+
+export async function getMovimientosAuxiliares(filtro: FiltroAuxiliares, empresaClave?: string): Promise<AuxiliarMayor[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.getMovimientosAuxiliares(filtro, empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para Movimientos Auxiliares:', e);
+    }
+  }
+  return repo.getMovimientosAuxiliares(filtro, empresaClave);
+}
+
+export async function getBalanceComprobacion(filtro: FiltroBalance, empresaClave?: string): Promise<BalanceComprobacion> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.getBalanceComprobacion(filtro, empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para Balance de Comprobación:', e);
+    }
+  }
+  return repo.getBalanceComprobacion(filtro, empresaClave);
+}
+
+export async function getEstadoResultados(
+  f: { variante: VarianteResultados; corte: string; moneda: MonedaInforme; detallar?: boolean; incluirCierre?: boolean },
+  empresaClave?: string,
+): Promise<EstadoFinanciero> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.getEstadoResultados(f, empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para Estado de Resultados:', e);
+    }
+  }
+  return repo.getEstadoResultados(f);
+}
+
+export async function getBalanceGeneral(
+  f: { hasta: string; moneda: MonedaInforme; detallar?: boolean },
+  empresaClave?: string,
+): Promise<EstadoFinanciero> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.getBalanceGeneral(f, empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para Balance General:', e);
+    }
+  }
+  return repo.getBalanceGeneral(f);
+}
+
+export async function listReglasContabilizacion(empresaClave?: string): Promise<ReglaCompleta[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      const res = await supabaseRepo.listReglasContabilizacion(empresaClave);
+      if (res.length > 0) return res;
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para reglas:', e);
+    }
+  }
+  return repo.listReglasContabilizacion(empresaClave);
+}
+
+export async function listMapeos(empresaClave?: string): Promise<ContMapeo[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      const res = await supabaseRepo.listMapeos(empresaClave);
+      if (res.length > 0) return res;
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para mapeos:', e);
+    }
+  }
+  return repo.listMapeos(empresaClave);
+}
+
+export async function listIntegraciones(
+  filtro: { estados?: ContIntegracion['estado'][]; estado?: string; modulo?: string; busqueda?: string } = {},
+  empresaClave?: string,
+): Promise<DocumentoIntegracion[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.listIntegraciones(filtro, empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para integraciones:', e);
+    }
+  }
+  return repo.listIntegraciones(filtro, empresaClave);
+}
+
+export async function listCierres(empresaClave?: string): Promise<ContCierre[]> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.listCierres(empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para cierres:', e);
+    }
+  }
+  return repo.listCierres(empresaClave);
+}
+
+export async function getFuenteReporteDinamico(empresaClave?: string) {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.getFuenteReporteDinamico(empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para fuente de reporte dinamico:', e);
+    }
+  }
+  const f = await repo.fuenteInformes(empresaClave);
+  const [tipos, periodos, ejercicios, cierres] = await Promise.all([
+    repo.listTiposComprobante(),
+    repo.listPeriodos(empresaClave),
+    repo.listEjercicios(empresaClave),
+    repo.listCierres(empresaClave),
+  ]);
+  return {
+    ...f,
+    tipos,
+    periodos,
+    ejercicios,
+    cierres,
+  };
+}
+
+export async function aplicarPlanGoldenTouch(actor = 'sistema', empresaClave = 'GT'): Promise<void> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.aplicarPlanCuentasMaestro(empresaClave, actor);
+    } catch (e) {
+      if (forzarModo === 'supabase') throw e;
+      console.warn('Contabilidad: fallback a simulador tras error al aplicar plan maestro:', e);
+    }
+  }
+  return repo.aplicarPlanGoldenTouch();
+}
+
+export async function vistaPreviaIntegracion(integracionId: string, empresaClave = 'GT') {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.vistaPreviaIntegracion(integracionId, empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para vista previa:', e);
+    }
+  }
+  return repo.vistaPreviaIntegracion(integracionId);
+}
+
+export async function contabilizarIntegraciones(ids: string[], actor: string, empresaClave = 'GT') {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.contabilizarIntegraciones(ids, actor, empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback a simulador para contabilizar:', e);
+    }
+  }
+  return repo.contabilizarIntegraciones(ids, actor);
+}
+
+export async function sincronizarHechosOperativos(empresaClave = 'GT'): Promise<{ total: number; nuevos: number; errores: number }> {
+  if (esModoSupabaseActivo()) {
+    try {
+      return await supabaseRepo.sincronizarHechosOperativos(empresaClave);
+    } catch (e) {
+      console.warn('Contabilidad: fallback al sincronizar hechos operativos:', e);
+    }
+  }
+  return { total: 0, nuevos: 0, errores: 0 };
+}
+
 export const {
-  listCuentas, getParametros, listEjercicios, listPeriodos, listMonedas, listTiposComprobante,
-  crearCuenta, cambiarActivaCuenta, reiniciarDatosEjemplo, aplicarPlanMGG, aplicarPlanGoldenTouch, aplicarPlanOficial,
-  listCentrosCosto, listAuxiliares, getTasa, listComprobantes, getComprobante,
-  grabarComprobante, reversarComprobante,
-  getLibroDiario, getMayorAnalitico, getMovimientosAuxiliares, getBalanceComprobacion,
-  listCierres, vistaPreviaCierreMes, cerrarMes, reabrirMes, cerrarEjercicio, reabrirEjercicio, abrirEjercicioSiguiente,
-  getEstadoResultados, getBalanceGeneral,
-  listReglasContabilizacion, listMapeos, listIntegraciones, vistaPreviaIntegracion, contabilizarIntegraciones,
-  crearTipoComprobante, modificarTipoComprobante, cambiarActivoTipoComprobante, modificarTiposDeParametros,
+  listMonedas,
+  reiniciarDatosEjemplo,
+  getTasa,
+  vistaPreviaCierreMes, cerrarMes, reabrirMes, cerrarEjercicio, reabrirEjercicio, abrirEjercicioSiguiente,
+  crearTipoComprobante, modificarTipoComprobante, cambiarActivoTipoComprobante,
   crearCentroCosto, modificarCentroCosto, cambiarActivoCentroCosto,
   crearAuxiliar, modificarAuxiliar, cambiarActivoAuxiliar,
   crearMoneda, modificarMoneda, cambiarActivaMoneda,

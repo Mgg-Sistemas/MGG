@@ -18,12 +18,11 @@
    ============================================================ */
 
 import { useCallback, useEffect, useState } from 'react';
-import { ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { useSession } from '@/modules/auth/authStore';
 import { date } from '@/shared/lib/format';
 import {
-  getParametros, listCuentas, listEjercicios, listTiposComprobante, modificarTiposDeParametros, reiniciarDatosEjemplo,
+  getParametros, listCuentas, listEjercicios, listTiposComprobante, modificarTiposDeParametros,
 } from './contabilidad.repository';
 import {
   listEmpresasContables, leerEmpresaContableActiva, guardarEmpresaContableActiva,
@@ -37,13 +36,15 @@ import { IntegracionTab } from './IntegracionTab';
 import { CerrarPeriodoTab, PeriodoTab } from './PeriodoTab';
 import { NOMBRE_NUMERACION } from './logica/comprobantes';
 import { PlanCuentasTab } from './PlanCuentasTab';
+import { ReporteDinamicoTab } from './ReporteDinamicoTab';
 import type { ContCuenta, ContEjercicio, ContParametros, ContTipoComprobante } from './tipos';
 import './contabilidad.css';
 
-type Menu = 'comprobante' | 'integracion' | 'cuenta' | 'balances' | 'informes' | 'periodo' | 'cerrar' | 'auxiliares' | 'compania';
+type Menu = 'comprobante' | 'reporte' | 'integracion' | 'cuenta' | 'balances' | 'informes' | 'periodo' | 'cerrar' | 'auxiliares' | 'compania';
 
 const MENUS: { key: Menu; label: string }[] = [
   { key: 'comprobante', label: 'Comprobantes' },
+  { key: 'reporte', label: '📊 Reporte Dinámico' },
   { key: 'integracion', label: 'Por Contabilizar' },
   { key: 'cuenta', label: 'Plan de Cuentas' },
   { key: 'balances', label: 'Estados Financieros' },
@@ -54,11 +55,11 @@ const MENUS: { key: Menu; label: string }[] = [
   { key: 'compania', label: 'Parámetros Empresa' },
 ];
 
-const CLAVE_MENU = 'mgg.contabilidad.menu';
+const CLAVE_MENU = 'gt.contabilidad.menu';
 
 function menuGuardado(): Menu {
   try {
-    const v = localStorage.getItem(CLAVE_MENU);
+    const v = localStorage.getItem(CLAVE_MENU) || localStorage.getItem('mgg.contabilidad.menu');
     return MENUS.some((m) => m.key === v) ? (v as Menu) : 'comprobante';
   } catch {
     return 'comprobante';
@@ -73,9 +74,8 @@ export function ContabilidadPage() {
   const [parametros, setParametros] = useState<ContParametros | null>(null);
   const [ejercicio, setEjercicio] = useState<ContEjercicio | null>(null);
   const [abrirGestionEmpresas, setAbrirGestionEmpresas] = useState(false);
-  // Sube al reiniciar la simulación o cambiar de empresa: las pestañas se vuelven a montar desde cero.
+  // Sube al cambiar de empresa: las pestañas se vuelven a montar desde cero.
   const [version, setVersion] = useState(0);
-  const [confirmarReinicio, setConfirmarReinicio] = useState(false);
 
   const recargarEmpresas = useCallback(() => {
     void listEmpresasContables().then((lista) => {
@@ -117,13 +117,6 @@ export function ContabilidadPage() {
     setVersion((v) => v + 1);
   }
 
-  async function reiniciar() {
-    setConfirmarReinicio(false);
-    await reiniciarDatosEjemplo();
-    setVersion((n) => n + 1);
-    toast('Datos de ejemplo restablecidos.', 'success');
-  }
-
   const empresaSelObj = empresas.find((e) => e.clave === empresaActiva) ?? empresas[0];
 
   return (
@@ -158,7 +151,6 @@ export function ContabilidadPage() {
           >
             ⚙ Gestionar Empresas
           </button>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setConfirmarReinicio(true)}>↺ Reiniciar datos de ejemplo</button>
         </div>
       </div>
 
@@ -179,6 +171,7 @@ export function ContabilidadPage() {
       {!parametros && <p className="muted">Cargando…</p>}
       {parametros && <>
         {menu === 'comprobante' && <ComprobantesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
+        {menu === 'reporte' && <ReporteDinamicoTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'integracion' && <IntegracionTab key={`${version}-${empresaActiva}`} empresaClave={empresaActiva} />}
         {menu === 'cuenta' && <PlanCuentasTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
         {menu === 'balances' && <BalancesTab key={`${version}-${empresaActiva}`} parametros={parametros} empresaClave={empresaActiva} />}
@@ -196,17 +189,6 @@ export function ContabilidadPage() {
             recargarEmpresas();
             void cargar();
           }}
-        />
-      )}
-
-      {confirmarReinicio && (
-        <ConfirmDialog
-          title="Reiniciar datos de ejemplo"
-          message={'Se descartan los cambios hechos en la maqueta (cuentas y comprobantes) y se vuelve a los datos de ejemplo.\nSolo afecta a este navegador.'}
-          confirmText="Reiniciar"
-          danger
-          onConfirm={() => void reiniciar()}
-          onCancel={() => setConfirmarReinicio(false)}
         />
       )}
     </div>
@@ -274,7 +256,7 @@ function CompaniaTab({
           </table>
         </div>
       </div>
-      <TiposDeProcesoCard parametros={p} tipos={datos.tipos} onCambio={onCambio} />
+      <TiposDeProcesoCard parametros={p} tipos={datos.tipos} empresaClave={empresaClave} onCambio={onCambio} />
     </div>
   );
 }
@@ -293,8 +275,8 @@ const PROCESOS: Array<[CampoTipo, string]> = [
  * Parámetros · tipos de comprobante de los procesos. Se eligen entre los activos; el que ya está
  * elegido se sigue ofreciendo aunque se haya inactivado, para que se vea y se cambie.
  */
-function TiposDeProcesoCard({ parametros, tipos, onCambio }: {
-  parametros: ContParametros; tipos: ContTipoComprobante[]; onCambio: () => Promise<void>;
+function TiposDeProcesoCard({ parametros, tipos, empresaClave, onCambio }: {
+  parametros: ContParametros; tipos: ContTipoComprobante[]; empresaClave?: string; onCambio: () => Promise<void>;
 }) {
   const inicial = () => Object.fromEntries(PROCESOS.map(([k]) => [k, parametros[k] ?? ''])) as Record<CampoTipo, string>;
   const [editando, setEditando] = useState(false);
@@ -315,7 +297,7 @@ function TiposDeProcesoCard({ parametros, tipos, onCambio }: {
         tipo_diferencial_id: valores.tipo_diferencial_id || null,
         tipo_cierre_id: valores.tipo_cierre_id || null,
         tipo_apertura_id: valores.tipo_apertura_id || null,
-      });
+      }, undefined, empresaClave);
       await onCambio();
       setEditando(false);
       toast('Parámetros grabados.', 'success');

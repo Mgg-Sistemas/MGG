@@ -306,7 +306,9 @@ function HistorialLogos({ ente, puedeEditar, onCambio }: { ente: Ente; puedeEdit
   const [subiendo, setSubiendo] = useState(false);
   const vigente = versionVigente(ente.logos);
 
-  const faltaSubir = !archivo ? 'Elige la imagen del logo.' : faltaEnImagen(archivo) ?? faltaEnFechaRango(desde, 'la fecha «vale desde» del logo') ?? (desde ? null : 'Indica desde qué fecha vale el logo.');
+  const faltaSubir = !archivo
+    ? 'Elige la imagen del logo.'
+    : faltaEnImagen(archivo) ?? faltaEnFechaRango(desde, 'la fecha «vale desde» del logo') ?? (!desde ? 'Indica desde qué fecha vale el logo.' : !motivo.trim() ? 'Indica el motivo del logo.' : null);
 
   async function subir() {
     if (!archivo || faltaSubir) { if (faltaSubir) toast(faltaSubir, 'error'); return; }

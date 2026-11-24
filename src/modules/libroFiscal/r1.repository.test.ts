@@ -284,7 +284,7 @@ describe('régimen de la empresa por impuesto', () => {
 
   it('el valor vigente en una fecha, del historial', () => {
     const c = (id: string, desde: string, valor: boolean, hasta: string | null = null): CondicionRegistrada => ({
-      id, impuestoClave: 'IVA', condicion: 'agente_retencion', valor, desde, hasta, motivo: 'x', fuente: null, actualizadoEn: null, actualizadoPor: null,
+      id, empresaId: null, impuestoClave: 'IVA', condicion: 'agente_retencion', valor, desde, hasta, motivo: 'x', fuente: null, actualizadoEn: null, actualizadoPor: null,
     });
     const xs = [c('a', '2026-01-01', false), c('b', '2026-10-07', true)];
     expect(condicionVigente(xs, 'IVA', 'agente_retencion', '2026-09-30')?.id).toBe('a');

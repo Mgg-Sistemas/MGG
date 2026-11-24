@@ -54,7 +54,7 @@ function useDatosPeriodo(version: number, empresaClave?: string) {
 
 /* ───────────── Período ───────────── */
 
-export function PeriodoTab({ empresaClave = 'MGG' }: { empresaClave?: string } = {}) {
+export function PeriodoTab({ empresaClave = 'GT' }: { empresaClave?: string } = {}) {
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const { datos, cargar } = useDatosPeriodo(0, empresaClave);
@@ -216,7 +216,7 @@ function AbrirMesDialogo({ periodo, actor, onCerrar, onHecho }: { periodo: ContP
 
 type Accion = { kind: 'ninguna' } | { kind: 'cerrar'; tipo: 'pre_cierre' | 'definitivo' } | { kind: 'reabrir' } | { kind: 'siguiente' };
 
-export function CerrarPeriodoTab({ empresaClave = 'MGG' }: { empresaClave?: string } = {}) {
+export function CerrarPeriodoTab({ empresaClave = 'GT' }: { empresaClave?: string } = {}) {
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const { datos, cargar } = useDatosPeriodo(0, empresaClave);

@@ -23,6 +23,7 @@ import { AYUDA_ORDEN, ROTULO_ORDEN, rotuloAutor, rotuloMotivo, rotuloSerie } fro
 import { r4Disponible } from './clasificaciones.repository';
 import { ParametrosClasificaciones } from './ParametrosClasificaciones';
 import { r5Disponible } from './tarifas.repository';
+import { limiteEntregaComprobante } from './retencionesCalculo';
 import { ParametrosTarifas } from './ParametrosTarifas';
 import { r7Disponible } from './reglas.repository';
 import { ParametrosReglas } from './ParametrosReglas';
@@ -118,11 +119,11 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
   const [modoVersion, setModoVersion] = useState<'nueva' | 'corregir' | null>(null);
   const [historial, setHistorial] = useState<CambioHistorial[] | null>(null);
 
-  // Si otro usuario cambia la ficha, se toma lo nuevo (salvo que se esté editando con motivo escrito).
+  // Si otro usuario cambia la ficha, se toma lo nuevo (salvo que se esté editando).
   const firma = JSON.stringify(fichaDe(impuesto));
-  useEffect(() => { if (!motivo) setFicha(JSON.parse(firma) as FichaImpuesto); }, [firma]); // eslint-disable-line react-hooks/exhaustive-deps
-
   const cambio = JSON.stringify(ficha) !== firma;
+  useEffect(() => { if (!cambio && !motivo) setFicha(JSON.parse(firma) as FichaImpuesto); }, [firma]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const falta = faltaEnEnteros(ficha) ?? faltaEnImpuesto(ficha);
 
   async function guardar() {
@@ -145,6 +146,24 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
 
   const set = (p: Partial<FichaImpuesto>) => setFicha((f) => ({ ...f, ...p }));
 
+  // Deshabilitar/Habilitar persiste de una vez (solo el estado activo), con su motivo
+  // en el historial. Antes solo cambiaba la pantalla y había que escribir motivo y guardar,
+  // así que el impuesto seguía activo en la base aunque pareciera deshabilitado.
+  async function alternarActivo() {
+    const nuevoActivo = !impuesto.activo;
+    setGuardando(true);
+    try {
+      await guardarImpuesto(impuesto.clave, { activo: nuevoActivo }, nuevoActivo ? 'Habilitar impuesto' : 'Deshabilitar impuesto');
+      toast(`${impuesto.nombre}: ${nuevoActivo ? 'habilitado' : 'deshabilitado'}.`, 'success');
+      setMotivo(''); setHistorial(null);
+      onCambio();
+    } catch (e) {
+      toast(mensaje(e, 'No se pudo guardar el impuesto.'), 'error');
+    } finally {
+      setGuardando(false);
+    }
+  }
+
   return (
     <details className="card" style={{ marginBottom: '.6rem', opacity: impuesto.activo ? 1 : 0.7 }}>
       <summary style={{ cursor: 'pointer', display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
@@ -166,7 +185,19 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
               {guardando ? 'Guardando…' : 'Guardar ficha'}
             </button>
             {cambio && <button type="button" className="btn btn-ghost" onClick={() => setFicha(JSON.parse(firma) as FichaImpuesto)}>Deshacer</button>}
+            <button type="button" className="btn btn-ghost" style={{ marginLeft: 'auto' }}
+              title={impuesto.activo
+                ? 'Deja el impuesto fuera de uso de una vez. No se borra: queda en el historial y se puede volver a habilitar. Deja de aparecer en tarjetas, filtros y columnas.'
+                : 'Vuelve a poner el impuesto en uso de una vez.'}
+              onClick={() => void alternarActivo()}>
+              {impuesto.activo ? '⊘ Deshabilitar impuesto' : '✓ Habilitar impuesto'}
+            </button>
           </div>
+        )}
+        {puedeEditar && (
+          <small className="hint muted" style={{ display: 'block', marginTop: '.4rem' }}>
+            Deshabilitar un impuesto lo apaga para todo el módulo (todas las empresas). Para que una empresa puntual no retenga un impuesto, usá Parámetros → Régimen, que es por empresa.
+          </small>
         )}
         {cambio && falta && <small className="hint" style={{ color: 'var(--warning)' }}>{falta}</small>}
         {puedeEditar && cambio && !falta && !motivo.trim() && <small className="hint muted">Indica el motivo del cambio para guardar la ficha: queda en el historial.</small>}
@@ -187,7 +218,9 @@ function FichaImpuestoCard({ impuesto, entes, puedeEditar, conR4, conR5, conR7, 
             <div>{resumenVersion(vigente)}</div>
             <div className="muted">
               Si vence en día inhábil: {etiqueta(VENCE_SI_INHABIL, vigente.venceSiInhabil).toLowerCase()}.
-              {' '}Ejemplo: una factura de hoy se entrega hasta el {fechaCorta(plazoEntrega(vigente, hoyIso()))}.
+              {impuesto.clave === 'IVA'
+                ? ` Ejemplo (Art. 16 de la 0054): una operación de hoy se emite y entrega hasta el ${fechaCorta(limiteEntregaComprobante(hoyIso()))}, sin contar feriados.`
+                : ` Ejemplo con el plazo configurado: una operación de hoy se entrega hasta el ${fechaCorta(plazoEntrega(vigente, hoyIso()))}.`}
             </div>
             {vigente.baseLegal && <div className="muted">Base legal: {vigente.baseLegal}</div>}
             {vigente.fuente && <div className="muted">Fuente: {vigente.fuente}</div>}

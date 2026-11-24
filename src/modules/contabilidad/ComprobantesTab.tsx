@@ -60,7 +60,7 @@ type Ventana =
   | { kind: 'reversar'; comp: ContComprobante };
 
 /** La página la monta con `key` = versión de los datos: al reiniciar la simulación arranca de cero. */
-export function ComprobantesTab({ parametros, empresaClave = 'MGG' }: { parametros: ContParametros; empresaClave?: string }) {
+export function ComprobantesTab({ parametros, empresaClave = 'GT' }: { parametros: ContParametros; empresaClave?: string }) {
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const [lista, setLista] = useState<ContComprobante[] | null>(null);

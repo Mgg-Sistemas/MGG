@@ -199,7 +199,11 @@ function datoDePieza(p: Pieza, ctx: ContextoCalculo): string | string[] | null |
   }
 }
 
-const enBs = (monto: number, ctx: ContextoCalculo) => (String(ctx.moneda).toUpperCase() === 'BS' || !(ctx.tasa && ctx.tasa > 0) ? monto : monto * ctx.tasa);
+const esMonedaBs = (moneda: string | null | undefined) => String(moneda ?? 'Bs').toUpperCase() === 'BS';
+const enBs = (monto: number, ctx: ContextoCalculo): number | null => {
+  if (esMonedaBs(ctx.moneda)) return monto;
+  return ctx.tasa && ctx.tasa > 0 ? monto * ctx.tasa : null;
+};
 
 /** Lo que no se cumple de las condiciones (lista vacía = la regla aplica). */
 export function condicionesQueFallan(regla: Pick<Regla, 'condiciones'>, ctx: ContextoCalculo): string[] {
@@ -215,6 +219,7 @@ export function condicionesQueFallan(regla: Pick<Regla, 'condiciones'>, ctx: Con
     if (c.pieza === 'monto_minimo') {
       const v = c.valor as { monto: number; unidad: 'UT' | 'Bs'; sobre: 'base' | 'pago' };
       const monto = enBs(Number(ctx.montos[v.sobre === 'base' ? 'base_imponible' : 'pago'] ?? 0), ctx);
+      if (monto == null) { fallas.push('El documento está en divisas y falta la tasa de cambio para comparar el mínimo en Bs.'); continue; }
       const umbral = v.unidad === 'UT' ? (ctx.ut && ctx.ut > 0 ? v.monto * ctx.ut : null) : v.monto;
       if (umbral == null) { fallas.push('El mínimo va en UT y no hay UT cargada para esa fecha.'); continue; }
       const supera = monto >= umbral;
@@ -246,10 +251,11 @@ export function calcularConRegla(regla: Regla, ctx: ContextoCalculo): ResultadoM
   const pasos: PasoFoto[] = [];
   const foto = () => ({ regla: { id: regla.id ?? null, impuesto: regla.impuestoClave, nombre: regla.nombre, version: regla.version }, pasos });
   const de = (k: number) => regla.pasos.find((p) => p.paso === k) ?? null;
-  const tasaDoc = String(ctx.moneda).toUpperCase() === 'BS' ? 1 : (ctx.tasa && ctx.tasa > 0 ? ctx.tasa : 0);
+  const esBs = esMonedaBs(ctx.moneda);
+  const tasaDoc = esBs ? 1 : (ctx.tasa && ctx.tasa > 0 ? ctx.tasa : 0);
   const vc = ctx.valorClasificacion ?? null;
   const resultado = (aplica: boolean, motivo: string | null, base: number, baseBs: number, pct: number | null, sustraendo: number, impuesto: number, monto: number): ResultadoMotor => ({
-    aplica, motivo, base, baseBs, pct, sustraendo, impuesto, monto, montoBs: tasaDoc > 0 ? r(monto * tasaDoc) : monto, foto: foto(),
+    aplica, motivo, base, baseBs, pct, sustraendo, impuesto, monto, montoBs: tasaDoc > 0 ? r(monto * tasaDoc) : 0, foto: foto(),
   });
 
   // 1 · Base
@@ -266,8 +272,11 @@ export function calcularConRegla(regla: Regla, ctx: ContextoCalculo): ResultadoM
 
   // 2 · Conversión (la base en Bs, para comparar; el monto sigue en la moneda del documento)
   const p2 = de(2);
-  const baseBs = tasaDoc > 0 ? r(base * tasaDoc) : base;
-  if (p2) pasos.push({ paso: 2, operacion: 'convertir_moneda', detalle: tasaDoc > 0 && tasaDoc !== 1 ? `× tasa ${tasaDoc}` : 'ya en Bs', valores: { tasa: tasaDoc || null, baseBs } });
+  const baseBs = tasaDoc > 0 ? r(base * tasaDoc) : 0;
+  if (p2) {
+    if (!esBs && tasaDoc <= 0) return resultado(false, 'Falta la tasa de cambio para convertir la moneda del documento a Bs.', base, 0, null, 0, 0, 0);
+    pasos.push({ paso: 2, operacion: 'convertir_moneda', detalle: tasaDoc > 0 && tasaDoc !== 1 ? `× tasa ${tasaDoc}` : 'ya en Bs', valores: { tasa: tasaDoc || null, baseBs } });
+  }
 
   // 3 · Mínimo
   const p3 = de(3);
@@ -275,6 +284,7 @@ export function calcularConRegla(regla: Regla, ctx: ContextoCalculo): ResultadoM
     let minimo: number | null = null; let unidad: string | null = null; let cant: number | null = null;
     if (p3.valores.desde === 'clasificacion') { cant = vc?.minimo ?? null; unidad = vc?.minimoUnidad ?? null; } else { cant = n(p3.valores.monto); unidad = String(p3.valores.unidad ?? ''); }
     if (cant != null && cant > 0) {
+      if (!esBs && tasaDoc <= 0) return resultado(false, 'Falta la tasa de cambio para comparar el mínimo en Bs.', base, 0, null, 0, 0, 0);
       minimo = unidad === 'UT' ? (ctx.ut && ctx.ut > 0 ? r(cant * ctx.ut) : null) : unidad === 'MMV' ? (ctx.mmv && ctx.mmv > 0 ? r(cant * ctx.mmv) : null) : cant;
       if (minimo == null) return resultado(false, `Falta el valor de la ${unidad} para comparar el mínimo.`, base, baseBs, null, 0, 0, 0);
     }
@@ -291,16 +301,19 @@ export function calcularConRegla(regla: Regla, ctx: ContextoCalculo): ResultadoM
     else if (p4.operacion === 'pct_parametro') pct = ctx.parametro(String(v.parametro));
     else if (p4.operacion === 'pct_clasificacion') {
       if (vc?.tarifa) {
+        if (!esBs && tasaDoc <= 0) return resultado(false, 'Falta la tasa de cambio para aplicar la tarifa por tramos en Bs.', base, 0, null, 0, 0, 0);
         const ap = aplicarTramos(vc.tarifa.tramos, vc.tarifa.unidad, baseBs, ctx.ut);
         if (!ap) return resultado(false, 'La tarifa de la clasificación no da tramo para esa base.', base, baseBs, null, 0, 0, 0);
         pct = ap.pct; sustraendoTramoBs = ap.sustraendoBs;
       } else pct = vc?.pct ?? null;
     } else if (p4.operacion === 'tramos') {
+      if (!esBs && tasaDoc <= 0) return resultado(false, 'Falta la tasa de cambio para aplicar la tarifa por tramos en Bs.', base, 0, null, 0, 0, 0);
       const t = ctx.tarifa?.(String(v.tarifa)) ?? null;
       const ap = t ? aplicarTramos(t.tramos, t.unidad, baseBs, ctx.ut) : null;
       if (!ap) return resultado(false, `La tarifa por tramos «${sinRotulo(v.tarifa)}» no da tramo para esa base (o falta publicarla).`, base, baseBs, null, 0, 0, 0);
       pct = ap.pct; sustraendoTramoBs = ap.sustraendoBs;
     } else if (p4.operacion === 'monto_fijo') {
+      if (!esBs && tasaDoc <= 0) return resultado(false, 'Falta la tasa de cambio para llevar el monto fijo a la moneda del documento.', base, 0, null, 0, 0, 0);
       const montoBs = String(v.unidad) === 'UT' ? (ctx.ut && ctx.ut > 0 ? Number(v.monto) * ctx.ut : null) : Number(v.monto);
       if (montoBs == null) return resultado(false, 'Falta la UT para el monto fijo.', base, baseBs, null, 0, 0, 0);
       impuesto = tasaDoc > 0 ? r(montoBs / tasaDoc) : montoBs;
@@ -319,10 +332,18 @@ export function calcularConRegla(regla: Regla, ctx: ContextoCalculo): ResultadoM
     let sBs = sustraendoTramoBs;
     if (p5) {
       const v = p5.valores;
+      const requiereUt = (v.desde === 'clasificacion' && vc?.sustraendoFactor && vc.sustraendoFactor > 0)
+        || (n(v.factor) != null && (v.factor as number) > 0);
+      if (requiereUt && !(ctx.ut && ctx.ut > 0)) {
+        return resultado(false, 'Falta el valor de la UT para calcular el sustraendo.', base, baseBs, pct, 0, impuesto, 0);
+      }
       const ut = ctx.ut && ctx.ut > 0 ? ctx.ut : 0;
       if (v.desde === 'clasificacion') sBs += vc?.sustraendoFactor && pct ? r((pct / 100) * ut * vc.sustraendoFactor) : 0;
       else if (n(v.factor) != null && pct) sBs += r((pct / 100) * ut * (v.factor as number));
       else if (n(v.monto) != null) sBs += v.monto as number;
+    }
+    if (sBs > 0 && !esBs && tasaDoc <= 0) {
+      return resultado(false, 'Falta la tasa de cambio para llevar el sustraendo a la moneda del documento.', base, baseBs, pct, 0, impuesto, 0);
     }
     sustraendo = tasaDoc > 0 && tasaDoc !== 1 ? r(sBs / tasaDoc) : sBs;
     impuesto = r(impuesto - sustraendo);
@@ -353,6 +374,8 @@ export function calcularConRegla(regla: Regla, ctx: ContextoCalculo): ResultadoM
     if (v.maximo === 'impuesto_causado') monto = Math.min(monto, impuesto);
     if (v.maximo === 'base') monto = Math.min(monto, base);
     pasos.push({ paso: 7, operacion: 'topes', detalle: antes !== monto ? `${antes} → ${monto}` : 'sin cambio', valores: { minimo: n(v.minimo), maximo: (v.maximo as string) ?? null, monto } });
+  } else if (monto < 0) {
+    monto = 0;
   }
 
   // 8 · Redondeo
@@ -368,9 +391,12 @@ export function calcularConRegla(regla: Regla, ctx: ContextoCalculo): ResultadoM
 /** Los tramos aplicados a una base en Bs (como retencion_tarifa_aplicar): % y sustraendo del tramo, el sustraendo en Bs. */
 export function aplicarTramos(tramos: Tramo[], unidad: 'UT' | 'Bs', baseBs: number, ut: number | null): { pct: number; sustraendoBs: number } | null {
   const factor = unidad === 'UT' ? (ut && ut > 0 ? ut : null) : 1;
-  if (factor == null) return null;
+  if (factor == null || !Number.isFinite(baseBs) || baseBs < 0) return null;
   const b = baseBs / factor;
-  const t = [...tramos].sort((x, y) => y.desdeMonto - x.desdeMonto).find((x) => x.desdeMonto < b || x.desdeMonto === 0);
+  const topesPrevios = new Set(tramos.map((x) => x.hastaMonto).filter((h): h is number => h != null));
+  const t = [...tramos]
+    .sort((x, y) => y.desdeMonto - x.desdeMonto)
+    .find((x) => (topesPrevios.has(x.desdeMonto) ? b > x.desdeMonto : b >= x.desdeMonto) && (x.hastaMonto == null || b <= x.hastaMonto));
   return t ? { pct: t.pct, sustraendoBs: r(t.sustraendo * factor) } : null;
 }
 

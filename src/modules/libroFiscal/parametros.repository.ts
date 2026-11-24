@@ -18,7 +18,7 @@ import { errorRetencion } from './erroresRetencion';
 import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { leerMonto } from './validarCarga';
-import { faltaEnClaveMinusculas, faltaNoNegativo, faltaPct, faltaPositivo, noSeEntiende } from './parametrosNumeros';
+import { faltaEnClaveMinusculas, faltaEnFechaRango, faltaNoNegativo, faltaPct, faltaPositivo, noSeEntiende } from './parametrosNumeros';
 import { rotuloParametro } from './rotulos';
 
 const T_CLAVES = 'retencion_parametro_claves';
@@ -120,6 +120,8 @@ export function faltaEnValor(k: Pick<ClaveParametro, 'ambito' | 'clave'> & Parti
   if (k.ambito === 'general' && impuesto) return `«${rotuloParametro(k.clave, k.nombre)}» es general: va sin impuesto.`;
   if (k.ambito === 'impuesto' && !impuesto) return `«${rotuloParametro(k.clave, k.nombre)}» es de un impuesto: indica cuál.`;
   if (!FECHA.test(desde)) return 'Indica desde qué fecha vale.';
+  const faltaDesde = faltaEnFechaRango(desde, 'la fecha «desde»');
+  if (faltaDesde) return faltaDesde;
   if (!motivo.trim()) return 'Indica el motivo: queda en el historial.';
   return null;
 }
@@ -215,14 +217,20 @@ export async function historialValor(impuesto: string | null, clave: string, lim
  * falta solo si se registra IVA; la alícuota del IGTF, solo si se registra IGTF.
  */
 export async function configDeFecha(base: ConfigRetencion, fecha: string, tipos: TipoImpuesto[] = []): Promise<ConfigRetencion> {
-  if (!FECHA.test(fecha) || !(await r3Disponible())) return base;
-  const [ut, pctIva, pctArt5, igtf] = await Promise.all([
-    parametroEnFecha(null, 'ut', fecha),
-    parametroEnFecha('IVA', 'pct_retencion', fecha),
-    parametroEnFecha('IVA', 'pct_retencion_art5', fecha),
-    parametroEnFecha('IGTF', 'alicuota', fecha),
+  const f = String(fecha ?? '').trim().slice(0, 10);
+  if (!FECHA.test(f) || !(await r3Disponible())) return base;
+  // D3 (una sola autoridad): los valores NACIONALES —UT, % de retención de IVA 75/100,
+  // alícuota del IVA, alícuota del IGTF— salen de retencion_parametros por fecha para
+  // TODAS las empresas (Parámetros → Valores gobierna). Lo único por-empresa es la
+  // alícuota municipal (ISAE), que viaja en `base` desde la ficha y no se toca aquí.
+  const [ut, pctIva, pctArt5, igtf, aliIva] = await Promise.all([
+    parametroEnFecha(null, 'ut', f),
+    parametroEnFecha('IVA', 'pct_retencion', f),
+    parametroEnFecha('IVA', 'pct_retencion_art5', f),
+    parametroEnFecha('IGTF', 'alicuota', f),
+    parametroEnFecha('IVA', 'alicuota', f),
   ]);
-  const dia = ddmmaaaa(fecha);
+  const dia = ddmmaaaa(f);
   if (typeof ut !== 'number' || !(ut > 0)) {
     throw new Error(`No hay UT cargada para el ${dia}. Cárguela en Parámetros → Valores (con su fecha y fuente) antes de registrar.`);
   }
@@ -238,6 +246,7 @@ export async function configDeFecha(base: ConfigRetencion, fecha: string, tipos:
     pctIvaGeneral: typeof pctIva === 'number' ? pctIva : base.pctIvaGeneral,
     pctIvaEspecial: typeof pctArt5 === 'number' ? pctArt5 : base.pctIvaEspecial,
     pctIgtf: typeof igtf === 'number' ? igtf : base.pctIgtf,
+    ivaAlicuota: typeof aliIva === 'number' && aliIva > 0 ? aliIva : base.ivaAlicuota,
   };
 }
 

@@ -38,3 +38,18 @@ describe('completarRif', () => {
     expect(completarRif('')).toBeNull();
   });
 });
+
+describe('documentoIdentidad (datos de pago, 04/11/2026)', () => {
+  it('RIF con su letra y guiones; cédula con V-', async () => {
+    const { documentoIdentidad } = await import('./rif');
+    expect(documentoIdentidad('500460449')).toEqual({ etiqueta: 'RIF', valor: 'J-50046044-9' });
+    expect(documentoIdentidad('500460449', 'G-50046044-9')).toEqual({ etiqueta: 'RIF', valor: 'G-50046044-9' });
+    expect(documentoIdentidad('12345678')).toEqual({ etiqueta: 'CI', valor: 'V-12345678' });
+    expect(documentoIdentidad('e 84.123.456')).toEqual({ etiqueta: 'CI', valor: 'E-84123456' });
+    expect(documentoIdentidad('V-123456789')).toEqual({ etiqueta: 'RIF', valor: 'V-12345678-9' });
+    expect(documentoIdentidad('J-40778442')).toEqual({ etiqueta: 'RIF', valor: 'J-40778442' });
+    expect(documentoIdentidad('P1131881')).toEqual({ etiqueta: 'Pasaporte', valor: 'P-1131881' });
+    expect(documentoIdentidad('S/R')).toEqual({ etiqueta: 'CI/RIF', valor: 'S/R' });
+    expect(documentoIdentidad('  ')).toBeNull();
+  });
+});

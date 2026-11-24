@@ -501,6 +501,8 @@ export interface RetencionPracticada {
   moneda: string;
   tasa: number | null;
   baseImponible: number;
+  /** Base imponible convertida a Bolívares. */
+  baseBs?: number | null;
   alicuota: number;
   impuesto: number;
   /** Art. 18.8: IVA de la factura o bruto del ISLR antes del sustraendo. */
@@ -585,7 +587,9 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
     conceptoId: r.concepto_codigo ? `${r.concepto_codigo}${r.sujeto ? `:${r.sujeto}` : ''}` : texto(r.concepto_id),
     conceptoNombre: texto(r.concepto ?? r.concepto_nombre),
     moneda, tasa,
-    baseImponible: n(r.base ?? r.base_imponible), alicuota: n(r.iva_alicuota ?? r.alicuota), impuesto: n(r.iva_monto ?? r.impuesto),
+    baseImponible: n(r.base ?? r.base_imponible),
+    baseBs: r.base_bs != null ? n(r.base_bs) : (r.base_imponible_bs != null ? n(r.base_imponible_bs) : null),
+    alicuota: n(r.iva_alicuota ?? r.alicuota), impuesto: n(r.iva_monto ?? r.impuesto),
     impuestoCausado: r.impuesto_causado == null ? null : n(r.impuesto_causado),
     porcentaje: n(r.porcentaje), sustraendo: n(r.sustraendo), montoRetenido,
     montoBs,
@@ -612,6 +616,7 @@ export interface FiltroRetenciones {
   hasta?: string;
   docId?: string;
   incluirAnuladas?: boolean;
+  empresaId?: string | null;
 }
 
 /**
@@ -678,6 +683,7 @@ export async function listPeriodos(): Promise<string[]> {
 export interface NuevaRetencion {
   /** R7: la regla vigente con que se calculó y la foto de sus pasos (de calcularConReglaVigente). Solo se guarda si existe R7. */
   regla?: { regla_id: string; foto: Record<string, unknown> } | null;
+  empresaId?: string | null;
   tipo: TipoImpuesto;
   direccion: DireccionRetencion;
   tipoDocumento?: 'factura' | 'nota_debito' | 'nota_credito' | null;

@@ -1,12 +1,13 @@
 /* ============================================================
-   Retenciones · Reportes: CSV, Excel y PDF
+   Golden Touch · Retenciones · Reportes: CSV, Excel y PDF
 
    Dibuja la TablaReporte de reportesRetenciones.ts en cada formato. Excel y
    PDF pasan por la vista previa del sistema (se descarga desde ahí). El PDF
-   lleva el logo corporativo y la razón social de Parámetros.
+   lleva el logo de Golden Touch y la razón social de Parámetros.
    ============================================================ */
-import { previewExcel, previewPdf } from '@/shared/lib/reportePreview';
+import { previewExcelArchivo, previewPdf } from '@/shared/lib/reportePreview';
 import { getConfigRetencion } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import type { ConfigRetencion } from '@/modules/libroFiscal/retencionesCalculo';
 import { razonSocialAgente } from '@/modules/libroFiscal/comprobanteRetencionPdf';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, fechaPdf, textoPdf } from '@/modules/libroFiscal/pdfComun';
 import { armarCsv, formatoMonto, type Rango, type TablaReporte, type Totales } from './reportesRetenciones';
@@ -34,7 +35,7 @@ export function lineaTotales(t: Totales): string {
 /** Descarga el CSV (UTF-8 con BOM, para que Excel lea bien los acentos). */
 export function descargarCsv(t: TablaReporte, c: CabeceraReporte): void {
   if (!t.filas.length) throw new Error('No hay filas que exportar con estos filtros.');
-  const blob = new Blob(['\uFEFF', armarCsv(t)], { type: 'text/csv;charset=utf-8' });
+  const blob = new Blob(['﻿', armarCsv(t)], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -45,97 +46,73 @@ export function descargarCsv(t: TablaReporte, c: CabeceraReporte): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-interface AnyXLSX {
-  utils: {
-    aoa_to_sheet: (d: unknown[][]) => Record<string, unknown>;
-    encode_cell: (c: { r: number; c: number }) => string;
-    book_new: () => unknown;
-    book_append_sheet: (wb: unknown, ws: unknown, name: string) => void;
-  };
-}
-
-/** Excel con el formato del sistema: título, filtros, encabezado naranja y totales. */
-export async function reporteExcel(t: TablaReporte, c: CabeceraReporte): Promise<void> {
+/** Excel con el formato de los Excel del sistema: título, filtros, encabezado naranja y totales en negrita. */
+export async function reporteExcel(t: TablaReporte, c: CabeceraReporte, configEmpresa?: ConfigRetencion | null): Promise<void> {
   if (!t.filas.length) throw new Error('No hay filas que exportar con estos filtros.');
-  const [XLSXModule, config] = await Promise.all([
-    import('xlsx-js-style'),
-    getConfigRetencion().catch(() => null),
+  // Multi-empresa: si viene la config de la empresa actual, su nombre/RIF encabezan el
+  // reporte; si no, se lee la global (como hoy).
+  const [{ default: ExcelJS }, config] = await Promise.all([
+    import('exceljs'),
+    configEmpresa ? Promise.resolve(configEmpresa) : getConfigRetencion().catch(() => null),
   ]);
-  const XLSX = XLSXModule as unknown as AnyXLSX;
-  const empresa = config ? `${razonSocialAgente(config)}${config.rif ? ` · RIF ${config.rif}` : ''}` : 'Mineral Group Guayana';
-  const ultima = t.encabezados.length;
-  const aoa: unknown[][] = [
-    [`${c.titulo} · ${empresa}`],
-    [`Del ${fechaPdf(c.rango.desde)} al ${fechaPdf(c.rango.hasta)} · ${c.filtros} · ${c.registros} registro(s)`],
-    [lineaTotales(c.totales)],
-    [],
-    t.encabezados,
-    ...t.filas.map((f) => f.map((v) => (v == null ? '' : v))),
-  ];
-  const ws = XLSX.utils.aoa_to_sheet(aoa);
-  (ws as Record<string, unknown>)['!merges'] = [
-    { s: { r: 0, c: 0 }, e: { r: 0, c: Math.max(0, ultima - 1) } },
-    { s: { r: 1, c: 0 }, e: { r: 1, c: Math.max(0, ultima - 1) } },
-    { s: { r: 2, c: 0 }, e: { r: 2, c: Math.max(0, ultima - 1) } },
-  ];
-  (ws as Record<string, unknown>)['!cols'] = t.encabezados.map((h, i) => ({
-    wch: t.numeros.includes(i) ? 16 : Math.max(12, Math.min(40, h.length + 6)),
-  }));
-
-  const cellAt = (r: number, col: number) =>
-    (ws as Record<string, { s?: unknown; t?: string; z?: string }>)[XLSX.utils.encode_cell({ r, c: col })];
-  const borde = { style: 'thin', color: { rgb: 'BFC5CC' } };
+  const wb = new ExcelJS.Workbook();
+  const ws = wb.addWorksheet(c.titulo.slice(0, 31), {
+    pageSetup: { orientation: c.orientacion === 'vertical' ? 'portrait' : 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
+    views: [{ state: 'frozen', ySplit: 5 }],
+  });
+  const n = t.encabezados.length;
+  ws.columns = t.encabezados.map((h, i) => ({ width: t.numeros.includes(i) ? 16 : Math.max(12, Math.min(40, h.length + 6)) }));
+  const borde = { style: 'thin' as const, color: { argb: 'FFBFC5CC' } };
   const bordes = { top: borde, left: borde, bottom: borde, right: borde };
 
-  const c0 = cellAt(0, 0);
-  if (c0) c0.s = { font: { name: 'Arial', sz: 14, bold: true, color: { rgb: 'FF8A00' } }, alignment: { vertical: 'center', horizontal: 'left' } };
-  const c1 = cellAt(1, 0);
-  if (c1) c1.s = { font: { name: 'Arial', sz: 10, color: { rgb: '5C6673' } }, alignment: { vertical: 'center', horizontal: 'left' } };
-  const c2 = cellAt(2, 0);
-  if (c2) c2.s = { font: { name: 'Arial', sz: 10, bold: true, color: { rgb: '1F2328' } }, alignment: { vertical: 'center', horizontal: 'left' } };
+  const linea = (fila: number, texto: string, tam: number, color: string, negrita = false) => {
+    ws.mergeCells(fila, 1, fila, Math.max(1, n));
+    const cel = ws.getCell(fila, 1);
+    cel.value = texto;
+    cel.font = { name: 'Arial', size: tam, bold: negrita, color: { argb: color } };
+    cel.alignment = { vertical: 'middle', horizontal: 'left', indent: 1, wrapText: true };
+  };
+  const empresa = config ? `${razonSocialAgente(config)}${config.rif ? ` · RIF ${config.rif}` : ''}` : 'Golden Touch';
+  linea(1, `${c.titulo} · ${empresa}`, 14, 'FFFF8A00', true);
+  linea(2, `Del ${fechaPdf(c.rango.desde)} al ${fechaPdf(c.rango.hasta)} · ${c.filtros} · ${c.registros} registro(s)`, 10, 'FF5C6673');
+  linea(3, lineaTotales(c.totales), 10, 'FF1F2328', true);
 
-  t.encabezados.forEach((_, col) => {
-    const cell = cellAt(4, col);
-    if (cell) {
-      cell.s = {
-        font: { name: 'Arial', sz: 11, bold: true, color: { rgb: 'FFFFFF' } },
-        fill: { patternType: 'solid', fgColor: { rgb: 'FF8A00' } },
-        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-        border: bordes,
-      };
+  const cab = ws.getRow(5);
+  cab.values = t.encabezados;
+  cab.height = 24;
+  cab.eachCell((cel) => {
+    cel.font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FFFFFFFF' } };
+    cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFF8A00' } };
+    cel.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+    cel.border = bordes;
+  });
+  t.filas.forEach((f, i) => {
+    const r = ws.getRow(6 + i);
+    r.values = f.map((v) => (v == null ? '' : v));
+    const total = t.totales.includes(i);
+    for (let col = 1; col <= n; col += 1) {
+      const cel = r.getCell(col);
+      cel.font = { name: 'Arial', size: 10, bold: total };
+      cel.border = bordes;
+      cel.alignment = { vertical: 'middle', horizontal: 'left', indent: 1, wrapText: true };
+      if (total) cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF1DE' } };
+      else if (i % 2 === 1) cel.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFAF6F0' } };
+      if (t.numeros.includes(col - 1)) { cel.numFmt = '#,##0.00'; cel.alignment = { ...cel.alignment, horizontal: 'right' }; }
     }
   });
+  ws.autoFilter = { from: { row: 5, column: 1 }, to: { row: 5, column: n } };
 
-  t.filas.forEach((f, i) => {
-    const esTotal = t.totales.includes(i);
-    f.forEach((_, col) => {
-      const cell = cellAt(5 + i, col);
-      if (!cell) return;
-      const esNum = t.numeros.includes(col);
-      cell.s = {
-        font: { name: 'Arial', sz: 10, bold: esTotal },
-        border: bordes,
-        alignment: { vertical: 'center', horizontal: esNum ? 'right' : 'left', wrapText: true },
-        ...(esTotal ? { fill: { patternType: 'solid', fgColor: { rgb: 'FFF1DE' } } } : (i % 2 === 1 ? { fill: { patternType: 'solid', fgColor: { rgb: 'FAF6F0' } } } : {})),
-      };
-      if (esNum && cell.t === 'n') cell.z = '#,##0.00';
-    });
-  });
-
-  (ws as Record<string, unknown>)['!autofilter'] = {
-    ref: `A5:${XLSX.utils.encode_cell({ r: 4, c: Math.max(0, ultima - 1) })}`,
-  };
-
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, c.titulo.slice(0, 31));
-  await previewExcel(wb, `${nombreArchivo(c)}.xlsx`);
+  const bytes = (await wb.xlsx.writeBuffer()) as ArrayBuffer;
+  await previewExcelArchivo(bytes, `${nombreArchivo(c)}.xlsx`);
 }
 
-/** PDF para imprimir o guardar. */
-export async function reportePdf(t: TablaReporte, c: CabeceraReporte): Promise<void> {
+/** PDF con el logo de Golden Touch, para imprimir o guardar. */
+export async function reportePdf(t: TablaReporte, c: CabeceraReporte, configEmpresa?: ConfigRetencion | null): Promise<void> {
   if (!t.filas.length) throw new Error('No hay filas que imprimir con estos filtros.');
+  // Multi-empresa: la empresa actual encabeza el PDF si viene; si no, la global (como hoy).
   const [{ jsPDF }, { default: autoTable }, { loadLogoPdfDataUrl, dibujarLogoPdf }, config] = await Promise.all([
-    import('jspdf'), import('jspdf-autotable'), import('@/shared/lib/pdfLogo'), getConfigRetencion().catch(() => null),
+    import('jspdf'), import('jspdf-autotable'), import('@/shared/lib/pdfLogo'),
+    configEmpresa ? Promise.resolve(configEmpresa) : getConfigRetencion().catch(() => null),
   ]);
   const logo = await loadLogoPdfDataUrl().catch(() => null);
   const doc = new jsPDF({ unit: 'pt', format: 'letter', orientation: c.orientacion === 'vertical' ? 'portrait' : 'landscape' });
@@ -147,7 +124,7 @@ export async function reportePdf(t: TablaReporte, c: CabeceraReporte): Promise<v
   doc.setTextColor(255, 138, 0); doc.setFont('helvetica', 'bold'); doc.setFontSize(13);
   doc.text(textoPdf(c.titulo.toUpperCase()), W / 2, y + 12, { align: 'center' });
   doc.setTextColor(40, 40, 40); doc.setFont('helvetica', 'normal'); doc.setFontSize(8.5);
-  const empresa = config ? `${razonSocialAgente(config)}${config.rif ? ` · RIF ${config.rif}` : ''}` : 'Mineral Group Guayana';
+  const empresa = config ? `${razonSocialAgente(config)}${config.rif ? ` · RIF ${config.rif}` : ''}` : 'Golden Touch';
   doc.text(textoPdf(empresa), W / 2, y + 25, { align: 'center' });
   doc.text(textoPdf(`Del ${fechaPdf(c.rango.desde)} al ${fechaPdf(c.rango.hasta)} · ${c.registros} registro(s)`), W / 2, y + 36, { align: 'center' });
   doc.setFontSize(7.5); doc.setTextColor(100, 100, 100);

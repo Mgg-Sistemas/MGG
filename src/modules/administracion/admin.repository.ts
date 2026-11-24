@@ -9,13 +9,14 @@
    camelCase en el dominio; mapeo snake_case en el límite del repo.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import { comprimirArchivo } from '@/shared/lib/comprimirArchivo';
 import { listCategoriasGasto, soloCategorias } from '@/modules/tesoreria/categoriasGasto.repository';
 import { listProveedoresActivos } from '@/modules/pedidos/pedidos.repository';
 import { crearServicioDirecto, enviarServicioAPagar, urlAdjuntoServicio, eliminarServicioDirecto, type ServicioDirecto } from '@/modules/pedidos/serviciosDirectos.repository';
 import type { Moneda, Periodicidad } from './administracionCalculo';
 import { generarPendientes as calcularPendientes, notaPendiente } from './administracionGenerar';
 import { FAOV_TIERS, factoresValidos, type TierFaov } from './administracionParafiscal';
-import { esErrorTablaAusente } from './adminErrores';
+import { conTopeSubida, esErrorTablaAusente, mensajeErrorSubidaAdmin, topeSubidaParaArchivo } from './adminErrores';
 import { disponibleParaEnviar, notaAgrupacion, motivoNoReversable } from './administracionHonorarios';
 
 export type EstadoGastoFijo = 'activo' | 'suspendido';
@@ -45,6 +46,133 @@ export const EMPRESA_ADMIN_DEFECTO: Empresa = {
   activa: true,
   orden: 1,
 };
+
+export interface ActorVisible {
+  nombre: string;
+  correo: string | null;
+}
+
+const PALABRAS_DEPARTAMENTO: Record<string, string> = {
+  recursoshumanos: 'Recursos Humanos',
+  administracion: 'Administración',
+  mantenimiento: 'Mantenimiento',
+  contabilidad: 'Contabilidad',
+  operaciones: 'Operaciones',
+  transporte: 'Transporte',
+  impuestos: 'Impuestos',
+  tributos: 'Tributos',
+  tesoreria: 'Tesorería',
+  auditoria: 'Auditoría',
+  logistica: 'Logística',
+  seguridad: 'Seguridad',
+  recepcion: 'Recepción',
+  sistemas: 'Sistemas',
+  gerencia: 'Gerencia',
+  compras: 'Compras',
+  nomina: 'Nómina',
+  almacen: 'Almacén',
+  ventas: 'Ventas',
+  rrhh: 'Recursos Humanos',
+  mgg: 'MGG',
+  gt: 'GT',
+  gl: 'GL',
+  ca: 'C.A.',
+  sa: 'S.A.',
+};
+
+/** Desglosa una cuenta local unida sin separadores como "impuestostributosgt" en un nombre legible. */
+function desglosarTerminosUnidos(str: string): string {
+  let s = str.toLowerCase();
+  const tokens: string[] = [];
+  const keys = Object.keys(PALABRAS_DEPARTAMENTO).sort((a, b) => b.length - a.length);
+
+  while (s.length > 0) {
+    const match = keys.find((k) => s.startsWith(k));
+    if (match) {
+      tokens.push(PALABRAS_DEPARTAMENTO[match]);
+      s = s.slice(match.length);
+    } else {
+      const nextIdx = keys
+        .map((k) => s.indexOf(k))
+        .filter((idx) => idx > 0)
+        .sort((a, b) => a - b)[0];
+      if (nextIdx !== undefined) {
+        tokens.push(s.slice(0, nextIdx));
+        s = s.slice(nextIdx);
+      } else {
+        tokens.push(s);
+        break;
+      }
+    }
+  }
+
+  if (tokens.length > 1) {
+    if (tokens[0] === 'Impuestos' && tokens[1] === 'Tributos') {
+      return ['Impuestos y Tributos', ...tokens.slice(2)].join(' ');
+    }
+    return tokens.map((t) => (PALABRAS_DEPARTAMENTO[t.toLowerCase()] ?? (t.charAt(0).toUpperCase() + t.slice(1)))).join(' ');
+  }
+
+  const unica = tokens[0]?.toLowerCase();
+  if (unica && PALABRAS_DEPARTAMENTO[unica]) {
+    return PALABRAS_DEPARTAMENTO[unica];
+  }
+
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+/** Resuelve el nombre del usuario como protagonista para la interfaz, dejando el correo como secundario. */
+export function resolverActorVisible(
+  actorRaw: string | null | undefined,
+  quien?: (guardado: string | null | undefined, correo?: string | null) => string,
+): ActorVisible {
+  const raw = (actorRaw ?? '').trim();
+  if (!raw) return { nombre: 'Usuario', correo: null };
+
+  const esMail = raw.includes('@');
+  const resuelto = quien ? quien(raw, esMail ? raw : undefined) : raw;
+
+  if (resuelto && !resuelto.includes('@')) {
+    return {
+      nombre: resuelto,
+      correo: esMail ? raw : null,
+    };
+  }
+
+  if (esMail) {
+    const parteLocal = raw.split('@')[0];
+    const tieneSeparador = /[._-]+/.test(parteLocal) || /([a-z])([A-Z])/.test(parteLocal);
+
+    let amigable = '';
+    if (tieneSeparador) {
+      amigable = parteLocal
+        .replace(/[._-]+/g, ' ')
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .split(' ')
+        .filter(Boolean)
+        .map((w) => {
+          const up = w.toUpperCase();
+          if (up === 'GT' || up === 'MGG' || up === 'GL' || up === 'CA' || up === 'SA') return up;
+          const low = w.toLowerCase();
+          if (PALABRAS_DEPARTAMENTO[low]) return PALABRAS_DEPARTAMENTO[low];
+          return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+        })
+        .join(' ');
+    } else {
+      amigable = desglosarTerminosUnidos(parteLocal);
+    }
+
+    return {
+      nombre: amigable || raw,
+      correo: raw,
+    };
+  }
+
+  return {
+    nombre: raw,
+    correo: null,
+  };
+}
 
 /** Centro de acopio de una empresa (tabla `admin_centros_acopio`). */
 export interface CentroAcopio {
@@ -572,12 +700,12 @@ export interface AdminRepo {
   borrarGastoFijo(id: string): Promise<void>;
   /** Papeles legales y permisos (RIF, actas, Rupdae, Mintras…), más recientes primero. */
   listDocumentos(empresaClave?: string): Promise<DocumentoEmpresa[]>;
-  /** Sube un PDF/imagen al bucket y lo registra con metadatos y auditoría inicial. */
-  subirDocumento(empresaClave: string, tipo: TipoDocumento, file: File, meta?: Partial<DocumentoEmpresaInput>, actor?: string): Promise<DocumentoEmpresa>;
+  /** Sube un PDF/imagen al bucket y lo registra con metadatos y auditoría inicial. Optimiza en cliente imágenes y PDFs pesados. */
+  subirDocumento(empresaClave: string, tipo: TipoDocumento, file: File, meta?: Partial<DocumentoEmpresaInput>, actor?: string, onProgreso?: (mensaje: string) => void): Promise<DocumentoEmpresa>;
   /** Actualiza metadatos de un documento y registra un cambio en su historial ligero de auditoría. */
   editarDocumento(id: string, cambios: Partial<DocumentoEmpresaInput>, actor?: string, detalle?: string): Promise<DocumentoEmpresa>;
   /** Renueva un documento: opcionalmente sube nuevo soporte, actualiza fechas y registra el evento en auditoría. */
-  renovarDocumento(id: string, file: File | null, meta: Partial<DocumentoEmpresaInput>, actor?: string, nota?: string): Promise<DocumentoEmpresa>;
+  renovarDocumento(id: string, file: File | null, meta: Partial<DocumentoEmpresaInput>, actor?: string, nota?: string, onProgreso?: (mensaje: string) => void): Promise<DocumentoEmpresa>;
   /** URL firmada (10 min) para previsualizar/descargar. */
   urlDocumento(path: string): Promise<string>;
   /** Borra el registro y luego el archivo del bucket. */
@@ -932,6 +1060,30 @@ function rutaDoc(empresaClave: string, nombre: string): string {
   const stamp = `${Math.floor(performance.now()).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
   const safe = nombre.replace(/[^\w.-]+/g, '_').slice(-80);
   return `${empresaClave}/${stamp}-${safe}`;
+}
+
+/**
+ * Sube un archivo ya validado con tope de tiempo. Tanto el error que devuelve
+ * Supabase como el `Failed to fetch` que lanza el navegador al cortarse la red
+ * pasan por el traductor: antes el texto crudo llegaba al toast.
+ */
+async function subirArchivoDoc(path: string, archivo: File, upsert = false): Promise<void> {
+  let fallo: unknown = null;
+  const timeoutMs = topeSubidaParaArchivo(archivo.size);
+  try {
+    const { error } = await conTopeSubida(
+      supabase.storage.from(BUCKET_DOCS).upload(path, archivo, {
+        upsert,
+        contentType: archivo.type || 'application/pdf',
+      }),
+      archivo.name,
+      timeoutMs,
+    );
+    fallo = error;
+  } catch (e) {
+    fallo = e;
+  }
+  if (fallo) throw new Error(mensajeErrorSubidaAdmin(fallo, archivo.name));
 }
 
 /** Resuelve el nombre o email real del usuario autenticado para la bitácora de auditoría */
@@ -1530,12 +1682,18 @@ export function crearRepoSupabase(): AdminRepo {
       }
       return (data ?? []).map((r) => aDoc(r as RowDoc));
     },
-    async subirDocumento(empresaClave, tipo, file, meta, actor) {
+    async subirDocumento(empresaClave, tipo, file, meta, actor, onProgreso) {
       if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/'))
         throw new Error('El documento debe ser un PDF o una imagen.');
-      const path = rutaDoc(empresaClave, file.name);
-      const { error: upErr } = await supabase.storage.from(BUCKET_DOCS).upload(path, file, { upsert: false, contentType: file.type || 'application/pdf' });
-      if (upErr) throw upErr;
+      // Optimización inteligente en cliente: fotos e imágenes (JPEG/PNG) y PDFs escaneados (+25 o +50 MB).
+      // Reduce en 90-95% el peso de documentos para proteger la cuota de Supabase y asegurar subida instantánea.
+      const archivo = await comprimirArchivo(file, {
+        onProgreso: (_act, _tot, msg) => {
+          if (onProgreso && msg) onProgreso(msg);
+        },
+      });
+      const path = rutaDoc(empresaClave, archivo.name);
+      await subirArchivoDoc(path, archivo);
 
       const nowIso = new Date().toISOString();
       const actorFinal = await obtenerActorActual(actor);
@@ -1552,10 +1710,10 @@ export function crearRepoSupabase(): AdminRepo {
       const filaCompleta: Record<string, unknown> = {
         empresa_clave: empresaClave,
         tipo,
-        nombre: meta?.nombre || file.name,
+        nombre: meta?.nombre || archivo.name,
         path,
-        content_type: file.type || 'application/pdf',
-        tamano: file.size,
+        content_type: archivo.type || 'application/pdf',
+        tamano: archivo.size,
         carpeta: meta?.carpeta || 'otros',
         centro_acopio_id: meta?.centroAcopioId || null,
         responsable: meta?.responsable || null,
@@ -1665,7 +1823,7 @@ export function crearRepoSupabase(): AdminRepo {
       if (error || !data) throw error || new Error('No se pudo actualizar el documento.');
       return aDoc(data as RowDoc);
     },
-    async renovarDocumento(id, file, meta, actor, nota) {
+    async renovarDocumento(id, file, meta, actor, nota, onProgreso) {
       const { data: actualRow, error: errGet } = await supabase.from(T_DOC).select('*').eq('id', id).single();
       if (errGet || !actualRow) throw new Error('No se encontró el documento a renovar.');
       const doc = aDoc(actualRow as RowDoc);
@@ -1677,11 +1835,15 @@ export function crearRepoSupabase(): AdminRepo {
       if (file) {
         if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/'))
           throw new Error('El documento debe ser un PDF o una imagen.');
-        nuevoPath = rutaDoc(doc.empresaClave, file.name);
-        nuevoTamano = file.size;
-        const { error: upErr } = await supabase.storage.from(BUCKET_DOCS).upload(nuevoPath, file, { upsert: true, contentType: file.type || 'application/pdf' });
-        if (upErr) throw upErr;
-        detalleHist = `Renovado con nuevo archivo "${file.name}" (${(file.size / 1024).toFixed(0)} KB). ${nota || ''}`.trim();
+        const archivo = await comprimirArchivo(file, {
+          onProgreso: (_act, _tot, msg) => {
+            if (onProgreso && msg) onProgreso(msg);
+          },
+        });
+        nuevoPath = rutaDoc(doc.empresaClave, archivo.name);
+        nuevoTamano = archivo.size;
+        await subirArchivoDoc(nuevoPath, archivo, true);
+        detalleHist = `Renovado con nuevo archivo "${archivo.name}" (${(archivo.size / 1024).toFixed(0)} KB). ${nota || ''}`.trim();
       }
 
       const nowIso = new Date().toISOString();

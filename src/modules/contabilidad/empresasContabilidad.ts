@@ -1,15 +1,14 @@
 /* ============================================================
-   MGG · Contabilidad · Empresas Contables (Multi-empresa)
+   Golden Touch · Contabilidad · Empresas Contables (Multi-empresa)
 
    Contabilidad opera de forma estrictamente multiempresa, compartiendo
    el catálogo de empresas con Administración (tabla `admin_empresas`).
    A diferencia de Administración (que permite ver "Todas las empresas"),
    en Contabilidad cada ejercicio, comprobante, libro diario y balance
-   corresponde a una entidad legal única ('MGG', etc.).
+   corresponde a una entidad legal única ('GT', 'MTO'...).
    ============================================================ */
 
 import { supabase } from '@/shared/lib/supabase';
-import { EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 
 export interface EmpresaContable {
   id?: string;
@@ -20,17 +19,24 @@ export interface EmpresaContable {
   orden?: number;
 }
 
-export const EMPRESAS_CONTABLES_DEFECTO: EmpresaContable[] = [
-  { clave: 'MGG', nombre: EMPRESA_NOMBRE, rif: EMPRESA_RIF, activa: true },
-];
+export const EMPRESA_MGG_DEFECTO: EmpresaContable = {
+  clave: 'MGG',
+  nombre: 'MINERAL GROUP GUAYANA C.A.',
+  rif: 'J-50221930-7',
+  activa: true,
+};
 
-export const EMPRESA_MGG_DEFECTO = EMPRESAS_CONTABLES_DEFECTO[0];
+export const EMPRESAS_CONTABLES_DEFECTO: EmpresaContable[] = [
+  EMPRESA_MGG_DEFECTO,
+  { clave: 'GT', nombre: 'GOLDEN TOUCH 1127, C.A.', rif: 'J-50129993-5', activa: true },
+  { clave: 'MTO', nombre: 'MINERÍA TIN OXIDE, C.A.', rif: 'J-50478722-1', activa: true },
+];
 
 export const CLAVE_EMPRESA_ACTIVA = 'mgg.contabilidad.empresa_activa';
 
 export function leerEmpresaContableActiva(): string {
   try {
-    return localStorage.getItem(CLAVE_EMPRESA_ACTIVA) || 'MGG';
+    return localStorage.getItem(CLAVE_EMPRESA_ACTIVA) || localStorage.getItem('gt.contabilidad.empresa_activa') || 'MGG';
   } catch {
     return 'MGG';
   }
@@ -45,8 +51,8 @@ export function guardarEmpresaContableActiva(clave: string): void {
 }
 
 /**
- * Consulta la lista de empresas registradas en `admin_empresas`.
- * Si Supabase no está conectado o falla, devuelve la lista base (MGG).
+ * Consulta la lista de empresas activas registradas en `admin_empresas`.
+ * Si Supabase no está conectado o falla, devuelve la lista base (GT y MTO).
  */
 export async function listEmpresasContables(): Promise<EmpresaContable[]> {
   if (supabase) {

@@ -19,12 +19,22 @@ import { calcularConRegla, condicionesQueFallan, type ContextoCalculo, type Regl
 export interface EntradaPrueba {
   fecha: string;
   direccion: 'practicada' | 'sufrida';
+  tipoDocumento?: 'factura' | 'nota_debito' | 'nota_credito' | 'pago';
+  tipoOperacion?: 'bienes' | 'servicios' | 'ambos';
   sujeto: SujetoGt | null;
+  tipoContribuyente?: string | null;
   moneda: string;
   tasa: number | null;
   pago: number;
   baseImponible: number;
   iva: number;
+  exento?: number;
+  igtf?: number;
+  subtotal?: number;
+  total?: number;
+  descuento?: number;
+  flete?: number;
+  otros?: number;
   supuesto: boolean;
   /** Código elegido de la clasificación de la regla (si la usa). */
   codigo: string | null;
@@ -33,6 +43,7 @@ export interface EntradaPrueba {
 /** Los datos de la fecha que hacen falta. */
 export interface DatosPrueba {
   ut: number | null;
+  mmv?: number | null;
   parametros: Record<string, number | null>;
   condicionesAgente: string[];
   valorClasificacion: ContextoCalculo['valorClasificacion'];
@@ -67,12 +78,33 @@ export function loQueUsa(regla: Pick<Regla, 'pasos' | 'condiciones'>): { paramet
 /** El contexto del motor con lo escrito y los datos de la fecha. */
 export function contextoDePrueba(e: EntradaPrueba, d: DatosPrueba): ContextoCalculo {
   return {
-    direccion: e.direccion, sujeto: e.sujeto, condicionesAgente: d.condicionesAgente,
+    direccion: e.direccion,
+    tipoDocumento: e.tipoDocumento ?? 'factura',
+    tipoOperacion: e.tipoOperacion,
+    sujeto: e.sujeto,
+    tipoContribuyente: e.tipoContribuyente ?? null,
+    condicionesAgente: d.condicionesAgente,
     clasificacion: d.clasificacionClave && e.codigo ? { clave: d.clasificacionClave, codigo: e.codigo } : null,
-    montos: { pago: e.pago, base_imponible: e.baseImponible, iva: e.iva, pago_divisas: e.moneda !== 'Bs' ? e.pago : 0, total: e.baseImponible + e.iva },
-    moneda: e.moneda, tasa: e.tasa, ut: d.ut,
+    montos: {
+      pago: e.pago,
+      base_imponible: e.baseImponible,
+      iva: e.iva,
+      exento: e.exento ?? 0,
+      igtf: e.igtf ?? 0,
+      subtotal: e.subtotal ?? e.baseImponible + (e.exento ?? 0),
+      pago_divisas: String(e.moneda).toUpperCase() !== 'BS' ? e.pago : 0,
+      total: e.total ?? e.baseImponible + (e.exento ?? 0) + e.iva,
+      descuento: e.descuento ?? 0,
+      flete: e.flete ?? 0,
+      otros: e.otros ?? 0,
+    },
+    moneda: e.moneda,
+    tasa: e.tasa,
+    ut: d.ut,
+    mmv: d.mmv ?? null,
     parametro: (k) => d.parametros[k] ?? null,
-    valorClasificacion: d.valorClasificacion ?? null, supuesto: e.supuesto,
+    valorClasificacion: d.valorClasificacion ?? null,
+    supuesto: e.supuesto,
     tarifa: (k) => d.tarifas[k] ?? null,
   };
 }
@@ -120,12 +152,13 @@ export function correrPrueba(regla: Regla, e: EntradaPrueba, d: DatosPrueba): Re
 /** Lee los datos que usa la regla para la fecha. Cada fuente, solo si su paquete existe; si no, la configuración de hoy. */
 export async function cargarDatosPrueba(regla: Regla, e: EntradaPrueba): Promise<DatosPrueba> {
   const usa = loQueUsa(regla);
-  const [{ getConfigRetencion, getAlicuotasLocales }, { r3Disponible, parametroEnFecha }, { tablaDisponible }] = await Promise.all([
-    import('./retencionesFiscal.repository'), import('./parametros.repository'), import('./disponibilidad'),
+  const [{ getConfigRetencion, getAlicuotasLocales }, { r3Disponible, parametroEnFecha }, { tablaDisponible }, { errorRetencion }] = await Promise.all([
+    import('./retencionesFiscal.repository'), import('./parametros.repository'), import('./disponibilidad'), import('./erroresRetencion'),
   ]);
   const config = await getConfigRetencion();
   const conR3 = await r3Disponible();
   const ut = conR3 ? ((await parametroEnFecha(null, 'ut', e.fecha)) as number | null) : config.valorUt || null;
+  const mmv = conR3 ? ((await parametroEnFecha(null, 'mmv', e.fecha).catch(() => null)) as number | null) : null;
 
   const parametros: Record<string, number | null> = {};
   const locales = conR3 ? null : await getAlicuotasLocales().catch(() => null);
@@ -139,19 +172,31 @@ export async function cargarDatosPrueba(regla: Regla, e: EntradaPrueba): Promise
   const condicionesAgente: string[] = [];
   if (await tablaDisponible('retencion_agente_condiciones')) {
     const { consultarCondicion } = await import('./agenteCondiciones.repository');
-    if (await consultarCondicion('IVA', 'agente_retencion', e.fecha)) condicionesAgente.push('agente_retencion');
+    const impCond = regla.impuestoClave || 'IVA';
+    if ((await consultarCondicion(impCond, 'agente_retencion', e.fecha)) || (impCond !== 'IVA' && await consultarCondicion('IVA', 'agente_retencion', e.fecha))) {
+      condicionesAgente.push('agente_retencion');
+    }
+    if ((await consultarCondicion(impCond, 'agente_percepcion', e.fecha)) || (await consultarCondicion(null, 'agente_percepcion', e.fecha))) {
+      condicionesAgente.push('agente_percepcion');
+    }
     if (await consultarCondicion(null, 'contribuyente_especial', e.fecha)) condicionesAgente.push('contribuyente_especial');
   } else {
     if (config.esAgenteRetencionIva) condicionesAgente.push('agente_retencion');
-    if (config.esContribuyenteEspecial) condicionesAgente.push('contribuyente_especial');
+    if (config.esContribuyenteEspecial) {
+      condicionesAgente.push('contribuyente_especial');
+      if (regla.impuestoClave === 'IGTF') condicionesAgente.push('agente_percepcion');
+    }
   }
 
   let valorClasificacion: DatosPrueba['valorClasificacion'] = null;
   if (usa.clasificacion && e.codigo && (await tablaDisponible('retencion_clasificaciones'))) {
-    const { data: k } = await supabase.from('retencion_clasificaciones').select('id').eq('clave', usa.clasificacion).maybeSingle();
-    const { data: c } = k ? await supabase.from('retencion_clasificacion_codigos').select('id').eq('clasificacion_id', (k as { id: string }).id).eq('codigo', e.codigo).maybeSingle() : { data: null };
+    const { data: k, error: errK } = await supabase.from('retencion_clasificaciones').select('id').eq('clave', usa.clasificacion).maybeSingle();
+    if (errK) throw errorRetencion(errK, 'No se pudo consultar la clasificación.');
+    const { data: c, error: errC } = k ? await supabase.from('retencion_clasificacion_codigos').select('id').eq('clasificacion_id', (k as { id: string }).id).eq('codigo', e.codigo).maybeSingle() : { data: null, error: null };
+    if (errC) throw errorRetencion(errC, 'No se pudo consultar el código de clasificación.');
     if (c) {
-      const { data: v } = await supabase.rpc('retencion_clasificacion_valor', { p_codigo_id: (c as { id: string }).id, p_sujeto: e.sujeto, p_fecha: e.fecha });
+      const { data: v, error: errV } = await supabase.rpc('retencion_clasificacion_valor', { p_codigo_id: (c as { id: string }).id, p_sujeto: e.sujeto, p_fecha: e.fecha });
+      if (errV) throw errorRetencion(errV, 'No se pudo consultar el valor vigente del código.');
       const fila = (Array.isArray(v) ? v[0] : v) as Record<string, unknown> | undefined;
       if (fila) {
         valorClasificacion = {
@@ -180,5 +225,5 @@ export async function cargarDatosPrueba(regla: Regla, e: EntradaPrueba): Promise
     }
   }
 
-  return { ut, parametros, condicionesAgente, valorClasificacion, clasificacionClave: usa.clasificacion, tarifas, config };
+  return { ut, mmv, parametros, condicionesAgente, valorClasificacion, clasificacionClave: usa.clasificacion, tarifas, config };
 }

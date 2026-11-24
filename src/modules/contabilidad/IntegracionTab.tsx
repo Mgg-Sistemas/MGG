@@ -25,7 +25,7 @@ import { useSession } from '@/modules/auth/authStore';
 import { date, money } from '@/shared/lib/format';
 import {
   contabilizarIntegraciones, listAuxiliares, listCentrosCosto, listCuentas, listIntegraciones, listMapeos,
-  listReglasContabilizacion, listTiposComprobante, vistaPreviaIntegracion,
+  listReglasContabilizacion, listTiposComprobante, sincronizarHechosOperativos, vistaPreviaIntegracion,
   type DocumentoIntegracion, type ReglaCompleta,
 } from './contabilidad.repository';
 import { ImporteDoble, SelectorMoneda, par, useMonedaVista } from './ImporteDoble';
@@ -36,7 +36,7 @@ import type { ContAuxiliar, ContCentroCosto, ContCuenta, ContIntegracion, ContMa
 
 type Vista = 'bandeja' | 'reglas' | 'mapeos';
 
-export function IntegracionTab({ empresaClave = 'MGG' }: { empresaClave?: string }) {
+export function IntegracionTab({ empresaClave = 'GT' }: { empresaClave?: string }) {
   const [vista, setVista] = useState<Vista>('bandeja');
   return (
     <>
@@ -93,7 +93,7 @@ export function EtiquetaIntegracion({ fila }: { fila: DocumentoIntegracion }) {
   return <span className="cont-etq acr">Pendiente</span>;
 }
 
-export function BandejaPorContabilizar({ empresaClave = 'MGG' }: { empresaClave?: string }) {
+export function BandejaPorContabilizar({ empresaClave = 'GT' }: { empresaClave?: string }) {
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const [moneda, setMoneda] = useMonedaVista();
@@ -103,6 +103,7 @@ export function BandejaPorContabilizar({ empresaClave = 'MGG' }: { empresaClave?
   const [elegidos, setElegidos] = useState<Set<string>>(new Set());
   const [pagina, setPagina] = useState(0);
   const [trabajando, setTrabajando] = useState(false);
+  const [sincronizando, setSincronizando] = useState(false);
   const [vistaPrevia, setVistaPrevia] = useState<DocumentoIntegracion | null>(null);
 
   const cargar = useCallback(async () => {
@@ -114,6 +115,22 @@ export function BandejaPorContabilizar({ empresaClave = 'MGG' }: { empresaClave?
   }, [filtro, empresaClave]);
   useEffect(() => { void cargar(); setElegidos(new Set()); setPagina(0); }, [cargar]);
 
+  async function sincronizarModulos() {
+    setSincronizando(true);
+    try {
+      const res = await sincronizarHechosOperativos(empresaClave);
+      toast(
+        `Sincronización completada: ${res.total} hechos analizados (${res.nuevos} registrados en bandeja contable).`,
+        'success'
+      );
+      await cargar();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Error al sincronizar hechos de otros módulos.', 'error');
+    } finally {
+      setSincronizando(false);
+    }
+  }
+
   const modulos = useMemo(() => [...new Set((filas ?? []).map((f) => f.integracion.origen_modulo))].sort(), [filas]);
   const visibles = useMemo(() => (filas ?? []).filter((f) => !modulo || f.integracion.origen_modulo === modulo), [filas, modulo]);
   const contabilizables = visibles.filter((f) => f.integracion.estado === 'pendiente' || f.integracion.estado === 'error');
@@ -123,7 +140,7 @@ export function BandejaPorContabilizar({ empresaClave = 'MGG' }: { empresaClave?
     if (!ids.length) return;
     setTrabajando(true);
     try {
-      const r = await contabilizarIntegraciones(ids, actor);
+      const r = await contabilizarIntegraciones(ids, actor, empresaClave);
       const desde = r.comprobantes[0]?.codigo;
       const hasta = r.comprobantes.at(-1)?.codigo;
       if (r.comprobantes.length) toast(`${r.comprobantes.length} comprobante(s) grabado(s)${desde ? `: ${desde}${hasta !== desde ? ` a ${hasta}` : ''}` : ''}.`, 'success');
@@ -148,7 +165,17 @@ export function BandejaPorContabilizar({ empresaClave = 'MGG' }: { empresaClave?
 
   return (
     <>
-      <div className="cont-barra">
+      <div className="cont-barra" style={{ flexWrap: 'wrap', gap: '0.5rem' }}>
+        <button
+          type="button"
+          className="btn btn-outline btn-sm"
+          disabled={sincronizando || trabajando}
+          onClick={() => void sincronizarModulos()}
+          title="Escanea Tesorería, Compras, Ventas e Inventario para traer pendientes a Contabilidad"
+        >
+          {sincronizando ? '⏳ Sincronizando…' : '🔄 Traer hechos de otros módulos'}
+        </button>
+        <span className="cont-sep" />
         <select className="select" value={filtro} onChange={(e) => setFiltro(e.target.value as FiltroEstado)} aria-label="Estado">
           <option value="por_contabilizar">Por contabilizar</option>
           <option value="contabilizado">Contabilizados</option>
@@ -299,7 +326,7 @@ function VistaPreviaComprobante({ fila, empresaClave, moneda, trabajando, onCerr
 
 const TEXTO_CENTRO: Record<ContReglaLinea['centro_fuente'], string> = { ninguno: '—', del_evento: 'El del documento', fijo: 'Fijo' };
 
-export function ReglasContabilizacion({ empresaClave = 'MGG' }: { empresaClave?: string } = {}) {
+export function ReglasContabilizacion({ empresaClave = 'GT' }: { empresaClave?: string }) {
   const cat = useCatalogo(empresaClave);
   const [reglas, setReglas] = useState<ReglaCompleta[] | null>(null);
   const [modulo, setModulo] = useState('');
@@ -372,7 +399,7 @@ export function ReglasContabilizacion({ empresaClave = 'MGG' }: { empresaClave?:
 
 /* ───────────── Mapeos ───────────── */
 
-export function MapeosVista({ empresaClave = 'MGG' }: { empresaClave?: string } = {}) {
+export function MapeosVista({ empresaClave = 'GT' }: { empresaClave?: string }) {
   const cat = useCatalogo(empresaClave);
   const [mapeos, setMapeos] = useState<ContMapeo[] | null>(null);
   useEffect(() => {

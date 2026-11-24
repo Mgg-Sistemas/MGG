@@ -62,20 +62,28 @@ export async function cargarImagenDesdeBlob(file: Blob): Promise<ImageBitmap | H
   });
 }
 
+export interface OpcionesComprimirImagen {
+  calidad?: number;
+  maximo?: number;
+}
+
 /** Devuelve la foto achicada en JPEG, o la original si no hace falta o no se pudo. */
-export async function comprimirImagen(file: File): Promise<File> {
+export async function comprimirImagen(file: File, opciones?: OpcionesComprimirImagen | number): Promise<File> {
   if (!convieneAchicar(file.type, file.size)) return file;
   if (typeof document === 'undefined') return file;
+  const opts = typeof opciones === 'object' && opciones !== null ? opciones : undefined;
   try {
     const img = await cargarImagenDesdeBlob(file);
-    const { ancho, alto } = medidasAchicadas(img.width, img.height);
+    const maxLado = opts?.maximo ?? LADO_MAXIMO;
+    const { ancho, alto } = medidasAchicadas(img.width, img.height, maxLado);
     const canvas = document.createElement('canvas');
     canvas.width = ancho; canvas.height = alto;
     const ctx = canvas.getContext('2d');
     if (!ctx) return file;
     ctx.drawImage(img, 0, 0, ancho, alto);
     if ('close' in img && typeof img.close === 'function') img.close();
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', CALIDAD_JPEG));
+    const calidad = opts?.calidad ?? CALIDAD_JPEG;
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/jpeg', calidad));
     if (!blob) return file;
     // Un WEBP se queda en JPEG aunque pese más: acá el objetivo no es el peso,
     // es que el PDF pueda dibujarlo.

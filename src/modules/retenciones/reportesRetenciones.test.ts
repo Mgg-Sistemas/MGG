@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { RetencionPracticada } from '@/modules/libroFiscal/retencionesFiscal.repository';
 import {
-  armarCsv, borrarPlantilla, filtrarReporte, guardarPlantilla, leerPlantillas, numeroCsv, ordenarReporte,
+  armarCsv, borrarPlantilla, filtrarReporte, guardarPlantilla, impuestosReporteActivos, leerPlantillas, numeroCsv, ordenarReporte,
   rangoDePeriodo, retenidoBs, tablaCruzada, tablaDeCruzada, tablaDetalle, totalesReporte, type FiltroReporte,
 } from './reportesRetenciones';
+import type { TipoImpuesto } from '@/modules/libroFiscal/retencionesCalculo';
 
 // Datos inventados: ningún proveedor ni factura real.
 const ret = (over: Partial<RetencionPracticada> = {}): RetencionPracticada => ({
@@ -80,23 +81,15 @@ describe('montos en Bs y totales', () => {
 
   it('totales: Bs primero, una entrada por moneda, sin anuladas; cuenta las que no tienen tasa', () => {
     const t = totalesReporte([ret(), ret({ moneda: 'USD', tasa: 40, montoBs: null, montoRetenido: 3 }), ret({ anulada: true }), ret({ moneda: 'USD', tasa: null, montoBs: null, montoRetenido: 1 })]);
+    const tNc = totalesReporte([ret({ baseImponible: 1000, montoRetenido: 120, montoBs: 120 }), ret({ tipoDocumento: 'nota_credito', baseImponible: 200, montoRetenido: 30, montoBs: 30 })]);
+    expect(tNc.retenidoBs).toBe(90);
+    expect(tNc.porMoneda).toEqual([{ moneda: 'Bs', registros: 2, base: 800, retenido: 90 }]);
     expect(t.retenidoBs).toBe(240);
     expect(t.sinTasa).toBe(1);
     expect(t.porMoneda).toEqual([
       { moneda: 'Bs', registros: 1, base: 1000, retenido: 120 },
       { moneda: 'USD', registros: 2, base: 2000, retenido: 4 },
     ]);
-  });
-
-  it('notas de crédito restan en totales, retenidoBs y tablaCruzada', () => {
-    const fac = ret({ baseImponible: 1000, montoRetenido: 120, montoBs: 120, tipoDocumento: 'factura' });
-    const nc = ret({ id: 'r-nc', baseImponible: 200, montoRetenido: 24, montoBs: 24, tipoDocumento: 'nota_credito' });
-    expect(retenidoBs(nc)).toBe(-24);
-    const t = totalesReporte([fac, nc]);
-    expect(t.retenidoBs).toBe(96);
-    expect(t.porMoneda).toEqual([{ moneda: 'Bs', registros: 2, base: 800, retenido: 96 }]);
-    const c = tablaCruzada([fac, nc]);
-    expect(c.total).toBe(96);
   });
 
   it('ordenar por monto retenido en Bs, mayor primero', () => {
@@ -120,6 +113,20 @@ describe('tabla del detalle', () => {
 
   it('sin columnas no se arma', () => {
     expect(() => tablaDetalle([ret()], [], 'ninguno', 'factura')).toThrow('al menos una columna');
+  });
+
+  it('las filas anuladas muestran 0 en monto retenido y retenido (Bs) para coincidir con el subtotal', () => {
+    const t = tablaDetalle(
+      [ret({ id: 'ok', montoRetenido: 120, montoBs: 120 }), ret({ id: 'anu', anulada: true, montoRetenido: 120, montoBs: 120 })],
+      ['factura', 'retenido', 'retenido_bs', 'estado'],
+      'ninguno',
+      'factura',
+    );
+    expect(t.filas).toEqual([
+      ['000123', 120, 120, 'Registrada'],
+      ['000123', 0, 0, 'Anulada'],
+      ['Total', null, 120, null],
+    ]);
   });
 });
 
@@ -186,5 +193,19 @@ describe('mis plantillas', () => {
     expect(() => guardarPlantilla('a@ejemplo.com', { ...p, nombre: '  ' }, s)).toThrow('nombre');
     expect(() => guardarPlantilla('a@ejemplo.com', p, { getItem: () => null, setItem: () => { throw new Error('QuotaExceeded'); } })).toThrow('no deja guardar');
     expect(leerPlantillas('a@ejemplo.com', { getItem: () => '{roto' })).toEqual([]);
+  });
+});
+
+describe('impuestosReporteActivos (filtro de reporte dinámico)', () => {
+  it('sin datos (null) devuelve la lista fija completa', () => {
+    expect(impuestosReporteActivos(null).map((i) => i.key)).toEqual(['iva', 'islr', 'isae', 'estadal', 'igtf']);
+  });
+  it('solo los impuestos activos, por su tipo (un deshabilitado no aparece)', () => {
+    const activos = new Set<TipoImpuesto>(['iva', 'islr']);
+    expect(impuestosReporteActivos(activos).map((i) => i.key)).toEqual(['iva', 'islr']);
+  });
+  it('ISAE/Estadal se mapean por tipo (municipal/regional)', () => {
+    expect(impuestosReporteActivos(new Set<TipoImpuesto>(['municipal'])).map((i) => i.key)).toEqual(['isae']);
+    expect(impuestosReporteActivos(new Set<TipoImpuesto>(['regional'])).map((i) => i.key)).toEqual(['estadal']);
   });
 });

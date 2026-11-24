@@ -11,6 +11,7 @@ import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { TIPO_DOCUMENTO_LABEL, type AdminRepo, type DocumentoEmpresa, type Empresa, type TipoDocumento } from './admin.repository';
+import { mensajeErrorSubidaAdmin } from './adminErrores';
 
 const TIPOS = Object.keys(TIPO_DOCUMENTO_LABEL) as TipoDocumento[];
 const fFecha = new Intl.DateTimeFormat('es-VE', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -42,14 +43,14 @@ export function DocumentosEmpresaModal({ repo, empresa, puedeEscribir = true, on
   useEffect(() => { void cargar(); }, [cargar]);
 
   async function subir(file: File) {
-    if (file.size > 25 * 1024 * 1024) { toast('El archivo no puede pasar de 25 MB.', 'error'); return; }
+    if (file.size > 150 * 1024 * 1024) { toast('El archivo supera el límite permitido de 150 MB.', 'error'); return; }
     setSubiendo(true);
     try {
       await repo.subirDocumento(empresa.clave, tipo, file);
-      toast(`«${file.name}» guardado.`, 'success');
+      toast(`«${file.name}» guardado y optimizado.`, 'success');
       await cargar();
     } catch (e) {
-      toast(`No se pudo subir: ${e instanceof Error ? e.message : 'error'}`, 'error');
+      toast(mensajeErrorSubidaAdmin(e, file.name), 'error');
     } finally {
       setSubiendo(false);
       if (fileRef.current) fileRef.current.value = '';
@@ -91,7 +92,7 @@ export function DocumentosEmpresaModal({ repo, empresa, puedeEscribir = true, on
           </button>
         </div>
       )}
-      <p className="muted hint" style={{ marginTop: 0, fontSize: '.78rem' }}>PDF o imagen, hasta 25 MB. Se guardan en privado; la vista previa usa un enlace temporal.</p>
+      <p className="muted hint" style={{ marginTop: 0, fontSize: '.78rem' }}>PDF o imagen, hasta 150 MB. Se optimizan automáticamente en el navegador para cuidar el almacenamiento. La vista previa usa un enlace temporal seguro.</p>
 
       {error ? (
         <div className="adm-aviso" style={{ marginTop: '.5rem' }}>

@@ -18,7 +18,7 @@ function consulta(tabla: string) {
 
 vi.mock('@/shared/lib/supabase', () => ({ supabase: { from: (t: string) => consulta(t), rpc: vi.fn() } }));
 
-import { faltaEnDatosFactura, puedeOfrecerBorrar } from './facturaDocumento';
+import { faltaEnDatosFactura, puedeOfrecerBorrar, faltaEnTipoDocumentoRetencion, faltaEnFechaRetencion, faltaEnBaseImponible, faltaEnTotalFactura, avisoRetenidoSuperaBase } from './facturaDocumento';
 import { borrarFacturaLibre } from './retencionFacturas.repository';
 import { errorRetencion } from './erroresRetencion';
 
@@ -46,6 +46,47 @@ describe('datos fiscales de la factura (P03)', () => {
     expect(faltaEnDatosFactura({ ...ok, fecha: '2026-02-30' }, hoy)).toMatch(/fecha/);
     expect(faltaEnDatosFactura({ ...ok, fecha: '1999-12-31' }, hoy)).toMatch(/2000/);
     expect(faltaEnDatosFactura({ ...ok, fecha: '2026-10-21' }, hoy)).toMatch(/futura/);
+  });
+
+  it('solo se retiene sobre factura, nota de crédito o nota de débito', () => {
+    expect(faltaEnTipoDocumentoRetencion('factura')).toBeNull();
+    expect(faltaEnTipoDocumentoRetencion('nota_credito')).toBeNull();
+    expect(faltaEnTipoDocumentoRetencion('nota_debito')).toBeNull();
+    expect(faltaEnTipoDocumentoRetencion(null)).toBeNull();       // vacío = factura
+    expect(faltaEnTipoDocumentoRetencion(undefined)).toBeNull();
+    expect(faltaEnTipoDocumentoRetencion('nota_entrega')).toMatch(/factura|nota de crédito|nota de débito/i);
+    expect(faltaEnTipoDocumentoRetencion('comprobante_pago')).toMatch(/no sobre/i);
+    expect(faltaEnTipoDocumentoRetencion('cualquier_cosa')).not.toBeNull();
+  });
+
+  it('fecha de la retención: válida, no anterior a la factura y no futura', () => {
+    expect(faltaEnFechaRetencion('2026-10-19', '2026-10-19', hoy)).toBeNull();
+    expect(faltaEnFechaRetencion('2026-10-20', '2026-10-19', hoy)).toBeNull();      // posterior a la factura, ok
+    expect(faltaEnFechaRetencion('', '2026-10-19', hoy)).toMatch(/fecha de la retención/);
+    expect(faltaEnFechaRetencion('2026-02-30', '2026-10-19', hoy)).toMatch(/fecha de la retención/);
+    expect(faltaEnFechaRetencion('2026-10-18', '2026-10-19', hoy)).toMatch(/anterior a la de la factura/);
+    expect(faltaEnFechaRetencion('2026-10-21', '2026-10-19', hoy)).toMatch(/futura/);
+    expect(faltaEnFechaRetencion('2026-10-19', null, hoy)).toBeNull();              // sin factura: solo formato y no futura
+  });
+
+  it('base y total no pueden ser negativos (ni NaN); null/válidos pasan', () => {
+    expect(faltaEnBaseImponible(0)).toBeNull();
+    expect(faltaEnBaseImponible(1000)).toBeNull();
+    expect(faltaEnBaseImponible(null)).toBeNull();
+    expect(faltaEnBaseImponible(-1)).toMatch(/base imponible no puede ser negativa/);
+    expect(faltaEnBaseImponible(NaN)).toMatch(/base imponible/);
+    // C-d: el rótulo del campo pasó a «Base imponible» (sigue siendo el total internamente).
+    expect(faltaEnTotalFactura(0)).toBeNull();
+    expect(faltaEnTotalFactura(-0.01)).toMatch(/base imponible no puede ser negativa/);
+    expect(faltaEnTotalFactura(NaN)).toMatch(/base imponible/);
+  });
+
+  it('C8: aviso NO bloqueante si el retenido supera la base o el IVA', () => {
+    expect(avisoRetenidoSuperaBase(120, 1000, 160)).toBeNull();          // normal
+    expect(avisoRetenidoSuperaBase(0, 1000, 160)).toBeNull();            // sin retenido
+    expect(avisoRetenidoSuperaBase(1200, 1000, 160)).toMatch(/supera la base o el IVA/);  // > base
+    expect(avisoRetenidoSuperaBase(170, 10000, 160)).toMatch(/supera la base o el IVA/);  // > IVA
+    expect(avisoRetenidoSuperaBase(160, 1000, 0)).toBeNull();            // sin IVA de referencia
   });
 
   it('«Borrar» se ofrece solo sin líneas de retención', () => {

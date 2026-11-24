@@ -9,10 +9,8 @@
    Archivos en el bucket `compras-oc` (mismo de factura/retención de OC).
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { Orden } from '@/shared/lib/types';
+import type { EstadoOrden, Orden } from '@/shared/lib/types';
 import { fechaDesdeAgenteRetencion } from '@/modules/libroFiscal/agenteCondiciones.repository';
-import { getConfigRetencion } from '@/modules/libroFiscal/retencionesFiscal.repository';
-import { estatusKanbanHabilitados, ordenTieneEstatusRetencion, ESTATUS_KANBAN_DEFECTO } from './retencionesKanban';
 
 const TABLE = 'ordenes';
 const BUCKET = 'compras-oc';
@@ -35,8 +33,11 @@ export interface RetencionItem {
   proveedorNombre: string;
 }
 
-async function mapProveedores(): Promise<Map<string, string>> {
-  const { data } = await supabase.from('proveedores').select('id, razon_social');
+async function mapProveedores(ids?: string[]): Promise<Map<string, string>> {
+  const unicos = ids ? Array.from(new Set(ids.filter(Boolean))) : [];
+  if (ids && unicos.length === 0) return new Map();
+  const q = supabase.from('proveedores').select('id, razon_social');
+  const { data } = unicos.length > 0 ? await q.in('id', unicos) : await q;
   return new Map((data ?? []).map((p) => [p.id as string, p.razon_social as string]));
 }
 
@@ -46,102 +47,88 @@ async function mapProveedores(): Promise<Map<string, string>> {
  */
 export const FECHA_PERMISO_RETENCION = '2026-10-01';
 
-/** Comprueba si una orden corresponde al período con autorización de retención y estatus elegible. */
+/**
+ * Estatus de compras que por definición contable y tributaria nunca deben retenerse:
+ * Órdenes canceladas, desistidas por proveedor o rechazadas.
+ */
+export const ESTADOS_NUNCA_RETENCION: readonly EstadoOrden[] = ['cancelada', 'desistida_proveedor', 'rechazada'];
+
+/** Comprueba si una orden corresponde al período con autorización de retención (a partir de la fecha de designación)
+ *  y si su estado de compras es válido para gestionar retención. */
 export function ordenAplicaRetencion(
   o: Orden,
   fechaCorte: string = FECHA_PERMISO_RETENCION,
-  estatusPermitidos: string[] = ESTATUS_KANBAN_DEFECTO,
+  estadosPermitidos?: EstadoOrden[],
 ): boolean {
-  if (o.estado && !ordenTieneEstatusRetencion(o.estado, estatusPermitidos)) {
+  if (ESTADOS_NUNCA_RETENCION.includes(o.estado)) return false;
+  if (estadosPermitidos && estadosPermitidos.length > 0 && !estadosPermitidos.includes(o.estado)) {
     return false;
   }
   const f = (o.oc_emitida_en || o.oc_creada_en || o.created_at || '').slice(0, 10);
   return f >= fechaCorte;
 }
 
-async function queryOrdenesPendientes() {
-  const base = () => supabase.from(TABLE).select('*')
-    .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
-    .not('estado', 'in', '("cancelada","anulada","desistida_proveedor")')
-    .gte('created_at', '2026-09-25T00:00:00Z')
-    .order('created_at', { ascending: true });
-
-  const res = await base().or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null,iva.gt.0,retencion_monto.gt.0');
-  if (res.error && /factura_recepcion_path/i.test(res.error.message)) {
-    return base().or('comprobante_tipo.eq.factura,iva.gt.0,retencion_monto.gt.0');
-  }
-  return res;
+/** Nuevo flujo (30/10/2026): la OC que se retiene DESPUÉS de pagar llega a Retenciones
+ *  recién cuando Tesorería la paga; mientras espera el pago no se muestra aquí. */
+export function esperaPagoParaRetener(o: Pick<Orden, 'estado' | 'retencion_momento'>): boolean {
+  return ((o.retencion_momento as string) === 'despues_de_pagar' || (o.retencion_momento as string) === 'despues') && (o.estado === 'confirmada_metodo' || o.estado === 'oc_aprobada');
 }
 
-async function queryOrdenesHechas() {
-  const base = () => supabase.from(TABLE).select('*')
-    .eq('retencion_finalizada', true)
-    .not('estado', 'in', '("cancelada","anulada","desistida_proveedor")')
-    .gte('created_at', '2026-09-25T00:00:00Z')
-    .order('retencion_finalizada_en', { ascending: false });
-
-  const res = await base().or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null,iva.gt.0,retencion_monto.gt.0');
-  if (res.error && /factura_recepcion_path/i.test(res.error.message)) {
-    return base().or('comprobante_tipo.eq.factura,iva.gt.0,retencion_monto.gt.0');
-  }
-  return res;
-}
-
-async function queryConteoPendientes() {
-  const base = () => supabase.from(TABLE)
-    .select('id, created_at, oc_creada_en, oc_emitida_en, estado')
-    .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
-    .not('estado', 'in', '("cancelada","anulada","desistida_proveedor")')
-    .gte('created_at', '2026-09-25T00:00:00Z');
-
-  const res = await base().or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null,iva.gt.0,retencion_monto.gt.0');
-  if (res.error && /factura_recepcion_path/i.test(res.error.message)) {
-    return base().or('comprobante_tipo.eq.factura,iva.gt.0,retencion_monto.gt.0');
-  }
-  return res;
+export function labelRetencionMomento(v?: string | null): string {
+  return v === 'antes_de_pagar' ? '🔻 Antes de pagar (Tesorería paga el neto)'
+    : v === 'despues_de_pagar' ? '🔺 Después de pagar (Tesorería paga completo)'
+    : '';
 }
 
 /** Retenciones por realizar: OC con soporte Factura O con factura del proveedor cargada
- *  (al finalizar la OC), aún sin finalizar la retención. Solo a partir de la vigencia del régimen
- *  y con estatus del kanban permitido. */
-export async function listRetencionesPendientes(): Promise<RetencionItem[]> {
-  const [desdeAgente, { data, error }, pm, config] = await Promise.all([
+ *  (al finalizar la OC), aún sin finalizar la retención. Excluye órdenes canceladas/desistidas
+ *  y filtra por los estados del Kanban configurados. */
+export async function listRetencionesPendientes(estadosPermitidos?: EstadoOrden[]): Promise<RetencionItem[]> {
+  const [desdeAgente, { data, error }] = await Promise.all([
     fechaDesdeAgenteRetencion(),
-    queryOrdenesPendientes(),
-    mapProveedores(),
-    getConfigRetencion().catch(() => null),
+    supabase.from(TABLE).select('*')
+      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
+      .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
+      .not('estado', 'in', `(${ESTADOS_NUNCA_RETENCION.join(',')})`)
+      .gte('created_at', '2026-09-25T00:00:00Z')
+      .order('created_at', { ascending: true }),
   ]);
   if (error) throw error;
-  const permitidos = estatusKanbanHabilitados(config?.estatusKanbanRetencion);
-  return (data ?? [])
-    .filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente, permitidos))
+  const filtradas = (data ?? []).filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente, estadosPermitidos) && !esperaPagoParaRetener(o as Orden));
+  const pm = await mapProveedores(filtradas.map((o) => (o as Orden).proveedor_id as string));
+  return filtradas
     .map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
 }
 
 /** Retenciones ya finalizadas (comprobantes cargados). Solo a partir de la vigencia del régimen. */
 export async function listRetencionesHechas(): Promise<RetencionItem[]> {
-  const [desdeAgente, { data, error }, pm, config] = await Promise.all([
+  const [desdeAgente, { data, error }] = await Promise.all([
     fechaDesdeAgenteRetencion(),
-    queryOrdenesHechas(),
-    mapProveedores(),
-    getConfigRetencion().catch(() => null),
+    supabase.from(TABLE).select('*')
+      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
+      .eq('retencion_finalizada', true)
+      .gte('created_at', '2026-09-25T00:00:00Z')
+      .order('retencion_finalizada_en', { ascending: false }),
   ]);
   if (error) throw error;
-  const permitidos = estatusKanbanHabilitados(config?.estatusKanbanRetencion);
-  return (data ?? [])
-    .filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente, permitidos))
+  const filtradas = (data ?? []).filter((o) => ordenAplicaRetencion(o as Orden, desdeAgente));
+  const pm = await mapProveedores(filtradas.map((o) => (o as Orden).proveedor_id as string));
+  return filtradas
     .map((o) => ({ orden: o as Orden, proveedorNombre: ((o as Orden).proveedor_id && pm.get((o as Orden).proveedor_id as string)) || '—' }));
 }
 
-export async function contarRetencionesPendientes(): Promise<number> {
-  const [desdeAgente, { data, error }, config] = await Promise.all([
+export async function contarRetencionesPendientes(estadosPermitidos?: EstadoOrden[]): Promise<number> {
+  const [desdeAgente, { data, error }] = await Promise.all([
     fechaDesdeAgenteRetencion(),
-    queryConteoPendientes(),
-    getConfigRetencion().catch(() => null),
+    supabase.from(TABLE)
+      .select('id, created_at, oc_creada_en, oc_emitida_en, estado, retencion_momento')
+      .or('comprobante_tipo.eq.factura,factura_recepcion_path.not.is.null')
+      .or('retencion_finalizada.is.null,retencion_finalizada.eq.false')
+      .not('estado', 'in', `(${ESTADOS_NUNCA_RETENCION.join(',')})`)
+      .gte('created_at', '2026-09-25T00:00:00Z'),
   ]);
   if (error) throw error;
-  const permitidos = estatusKanbanHabilitados(config?.estatusKanbanRetencion);
-  return (data ?? []).filter((o) => ordenAplicaRetencion(o as unknown as Orden, desdeAgente, permitidos)).length;
+  return (data ?? []).filter((o) => ordenAplicaRetencion(o as unknown as Orden, desdeAgente, estadosPermitidos) && !esperaPagoParaRetener(o as unknown as Orden)).length;
 }
 
 async function subirComprobante(ordenId: string, tipo: TipoRetencion, file: File): Promise<{ path: string; nombre: string }> {
@@ -169,9 +156,11 @@ export async function finalizarRetencion(input: {
   orden: Orden;
   archivos: Partial<Record<TipoRetencion, File>>;
   actor: string;
+  /** Permite finalizar sin adjuntar archivos nuevos cuando las retenciones ya constan en el Libro Fiscal o como «no aplica». */
+  permitirSinArchivo?: boolean;
 }): Promise<void> {
   const entries = (Object.entries(input.archivos) as [TipoRetencion, File | undefined][]).filter(([, f]) => !!f);
-  if (!entries.length) throw new Error('Carga al menos un comprobante de retención (IVA, ISLR o Municipal).');
+  if (!entries.length && !input.permitirSinArchivo) throw new Error('Carga al menos un comprobante de retención (IVA, ISLR o Municipal).');
   for (const [, f] of entries) {
     const file = f as File;
     if (file.type && file.type !== 'application/pdf' && !file.type.startsWith('image/')) {

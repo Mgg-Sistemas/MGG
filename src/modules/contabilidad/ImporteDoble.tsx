@@ -15,12 +15,13 @@
 import { useEffect, useState } from 'react';
 import { formatoSaldo, type MonedaInforme } from './logica/reportes';
 
-const CLAVE = 'mgg.contabilidad.moneda';
-const EVENTO = 'mgg:contabilidad-moneda';
+const CLAVE = 'gt.contabilidad.moneda';
+const EVENTO = 'gt:contabilidad-moneda';
 
 function leerMoneda(): MonedaInforme {
   try {
-    return localStorage.getItem(CLAVE) === 'USD' ? 'USD' : 'VES';
+    const val = localStorage.getItem(CLAVE) || localStorage.getItem('mgg.contabilidad.moneda');
+    return val === 'USD' ? 'USD' : 'VES';
   } catch {
     return 'VES';
   }

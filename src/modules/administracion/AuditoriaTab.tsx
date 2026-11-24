@@ -5,7 +5,8 @@
    ============================================================ */
 
 import { useMemo, useState } from 'react';
-import type { DocumentoEmpresa, Empresa } from './admin.repository';
+import { useQuien } from '@/shared/lib/directorioUsuarios';
+import { resolverActorVisible, type DocumentoEmpresa, type Empresa } from './admin.repository';
 import { extraerHistorialGlobalDocumentos } from './administracionCentrosResponsables';
 
 interface Props {
@@ -24,6 +25,7 @@ export function AuditoriaTab({
   empresas,
   empresaClave,
 }: Props) {
+  const quien = useQuien();
   const [busqueda, setBusqueda] = useState('');
   const [filtroAccion, setFiltroAccion] = useState<string>('todas');
   const [empresaFiltro, setEmpresaFiltro] = useState<string>(empresaClave || 'todas');
@@ -234,13 +236,22 @@ export function AuditoriaTab({
                   const badgeColor = esRenovacion ? '#10b981' : esCreacion ? '#38bdf8' : '#f59e0b';
                   const badgeBg = esRenovacion ? 'rgba(16,185,129,0.12)' : esCreacion ? 'rgba(56,189,248,0.12)' : 'rgba(245,158,11,0.12)';
 
+                  const actor = resolverActorVisible(h.actor, quien);
+
                   return (
                     <tr key={h.id}>
                       <td className="mono" style={{ fontSize: '.74rem', whiteSpace: 'nowrap' }}>
                         {fFechaHora.format(new Date(h.fecha))}
                       </td>
                       <td>
-                        <strong style={{ color: '#ff8a00', fontSize: '.82rem' }}>👤 {h.actor}</strong>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                          <strong style={{ color: '#ff8a00', fontSize: '.84rem' }}>👤 {actor.nombre}</strong>
+                          {actor.correo && (
+                            <span className="muted hint mono" style={{ fontSize: '.68rem', opacity: 0.75 }}>
+                              {actor.correo}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td>
                         <div>

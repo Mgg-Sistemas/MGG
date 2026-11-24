@@ -166,7 +166,12 @@ export function valoresDeForm(paso: number, operacion: string, f: FormPaso): { v
     }
     case 'retener_todo': v = {}; break;
     case 'topes': {
-      if (f.minimo.trim()) { const m = leer(f.minimo, 'el mínimo'); if (esError(m)) return m; v.minimo = m; }
+      if (f.minimo.trim()) {
+        const m = leer(f.minimo, 'el mínimo');
+        if (esError(m)) return m;
+        if (m < 0) return { error: 'El mínimo no puede ser negativo.' };
+        v.minimo = m;
+      }
       if (f.maximo) v.maximo = f.maximo;
       break;
     }

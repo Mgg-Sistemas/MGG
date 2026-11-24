@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Retenciones · Sonido distintivo para facturas
+   Golden Touch · Retenciones · Sonido distintivo para facturas
    (Buzón móvil y cambios de estatus)
 
    Sonido exclusivo para el módulo de Retenciones, diferente al
@@ -7,7 +7,7 @@
    Generado con Web Audio API puro, sin librerías externas.
    ============================================================ */
 
-const PREF_SONIDO_RETENCIONES = 'mgg.retenciones.sonido_notif';
+const PREF_SONIDO_RETENCIONES = 'gt.retenciones.sonido_notif';
 
 let audioCtx: AudioContext | null = null;
 let _sonidoHabilitadoMemoria = true;
@@ -31,7 +31,7 @@ function campanilla(frecuencia: number, duracionMs: number, ganancia: number, re
   try {
     const osc = c.createOscillator();
     const gain = c.createGain();
-    osc.type = 'triangle'; // Tono cálido y distintivo tipo timbre/chime
+    osc.type = 'triangle'; // Tono más cálido y distintivo tipo timbre/chime
     osc.frequency.value = frecuencia;
 
     const t0 = c.currentTime + retrasoMs / 1000;
@@ -88,4 +88,3 @@ export function reproducirSonidoEstatusFactura(): void {
   campanilla(698.46, 220, 0.12, 0);   // Fa5
   campanilla(880.00, 300, 0.14, 100); // La5
 }
-

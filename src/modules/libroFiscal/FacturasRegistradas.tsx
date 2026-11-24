@@ -75,7 +75,7 @@ export function FacturasRegistradas({ puedeRetener, onRetener, onClose }: {
                     <td>{f.pendientes.length ? f.pendientes.map((k) => <span key={k} className="badge" style={{ marginRight: '.2rem' }}>{rotuloImpuesto(k)}</span>) : <span className="muted">Nada</span>}</td>
                     <td>{noAplica.length ? noAplica.join(', ') : <span className="muted">—</span>}</td>
                     <td style={{ textAlign: 'right' }}>
-                      {puedeRetener && f.retenible && <button type="button" className="btn btn-sm btn-primary" onClick={() => onRetener(f)}>Retener</button>}
+                      {puedeRetener && f.retenible && <button type="button" className="btn btn-sm btn-primary" title="Agregar impuestos a esta factura ya registrada" onClick={() => onRetener(f)}>+ Retener aquí</button>}
                     </td>
                   </tr>
                 );

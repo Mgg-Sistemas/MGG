@@ -50,12 +50,20 @@ export function ParametrosClasificaciones({ puedeEditar, impuestoClave }: { pued
       setSelId((id) => (id && visibles.some((k) => k.id === id) ? id : visibles[0]?.id ?? null));
     } catch (e) { setError(mensaje(e, 'No se pudieron leer las clasificaciones.')); }
   }, [impuestoClave]);
-  const cargarCodigos = useCallback(async () => {
-    if (!selId) { setCodigos([]); return; }
-    try { setCodigos(await listCodigos(selId)); } catch (e) { setError(mensaje(e, 'No se pudieron leer los códigos.')); }
+  const cargarCodigos = useCallback(async (idActual: string | null = selId) => {
+    if (!idActual) { setCodigos([]); return; }
+    try { setCodigos(await listCodigos(idActual)); } catch (e) { setError(mensaje(e, 'No se pudieron leer los códigos.')); }
   }, [selId]);
   useEffect(() => { void cargarClasificaciones(); }, [cargarClasificaciones]);
-  useEffect(() => { setCodigos(null); void cargarCodigos(); }, [cargarCodigos]);
+  useEffect(() => {
+    let cancelado = false;
+    if (!selId) { setCodigos([]); return; }
+    setCodigos(null);
+    listCodigos(selId)
+      .then((xs) => { if (!cancelado) setCodigos(xs); })
+      .catch((e) => { if (!cancelado) setError(mensaje(e, 'No se pudieron leer los códigos.')); });
+    return () => { cancelado = true; };
+  }, [selId]);
   useRealtime(['retencion_clasificaciones'], () => { void cargarClasificaciones(); });
   useRealtime(['retencion_clasificacion_codigos', 'retencion_clasificacion_valores'], () => { void cargarCodigos(); });
 

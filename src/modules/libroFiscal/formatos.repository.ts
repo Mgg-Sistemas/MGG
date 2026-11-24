@@ -40,45 +40,21 @@ export interface FormatoGuardado extends FormatoParaAplicar {
 const texto = (v: unknown) => (v == null || String(v).trim() === '' ? null : String(v));
 const FECHA = /^\d{4}-\d{2}-\d{2}$/;
 
-function esColumnaInexistente(e: { code?: string; message?: string } | null | undefined): boolean {
-  if (!e) return false;
-  if (e.code === '42703' || e.code === 'PGRST204') return true;
-  return /column .* does not exist|could not find the .* column/i.test(e.message ?? '');
-}
-
 export function aFormato(r: Record<string, unknown>): FormatoGuardado {
-  const def = (r.definicion && typeof r.definicion === 'object' ? r.definicion : {}) as Record<string, unknown>;
-  const ori = r.orientacion ?? def.orientacion;
-  const cols = r.columnas ?? def.columnas;
   return {
-    id: String(r.id),
-    impuestoClave: texto(r.impuesto_clave) ?? (r.impuesto != null ? String(r.impuesto).toUpperCase() : null),
-    documento: String(r.documento ?? DOCUMENTO_COMPROBANTE),
-    desde: String(r.desde ?? r.vigente_desde ?? ''),
-    hasta: texto(r.hasta ?? r.vigente_hasta),
-    orientacion: ori === 'horizontal' ? 'horizontal' : 'vertical',
-    textos: ((r.textos ?? def.textos) as Record<string, string> | null) ?? null,
-    rotulos: ((r.rotulos ?? def.rotulos) as Record<string, string> | null) ?? null,
-    columnas: Array.isArray(cols) ? (cols as ColumnaFormato[]) : null,
-    deFabrica: r.de_fabrica === true,
-    motivo: String(r.motivo ?? ''),
-    fuente: texto(r.fuente),
-    actualizadoEn: texto(r.actualizado_en),
-    actualizadoPor: texto(r.actualizado_por),
+    id: String(r.id), impuestoClave: texto(r.impuesto_clave), documento: String(r.documento ?? DOCUMENTO_COMPROBANTE),
+    desde: String(r.desde ?? ''), hasta: texto(r.hasta), orientacion: r.orientacion === 'vertical' ? 'vertical' : 'horizontal',
+    textos: (r.textos as Record<string, string> | null) ?? null, rotulos: (r.rotulos as Record<string, string> | null) ?? null,
+    columnas: Array.isArray(r.columnas) ? (r.columnas as ColumnaFormato[]) : null,
+    deFabrica: r.de_fabrica === true, motivo: String(r.motivo ?? ''), fuente: texto(r.fuente),
+    actualizadoEn: texto(r.actualizado_en), actualizadoPor: texto(r.actualizado_por),
   };
 }
 
 /** Todas las versiones de los formatos (para la vigente y el historial), las más nuevas primero. */
 export async function listFormatos(documento = DOCUMENTO_COMPROBANTE): Promise<FormatoGuardado[]> {
   const { data, error } = await supabase.from(T_FORMATOS).select('*').eq('documento', documento).order('desde', { ascending: false });
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const alt = await supabase.from(T_FORMATOS).select('*').eq('documento', documento).order('vigente_desde', { ascending: false });
-      if (alt.error) throw errorRetencion(alt.error, 'No se pudieron leer los formatos de impresión.');
-      return (alt.data ?? []).map((r) => aFormato(r as Record<string, unknown>));
-    }
-    throw errorRetencion(error, 'No se pudieron leer los formatos de impresión.');
-  }
+  if (error) throw errorRetencion(error, 'No se pudieron leer los formatos de impresión.');
   return (data ?? []).map((r) => aFormato(r as Record<string, unknown>));
 }
 
@@ -138,27 +114,10 @@ const exigir = (data: unknown, que: string) => {
 export async function nuevaVersionFormato(impuestoClave: string | null, documento: string, desde: string, motivo: string, c: ContenidoFormato): Promise<string> {
   const falta = faltaEnFormato({ desde, motivo, columnas: c.columnas });
   if (falta) throw new Error(falta);
-  const cont = filaContenido(c);
   const { data, error } = await supabase.from(T_FORMATOS).insert({
-    impuesto_clave: impuestoClave, documento, desde, motivo: motivo.trim(), ...cont,
+    impuesto_clave: impuestoClave, documento, desde, motivo: motivo.trim(), ...filaContenido(c),
   }).select('id');
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const { fuente, ...def } = cont;
-      const alt = await supabase.from(T_FORMATOS).insert({
-        impuesto: (impuestoClave ?? 'iva').toLowerCase(),
-        documento,
-        vigente_desde: desde,
-        motivo: motivo.trim(),
-        fuente: fuente ?? null,
-        de_fabrica: false,
-        definicion: def,
-      }).select('id');
-      if (alt.error) throw errorRetencion(alt.error, 'No se pudo guardar la versión nueva del formato.');
-      return exigir(alt.data, 'el formato');
-    }
-    throw errorRetencion(error, 'No se pudo guardar la versión nueva del formato.');
-  }
+  if (error) throw errorRetencion(error, 'No se pudo guardar la versión nueva del formato.');
   return exigir(data, 'el formato');
 }
 
@@ -166,23 +125,8 @@ export async function nuevaVersionFormato(impuestoClave: string | null, document
 export async function corregirFormato(id: string, desde: string, motivo: string, c: ContenidoFormato): Promise<void> {
   const falta = faltaEnFormato({ desde, motivo, columnas: c.columnas });
   if (falta) throw new Error(falta);
-  const cont = filaContenido(c);
-  const { data, error } = await supabase.from(T_FORMATOS).update({ motivo: motivo.trim(), de_fabrica: false, ...cont }).eq('id', id).select('id');
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const { fuente, ...def } = cont;
-      const alt = await supabase.from(T_FORMATOS).update({
-        motivo: motivo.trim(),
-        fuente: fuente ?? null,
-        de_fabrica: false,
-        definicion: def,
-      }).eq('id', id).select('id');
-      if (alt.error) throw errorRetencion(alt.error, 'No se pudo corregir el formato.');
-      exigir(alt.data, 'el formato');
-      return;
-    }
-    throw errorRetencion(error, 'No se pudo corregir el formato.');
-  }
+  const { data, error } = await supabase.from(T_FORMATOS).update({ motivo: motivo.trim(), de_fabrica: false, ...filaContenido(c) }).eq('id', id).select('id');
+  if (error) throw errorRetencion(error, 'No se pudo corregir el formato.');
   exigir(data, 'el formato');
 }
 
@@ -193,20 +137,6 @@ export async function volverAFabrica(impuestoClave: string | null, documento: st
   const { data, error } = await supabase.from(T_FORMATOS).insert({
     impuesto_clave: impuestoClave, documento, desde, motivo: motivo.trim(), de_fabrica: true,
   }).select('id');
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const alt = await supabase.from(T_FORMATOS).insert({
-        impuesto: (impuestoClave ?? 'iva').toLowerCase(),
-        documento,
-        vigente_desde: desde,
-        motivo: motivo.trim(),
-        de_fabrica: true,
-        definicion: {},
-      }).select('id');
-      if (alt.error) throw errorRetencion(alt.error, 'No se pudo volver al formato de fábrica.');
-      return exigir(alt.data, 'el formato');
-    }
-    throw errorRetencion(error, 'No se pudo volver al formato de fábrica.');
-  }
+  if (error) throw errorRetencion(error, 'No se pudo volver al formato de fábrica.');
   return exigir(data, 'el formato');
 }

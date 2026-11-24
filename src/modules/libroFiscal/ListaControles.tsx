@@ -99,12 +99,14 @@ export function BarraLista({
   );
 }
 
-export function Paginador<T>({ pagina, tam, unidad, onPagina, onTam }: {
+export function Paginador<T>({ pagina, tam, unidad, onPagina, onTam, tamanos = TAMANOS_PAGINA }: {
   pagina: Pagina<T>;
   tam: number;
   unidad: string;
   onPagina: (p: number) => void;
   onTam: (t: number) => void;
+  /** Opciones del selector de filas (12/11/2026: Conciliación arranca en 10). */
+  tamanos?: readonly number[];
 }) {
   const { pag, paginas, desde, hasta, total } = pagina;
   const [ir, setIr] = useState('');
@@ -155,11 +157,11 @@ export function Paginador<T>({ pagina, tam, unidad, onPagina, onTam }: {
           {aviso && <small className="lf-pag-aviso" role="alert">{aviso}</small>}
         </span>
       )}
-      {total > TAMANOS_PAGINA[0] && (
+      {total > tamanos[0] && (
         <label className="lf-pag-tam">
           <span>Filas</span>
           <select className="select" value={tam} aria-label="Filas por página" onChange={(e) => onTam(Number(e.target.value))}>
-            {TAMANOS_PAGINA.map((x) => <option key={x} value={x}>{x}</option>)}
+            {tamanos.map((x) => <option key={x} value={x}>{x}</option>)}
           </select>
         </label>
       )}

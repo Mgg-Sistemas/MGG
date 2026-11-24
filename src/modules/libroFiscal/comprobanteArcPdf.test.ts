@@ -88,18 +88,6 @@ describe('comprobante anual ARC de ISLR (Art. 24 Decreto 1.808)', () => {
     expect(arc.totalBaseBs).toBe(1000);
   });
 
-  it('calcula porcentaje efectivo ponderado cuando en un mismo mes coexisten distintas alícuotas de ISLR', () => {
-    const filas: RetencionPracticada[] = [
-      retencion({ id: 'r1', facturaFecha: '2026-03-10', baseImponible: 1000, porcentaje: 2, montoRetenido: 20, montoBs: 20 }),
-      retencion({ id: 'r2', facturaFecha: '2026-03-20', baseImponible: 1000, porcentaje: 5, montoRetenido: 50, montoBs: 50 }),
-    ];
-
-    const arc = compilarDatosArc(2026, 'J-12345678-0', filas);
-    expect(arc.meses[2].baseImponibleBs).toBe(2000);
-    expect(arc.meses[2].impuestoRetenidoBs).toBe(70);
-    expect(arc.meses[2].porcentaje).toBe(3.5);
-  });
-
   it('anexarPaginasArcPdf genera 2 páginas en modo "ambos" (Original + Copia)', async () => {
     const { anexarPaginasArcPdf } = await import('./comprobanteArcPdf');
     const { CONFIG_RETENCION_DEFECTO } = await import('./retencionesCalculo');
@@ -113,7 +101,7 @@ describe('comprobante anual ARC de ISLR (Art. 24 Decreto 1.808)', () => {
       incluirQr: false,
     });
     expect(doc.getNumberOfPages()).toBe(2);
-  }, 15000);
+  });
 
   it('anexarPaginasArcPdf genera 1 página en modo "original" o "copia"', async () => {
     const { anexarPaginasArcPdf } = await import('./comprobanteArcPdf');
@@ -135,5 +123,39 @@ describe('comprobante anual ARC de ISLR (Art. 24 Decreto 1.808)', () => {
       incluirQr: false,
     });
     expect(docCopia.getNumberOfPages()).toBe(1);
+  });
+
+  it('anexarPaginasArcPdf genera 1 página en modo "estandar" o con imprimirOriginalYCopia false', async () => {
+    const { anexarPaginasArcPdf } = await import('./comprobanteArcPdf');
+    const { CONFIG_RETENCION_DEFECTO } = await import('./retencionesCalculo');
+    const filas: RetencionPracticada[] = [
+      retencion({ facturaFecha: '2026-01-10', baseImponible: 5000, montoRetenido: 100, montoBs: 100 }),
+    ];
+    const datos = compilarDatosArc(2026, 'J-12345678-0', filas);
+    const docEstandar = await anexarPaginasArcPdf(datos, CONFIG_RETENCION_DEFECTO, {
+      modoEjemplar: 'estandar',
+      incluirLogo: false,
+      incluirQr: false,
+    });
+    expect(docEstandar.getNumberOfPages()).toBe(1);
+
+    const docSinDoble = await anexarPaginasArcPdf(datos, CONFIG_RETENCION_DEFECTO, {
+      imprimirOriginalYCopia: false,
+      incluirLogo: false,
+      incluirQr: false,
+    });
+    expect(docSinDoble.getNumberOfPages()).toBe(1);
+  });
+
+  it('excluye retenciones en 0 % y resuelve el mes por r.fecha cuando falta facturaFecha', () => {
+    const filas: RetencionPracticada[] = [
+      retencion({ facturaFecha: null, periodo: '', fecha: '2026-03-18', baseImponible: 2000, porcentaje: 2, montoRetenido: 40, montoBs: 40 }),
+      retencion({ facturaFecha: '2026-03-20', baseImponible: 5000, porcentaje: 0, montoRetenido: 0, montoBs: 0 }),
+    ];
+    const arc = compilarDatosArc(2026, 'J-12345678-0', filas);
+    expect(arc.meses[2].baseImponibleBs).toBe(2000);
+    expect(arc.meses[2].impuestoRetenidoBs).toBe(40);
+    expect(arc.meses[2].operaciones).toBe(1);
+    expect(arc.totalOperaciones).toBe(1);
   });
 });

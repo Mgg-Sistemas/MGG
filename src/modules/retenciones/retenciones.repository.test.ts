@@ -56,4 +56,11 @@ describe('finalizar la retención de una OC', () => {
     await expect(finalizarRetencion({ orden, archivos: {}, actor: 'prueba@ejemplo.com' })).rejects.toThrow('al menos un comprobante');
     expect(metodos).toHaveLength(0);
   });
+
+  it('permite finalizar sin subir archivos cuando los impuestos ya están resueltos en el Libro Fiscal', async () => {
+    respuestaUpdate = { data: [{ id: 'oc-1' }], error: null };
+    await finalizarRetencion({ orden, archivos: {}, actor: 'prueba@ejemplo.com', permitirSinArchivo: true });
+    expect(subidas).toHaveLength(0);
+    expect(metodos.find((m) => m[0] === 'update')?.[1]).toMatchObject({ retencion_finalizada: true, retencion_finalizada_por: 'prueba@ejemplo.com' });
+  });
 });

@@ -40,6 +40,9 @@ export function lineaRetenerDespues(input: NuevaRetencion): LineaFacturaNueva {
     sustraendo: input.sustraendo ?? null,
     ivaAlicuota: input.tipo === 'iva' ? input.alicuota ?? null : null,
     ivaMonto: input.tipo === 'iva' ? input.impuesto ?? null : null,
+    impuestoCausado: r2(input.impuestoCausado ?? input.impuesto ?? 0),
+    sinDerechoCreditoIva: input.tipo === 'iva' ? r2(input.sinDerechoCreditoIva ?? 0) : null,
+    fechaEntrega: input.fechaEntrega?.slice(0, 10) || null,
     moneda: input.moneda || 'Bs',
     tasa,
     baseBs: enBolivares(base, input.moneda, tasa ?? 0) || null,
@@ -48,7 +51,7 @@ export function lineaRetenerDespues(input: NuevaRetencion): LineaFacturaNueva {
     conceptoNombre: input.conceptoNombre?.trim() || null,
     municipio: input.tipo === 'municipal' ? input.municipio?.trim() || null : null,
     descripcion: input.observacion?.trim() || null,
-    // En una practicada el número lo pone la base (o numerarSinV2R); en una recibida, el del comprobante del cliente.
+    // En una practicada el número lo pone la base (V2R); en una recibida, el del comprobante del cliente.
     comprobanteNro: input.direccion === 'recibida' ? input.numeroComprobante?.trim() || null : null,
     quincena: input.quincena ?? null,
     // La fecha de la línea es la de la retención; el período sale de la factura.

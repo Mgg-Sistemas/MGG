@@ -50,30 +50,17 @@ export function aRegla(r: Record<string, unknown>): ReglaGuardada {
 
 /** Las reglas de un impuesto (todas sus versiones), con condiciones y pasos. */
 export async function listReglas(impuestoClave: string): Promise<ReglaGuardada[]> {
-  if (!(await r7Disponible())) return [];
   const { data, error } = await supabase.from(T_REGLAS).select(`*, ${T_CONDICIONES}(*), ${T_PASOS}(*)`)
     .eq('impuesto_clave', impuestoClave).order('nombre').order('version', { ascending: false });
-  if (error) {
-    if (error.code === '42P01' || error.code === '42703' || error.code === 'PGRST205' || error.code === 'PGRST200' || /relation .* does not exist|column .* does not exist|could not find the table|relationship .* in the schema cache/i.test(error.message ?? '')) {
-      return [];
-    }
-    throw errorRetencion(error, 'No se pudieron leer las reglas.');
-  }
+  if (error) throw errorRetencion(error, 'No se pudieron leer las reglas.');
   return (data ?? []).map((r) => aRegla(r as Record<string, unknown>));
 }
 
 /** Las vigentes (y, si se pide, las en prueba) de un impuesto en una fecha, como las da la base. */
 export async function reglasVigentes(impuestoClave: string, fecha: string, incluirPrueba = false): Promise<ReglaGuardada[]> {
-  if (!(await r7Disponible())) return [];
   const { data, error } = await supabase.rpc('retencion_reglas_vigentes', { p_impuesto: impuestoClave, p_fecha: fecha, p_incluir_prueba: incluirPrueba });
-  if (error) {
-    if (error.code === '42883' || error.code === 'PGRST202' || /could not find the function|function .* does not exist/i.test(error.message ?? '')) {
-      return [];
-    }
-    throw errorRetencion(error, 'No se pudieron leer las reglas vigentes.');
-  }
+  if (error) throw errorRetencion(error, 'No se pudieron leer las reglas vigentes.');
   return ((data ?? []) as { regla: Record<string, unknown>; condiciones: unknown[]; pasos: unknown[] }[])
-    .filter((x) => x && typeof x === 'object' && 'regla' in x && x.regla)
     .map((x) => aRegla({ ...x.regla, retencion_regla_condiciones: x.condiciones, retencion_regla_pasos: x.pasos }));
 }
 

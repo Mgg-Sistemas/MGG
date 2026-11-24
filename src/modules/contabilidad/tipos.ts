@@ -20,7 +20,7 @@ export type TipoNumeracion = 'tipo_mes_numero' | 'consecutivo' | 'mes_consecutiv
 /** cont_parametros: una sola fila por empresa. */
 export interface ContParametros {
   id: true;
-  /** Clave de la empresa ('MGG', etc.), vinculada con admin_empresas. */
+  /** Clave de la empresa ('GT', 'MTO'...), vinculada con admin_empresas. */
   empresa_clave?: string;
   /** «9.9.99.99.999»: cada grupo es un nivel y su ancho. */
   mascara_codigo: string;

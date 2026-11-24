@@ -49,7 +49,7 @@ function tablaGuardada(): TablaCatalogo {
   }
 }
 
-export function AuxiliaresTab({ parametros, empresaClave = 'MGG' }: { parametros: ContParametros; empresaClave?: string }) {
+export function AuxiliaresTab({ parametros, empresaClave = 'GT' }: { parametros: ContParametros; empresaClave?: string }) {
   const { user } = useSession();
   const actor = user?.email ?? 'sistema';
   const [tabla, setTabla] = useState<TablaCatalogo>(tablaGuardada);
@@ -313,7 +313,7 @@ function valoresDe(t: TablaCatalogo, id: string | null, d: DatosCatalogos): Valo
 }
 
 /** Graba la ficha y devuelve el id del registro (para dejarlo elegido en la rejilla). */
-async function grabar(t: TablaCatalogo, modo: 'insertar' | 'modificar', id: string | null, v: Valores, actor: string, empresaClave = 'MGG'): Promise<string> {
+async function grabar(t: TablaCatalogo, modo: 'insertar' | 'modificar', id: string | null, v: Valores, actor: string, empresaClave = 'GT'): Promise<string> {
   const numero = (s: string) => parseDecimal(s) ?? NaN;
   switch (t) {
     case 'auxiliar':
@@ -351,7 +351,7 @@ async function grabar(t: TablaCatalogo, modo: 'insertar' | 'modificar', id: stri
 
 const TITULO_MODO: Record<Modo, string> = { insertar: 'Insertar', modificar: 'Modificar', consultar: 'Consultar' };
 
-function FichaModal({ tabla, modo, id, datos, parametros, actor, empresaClave = 'MGG', onCerrar, onGuardado }: {
+function FichaModal({ tabla, modo, id, datos, parametros, actor, empresaClave = 'GT', onCerrar, onGuardado }: {
   tabla: TablaCatalogo; modo: Modo; id: string | null; datos: DatosCatalogos; parametros: ContParametros; actor: string; empresaClave?: string;
   onCerrar: () => void; onGuardado: (id: string) => Promise<void>;
 }) {
