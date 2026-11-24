@@ -48,6 +48,7 @@ import type {
 } from '@/shared/lib/types';
 import { normalizarCreditoDetalle, sellarVencimientoAlConfirmar } from './creditoVencimiento';
 import { omitirInventarioAlRecibir } from './recepcionSinInventario';
+import { puedeRetomarRecepcionColgada } from './recepcionColgada';
 
 import { CATEGORIA_REEMBOLSO_OC, conceptoReembolsoOc, type RetencionDetalle } from '@/modules/tesoreria/reembolsoPago';
 
@@ -2386,9 +2387,21 @@ async function apartarRecepcion(o: Orden, actorEmail: string, reintento = false)
     // evento «recibida»): se suelta y se vuelve a apartar para retomarla.
     const hist = Array.isArray(actual?.historial) ? (actual.historial as Array<{ evento?: string }>) : [];
     const terminada = hist.some((h) => String(h?.evento ?? '').startsWith('recibida'));
-    if (!reintento && actual?.recibida_en && actual.recibida_por === actorEmail && !terminada) {
+    // 24-11-2026: OC-2026-0269 quedó apartada por Matanza a las 18:34 sin
+    // escribir stock ni el evento final. Solo se podía recuperar con el MISMO
+    // correo; otro usuario (un admin, otra persona de almacén) veía el aviso
+    // «ya fue recibida» aunque el inventario no hubiera cambiado. Si pasaron
+    // 15 minutos y no hay movimientos, la reserva es huérfana: se suelta.
+    let hayMovimientos = false;
+    try { hayMovimientos = (await productosYaRecibidos(o.id)).size > 0; }
+    catch { hayMovimientos = true; }
+    const recibidaEn = actual?.recibida_en ? String(actual.recibida_en) : null;
+    const recibidaPor = actual?.recibida_por ? String(actual.recibida_por) : null;
+    if (!reintento && puedeRetomarRecepcionColgada({
+      recibidaEn, recibidaPor, actorEmail, yaTermino: terminada, hayMovimientos,
+    })) {
       await supabase.from(TABLE).update({ recibida_en: null, recibida_por: null })
-        .eq('id', o.id).eq('recibida_en', actual.recibida_en as string);
+        .eq('id', o.id).eq('recibida_en', recibidaEn as string);
       return apartarRecepcion(o, actorEmail, true);
     }
     const quien = (actual?.recibida_por as string | null) ?? 'otro usuario';
