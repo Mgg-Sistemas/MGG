@@ -47,6 +47,7 @@ import type {
   Usuario,
 } from '@/shared/lib/types';
 import { normalizarCreditoDetalle, sellarVencimientoAlConfirmar } from './creditoVencimiento';
+import { omitirInventarioAlRecibir } from './recepcionSinInventario';
 
 import { CATEGORIA_REEMBOLSO_OC, conceptoReembolsoOc, type RetencionDetalle } from '@/modules/tesoreria/reembolsoPago';
 
@@ -2426,15 +2427,15 @@ export async function recibirOrdenParcial(
   almacenDestino?: string | null,
   sinInventario?: boolean,
 ): Promise<Orden> {
-  // Compra cuyos productos ya se cargaron manualmente al inventario: se recibe la
-  // orden (estado/total) pero NO se generan entradas de stock (evita duplicar).
-  // Un SERVICIO tampoco entra nunca: se recibe para dejar constancia de que se
-  // prestó, y el botón así lo dice («🔧 Servicio realizado · no entra al inventario»).
-  const omitirInventario = sinInventario === true || o.sin_inventario === true;
-  // Se guarda aparte del flag del usuario: `sin_inventario` es la CASILLA que él
-  // marcó («ya lo cargué a mano») y pinta la etiqueta 📦 Sin inventario. Que un
-  // servicio no mueva stock no es una decisión suya, es lo que un servicio es.
-  const tocaInventario = !omitirInventario && !esServicioOrden(o);
+  // 24-11-2026: «sin inventario» lo decide QUIEN RECIBE en ESTE momento. El flag
+  // guardado en la orden solo prellena la casilla en la pantalla; heredarlo acá
+  // hacía que una recepción posterior se saltara el stock sin que nadie lo viera.
+  // Un SERVICIO tampoco entra nunca: es lo que un servicio es, no una decisión suya.
+  const omitirInventario = omitirInventarioAlRecibir({
+    sinInventarioMarcado: sinInventario,
+    esServicio: esServicioOrden(o),
+  });
+  const tocaInventario = !omitirInventario;
   // 'cuenta_abierta' = crédito: la mercancía puede llegar ANTES de terminar de pagar.
   if (!['por_recibir', 'cuenta_abierta', 'pagada', 'oc_emitida', 'aprobada'].includes(o.estado))
     throw new Error('La orden no está en un estado recibible.');

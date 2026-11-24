@@ -568,9 +568,10 @@ export async function _setStockRaw(id: string, nuevoStock: number): Promise<void
 
 /**
  * Órdenes con mercancía POR RECIBIR (esperando entrar al inventario): confirmadas
- * y pagadas (anticipado), pendientes por recepción (contra entrega / crédito saldado)
- * y las legadas (oc_emitida). Excluye las ya recibidas. Desde acá se asigna el
- * almacén destino (principal → subalmacén) y se da entrada al stock.
+ * y pagadas (anticipado), pendientes por recepción (contra entrega / crédito saldado),
+ * crédito ABIERTO (24-11-2026: la mercancía puede llegar antes de saldarse) y las
+ * legadas (oc_emitida). Excluye las ya recibidas. Desde acá se asigna el almacén
+ * destino (principal → subalmacén) y se da entrada al stock.
  */
 /**
  * Órdenes con mercancía en camino, para que el almacén les asigne almacén y las reciba.
@@ -582,10 +583,28 @@ export async function listRecepcionesPendientes(): Promise<Orden[]> {
   const { data, error } = await supabase
     .from('ordenes')
     .select('*')
-    .in('estado', ['por_recibir', 'pagada', 'oc_emitida'])
+    .in('estado', ['por_recibir', 'pagada', 'cuenta_abierta', 'oc_emitida'])
     .is('recibida_en', null)
     .neq('clase', 'servicio')
     .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data ?? []) as Orden[];
+}
+
+/**
+ * OC marcadas «sin inventario» ya recibidas en un rango. No generaron
+ * movimientos; se leen aparte para que el histórico de recepciones no las
+ * oculte (24-11-2026). Sin cambios en la base: es solo lectura.
+ */
+export async function listOrdenesRecibidasSinInventario(desde: string, hasta: string): Promise<Orden[]> {
+  const { data, error } = await supabase
+    .from('ordenes')
+    .select('*')
+    .eq('sin_inventario', true)
+    .gte('recibida_en', `${desde}T00:00:00`)
+    .lte('recibida_en', `${hasta}T23:59:59`)
+    .order('recibida_en', { ascending: false })
+    .limit(1000);
   if (error) throw error;
   return (data ?? []) as Orden[];
 }

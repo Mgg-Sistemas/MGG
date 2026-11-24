@@ -16,9 +16,10 @@ import { toast } from '@/shared/ui/Toast';
 import { dateTime, money, num } from '@/shared/lib/format';
 import type { Producto } from '@/shared/lib/types';
 import { listMovimientosRecepcion } from './movimientos.repository';
+import { listOrdenesRecibidasSinInventario } from './inventario.repository';
 import {
-  filtrarRecepciones, recepcionesDesdeMovimientos,
-  type Recepcion,
+  filtrarRecepciones, movimientosRecepcionSinInventarioDesdeOrdenes, recepcionesDesdeMovimientos,
+  type MovimientoRecepcion, type Recepcion,
 } from './recepcionesHistorico';
 import { NombreUsuario } from '@/shared/ui/NombreUsuario';
 import { useQuien } from '@/shared/lib/directorioUsuarios';
@@ -69,8 +70,21 @@ export function RecepcionesHistorialModal({ productos, onClose }: {
   const cargar = useCallback(async () => {
     setCargando(true);
     try {
-      const movs = await listMovimientosRecepcion(desde, hasta);
-      setRecs(recepcionesDesdeMovimientos(movs as never));
+      const [movs, ordenesSinStock] = await Promise.all([
+        listMovimientosRecepcion(desde, hasta),
+        listOrdenesRecibidasSinInventario(desde, hasta),
+      ]);
+      // Una orden puede tener movimientos de OTRA recepción parcial: no se
+      // duplica el evento «sin inventario» si ya hay kardex en ese mismo instante.
+      const conMovimiento = new Set(movs.map((m) => `${String(m.ref_id ?? '')}|${String(m.at ?? '').slice(0, 19)}`));
+      const sinMovimiento = ordenesSinStock.filter(
+        (o) => !conMovimiento.has(`${o.id}|${String(o.recibida_en ?? '').slice(0, 19)}`),
+      );
+      const todos: MovimientoRecepcion[] = [
+        ...(movs as unknown as MovimientoRecepcion[]),
+        ...movimientosRecepcionSinInventarioDesdeOrdenes(sinMovimiento),
+      ];
+      setRecs(recepcionesDesdeMovimientos(todos));
     } catch (e) {
       toast(e instanceof Error ? e.message : 'No se pudieron cargar las recepciones', 'error');
       setRecs([]);
@@ -160,6 +174,9 @@ export function RecepcionesHistorialModal({ productos, onClose }: {
                         <td className="mono">
                           {abierto ? '▾' : '▸'} {r.codigo}
                           {r.ref_tipo === 'compra_directa' && <span className="muted" style={{ fontSize: '.72rem' }}> · directa</span>}
+                          {r.items.some((i) => i.detalle?.includes('SIN inventario')) && (
+                            <span className="badge warning" style={{ marginLeft: '.35rem' }} title="Se marcó «ya lo cargué a mano»: no sumó stock">sin stock</span>
+                          )}
                         </td>
                         <td className="muted" style={{ fontSize: '.78rem' }}>{dateTime(r.at)}</td>
                         <td><NombreUsuario nombre={r.actor_name} correo={r.actor} /></td>
