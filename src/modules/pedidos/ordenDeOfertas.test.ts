@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import { ordenDeOfertas, esSubOrden, avisoProveedoresOcultos, ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
+import {
+  debeSincronizarOcAlEditarOferta,
+  esSubOrden,
+  ordenDeOfertas,
+  ordenesConOfertasDe,
+  puedeGestionarOfertas,
+  unificarPorProveedor,
+  avisoProveedoresOcultos,
+} from './ordenDeOfertas';
 
 const prov = (id: string, razon_social: string, estado = 'activo') => ({ id, razon_social, estado });
 
@@ -38,6 +46,32 @@ describe('ordenDeOfertas', () => {
     expect(esSubOrden({ id: 'a', parent_orden_id: 'b' })).toBe(true);
     expect(esSubOrden({ id: 'a', parent_orden_id: null })).toBe(false);
     expect(esSubOrden({ id: 'a' })).toBe(false);
+  });
+});
+
+describe('comparativa en una orden descartada', () => {
+  const estadosVisibles = [
+    'aprobada', 'desistida_proveedor', 'oc_creada', 'confirmada_metodo', 'oc_aprobada', 'pagada',
+    'rechazada', 'cancelada', 'anulada', 'reasignada',
+  ];
+
+  it('muestra las ofertas para corregir precios y medidas aunque la OC esté cancelada o anulada', () => {
+    for (const estado of estadosVisibles) {
+      expect(puedeGestionarOfertas({ id: 'oc-1', estado }, true)).toBe(true);
+    }
+    // Una sub-OC se abre desde Solicitudes (enOc=false) y también debe ver la comparativa.
+    expect(puedeGestionarOfertas({ id: 'hija-1', parent_orden_id: 'madre-1', estado: 'cancelada' }, false)).toBe(true);
+  });
+
+  it('sigue ocultando la comparativa fuera del flujo de compra', () => {
+    expect(puedeGestionarOfertas({ id: 'op-1', estado: 'cancelada' }, false)).toBe(false);
+    expect(puedeGestionarOfertas({ id: 'op-2', estado: 'pendiente' }, true)).toBe(false);
+  });
+
+  it('editar una oferta descartada no re-sincroniza la OC aunque coincida el proveedor', () => {
+    expect(debeSincronizarOcAlEditarOferta('descartada', true)).toBe(false);
+    expect(debeSincronizarOcAlEditarOferta('aceptada', false)).toBe(true);
+    expect(debeSincronizarOcAlEditarOferta('pendiente', true)).toBe(true);
   });
 });
 

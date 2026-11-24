@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { SearchSelect } from '@/shared/ui/SearchSelect';
-import { ordenDeOfertas, avisoProveedoresOcultos } from './ordenDeOfertas';
+import { debeSincronizarOcAlEditarOferta, ordenDeOfertas, avisoProveedoresOcultos } from './ordenDeOfertas';
 import { ConversorBcv } from '@/shared/ui/ConversorBcv';
 import { notify } from '@/shared/lib/notify';
 import { money } from '@/shared/lib/format';
@@ -713,7 +713,8 @@ export function AgregarOfertaModal({
 
         // Si la oferta editada está aceptada o pertenece al proveedor de la orden/sub-orden,
         // re-sincronizamos el total y el IVA de la OC para que reflejen inmediatamente la cotización.
-        if (ofertaEdit.estado === 'aceptada' || ordenVigente.proveedor_id === provEfectivo) {
+        // Una oferta descartada se puede corregir, pero NO debe mover el total ni tocar sub-OCs.
+        if (debeSincronizarOcAlEditarOferta(ofertaEdit.estado, ordenVigente.proveedor_id === provEfectivo)) {
           try {
             if (['oc_creada', 'confirmada_metodo', 'oc_aprobada'].includes(ordenVigente.estado)) {
               await resincronizarOcDesdeOferta(ordenVigente, datosOfertaParaSync, registradoPorEmail);
