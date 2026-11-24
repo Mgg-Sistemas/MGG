@@ -22,6 +22,8 @@ import type { Empresa } from './empresa';
 import {
   COMPROMISO_TRABAJADOR,
   datosJefeDe,
+  datosTrabajadorDe,
+  diasInclusivePermiso,
   hayCambioFirmaEnEdicion,
   inicialSolicitudPermiso,
   solicitudSinPersonal,
@@ -34,6 +36,8 @@ import {
   urlArchivoPermiso,
 } from './permisoLaboral.repository';
 import { verSolicitudPermisoPdf } from './solicitudPermisoPdf';
+
+const VACIO_TRABAJADOR = { nombre: '', apellido: '', cedula: '', cargo: '', departamento: '', telefono: '' };
 
 export function SolicitudPermisoModal({ personal, personalId, empresa, actor, actorName, evento, onClose, onGuardado }: {
   personal: Personal[];

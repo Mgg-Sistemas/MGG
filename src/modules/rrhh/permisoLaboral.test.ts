@@ -75,6 +75,7 @@ describe('permiso laboral · abrir un permiso ya guardado', () => {
   const persona: Personal = {
     id: 'p-1', nombre: 'Ana María', apellido: 'Pérez González', cedula: 'V-27.514.395',
     cargo: 'Analista de RRHH', departamento: 'Recursos Humanos', telefono: '0412-5551234',
+    sueldo_base: 1000, activo: true, created_at: '2026-01-01T00:00:00.000Z',
   };
   const eventoViejo: RrhhEvento = {
     id: 'e-1', personal_id: 'p-1', tipo: 'permiso', estado: 'activo',
@@ -83,7 +84,7 @@ describe('permiso laboral · abrir un permiso ya guardado', () => {
   };
 
   it('muestra el trabajador del evento aunque el selector de arriba esté vacío', () => {
-    const form = inicialSolicitudPermiso([persona], '', MGG, eventoViejo);
+    const form = inicialSolicitudPermiso([persona], '', MGG.key, eventoViejo);
     expect(form.personal_id).toBe('p-1');
     expect(form.trabajador.nombre).toBe('Ana María');
     expect(form.trabajador.cedula).toBe('V-27.514.395');
@@ -92,7 +93,7 @@ describe('permiso laboral · abrir un permiso ya guardado', () => {
   });
 
   it('detecta que se agregó la firma del jefe en un permiso viejo sin solicitud', () => {
-    const form = inicialSolicitudPermiso([persona], '', MGG, eventoViejo);
+    const form = inicialSolicitudPermiso([persona], '', MGG.key, eventoViejo);
     expect(hayCambioFirmaEnEdicion(eventoViejo, form)).toBe(false);
     const conFirma: SolicitudPermisoForm = {
       ...form,
