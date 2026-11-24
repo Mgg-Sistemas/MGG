@@ -25,7 +25,7 @@ import {
 } from './permisos.repository';
 import { alcanceDeGrupo, gruposConTodos, INFO_MODULO } from './gruposModulos';
 
-type Tema = 'modulos' | 'telefono';
+type Tema = 'modulos' | 'telefono' | 'almacenes';
 
 export type EstadoAutoguardado = 'idle' | 'guardando' | 'guardado' | 'error';
 
@@ -141,6 +141,15 @@ export function RolFicha({
             📱 Teléfono
           </button>
         )}
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tema === 'almacenes'}
+          className={tema === 'almacenes' ? 'active' : ''}
+          onClick={() => setTema('almacenes')}
+        >
+          📦 Almacenes y Sedes
+        </button>
       </div>
 
       {tema === 'modulos' && (
@@ -299,6 +308,33 @@ export function RolFicha({
                 )}
               </span>
             </label>
+          </div>
+        </div>
+      )}
+
+      {tema === 'almacenes' && (
+        <div style={{ display: 'grid', gap: '1rem' }}>
+          <div className="card" style={{ padding: '1.25rem', background: 'var(--bg-1)', border: '1px solid var(--border)' }}>
+            <h3 style={{ margin: '0 0 .5rem', fontSize: '1rem', display: 'flex', alignItems: 'center', gap: '.5rem' }}>
+              <span>📦</span> Sectorización física de almacenes por sede
+            </h3>
+            <p className="muted" style={{ fontSize: '.84rem', margin: '0 0 .75rem', lineHeight: 1.5 }}>
+              En MGG, la potestad de <strong>mover inventario</strong> (despachar, trasladar, registrar ajustes manuales o recepcionar compras) se otorga por sede física (<em>CENTRO DE FUNDICION - MATANZAS</em>, <em>LOS PINOS</em>, <em>CENTRO DE ACOPIO - LA ESPERANZA</em>).
+            </p>
+            <p className="muted" style={{ fontSize: '.84rem', margin: 0, lineHeight: 1.5 }}>
+              Esta asignación se realiza <strong>por cada usuario individual</strong> en la pestaña <strong>👤 Personas → Editar usuario → 📦 Almacenes asignados</strong>. Así, usuarios con el mismo rol (por ejemplo, almacenistas o choferes) operan estrictamente en la sede física donde laboran, evitando movimientos accidentales en inventario de otras sedes.
+            </p>
+          </div>
+          <div className="card" style={{ padding: '1.25rem' }}>
+            <h4 style={{ margin: '0 0 .6rem', fontSize: '.9rem' }}>💡 Reglas de sectorización</h4>
+            <ul style={{ margin: 0, paddingLeft: '1.2rem', fontSize: '.84rem', color: 'var(--text-muted)', display: 'grid', gap: '.5rem' }}>
+              <li>
+                <strong>Sin sedes marcadas (Acceso Global):</strong> Si un usuario tiene la lista de sedes vacía, <strong>no tiene restricción</strong> y puede ver y mover en cualquier sede o almacén. Este es el estado por defecto para <em>Administrador</em>, <em>Analista de Sistemas</em> y <em>Gerencia</em>.
+              </li>
+              <li>
+                <strong>Con sedes específicas:</strong> El usuario solo puede mover productos en sus almacenes autorizados. Si necesita material de otra sede (por ejemplo, La Esperanza), debe emitir una <strong>Solicitud de Traslado</strong>.
+              </li>
+            </ul>
           </div>
         </div>
       )}
