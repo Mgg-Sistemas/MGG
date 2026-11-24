@@ -48,6 +48,12 @@ export interface LineaFacturaNueva {
   sustraendo?: number | null;
   ivaAlicuota?: number | null;
   ivaMonto?: number | null;
+  /** Art. 18.8: IVA de la factura o bruto del ISLR antes del sustraendo. */
+  impuestoCausado?: number | null;
+  /** Dato interno manual «sin derecho a crédito IVA», separado de `exento`. */
+  sinDerechoCreditoIva?: number | null;
+  /** G.O. 43.484 Art. 18.3: fecha real de entrega del comprobante. */
+  fechaEntrega?: string | null;
   moneda?: string;
   tasa?: number | null;
   baseBs?: number | null;
@@ -159,6 +165,9 @@ export function pLineaDe(l: LineaFacturaNueva): Record<string, unknown> {
     monto_bs: l.montoBs ?? null,
     iva_alicuota: l.ivaAlicuota ?? null,
     iva_monto: l.ivaMonto ?? null,
+    impuesto_causado: l.impuestoCausado ?? l.ivaMonto ?? null,
+    monto_sin_derecho_credito_iva: l.sinDerechoCreditoIva ?? null,
+    fecha_entrega: l.fechaEntrega ?? null,
     moneda: l.moneda ?? null,
     tasa: l.tasa ?? null,
     motivo: l.motivo?.trim() || null,
@@ -319,6 +328,7 @@ export async function registrarFactura(factura: FacturaNueva, lineas: LineaFactu
       facturaAfectadaNro: factura.facturaAfectadaNro ?? null,
       facturaTotal: factura.facturaTotal ?? null,
       exento: factura.exento ?? null,
+      sinDerechoCreditoIva: l.sinDerechoCreditoIva ?? null,
       docKind: factura.docKind,
       docId: factura.docId,
       contraparteId: factura.contraparteId,
@@ -329,6 +339,7 @@ export async function registrarFactura(factura: FacturaNueva, lineas: LineaFactu
       facturaControl: factura.facturaControl,
       facturaFecha: factura.facturaFecha,
       fechaRetencion: l.fecha ?? factura.facturaFecha,
+      fechaEntrega: l.fechaEntrega ?? null,
       periodo,
       quincena: l.quincena,
       numeroComprobante: l.comprobanteNro,
@@ -340,6 +351,7 @@ export async function registrarFactura(factura: FacturaNueva, lineas: LineaFactu
       baseImponible: l.base,
       alicuota: l.ivaAlicuota ?? undefined,
       impuesto: l.ivaMonto ?? undefined,
+      impuestoCausado: l.impuestoCausado ?? l.ivaMonto ?? undefined,
       porcentaje: l.porcentaje,
       sustraendo: l.sustraendo ?? undefined,
       montoRetenido: l.monto,

@@ -20,6 +20,7 @@
    se escribe a mano («dado»), y la base lo valida con el formato de su serie.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
+import type { EstadoOrden } from '@/shared/lib/types';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { EMPRESA_DOMICILIO, EMPRESA_EMAIL, EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { normalizarRif, rifValido } from '@/shared/lib/rif';
@@ -116,17 +117,12 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     pctIgtf: j.igtf_alicuota == null ? CONFIG_RETENCION_DEFECTO.pctIgtf : n(j.igtf_alicuota),
     licenciaMunicipal: texto(j.licencia_municipal) ?? texto(j.licencia_numero) ?? texto(j.rim) ?? null,
     imprimirOriginalYCopia: bool('imprimir_original_copia', true),
+    estadosKanbanRetencion: Array.isArray(j.estados_kanban_retencion)
+      ? (j.estados_kanban_retencion as EstadoOrden[])
+      : CONFIG_RETENCION_DEFECTO.estadosKanbanRetencion,
     estatusKanbanRetencion: Array.isArray(j.estatus_kanban_retencion)
       ? (j.estatus_kanban_retencion as string[])
-      : [
-          'confirmada_metodo',
-          'oc_aprobada',
-          'cuenta_abierta',
-          'por_recibir',
-          'pagada',
-          'recibida',
-          'finalizada',
-        ],
+      : (CONFIG_RETENCION_DEFECTO.estatusKanbanRetencion as string[]),
   };
 }
 
@@ -477,6 +473,10 @@ export interface RetencionPracticada {
   facturaNumero: string | null;
   facturaControl: string | null;
   facturaFecha: string | null;
+  /** Fecha de emisión del comprobante (columna `retenciones.fecha`). */
+  fecha?: string | null;
+  /** Opcional (Art. 18.3): fecha real de entrega; vacía si no se informa. */
+  fechaEntrega?: string | null;
   periodo: string;
   quincena: 1 | 2 | null;
   numeroComprobante: string | null;
@@ -492,6 +492,8 @@ export interface RetencionPracticada {
   facturaTotal?: number | null;
   /** Compras sin derecho a crédito fiscal o monto exento (PA 049). */
   exento?: number | null;
+  /** Monto manual «sin derecho a crédito IVA» (dato interno; no es un concepto literal del Art. 18.8). */
+  sinDerechoCreditoIva?: number | null;
   /** N° de licencia municipal o RIM del sujeto retenido (ISAE). */
   licenciaSujeto?: string | null;
   conceptoId: string | null;
@@ -501,6 +503,8 @@ export interface RetencionPracticada {
   baseImponible: number;
   alicuota: number;
   impuesto: number;
+  /** Art. 18.8: IVA de la factura o bruto del ISLR antes del sustraendo. */
+  impuestoCausado?: number | null;
   porcentaje: number;
   sustraendo: number;
   montoRetenido: number;
@@ -565,10 +569,13 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
     facturaNumero: texto(r.factura_nro ?? r.factura_numero),
     facturaControl: texto(r.factura_control),
     facturaFecha: texto(r.factura_fecha),
+    fecha: texto(r.fecha ?? r.factura_fecha),
+    fechaEntrega: texto(r.fecha_entrega),
     tipoDocumento: td === 'nota_debito' || td === 'nota_credito' ? td : (td === 'factura' ? 'factura' : null),
     facturaAfectadaNro: texto(r.factura_afectada_nro),
     facturaTotal: r.factura_total == null ? null : n(r.factura_total),
     exento: r.exento == null ? null : n(r.exento),
+    sinDerechoCreditoIva: r.monto_sin_derecho_credito_iva == null ? null : n(r.monto_sin_derecho_credito_iva),
     licenciaSujeto: texto(r.licencia_numero ?? r.contraparte_licencia),
     periodo: String(r.comprobante_periodo ?? r.periodo ?? (fechaRef.length >= 7 ? `${fechaRef.slice(0, 4)}${fechaRef.slice(5, 7)}` : '')),
     quincena: r.quincena === 1 || r.quincena === 2 ? r.quincena : null,
@@ -579,6 +586,7 @@ export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
     conceptoNombre: texto(r.concepto ?? r.concepto_nombre),
     moneda, tasa,
     baseImponible: n(r.base ?? r.base_imponible), alicuota: n(r.iva_alicuota ?? r.alicuota), impuesto: n(r.iva_monto ?? r.impuesto),
+    impuestoCausado: r.impuesto_causado == null ? null : n(r.impuesto_causado),
     porcentaje: n(r.porcentaje), sustraendo: n(r.sustraendo), montoRetenido,
     montoBs,
     comprobantePath: texto(r.comprobante_path),
@@ -676,6 +684,8 @@ export interface NuevaRetencion {
   facturaAfectadaNro?: string | null;
   facturaTotal?: number | null;
   exento?: number | null;
+  /** Monto manual «sin derecho a crédito IVA» (dato interno; no es un concepto literal del Art. 18.8). */
+  sinDerechoCreditoIva?: number | null;
   docKind: DocKind;
   docId?: string | null;
   docCodigo?: string | null;
@@ -689,6 +699,8 @@ export interface NuevaRetencion {
   facturaFecha?: string | null;
   /** Emisión del comprobante (columna `fecha`). El período sale de la fecha de la factura. */
   fechaRetencion?: string | null;
+  /** Opcional (Art. 18.3): fecha real de entrega del comprobante. */
+  fechaEntrega?: string | null;
   periodo: string;
   quincena?: 1 | 2 | null;
   /** Solo para las recibidas: el número que trae el comprobante del cliente. */
@@ -702,6 +714,8 @@ export interface NuevaRetencion {
   baseImponible: number;
   alicuota?: number;
   impuesto?: number;
+  /** Art. 18.8: impuesto causado (IVA de factura o bruto ISLR antes del sustraendo). */
+  impuestoCausado?: number | null;
   porcentaje: number;
   sustraendo?: number;
   montoRetenido: number;
@@ -746,6 +760,7 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
   const fecha = (input.fechaRetencion || input.facturaFecha || hoyVenezuela()).slice(0, 10);
   return {
     rol: rolAGt(input.direccion), tipo: tipoAGt(input.tipo), estado: 'registrada', fecha,
+    fecha_entrega: input.fechaEntrega?.slice(0, 10) || null,
     numero: numero.entero, comprobante_nro: numero.texto,
     comprobante_periodo: input.periodo, quincena: input.quincena ?? null,
     // En una recibida la contraparte es un cliente: no cabe en la clave foránea a proveedores.
@@ -763,6 +778,8 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
     base: r2(input.baseImponible),
     iva_alicuota: input.tipo === 'iva' ? input.alicuota ?? null : null,
     iva_monto: input.tipo === 'iva' ? input.impuesto ?? null : null,
+    impuesto_causado: r2(input.impuestoCausado ?? input.impuesto ?? 0),
+    monto_sin_derecho_credito_iva: input.tipo === 'iva' ? r2(input.sinDerechoCreditoIva ?? 0) : null,
     porcentaje: n(input.porcentaje),
     concepto_codigo: conceptoCodigo,
     concepto: input.conceptoNombre?.trim() || null,
@@ -889,6 +906,9 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
     if (numera && formato && !numeroConFormato(numero.texto, formato)) {
       throw new Error(`El número del comprobante de ${labelImpuesto(input.tipo)} lleva ${textoDeFormato(formato)}.`);
     }
+    if (numera && formato === 'AAAAMM8' && numero.texto.slice(0, 6) !== input.periodo) {
+      throw new Error(`El número del comprobante empieza con ${numero.texto.slice(0, 6)} y debe coincidir con el período ${input.periodo} (AAAAMMSSSSSSSS).`);
+    }
   }
   // VU: la UT con la que se calculó queda en la fila (el trigger de la base es solo respaldo).
   // R7: la regla y la foto viajan solo si la retención se calculó con una regla y la base las tiene.
@@ -1014,6 +1034,8 @@ export interface CorrelativoEstimado {
 export async function consultarCorrelativoEstimado(
   tipo: TipoImpuesto,
   periodo: string,
+  formatoFicha?: ReturnType<typeof formatoSerie>,
+  empresaId?: string | null,
 ): Promise<CorrelativoEstimado> {
   if (tipo === 'igtf') {
     return {
@@ -1025,8 +1047,10 @@ export async function consultarCorrelativoEstimado(
   }
 
   const tipoGt = tipoAGt(tipo);
-  const esIva = tipo === 'iva';
-  const fmt = formatoSerie(tipo);
+  // El formato sale de la ficha (R2) si el front lo pasa; si no, el mapeo fijo del tipo.
+  const fmt = formatoFicha !== undefined ? formatoFicha : formatoSerie(tipo);
+  // Con formato AAAAMM8 el número lleva el período adelante (lo pueden usar varios impuestos).
+  const conPeriodo = fmt === 'AAAAMM8';
 
   try {
     let q = supabase
@@ -1035,8 +1059,11 @@ export async function consultarCorrelativoEstimado(
       .eq('rol', 'practicada')
       .eq('tipo', tipoGt);
 
-    if (esIva && periodo) {
+    if (conPeriodo && periodo) {
       q = q.eq('comprobante_periodo', periodo);
+    }
+    if (empresaId) {
+      q = q.eq('empresa_id', empresaId);
     }
 
     const { data, error } = await q
@@ -1045,7 +1072,7 @@ export async function consultarCorrelativoEstimado(
 
     let maxNum = 0;
     if (error && esColumnaInexistente(error)) {
-      const clavePer = esIva ? periodo : '000000';
+      const clavePer = conPeriodo ? periodo : '000000';
       const { data: numRow } = await supabase
         .from('retencion_numeros')
         .select('ultimo')
@@ -1060,16 +1087,16 @@ export async function consultarCorrelativoEstimado(
         .select('numero_comprobante')
         .eq('direccion', 'practicada')
         .in('tipo', [tipo, tipoGt]);
-      if (esIva && periodo) qMgg = qMgg.eq('periodo', periodo);
+      if (conPeriodo && periodo) qMgg = qMgg.eq('periodo', periodo);
       const { data: dataMgg } = await qMgg.order('created_at', { ascending: false }).limit(20);
       for (const fila of (dataMgg ?? []) as { numero_comprobante: unknown }[]) {
         if (fila.numero_comprobante) {
           const digitos = String(fila.numero_comprobante).replace(/\D/g, '');
-          if (esIva && digitos.length >= 14 && digitos.startsWith(periodo)) {
+          if (conPeriodo && digitos.length >= 14 && digitos.startsWith(periodo)) {
             const sec = Number(digitos.slice(6));
             if (!Number.isNaN(sec) && sec > maxNum) maxNum = sec;
-          } else if (!esIva && digitos.length >= 1) {
-            const sec = Number(digitos);
+          } else if (!conPeriodo && digitos.length >= 1) {
+            const sec = Number(digitos.length === 14 ? digitos.slice(6) : digitos.slice(-10));
             if (!Number.isNaN(sec) && sec > maxNum) maxNum = sec;
           }
         }
@@ -1082,11 +1109,11 @@ export async function consultarCorrelativoEstimado(
         }
         if (fila.comprobante_nro) {
           const digitos = String(fila.comprobante_nro).replace(/\D/g, '');
-          if (esIva && digitos.length >= 14 && digitos.startsWith(periodo)) {
+          if (conPeriodo && digitos.length >= 14 && digitos.startsWith(periodo)) {
             const sec = Number(digitos.slice(6));
             if (!Number.isNaN(sec) && sec > maxNum) maxNum = sec;
-          } else if (!esIva && digitos.length >= 1) {
-            const sec = Number(digitos);
+          } else if (!conPeriodo && digitos.length >= 1) {
+            const sec = Number(digitos.length === 14 ? digitos.slice(6) : digitos.slice(-10));
             if (!Number.isNaN(sec) && sec > maxNum) maxNum = sec;
           }
         }
@@ -1094,18 +1121,18 @@ export async function consultarCorrelativoEstimado(
     }
 
     const siguienteNumero = maxNum + 1;
-    const compTexto = formatoComprobante(periodo, siguienteNumero, tipo);
+    const compTexto = formatoComprobante(periodo, siguienteNumero, tipo, fmt);
 
     return {
       numero: siguienteNumero,
       comprobante: compTexto,
       formato: fmt,
-      explicacion: esIva
+      explicacion: conPeriodo
         ? `Correlativo #${siguienteNumero} para ${labelImpuesto(tipo)} en el período ${periodo} (${compTexto}).`
         : `Correlativo #${siguienteNumero} para ${labelImpuesto(tipo)} (${compTexto}).`,
     };
   } catch {
-    const compTexto = formatoComprobante(periodo, 1, tipo);
+    const compTexto = formatoComprobante(periodo, 1, tipo, fmt);
     return {
       numero: 1,
       comprobante: compTexto,

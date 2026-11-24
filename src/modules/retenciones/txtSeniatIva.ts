@@ -17,11 +17,13 @@
 
    SUPUESTOS, sin cotejar con un TXT real con operaciones: RIF sin guiones y en
    mayúsculas; fecha AAAA-MM-DD; alícuota = IVA / base × 100; documento afectado
-   y expediente «0»; total = base + IVA (el libro no guarda el exento: va 0);
-   las anuladas no van. Los montos van en Bs (con la tasa del registro).
-   Hay que cotejar la primera declaración con el contador.
+   y expediente «0»; total = el total capturado de la factura o base + IVA +
+   exento; campo 14 = exento (NO incluye el dato interno «sin derecho a crédito
+   IVA», que es un campo separado); las anuladas no van. Los montos van en Bs
+   (con la tasa del registro). Hay que cotejar la primera declaración con el contador.
    ============================================================ */
 import type { RetencionPracticada } from '@/modules/libroFiscal/retencionesFiscal.repository';
+import { numeroConFormato } from '@/modules/libroFiscal/retencionesCalculo';
 
 /** Campo 2: el mes de las operaciones, o el siguiente (como lo hace el otro sistema). */
 export type PeriodoCampo2 = 'operaciones' | 'siguiente';
@@ -88,7 +90,7 @@ export function armarTxtIva(e: EntradaTxtIva): ResultadoTxtIva {
     const iva = enBs(r.impuesto, r);
     const retenido = r.montoBs ?? enBs(r.montoRetenido, r);
     if (base == null || iva == null || retenido == null) faltan.push(`${quien}: está en ${r.moneda} sin tasa para llevarla a Bs.`);
-    if (!/^\d{14}$/.test(r.numeroComprobante ?? '')) faltan.push(`${quien}: el N° de comprobante no tiene 14 dígitos.`);
+    if (!numeroConFormato(r.numeroComprobante ?? '', 'AAAAMM8')) faltan.push(`${quien}: el N° de comprobante debe tener 14 dígitos con formato AAAAMMSSSSSSSS y un año y mes válidos.`);
     const rifProv = rif(r.contraparteRif);
     if (!rifProv) faltan.push(`${quien}: falta el RIF del proveedor.`);
     else if (!/^[JGVEP]\d{9}$/.test(rifProv)) faltan.push(`${quien}: el RIF del proveedor no es válido (letra J/G/V/E/P y 9 dígitos).`);

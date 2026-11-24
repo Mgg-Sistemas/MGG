@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
-import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion } from './retencionesCalculo';
+import { CONFIG_RETENCION_DEFECTO, configDesdeFicha, type ConfigRetencion } from './retencionesCalculo';
 import type { RetencionPracticada } from './retencionesFiscal.repository';
 import {
   cadenaCanonicoFiscal, calcularSha256Hex, generarQrVerificacion, lineaEquivalenteBs, partesComprobante,
@@ -51,6 +51,20 @@ describe('comprobante de retención · quién es el agente y quién el sujeto', 
     expect(p.agente).toContain('RIF: J-00000003-0');
     expect(p.sujeto[0]).toBe('Empresa de Prueba C.A.');
     expect(p.sujeto).toContain('RIF: J-00000000-0');
+  });
+
+  it('multi-empresa: con la config de una empresa NO-GT, el agente es ESA empresa', () => {
+    // La config sale de la ficha de la empresa (Fase C-1): el comprobante la usa como agente.
+    const configMto = configDesdeFicha(CONFIG_RETENCION_DEFECTO, {
+      rif: 'J-50000000-0', nombre: 'Minería Tin Oxide, C.A.', direccionFiscal: 'Zona Industrial', municipio: 'Caroní', estado: 'Bolívar',
+      esAgenteRetencionIva: true,
+    });
+    const p = partesComprobante(retencion({
+      direccion: 'practicada', contraparteNombre: 'Proveedor de Prueba C.A.', contraparteRif: 'J-00000002-0',
+    }), configMto);
+    expect(p.agente[0]).toBe('Minería Tin Oxide, C.A.');
+    expect(p.agente).toContain('RIF: J-50000000-0');
+    expect(p.agente).toContain('Caroní · Bolívar');
   });
 
   it('el tipo de sujeto va con el sujeto retenido, nunca con el agente', () => {
@@ -146,7 +160,7 @@ describe('emisión de ejemplares · Original y Copia (Providencia SNAT/2025/0000
     const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
     const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'ambos', incluirLogo: false, incluirQr: false });
     expect(doc.getNumberOfPages()).toBe(2);
-  }, 15000);
+  });
 
   it('modo "original" emite exactamente 1 página', async () => {
     const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
@@ -160,6 +174,34 @@ describe('emisión de ejemplares · Original y Copia (Providencia SNAT/2025/0000
     const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
     const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'copia', incluirLogo: false, incluirQr: false });
     expect(doc.getNumberOfPages()).toBe(1);
+  });
+
+  it('cuando imprimirOriginalYCopia es false, emite exactamente 1 página en formato estándar sin badge', async () => {
+    const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
+    const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
+    const doc = await anexarPaginasComprobantePdf(r, empresa, null, {
+      imprimirOriginalYCopia: false,
+      incluirLogo: false,
+      incluirQr: false,
+    });
+    expect(doc.getNumberOfPages()).toBe(1);
+  });
+
+  it('modo "estandar" emite 1 página única', async () => {
+    const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
+    const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
+    const doc = await anexarPaginasComprobantePdf(r, empresa, null, {
+      modoEjemplar: 'estandar',
+      incluirLogo: false,
+      incluirQr: false,
+    });
+    expect(doc.getNumberOfPages()).toBe(1);
+  });
+
+  it('consultarElementosDigitales reporta tieneFirma false cuando no hay firma cargada', async () => {
+    const { consultarElementosDigitales } = await import('./comprobanteRetencionPdf');
+    const disp = await consultarElementosDigitales();
+    expect(disp.tieneFirma).toBe(false);
   });
 });
 
@@ -198,25 +240,5 @@ describe('correos en comprobante · empresa (configurable) y proveedor (si exist
     expect(p.sujeto).toContain('Correo: tributos@empresa.com');
   });
 });
-
-describe('elementos digitales · disponibilidad y no forzamiento de firma', () => {
-  it('si no hay firma cargada en base, tieneFirma es estrictamente false y firmaDataUrl es null (no se fuerza con || true)', async () => {
-    const { consultarElementosDigitales, cargarElementosDigitales } = await import('./comprobanteRetencionPdf');
-    const disp = await consultarElementosDigitales('2026-10-28');
-    expect(typeof disp.tieneFirma).toBe('boolean');
-    const elementos = await cargarElementosDigitales('2026-10-28');
-    if (!disp.tieneFirma) {
-      expect(elementos.firmaDataUrl).toBeNull();
-    }
-  });
-
-  it('modo "estandar" emite exactamente 1 página oficial', async () => {
-    const { anexarPaginasComprobantePdf } = await import('./comprobanteRetencionPdf');
-    const r = retencion({ tipo: 'iva', numeroComprobante: '20261000000001' });
-    const doc = await anexarPaginasComprobantePdf(r, empresa, null, { modoEjemplar: 'estandar', incluirLogo: false, incluirQr: false });
-    expect(doc.getNumberOfPages()).toBe(1);
-  });
-});
-
 
 

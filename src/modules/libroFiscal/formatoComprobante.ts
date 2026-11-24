@@ -13,14 +13,16 @@ import type { TipoImpuesto } from './retencionesCalculo';
 export type Orientacion = 'vertical' | 'horizontal';
 
 /** Las claves de textos que usa el comprobante. */
-export const CLAVES_TEXTO = ['encabezado', 'nota_legal', 'pie'] as const;
+export const CLAVES_TEXTO = ['encabezado', 'nota_legal', 'leyenda_art19', 'pie'] as const;
 export type ClaveTexto = typeof CLAVES_TEXTO[number];
 
 /** Los rótulos fijos del comprobante (recuadros, total y firmas). */
 export const ROTULOS_FABRICA: Record<string, string> = {
   n_comprobante: 'N° DE COMPROBANTE',
+  correlativo: 'CORRELATIVO N°',
   periodo: 'PERIODO FISCAL',
   fecha_emision: 'FECHA DE EMISION',
+  fecha_entrega: 'FECHA DE ENTREGA',
   agente: 'AGENTE DE RETENCION',
   sujeto: 'SUJETO RETENIDO',
   total: 'TOTAL RETENIDO',
@@ -31,7 +33,8 @@ export const ROTULOS_FABRICA: Record<string, string> = {
 
 /** Cómo se llama cada rótulo en la pantalla de Parámetros. */
 export const NOMBRE_ROTULO: Record<string, string> = {
-  n_comprobante: 'Recuadro del N° de comprobante', periodo: 'Recuadro del período', fecha_emision: 'Recuadro de la fecha de emisión',
+  n_comprobante: 'Recuadro del N° de comprobante', correlativo: 'Recuadro del correlativo (8 dígitos del número)',
+  periodo: 'Recuadro del período', fecha_emision: 'Recuadro de la fecha de emisión', fecha_entrega: 'Recuadro de la fecha de entrega',
   agente: 'Columna del agente', sujeto: 'Columna del sujeto retenido', total: 'Total retenido',
   firma_agente: 'Firma del agente', firma_sujeto: 'Firma del sujeto retenido',
   verificacion_digital: 'Caja de verificación digital (QR y Hash)',
@@ -43,20 +46,23 @@ export interface ColumnaFormato { campo: string; rotulo: string; visible: boolea
 export function columnasFabrica(tipo: TipoImpuesto): ColumnaFormato[] {
   const cols: Array<[string, string]> = tipo === 'iva'
     ? [
-        ['operacion', 'OP. N°'],
-        ['factura', 'FACTURA'],
-        ['fecha', 'FECHA'],
-        ['control', 'N° CONTROL'],
-        ['total_factura', 'TOTAL FACTURA'],
-        ['exento', 'EXENTO'],
+        ['operacion', 'OPER. N°'],
+        ['fecha', 'FECHA DEL DOCUMENTO'],
+        ['factura', 'NUMERO DE FACTURA'],
+        ['control', 'NUM. CONTROL DOC.'],
+        ['nd', 'NUMERO (NOTA DEBITO)'],
+        ['nc', 'NUMERO (NOTA CREDITO)'],
+        ['clase', 'CLASE DE OPERACION'],
+        ['afectada', 'NUMERO DE FACTURA AFECTADA'],
+        ['total_factura', 'MONTO TOTAL FACTURA / NOTA DEBITO'],
+        ['sin_derecho', 'SIN DERECHO A CREDITO IVA'],
         ['base', 'BASE IMPONIBLE'],
         ['alicuota', 'ALICUOTA'],
-        ['iva', 'IVA FACTURA'],
-        ['pct', '% RET.'],
-        ['monto', 'IVA RETENIDO'],
+        ['iva', 'IMPUESTO CAUSADO'],
+        ['monto', 'IMPUESTO RETENIDO'],
       ]
     : tipo === 'islr'
-      ? [['factura', 'DOCUMENTO'], ['fecha', 'FECHA'], ['control', 'N° CONTROL'], ['concepto', 'CONCEPTO'], ['base', 'BASE IMPONIBLE'], ['sustraendo', 'SUSTRAENDO'], ['pct', '% RET.'], ['monto', 'MONTO RETENIDO']]
+      ? [['factura', 'DOCUMENTO'], ['fecha', 'FECHA'], ['control', 'N° CONTROL'], ['concepto', 'CONCEPTO'], ['total_factura', 'TOTAL FACTURA'], ['base', 'BASE IMPONIBLE'], ['causado', 'IMPUESTO CAUSADO'], ['sustraendo', 'SUSTRAENDO'], ['pct', '% RET.'], ['monto', 'MONTO RETENIDO']]
       : [['factura', 'DOCUMENTO'], ['fecha', 'FECHA'], ['control', 'N° CONTROL'], ['base', 'BASE IMPONIBLE'], ['pct', '% RET.'], ['monto', 'MONTO RETENIDO']];
   return cols.map(([campo, rotulo], i) => ({ campo, rotulo, visible: true, orden: i + 1, ancho: null }));
 }
@@ -74,7 +80,10 @@ export function textosFabrica(tipo: TipoImpuesto): Record<ClaveTexto, string> {
   const pie = tipo === 'iva'
     ? 'Este comprobante se emite segun lo establecido en la Providencia Administrativa SNAT/2025/000054 (G.O. N° 43.171). El numero no se reusa: una retencion anulada conserva el suyo.'
     : 'Comprobante de retencion. El numero no se reusa: una retencion anulada conserva el suyo.';
-  return { encabezado: base.encabezado, nota_legal: base.nota_legal, pie };
+  // La G.O. 43.484 rige a los 180 días de publicada (~19/04/2027). Hoy se deja
+  // vacía y configurable: cada empresa la llena cuando corresponda, sin cambiar
+  // todavía la referencia vigente a la G.O. 43.171.
+  return { encabezado: base.encabezado, nota_legal: base.nota_legal, leyenda_art19: '', pie };
 }
 
 export type SoportePapel = 'hoja_blanca_digital' | 'forma_libre_preimpresa';

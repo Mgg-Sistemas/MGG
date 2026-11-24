@@ -21,7 +21,7 @@ function consulta(tabla: string) {
 vi.mock('@/shared/lib/supabase', () => ({ supabase: { from: (t: string) => consulta(t), rpc: (...a: unknown[]) => rpc(...a) } }));
 vi.mock('./disponibilidad', () => ({ tablaDisponible: async () => conR8 }));
 
-import { aplicarFormato, columnasFabrica, faltaEnFormato, textosFabrica } from './formatoComprobante';
+import { aplicarFormato, columnasFabrica, faltaEnFormato, ROTULOS_FABRICA, textosFabrica } from './formatoComprobante';
 import { corregirFormato, filaContenido, formatoParaImprimir, nuevaVersionFormato, volverAFabrica } from './formatos.repository';
 import { valoresDeColumnas } from './comprobanteRetencionPdf';
 import { retencionDeMuestra } from './formatoMuestra';
@@ -54,13 +54,45 @@ describe('formato del comprobante (R8): lo que no trae la versión es de fábric
       { campo: 'monto', rotulo: 'RETENIDO', orden: 0, ancho: 90 },
       { campo: 'alicuota', visible: true },
     ] });
-    expect(f.columnas.map((c) => c.campo)).toEqual(['monto', 'factura', 'fecha', 'control', 'base', 'sustraendo', 'pct']);
+    expect(f.columnas.map((c) => c.campo)).toEqual(['monto', 'factura', 'fecha', 'control', 'total_factura', 'base', 'causado', 'sustraendo', 'pct']);
     expect(f.columnas[0]).toMatchObject({ rotulo: 'RETENIDO', ancho: 90 });
   });
 
   it('la tabla del PDF tiene un valor para cada columna posible', () => {
     const v = valoresDeColumnas(retencionDeMuestra('islr', '2026-10-21'));
     for (const c of [...columnasFabrica('iva'), ...columnasFabrica('islr')]) expect(v[c.campo]).toBeDefined();
+  });
+
+  it('G.O. 43.484: impuesto causado en IVA e ISLR, campo manual aparte y leyenda configurable vacía', () => {
+    expect(columnasFabrica('iva').map((c) => c.campo)).toEqual([
+      'operacion', 'fecha', 'factura', 'control', 'nd', 'nc', 'clase', 'afectada',
+      'total_factura', 'sin_derecho', 'base', 'alicuota', 'iva', 'monto',
+    ]);
+    expect(columnasFabrica('iva').map((c) => [c.campo, c.rotulo])).toContainEqual(['iva', 'IMPUESTO CAUSADO']);
+    expect(columnasFabrica('iva').map((c) => [c.campo, c.rotulo])).toContainEqual(['monto', 'IMPUESTO RETENIDO']);
+    expect(columnasFabrica('iva').map((c) => [c.campo, c.rotulo])).toContainEqual(['sin_derecho', 'SIN DERECHO A CREDITO IVA']);
+    expect(columnasFabrica('islr').map((c) => [c.campo, c.rotulo])).toContainEqual(['total_factura', 'TOTAL FACTURA']);
+    expect(columnasFabrica('islr').map((c) => [c.campo, c.rotulo])).toContainEqual(['causado', 'IMPUESTO CAUSADO']);
+    expect(ROTULOS_FABRICA).toMatchObject({ correlativo: 'CORRELATIVO N°', fecha_entrega: 'FECHA DE ENTREGA' });
+    expect(textosFabrica('iva').leyenda_art19).toBe('');
+    expect(textosFabrica('iva').nota_legal).toContain('43.171');
+    const muestra = retencionDeMuestra('islr', '2026-10-21');
+    const v = valoresDeColumnas(muestra);
+    expect(v.causado).toBe('Bs 20,00');
+    expect(v.total_factura).toBe('Bs 1.000,00');
+    expect(valoresDeColumnas({ ...muestra, facturaTotal: null }).total_factura).toBe('—');
+    const iva = retencionDeMuestra('iva', '2026-10-21');
+    expect(valoresDeColumnas({ ...iva, impuesto: 160, impuestoCausado: 161 }).iva).toBe('Bs 161,00');
+  });
+
+  it('IVA: factura, nota de débito y nota de crédito ocupan columnas distintas', () => {
+    const factura = retencionDeMuestra('iva', '2026-10-21');
+    expect(valoresDeColumnas(factura)).toMatchObject({ factura: '000123', nd: '—', nc: '—', clase: '01-reg' });
+    const nd = valoresDeColumnas({ ...factura, facturaNumero: 'ND-0007', tipoDocumento: 'nota_debito', facturaAfectadaNro: 'F-0001' });
+    expect(nd).toMatchObject({ factura: '—', nd: 'ND-0007', nc: '—', afectada: 'F-0001', clase: '01-reg' });
+    const nc = valoresDeColumnas({ ...factura, facturaNumero: 'NC-0008', tipoDocumento: 'nota_credito', facturaAfectadaNro: 'F-0002' });
+    expect(nc).toMatchObject({ factura: '—', nd: '—', nc: 'NC-0008', afectada: 'F-0002', clase: '01-reg' });
+    expect(nc.monto).toContain('-');
   });
 
   it('antes de guardar: fecha entre 2000 y 2100, motivo, al menos una columna visible con rótulo, ancho > 0', () => {
