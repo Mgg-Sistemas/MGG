@@ -4,6 +4,7 @@ import { CONFIG_RETENCION_DEFECTO, configDesdeFicha, type ConfigRetencion } from
 import type { RetencionPracticada } from './retencionesFiscal.repository';
 import {
   cadenaCanonicoFiscal, calcularSha256Hex, generarQrVerificacion, lineaEquivalenteBs, partesComprobante,
+  nombreArchivoComprobantePdf, nombreArchivoComprobantesFacturaPdf, normalizarNombreParaArchivo, normalizarNumeroFacturaParaArchivo,
 } from './comprobanteRetencionPdf';
 
 // Datos inventados: ninguna empresa, proveedor ni cliente real.
@@ -240,5 +241,47 @@ describe('correos en comprobante · empresa (configurable) y proveedor (si exist
     expect(p.sujeto).toContain('Correo: tributos@empresa.com');
   });
 });
+
+describe('nombre de archivo para imprimir comprobantes de retención', () => {
+  it('ejemplo solicitado: ComprobanteDeRetencion_ISLR_MaquinaEjemplarCA_00001.pdf', () => {
+    const r = retencion({
+      tipo: 'islr',
+      contraparteNombre: 'Máquina Ejemplar, C.A.',
+      facturaNumero: '00001',
+    });
+    expect(nombreArchivoComprobantePdf(r)).toBe('ComprobanteDeRetencion_ISLR_MaquinaEjemplarCA_00001.pdf');
+  });
+
+  it('normaliza nombres en mayúsculas sostenidas y siglas comerciales (C.A., S.A., SRL)', () => {
+    expect(normalizarNombreParaArchivo('MÁQUINA EJEMPLAR, C.A.')).toBe('MaquinaEjemplarCA');
+    expect(normalizarNombreParaArchivo('AUTOMERCADO MAXICONSUMO, C.A.')).toBe('AutomercadoMaxiconsumoCA');
+    expect(normalizarNombreParaArchivo('INVERSIONES LOS PINOS 2026 S.A.')).toBe('InversionesLosPinos2026SA');
+    expect(normalizarNombreParaArchivo('SERVICIOS MINEROS SRL')).toBe('ServiciosMinerosSRL');
+    expect(normalizarNombreParaArchivo(null)).toBe('SinProveedor');
+  });
+
+  it('normaliza número de factura o usa respaldo si no existe', () => {
+    expect(normalizarNumeroFacturaParaArchivo(' 00001 ')).toBe('00001');
+    expect(normalizarNumeroFacturaParaArchivo('FACT-2026-99')).toBe('FACT-2026-99');
+    expect(normalizarNumeroFacturaParaArchivo(null, '20261100000001')).toBe('20261100000001');
+    expect(normalizarNumeroFacturaParaArchivo(null, null)).toBe('0000');
+  });
+
+  it('comprobante de IVA con formato estructurado', () => {
+    const r = retencion({
+      tipo: 'iva',
+      contraparteNombre: 'Inversiones Los Pinos 2026, C.A.',
+      facturaNumero: '00452',
+    });
+    expect(nombreArchivoComprobantePdf(r)).toBe('ComprobanteDeRetencion_IVA_InversionesLosPinos2026CA_00452.pdf');
+  });
+
+  it('lote de comprobantes de una misma factura con múltiples impuestos', () => {
+    const r1 = retencion({ tipo: 'iva', contraparteNombre: 'Máquina Ejemplar, C.A.', facturaNumero: '00001' });
+    const r2 = retencion({ tipo: 'islr', contraparteNombre: 'Máquina Ejemplar, C.A.', facturaNumero: '00001' });
+    expect(nombreArchivoComprobantesFacturaPdf('00001', [r1, r2])).toBe('ComprobanteDeRetencion_IVA_ISLR_MaquinaEjemplarCA_00001.pdf');
+  });
+});
+
 
 

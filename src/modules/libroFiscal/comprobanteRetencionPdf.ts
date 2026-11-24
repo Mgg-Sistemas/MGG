@@ -1127,6 +1127,70 @@ export async function anexarPaginasComprobantePdf(
   return doc;
 }
 
+/**
+ * Limpia y normaliza el nombre de un proveedor o contraparte a formato PascalCase alfanumérico limpio.
+ * Ej: "Máquina Ejemplar, C.A." -> "MaquinaEjemplarCA"
+ *     "INVERSIONES 2020 C.A." -> "Inversiones2020CA"
+ */
+export function normalizarNombreParaArchivo(nombre: string | null | undefined): string {
+  if (!nombre) return 'SinProveedor';
+  const sinAcentos = nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const palabras = sinAcentos.split(/[^a-zA-Z0-9]+/).filter(Boolean);
+  if (!palabras.length) return 'SinProveedor';
+
+  const SIGLAS_COMUNES = new Set(['CA', 'SA', 'SRL', 'RL', 'SL', 'CIA', 'RIF', 'C', 'A', 'S']);
+
+  return palabras.map((p) => {
+    const upper = p.toUpperCase();
+    if (SIGLAS_COMUNES.has(upper) || p.length === 1) {
+      return upper;
+    }
+    if (p === upper) {
+      return p.charAt(0).toUpperCase() + p.slice(1).toLowerCase();
+    }
+    return p.charAt(0).toUpperCase() + p.slice(1);
+  }).join('');
+}
+
+export function normalizarNumeroFacturaParaArchivo(facturaNumero: string | null | undefined, fallback?: string | null): string {
+  const num = (facturaNumero ?? '').trim();
+  if (num) {
+    const limpio = num.replace(/[^\w-]+/g, '');
+    if (limpio) return limpio;
+  }
+  const fb = (fallback ?? '').trim().replace(/[^\w-]+/g, '');
+  return fb || '0000';
+}
+
+/**
+ * Nombre estructurado del PDF para comprobantes de retención:
+ * ComprobanteDeRetencion + TIPO Impuesto + NombreProveedor + NumeroFactura
+ * Ej: ComprobanteDeRetencion_ISLR_MaquinaEjemplarCA_00001.pdf
+ */
+export function nombreArchivoComprobantePdf(
+  r: Pick<RetencionPracticada, 'tipo' | 'contraparteNombre' | 'facturaNumero' | 'numeroComprobante'> & { id?: string },
+): string {
+  const tipo = (r.tipo ?? 'RETENCION').toUpperCase();
+  const proveedor = normalizarNombreParaArchivo(r.contraparteNombre);
+  const factura = normalizarNumeroFacturaParaArchivo(r.facturaNumero, r.numeroComprobante ?? r.id?.slice(0, 8));
+  return `ComprobanteDeRetencion_${tipo}_${proveedor}_${factura}.pdf`;
+}
+
+/**
+ * Nombre estructurado del PDF para lote de comprobantes de una factura.
+ */
+export function nombreArchivoComprobantesFacturaPdf(
+  facturaNumero: string,
+  retenciones: RetencionPracticada[],
+): string {
+  const tiposUnicos = Array.from(new Set(retenciones.map((r) => (r.tipo ?? '').toUpperCase()).filter(Boolean)));
+  const tipoStr = tiposUnicos.length > 0 ? tiposUnicos.join('_') : 'RETENCION';
+  const primerProveedor = retenciones.find((r) => r.contraparteNombre)?.contraparteNombre;
+  const proveedor = normalizarNombreParaArchivo(primerProveedor);
+  const factura = normalizarNumeroFacturaParaArchivo(facturaNumero, retenciones[0]?.numeroComprobante);
+  return `ComprobanteDeRetencion_${tipoStr}_${proveedor}_${factura}.pdf`;
+}
+
 export async function verComprobanteRetencionPdf(
   r: RetencionPracticada,
   config: ConfigRetencion,
@@ -1155,7 +1219,7 @@ export async function verComprobanteRetencionPdf(
   });
 
   const doc = await generarDoc();
-  const filename = `retencion-${r.tipo}-${r.numeroComprobante ?? r.id.slice(0, 8)}.pdf`;
+  const filename = nombreArchivoComprobantePdf(r);
 
   previewPdf(doc, filename, {
     extraControls: ({ bar, updatePdf }) => {
@@ -1317,7 +1381,7 @@ export async function verTodosComprobantesFacturaPdf(
   };
 
   const doc = await generarLote();
-  const filename = `comprobantes-factura-${facturaNumero.replace(/[^\w.-]+/g, '_')}.pdf`;
+  const filename = nombreArchivoComprobantesFacturaPdf(facturaNumero, seleccionadas);
 
   previewPdf(doc, filename, {
     extraControls: ({ bar, updatePdf }) => {
