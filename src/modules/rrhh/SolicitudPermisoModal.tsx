@@ -22,9 +22,9 @@ import type { Empresa } from './empresa';
 import {
   COMPROMISO_TRABAJADOR,
   datosJefeDe,
-  datosTrabajadorDe,
-  diasInclusivePermiso,
-  hoyIsoPermiso,
+  hayCambioFirmaEnEdicion,
+  inicialSolicitudPermiso,
+  solicitudSinPersonal,
   validarSolicitudPermiso,
   type SolicitudPermisoForm,
 } from './permisoLaboral';
@@ -34,34 +34,6 @@ import {
   urlArchivoPermiso,
 } from './permisoLaboral.repository';
 import { verSolicitudPermisoPdf } from './solicitudPermisoPdf';
-
-const VACIO_TRABAJADOR = { nombre: '', apellido: '', cedula: '', cargo: '', departamento: '', telefono: '' };
-
-function inicial(personal: Personal[], personalId: string, empresa: Empresa, evento?: RrhhEvento | null): SolicitudPermisoForm {
-  if (evento?.solicitud) {
-    return {
-      ...evento.solicitud,
-      personal_id: evento.personal_id,
-      requiere_firma_jefe: evento.solicitud.requiere_firma_jefe ?? false,
-      jefe_departamento: evento.solicitud.jefe_departamento ?? null,
-    };
-  }
-  const p = personal.find((x) => x.id === personalId);
-  return {
-    personal_id: personalId,
-    fecha_solicitud: hoyIsoPermiso(),
-    fecha_inicio: '',
-    fecha_fin: '',
-    tiempo_solicitado: '',
-    horario: '',
-    motivo: '',
-    compromiso: COMPROMISO_TRABAJADOR,
-    trabajador: p ? datosTrabajadorDe(p) : { ...VACIO_TRABAJADOR },
-    empresa,
-    requiere_firma_jefe: false,
-    jefe_departamento: null,
-  };
-}
 
 export function SolicitudPermisoModal({ personal, personalId, empresa, actor, actorName, evento, onClose, onGuardado }: {
   personal: Personal[];
@@ -73,7 +45,7 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
   onClose: () => void;
   onGuardado: () => void;
 }) {
-  const [form, setForm] = useState<SolicitudPermisoForm>(() => inicial(personal, personalId, empresa, evento));
+  const [form, setForm] = useState<SolicitudPermisoForm>(() => inicialSolicitudPermiso(personal, personalId, empresa, evento));
   const [adjuntos, setAdjuntos] = useState(evento?.adjuntos ?? []);
   const [nuevos, setNuevos] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -142,13 +114,19 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
     setError(null);
     const mal = validarSolicitudPermiso(form);
     if (mal) { setError(mal); return; }
-    try { await verSolicitudPermisoPdf(form, empresa); }
+    try { await verSolicitudPermisoPdf(form, form.empresa); }
     catch (e) { setError(e instanceof Error ? e.message : 'No se pudo generar el PDF'); }
   }
 
   async function guardar() {
     setError(null);
-    if (edicion && !nuevos.length) { setError('Elegí al menos un archivo para agregar.'); return; }
+    const cambioFirma = edicion && hayCambioFirmaEnEdicion(evento, form);
+    if (edicion && !nuevos.length && !cambioFirma) {
+      setError('Elegí un soporte o marcá la firma del jefe para guardar.'); return;
+    }
+    if (form.requiere_firma_jefe && !form.jefe_departamento) {
+      setError('Elegí el jefe de departamento para la firma.'); return;
+    }
     if (!edicion) {
       const mal = validarSolicitudPermiso(form);
       if (mal) { setError(mal); return; }
@@ -160,9 +138,10 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
     setGuardando(true);
     try {
       if (evento) {
-        const todos = await agregarAdjuntosPermiso(evento, nuevos);
+        const todos = await agregarAdjuntosPermiso(evento, nuevos, solicitudSinPersonal(form));
         setAdjuntos(todos); setNuevos([]);
-        toast('Soportes guardados', 'success');
+        toast(nuevos.length ? 'Soportes y firma guardados' : 'Firma guardada', 'success');
+        if (cambioFirma) void verSolicitudPermisoPdf(form, form.empresa);
       } else {
         const creado = await guardarSolicitudPermiso(form, nuevos, actor, actorName);
         setAdjuntos(creado.adjuntos ?? []); setNuevos([]);
@@ -187,7 +166,7 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
         <button className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cancelar</button>
         <button className="btn" onClick={() => void verPdf()} disabled={guardando}>📄 Vista previa del PDF</button>
         <button className="btn btn-primary" onClick={() => void guardar()} disabled={guardando}>
-          {guardando ? 'Guardando…' : edicion ? '📎 Guardar soportes' : '💾 Guardar solicitud'}
+          {guardando ? 'Guardando…' : edicion ? '💾 Guardar cambios' : '💾 Guardar solicitud'}
         </button>
       </>}
     >
@@ -241,11 +220,10 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
       </div>
 
       <div className="card" style={{ padding: '.75rem', marginTop: '.75rem', background: 'var(--surface-2, transparent)' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: edicion ? 'default' : 'pointer', fontWeight: 600, fontSize: '.85rem' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '.5rem', cursor: 'pointer', fontWeight: 600, fontSize: '.85rem' }}>
           <input
             type="checkbox"
             checked={!!form.requiere_firma_jefe}
-            disabled={edicion}
             onChange={(e) => {
               const checked = e.target.checked;
               setForm((f) => ({
@@ -266,7 +244,6 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
               onChange={elegirJefe}
               placeholder="Buscar por nombre, cédula, cargo o departamento…"
               emptyText="Sin trabajadores disponibles"
-              disabled={edicion}
             />
             {form.jefe_departamento && (
               <div className="muted" style={{ fontSize: '.75rem', marginTop: '.35rem' }}>

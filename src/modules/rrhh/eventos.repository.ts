@@ -57,14 +57,15 @@ export async function crearEvento(input: EventoInput, actorEmail?: string, actor
   return data as RrhhEvento;
 }
 
-/** Guarda la ruta del PDF y los soportes ya subidos. Verifica que la fila se actualizó. */
+/** Guarda la ruta del PDF, los soportes ya subidos y, si cambió, la solicitud con su firma. Verifica que la fila se actualizó. */
 export async function actualizarEventoAdjuntos(
   id: string,
-  datos: { solicitud_path?: string | null; adjuntos?: AdjuntoPermisoLaboral[] },
+  datos: { solicitud_path?: string | null; adjuntos?: AdjuntoPermisoLaboral[]; solicitud?: SolicitudPermisoLaboral | null },
 ): Promise<void> {
-  const cambios: { solicitud_path?: string | null; adjuntos?: AdjuntoPermisoLaboral[] } = {};
+  const cambios: { solicitud_path?: string | null; adjuntos?: AdjuntoPermisoLaboral[]; solicitud?: SolicitudPermisoLaboral | null } = {};
   if ('solicitud_path' in datos) cambios.solicitud_path = datos.solicitud_path ?? null;
   if (datos.adjuntos) cambios.adjuntos = datos.adjuntos;
+  if ('solicitud' in datos) cambios.solicitud = datos.solicitud ?? null;
   const { data, error } = await supabase.from(TABLE).update(cambios).eq('id', id).select('id');
   if (error) throw error;
   if (!data || data.length === 0) throw new Error('No se pudo guardar los archivos: sin permiso o ya no existía el registro.');
