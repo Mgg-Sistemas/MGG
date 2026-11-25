@@ -62,6 +62,11 @@ export function limpiarDetalleOferta(d?: OfertaDetalle | null): OfertaDetalle | 
     marca: txt(d.marca), modelo: txt(d.modelo), procedencia: txt(d.procedencia),
     materiales: txt(d.materiales), dimensiones: txt(d.dimensiones), peso: txt(d.peso),
     calidad: txt(d.calidad), logistica: hayLog ? logistica : undefined,
+    cotizacion: d.cotizacion ? {
+      moneda: d.cotizacion.moneda === 'EUR' ? 'EUR' : 'USD',
+      tasa_usd_bcv: d.cotizacion.tasa_usd_bcv != null ? Number(d.cotizacion.tasa_usd_bcv) : null,
+      tasa_eur_bcv: d.cotizacion.tasa_eur_bcv != null ? Number(d.cotizacion.tasa_eur_bcv) : null,
+    } : undefined,
   };
   return Object.values(out).some((v) => v) ? out : null;
 }

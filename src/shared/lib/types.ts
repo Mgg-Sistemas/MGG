@@ -1591,8 +1591,21 @@ export interface CreditoDetalle {
   fecha_vencimiento?: string | null;
 }
 
+export type MonedaCotizacion = 'USD' | 'EUR';
+
+/** Moneda original de la cotización y tasas BCV congeladas al guardarla. */
+export interface CotizacionMoneda {
+  moneda: MonedaCotizacion;
+  /** Bolívares por 1 USD. */
+  tasa_usd_bcv?: number | null;
+  /** Bolívares por 1 EUR. */
+  tasa_eur_bcv?: number | null;
+}
+
 /** Datos técnicos y logísticos opcionales que el proveedor declara en su oferta. */
 export interface OfertaDetalle {
+  /** EUR/USD original y las tasas usadas para llevarlo a USD a BCV. */
+  cotizacion?: CotizacionMoneda | null;
   marca?: string | null;
   modelo?: string | null;
   procedencia?: string | null;

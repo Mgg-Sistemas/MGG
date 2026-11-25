@@ -22,6 +22,7 @@ import { esOfertaAceptadaDeEstaOc, esSubOrden, ordenDeOfertas, ordenesConOfertas
 import { AceptarOfertaModal } from './AceptarOfertaModal';
 import { ImagenesSolicitud } from './ImagenesSolicitud';
 import type { ItemOrden } from '@/shared/lib/types';
+import { bsDesdeUsdBcv, monedaDesdeUsdBcv } from './cotizacionMoneda';
 
 interface Props {
   orden: Orden;
@@ -530,10 +531,19 @@ export function OfertasComparativa({
                         const incl = !!s.oferta.iva_incluido && iva > 0;
                         const efe = Number(s.oferta.precio_efectivo) || 0;
                         const ahorro = descuentoEfectivo(s.oferta.precio_total, s.oferta.precio_efectivo);
+                        const cotizacion = s.oferta.detalle?.cotizacion;
+                        const esEur = cotizacion?.moneda === 'EUR';
+                        const totalEur = esEur ? monedaDesdeUsdBcv(final, 'EUR', cotizacion!) : 0;
+                        const totalBs = esEur ? bsDesdeUsdBcv(final, cotizacion!) : 0;
                         const desglose = (impuestos > 0 || descuento > 0 || incl || ajuste !== 0);
                         return (
                           <>
                             <strong>{money(final, mo)}</strong>
+                            {esEur && (
+                              <div className="muted" style={{ fontSize: '.72rem', marginTop: '.1rem', whiteSpace: 'nowrap' }}>
+                                Cotización <strong>EUR a BCV</strong>: {money(totalEur, 'EUR')} · bolívares {money(totalBs, 'Bs')}
+                              </div>
+                            )}
                             {desglose && (
                               <div className="muted" style={{ fontSize: '.7rem', marginTop: '.1rem', whiteSpace: 'nowrap' }}>
                                 base {money(base, mo)}{descuento > 0 ? ` · desc. ${money(descuento, mo)}` : ''}{iva > 0 ? (incl ? ` · IVA incl. ${money(iva, mo)}` : ` · IVA ${money(iva, mo)}`) : ''}{igtf > 0 ? ` · IGTF ${money(igtf, mo)}` : ''}{ajuste !== 0 ? ` · ajuste ${money(ajuste)}` : ''}
