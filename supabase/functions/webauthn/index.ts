@@ -160,19 +160,21 @@ serve(async (req) => {
       }
       const cred = verification.registrationInfo.credential;
       const transports = (cred.transports ?? []).join(',') || null;
-      const { error: insErr } = await admin.from('webauthn_credentials').insert({
-        user_id: caller.id,
-        email: caller.email,
-        credential_id: cred.id,
-        public_key: encodeBase64Url(cred.publicKey),
-        counter: cred.counter ?? 0,
-        rp_id: rpId,
-        transports,
-        device_label: (body.deviceLabel ?? '').trim() || 'Dispositivo',
-      });
+      const { error: insErr } = await admin.from('webauthn_credentials').upsert(
+        {
+          user_id: caller.id,
+          email: caller.email,
+          credential_id: cred.id,
+          public_key: encodeBase64Url(cred.publicKey),
+          counter: cred.counter ?? 0,
+          rp_id: rpId,
+          transports,
+          device_label: (body.deviceLabel ?? '').trim() || 'Dispositivo',
+        },
+        { onConflict: 'credential_id' },
+      );
       if (insErr) {
-        // Credencial duplicada u otro: no es fatal para el usuario.
-        if (!String(insErr.message).includes('duplicate')) return json({ error: insErr.message }, 400);
+        return json({ error: insErr.message }, 400);
       }
       return json({ verified: true });
     }

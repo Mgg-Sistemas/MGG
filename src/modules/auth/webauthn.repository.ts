@@ -64,6 +64,34 @@ async function invoke<T>(action: string, extra: Record<string, unknown>): Promis
   return d as T;
 }
 
+/** Clave de localStorage para cachear el último correo usado en este dispositivo. */
+const HINT_KEY = 'mgg_last_login_email';
+
+export function ultimoEmailUsado(): string | null {
+  try {
+    return localStorage.getItem(HINT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function guardarUltimoEmailUsado(email: string): void {
+  try {
+    const e = email.trim().toLowerCase();
+    if (e) localStorage.setItem(HINT_KEY, e);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function olvidarUltimoEmailUsado(): void {
+  try {
+    localStorage.removeItem(HINT_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 /**
  * Enrola la huella del dispositivo actual para el usuario logueado.
  * Requiere sesión activa (el JWT viaja en la llamada a la Edge Function).
@@ -77,6 +105,8 @@ export async function registrarBiometria(): Promise<void> {
   );
   const att = await startRegistration({ optionsJSON: options });
   await invoke('register-verify', { response: att, deviceLabel: deviceLabel() });
+  const { data: u } = await supabase.auth.getUser();
+  if (u?.user?.email) guardarUltimoEmailUsado(u.user.email);
 }
 
 /**
@@ -96,6 +126,7 @@ export async function entrarConBiometria(email: string): Promise<void> {
 
   const { error } = await supabase.auth.verifyOtp({ email: correo, token: otp, type: 'email' });
   if (error) throw new Error(error.message ?? 'No se pudo abrir la sesión.');
+  guardarUltimoEmailUsado(correo);
 }
 
 export interface CredencialBiometrica {
@@ -108,9 +139,12 @@ export interface CredencialBiometrica {
 
 /** Credenciales biométricas del usuario actual (para administrarlas). */
 export async function listarCredenciales(): Promise<CredencialBiometrica[]> {
+  const { data: u } = await supabase.auth.getUser();
+  if (!u?.user?.id) return [];
   const { data, error } = await supabase
     .from('webauthn_credentials')
     .select('id, device_label, rp_id, created_at, last_used_at')
+    .eq('user_id', u.user.id)
     .order('created_at', { ascending: false });
   if (error) throw error;
   return (data ?? []) as CredencialBiometrica[];
@@ -118,7 +152,13 @@ export async function listarCredenciales(): Promise<CredencialBiometrica[]> {
 
 /** Elimina una credencial (deja de servir esa huella/dispositivo). */
 export async function eliminarCredencial(id: string): Promise<void> {
-  const { error } = await supabase.from('webauthn_credentials').delete().eq('id', id);
+  const { data: u } = await supabase.auth.getUser();
+  if (!u?.user?.id) throw new Error('No autenticado');
+  const { error } = await supabase
+    .from('webauthn_credentials')
+    .delete()
+    .eq('id', id)
+    .eq('user_id', u.user.id);
   if (error) throw error;
 }
 
