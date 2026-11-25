@@ -290,43 +290,43 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
         <p style={{ fontSize: '.85rem', marginBottom: 0, textAlign: 'justify', lineHeight: 1.45 }}>{COMPROMISO_TRABAJADOR}</p>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: form.requiere_firma_jefe ? '1fr 1fr 1fr' : '1fr 1fr', gap: form.requiere_firma_jefe ? '1rem' : '2rem', marginTop: '1.5rem' }}>
-        <div>
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: form.requiere_firma_jefe ? 'repeat(3, minmax(0, 1fr))' : 'repeat(2, minmax(0, 1fr))', gap: form.requiere_firma_jefe ? '1rem' : '2rem', marginTop: '1.5rem', minWidth: 0 }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem', overflowWrap: 'anywhere' }}>
             <div style={{ fontWeight: 700 }}>Firma del trabajador</div>
             {(`${form.trabajador.nombre ?? ''} ${form.trabajador.apellido ?? ''}`.trim()) && (
-              <div style={{ fontSize: '.76rem', marginTop: '.2rem', fontWeight: 600 }}>
+              <div style={{ fontSize: '.76rem', marginTop: '.2rem', fontWeight: 600, overflowWrap: 'anywhere' }}>
                 {`${form.trabajador.nombre} ${form.trabajador.apellido}`.trim().toUpperCase()}
               </div>
             )}
             {form.trabajador.cedula && (
-              <div className="muted" style={{ fontSize: '.72rem' }}>C.I. {form.trabajador.cedula}</div>
+              <div className="muted" style={{ fontSize: '.72rem', overflowWrap: 'anywhere' }}>C.I. {form.trabajador.cedula}</div>
             )}
           </div>
         </div>
         {form.requiere_firma_jefe && (
-          <div>
-            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem' }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem', overflowWrap: 'anywhere' }}>
               <div style={{ fontWeight: 700 }}>Firma Jefe de Depto.</div>
               {form.jefe_departamento ? (
                 <>
-                  <div style={{ fontSize: '.76rem', marginTop: '.2rem', fontWeight: 600 }}>
+                  <div style={{ fontSize: '.76rem', marginTop: '.2rem', fontWeight: 600, overflowWrap: 'anywhere' }}>
                     {`${form.jefe_departamento.nombre} ${form.jefe_departamento.apellido}`.trim().toUpperCase()}
                   </div>
                   {form.jefe_departamento.cargo && (
-                    <div className="muted" style={{ fontSize: '.72rem' }}>{form.jefe_departamento.cargo}</div>
+                    <div className="muted" style={{ fontSize: '.72rem', overflowWrap: 'anywhere' }}>{form.jefe_departamento.cargo}</div>
                   )}
                 </>
               ) : (
-                <div className="muted" style={{ fontSize: '.72rem', fontStyle: 'italic', marginTop: '.2rem' }}>Pendiente por seleccionar</div>
+                <div className="muted" style={{ fontSize: '.72rem', fontStyle: 'italic', marginTop: '.2rem', overflowWrap: 'anywhere' }}>Pendiente por seleccionar</div>
               )}
             </div>
           </div>
         )}
-        <div>
-          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '.4rem', textAlign: 'center', fontSize: '.8rem', overflowWrap: 'anywhere' }}>
             <div style={{ fontWeight: 700 }}>Firma de RRHH</div>
-            <div style={{ fontSize: '.76rem', marginTop: '.2rem' }}>Departamento de Recursos Humanos</div>
+            <div style={{ fontSize: '.76rem', marginTop: '.2rem', overflowWrap: 'anywhere' }}>Departamento de Recursos Humanos</div>
           </div>
         </div>
       </div>
