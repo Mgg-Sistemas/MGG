@@ -102,6 +102,7 @@ import {
   eliminarCatalogoPedido,
   ensureUnidadSolicitante,
   ultimaOrdenMercado,
+  reelegirModalidadEntregaOc,
   type PrecioHistorico,
   type CatalogoPedido,
   type ScopeCatalogoPedido,
@@ -305,6 +306,7 @@ function eventLabel(ev: string): string {
       destino_entrega: 'Destino de entrega indicado',
       pagada_sin_caja: 'Pagada sin descontar de caja (Tesorería)',
       retiro_confirmado: 'Retiro confirmado por Compras',
+      modalidad_cambiada: 'Transporte reelegido',
       delivery_tomado: 'Pedido tomado para retirar',
       delivery_entregado: 'Pedido entregado en el almacén',
       delivery_no_disponible: 'No disponible para retirarlo',
@@ -344,6 +346,7 @@ function eventClass(ev: string): string {
       mercado_directo: 'info',
       compra_fija_directa: 'info',
       retiro_confirmado: 'ok',
+      modalidad_cambiada: 'info',
       delivery_tomado: 'info',
       delivery_entregado: 'ok',
       delivery_no_disponible: 'warn',
@@ -3321,6 +3324,7 @@ function OrdenDetailModal({
   const [editandoCant, setEditandoCant] = useState(false);
   const [cantDraft, setCantDraft] = useState<Record<string, string>>({});
   const [savingCant, setSavingCant] = useState(false);
+  const [reelegirTransporteOpen, setReelegirTransporteOpen] = useState(false);
   // Productos marcados para eliminar en esta edición (se aplica al guardar, así
   // «Cancelar» los devuelve). El ítem en confirmación vive aparte.
   const [skusAEliminar, setSkusAEliminar] = useState<Set<string>>(new Set());
@@ -3922,10 +3926,10 @@ function OrdenDetailModal({
         </div>
       )}
       {/* 04-11-2026: quién entrega (se elige al indicar el método de pago). */}
-      {o.oc_codigo && (o.entrega_modalidad || pendienteRetiro(o)) && (
+      {o.oc_codigo && (o.entrega_modalidad || pendienteRetiro(o) || canManageProcurement) && (
         <div className="detail-row">
           <div className="k">Entrega</div>
-          <div className="v">
+          <div className="v" style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
             {o.entrega_modalidad && <span className="badge">{etiquetaEntrega(o.entrega_modalidad)}</span>}{' '}
             {/* 06-11-2026: la OC pagada espera que Compras confirme el retiro. */}
             {pendienteRetiro(o) && <span className="badge warning">⏳ Pendiente por confirmar el retiro</span>}
@@ -3934,8 +3938,30 @@ function OrdenDetailModal({
                 ✓ Retiro confirmado por {persona(o.retiro_confirmado_por, personaMap, o.retiro_confirmado_en)} · {dateTime(o.retiro_confirmado_en)}
               </span>
             )}
+            {canManageProcurement && !o.recibida_en && (
+              <button
+                type="button"
+                className="btn btn-xs btn-ghost"
+                style={{ fontSize: '.75rem', padding: '.15rem .5rem', border: '1px solid var(--border)' }}
+                onClick={() => setReelegirTransporteOpen((v) => !v)}
+                title="Reelegir si busca Delivery, Carga pesada o la trae el proveedor"
+              >
+                🔄 Reelegir transporte
+              </button>
+            )}
           </div>
         </div>
+      )}
+      {reelegirTransporteOpen && canManageProcurement && !o.recibida_en && (
+        <ReelegirTransporteBox
+          orden={o}
+          actorEmail={actorEmail}
+          onDone={async () => {
+            setReelegirTransporteOpen(false);
+            await onAcceptedOffer();
+          }}
+          onCancel={() => setReelegirTransporteOpen(false)}
+        />
       )}
       {o.oc_codigo && (() => {
         // Datos de la oferta elegida (snapshot): técnicos, logística y precio BCV/efectivo.
@@ -4713,6 +4739,124 @@ function EnviarPorCorreoModal({
 function persona(email: string | null | undefined, map: PersonasMap, fecha?: string | null): string {
   if (!email) return '—';
   return nombreEnFecha(email, fecha, map.historial, map.get(email.toLowerCase())) ?? email;
+}
+
+/**
+ * 25/11/2026: permite al analista reelegir o corregir el tipo de transporte
+ * (delivery motorizado, carga pesada camión, o entrega a domicilio del proveedor).
+ */
+function ReelegirTransporteBox({
+  orden: o,
+  actorEmail,
+  onDone,
+  onCancel,
+}: {
+  orden: Orden;
+  actorEmail: string;
+  onDone: () => void | Promise<void>;
+  onCancel: () => void;
+}) {
+  const [modalidad, setModalidad] = useState<EntregaModalidad>(o.entrega_modalidad ?? 'delivery');
+  const [motivo, setMotivo] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  async function guardar() {
+    if (!modalidad || saving) return;
+    setSaving(true);
+    try {
+      await reelegirModalidadEntregaOc(o, modalidad, actorEmail, motivo.trim());
+      const label = modalidad === 'carga_pesada' ? 'Carga pesada 🚚' : modalidad === 'proveedor' ? 'A domicilio (proveedor) 🏠' : 'Delivery (motorizado) 🛵';
+      notify(`OC ${o.oc_codigo ?? o.codigo} · transporte cambiado a ${label}`, 'success');
+      toast(`Modalidad actualizada a ${label}`, 'success');
+      await onDone();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo cambiar el transporte', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="card"
+      style={{
+        margin: '.5rem 0',
+        padding: '.75rem .95rem',
+        borderLeft: '3px solid var(--accent, #3b82f6)',
+        background: 'var(--surface-2, rgba(255,255,255,0.03))',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.35rem' }}>
+        <div style={{ fontSize: '.82rem', fontWeight: 700, letterSpacing: '.03em' }}>
+          🔄 REELEGIR TIPO DE TRANSPORTE
+        </div>
+        <button
+          type="button"
+          className="btn btn-xs btn-ghost"
+          onClick={onCancel}
+          disabled={saving}
+          style={{ opacity: 0.7 }}
+        >
+          ✕
+        </button>
+      </div>
+      <div className="muted" style={{ fontSize: '.78rem', marginBottom: '.6rem' }}>
+        Selecciona cómo se retirarán o trasladarán los productos. Si la orden ya estaba en Delivery o Carga pesada, se reubicará automáticamente al nuevo canal.
+      </div>
+      <div style={{ display: 'flex', gap: '.5rem', flexWrap: 'wrap', marginBottom: '.65rem' }}>
+        {OPCIONES_ENTREGA.map((m) => (
+          <label
+            key={m.value}
+            className="card"
+            title={m.ayuda}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '.4rem',
+              margin: 0,
+              padding: '.45rem .75rem',
+              cursor: 'pointer',
+              border: `1px solid ${modalidad === m.value ? 'var(--primary, #f59e0b)' : 'var(--border)'}`,
+              background: modalidad === m.value ? 'rgba(245, 158, 11, 0.08)' : 'transparent',
+            }}
+          >
+            <input
+              type="radio"
+              name={`reelegir-transporte-${o.id}`}
+              checked={modalidad === m.value}
+              onChange={() => setModalidad(m.value)}
+              disabled={saving}
+            />
+            <strong>{m.icono} {m.label.toUpperCase()}</strong>
+          </label>
+        ))}
+      </div>
+      <div style={{ marginBottom: '.65rem' }}>
+        <input
+          type="text"
+          className="input input-sm"
+          style={{ width: '100%', fontSize: '.8rem' }}
+          placeholder="Motivo del cambio (opcional, ej. Marcado delivery por error, requiere camión)"
+          value={motivo}
+          onChange={(e) => setMotivo(e.target.value)}
+          disabled={saving}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: '.5rem', justifyContent: 'flex-end' }}>
+        <button type="button" className="btn btn-ghost btn-sm" onClick={onCancel} disabled={saving}>
+          Cancelar
+        </button>
+        <button
+          type="button"
+          className="btn btn-primary btn-sm"
+          disabled={saving || (modalidad === o.entrega_modalidad && !motivo)}
+          onClick={() => void guardar()}
+        >
+          {saving ? 'Guardando…' : '✓ Aplicar cambio'}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function Timeline({
