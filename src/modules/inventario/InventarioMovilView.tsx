@@ -69,7 +69,6 @@ import { AvisoEnvioMaquinaria, CampoParaMantenimiento, enviarSalidaAMaquinaria, 
 import { PreSalidasView } from './PreSalidasView';
 import { listPreSalidas, guardarPreSalida } from './presalidas.repository';
 import { mensajePreSalidaWhatsapp, type PreSalida } from './presalidas';
-import { EditarSalidaTelefonoModal, EditarTrasladoTelefonoModal } from './EditarMovimientoTelefonoModal';
 
 export const RUTA_INVENTARIO_TELEFONO = '/app/inventario/telefono';
 /** Cuántos productos se listan sin buscar: en el teléfono no se recorre el almacén entero. */
@@ -355,8 +354,8 @@ export function InventarioMovilView() {
         </div>
       )}
 
-      {paso === 'historico' && <HistoricoSalidas almacen={almacen} soloDe={soloDe} canWrite={puedeMoverAqui} productos={productos} actor={actor} actorName={actorName} onVolver={volver} onMovioStock={() => { void reload().catch(() => {}); }} />}
-      {paso === 'historicoTraslados' && <HistoricoTraslados almacen={almacen} canWrite={puedeMoverAqui} productos={productos} destinos={destinos} actor={actor} actorName={actorName} onVolver={volver} onMovioStock={() => { void reload().catch(() => {}); }} />}
+      {paso === 'historico' && <HistoricoSalidas almacen={almacen} soloDe={soloDe} onVolver={volver} />}
+      {paso === 'historicoTraslados' && <HistoricoTraslados almacen={almacen} onVolver={volver} />}
 
       {paso === 'listo' && listo && <Listo titulo={listo.titulo} texto={listo.texto} pdf={listo.pdf} abrirPdf={listo.abrirPdf} onVolver={volver} />}
 
@@ -443,20 +442,18 @@ export function InventarioMovilView() {
           {!loading && !productos.length && (
             <p className="muted">{nombreAlm} no tiene productos todavía.{puedeMoverAqui ? ' Carga el primero con «Producto nuevo».' : ''}</p>
           )}
-          <div className="surt-lista-items">
-            {lista.map((p) => (
-              <button key={p.id} type="button" className="surt-mov"
-                onClick={() => { if (puedeMoverAqui) { setElegido(p); if (paso === 'inicio') setPaso('entrada'); } }}
-                disabled={!puedeMoverAqui || (pideStock && !(p.stock_almacen > 0))}>
-                <span className="icono" aria-hidden>📦</span>
-                <span style={{ minWidth: 0 }}>
-                  <div className="titulo">{p.nombre}</div>
-                  <div className="sub">{p.sku} · {p.categoria}</div>
-                </span>
-                <span className="litros">{num(p.stock_almacen)} <small style={{ fontWeight: 600 }}>{p.unidad}</small></span>
-              </button>
-            ))}
-          </div>
+          {lista.map((p) => (
+            <button key={p.id} type="button" className="surt-mov"
+              onClick={() => { if (puedeMoverAqui) { setElegido(p); if (paso === 'inicio') setPaso('entrada'); } }}
+              disabled={!puedeMoverAqui || (pideStock && !(p.stock_almacen > 0))}>
+              <span className="icono" aria-hidden>📦</span>
+              <span style={{ minWidth: 0 }}>
+                <div className="titulo">{p.nombre}</div>
+                <div className="sub">{p.sku} · {p.categoria}</div>
+              </span>
+              <span className="litros">{num(p.stock_almacen)} <small style={{ fontWeight: 600 }}>{p.unidad}</small></span>
+            </button>
+          ))}
         </section>
       )}
     </div>
@@ -636,10 +633,7 @@ function RangoHistorico({ id, hoy, desde, hasta, setDesde, setHasta }: {
  * se ven solo las que registró o ejecutó ese usuario). Cada una con su ORDEN DE SALIDA
  * en PDF y su WhatsApp.
  */
-function HistoricoSalidas({ almacen, soloDe, canWrite, productos, actor, actorName, onVolver, onMovioStock }: {
-  almacen: string; soloDe: string | null; canWrite: boolean; productos: ProductoEnAlmacen[];
-  actor: string; actorName: string | null; onVolver: () => void; onMovioStock: () => void;
-}) {
+function HistoricoSalidas({ almacen, soloDe, onVolver }: { almacen: string; soloDe: string | null; onVolver: () => void }) {
   const quienDe = useQuien();
   const hoy = hoyVenezuela();
   const inicial = ultimosDias(DIAS_HISTORICO, hoy);
@@ -649,7 +643,6 @@ function HistoricoSalidas({ almacen, soloDe, canWrite, productos, actor, actorNa
   const [busca, setBusca] = useState('');
   const [tope, setTope] = useState(POR_TANDA);
   const [elegidaId, setElegidaId] = useState<string | null>(null);
-  const [editando, setEditando] = useState<FilaSalida | null>(null);
 
   const rangoMalo = !desde || !hasta || desde > hasta || hasta > hoy;
   // Solo la última consulta pinta (si se cambian las fechas a mitad, la vieja se descarta).
@@ -677,11 +670,6 @@ function HistoricoSalidas({ almacen, soloDe, canWrite, productos, actor, actorNa
   }, [quienDe]);
   const lista = useMemo(() => buscarFilasSalida(filas ?? [], busca), [filas, busca]);
   const elegida = elegidaId ? (filas ?? []).find((f) => f.id === elegidaId) ?? null : null;
-
-  if (editando?.origen === 'telefono') {
-    return <EditarSalidaTelefonoModal grupo={editando.grupo} productos={productos} actor={actor} actorName={actorName}
-      onClose={() => setEditando(null)} onGuardado={async () => { await cargar(); onMovioStock(); }} />;
-  }
 
   if (elegida) {
     return elegida.origen === 'telefono'
@@ -715,35 +703,28 @@ function HistoricoSalidas({ almacen, soloDe, canWrite, productos, actor, actorNa
               : `${filas.length} salida(s) en esas fechas`}
           </h2>
           {!filas.length && <p className="muted">No hay salidas de {nombreAlmacenVisible(almacen)} en esas fechas.</p>}
-          <div className="surt-lista-items">
-            {lista.slice(0, tope).map((f) => {
-              const v = vistaFilaSalida(f, registro(f));
-              return (
-                <div key={f.id} className="surt-mov surt-hist">
-                  <span className="icono" aria-hidden>📤</span>
-                  <span style={{ minWidth: 0 }}>
-                    <div className="titulo">{v.titulo}</div>
-                    {v.lineas.map((l) => <div key={l} className="sub">{l}</div>)}
-                    <div className="sub"><strong>{v.estado}</strong> · {v.origen}{f.origen === 'telefono' && f.salida.fotos.length ? ` · 📷 ${f.salida.fotos.length}` : ''}</div>
-                  </span>
-                  <span className="litros">−{v.cantidad}</span>
-                  <div className="surt-hist-acciones">
-                    {f.origen === 'telefono' && canWrite && (
-                      <button type="button" className="btn btn-ghost btn-grande btn-editar" onClick={() => { setEditando(f); window.scrollTo(0, 0); }}>
-                        ✎ Editar
-                      </button>
-                    )}
-                    <BotonPdf
-                      abrir={() => (f.origen === 'telefono' ? verOrdenSalidaTelefono(f.grupo, registro(f)) : descargarOrdenSalidaPdf(f.sol))}
-                      className="btn btn-ghost btn-grande btn-pdf" texto="📄 Ver PDF" />
-                    <button type="button" className="btn btn-ghost btn-grande btn-whatsapp" onClick={() => { setElegidaId(f.id); window.scrollTo(0, 0); }}>
-                      💬 WhatsApp
-                    </button>
-                  </div>
+          {lista.slice(0, tope).map((f) => {
+            const v = vistaFilaSalida(f, registro(f));
+            return (
+              <div key={f.id} className="surt-mov surt-hist">
+                <span className="icono" aria-hidden>📤</span>
+                <span style={{ minWidth: 0 }}>
+                  <div className="titulo">{v.titulo}</div>
+                  {v.lineas.map((l) => <div key={l} className="sub">{l}</div>)}
+                  <div className="sub"><strong>{v.estado}</strong> · {v.origen}{f.origen === 'telefono' && f.salida.fotos.length ? ` · 📷 ${f.salida.fotos.length}` : ''}</div>
+                </span>
+                <span className="litros">−{v.cantidad}</span>
+                <div className="surt-hist-acciones">
+                  <BotonPdf
+                    abrir={() => (f.origen === 'telefono' ? verOrdenSalidaTelefono(f.grupo, registro(f)) : descargarOrdenSalidaPdf(f.sol))}
+                    className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
+                  <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidaId(f.id); window.scrollTo(0, 0); }}>
+                    💬 WhatsApp
+                  </button>
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
           {lista.length > tope && (
             <button type="button" className="btn btn-ghost btn-grande" style={{ width: '100%' }} onClick={() => setTope((t) => t + POR_TANDA)}>
               Ver más ({lista.length - tope} restantes)
@@ -760,10 +741,7 @@ function HistoricoSalidas({ almacen, soloDe, canWrite, productos, actor, actorNa
  * los del teléfono (kardex) y los del módulo de Traslados que tocan el almacén, con su
  * ORDEN en PDF y su WhatsApp.
  */
-function HistoricoTraslados({ almacen, canWrite, productos, destinos, actor, actorName, onVolver, onMovioStock }: {
-  almacen: string; canWrite: boolean; productos: ProductoEnAlmacen[]; destinos: Almacen[];
-  actor: string; actorName: string | null; onVolver: () => void; onMovioStock: () => void;
-}) {
+function HistoricoTraslados({ almacen, onVolver }: { almacen: string; onVolver: () => void }) {
   const quienDe = useQuien();
   const hoy = hoyVenezuela();
   const inicial = ultimosDias(DIAS_HISTORICO, hoy);
@@ -773,7 +751,6 @@ function HistoricoTraslados({ almacen, canWrite, productos, destinos, actor, act
   const [busca, setBusca] = useState('');
   const [tope, setTope] = useState(POR_TANDA);
   const [elegidoId, setElegidoId] = useState<string | null>(null);
-  const [editando, setEditando] = useState<FilaTraslado | null>(null);
 
   const rangoMalo = !desde || !hasta || desde > hasta || hasta > hoy;
   const turno = useRef(0);
@@ -792,7 +769,7 @@ function HistoricoTraslados({ almacen, canWrite, productos, destinos, actor, act
     }
   }, [almacen, desde, hasta, rangoMalo]);
   useEffect(() => { setFilas(null); setTope(POR_TANDA); void cargar(); }, [cargar]);
-  useRealtime(['solicitudes_salida', 'movimientos'], () => { void cargar(); });
+  useRealtime(['solicitudes_salida'], () => { void cargar(); });
 
   const registro = useCallback((f: FilaTraslado) => {
     const r = f.origen === 'telefono' ? f.traslado : f.sol;
@@ -800,12 +777,6 @@ function HistoricoTraslados({ almacen, canWrite, productos, destinos, actor, act
   }, [quienDe]);
   const lista = useMemo(() => buscarFilasTraslado(filas ?? [], busca), [filas, busca]);
   const elegido = elegidoId ? (filas ?? []).find((f) => f.id === elegidoId) ?? null : null;
-
-  if (editando?.origen === 'telefono') {
-    return <EditarTrasladoTelefonoModal grupo={editando.grupo} productos={productos} destinos={destinos} actor={actor} actorName={actorName}
-      onClose={() => setEditando(null)} onGuardado={async () => { await cargar(); onMovioStock(); }} />;
-  }
-
   const pdfDe = (f: FilaTraslado) => (f.origen === 'telefono'
     ? (() => {
       const t = f.traslado;
@@ -850,33 +821,26 @@ function HistoricoTraslados({ almacen, canWrite, productos, destinos, actor, act
               : `${filas.length} traslado(s) en esas fechas`}
           </h2>
           {!filas.length && <p className="muted">No hay traslados de {nombreAlmacenVisible(almacen)} en esas fechas.</p>}
-          <div className="surt-lista-items">
-            {lista.slice(0, tope).map((f) => {
-              const v = vistaFilaTraslado(f, registro(f));
-              return (
-                <div key={f.id} className="surt-mov surt-hist">
-                  <span className="icono" aria-hidden>🔁</span>
-                  <span style={{ minWidth: 0 }}>
-                    <div className="titulo">{v.titulo}</div>
-                    {v.lineas.map((l) => <div key={l} className="sub">{l}</div>)}
-                    <div className="sub"><strong>{v.estado}</strong> · {v.origen}</div>
-                  </span>
-                  <span className="litros">{v.cantidad}</span>
-                  <div className="surt-hist-acciones">
-                    {f.origen === 'telefono' && canWrite && !!f.traslado.codigo && (
-                      <button type="button" className="btn btn-ghost btn-grande btn-editar" onClick={() => { setEditando(f); window.scrollTo(0, 0); }}>
-                        ✎ Editar
-                      </button>
-                    )}
-                    <BotonPdf abrir={() => pdfDe(f)} className="btn btn-ghost btn-grande btn-pdf" texto="📄 Ver PDF" />
-                    <button type="button" className="btn btn-ghost btn-grande btn-whatsapp" onClick={() => { setElegidoId(f.id); window.scrollTo(0, 0); }}>
-                      💬 WhatsApp
-                    </button>
-                  </div>
+          {lista.slice(0, tope).map((f) => {
+            const v = vistaFilaTraslado(f, registro(f));
+            return (
+              <div key={f.id} className="surt-mov surt-hist">
+                <span className="icono" aria-hidden>🔁</span>
+                <span style={{ minWidth: 0 }}>
+                  <div className="titulo">{v.titulo}</div>
+                  {v.lineas.map((l) => <div key={l} className="sub">{l}</div>)}
+                  <div className="sub"><strong>{v.estado}</strong> · {v.origen}</div>
+                </span>
+                <span className="litros">{v.cantidad}</span>
+                <div className="surt-hist-acciones">
+                  <BotonPdf abrir={() => pdfDe(f)} className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
+                  <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidoId(f.id); window.scrollTo(0, 0); }}>
+                    💬 WhatsApp
+                  </button>
                 </div>
-              );
-            })}
-          </div>
+              </div>
+            );
+          })}
           {lista.length > tope && (
             <button type="button" className="btn btn-ghost btn-grande" style={{ width: '100%' }} onClick={() => setTope((t) => t + POR_TANDA)}>
               Ver más ({lista.length - tope} restantes)
@@ -1709,19 +1673,17 @@ function PorRetornar({ salidas, almacen, canWrite, actor, actorName, quien, onVo
         </>
       )}
       {!salidas.length && <p className="muted">No hay nada pendiente por retornar en este almacén.</p>}
-      <div className="surt-lista-items">
-        {lista.map((s) => (
-          <button key={s.id} type="button" className="surt-mov" disabled={!canWrite} onClick={() => elegir(s)}>
-            <span className="icono" aria-hidden>📦</span>
-            <span style={{ minWidth: 0 }}>
-              <div className="titulo">{s.producto_nombre}</div>
-              <div className="sub">{s.codigo} · {fechaHoraVE(s.created_at)} · {s.motivo}</div>
-              {s.retornado > 0 && <div className="sub">Ya retornó {num(s.retornado)} de {num(s.cantidad)}</div>}
-            </span>
-            <span className="litros">{num(pendienteRetorno(s))} <small>{s.unidad}</small></span>
-          </button>
-        ))}
-      </div>
+      {lista.map((s) => (
+        <button key={s.id} type="button" className="surt-mov" disabled={!canWrite} onClick={() => elegir(s)}>
+          <span className="icono" aria-hidden>📦</span>
+          <span style={{ minWidth: 0 }}>
+            <div className="titulo">{s.producto_nombre}</div>
+            <div className="sub">{s.codigo} · {fechaHoraVE(s.created_at)} · {s.motivo}</div>
+            {s.retornado > 0 && <div className="sub">Ya retornó {num(s.retornado)} de {num(s.cantidad)}</div>}
+          </span>
+          <span className="litros">{num(pendienteRetorno(s))} <small>{s.unidad}</small></span>
+        </button>
+      ))}
     </section>
   );
 }
