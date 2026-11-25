@@ -114,13 +114,33 @@ export async function agregarAdjuntosPermiso(
   const empresa = evento.empresa ?? 'MGG';
   const nuevos = archivos.length ? await subirTanda(evento.id, empresa, archivos) : [];
   const todos = [...existentes.map((a) => evento.adjuntos?.find((x) => x.path === a.path)).filter((a): a is AdjuntoPermisoLaboral => !!a), ...nuevos];
-  const cambios: { adjuntos?: AdjuntoPermisoLaboral[]; solicitud?: SolicitudPermisoLaboral | null } = {};
+  const cambios: { adjuntos?: AdjuntoPermisoLaboral[]; solicitud?: SolicitudPermisoLaboral | null; solicitud_path?: string } = {};
   if (nuevos.length) cambios.adjuntos = todos;
   if (solicitud !== undefined) cambios.solicitud = solicitud;
+
+  // Si cambió la firma, el PDF oficial guardado también debe cambiar. Antes se
+  // actualizaba el JSON y el visor mostraba la firma nueva, pero el archivo del
+  // Storage seguía con la versión vieja. Se sube uno nuevo y solo se cambia el
+  // puntero si la base acepta la actualización.
+  let pdfNuevo: string | null = null;
+  if (solicitud) {
+    const formPdf: SolicitudPermisoForm = {
+      ...solicitud,
+      personal_id: evento.personal_id,
+      empresa: solicitud.empresa || empresa,
+    };
+    const doc = await construirSolicitudPermisoPdf(formPdf, formPdf.empresa);
+    pdfNuevo = `permisos/${empresa}/${evento.id}/solicitud-${slug(`${formPdf.trabajador.nombre}-${formPdf.trabajador.apellido}`) || 'trabajador'}-${sufijo()}.pdf`;
+    const pdf = new File([doc.output('arraybuffer')], 'solicitud-permiso.pdf', { type: 'application/pdf' });
+    await subirUno(pdfNuevo, pdf, 'application/pdf');
+    cambios.solicitud_path = pdfNuevo;
+  }
+
   try {
     await actualizarEventoAdjuntos(evento.id, cambios);
   } catch (e) {
-    if (nuevos.length) await supabase.storage.from(BUCKET_PERMISOS).remove(nuevos.map((a) => a.path)).catch(() => undefined);
+    const rutas = [...(nuevos.length ? nuevos.map((a) => a.path) : []), ...(pdfNuevo ? [pdfNuevo] : [])];
+    if (rutas.length) await supabase.storage.from(BUCKET_PERMISOS).remove(rutas).catch(() => undefined);
     throw e;
   }
   return todos;

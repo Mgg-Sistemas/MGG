@@ -142,7 +142,7 @@ export function SolicitudPermisoModal({ personal, personalId, empresa, actor, ac
     setGuardando(true);
     try {
       if (evento) {
-        const todos = await agregarAdjuntosPermiso(evento, nuevos, solicitudSinPersonal(form));
+        const todos = await agregarAdjuntosPermiso(evento, nuevos, cambioFirma ? solicitudSinPersonal(form) : undefined);
         setAdjuntos(todos); setNuevos([]);
         toast(nuevos.length ? 'Soportes y firma guardados' : 'Firma guardada', 'success');
         if (cambioFirma) void verSolicitudPermisoPdf(form, form.empresa);
