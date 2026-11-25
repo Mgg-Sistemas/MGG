@@ -4,7 +4,13 @@ import { AvisoReloj } from '@/shared/ui/AvisoReloj';
 import { signIn, signOutLocal } from './authStore';
 import { isSupabaseConfigured, supabase } from '@/shared/lib/supabase';
 import { verificarSesionAlAbrir } from './entradaAlLogin';
-import { entrarConBiometria, biometriaDisponible } from './webauthn.repository';
+import {
+  entrarConBiometria,
+  biometriaDisponible,
+  ultimoEmailUsado,
+  guardarUltimoEmailUsado,
+  olvidarUltimoEmailUsado,
+} from './webauthn.repository';
 
 export function LoginPage() {
   const navigate = useNavigate();
@@ -15,16 +21,24 @@ export function LoginPage() {
   const [bioOk, setBioOk] = useState(false);     // el equipo tiene sensor biométrico
   const [bioBusy, setBioBusy] = useState(false);
   const [verClave, setVerClave] = useState(false); // mostrar/ocultar la contraseña
+  const [cachedEmail, setCachedEmail] = useState<string | null>(null);
 
-  // ¿Este equipo soporta huella / Windows Hello / Face ID? (para mostrar el botón)
-  useEffect(() => { biometriaDisponible().then(setBioOk).catch(() => setBioOk(false)); }, []);
+  // ¿Este equipo soporta huella / Windows Hello / Face ID? y carga de último correo usado
+  useEffect(() => {
+    biometriaDisponible().then(setBioOk).catch(() => setBioOk(false));
+    const last = ultimoEmailUsado();
+    if (last) setCachedEmail(last);
+  }, []);
 
   async function handleBiometria() {
     setError(null);
-    if (!email.trim()) { setError('Escribí tu correo y luego usá la huella.'); return; }
+    const correo = (email || cachedEmail || '').trim();
+    if (!correo) { setError('Escribí tu correo y luego usá la huella.'); return; }
+    if (!email && cachedEmail) setEmail(cachedEmail);
     setBioBusy(true);
     try {
-      await entrarConBiometria(email);
+      await entrarConBiometria(correo);
+      guardarUltimoEmailUsado(correo);
       navigate('/app');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'No se pudo entrar con huella.');
@@ -73,6 +87,7 @@ export function LoginPage() {
       setError(authError.message);
       return;
     }
+    guardarUltimoEmailUsado(email);
     navigate('/app');
   }
 
@@ -132,6 +147,60 @@ export function LoginPage() {
           {!isSupabaseConfigured && (
             <div className="badge warning" style={{ marginBottom: '1rem', display: 'block', padding: '.6rem .8rem' }}>
               Supabase aún no configurado · revisa .env.local
+            </div>
+          )}
+
+          {cachedEmail && (
+            <div style={{ marginBottom: '.75rem', display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '.78rem', color: 'var(--muted)' }}>Último correo usado:</span>
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '.35rem',
+                  padding: '.2rem .55rem',
+                  background: 'var(--bg-card, rgba(255,255,255,0.06))',
+                  border: '1px solid var(--border)',
+                  borderRadius: '999px',
+                  fontSize: '.82rem',
+                }}
+              >
+                <button
+                  type="button"
+                  onClick={() => setEmail(cachedEmail)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--accent, #f59e0b)',
+                    cursor: 'pointer',
+                    fontWeight: 600,
+                    padding: 0,
+                    fontSize: 'inherit',
+                  }}
+                  title="Usar este correo"
+                >
+                  {cachedEmail}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    olvidarUltimoEmailUsado();
+                    setCachedEmail(null);
+                  }}
+                  title="Olvidar este correo"
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--muted)',
+                    cursor: 'pointer',
+                    fontSize: '.75rem',
+                    lineHeight: 1,
+                    padding: '0 2px',
+                  }}
+                >
+                  ✕
+                </button>
+              </div>
             </div>
           )}
 
