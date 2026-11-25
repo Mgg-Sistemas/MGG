@@ -47,13 +47,13 @@ describe('empresas de la nómina (14-10-2026)', () => {
     expect(validarEmpresa(base, [MGG, MTO], 'MTO')).toBeNull();
     expect(validarEmpresa({ ...base, nombre: '' }, [MGG])).toMatch(/nombre corto/);
     expect(validarEmpresa({ ...base, razonSocial: 'ab' }, [MGG])).toMatch(/razón social/);
-    expect(validarEmpresa({ ...base, rif: 'J-' }, [MGG])).toMatch(/RIF/);
+    expect(validarEmpresa({ ...base, rif: '---' }, [MGG])).toMatch(/RIF/);
     expect(validarEmpresa({ ...base, color: 'naranja' }, [MGG])).toMatch(/color/);
   });
 
   it('manda a la base los datos en limpio (código en mayúsculas, RIF normalizado)', () => {
     const x = datosEmpresaLimpios({ codigo: 'mto', nombre: ' MTO ', razonSocial: ' Mantenimiento Oriente C.A. ', rif: 'j 12.345.678-9', icono: '', color: '#FF8A00', monedaPago: 'USD' });
-    expect(x).toEqual({ codigo: 'MTO', nombre: 'MTO', razonSocial: 'Mantenimiento Oriente C.A.', rif: 'J-123456789', icono: '🏢', color: '#ff8a00', monedaPago: 'USD' });
+    expect(x).toEqual({ codigo: 'MTO', nombre: 'MTO', razonSocial: 'Mantenimiento Oriente C.A.', rif: 'J123456789', icono: '🏢', color: '#ff8a00', monedaPago: 'USD' });
   });
 
   it('hasta dos nóminas son pastillas; de tres en adelante, lista buscable', () => {
