@@ -10,9 +10,14 @@ import type {
   DatosJefeDepartamentoPermiso,
   DatosTrabajadorPermiso,
   Personal,
+  RrhhEvento,
   SolicitudPermisoLaboral,
 } from '@/shared/lib/types';
-import { definicionEmpresa, type DefinicionEmpresa } from './empresa';
+import { definicionEmpresa, type DefinicionEmpresa, type Empresa } from './empresa';
+
+const VACIO_TRABAJADOR: DatosTrabajadorPermiso = {
+  nombre: '', apellido: '', cedula: '', cargo: '', departamento: '', telefono: '',
+};
 
 /** Lo que se llena en el modal (la solicitud + a quién pertenece). */
 export type SolicitudPermisoForm = SolicitudPermisoLaboral & { personal_id: string };
@@ -62,6 +67,69 @@ export function datosJefeDe(p: Personal): DatosJefeDepartamentoPermiso {
     cargo: p.cargo ?? '',
     departamento: p.departamento ?? '',
   };
+}
+
+/**
+ * Arma el formulario tanto para una solicitud nueva como para un permiso ya
+ * guardado. Antes, al abrir el ícono 📎 desde el histórico se pasaba el
+ * `personalId` del formulario de arriba (vacío), así que un permiso viejo sin
+ * `solicitud` aparecía con el trabajador en «—» y sin poder agregar la firma.
+ * Acá el trabajador siempre se toma del propio evento.
+ */
+export function inicialSolicitudPermiso(
+  personal: Personal[],
+  personalId: string,
+  empresa: Empresa,
+  evento?: RrhhEvento | null,
+): SolicitudPermisoForm {
+  if (evento?.solicitud) {
+    // El nombre, cédula, cargo y departamento son datos de la ficha, no texto
+    // del permiso: si el snapshot viejo quedó cortado («CHRISTOPHER DANIE»),
+    // al abrir o imprimir debe salir como está hoy en RRHH («...DANIEL»).
+    const p = personal.find((x) => x.id === evento.personal_id);
+    return {
+      ...evento.solicitud,
+      personal_id: evento.personal_id,
+      trabajador: p ? datosTrabajadorDe(p) : evento.solicitud.trabajador,
+      empresa: evento.solicitud.empresa || evento.empresa || empresa,
+      requiere_firma_jefe: evento.solicitud.requiere_firma_jefe ?? false,
+      jefe_departamento: evento.solicitud.jefe_departamento ?? null,
+    };
+  }
+  const id = evento?.personal_id || personalId;
+  const p = personal.find((x) => x.id === id);
+  const dias = evento?.dias ?? diasInclusivePermiso(evento?.fecha_desde, evento?.fecha_hasta);
+  return {
+    personal_id: id,
+    fecha_solicitud: evento?.created_at?.slice(0, 10) || hoyIsoPermiso(),
+    fecha_inicio: evento?.fecha_desde || '',
+    fecha_fin: evento?.fecha_hasta || '',
+    tiempo_solicitado: dias > 0 ? `${dias} día(s)` : '',
+    horario: '',
+    motivo: evento?.descripcion || '',
+    compromiso: COMPROMISO_TRABAJADOR,
+    trabajador: p ? datosTrabajadorDe(p) : { ...VACIO_TRABAJADOR },
+    empresa: evento?.empresa || empresa,
+    requiere_firma_jefe: false,
+    jefe_departamento: null,
+  };
+}
+
+/** La solicitud que se graba en el evento no debe repetir el `personal_id` de la cabecera. */
+export function solicitudSinPersonal(form: SolicitudPermisoForm): SolicitudPermisoLaboral {
+  const { personal_id, ...solicitud } = form;
+  void personal_id;
+  return solicitud;
+}
+
+/** ¿Se cambió la firma del jefe al editar? Sirve para no guardar un evento sin cambios. */
+export function hayCambioFirmaEnEdicion(
+  evento: RrhhEvento | null | undefined,
+  form: SolicitudPermisoForm,
+): boolean {
+  const antes = evento?.solicitud ?? null;
+  if (!!form.requiere_firma_jefe !== !!antes?.requiere_firma_jefe) return true;
+  return JSON.stringify(form.jefe_departamento ?? null) !== JSON.stringify(antes?.jefe_departamento ?? null);
 }
 
 /** Error en palabras, o null cuando se puede guardar. */

@@ -54,6 +54,44 @@ export function esSubOrden(orden: OrdenConPadre): boolean {
   return !!padreDeOfertas(orden);
 }
 
+/** Estados en los que la comparativa sigue disponible para corregir precios y medidas. */
+const ESTADOS_CON_COMPARATIVA = new Set([
+  'aprobada', 'desistida_proveedor', 'oc_creada', 'confirmada_metodo', 'oc_aprobada', 'pagada',
+  // 24/11/2026: una orden descartada también debe poder revisarse. Ver la comparativa NO
+  // cambia el estado ni reactiva la orden: solo muestra las ofertas que ya existen.
+  'rechazada', 'cancelada', 'anulada', 'reasignada',
+]);
+
+/**
+ * ¿Se muestran las ofertas de esta orden para editar precios y medidas?
+ *
+ * Antes esta lista estaba repetida en el detalle de la orden y una OC cancelada,
+ * anulada o rechazada escondía el panel con el ✎. La regla vive acá para que la
+ * edición de ofertas siga siendo posible sin tocar el estado de la orden.
+ */
+export function puedeGestionarOfertas(
+  orden: OrdenConPadre & { estado?: string | null },
+  enOc: boolean,
+): boolean {
+  return (enOc || esSubOrden(orden)) && ESTADOS_CON_COMPARATIVA.has(orden.estado ?? '');
+}
+
+/**
+ * ¿Editar una oferta debe re-sincronizar el total de la OC?
+ *
+ * Una oferta `descartada` se puede corregir (precio, unidad de compra, factor),
+ * pero NO debe mover el total de una OC: ya quedó fuera de la compra. Antes se
+ * sincronizaba cuando coincidía el proveedor de la orden, aunque la oferta
+ * estuviera descartada, y podía pisar sub-órdenes del mismo proveedor.
+ */
+export function debeSincronizarOcAlEditarOferta(
+  estadoOferta: string | null | undefined,
+  esProveedorDeLaOrden: boolean,
+): boolean {
+  if (estadoOferta === 'descartada') return false;
+  return estadoOferta === 'aceptada' || esProveedorDeLaOrden;
+}
+
 /**
  * La oferta aceptada PARA ESTA OC, no para la SP entera. En un reparto hay una
  * oferta `aceptada` por proveedor, así que mirar solo el estado marca todas como

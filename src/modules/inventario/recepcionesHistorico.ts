@@ -159,6 +159,73 @@ export function recepcionesDesdeMovimientos(movs: MovimientoRecepcion[]): Recepc
   return recepciones.sort((a, b) => String(b.at).localeCompare(String(a.at)));
 }
 
+/**
+ * OC recibida con «ya lo cargué a mano»: como NO escribió movimientos, el
+ * histórico reconstruido del kardex no la veía (24-11-2026). La mostramos como
+ * recepción SIN stock para que quede rastro de quién la marcó y cuándo.
+ */
+export interface OrdenRecibidaSinInventario {
+  id: string;
+  codigo?: string | null;
+  oc_codigo?: string | null;
+  proveedor_id?: string | null;
+  recibida_en?: string | null;
+  recibida_por?: string | null;
+  almacen_destino?: string | null;
+  sin_inventario?: boolean | null;
+  items?: unknown;
+}
+
+function esRegistro(v: unknown): v is Record<string, unknown> {
+  return !!v && typeof v === 'object' && !Array.isArray(v);
+}
+
+function texto(v: unknown): string {
+  return typeof v === 'string' ? v.trim() : v == null ? '' : String(v);
+}
+
+function numero(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
+ * Se convierten en «movimientos» SOLO para el armado del histórico: no se
+ * escriben en la base ni suman al stock. El precio queda null (no se sabe en
+ * qué moneda se cargó a mano) y el detalle dice explícitamente que no entró.
+ */
+export function movimientosRecepcionSinInventarioDesdeOrdenes(
+  ordenes: OrdenRecibidaSinInventario[],
+): MovimientoRecepcion[] {
+  const out: MovimientoRecepcion[] = [];
+  for (const o of ordenes) {
+    if (o.sin_inventario !== true || !o.recibida_en) continue;
+    const items = Array.isArray(o.items) ? o.items.filter(esRegistro) : [];
+    for (const it of items) {
+      const cantidad = numero(it.cantidad_recibida ?? it.cantidad);
+      if (cantidad <= 0) continue;
+      const nombre = texto(it.nombre);
+      const sku = texto(it.sku) || texto(it.producto_id) || 'ítem';
+      out.push({
+        id: `${o.id}:${sku}`,
+        at: o.recibida_en,
+        producto_id: texto(it.producto_id) || sku,
+        delta: cantidad,
+        almacen: texto(o.almacen_destino) || null,
+        actor: texto(o.recibida_por) || null,
+        actor_name: null,
+        ref_tipo: 'orden',
+        ref_id: o.id,
+        ref_codigo: texto(o.oc_codigo) || texto(o.codigo) || null,
+        proveedor_id: o.proveedor_id ?? null,
+        precio_unitario: null,
+        detalle: `Recibido SIN inventario (carga manual) · ${nombre || sku}`,
+      });
+    }
+  }
+  return out;
+}
+
 /** Filtros de la pantalla. Todos opcionales: sin ninguno, devuelve todo. */
 export interface FiltroRecepciones {
   desde?: string | null;

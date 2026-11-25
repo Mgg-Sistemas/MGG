@@ -6,7 +6,7 @@
    Si algo falla, se limpia lo subido y NO se avisa que se guardó.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { AdjuntoPermisoLaboral, RrhhEvento } from '@/shared/lib/types';
+import type { AdjuntoPermisoLaboral, RrhhEvento, SolicitudPermisoLaboral } from '@/shared/lib/types';
 import { subirConReintento } from '@/shared/lib/storageReintento';
 import {
   nombreSeguroAdjunto,
@@ -14,7 +14,7 @@ import {
   type AdjuntoSalida,
 } from '@/modules/salidas/adjuntosSalida';
 import { actualizarEventoAdjuntos, crearEvento, eliminarEvento } from './eventos.repository';
-import type { SolicitudPermisoForm } from './permisoLaboral';
+import { solicitudSinPersonal, type SolicitudPermisoForm } from './permisoLaboral';
 import { construirSolicitudPermisoPdf } from './solicitudPermisoPdf';
 
 /** Bucket privado new. Los enlaces son firmados y caducan (no va público). */
@@ -68,12 +68,12 @@ export async function guardarSolicitudPermiso(
   const mal = validarTandaAdjuntos(archivos);
   if (mal) throw new Error(mal);
 
-  const { personal_id, ...solicitud } = form;
+  const solicitud = solicitudSinPersonal(form);
   let eventoId: string | null = null;
   const rutas: string[] = [];
   try {
     const evento = await crearEvento({
-      personal_id,
+      personal_id: form.personal_id,
       tipo: 'permiso',
       fecha_desde: form.fecha_inicio,
       fecha_hasta: form.fecha_fin,
@@ -101,23 +101,46 @@ export async function guardarSolicitudPermiso(
   }
 }
 
-/** Agrega soportes a una solicitud ya creada (sin borrar los que ya están). */
+/** Agrega soportes a una solicitud ya creada (sin borrar los que ya están) y guarda la firma si cambió. */
 export async function agregarAdjuntosPermiso(
   evento: RrhhEvento,
   archivos: readonly File[],
+  solicitud?: SolicitudPermisoLaboral | null,
 ): Promise<AdjuntoPermisoLaboral[]> {
-  if (!archivos.length) throw new Error('Elegí al menos un archivo.');
   const existentes: AdjuntoSalida[] = (evento.adjuntos ?? []).map((a) => ({ path: a.path, filename: a.filename }));
   const mal = validarTandaAdjuntos(archivos, existentes);
   if (mal) throw new Error(mal);
 
   const empresa = evento.empresa ?? 'MGG';
-  const nuevos = await subirTanda(evento.id, empresa, archivos);
+  const nuevos = archivos.length ? await subirTanda(evento.id, empresa, archivos) : [];
   const todos = [...existentes.map((a) => evento.adjuntos?.find((x) => x.path === a.path)).filter((a): a is AdjuntoPermisoLaboral => !!a), ...nuevos];
+  const cambios: { adjuntos?: AdjuntoPermisoLaboral[]; solicitud?: SolicitudPermisoLaboral | null; solicitud_path?: string } = {};
+  if (nuevos.length) cambios.adjuntos = todos;
+  if (solicitud !== undefined) cambios.solicitud = solicitud;
+
+  // Si cambió la firma, el PDF oficial guardado también debe cambiar. Antes se
+  // actualizaba el JSON y el visor mostraba la firma nueva, pero el archivo del
+  // Storage seguía con la versión vieja. Se sube uno nuevo y solo se cambia el
+  // puntero si la base acepta la actualización.
+  let pdfNuevo: string | null = null;
+  if (solicitud) {
+    const formPdf: SolicitudPermisoForm = {
+      ...solicitud,
+      personal_id: evento.personal_id,
+      empresa: solicitud.empresa || empresa,
+    };
+    const doc = await construirSolicitudPermisoPdf(formPdf, formPdf.empresa);
+    pdfNuevo = `permisos/${empresa}/${evento.id}/solicitud-${slug(`${formPdf.trabajador.nombre}-${formPdf.trabajador.apellido}`) || 'trabajador'}-${sufijo()}.pdf`;
+    const pdf = new File([doc.output('arraybuffer')], 'solicitud-permiso.pdf', { type: 'application/pdf' });
+    await subirUno(pdfNuevo, pdf, 'application/pdf');
+    cambios.solicitud_path = pdfNuevo;
+  }
+
   try {
-    await actualizarEventoAdjuntos(evento.id, { adjuntos: todos });
+    await actualizarEventoAdjuntos(evento.id, cambios);
   } catch (e) {
-    await supabase.storage.from(BUCKET_PERMISOS).remove(nuevos.map((a) => a.path)).catch(() => undefined);
+    const rutas = [...(nuevos.length ? nuevos.map((a) => a.path) : []), ...(pdfNuevo ? [pdfNuevo] : [])];
+    if (rutas.length) await supabase.storage.from(BUCKET_PERMISOS).remove(rutas).catch(() => undefined);
     throw e;
   }
   return todos;

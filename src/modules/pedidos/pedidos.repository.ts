@@ -47,6 +47,8 @@ import type {
   Usuario,
 } from '@/shared/lib/types';
 import { normalizarCreditoDetalle, sellarVencimientoAlConfirmar } from './creditoVencimiento';
+import { omitirInventarioAlRecibir } from './recepcionSinInventario';
+import { puedeRetomarRecepcionColgada } from './recepcionColgada';
 
 import { CATEGORIA_REEMBOLSO_OC, conceptoReembolsoOc, type RetencionDetalle } from '@/modules/tesoreria/reembolsoPago';
 
@@ -2385,9 +2387,21 @@ async function apartarRecepcion(o: Orden, actorEmail: string, reintento = false)
     // evento «recibida»): se suelta y se vuelve a apartar para retomarla.
     const hist = Array.isArray(actual?.historial) ? (actual.historial as Array<{ evento?: string }>) : [];
     const terminada = hist.some((h) => String(h?.evento ?? '').startsWith('recibida'));
-    if (!reintento && actual?.recibida_en && actual.recibida_por === actorEmail && !terminada) {
+    // 24-11-2026: OC-2026-0269 quedó apartada por Matanza a las 18:34 sin
+    // escribir stock ni el evento final. Solo se podía recuperar con el MISMO
+    // correo; otro usuario (un admin, otra persona de almacén) veía el aviso
+    // «ya fue recibida» aunque el inventario no hubiera cambiado. Si pasaron
+    // 15 minutos y no hay movimientos, la reserva es huérfana: se suelta.
+    let hayMovimientos = false;
+    try { hayMovimientos = (await productosYaRecibidos(o.id)).size > 0; }
+    catch { hayMovimientos = true; }
+    const recibidaEn = actual?.recibida_en ? String(actual.recibida_en) : null;
+    const recibidaPor = actual?.recibida_por ? String(actual.recibida_por) : null;
+    if (!reintento && puedeRetomarRecepcionColgada({
+      recibidaEn, recibidaPor, actorEmail, yaTermino: terminada, hayMovimientos,
+    })) {
       await supabase.from(TABLE).update({ recibida_en: null, recibida_por: null })
-        .eq('id', o.id).eq('recibida_en', actual.recibida_en as string);
+        .eq('id', o.id).eq('recibida_en', recibidaEn as string);
       return apartarRecepcion(o, actorEmail, true);
     }
     const quien = (actual?.recibida_por as string | null) ?? 'otro usuario';
@@ -2426,15 +2440,15 @@ export async function recibirOrdenParcial(
   almacenDestino?: string | null,
   sinInventario?: boolean,
 ): Promise<Orden> {
-  // Compra cuyos productos ya se cargaron manualmente al inventario: se recibe la
-  // orden (estado/total) pero NO se generan entradas de stock (evita duplicar).
-  // Un SERVICIO tampoco entra nunca: se recibe para dejar constancia de que se
-  // prestó, y el botón así lo dice («🔧 Servicio realizado · no entra al inventario»).
-  const omitirInventario = sinInventario === true || o.sin_inventario === true;
-  // Se guarda aparte del flag del usuario: `sin_inventario` es la CASILLA que él
-  // marcó («ya lo cargué a mano») y pinta la etiqueta 📦 Sin inventario. Que un
-  // servicio no mueva stock no es una decisión suya, es lo que un servicio es.
-  const tocaInventario = !omitirInventario && !esServicioOrden(o);
+  // 24-11-2026: «sin inventario» lo decide QUIEN RECIBE en ESTE momento. El flag
+  // guardado en la orden solo prellena la casilla en la pantalla; heredarlo acá
+  // hacía que una recepción posterior se saltara el stock sin que nadie lo viera.
+  // Un SERVICIO tampoco entra nunca: es lo que un servicio es, no una decisión suya.
+  const omitirInventario = omitirInventarioAlRecibir({
+    sinInventarioMarcado: sinInventario,
+    esServicio: esServicioOrden(o),
+  });
+  const tocaInventario = !omitirInventario;
   // 'cuenta_abierta' = crédito: la mercancía puede llegar ANTES de terminar de pagar.
   if (!['por_recibir', 'cuenta_abierta', 'pagada', 'oc_emitida', 'aprobada'].includes(o.estado))
     throw new Error('La orden no está en un estado recibible.');

@@ -6,7 +6,7 @@
 import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/types';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
-import { CORREO_FIRMA, autorizanteDe, correoAutorizantePorNombre, figuraQuienAprobo } from './autorizanteSalida';
+import { CORREO_FIRMA, autorizanteDe, correoAutorizantePorNombre, figuraQuienAprobo, responsableOrdenSalida } from './autorizanteSalida';
 import { cancelacionDe } from './historicoSalidas';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
@@ -208,8 +208,8 @@ export async function descargarTrasladoDineroPdf(mov: MovimientoCaja): Promise<v
 /* ============================================================
    ORDEN DE SALIDA (formato formal con firmas, estilo OP/OC)
    Para salidas y traslados de MATERIAL. Indica el material, el
-   solicitante, el motivo, quién autorizó, y deja las líneas de
-   firma de "Solicitado/Creado por" y "Autorizado por".
+   solicitante, el motivo, quién autorizó (o el almacenista en la
+   vista de teléfono), y deja las líneas de firma correspondientes.
    ============================================================ */
 const SOL_ESTADO_TXT: Record<string, string> = {
   por_aprobar: 'Por aprobar',
@@ -267,11 +267,14 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
     });
   // Firma cargada en «Usuarios autorizados para:» (28-10-2026) de quien aprobó. Si no
   // cargó firma, queda la regla de siempre (la de Leydis cuando corresponde).
-  const correoFirma = autorizadoFijo ? correoFijo : (figuraQuienAprobo(sol.aprobada_por, sol.aprobada_en) ? sol.aprobada_por : null);
+  const correoFirma = esDesdeTelefono ? null : (autorizadoFijo ? correoFijo : (figuraQuienAprobo(sol.aprobada_por, sol.aprobada_en) ? sol.aprobada_por : null));
   const firmaCargada = correoFirma
     ? await import('@/modules/usuarios/autorizados.repository').then((m) => m.firmaDeCorreo(correoFirma)).catch(() => null)
     : null;
   const creo = personaDe(sol.actor, personas, sol.actor_name || sol.solicitante);
+  // También al reimprimir documentos viejos: no se muestra «pendiente de
+  // aprobación» en una salida del teléfono que ya descontó/movió el material.
+  const responsable = responsableOrdenSalida(esDesdeTelefono, creo, autoriza);
 
   // Líneas de la "factura": el detalle multi-producto si existe, si no la cabecera.
   const lineas = (sol.items && sol.items.length)
@@ -345,7 +348,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
       ? (sol.scope === 'traslado' ? 'Cerrada sin mover stock' : 'Cerrada sin descontar')
       : (SOL_ESTADO_TXT[sol.estado] ?? sol.estado)],
     ...((creo && creo !== solicitanteNombre) ? [['Registrado por', creo] as [string, string]] : []),
-    ['Autorizado por', autoriza.nombre],
+    [responsable.etiqueta, responsable.nombre],
   ];
   // Una orden cancelada dice quién la canceló y por qué: el papel no puede
   // quedar como si estuviera viva.
@@ -461,7 +464,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
       const sw = 150, sh = 52;
       doc.addImage(firmaCargada.dataUrl, firmaCargada.formato, cxAutoriza - sw / 2, fy - sh + 8, sw, sh);
     } catch { /* firma opcional */ }
-  } else if (firmaSalidas && autoriza.firma) {
+  } else if (firmaSalidas && responsable.firma) {
     try {
       const sw = 150, sh = 52;  // mediano (proporción de firma2)
       doc.addImage(firmaSalidas, 'JPEG', cxAutoriza - sw / 2, fy - sh + 8, sw, sh);
@@ -472,10 +475,10 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
   doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
   doc.text('Solicitado por', MARGIN + colW / 2, fy + 14, { align: 'center' });
-  doc.text('Autorizado por', cxAutoriza, fy + 14, { align: 'center' });
+  doc.text(responsable.etiqueta, cxAutoriza, fy + 14, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.text(solicitanteNombre, MARGIN + colW / 2, fy + 27, { align: 'center', maxWidth: colW });
-  doc.text(autoriza.nombre, cxAutoriza, fy + 27, { align: 'center', maxWidth: colW });
+  doc.text(responsable.nombre, cxAutoriza, fy + 27, { align: 'center', maxWidth: colW });
 
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, limiteInferiorPdf(PAGE_H));

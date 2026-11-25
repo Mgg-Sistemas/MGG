@@ -11,6 +11,7 @@ import { recibirOrdenParcial, recibirOrdenDespiezada, esServicioOrden, type Rece
 import { subirFacturasAlmacen } from '@/modules/pedidos/facturasOrden.repository';
 import { CargarFacturaCampo } from '@/modules/pedidos/CargarFacturaCampo';
 import { errorMarcasRecepcion, marcaCambio } from '@/modules/pedidos/marcaRecibida';
+import { sinInventarioPorDefecto } from '@/modules/pedidos/recepcionSinInventario';
 import { esDespiezable } from './despieceRes';
 import { cantidadEnUso, textoCantidadCompra, usaUnidadCompra } from '@/modules/pedidos/unidadCompra';
 import { DespieceResForm, despieceInicial, despieceValido, type EstadoDespiece } from './DespieceResForm';
@@ -581,6 +582,9 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
   const [marcas, setMarcas] = useState<Record<string, string>>(() => Object.fromEntries(items.map((it) => [it.sku, it.marca ?? ''])));
   const [notasMarca, setNotasMarca] = useState<Record<string, string>>({});
   const [nota, setNota] = useState('');
+  // 24-11-2026: antes la orden heredaba en silencio el «sin inventario» de otra
+  // recepción. Ahora se ve y quien recibe puede desmarcarlo para que entre el stock.
+  const [sinInventario, setSinInventario] = useState(() => sinInventarioPorDefecto(orden.sin_inventario));
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [verWhatsappOrden, setVerWhatsappOrden] = useState(false);
@@ -643,7 +647,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
         onSaved();
         return;
       }
-      await recibirOrdenParcial(orden, recepciones, nota.trim() || null, actor, actorName ?? null, almacenFinal);
+      await recibirOrdenParcial(orden, recepciones, nota.trim() || null, actor, actorName ?? null, almacenFinal, sinInventario);
       notify(`Recepción registrada: ${orden.oc_codigo ?? orden.codigo} → 🏭 ${sedeDeAlmacen(almacenFinal, almacenes)}`, 'success', { link: '#/app/inventario' });
       onSaved();
     } catch (err) {
@@ -762,6 +766,16 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
             estado={despiece}
             onChange={setDespiece}
           />
+        )}
+
+        {!esServicioOrden(orden) && (
+          <label className="hint" style={{ display: 'flex', gap: '.45rem', alignItems: 'flex-start', marginTop: '.7rem', fontSize: '.82rem' }}>
+            <input type="checkbox" checked={sinInventario} onChange={(e) => setSinInventario(e.target.checked)} />
+            <span>
+              Ya cargué estas cantidades a mano · no sumar stock
+              {sinInventario && <strong style={{ display: 'block', color: 'var(--warning, #f5a524)' }}>⚠ Si no las cargaste, desmarcá: si no, la mercancía no entrará al inventario.</strong>}
+            </span>
+          </label>
         )}
 
         <div className="form-row" style={{ marginTop: '.6rem' }}>

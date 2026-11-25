@@ -284,7 +284,7 @@ export async function crearOferta(input: CrearOfertaInput): Promise<OfertaProvee
   return data as OfertaProveedor;
 }
 
-/** Campos editables de una oferta ya cargada (solo mientras está `pendiente`). */
+/** Campos editables de una oferta ya cargada (también si quedó `descartada`). */
 export interface EditarOfertaInput {
   /** Reasignar la oferta a otro proveedor (corrección de carga). */
   proveedor_id?: string;

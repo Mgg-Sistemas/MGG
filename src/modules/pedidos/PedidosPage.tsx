@@ -132,7 +132,7 @@ import { OfertasComparativa } from './OfertasComparativa';
 import { AsignarProveedoresModal } from './AsignarProveedoresModal';
 import { AgregarOfertaModal } from './AgregarOfertaModal';
 import { AgregarProductoCompra } from './AgregarProductoCompra';
-import { esOfertaAceptadaDeEstaOc, esSubOrden, ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
+import { esOfertaAceptadaDeEstaOc, puedeGestionarOfertas, ordenesConOfertasDe, unificarPorProveedor } from './ordenDeOfertas';
 import { avisoDeCuadre, desglosarOc } from './cuadreOc';
 import { etiquetaAjuste, etiquetaIva, ivaDesdePorcentaje, porcentajeDesdeIva, totalDesdePartes } from './impuestosOc';
 import { fijarNumeroAdministracionProveedor } from '@/modules/proveedores/numeroAdministracion.repository';
@@ -3256,10 +3256,9 @@ function OrdenDetailModal({
   const puedeTrazabilidad = ['recibida', 'finalizada', 'pagada'].includes(o.estado);
   const isFinalizada = o.estado === 'finalizada';
   // Las ofertas (añadir proveedor) se gestionan SOLO desde la pestaña Órdenes de Compra.
-  // 23/11/2026: una OC hija SIEMPRE es etapa de compra, aunque se abra desde la pestaña
-  // de solicitudes (enOc=false). Sin esto la comparativa quedaba oculta y solo se veía
-  // el snapshot de la oferta aceptada en el encabezado.
-  const mostrarOfertas = (enOc || esSubOrden(o)) && ['aprobada', 'desistida_proveedor', 'oc_creada', 'confirmada_metodo', 'oc_aprobada', 'pagada'].includes(o.estado);
+  // 24/11/2026: también se ven en una orden descartada para poder corregir precios y
+  // medidas; mostrarlas no cambia el estado ni reactiva la orden.
+  const mostrarOfertas = puedeGestionarOfertas(o, enOc);
 
   // Crédito: ¿está totalmente pagado? (los abonos se hacen en Tesorería).
   const creditoSaldadoDet = isCuentaAbierta && (Number(o.abonado_total) || 0) >= Number(o.total) - 0.01;

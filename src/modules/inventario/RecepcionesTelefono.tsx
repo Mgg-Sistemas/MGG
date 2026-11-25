@@ -18,6 +18,7 @@ import type { Orden } from '@/shared/lib/types';
 import { recibirOrdenParcial, esServicioOrden, type RecepcionRenglon } from '@/modules/pedidos/pedidos.repository';
 import { subirFacturasAlmacen } from '@/modules/pedidos/facturasOrden.repository';
 import { CargarFacturaCampo } from '@/modules/pedidos/CargarFacturaCampo';
+import { sinInventarioPorDefecto } from '@/modules/pedidos/recepcionSinInventario';
 import { esDespiezable } from './despieceRes';
 import { nombreAlmacenVisible } from './sectorizacion';
 import { fechaHoraRecepcion, mensajeRecepcion, type DatosRecepcion } from './recepcionReporte';
@@ -144,6 +145,9 @@ function FormRecepcion({ fila, almacen, actor, actorName, quien, onCancel, onHec
   const items = Array.isArray(o.items) ? o.items : [];
   const [recibidas, setRecibidas] = useState<Record<string, string>>(() => Object.fromEntries(items.map((it) => [it.sku, String(it.cantidad ?? 0)])));
   const [nota, setNota] = useState('');
+  // 24-11-2026: el teléfono tampoco decide por el almacenista. La casilla se
+  // prellena con lo que viniera de antes, pero él puede desmarcarla.
+  const [sinInventario, setSinInventario] = useState(() => sinInventarioPorDefecto(o.sin_inventario));
   const [fotos, setFotos] = useState<File[]>([]);
   // Factura del proveedor: opcional al recepcionar (12-11-2026), salvo servicios.
   const [facturas, setFacturas] = useState<File[]>([]);
@@ -167,7 +171,7 @@ function FormRecepcion({ fila, almacen, actor, actorName, quien, onCancel, onHec
       if (pideFactura && facturas.length) { await subirFacturasAlmacen(o.id, facturas, actorName || actor); setFacturas([]); setFacturaSubida(true); }
       const recepciones: RecepcionRenglon[] = items.map((it) => ({ sku: it.sku, cantidad_recibida: Math.max(0, leer(recibidas[it.sku] ?? '')), marca_recibida: null, nota_marca: null }));
       const notaDlv = fila.delivery?.estado === 'entregado' ? `Entregada por delivery (${fila.delivery.repartidor_nombre ?? '—'}). ` : '';
-      await recibirOrdenParcial(o, recepciones, `${notaDlv}${nota.trim()}`.trim() || null, actor, actorName, almacen);
+      await recibirOrdenParcial(o, recepciones, `${notaDlv}${nota.trim()}`.trim() || null, actor, actorName, almacen, sinInventario);
       if (fotos.length) {
         try { await subirFotosRecepcion(o as Orden & { recepcion_fotos?: unknown }, fotos); }
         catch (e) { toast(`Quedó recibida, pero las fotos no subieron: ${errMsg(e, 'error')}`, 'warning'); }
@@ -211,6 +215,15 @@ function FormRecepcion({ fila, almacen, actor, actorName, quien, onCancel, onHec
           </div>
         );
       })}
+      {!esServicioOrden(o) && (
+        <label className="surt-campo" style={{ display: 'flex', gap: '.45rem', alignItems: 'flex-start' }}>
+          <input type="checkbox" checked={sinInventario} onChange={(e) => setSinInventario(e.target.checked)} />
+          <span>
+            Ya cargué estas cantidades a mano · no sumar stock
+            {sinInventario && <strong style={{ display: 'block', color: 'var(--warning, #f5a524)' }}>⚠ Si no las cargaste, desmarcá: si no, la mercancía no entrará al inventario.</strong>}
+          </span>
+        </label>
+      )}
       <div className="surt-campo">
         <label htmlFor="rec-tel-nota">Nota {hayDiferencia ? '(obligatoria: llegó distinto)' : '(opcional)'}</label>
         <input id="rec-tel-nota" className="input surt-input" value={nota} onChange={(e) => setNota(e.target.value)} placeholder="Faltantes, estado de la mercancía…" />

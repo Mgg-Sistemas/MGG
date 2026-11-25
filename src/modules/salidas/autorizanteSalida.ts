@@ -48,6 +48,28 @@ export interface Autorizante {
   pendiente: boolean;
 }
 
+export interface ResponsableOrdenSalida {
+  etiqueta: 'Autorizado por' | 'Almacenista';
+  nombre: string;
+  firma: boolean;
+}
+
+/**
+ * En las salidas/traslados hechos desde el teléfono ya no hay aprobación: el
+ * responsable que va en la ficha y bajo la línea es el almacenista que registró
+ * la operación. Las solicitudes del módulo conservan su autorizante real.
+ */
+export function responsableOrdenSalida(
+  esDesdeTelefono: boolean,
+  almacenista: string | null | undefined,
+  autorizante: Autorizante,
+): ResponsableOrdenSalida {
+  if (esDesdeTelefono) {
+    return { etiqueta: 'Almacenista', nombre: (almacenista?.trim() || '—').toUpperCase(), firma: false };
+  }
+  return { etiqueta: 'Autorizado por', nombre: autorizante.nombre, firma: autorizante.firma };
+}
+
 /**
  * Desde este día quién aprueba sale de la lista «Usuarios autorizados para:» de
  * Roles y Permisos (28-10-2026). Una aprobación de otra persona a partir de esa
