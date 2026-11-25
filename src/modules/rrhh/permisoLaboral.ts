@@ -83,9 +83,14 @@ export function inicialSolicitudPermiso(
   evento?: RrhhEvento | null,
 ): SolicitudPermisoForm {
   if (evento?.solicitud) {
+    // El nombre, cédula, cargo y departamento son datos de la ficha, no texto
+    // del permiso: si el snapshot viejo quedó cortado («CHRISTOPHER DANIE»),
+    // al abrir o imprimir debe salir como está hoy en RRHH («...DANIEL»).
+    const p = personal.find((x) => x.id === evento.personal_id);
     return {
       ...evento.solicitud,
       personal_id: evento.personal_id,
+      trabajador: p ? datosTrabajadorDe(p) : evento.solicitud.trabajador,
       empresa: evento.solicitud.empresa || evento.empresa || empresa,
       requiere_firma_jefe: evento.solicitud.requiere_firma_jefe ?? false,
       jefe_departamento: evento.solicitud.jefe_departamento ?? null,

@@ -92,6 +92,17 @@ describe('permiso laboral · abrir un permiso ya guardado', () => {
     expect(form.motivo).toBe('Trámite médico familiar');
   });
 
+  it('corrige un nombre cortado guardado en la solicitud con el dato actual de RRHH', () => {
+    const snapshotViejo = {
+      ...solicitudSinPersonal({ ...VALIDA, personal_id: 'p-1' }),
+      trabajador: { ...VALIDA.trabajador, nombre: 'ANA MAR' },
+    };
+    const eventoConSnapshot: RrhhEvento = { ...eventoViejo, solicitud: snapshotViejo };
+    const form = inicialSolicitudPermiso([persona], '', MGG.key, eventoConSnapshot);
+    expect(form.trabajador.nombre).toBe('Ana María');
+    expect(form.motivo).toBe('Trámite médico familiar');
+  });
+
   it('detecta que se agregó la firma del jefe en un permiso viejo sin solicitud', () => {
     const form = inicialSolicitudPermiso([persona], '', MGG.key, eventoViejo);
     expect(hayCambioFirmaEnEdicion(eventoViejo, form)).toBe(false);

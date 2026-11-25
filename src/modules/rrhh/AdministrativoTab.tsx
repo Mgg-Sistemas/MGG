@@ -12,6 +12,7 @@ import { listEventos, eliminarEvento } from './eventos.repository';
 import { EMPRESA_POR_DEFECTO, type Empresa } from './empresa';
 import { EventoTipoModal } from './EventoTipoModal';
 import { SolicitudPermisoModal } from './SolicitudPermisoModal';
+import { inicialSolicitudPermiso } from './permisoLaboral';
 import { verSolicitudPermisoPdf } from './solicitudPermisoPdf';
 
 const TIPOS: { key: RrhhEvento['tipo']; label: string }[] = [
@@ -53,6 +54,13 @@ export function AdministrativoTab({ canWrite, actor, actorName, empresa = EMPRES
   const nombre = (id?: string | null) => {
     const p = personal.find((x) => x.id === id);
     return p ? `${p.nombre} ${p.apellido}`.trim() : '—';
+  };
+
+  // El PDF 📄 se arma con los datos actuales de la ficha, no con un snapshot
+  // viejo que pudo quedar con el nombre cortado.
+  const verPdfPermiso = (e: RrhhEvento) => {
+    const form = inicialSolicitudPermiso(personal, '', e.empresa || empresa, e);
+    void verSolicitudPermisoPdf(form, form.empresa);
   };
 
   const opciones: SearchOption[] = personal.filter((p) => p.activo).map((p) => ({
@@ -182,7 +190,7 @@ export function AdministrativoTab({ canWrite, actor, actorName, empresa = EMPRES
                         <button
                           type="button"
                           className="btn btn-sm btn-ghost"
-                          onClick={() => void verSolicitudPermisoPdf({ ...e.solicitud!, personal_id: e.personal_id }, empresa)}
+                          onClick={() => verPdfPermiso(e)}
                           title="Ver PDF oficial de la solicitud"
                         >
                           📄
