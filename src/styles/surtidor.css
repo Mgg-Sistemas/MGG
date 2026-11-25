@@ -185,12 +185,19 @@
 @media (max-width: 340px) { .surt-historicos { grid-template-columns: 1fr; } }
 .surt-hist { cursor: default; }
 .surt-hist .titulo { white-space: normal; }
-.surt-hist-acciones { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
-/* 04-11-2026: «Ver PDF» naranja y «WhatsApp» verde, grandes, en los históricos de salidas y traslados. */
-.surt-hist-acciones > .btn { min-height: 64px; font-size: 1.15rem; font-weight: 800; justify-content: flex-start; padding: .6rem 1.1rem; border-radius: 14px; border: 0; color: #1f1300; }
-.surt-hist-acciones > .btn:first-child { background: linear-gradient(90deg, #ff8a00, #ffd24a); }
-.surt-hist-acciones > .btn:last-child { background: #25d366; color: #052e16; }
+.surt-hist-acciones { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .5rem; }
+.surt-hist-acciones:has(> :nth-child(2):last-child) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+/* Cada acción tiene su clase: al agregar «Editar», el PDF no queda invisible
+   por las viejas reglas :first-child / :last-child (25-11-2026). */
+.surt-hist-acciones > .btn { min-width: 0; min-height: 64px; font-size: 1.05rem; font-weight: 800; justify-content: center; white-space: normal; padding: .6rem .7rem; border-radius: 14px; border: 0; }
+.surt-hist-acciones > .btn-editar { background: linear-gradient(90deg, #ff8a00, #ffd24a); color: #1f1300; }
+.surt-hist-acciones > .btn-pdf { background: linear-gradient(90deg, #b91c1c, #ef4444); color: #fff; }
+.surt-hist-acciones > .btn-whatsapp { background: #25d366; color: #052e16; }
 .surt-hist-acciones > .btn:hover:not(:disabled) { filter: brightness(1.06); }
+@media (max-width: 560px) {
+  .surt-hist-acciones,
+  .surt-hist-acciones:has(> :nth-child(2):last-child) { grid-template-columns: 1fr; }
+}
 
 /* ── Reporte con fotos (teléfono) ── */
 .rep-grupo { margin-bottom: 1.1rem; }

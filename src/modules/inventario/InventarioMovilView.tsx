@@ -729,14 +729,14 @@ function HistoricoSalidas({ almacen, soloDe, canWrite, productos, actor, actorNa
                   <span className="litros">−{v.cantidad}</span>
                   <div className="surt-hist-acciones">
                     {f.origen === 'telefono' && canWrite && (
-                      <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setEditando(f); window.scrollTo(0, 0); }}>
+                      <button type="button" className="btn btn-ghost btn-grande btn-editar" onClick={() => { setEditando(f); window.scrollTo(0, 0); }}>
                         ✎ Editar
                       </button>
                     )}
                     <BotonPdf
                       abrir={() => (f.origen === 'telefono' ? verOrdenSalidaTelefono(f.grupo, registro(f)) : descargarOrdenSalidaPdf(f.sol))}
-                      className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
-                    <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidaId(f.id); window.scrollTo(0, 0); }}>
+                      className="btn btn-ghost btn-grande btn-pdf" texto="📄 Ver PDF" />
+                    <button type="button" className="btn btn-ghost btn-grande btn-whatsapp" onClick={() => { setElegidaId(f.id); window.scrollTo(0, 0); }}>
                       💬 WhatsApp
                     </button>
                   </div>
@@ -864,12 +864,12 @@ function HistoricoTraslados({ almacen, canWrite, productos, destinos, actor, act
                   <span className="litros">{v.cantidad}</span>
                   <div className="surt-hist-acciones">
                     {f.origen === 'telefono' && canWrite && !!f.traslado.codigo && (
-                      <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setEditando(f); window.scrollTo(0, 0); }}>
+                      <button type="button" className="btn btn-ghost btn-grande btn-editar" onClick={() => { setEditando(f); window.scrollTo(0, 0); }}>
                         ✎ Editar
                       </button>
                     )}
-                    <BotonPdf abrir={() => pdfDe(f)} className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
-                    <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidoId(f.id); window.scrollTo(0, 0); }}>
+                    <BotonPdf abrir={() => pdfDe(f)} className="btn btn-ghost btn-grande btn-pdf" texto="📄 Ver PDF" />
+                    <button type="button" className="btn btn-ghost btn-grande btn-whatsapp" onClick={() => { setElegidoId(f.id); window.scrollTo(0, 0); }}>
                       💬 WhatsApp
                     </button>
                   </div>
