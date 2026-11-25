@@ -1,4 +1,5 @@
 import { autorizanteDe } from './autorizanteSalida';
+import { puedeEditarSolicitudEjecutada } from './edicionEjecutada';
 import { useAutorizacionAprobar } from '@/modules/usuarios/autorizados.repository';
 import { useSession } from '@/modules/auth/authStore';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -803,13 +804,17 @@ function SolicitudDetalleModal({
      la misma gente que después la ejecuta.
 
      Reusa lo ya cargado (productos/existencias/almacenes/cajas) para los selects. */
-  const editable = (sol.estado === 'por_aprobar' || sol.estado === 'aprobada') && puedeEditar;
+  const editableEjecutada = puedeEditarSolicitudEjecutada(sol) && puedeEditar;
+  const editable = ((sol.estado === 'por_aprobar' || sol.estado === 'aprobada') && puedeEditar) || editableEjecutada;
   const [editando, setEditando] = useState(false);
   type LineaEd = { id: number; productoId: string; almacen: string; cantidad: string; precio: string; observacion: string; paraFundicion?: boolean; equipoId?: string; equipoNombre?: string | null };
   const initLineas = (): LineaEd[] => {
     // Almacén de origen: si el guardado no tiene stock del producto, se elige el
     // almacén con MÁS stock (para que no quede mostrando "0 und").
     const mejorAlmacen = (pid: string, saved: string): string => {
+      // En una ejecutada el origen es parte del movimiento ya hecho: abrir y
+      // guardar no puede cambiarlo solo porque ese almacén hoy quedó en cero.
+      if (sol.estado === 'ejecutada') return saved;
       const savedStock = Number(existencias.find((e) => e.producto_id === pid && e.almacen === saved)?.stock) || 0;
       if (saved && savedStock > 0) return saved;
       const top = existencias.filter((e) => e.producto_id === pid && (Number(e.stock) || 0) > 0)
@@ -1019,7 +1024,7 @@ function SolicitudDetalleModal({
         moneda: cajaOrigenSel?.moneda ?? sol.moneda ?? null,
         destino: sol.scope === 'traslado' ? (cajaDest?.nombre ?? sol.destino ?? null) : edDestino,
         motivo: edMotivo, solicitante: edSolicitante, notaEntrega: edNotaEntrega,
-      }, actor);
+      }, actor, actorName);
       await guardarAdjuntosEditados();
       notify(`Solicitud ${sol.codigo} actualizada`, 'success');
       setEditando(false);
@@ -1068,7 +1073,7 @@ function SolicitudDetalleModal({
         cxcMonto: edEsCliente ? cxcMonto : null,
         cxcMoneda: edEsCliente ? edCxcMoneda : null,
         notaEntrega: edNotaEntrega,
-      }, actor);
+      }, actor, actorName);
       await guardarAdjuntosEditados();
       notify(`Solicitud ${sol.codigo} actualizada`, 'success');
       setEditando(false);
@@ -1121,8 +1126,8 @@ function SolicitudDetalleModal({
       )}
       {editable && (
         <button className="btn btn-ghost" disabled={busy} onClick={abrirEdicion} style={{ marginRight: 'auto' }}
-          title="Editar TODOS los datos de la solicitud antes de ejecutarla">
-          ✎ Editar solicitud
+          title={editableEjecutada ? 'Corregir la ejecutada: ajusta solo la diferencia de stock y conserva la trazabilidad' : 'Editar TODOS los datos de la solicitud antes de ejecutarla'}>
+          {editableEjecutada ? '✎ Editar ejecutada' : '✎ Editar solicitud'}
         </button>
       )}
       {sol.estado === 'ejecutada' && puedeEditar && (
@@ -1267,8 +1272,11 @@ function SolicitudDetalleModal({
   if (editando) {
     return (
       <ModalUI title={`Editar solicitud ${sol.codigo}`} size="lg" onClose={() => setEditando(false)} footer={footer}>
-        <div className="muted" style={{ fontSize: '.82rem', marginBottom: '.6rem' }}>
-          {sol.scope === 'traslado' ? 'Traslado' : 'Salida'} de material · estado <strong>{etiquetaDe(sol)}</strong>. Editás antes de ejecutar (todavía no tocó stock).
+        <div className={editableEjecutada ? 'card' : 'muted'} style={{ fontSize: '.82rem', marginBottom: '.6rem' }}>
+          {sol.scope === 'traslado' ? 'Traslado' : 'Salida'} de material · estado <strong>{etiquetaDe(sol)}</strong>.{' '}
+          {editableEjecutada
+            ? 'Ya movió stock. Al guardar se ajusta solo la diferencia y queda en el kardex y en la trazabilidad; no se borra el movimiento original.'
+            : 'Editás antes de ejecutar (todavía no tocó stock).'}
         </div>
         <div className="form-row">
           <label>Solicitante</label>
@@ -1361,7 +1369,7 @@ function SolicitudDetalleModal({
           const opcionesAlmacen = Array.from(new Set([...almacenesActivos, ...(l.almacen ? [l.almacen] : [])]));
           const stock = stockDe(l.productoId, l.almacen);
           const p = prodById.get(l.productoId);
-          const excede = (Number(l.cantidad) || 0) > stock;
+          const excede = sol.estado !== 'ejecutada' && (Number(l.cantidad) || 0) > stock;
           return (
             <div key={l.id} className="card" style={{ margin: '0 0 .6rem', padding: '.7rem .85rem' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>

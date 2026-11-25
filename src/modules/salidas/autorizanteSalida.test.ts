@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { autorizanteDe, correoAutorizantePorNombre, puedeAutorizarSalidas, responsableOrdenSalida, NOMBRE_FIRMA, SIN_AUTORIZACION_NOMBRE } from './autorizanteSalida';
+import { autorizanteDe, correoAutorizantePorNombre, puedeAutorizarSalidas, firmaResponsableOrdenSalida, responsableOrdenSalida, NOMBRE_FIRMA, SIN_AUTORIZACION_NOMBRE } from './autorizanteSalida';
 
 describe('quién autoriza salidas y traslados', () => {
   it('solo Leydis Rengel y Jesús Lozada pueden autorizar', () => {
@@ -85,6 +85,13 @@ describe('responsable en la orden de salida/traslado del teléfono (25-11-2026)'
     expect(responsableOrdenSalida(false, 'Carlos Machado', leydis)).toEqual({
       etiqueta: 'Autorizado por', nombre: NOMBRE_FIRMA, firma: true,
     });
+  });
+
+  it('debajo de la línea del teléfono dice Autorizado por y deja el nombre en blanco', () => {
+    const responsable = responsableOrdenSalida(true, 'Carlos Machado', autorizanteDe(null));
+    expect(responsable.nombre).toBe('CARLOS MACHADO'); // arriba sí identifica al almacenista
+    expect(firmaResponsableOrdenSalida(true, responsable)).toEqual({ etiqueta: 'Autorizado por', nombre: '' });
+    expect(firmaResponsableOrdenSalida(false, responsable).nombre).toBe('CARLOS MACHADO');
   });
 });
 

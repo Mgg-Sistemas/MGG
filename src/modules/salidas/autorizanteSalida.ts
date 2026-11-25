@@ -70,6 +70,14 @@ export function responsableOrdenSalida(
   return { etiqueta: 'Autorizado por', nombre: autorizante.nombre, firma: autorizante.firma };
 }
 
+/** La línea inferior del teléfono queda para autorizar a mano, sin nombre impreso. */
+export function firmaResponsableOrdenSalida(
+  esDesdeTelefono: boolean,
+  responsable: ResponsableOrdenSalida,
+): { etiqueta: 'Autorizado por'; nombre: string } {
+  return { etiqueta: 'Autorizado por', nombre: esDesdeTelefono ? '' : responsable.nombre };
+}
+
 /**
  * Desde este día quién aprueba sale de la lista «Usuarios autorizados para:» de
  * Roles y Permisos (28-10-2026). Una aprobación de otra persona a partir de esa

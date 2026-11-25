@@ -19,6 +19,7 @@ import { planReintentoTraslado, type PataDeSolicitud } from './trasladoReintento
 import { salidaDinero, trasladoDinero } from './cajas.repository';
 import { ensureUnidadSolicitante } from '@/modules/pedidos/pedidos.repository';
 import { registrarSobrepagoCobrar } from '@/modules/tesoreria/cuentasPorCobrar.repository';
+import { ajustesStockEdicionEjecutada, puedeEditarSolicitudEjecutada, type AjusteStockEdicionEjecutada } from './edicionEjecutada';
 
 /**
  * Vínculo Salidas/Traslados → Inventario: fija el costo/PMP del producto en un
@@ -982,14 +983,19 @@ export interface EditarSolicitudSalidaInput {
 }
 
 /**
- * Edita una solicitud de salida/traslado mientras está POR APROBAR o APROBADA
- * (antes de ejecutarse: todavía no tocó stock/saldo). Permite corregir todos los
- * datos —producto(s), cantidad, almacén origen/destino, precio, destino, motivo,
- * fecha, consumo interno—. No se edita una vez EJECUTADA (ya movió inventario).
+ * Edita una solicitud antes de ejecutar y también una salida/traslado de
+ * MATERIAL ya ejecutado. En este último caso agrega al kardex solo la diferencia
+ * de stock; no borra el movimiento original. Cocina, Maquinaria, clientes/CxC y
+ * dinero quedan fuera porque sus efectos no terminan en `movimientos`.
  */
-export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSolicitudSalidaInput, actor: string): Promise<SolicitudSalida> {
-  if (!['por_aprobar', 'aprobada'].includes(s.estado))
-    throw new Error('Solo se edita una solicitud Por aprobar o Aprobada (antes de ejecutarla).');
+export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSolicitudSalidaInput, actor: string, actorName?: string | null): Promise<SolicitudSalida> {
+  const ejecutada = s.estado === 'ejecutada';
+  if (ejecutada && s.tipo === 'dinero')
+    throw new Error('Una salida o traslado de dinero ya ejecutado solo permite editar la nota.');
+  if (ejecutada && !puedeEditarSolicitudEjecutada(s))
+    throw new Error('Esta solicitud tiene efectos en Cocina, Maquinaria o cuentas por cobrar. Solo se puede editar la nota.');
+  if (!ejecutada && !['por_aprobar', 'aprobada'].includes(s.estado))
+    throw new Error('Solo se edita una solicitud Por aprobar, Aprobada o una salida/traslado de material ya ejecutado.');
 
   const itemsLimpios = (input.items ?? [])
     .map((it) => ({
@@ -1009,6 +1015,10 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
       para_fundicion: it.para_fundicion === true,
     }))
     .filter((it) => it.producto_id && it.cantidad > 0);
+
+  if (ejecutada && (itemsLimpios.some((it) => it.equipo_id) || input.clienteId || input.clienteNombre)) {
+    throw new Error('En una ejecutada no se pueden agregar equipos ni clientes: eso requiere actualizar Maquinaria o la cuenta por cobrar.');
+  }
 
   const almacenOrigenCab = input.almacenOrigen ?? itemsLimpios.find((it) => it.almacen)?.almacen ?? s.almacen_origen ?? null;
 
@@ -1056,7 +1066,7 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
     fecha_entrega: input.fechaEntrega !== undefined ? (input.fechaEntrega || null) : s.fecha_entrega,
     consumo_interno: input.consumoInterno !== undefined ? !!input.consumoInterno : s.consumo_interno,
     solicitante: (input.solicitante?.trim()) || s.solicitante,
-    historial: appendHistorial(s, 'editada', actor),
+    historial: appendHistorial(s, 'editada', actor, ejecutada ? { motivo: 'Corrección de una solicitud ejecutada; el kardex conserva el movimiento original y sus ajustes.' } : {}),
   };
   // Nota / observación (ambos tipos).
   if (input.notaEntrega !== undefined) patch.nota_entrega = input.notaEntrega?.trim() || null;
@@ -1081,11 +1091,82 @@ export async function editarSolicitudSalida(s: SolicitudSalida, input: EditarSol
     if (input.cajaId !== undefined) patch.caja_id = input.cajaId || null;
     if (input.cajaDestinoId !== undefined) patch.caja_destino_id = input.cajaDestinoId || null;
   }
-  const { data, error } = await supabase.from(SOL).update(patch).eq('id', s.id).select('*').single();
-  if (error) throw error;
-  // Mantener sincronizada la unidad solicitante en el catálogo compartido con OP.
-  if (s.tipo === 'material' && s.scope === 'salida' && input.destino) void ensureUnidadSolicitante(input.destino, actor);
-  return data as SolicitudSalida;
+  const nuevasLineas: ItemSolicitudSalida[] = itemsLimpios.length ? itemsLimpios : [{
+    producto_id: String(patch.producto_id ?? ''),
+    producto_nombre: patch.producto_nombre as string | null,
+    cantidad: Number(patch.cantidad) || 0,
+    precio_unit: patch.precio_unit as number | null,
+    unidad: null,
+    almacen: almacenOrigenCab,
+  }];
+  const ajustes = ejecutada && s.mov_ref !== 'manual_externo'
+    ? ajustesStockEdicionEjecutada(s, nuevasLineas, patch.almacen_destino as string | null | undefined)
+    : [];
+
+  // Primero se comprueba TODO el stock que la corrección necesita sacar. Si algo
+  // falta, todavía no se escribió ni un movimiento ni la solicitud.
+  const faltantes: string[] = [];
+  for (const a of ajustes.filter((x) => x.delta < 0)) {
+    const ex = await getExistencia(a.producto_id, a.almacen);
+    const hay = Number(ex?.stock) || 0;
+    if (hay + a.delta < -0.000001) faltantes.push(`${a.producto_nombre}: se necesitan ${-a.delta}, hay ${hay} en ${a.almacen}`);
+  }
+  if (faltantes.length) throw new Error(`No se guardó la corrección; no hay stock suficiente.\n• ${faltantes.join('\n• ')}`);
+
+  const destinoEditado = (patch.destino as string | null | undefined) ?? s.destino ?? null;
+  const almacenDestinoEditado = (patch.almacen_destino as string | null | undefined) ?? s.almacen_destino ?? null;
+  const registrarDelta = async (a: AjusteStockEdicionEjecutada, delta: number, reverso: boolean) => {
+    await registrarMovimiento({
+      producto_id: a.producto_id,
+      tipo: s.scope === 'traslado' ? 'transferencia' : (delta > 0 ? 'entrada' : 'salida'),
+      delta,
+      almacen: a.almacen,
+      actor,
+      actor_name: actorName ?? null,
+      ref_tipo: s.scope === 'traslado' ? 'traslado_modulo' : 'salida_modulo',
+      ref_id: s.id,
+      ref_codigo: s.codigo,
+      destino: s.scope === 'traslado' ? (delta < 0 ? almacenDestinoEditado : null) : destinoEditado,
+      nota_entrega: (patch.nota_entrega as string | null | undefined) ?? s.nota_entrega ?? null,
+      fecha_entrega: (patch.fecha_entrega as string | null | undefined) ?? s.fecha_entrega ?? null,
+      detalle: reverso
+        ? `Reverso por edición fallida de ${s.codigo}`
+        : `Edición de ${s.scope === 'traslado' ? 'traslado' : 'salida'} ejecutada · ${s.codigo} · ajuste por diferencia`,
+      // Una devolución/corrección conserva el PMP: no es una compra nueva.
+      precio_unitario: null,
+      consumo_interno: !!patch.consumo_interno,
+      solicitante: String(patch.solicitante ?? s.solicitante),
+    });
+  };
+
+  const aplicados: AjusteStockEdicionEjecutada[] = [];
+  try {
+    for (const a of ajustes) {
+      await registrarDelta(a, a.delta, false);
+      aplicados.push(a);
+    }
+    const consulta = supabase.from(SOL).update(patch).eq('id', s.id);
+    // Si otra persona editó la ejecutada mientras este formulario estaba abierto,
+    // el historial ya no coincide: no se sella una segunda corrección sobre ella.
+    const { data, error } = await (ejecutada ? consulta.eq('historial', s.historial) : consulta).select('*').single();
+    if (error) throw error;
+    // Mantener sincronizada la unidad solicitante en el catálogo compartido con OP.
+    if (s.tipo === 'material' && s.scope === 'salida' && input.destino) void ensureUnidadSolicitante(input.destino, actor);
+    return data as SolicitudSalida;
+  } catch (e) {
+    // Si la solicitud no terminó de guardarse, el stock tampoco debe quedar con
+    // una versión distinta. Se revierten solo los ajustes que sí terminaron.
+    let falloReverso = '';
+    for (const a of [...aplicados].reverse()) {
+      try { await registrarDelta(a, -a.delta, true); }
+      catch (r) { falloReverso = r instanceof Error ? r.message : 'error desconocido'; }
+    }
+    const causa = e instanceof Error ? e.message : 'error desconocido';
+    if (falloReverso) {
+      throw new Error(`La edición quedó a medias: ${causa}. No se pudo revertir todo el ajuste (${falloReverso}). Revisá el kardex de ${s.codigo} antes de reintentar.`);
+    }
+    throw new Error(`No se guardó la corrección: ${causa}.${aplicados.length ? ' Los ajustes de stock ya aplicados fueron revertidos.' : ''}`);
+  }
 }
 
 /**
