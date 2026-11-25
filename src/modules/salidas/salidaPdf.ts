@@ -6,7 +6,7 @@
 import type { Movimiento, MovimientoCaja, SolicitudSalida } from '@/shared/lib/types';
 import { cargarPersonasPorEmail, personaDe } from '@/shared/lib/personas';
 import { previewPdfDoc } from '@/shared/lib/reportPreview';
-import { CORREO_FIRMA, autorizanteDe, correoAutorizantePorNombre, figuraQuienAprobo, responsableOrdenSalida } from './autorizanteSalida';
+import { CORREO_FIRMA, autorizanteDe, correoAutorizantePorNombre, figuraQuienAprobo, firmaResponsableOrdenSalida, responsableOrdenSalida } from './autorizanteSalida';
 import { cancelacionDe } from './historicoSalidas';
 import { MARGEN_PDF, MARGENES_TABLA_PDF, limiteInferiorPdf } from '@/shared/lib/pdfMargen';
 
@@ -275,6 +275,7 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
   // También al reimprimir documentos viejos: no se muestra «pendiente de
   // aprobación» en una salida del teléfono que ya descontó/movió el material.
   const responsable = responsableOrdenSalida(esDesdeTelefono, creo, autoriza);
+  const firmaResponsable = firmaResponsableOrdenSalida(esDesdeTelefono, responsable);
 
   // Líneas de la "factura": el detalle multi-producto si existe, si no la cabecera.
   const lineas = (sol.items && sol.items.length)
@@ -475,10 +476,10 @@ export async function descargarOrdenSalidaPdf(sol: SolicitudSalida, opciones?: O
   doc.line(MARGIN + colW + 40, fy, MARGIN + colW * 2 + 40, fy);
   doc.setFont('helvetica', 'bold'); doc.setFontSize(9);
   doc.text('Solicitado por', MARGIN + colW / 2, fy + 14, { align: 'center' });
-  doc.text(responsable.etiqueta, cxAutoriza, fy + 14, { align: 'center' });
+  doc.text(firmaResponsable.etiqueta, cxAutoriza, fy + 14, { align: 'center' });
   doc.setFont('helvetica', 'normal');
   doc.text(solicitanteNombre, MARGIN + colW / 2, fy + 27, { align: 'center', maxWidth: colW });
-  doc.text(responsable.nombre, cxAutoriza, fy + 27, { align: 'center', maxWidth: colW });
+  if (firmaResponsable.nombre) doc.text(firmaResponsable.nombre, cxAutoriza, fy + 27, { align: 'center', maxWidth: colW });
 
   doc.setFontSize(8); doc.setTextColor(120);
   doc.text(`Documento auto-generado · ${sol.codigo} · ${fmt.dateTime(new Date().toISOString())}`, MARGIN, limiteInferiorPdf(PAGE_H));
