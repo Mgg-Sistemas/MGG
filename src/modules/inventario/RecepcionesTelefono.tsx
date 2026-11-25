@@ -111,25 +111,23 @@ export function RecepcionesTelefono({ almacen, canWrite, actor, actorName, quien
       {vista === 'historico' ? <HistoricoRecepciones almacen={almacen} /> : filas === null ? <p className="muted">Cargando…</p> : (
         <>
           <h2>{ordenadas.length ? `${ordenadas.length} orden(es) por recibir` : 'No hay órdenes por recibir'}</h2>
-          <div className="surt-lista-items">
-            {ordenadas.map((f) => {
-              const o = f.orden;
-              const dlv = textoDelivery(f.delivery);
-              const aqui = f.delivery?.estado === 'entregado' && f.delivery.almacen_entrega === almacen;
-              return (
-                <button key={o.id} type="button" className="surt-mov" disabled={!canWrite} onClick={() => setElegida(f)}
-                  style={aqui ? { borderColor: 'var(--brand, #ff8a00)' } : undefined}>
-                  <span className="icono" aria-hidden>{aqui ? '🛵' : '📦'}</span>
-                  <span style={{ minWidth: 0 }}>
-                    <div className="titulo">{o.oc_codigo ?? o.codigo} · {f.proveedor ?? '—'}</div>
-                    <div className="sub">{(o.items ?? []).length} material(es){o.almacen_destino ? ` · destino ${nombreAlmacenVisible(o.almacen_destino)}` : ''}</div>
-                    {dlv && <div className="sub"><strong>🛵 {dlv}</strong></div>}
-                  </span>
-                  <span className="litros">{aqui ? 'Recibir' : '›'}</span>
-                </button>
-              );
-            })}
-          </div>
+          {ordenadas.map((f) => {
+            const o = f.orden;
+            const dlv = textoDelivery(f.delivery);
+            const aqui = f.delivery?.estado === 'entregado' && f.delivery.almacen_entrega === almacen;
+            return (
+              <button key={o.id} type="button" className="surt-mov" disabled={!canWrite} onClick={() => setElegida(f)}
+                style={aqui ? { borderColor: 'var(--brand, #ff8a00)' } : undefined}>
+                <span className="icono" aria-hidden>{aqui ? '🛵' : '📦'}</span>
+                <span style={{ minWidth: 0 }}>
+                  <div className="titulo">{o.oc_codigo ?? o.codigo} · {f.proveedor ?? '—'}</div>
+                  <div className="sub">{(o.items ?? []).length} material(es){o.almacen_destino ? ` · destino ${nombreAlmacenVisible(o.almacen_destino)}` : ''}</div>
+                  {dlv && <div className="sub"><strong>🛵 {dlv}</strong></div>}
+                </span>
+                <span className="litros">{aqui ? 'Recibir' : '›'}</span>
+              </button>
+            );
+          })}
           {!canWrite && <small className="muted">Tu rol solo puede ver: para recepcionar hace falta escritura en Inventario.</small>}
         </>
       )}
