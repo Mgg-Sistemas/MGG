@@ -3573,3 +3573,57 @@ export async function confirmarRetiroOc(o: Orden, modalidad: EntregaModalidad, a
   if (!data) throw new Error('Otra persona ya confirmó el retiro de esta orden. Recarga para verla.');
   return data as Orden;
 }
+
+/**
+ * 25/11/2026 · Reelegir tipo de transporte / modalidad de entrega:
+ * Permite a Compras o Administrador reelegir o corregir la modalidad de entrega
+ * ('delivery', 'carga_pesada' o 'proveedor') en cualquier OC no recibida.
+ * Si ya estaba asignada o tomada en delivery o carga pesada, cancela el pedido previo para que
+ * quede inmediatamente disponible en la nueva modalidad.
+ */
+export async function reelegirModalidadEntregaOc(
+  o: Orden,
+  modalidad: EntregaModalidad,
+  actorEmail: string,
+  motivo?: string
+): Promise<Orden> {
+  if (o.recibida_en) throw new Error('No se puede cambiar el transporte de una orden que ya fue recibida.');
+  const ahora = new Date().toISOString();
+
+  // 1. Si tenía pedidos activos en delivery_pedidos para esta OC, cancelarlos para liberar la orden
+  try {
+    await supabase.from('delivery_pedidos')
+      .update({
+        estado: 'cancelado',
+        cancelado_en: ahora,
+        motivo_cancel: `Cambio de transporte a ${modalidad}${motivo ? `: ${motivo}` : ''}`,
+      })
+      .eq('orden_id', o.id)
+      .neq('estado', 'cancelado')
+      .neq('estado', 'entregado');
+  } catch (err) {
+    console.warn('reelegirModalidadEntregaOc: no se pudo cancelar pedido previo de delivery:', err);
+  }
+
+  // 2. Actualizar la orden con la nueva modalidad y registrar en historial
+  const updatePayload: Record<string, unknown> = {
+    entrega_modalidad: modalidad,
+    historial: appendHistorial(o, 'modalidad_cambiada', actorEmail, {
+      modalidad,
+      antes: o.entrega_modalidad ?? null,
+      motivo: motivo ? `${etiquetaEntrega(modalidad)} · ${motivo}` : etiquetaEntrega(modalidad),
+    }),
+  };
+
+  // Si la orden ya está pagada (o tenía retiro confirmado), refrescamos retiro_confirmado_en para reactivar avisos
+  if (o.estado === 'pagada' || o.retiro_confirmado_en) {
+    updatePayload.retiro_confirmado_en = ahora;
+    updatePayload.retiro_confirmado_por = actorEmail;
+  }
+
+  const { data, error } = await supabase.from(TABLE).update(updatePayload).eq('id', o.id).select('*');
+  if (error) throw error;
+  const r = (data ?? [])[0] as Orden | undefined;
+  if (!r) throw new Error('No se pudo reelegir el transporte de la orden.');
+  return r;
+}
