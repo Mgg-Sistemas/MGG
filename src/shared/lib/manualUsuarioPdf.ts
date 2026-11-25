@@ -314,6 +314,7 @@ const SECCIONES: Seccion[] = [
       'Traslado de dinero: mueve saldo entre cajas de la misma moneda.',
       'Cajas: se administran desde el botón de cajas (crear, renombrar, habilitar/deshabilitar y ajustar saldo).',
       'Cada salida queda en un historial; al hacer clic se ve su detalle, con opción de PDF y trazabilidad. El PDF se genera solo cuando lo pides con el botón.',
+      'PDF de salidas y traslados hechos desde el teléfono (25/11/2026): el renglón y la línea de firma que antes decían «Autorizado por — pendiente de aprobación» ahora dicen «Almacenista» y muestran el nombre completo de quien registró la operación (por ejemplo, CARLOS MACHADO). «Solicitado por» sigue mostrando a la persona elegida. También se corrige al volver a generar el PDF de salidas y traslados pasados, sin cambiar los registros. Las solicitudes del módulo que sí pasan por aprobación conservan «Autorizado por» y su firma.',
       'Filtrar el Historial: la pestaña Historial (de Salidas y de Envío de casiterita, material o dinero) tiene un buscador libre (producto, quién lo hizo, motivo, caja…) y un rango de fechas (Desde / Hasta), con botón para limpiar. Filtra la tabla al instante.',
     ],
   },

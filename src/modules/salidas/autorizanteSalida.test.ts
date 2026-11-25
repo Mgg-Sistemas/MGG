@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { autorizanteDe, correoAutorizantePorNombre, puedeAutorizarSalidas, NOMBRE_FIRMA, SIN_AUTORIZACION_NOMBRE } from './autorizanteSalida';
+import { autorizanteDe, correoAutorizantePorNombre, puedeAutorizarSalidas, responsableOrdenSalida, NOMBRE_FIRMA, SIN_AUTORIZACION_NOMBRE } from './autorizanteSalida';
 
 describe('quién autoriza salidas y traslados', () => {
   it('solo Leydis Rengel y Jesús Lozada pueden autorizar', () => {
@@ -61,6 +61,30 @@ describe('quién autoriza salidas y traslados', () => {
   it('Leydis y Jesús siguen con su nombre de siempre aunque aprueben después', () => {
     expect(autorizanteDe('jhzgcontabilidad@gmail.com', false, { aprobadaEn: '2026-10-29T10:00:00-04:00', nombre: 'Leydis' }))
       .toEqual({ nombre: NOMBRE_FIRMA, firma: true, pendiente: false });
+  });
+});
+
+describe('responsable en la orden de salida/traslado del teléfono (25-11-2026)', () => {
+  it('muestra Almacenista y el nombre completo, también en documentos pasados sin aprobación', () => {
+    const pendiente = autorizanteDe(null);
+    expect(responsableOrdenSalida(true, 'Carlos Machado', pendiente)).toEqual({
+      etiqueta: 'Almacenista', nombre: 'CARLOS MACHADO', firma: false,
+    });
+    expect(responsableOrdenSalida(true, 'Isner', pendiente).nombre).toBe('ISNER');
+  });
+
+  it('no estampa la firma de un autorizante en el documento del teléfono', () => {
+    const leydis = autorizanteDe('jhzgcontabilidad@gmail.com');
+    expect(responsableOrdenSalida(true, 'Carlos Machado', leydis)).toEqual({
+      etiqueta: 'Almacenista', nombre: 'CARLOS MACHADO', firma: false,
+    });
+  });
+
+  it('las solicitudes del módulo conservan quién las autorizó', () => {
+    const leydis = autorizanteDe('jhzgcontabilidad@gmail.com');
+    expect(responsableOrdenSalida(false, 'Carlos Machado', leydis)).toEqual({
+      etiqueta: 'Autorizado por', nombre: NOMBRE_FIRMA, firma: true,
+    });
   });
 });
 
