@@ -69,6 +69,7 @@ import { AvisoEnvioMaquinaria, CampoParaMantenimiento, enviarSalidaAMaquinaria, 
 import { PreSalidasView } from './PreSalidasView';
 import { listPreSalidas, guardarPreSalida } from './presalidas.repository';
 import { mensajePreSalidaWhatsapp, type PreSalida } from './presalidas';
+import { EditarSalidaTelefonoModal, EditarTrasladoTelefonoModal } from './EditarMovimientoTelefonoModal';
 
 export const RUTA_INVENTARIO_TELEFONO = '/app/inventario/telefono';
 /** Cuántos productos se listan sin buscar: en el teléfono no se recorre el almacén entero. */
@@ -354,8 +355,8 @@ export function InventarioMovilView() {
         </div>
       )}
 
-      {paso === 'historico' && <HistoricoSalidas almacen={almacen} soloDe={soloDe} onVolver={volver} />}
-      {paso === 'historicoTraslados' && <HistoricoTraslados almacen={almacen} onVolver={volver} />}
+      {paso === 'historico' && <HistoricoSalidas almacen={almacen} soloDe={soloDe} canWrite={puedeMoverAqui} productos={productos} actor={actor} actorName={actorName} onVolver={volver} onMovioStock={() => { void reload().catch(() => {}); }} />}
+      {paso === 'historicoTraslados' && <HistoricoTraslados almacen={almacen} canWrite={puedeMoverAqui} productos={productos} destinos={destinos} actor={actor} actorName={actorName} onVolver={volver} onMovioStock={() => { void reload().catch(() => {}); }} />}
 
       {paso === 'listo' && listo && <Listo titulo={listo.titulo} texto={listo.texto} pdf={listo.pdf} abrirPdf={listo.abrirPdf} onVolver={volver} />}
 
@@ -635,7 +636,10 @@ function RangoHistorico({ id, hoy, desde, hasta, setDesde, setHasta }: {
  * se ven solo las que registró o ejecutó ese usuario). Cada una con su ORDEN DE SALIDA
  * en PDF y su WhatsApp.
  */
-function HistoricoSalidas({ almacen, soloDe, onVolver }: { almacen: string; soloDe: string | null; onVolver: () => void }) {
+function HistoricoSalidas({ almacen, soloDe, canWrite, productos, actor, actorName, onVolver, onMovioStock }: {
+  almacen: string; soloDe: string | null; canWrite: boolean; productos: ProductoEnAlmacen[];
+  actor: string; actorName: string | null; onVolver: () => void; onMovioStock: () => void;
+}) {
   const quienDe = useQuien();
   const hoy = hoyVenezuela();
   const inicial = ultimosDias(DIAS_HISTORICO, hoy);
@@ -645,6 +649,7 @@ function HistoricoSalidas({ almacen, soloDe, onVolver }: { almacen: string; solo
   const [busca, setBusca] = useState('');
   const [tope, setTope] = useState(POR_TANDA);
   const [elegidaId, setElegidaId] = useState<string | null>(null);
+  const [editando, setEditando] = useState<FilaSalida | null>(null);
 
   const rangoMalo = !desde || !hasta || desde > hasta || hasta > hoy;
   // Solo la última consulta pinta (si se cambian las fechas a mitad, la vieja se descarta).
@@ -672,6 +677,11 @@ function HistoricoSalidas({ almacen, soloDe, onVolver }: { almacen: string; solo
   }, [quienDe]);
   const lista = useMemo(() => buscarFilasSalida(filas ?? [], busca), [filas, busca]);
   const elegida = elegidaId ? (filas ?? []).find((f) => f.id === elegidaId) ?? null : null;
+
+  if (editando?.origen === 'telefono') {
+    return <EditarSalidaTelefonoModal grupo={editando.grupo} productos={productos} actor={actor} actorName={actorName}
+      onClose={() => setEditando(null)} onGuardado={async () => { await cargar(); onMovioStock(); }} />;
+  }
 
   if (elegida) {
     return elegida.origen === 'telefono'
@@ -718,6 +728,11 @@ function HistoricoSalidas({ almacen, soloDe, onVolver }: { almacen: string; solo
                   </span>
                   <span className="litros">−{v.cantidad}</span>
                   <div className="surt-hist-acciones">
+                    {f.origen === 'telefono' && canWrite && (
+                      <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setEditando(f); window.scrollTo(0, 0); }}>
+                        ✎ Editar
+                      </button>
+                    )}
                     <BotonPdf
                       abrir={() => (f.origen === 'telefono' ? verOrdenSalidaTelefono(f.grupo, registro(f)) : descargarOrdenSalidaPdf(f.sol))}
                       className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
@@ -745,7 +760,10 @@ function HistoricoSalidas({ almacen, soloDe, onVolver }: { almacen: string; solo
  * los del teléfono (kardex) y los del módulo de Traslados que tocan el almacén, con su
  * ORDEN en PDF y su WhatsApp.
  */
-function HistoricoTraslados({ almacen, onVolver }: { almacen: string; onVolver: () => void }) {
+function HistoricoTraslados({ almacen, canWrite, productos, destinos, actor, actorName, onVolver, onMovioStock }: {
+  almacen: string; canWrite: boolean; productos: ProductoEnAlmacen[]; destinos: Almacen[];
+  actor: string; actorName: string | null; onVolver: () => void; onMovioStock: () => void;
+}) {
   const quienDe = useQuien();
   const hoy = hoyVenezuela();
   const inicial = ultimosDias(DIAS_HISTORICO, hoy);
@@ -755,6 +773,7 @@ function HistoricoTraslados({ almacen, onVolver }: { almacen: string; onVolver: 
   const [busca, setBusca] = useState('');
   const [tope, setTope] = useState(POR_TANDA);
   const [elegidoId, setElegidoId] = useState<string | null>(null);
+  const [editando, setEditando] = useState<FilaTraslado | null>(null);
 
   const rangoMalo = !desde || !hasta || desde > hasta || hasta > hoy;
   const turno = useRef(0);
@@ -773,7 +792,7 @@ function HistoricoTraslados({ almacen, onVolver }: { almacen: string; onVolver: 
     }
   }, [almacen, desde, hasta, rangoMalo]);
   useEffect(() => { setFilas(null); setTope(POR_TANDA); void cargar(); }, [cargar]);
-  useRealtime(['solicitudes_salida'], () => { void cargar(); });
+  useRealtime(['solicitudes_salida', 'movimientos'], () => { void cargar(); });
 
   const registro = useCallback((f: FilaTraslado) => {
     const r = f.origen === 'telefono' ? f.traslado : f.sol;
@@ -781,6 +800,12 @@ function HistoricoTraslados({ almacen, onVolver }: { almacen: string; onVolver: 
   }, [quienDe]);
   const lista = useMemo(() => buscarFilasTraslado(filas ?? [], busca), [filas, busca]);
   const elegido = elegidoId ? (filas ?? []).find((f) => f.id === elegidoId) ?? null : null;
+
+  if (editando?.origen === 'telefono') {
+    return <EditarTrasladoTelefonoModal grupo={editando.grupo} productos={productos} destinos={destinos} actor={actor} actorName={actorName}
+      onClose={() => setEditando(null)} onGuardado={async () => { await cargar(); onMovioStock(); }} />;
+  }
+
   const pdfDe = (f: FilaTraslado) => (f.origen === 'telefono'
     ? (() => {
       const t = f.traslado;
@@ -838,6 +863,11 @@ function HistoricoTraslados({ almacen, onVolver }: { almacen: string; onVolver: 
                   </span>
                   <span className="litros">{v.cantidad}</span>
                   <div className="surt-hist-acciones">
+                    {f.origen === 'telefono' && canWrite && !!f.traslado.codigo && (
+                      <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setEditando(f); window.scrollTo(0, 0); }}>
+                        ✎ Editar
+                      </button>
+                    )}
                     <BotonPdf abrir={() => pdfDe(f)} className="btn btn-ghost btn-grande" texto="📄 Ver PDF" />
                     <button type="button" className="btn btn-ghost btn-grande" onClick={() => { setElegidoId(f.id); window.scrollTo(0, 0); }}>
                       💬 WhatsApp

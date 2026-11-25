@@ -46,6 +46,7 @@ export interface SalidaTelefono {
   actor: string | null;
   actor_name: string | null;
   created_at: string;
+  updated_at?: string;
 }
 
 export const ETIQUETA_ESTADO_SALIDA: Record<EstadoSalidaTelefono, string> = {
