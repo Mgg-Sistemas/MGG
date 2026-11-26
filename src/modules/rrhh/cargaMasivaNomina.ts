@@ -11,6 +11,15 @@ import type { Personal } from '@/shared/lib/types';
 import { leerCuentas, type CuentaPago } from './datosBancarios';
 import type { DefinicionEmpresa } from './empresa';
 import { gradoMasAlto } from './fichaPersonal';
+import {
+  CATALOGO_CIUDADES,
+  CATALOGO_MUNICIPIOS,
+  CATALOGO_NIVELES_EDUCACION,
+  CATALOGO_PARROQUIAS,
+  CATALOGO_PAISES,
+  CATALOGO_PROFESIONES,
+  CATALOGO_TIPOS_CARGO,
+} from './catalogosOficiales';
 import type { FamiliarPersonal } from './personal.repository';
 
 /* ───────────── Catálogos Oficiales del Formato Bancario ───────────── */
@@ -44,15 +53,7 @@ export const REGIONES_BANCO = [
   { codigo: '09', etiqueta: 'REGION GUAYANA' },
 ] as const;
 
-export const NIVELES_EDUCACION_BANCO = [
-  { codigo: '01', etiqueta: 'PRIMARIA' },
-  { codigo: '02', etiqueta: 'BACHILLERATO' },
-  { codigo: '03', etiqueta: 'TECNICO MEDIO' },
-  { codigo: '04', etiqueta: 'TECNICO SUPERIOR' },
-  { codigo: '05', etiqueta: 'UNIVERSITARIO' },
-  { codigo: '06', etiqueta: 'POST GRADO' },
-  { codigo: '07', etiqueta: 'DOCTORADO' },
-] as const;
+export const NIVELES_EDUCACION_BANCO = CATALOGO_NIVELES_EDUCACION;
 
 export const TIPOS_CONTRATO_BANCO = [
   { codigo: '1', etiqueta: '1 · FIJO' },
@@ -97,28 +98,7 @@ export const FUENTES_INGRESO_BANCO = [
   { codigo: '4', etiqueta: '4 · INDEPENDIENTE' },
 ] as const;
 
-export const PAISES_BANCO = [
-  { codigo: 'VE', etiqueta: 'VE · VENEZUELA' },
-  { codigo: 'CO', etiqueta: 'CO · COLOMBIA' },
-  { codigo: 'BR', etiqueta: 'BR · BRASIL' },
-  { codigo: 'GY', etiqueta: 'GY · GUYANA' },
-  { codigo: 'PE', etiqueta: 'PE · PERU' },
-  { codigo: 'EC', etiqueta: 'EC · ECUADOR' },
-  { codigo: 'CL', etiqueta: 'CL · CHILE' },
-  { codigo: 'CU', etiqueta: 'CU · CUBA' },
-  { codigo: 'AR', etiqueta: 'AR · ARGENTINA' },
-  { codigo: 'BO', etiqueta: 'BO · BOLIVIA' },
-  { codigo: 'UY', etiqueta: 'UY · URUGUAY' },
-  { codigo: 'PY', etiqueta: 'PY · PARAGUAY' },
-  { codigo: 'DO', etiqueta: 'DO · REPUBLICA DOMINICANA' },
-  { codigo: 'MX', etiqueta: 'MX · MEXICO' },
-  { codigo: 'TT', etiqueta: 'TT · TRINIDAD Y TOBAGO' },
-  { codigo: 'ES', etiqueta: 'ES · ESPANA' },
-  { codigo: 'PT', etiqueta: 'PT · PORTUGAL' },
-  { codigo: 'IT', etiqueta: 'IT · ITALIA' },
-  { codigo: 'CN', etiqueta: 'CN · CHINA' },
-  { codigo: 'US', etiqueta: 'US · ESTADOS UNIDOS' },
-] as const;
+export const PAISES_BANCO = CATALOGO_PAISES;
 
 export const ESTADOS_BANCO = [
   { codigo: '07', etiqueta: '07 · BOLIVAR' },
@@ -147,197 +127,15 @@ export const ESTADOS_BANCO = [
   { codigo: '24', etiqueta: '24 · VARGAS (LA GUAIRA)' },
 ] as const;
 
-export const CIUDADES_BANCO = [
-  { codigo: '0701', etiqueta: '0701 · PUERTO ORDAZ (BOLIVAR)' },
-  { codigo: '0702', etiqueta: '0702 · SAN FELIX (BOLIVAR)' },
-  { codigo: '0703', etiqueta: '0703 · CIUDAD BOLIVAR (BOLIVAR)' },
-  { codigo: '0101', etiqueta: '0101 · CARACAS (DISTRITO CAPITAL)' },
-  { codigo: '0201', etiqueta: '0201 · PUERTO AYACUCHO (AMAZONAS)' },
-  { codigo: '0301', etiqueta: '0301 · BARCELONA (ANZOATEGUI)' },
-  { codigo: '0302', etiqueta: '0302 · PUERTO LA CRUZ (ANZOATEGUI)' },
-  { codigo: '0303', etiqueta: '0303 · EL TIGRE (ANZOATEGUI)' },
-  { codigo: '0304', etiqueta: '0304 · LECHERIAS (ANZOATEGUI)' },
-  { codigo: '0305', etiqueta: '0305 · ANACO (ANZOATEGUI)' },
-  { codigo: '0402', etiqueta: '0402 · SAN FERNANDO DE APURE' },
-  { codigo: '0504', etiqueta: '0504 · MARACAY (ARAGUA)' },
-  { codigo: '0601', etiqueta: '0601 · BARINAS' },
-  { codigo: '0814', etiqueta: '0814 · VALENCIA (CARABOBO)' },
-  { codigo: '1001', etiqueta: '1001 · TUCUPITA (DELTA AMACURO)' },
-  { codigo: '1101', etiqueta: '1101 · CORO (FALCON)' },
-  { codigo: '1201', etiqueta: '1201 · SAN JUAN DE LOS MORROS (GUARICO)' },
-  { codigo: '1301', etiqueta: '1301 · BARQUISIMETO (LARA)' },
-  { codigo: '1401', etiqueta: '1401 · MERIDA' },
-  { codigo: '1501', etiqueta: '1501 · LOS TEQUES (MIRANDA)' },
-  { codigo: '1601', etiqueta: '1601 · MATURIN (MONAGAS)' },
-  { codigo: '1701', etiqueta: '1701 · PORLAMAR (NUEVA ESPARTA)' },
-  { codigo: '1801', etiqueta: '1801 · GUANARE / ACARIGUA (PORTUGUESA)' },
-  { codigo: '1901', etiqueta: '1901 · CUMANA (SUCRE)' },
-  { codigo: '2001', etiqueta: '2001 · SAN CRISTOBAL (TACHIRA)' },
-  { codigo: '2101', etiqueta: '2101 · TRUJILLO / VALERA' },
-  { codigo: '2201', etiqueta: '2201 · SAN FELIPE (YARACUY)' },
-  { codigo: '2301', etiqueta: '2301 · MARACAIBO (ZULIA)' },
-  { codigo: '2401', etiqueta: '2401 · LA GUAIRA' },
-] as const;
+export const CIUDADES_BANCO = CATALOGO_CIUDADES;
 
-export const MUNICIPIOS_BANCO = [
-  { codigo: '0701', etiqueta: '0701 · CARONI (PUERTO ORDAZ)' },
-  { codigo: '0702', etiqueta: '0702 · HERES / SAN FELIX' },
-  { codigo: '0703', etiqueta: '0703 · CIUDAD BOLIVAR / SUCRE' },
-  { codigo: '0704', etiqueta: '0704 · CEDENO (CAICARA DEL ORINOCO)' },
-  { codigo: '0705', etiqueta: '0705 · EL CALLAO' },
-  { codigo: '0706', etiqueta: '0706 · GRAN SABANA (SANTA ELENA DE UAIREN)' },
-  { codigo: '0707', etiqueta: '0707 · PADRE PEDRO CHIEN (EL PALMAR)' },
-  { codigo: '0708', etiqueta: '0708 · PIAR (UPATA)' },
-  { codigo: '0709', etiqueta: '0709 · RAUL LEONI (CIUDAD PIAR)' },
-  { codigo: '0710', etiqueta: '0710 · ROSCIO (GUASIPATI)' },
-  { codigo: '0711', etiqueta: '0711 · SIFONTES (TUMEREMO / EL DORADO)' },
-  { codigo: '0101', etiqueta: '0101 · LIBERTADOR (CARACAS)' },
-  { codigo: '0301', etiqueta: '0301 · SIMON BOLIVAR (BARCELONA)' },
-  { codigo: '0303', etiqueta: '0303 · SIMON RODRIGUEZ (EL TIGRE)' },
-  { codigo: '1001', etiqueta: '1001 · TUCUPITA (DELTA AMACURO)' },
-  { codigo: '1601', etiqueta: '1601 · MATURIN (MONAGAS)' },
-] as const;
+export const MUNICIPIOS_BANCO = CATALOGO_MUNICIPIOS;
 
-export const PARROQUIAS_BANCO = [
-  { codigo: '070106', etiqueta: '070106 · UNARE (CARONI · CIUDAD GUAYANA)' },
-  { codigo: '070101', etiqueta: '070101 · CACHAMAY (CARONI · CIUDAD GUAYANA)' },
-  { codigo: '070107', etiqueta: '070107 · UNIVERSIDAD (CARONI · CIUDAD GUAYANA)' },
-  { codigo: '070102', etiqueta: '070102 · CHIRICA (CARONI · SAN FELIX)' },
-  { codigo: '070103', etiqueta: '070103 · DALLA COSTA (CARONI · SAN FELIX)' },
-  { codigo: '070104', etiqueta: '070104 · ONCE DE ABRIL (CARONI · SAN FELIX)' },
-  { codigo: '070105', etiqueta: '070105 · SIMON BOLIVAR (CARONI · SAN FELIX)' },
-  { codigo: '070108', etiqueta: '070108 · VISTA AL SOL (CARONI · SAN FELIX)' },
-  { codigo: '070109', etiqueta: '070109 · POZO VERDE (CARONI)' },
-  { codigo: '070110', etiqueta: '070110 · YOCOIMA (CARONI)' },
-  { codigo: '070201', etiqueta: '070201 · AGUA SALADA (HERES · CIUDAD BOLIVAR)' },
-  { codigo: '070202', etiqueta: '070202 · CATEDRAL (HERES · CIUDAD BOLIVAR)' },
-  { codigo: '070203', etiqueta: '070203 · JOSE ANTONIO PAEZ (HERES · CIUDAD BOLIVAR)' },
-  { codigo: '070204', etiqueta: '070204 · LA SABANITA (HERES · CIUDAD BOLIVAR)' },
-  { codigo: '070205', etiqueta: '070205 · MARHUANTA (HERES · CIUDAD BOLIVAR)' },
-  { codigo: '070206', etiqueta: '070206 · VISTA HERMOSA (HERES · CIUDAD BOLIVAR)' },
-  { codigo: '070207', etiqueta: '070207 · ORINOCO (HERES)' },
-  { codigo: '070208', etiqueta: '070208 · PANAPANA (HERES)' },
-  { codigo: '070209', etiqueta: '070209 · ZEA (HERES)' },
-  { codigo: '070301', etiqueta: '070301 · SUCRE / MARIPA' },
-  { codigo: '070401', etiqueta: '070401 · CEDENO (CAICARA DEL ORINOCO)' },
-  { codigo: '070406', etiqueta: '070406 · PIJIGUAOS (CEDENO)' },
-  { codigo: '070501', etiqueta: '070501 · EL CALLAO' },
-  { codigo: '070601', etiqueta: '070601 · GRAN SABANA (SANTA ELENA DE UAIREN)' },
-  { codigo: '070602', etiqueta: '070602 · IKABARU (GRAN SABANA)' },
-  { codigo: '070701', etiqueta: '070701 · PADRE PEDRO CHIEN (EL PALMAR)' },
-  { codigo: '070801', etiqueta: '070801 · PIAR (UPATA)' },
-  { codigo: '070802', etiqueta: '070802 · ANDRES ELOY BLANCO (PIAR)' },
-  { codigo: '070803', etiqueta: '070803 · PEDRO COVA / EL MANTECO (PIAR)' },
-  { codigo: '070901', etiqueta: '070901 · RAUL LEONI (CIUDAD PIAR)' },
-  { codigo: '071001', etiqueta: '071001 · ROSCIO (GUASIPATI)' },
-  { codigo: '071002', etiqueta: '071002 · SALOM / EL MIAMO (ROSCIO)' },
-  { codigo: '071101', etiqueta: '071101 · SIFONTES (TUMEREMO)' },
-  { codigo: '071102', etiqueta: '071102 · DALLA COSTA (EL DORADO)' },
-  { codigo: '071103', etiqueta: '071103 · SAN ISIDRO / LAS CLARITAS (SIFONTES)' },
-  { codigo: '010105', etiqueta: '010105 · CATEDRAL / CARACAS' },
-] as const;
+export const PARROQUIAS_BANCO = CATALOGO_PARROQUIAS;
 
-export const PROFESIONES_BANCO = [
-  { codigo: 'OBRE', etiqueta: 'OBRE · OBRERO' },
-  { codigo: 'ANAL', etiqueta: 'ANAL · ANALISTA' },
-  { codigo: 'ASIS', etiqueta: 'ASIS · ASISTENTE' },
-  { codigo: 'COOR', etiqueta: 'COOR · COORDINADOR' },
-  { codigo: 'SUPE', etiqueta: 'SUPE · SUPERVISOR' },
-  { codigo: 'CHOF', etiqueta: 'CHOF · CHOFER' },
-  { codigo: 'SERV', etiqueta: 'SERV · SERVICIOS DE MANTENIMIENTO' },
-  { codigo: 'MECA', etiqueta: 'MECA · MECANICO' },
-  { codigo: 'HERR', etiqueta: 'HERR · HERRERO / SOLDADOR' },
-  { codigo: 'ELEC', etiqueta: 'ELEC · ELECTRONICA / ELECTRICIDAD' },
-  { codigo: 'VIGI', etiqueta: 'VIGI · VIGILANTE' },
-  { codigo: 'CHEF', etiqueta: 'CHEF · CHEF / COCINERO(A)' },
-  { codigo: 'CONS', etiqueta: 'CONS · CONSERJE' },
-  { codigo: 'MENS', etiqueta: 'MENS · MENSAJERO' },
-  { codigo: 'COMP', etiqueta: 'COMP · COMPRADOR' },
-  { codigo: 'VEND', etiqueta: 'VEND · VENDEDOR(A)' },
-  { codigo: 'SECR', etiqueta: 'SECR · SECRETARIA' },
-  { codigo: 'RECE', etiqueta: 'RECE · RECEPCIONISTA' },
-  { codigo: 'CAJE', etiqueta: 'CAJE · CAJERO BANCARIO' },
-  { codigo: 'LADM', etiqueta: 'LADM · ADMINISTRACION' },
-  { codigo: 'LAEM', etiqueta: 'LAEM · ADMINISTRACION DE EMPRESAS' },
-  { codigo: 'LARH', etiqueta: 'LARH · ADMINISTRACION DE RECURSOS HUMANOS' },
-  { codigo: 'LCPU', etiqueta: 'LCPU · CONTADURIA PUBLICA' },
-  { codigo: 'LRIN', etiqueta: 'LRIN · RELACIONES INDUSTRIALES' },
-  { codigo: 'ABOG', etiqueta: 'ABOG · ABOGADO' },
-  { codigo: 'ECON', etiqueta: 'ECON · ECONOMISTA' },
-  { codigo: 'GEOL', etiqueta: 'GEOL · GEOLOGO' },
-  { codigo: 'INGE', etiqueta: 'INGE · INGENIERO' },
-  { codigo: 'INID', etiqueta: 'INID · INGENIERO INDUSTRIAL' },
-  { codigo: 'INME', etiqueta: 'INME · INGENIERO MECANICO' },
-  { codigo: 'INEL', etiqueta: 'INEL · INGENIERO ELECTRICO' },
-  { codigo: 'INET', etiqueta: 'INET · INGENIERO ELECTRONICO' },
-  { codigo: 'INQU', etiqueta: 'INQU · INGENIERO QUIMICO' },
-  { codigo: 'INGM', etiqueta: 'INGM · INGENIERO DE MATERIALES' },
-  { codigo: 'INGA', etiqueta: 'INGA · INGENIERO AMBIENTAL' },
-  { codigo: 'INCI', etiqueta: 'INCI · INGENIERO CIVIL' },
-  { codigo: 'INSI', etiqueta: 'INSI · INGENIERO DE SISTEMAS' },
-  { codigo: 'LINF', etiqueta: 'LINF · INFORMATICA' },
-  { codigo: 'ARQU', etiqueta: 'ARQU · ARQUITECTO' },
-  { codigo: 'TOPO', etiqueta: 'TOPO · TOPOGRAFO' },
-  { codigo: 'MEDI', etiqueta: 'MEDI · MEDICO(A)' },
-  { codigo: 'ENFE', etiqueta: 'ENFE · ENFERMERA' },
-  { codigo: 'LPSI', etiqueta: 'LPSI · PSICOLOGIA' },
-  { codigo: 'TADE', etiqueta: 'TADE · TSU ADMINISTRACION DE EMPRESAS' },
-  { codigo: 'TACF', etiqueta: 'TACF · TSU ADMON CONTABILIDAD Y FINANZAS' },
-  { codigo: 'TRIN', etiqueta: 'TRIN · TSU RELACIONES INDUSTRIALES' },
-  { codigo: 'TINF', etiqueta: 'TINF · TSU INFORMATICA' },
-  { codigo: 'TMIN', etiqueta: 'TMIN · TSU MANTENIMIENTO INDUSTRIAL' },
-  { codigo: 'TMEC', etiqueta: 'TMEC · TSU MECANICA' },
-  { codigo: 'TMEL', etiqueta: 'TMEL · TSU TECNICO ELECTRICISTA' },
-  { codigo: 'TSUG', etiqueta: 'TSUG · TSU GEOLOGIA' },
-  { codigo: 'TQUI', etiqueta: 'TQUI · TSU QUIMICA' },
-  { codigo: 'TSUO', etiqueta: 'TSUO · TSU OBRAS CIVILES' },
-  { codigo: 'SINE', etiqueta: 'SINE · SIN ESTUDIOS' },
-  { codigo: 'OTRO', etiqueta: 'OTRO · OTROS' },
-] as const;
+export const PROFESIONES_BANCO = CATALOGO_PROFESIONES;
 
-export const TIPOS_CARGO_BANCO = [
-  { codigo: '001', etiqueta: '001 · PRESIDENTE' },
-  { codigo: '029', etiqueta: '029 · VICEPRESIDENTE' },
-  { codigo: '002', etiqueta: '002 · DIRECTOR' },
-  { codigo: '075', etiqueta: '075 · GERENTE GENERAL' },
-  { codigo: '003', etiqueta: '003 · GERENTE' },
-  { codigo: '004', etiqueta: '004 · SUBGERENTE' },
-  { codigo: '015', etiqueta: '015 · JEFE DE AREA' },
-  { codigo: '006', etiqueta: '006 · COORDINADOR(A)' },
-  { codigo: '005', etiqueta: '005 · SUPERVISOR' },
-  { codigo: '009', etiqueta: '009 · ENCARGADO(A)' },
-  { codigo: '041', etiqueta: '041 · ADMINISTRADOR' },
-  { codigo: '007', etiqueta: '007 · ANALISTA' },
-  { codigo: '012', etiqueta: '012 · ESPECIALISTA' },
-  { codigo: '013', etiqueta: '013 · ASISTENTE' },
-  { codigo: '020', etiqueta: '020 · AUXILIAR' },
-  { codigo: '077', etiqueta: '077 · ADJUNTO' },
-  { codigo: '030', etiqueta: '030 · OFICINISTA / ALMACEN' },
-  { codigo: '074', etiqueta: '074 · COMPRADOR' },
-  { codigo: '027', etiqueta: '027 · AUDITOR / CONTADOR' },
-  { codigo: '026', etiqueta: '026 · ASESOR' },
-  { codigo: '045', etiqueta: '045 · CONSULTOR' },
-  { codigo: '032', etiqueta: '032 · ABOGADO' },
-  { codigo: '031', etiqueta: '031 · INGENIERO' },
-  { codigo: '068', etiqueta: '068 · GEOLOGO' },
-  { codigo: '067', etiqueta: '067 · QUIMICO / FISICO' },
-  { codigo: '035', etiqueta: '035 · ARQUITECTO' },
-  { codigo: '028', etiqueta: '028 · PROGRAMADOR / SISTEMAS' },
-  { codigo: '033', etiqueta: '033 · MEDICO / CIRUJANO' },
-  { codigo: '008', etiqueta: '008 · SECRETARIA' },
-  { codigo: '024', etiqueta: '024 · RECEPCIONISTA' },
-  { codigo: '018', etiqueta: '018 · CAJERO(A)' },
-  { codigo: '016', etiqueta: '016 · TECNICO' },
-  { codigo: '017', etiqueta: '017 · OPERADOR' },
-  { codigo: '011', etiqueta: '011 · OBRERO' },
-  { codigo: '021', etiqueta: '021 · CHOFER' },
-  { codigo: '046', etiqueta: '046 · CHEF / COCINERO' },
-  { codigo: '047', etiqueta: '047 · MESONERO' },
-  { codigo: '023', etiqueta: '023 · VIGILANTE' },
-  { codigo: '022', etiqueta: '022 · CONSERJE / MANTENIMIENTO' },
-  { codigo: '010', etiqueta: '010 · VENDEDOR(A)' },
-  { codigo: '078', etiqueta: '078 · OTROS' },
-] as const;
+export const TIPOS_CARGO_BANCO = CATALOGO_TIPOS_CARGO;
 
 export const OFICINAS_BANCARIAS = [
   { codigo: '0405', etiqueta: '0405 · PUERTO ORDAZ' },
@@ -1182,10 +980,7 @@ export function resumenDireccionFichaBancaria(ficha?: FichaBancariaPersonal | nu
   if (ficha.apto_local?.trim()) partes.push(`N°/Apto ${ficha.apto_local.trim()}`);
   if (ficha.referencia?.trim()) partes.push(`Ref.: ${ficha.referencia.trim()}`);
   const par = PARROQUIAS_BANCO.find((x) => x.codigo === ficha.parroquia?.trim());
-  if (par) {
-    const nombrePar = par.etiqueta.split('·')[1]?.trim();
-    if (nombrePar) partes.push(nombrePar);
-  }
+  if (par?.nombre) partes.push(par.nombre);
   if (ficha.zona_postal?.trim()) partes.push(`ZP ${ficha.zona_postal.trim()}`);
   return partes.join(', ');
 }

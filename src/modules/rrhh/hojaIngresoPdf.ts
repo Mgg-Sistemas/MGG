@@ -149,9 +149,11 @@ export async function verHojaIngresoPdf(empresa?: Empresa): Promise<void> {
   doc.setFont('helvetica', 'normal'); doc.setFontSize(7.5); doc.setTextColor(...GRIS);
   doc.text(textoPdf('Marque todos los niveles que cursó.'), M, y);
   y += 14;
-  const NIVELES = GRADOS_INSTRUCCION.filter((g) => g.key !== 'ninguno').map((g) => g.label);
-  // Dos filas: los niveles no entran en una sola línea de carta sin apretarse.
-  const porFila = Math.ceil(NIVELES.length / 2);
+  const NIVELES = GRADOS_INSTRUCCION
+    .filter((g) => g.key !== 'ninguno')
+    .map((g) => `${g.codigo} ${g.label}`);
+  // Tres filas: con el código oficial al lado ya no caben cuatro por línea.
+  const porFila = 3;
   doc.setFontSize(8.5); doc.setTextColor(...TINTA);
   for (let fila = 0; fila * porFila < NIVELES.length; fila++) {
     asegurar(16);

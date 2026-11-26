@@ -54,19 +54,40 @@ export type GradoInstruccion =
  * mano, el mismo nivel entra como «BACHILLER», «Bto.» y «bachillerato», y
  * después no se puede contar cuánta gente tiene cada grado.
  */
-export const GRADOS_INSTRUCCION: { key: GradoInstruccion; label: string }[] = [
-  { key: 'ninguno', label: 'Sin estudios formales' },
-  { key: 'primaria', label: 'Primaria' },
-  { key: 'bachiller', label: 'Bachiller' },
-  { key: 'tecnico_medio', label: 'Técnico medio' },
-  { key: 'tsu', label: 'TSU' },
-  { key: 'universitario', label: 'Universitario' },
-  { key: 'postgrado', label: 'Postgrado / Maestría' },
-  { key: 'doctorado', label: 'Doctorado' },
+export const GRADOS_INSTRUCCION: { key: GradoInstruccion; label: string; codigo: string }[] = [
+  { key: 'ninguno', label: 'Sin estudios formales', codigo: '' },
+  { key: 'primaria', label: 'Primaria', codigo: '01' },
+  { key: 'bachiller', label: 'Bachiller', codigo: '02' },
+  { key: 'tecnico_medio', label: 'Técnico medio', codigo: '03' },
+  { key: 'tsu', label: 'TSU', codigo: '04' },
+  { key: 'universitario', label: 'Universitario', codigo: '05' },
+  { key: 'postgrado', label: 'Postgrado / Maestría', codigo: '06' },
+  { key: 'doctorado', label: 'Doctorado', codigo: '07' },
 ];
 
 export function labelGradoInstruccion(g: GradoInstruccion | string | null | undefined): string {
   return GRADOS_INSTRUCCION.find((x) => x.key === g)?.label ?? '—';
+}
+
+/** Código oficial de la hoja NIVEL DE EDUCACION del banco (01..07). */
+export function codigoGradoInstruccion(g: GradoInstruccion | string | null | undefined): string {
+  return GRADOS_INSTRUCCION.find((x) => x.key === g)?.codigo ?? '';
+}
+
+/** Etiqueta para mostrar en pantalla y en los PDF: «02 · Bachiller». */
+export function etiquetaGradoInstruccion(g: GradoInstruccion | string | null | undefined): string {
+  const item = GRADOS_INSTRUCCION.find((x) => x.key === g);
+  if (!item) return '—';
+  return item.codigo ? `${item.codigo} · ${item.label}` : item.label;
+}
+
+/** Varios niveles marcados, cada uno con su código oficial. */
+export function gradosTextoConCodigo(grados: readonly string[] | null | undefined): string {
+  const orden = GRADOS_INSTRUCCION.map((g) => g.key);
+  const limpios = [...new Set(grados ?? [])]
+    .filter((g) => orden.includes(g as GradoInstruccion))
+    .sort((a, b) => orden.indexOf(a as GradoInstruccion) - orden.indexOf(b as GradoInstruccion));
+  return limpios.map((g) => etiquetaGradoInstruccion(g)).join(' · ');
 }
 
 /**

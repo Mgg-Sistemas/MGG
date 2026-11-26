@@ -3,8 +3,9 @@ import {
   SIN_DATO, agruparPersonal, antiguedad, cantidadHijos, edadEn, filtrarPersonal, grupoDe,
   hijosMenores, labelEstadoCivil, labelGenero, labelParentesco, numeroFicha, porDepartamento,
   errorNumeroFicha, normalizarNumeroFicha, nombreDeCarnet, claveFicha, duenoDeFicha, errorCambioFicha, cedulaConPuntos,
-  errorCorreo, normalizarCorreo, GRADOS_INSTRUCCION, labelGradoInstruccion, ordenarPorFicha,
-  gradoMasAlto, gradosTexto, trabajoAnteriorTexto,
+  errorCorreo, normalizarCorreo, GRADOS_INSTRUCCION, etiquetaGradoInstruccion, codigoGradoInstruccion,
+  labelGradoInstruccion, ordenarPorFicha, gradoMasAlto, gradosTexto, gradosTextoConCodigo,
+  trabajoAnteriorTexto,
   resumenPersonal, textoEdad, tieneHijos,
 } from './fichaPersonal';
 
@@ -350,6 +351,25 @@ describe('el grado de instruccion', () => {
   it('uno que no esta en la lista no rompe la pantalla', () => {
     expect(labelGradoInstruccion('doctorado_honoris')).toBe('—');
     expect(labelGradoInstruccion(null)).toBe('—');
+  });
+
+  it('muestra el codigo oficial del banco al lado del nombre', () => {
+    expect(GRADOS_INSTRUCCION.map((g) => g.codigo)).toEqual([
+      '', '01', '02', '03', '04', '05', '06', '07',
+    ]);
+    expect(codigoGradoInstruccion('bachiller')).toBe('02');
+    expect(etiquetaGradoInstruccion('primaria')).toBe('01 · Primaria');
+    expect(etiquetaGradoInstruccion('doctorado')).toBe('07 · Doctorado');
+    expect(etiquetaGradoInstruccion('ninguno')).toBe('Sin estudios formales');
+    expect(etiquetaGradoInstruccion(null)).toBe('—');
+  });
+
+  it('lista varios niveles con su codigo y sin repetirlos', () => {
+    expect(gradosTextoConCodigo(['universitario', 'primaria', 'primaria'])).toBe(
+      '01 · Primaria · 05 · Universitario',
+    );
+    expect(gradosTextoConCodigo([])).toBe('');
+    expect(gradosTextoConCodigo(['no existe'])).toBe('');
   });
 });
 

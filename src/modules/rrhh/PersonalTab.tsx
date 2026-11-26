@@ -33,8 +33,8 @@ import { DecimalInput } from '@/shared/ui/DecimalInput';
 import {
   AGRUPADORES, ESTADOS_CIVILES, GENEROS, GRADOS_INSTRUCCION, GRUPOS_SANGUINEOS, PARENTESCOS, SIN_DATO,
   agruparPersonal, antiguedad, cantidadHijos, filtrarPersonal, labelEstadoCivil, labelGenero,
-  labelGradoInstruccion, labelParentesco, numeroFicha, porDepartamento, textoEdad, tieneHijos, gradoMasAlto,
-  gradosTexto, trabajoAnteriorTexto,
+  etiquetaGradoInstruccion, labelParentesco, numeroFicha, porDepartamento, textoEdad, tieneHijos, gradoMasAlto,
+  gradosTextoConCodigo, trabajoAnteriorTexto,
   MIN_FICHA, errorNumeroFicha, normalizarNumeroFicha, ordenarPorFicha, errorCorreo, duenoDeFicha, errorCambioFicha,
   type Agrupador, type EstadoFiltro, type FiltroPersonal, type Genero, type HijosFiltro,
   type Parentesco,
@@ -1428,14 +1428,14 @@ export function PersonalTab({ canWrite, actor, actorName, empresa = EMPRESA_POR_
                               };
                             })}
                           />
-                          {g.label}
+                          {g.codigo ? `${g.codigo} · ${g.label}` : g.label}
                         </label>
                       );
                     })}
                   </div>
                   <span className="hint muted">
                     Marcá todos los que cursó. {gradoMasAlto(form.grados_instruccion)
-                      ? <>En la ficha y la constancia va el más alto: <strong>{labelGradoInstruccion(gradoMasAlto(form.grados_instruccion))}</strong>.</>
+                      ? <>En la ficha y la constancia va el más alto: <strong>{etiquetaGradoInstruccion(gradoMasAlto(form.grados_instruccion))}</strong>.</>
                       : 'Sin estudios formales si no marcás ninguno.'}
                   </span>
                 </div>
@@ -2260,8 +2260,8 @@ function FichaTecnicaModal({ persona, canWrite, onClose, onEditar, onCambiarEsta
         // Los grados marcados van todos; una ficha vieja sin casillas cae en el
         // grado único de siempre.
         ['Grado de instrucción',
-          gradosTexto(persona.grados_instruccion)
-          || (persona.grado_instruccion ? labelGradoInstruccion(persona.grado_instruccion) : '—')],
+          gradosTextoConCodigo(persona.grados_instruccion)
+          || etiquetaGradoInstruccion(persona.grado_instruccion)],
         ['Título obtenido', persona.titulo_obtenido || '—'],
         ['Último trabajo', trabajoAnteriorTexto(persona) || '—'],
         ['Género', persona.genero ? labelGenero(persona.genero) : '—'],
