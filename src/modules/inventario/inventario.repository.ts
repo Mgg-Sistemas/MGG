@@ -315,8 +315,8 @@ export async function listProductos(espacio: Espacio = 'principal'): Promise<Pro
   // invalida ante cualquier cambio en `productos`. Los productos legados (sin `espacio`)
   // cuentan como 'principal'.
   return cachedQuery(`inv:productos:${espacio}`, async () => {
-    // Por páginas: la tabla ya supera las 1.000 filas (tope por respuesta de Supabase) y
-    // una sola llamada dejaba productos fuera del inventario sin ningún error.
+    // Por páginas: la tabla ya superaba el tope viejo de 1.000 filas por respuesta de
+    // Supabase (ahora 5.000) y una sola llamada dejaba productos fuera sin error.
     const data = await todasLasFilas<Producto>((desde, hasta) =>
       supabase.from('productos').select('*').order('nombre', { ascending: true }).order('id', { ascending: true }).range(desde, hasta), PAGINA_SUPABASE, 2);
     return data.filter((p) => (p.espacio ?? 'principal') === espacio);
@@ -327,7 +327,8 @@ export async function listProductos(espacio: Espacio = 'principal'): Promise<Pro
  *  con la restricción única de `productos.sku` entre Inventario y Depósito. */
 export async function siguienteSkuGlobal(categoria: string): Promise<string> {
   // TODAS las filas: con la tabla cortada en 1.000 el máximo de una categoría podía quedar
-  // fuera y el correlativo salir repetido (choca con la restricción única de `sku`).
+  // fuera y el correlativo salir repetido (choca con la restricción única de `sku`). Ahora
+  // el tope del API es 5.000 y la paginación sigue garantizando la tabla completa.
   const data = await todasLasFilas<Pick<Producto, 'sku' | 'categoria'>>((d, h) => supabase.from('productos').select('sku, categoria').order('id').range(d, h), PAGINA_SUPABASE, 2);
   return siguienteSku(categoria, data as Producto[]);
 }
@@ -353,7 +354,7 @@ export interface ProductoConStock {
 export async function listProductosConStock(): Promise<ProductoConStock[]> {
   const [productos, existencias] = await Promise.all([
     listProductos(),
-    // Por páginas (ver listExistencias): la tabla supera las 1.000 filas.
+    // Por páginas (ver listExistencias): la tabla superaba el tope viejo de 1.000 filas.
     todasLasFilas<{ producto_id: string; almacen: string; stock: number }>((d, h) =>
       supabase.from('existencias').select('producto_id, almacen, stock').order('producto_id').order('almacen').range(d, h), PAGINA_SUPABASE, 2),
   ]);

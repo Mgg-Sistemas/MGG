@@ -1,17 +1,19 @@
 /* ============================================================
    MGG · Supabase · Traer TODAS las filas de una consulta
-   PostgREST devuelve como máximo 1.000 filas por respuesta (valor por
-   defecto de Supabase, «Max rows») y NO avisa cuando corta. En
-   producción `productos` (1.046) y `existencias` (1.108) ya superan
-   ese tope: `listProductos()` y `listExistencias()` traían la tabla
-   entera en una sola llamada y dejaban productos y existencias fuera
-   del inventario en pantalla, sin ningún error.
+   PostgREST devuelve como máximo 5.000 filas por respuesta (tope
+   «Max rows» de Supabase, subido de 1.000 a 5.000 el 26-11-2026) y NO
+   avisa cuando corta. En producción `productos` y `existencias` ya
+   superaban el tope viejo de 1.000: `listProductos()` y
+   `listExistencias()` traían la tabla entera en una sola llamada y
+   dejaban productos y existencias fuera del inventario en pantalla,
+   sin ningún error. El buscador global sí los veía porque consulta
+   con filtro por nombre/SKU, no la tabla completa ordenada.
    Esta función pide la consulta por páginas con `.range()` hasta que
    una página vuelve incompleta. La consulta DEBE tener un `order`
    estable (con desempate por id) para que las páginas no se solapen.
    ============================================================ */
 
-export const PAGINA_SUPABASE = 1000;
+export const PAGINA_SUPABASE = 5000;
 
 type Pagina<T> = PromiseLike<{ data: T[] | null; error: { message?: string } | null }>;
 
@@ -23,10 +25,10 @@ type Pagina<T> = PromiseLike<{ data: T[] | null; error: { message?: string } | n
  *     supabase.from('productos').select('*').order('nombre').order('id').range(d, h));
  *
  * `paralelas`: cuántas páginas se piden A LA VEZ. Cada viaje a Supabase cuesta
- * ~0,3–0,5 s para el usuario, así que en tablas que SIEMPRE pasan de 1.000 filas
- * (productos, existencias) conviene pedir 2 juntas: llegan en un solo viaje en vez
- * de dos seguidos. En consultas que suelen caber en una página dejarlo en 1, para
- * no hacer un pedido vacío de más.
+ * ~0,3–0,5 s para el usuario, así que en tablas que SIEMPRE pasan de 5.000 filas
+ * conviene pedir 2 juntas: llegan en un solo viaje en vez de dos seguidos. En
+ * consultas que suelen caber en una página dejarlo en 1, para no hacer un pedido
+ * vacío de más.
  */
 export async function todasLasFilas<T>(
   pagina: (desde: number, hasta: number) => Pagina<T>,

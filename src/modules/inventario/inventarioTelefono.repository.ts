@@ -10,7 +10,7 @@
 import { supabase } from '@/shared/lib/supabase';
 import { comprimirImagen } from '@/shared/lib/comprimirImagen';
 import { SEGUNDOS_ENLACE_FOTO, nombreFotoCompartir, tipoDeFoto } from '@/shared/lib/fotosWhatsapp';
-import { todasLasFilas } from '@/shared/lib/todasLasFilas';
+import { PAGINA_SUPABASE, todasLasFilas } from '@/shared/lib/todasLasFilas';
 import type { Producto, ScopeSalida, SolicitudSalida } from '@/shared/lib/types';
 import type { MovimientoTraslado } from './historicosTelefono';
 import { registrarMovimiento, transferir } from './movimientos.repository';
@@ -20,7 +20,7 @@ import {
 
 const TABLE = 'inventario_salidas_telefono';
 const BUCKET = 'inventario-salidas';
-const PAGINA = 1000;
+const PAGINA = PAGINA_SUPABASE;
 
 function normalizar(r: Record<string, unknown>): SalidaTelefono {
   const s = r as unknown as SalidaTelefono;

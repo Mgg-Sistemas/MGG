@@ -13,12 +13,14 @@ function tabla(n: number) {
 }
 
 describe('todasLasFilas', () => {
-  it('caso real: 1.108 existencias llegan completas en dos páginas (antes se cortaban en 1.000)', async () => {
+  it('caso real: 1.108 existencias llegan completas en una página (antes se cortaban en 1.000)', async () => {
     const t = tabla(1108);
     const filas = await todasLasFilas(t.pagina);
     expect(filas).toHaveLength(1108);
+    // El producto que caía después del corte alfabético de 1.000 ya aparece.
+    expect(filas[1099].id).toBe(1100);
     expect(filas[1107].id).toBe(1108);
-    expect(t.llamadas).toEqual([[0, 999], [1000, 1999]]);
+    expect(t.llamadas).toEqual([[0, 4999]]);
   });
 
   it('una tabla chica hace una sola llamada; una vacía también', async () => {
@@ -30,10 +32,10 @@ describe('todasLasFilas', () => {
     expect(vacia.llamadas).toHaveLength(1);
   });
 
-  it('exactamente 1.000 filas: pide una segunda página (vacía) para confirmar que no hay más', async () => {
-    const t = tabla(1000);
-    expect(await todasLasFilas(t.pagina)).toHaveLength(1000);
-    expect(t.llamadas).toEqual([[0, 999], [1000, 1999]]);
+  it('exactamente 5.000 filas: pide una segunda página (vacía) para confirmar que no hay más', async () => {
+    const t = tabla(5000);
+    expect(await todasLasFilas(t.pagina)).toHaveLength(5000);
+    expect(t.llamadas).toEqual([[0, 4999], [5000, 9999]]);
   });
 
   it('respeta un tamaño de página distinto y propaga el error de Supabase', async () => {
@@ -45,9 +47,9 @@ describe('todasLasFilas', () => {
 
   it('con 2 páginas en paralelo, 1.146 productos llegan en un solo viaje y en orden', async () => {
     const t = tabla(1146);
-    const filas = await todasLasFilas(t.pagina, 1000, 2);
+    const filas = await todasLasFilas(t.pagina, undefined, 2);
     expect(filas.map((f) => f.id)).toEqual(Array.from({ length: 1146 }, (_, i) => i + 1));
-    expect(t.llamadas).toEqual([[0, 999], [1000, 1999]]);
+    expect(t.llamadas).toEqual([[0, 4999], [5000, 9999]]);
   });
 
   it('en paralelo sigue pidiendo lotes hasta una página incompleta', async () => {
