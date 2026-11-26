@@ -91,7 +91,6 @@ import {
   TIPOS_CUENTA_BANCO,
   TIPOS_NOMINA_BANCO,
   TIPOS_VIVIENDA_BANCO,
-  extraerCuenta20Digitos,
   leerFichaBancaria,
   resumenDireccionFichaBancaria,
   type FichaBancariaPersonal,
@@ -111,10 +110,17 @@ const VACIO: PersonalInput = { nombre: '', apellido: '', numero_ficha: '', cedul
  * \`editar()\` no los cargaba. Llegaban vacíos al guardar y el dato se BORRABA
  * al editar cualquier otra cosa de la persona.
  */
-function formDePersona(p: Personal, empresa: Empresa): Required<PersonalInput> {
+export function formDePersona(p: Personal, empresa: Empresa): Required<PersonalInput> {
   const fb = leerFichaBancaria(p.datos_pago);
-  if (!fb.cuenta_nomina) {
-    fb.cuenta_nomina = extraerCuenta20Digitos(p.datos_pago, fb);
+  // La cuenta de transferencia de Datos Bancarios NO es la cuenta nómina.
+  // Antes se copiaba sola al abrir la ficha y quedaba guardada; por eso ahora
+  // se deja vacía cuando coincide con alguna transferencia. Una cuenta nómina
+  // distinta, escrita expresamente en la ficha, se respeta.
+  const nominaDigitos = String(fb.cuenta_nomina ?? '').replace(/\D/g, '');
+  if (nominaDigitos && leerCuentas(p.datos_pago).some(
+    (c) => c.tipo === 'transferencia' && String(c.cuenta ?? '').replace(/\D/g, '') === nominaDigitos,
+  )) {
+    fb.cuenta_nomina = '';
   }
   return {
     empresa,
