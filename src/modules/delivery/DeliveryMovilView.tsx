@@ -191,6 +191,15 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
   const [accion, setAccion] = useState<{ tipo: 'cancelar' | 'entregar' | 'no_disponible'; clave: string } | null>(null);
   const [listo, setListo] = useState<{ titulo: string; texto: string } | null>(null);
   const [fotosModalDe, setFotosModalDe] = useState<PedidoDelivery | null>(null);
+  const [fotosGrupoInicial, setFotosGrupoInicial] = useState<'factura' | null>(null);
+  const abrirFotos = (p: PedidoDelivery, grupo: 'factura' | null = null) => {
+    setFotosGrupoInicial(grupo);
+    setFotosModalDe(p);
+  };
+  const cerrarFotos = () => {
+    setFotosModalDe(null);
+    setFotosGrupoInicial(null);
+  };
   const [comprobanteDe, setComprobanteDe] = useState<PedidoDelivery | null>(null);
   const [modalLlamar, setModalLlamar] = useState(false);
   const [modalGpsInfo, setModalGpsInfo] = useState(false);
@@ -274,8 +283,8 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
   async function enRuta(p: PedidoDelivery) {
     if (!p.pedido_id) return;
     if ((p.fotos_recibo?.length ?? 0) === 0) {
-      toast('📸 Es obligatorio subir al menos 1 foto al recibir (remisión/factura) antes de iniciar retorno.', 'error');
-      setFotosModalDe(p);
+      toast('📸 Es obligatorio subir al menos 1 foto al recibir (remisión/paquetes) antes de iniciar retorno.', 'error');
+      abrirFotos(p);
       return;
     }
     setOcupado(claveDelivery(p));
@@ -535,14 +544,28 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
                     {/* Acceso dedicado para tomar o revisar fotos (SOLO con pedido activo) */}
                     <div
                       className="dlv-cockpit-photo-chip"
-                      onClick={() => setFotosModalDe(enCurso)}
+                      onClick={() => abrirFotos(enCurso)}
                       title="Administrar fotos de esta orden"
                     >
                       <span>
-                        📸 Evidencias ({enCurso.fotos_recibo.length} recibo · {enCurso.fotos_entrega.length} entrega)
+                        📸 Evidencias ({enCurso.fotos_recibo.length} recibo{!esRetiroAlmacen(enCurso) && ` · ${enCurso.fotos_factura?.length ?? 0} factura`} · {enCurso.fotos_entrega.length} entrega)
                       </span>
                       <span className="dlv-chip-cta">Tomar / Ver →</span>
                     </div>
+
+                    {/* 26/11/2026: acceso directo a la factura del proveedor, sin esperar a entregar */}
+                    {!esRetiroAlmacen(enCurso) && (
+                      <button
+                        type="button"
+                        className="dlv-btn-subtle"
+                        style={{ color: '#fbbf24', alignSelf: 'center' }}
+                        onClick={() => abrirFotos(enCurso, 'factura')}
+                      >
+                        🧾 {(enCurso.fotos_factura?.length ?? 0) > 0
+                          ? `Ver / Agregar factura (${enCurso.fotos_factura.length})`
+                          : 'Tomar foto de la factura'}
+                      </button>
+                    )}
 
                     {/* BOTONES PROTAGONISTAS SEGÚN LA FASE ACTIVA */}
                     {enCurso.estado === 'aceptado' && (
@@ -552,12 +575,12 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
                             <button
                               type="button"
                               className="dlv-btn-hero dlv-btn-hero-amber"
-                              onClick={() => setFotosModalDe(enCurso)}
+                              onClick={() => abrirFotos(enCurso)}
                             >
-                              📸 Tomar Foto al Recibir (0/5) · Obligatoria
+                              📸 Tomar Foto al Recibir (0/6) · Obligatoria
                             </button>
                             <div className="dlv-hero-subtext">
-                              Sube foto de la remisión, factura física o paquetes para habilitar el retorno.
+                              Sube foto de la remisión o los paquetes para habilitar el retorno. La factura se carga aparte.
                             </div>
                           </>
                         ) : (
@@ -565,7 +588,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
                             <div className="dlv-phase-badge-ok" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 4 }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', width: '100%', alignItems: 'center' }}>
                                 <span>✓ Foto recibida ({enCurso.fotos_recibo.length} foto/s cargada/s)</span>
-                                <button type="button" className="dlv-btn-link" onClick={() => setFotosModalDe(enCurso)}>
+                                <button type="button" className="dlv-btn-link" onClick={() => abrirFotos(enCurso)}>
                                   Ver / Agregar
                                 </button>
                               </div>
@@ -756,7 +779,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
                             <div style={{ fontSize: '.85rem', color: '#cbd5e1' }}>
                               <div>🏬 Recibido en: Almacén {nombreAlmacenVisible(p.almacen_entrega ?? p.almacen_destino)}</div>
                               <div style={{ color: '#94a3b8', fontSize: '.78rem', marginTop: 4 }}>
-                                📷 {p.fotos_recibo.length + p.fotos_entrega.length} fotos guardadas
+                                📷 {p.fotos_recibo.length + p.fotos_entrega.length + (p.fotos_factura?.length ?? 0)} fotos guardadas
                               </div>
                             </div>
                             {p.pedido_id && (
@@ -764,7 +787,7 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
                                 type="button"
                                 className="dlv-btn-subtle"
                                 style={{ alignSelf: 'flex-start', color: '#38bdf8' }}
-                                onClick={() => setFotosModalDe(p)}
+                                onClick={() => abrirFotos(p)}
                               >
                                 ✏ Ver / Editar fotos
                               </button>
@@ -816,8 +839,10 @@ export function DeliveryMovilView({ canal = 'delivery' }: { canal?: CanalDeliver
           fotosRecibo={fotosModalDe.fotos_recibo}
           fotosEntrega={fotosModalDe.fotos_entrega}
           fotosFactura={fotosModalDe.fotos_factura}
-          onClose={() => setFotosModalDe(null)}
-          onGuardado={() => { setFotosModalDe(null); void reload(); }}
+          permitirFacturaAbierta={!esRetiroAlmacen(fotosModalDe)}
+          grupoInicial={fotosGrupoInicial}
+          onClose={cerrarFotos}
+          onGuardado={() => { cerrarFotos(); void reload(); }}
         />
       )}
 

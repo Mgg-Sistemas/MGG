@@ -4,7 +4,7 @@
    Pedido ABIERTO: se agregan con `delivery_fotos` (el dueño lo puede hacer).
    Pedido ENTREGADO: se corrigen con `delivery_editar_fotos` (la base revisa permisos).
    ============================================================ */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ConfirmDialog, Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
 import { previewGaleria } from '@/shared/lib/reportePreview';
@@ -24,11 +24,15 @@ export function puedeEditarFotosDelivery(
   return p.estado === 'entregado' && !!p.pedido_id && (admin || escritura || !!p.es_mio);
 }
 
-export function EditarFotosDeliveryModal({ pedidoId, estado, origen, titulo, fotosRecibo, fotosEntrega, fotosFactura = SIN_FOTOS, onClose, onGuardado }: {
+export function EditarFotosDeliveryModal({ pedidoId, estado, origen, titulo, fotosRecibo, fotosEntrega, fotosFactura = SIN_FOTOS, permitirFacturaAbierta = false, grupoInicial = null, onClose, onGuardado }: {
   pedidoId: string; estado: string; origen: OrigenDelivery | null | undefined; titulo: string;
   fotosRecibo: FotoDelivery[]; fotosEntrega: FotoDelivery[];
-  /** 11/11/2026: fotos de la factura del proveedor (solo compras). */
+  /** 11/11/2026: fotos de la factura del proveedor. */
   fotosFactura?: FotoDelivery[];
+  /** 26/11/2026: el celular puede cargar la factura con el pedido todavía abierto. La PC mantiene su comportamiento. */
+  permitirFacturaAbierta?: boolean;
+  /** 26/11/2026: abrir el modal directamente en un grupo (botón «Foto de la factura»). */
+  grupoInicial?: Tipo | null;
   onClose: () => void; onGuardado: () => void;
 }) {
   const [quedan, setQuedan] = useState<Record<Tipo, FotoDelivery[]>>({ recibo: fotosRecibo, entrega: fotosEntrega, factura: fotosFactura });
@@ -37,6 +41,7 @@ export function EditarFotosDeliveryModal({ pedidoId, estado, origen, titulo, fot
   const [confirmar, setConfirmar] = useState<{ tipo: Tipo; foto: FotoDelivery } | null>(null);
   const [guardando, setGuardando] = useState(false);
   const [urls, setUrls] = useState<Record<string, string>>({});
+  const gruposRef = useRef<Record<Tipo, HTMLDivElement | null>>({ recibo: null, entrega: null, factura: null });
 
   useEffect(() => {
     let vivo = true;
@@ -45,10 +50,16 @@ export function EditarFotosDeliveryModal({ pedidoId, estado, origen, titulo, fot
     return () => { vivo = false; };
   }, [fotosRecibo, fotosEntrega, fotosFactura]);
 
+  const conFactura = origen !== 'almacen';
   const tipos: Tipo[] = estado === 'entregado'
-    ? (origen === 'almacen' ? ['recibo', 'entrega'] : ['recibo', 'factura', 'entrega'])
-    : ['recibo', 'entrega'];
+    ? (conFactura ? ['recibo', 'factura', 'entrega'] : ['recibo', 'entrega'])
+    : (permitirFacturaAbierta && conFactura ? ['recibo', 'factura', 'entrega'] : ['recibo', 'entrega']);
   const cambios = tipos.filter((t) => nuevos[t].length || quitadas[t].length);
+
+  useEffect(() => {
+    if (!grupoInicial || !tipos.includes(grupoInicial)) return;
+    gruposRef.current[grupoInicial]?.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+  }, [grupoInicial, tipos.join(',')]);
 
   function agregar(tipo: Tipo, lista: FileList | null) {
     const archivos = Array.from(lista ?? []);
@@ -99,7 +110,7 @@ export function EditarFotosDeliveryModal({ pedidoId, estado, origen, titulo, fot
     const galeria = quedan[tipo].filter((f) => !!urls[f.path])
       .map((f) => ({ path: f.path, url: urls[f.path], filename: f.filename, etiqueta: `${titulo} · ${rotulo}` }));
     return (
-      <div style={{ marginBottom: '1rem' }}>
+      <div ref={(el) => { gruposRef.current[tipo] = el; }} style={{ marginBottom: '1rem' }}>
         <div className="card-title" style={{ fontSize: '.9rem' }}>{rotulo} ({total}/{MAX_FOTOS_DELIVERY})</div>
         <div style={{ display: 'grid', gap: '.5rem', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))' }}>
           {quedan[tipo].map((f) => (

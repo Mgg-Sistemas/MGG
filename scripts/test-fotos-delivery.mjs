@@ -18,22 +18,24 @@ assert.equal(rutaGuardadoFotos('entregado', 'entrega'), 'delivery_editar_fotos')
 assert.equal(rutaGuardadoFotos('entregado', 'factura'), 'delivery_editar_fotos');
 console.log('  ✓ Pedido entregado usa delivery_editar_fotos para los tres grupos');
 
-// 3. La factura NO se ofrece en pedidos abiertos (delivery_fotos no la acepta).
-assert.equal(rutaGuardadoFotos('aceptado', 'factura'), null);
-assert.equal(rutaGuardadoFotos('en_ruta', 'factura'), null);
+// 3. Desde 26/11/2026 la factura TAMBIÉN se guarda en pedidos abiertos.
+assert.equal(rutaGuardadoFotos('aceptado', 'factura'), 'delivery_fotos');
+assert.equal(rutaGuardadoFotos('en_ruta', 'factura'), 'delivery_fotos');
 assert.equal(rutaGuardadoFotos('por_tomar', 'recibo'), null);
 assert.equal(rutaGuardadoFotos('cancelado', 'recibo'), null);
-console.log('  ✓ Factura queda solo para entregado; estados invalidos no guardan');
+console.log('  ✓ Factura se guarda en abierto con delivery_fotos; estados invalidos no guardan');
 
 // 4. El modal debe elegir la funcion segun estado, no llamar siempre a editar.
 const modal = await readFile(new URL('../src/modules/delivery/EditarFotosDelivery.tsx', import.meta.url), 'utf8');
 assert.match(modal, /estado === 'entregado'/, 'El modal debe mirar el estado del pedido');
 assert.match(modal, /await subirFotosDelivery\(pedidoId, t, quedan\[t\], nuevos\[t\]\)/, 'El modal debe usar subirFotosDelivery en pedidos abiertos');
 assert.match(modal, /await editarFotosDelivery\(pedidoId, t, quedan\[t\], nuevos\[t\], quitadas\[t\]\)/, 'El modal debe usar editarFotosDelivery en entregados');
-assert.match(modal, /tipos\.includes\('factura'\)/, 'La factura solo debe mostrarse cuando el estado lo permite');
+assert.match(modal, /tipos\.includes\('factura'\)/, 'La factura debe mostrarse cuando el estado lo permite');
+assert.match(modal, /permitirFacturaAbierta/, 'El celular debe poder habilitar la factura con pedido abierto');
+assert.match(modal, /grupoInicial/, 'El boton de factura debe abrir el modal en ese grupo');
 assert.match(modal, /capture="environment"/, 'Debe existir el boton de camara');
 assert.match(modal, /🖼 Elegir de la galería/, 'Debe existir el boton de galeria');
-console.log('  ✓ Modal enruta por estado, oculta factura en abierto y ofrece camara y galeria');
+console.log('  ✓ Modal enruta por estado, permite factura en abierto y ofrece camara y galeria');
 
 // 5. Los dos lugares que abren el modal pasan el estado.
 for (const archivo of ['DeliveryMovilView.tsx', 'DeliveryPage.tsx']) {
@@ -41,5 +43,12 @@ for (const archivo of ['DeliveryMovilView.tsx', 'DeliveryPage.tsx']) {
   assert.match(fuente, /<EditarFotosDeliveryModal[\s\S]*?estado=/, `${archivo} debe pasar el estado al modal`);
 }
 console.log('  ✓ Celular y PC pasan el estado del pedido al modal');
+
+// 6. El celular debe tener un acceso visible a la factura durante el pedido abierto.
+const movil = await readFile(new URL('../src/modules/delivery/DeliveryMovilView.tsx', import.meta.url), 'utf8');
+assert.match(movil, /Tomar foto de la factura/, 'La vista móvil debe mostrar el botón de factura');
+assert.match(movil, /abrirFotos\(enCurso, 'factura'\)/, 'El botón debe abrir el modal en el grupo factura');
+assert.match(movil, /permitirFacturaAbierta=/, 'La vista móvil debe habilitar la factura en pedido abierto');
+console.log('  ✓ Celular muestra y abre la carga de factura');
 
 console.log('🎉 Todas las pruebas de fotos de delivery pasaron exitosamente.');
