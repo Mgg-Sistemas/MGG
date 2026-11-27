@@ -9,6 +9,7 @@ import { errorMotivoCambio, lineaCambioProveedor, lineaReaperturaOc } from './ca
 import { textoOrdenAprobacion, textoOrdenPago, type CotizacionMensaje } from './ordenPagoTxt';
 import { montoFinalOferta } from './score';
 import { MensajeWhatsappModal } from './MensajeWhatsappModal';
+import { mensajeConfirmarRetiro } from './mensajeConfirmarRetiro';
 import { FichaEquipoCompras } from './FichaEquipoCompras';
 import { MAX_MINIMIZADAS, intercambiarMinimizada, minimizar, quitarMinimizada, vaciarMinimizadas } from '@/shared/lib/minimizadas';
 import { StatusBadge } from '@/shared/ui/StatusBadge';
@@ -410,6 +411,8 @@ export function PedidosPage() {
   const [scope, setScope] = useState<Scope>('pedidos');
 
   const [modal, setModal] = useState<ModalKind>({ kind: 'none' });
+  // 27-11-2026: aviso de WhatsApp que sale al confirmar el retiro de una OC.
+  const [mensajeRetiroWs, setMensajeRetiroWs] = useState<{ titulo: string; texto: string } | null>(null);
   const [offersReloadKey, setOffersReloadKey] = useState(0);
   // Chat interno por OC: mapa orden_id → nº de mensajes sin leer (badge 💬 en la tarjeta).
   const [noLeidos, setNoLeidos] = useState<Map<string, number>>(new Map());
@@ -1326,10 +1329,25 @@ export function PedidosPage() {
           actorEmail={usuario?.email ?? user?.email ?? 'sistema'}
           onClose={() => setModal({ kind: 'detail', ordenId: modal.orden.id })}
           onHecho={async (o) => {
+            // 27-11-2026: el aviso se arma SOLO aquí, una vez, con la orden ya guardada.
+            // Nunca desde refresh/realtime (reelegir transporte también refresca el retiro).
+            const texto = mensajeConfirmarRetiro(
+              o,
+              o.proveedor_id ? proveedorMap.get(o.proveedor_id)?.razon_social ?? null : null,
+              usuario?.email ?? user?.email ?? null,
+            );
+            setMensajeRetiroWs(texto ? { titulo: `Confirmar retiro · ${o.oc_codigo ?? o.codigo}`, texto } : null);
             notify(`Retiro confirmado · ${o.oc_codigo ?? o.codigo} · ${etiquetaEntrega(o.entrega_modalidad)}`, 'success', { link: '#/app/pedidos' });
             await refresh();
             setModal({ kind: 'detail', ordenId: o.id });
           }}
+        />
+      )}
+      {mensajeRetiroWs && (
+        <MensajeWhatsappModal
+          titulo={mensajeRetiroWs.titulo}
+          texto={mensajeRetiroWs.texto}
+          onClose={() => setMensajeRetiroWs(null)}
         />
       )}
 
