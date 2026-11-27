@@ -1,3 +1,5 @@
+import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
+import { mensajeReintegroRecibido } from './mensajeReintegroRecibido';
 import { CompraYReintegroDetalle } from './CompraYReintegroDetalle';
 import { DetalleCompraTarjeta } from './DetalleCompraTarjeta';
 import { useRealtime } from '@/shared/lib/useRealtime';
@@ -55,6 +57,7 @@ export function ReintegrosProveedor({ tesoreria = false, canWrite }: { tesoreria
 }
 
 function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesoreria: boolean; canWrite: boolean; onClose: () => void; onPendientes: (n: number) => void }) {
+  const [avisoRecibido, setAvisoRecibido] = useState<{ texto: string; archivos: File[] } | null>(null);
   const [lista, setLista] = useState<Reintegro[]>([]);
   const [vista, setVista] = useState<'faltantes' | 'reintegros' | 'nuevo'>(tesoreria ? 'reintegros' : 'faltantes');
   const [filtro, setFiltro] = useState('');
@@ -182,6 +185,13 @@ function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesor
         p_id: recibir.id, p_caja: caja, p_cuenta: cuenta, p_referencia: referencia, p_comprobante: path,
       });
       if (e) throw e;
+      setAvisoRecibido({
+        texto: mensajeReintegroRecibido({ codigo: recibir.ordenes.oc_codigo || recibir.ordenes.codigo,
+          proveedor: recibir.ordenes.proveedores?.razon_social || 'Sin proveedor asignado', monto: recibir.monto,
+          moneda: recibir.moneda, caja: cajas.find(c => c.id === caja)?.nombre || caja, cuenta,
+          referencia: referencia.trim(), motivo: recibir.motivo, fecha: new Date().toISOString(), productos: recibir.detalle }),
+        archivos: [archivo],
+      });
       setRecibir(null); setArchivo(null);
       toast('Ingreso registrado y reintegro recibido', 'success');
       await cargar();
@@ -333,5 +343,8 @@ function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesor
     </div></DetalleCompraTarjeta></article>)}</div>}
     {vista !== 'nuevo' && <PaginasCompras total={totalVisible} pagina={paginaActual} onChange={setPagina} />}
     </div>
+    {avisoRecibido && <Modal title="💬 Reintegro recibido · Compartir comprobante" onClose={() => setAvisoRecibido(null)}>
+      <div className="compras-panel"><CompartirWhatsapp texto={avisoRecibido.texto} fotos={avisoRecibido.archivos} /></div>
+    </Modal>}
   </Modal>;
 }

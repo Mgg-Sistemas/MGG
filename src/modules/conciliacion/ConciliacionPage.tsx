@@ -1,3 +1,4 @@
+import { EntradasReintegrosProveedor } from './EntradasReintegrosProveedor';
 /* ============================================================
    MGG · Conciliación (12-11-2026) · SOLO LECTURA
 
@@ -197,7 +198,7 @@ export function ConciliacionPage() {
   const navigate = useNavigate();
   const { can } = usePermissions();
   const puedeEditar = can('conciliacion', 'escritura');
-  const [tabActiva, setTabActiva] = useState<'salidas' | 'entradas'>('salidas');
+  const [tabActiva, setTabActiva] = useState<'salidas' | 'entradas' | 'reintegros'>('salidas');
   const [editRef, setEditRef] = useState<FilaConciliacion | null>(null);
   const [datos, setDatos] = useState<DatosConciliacion | null>(null);
   const [cargando, setCargando] = useState(true);
@@ -395,9 +396,10 @@ export function ConciliacionPage() {
         >
           🏛️ Entradas · Reintegros de Retención ({filasEntradas.length})
         </button>
+        <button type="button" role="tab" aria-selected={tabActiva === 'reintegros'} className={`view-switch-tab${tabActiva === 'reintegros' ? ' active' : ''}`} onClick={() => setTabActiva('reintegros')}>↩️ Entradas por reintegro</button>
       </div>
 
-      {tabActiva === 'salidas' ? (
+      {tabActiva === 'reintegros' ? <EntradasReintegrosProveedor /> : tabActiva === 'salidas' ? (
         <>
           {/* Tarjetas */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 240px), 1fr))', gap: '1rem', marginBottom: '1rem' }}>
