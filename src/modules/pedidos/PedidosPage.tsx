@@ -1,4 +1,5 @@
 import { cantidadEnUso, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
+import { ReintegrosProveedor } from './ReintegrosProveedor';
 import { errorMarcasRecepcion, marcaCambio, textoMarcaRecepcion } from './marcaRecibida';
 import type { RecepcionRenglon } from './pedidos.repository';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
@@ -772,6 +773,7 @@ export function PedidosPage() {
           </p>
         </div>
         <div className="actions">
+          {!soloSolicitud && <ReintegrosProveedor canWrite={canManageProcurement} />}
           {!soloSolicitud && (
           <Link to="/app/pedidos/historico" className="btn btn-ghost" title="Ver histórico filtrable de órdenes">
             ⌕ Histórico
@@ -2544,7 +2546,7 @@ function RecepcionParcialModal({
       sku: it.sku, cantidad_recibida: Number(recs[it.sku]) || 0,
       marca_recibida: (marcas[it.sku] ?? '').trim() || null, nota_marca: (notasMarca[it.sku] ?? '').trim() || null,
     }));
-    if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indicá al menos una cantidad recibida.'); return; }
+    if (recepciones.every((r) => r.cantidad_recibida <= 0) && (esServicio || !nota.trim())) { setError('Indicá una nota explicando por qué no llegó ningún producto.'); return; }
     if (!esServicio) { const em = errorMarcasRecepcion(orden.items, recepciones); if (em) { setError(em); return; } }
     if (!esServicio && !almacen.trim()) { setError('Elegí el almacén destino al que entra la mercancía.'); return; }
     if (hayDiferencia && !nota.trim()) { setError('Recibiste menos de lo pedido: indicá una nota explicando la diferencia.'); return; }
@@ -2585,7 +2587,7 @@ function RecepcionParcialModal({
     >
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Confirmá cuánto entró realmente al almacén por ítem. Solo lo recibido se suma al inventario.
-        Si llegó menos de lo pedido, dejá una <strong>nota</strong>; la orden cierra sin saldo pendiente.
+        Si llegó menos de lo pedido, dejá una <strong>nota</strong>. Al confirmar se genera automáticamente el reintegro pendiente en Compras y Tesorería por los faltantes, al precio unitario de la OC.
       </p>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 
@@ -4169,6 +4171,12 @@ function OrdenDetailModal({
           <div className="v">
             {dateTime(o.recibida_en)} <span className="muted">por {persona(o.recibida_por, personaMap, o.recibida_en)}</span>
             {o.recibido_total != null && <div className="mono" style={{ fontSize: '.84rem' }}>Total recibido: {money(o.recibido_total, o.moneda)}{o.recibido_total < o.total && <span className="muted"> · de {money(o.total, o.moneda)}</span>}</div>}
+            {o.items.some(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)) && <div>
+              <strong>Faltantes de esta OC</strong>
+              {o.items.filter(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)).map((i, n) =>
+                <div key={n}>{i.sku} · {i.nombre} · Recibidos {i.cantidad_recibida} de {i.cantidad} · Faltan {Number(i.cantidad) - Number(i.cantidad_recibida)}</div>)}
+              <span className="muted">El reintegro pendiente se consulta en Reintegros de proveedores.</span>
+            </div>}
           </div>
         </div>
       )}

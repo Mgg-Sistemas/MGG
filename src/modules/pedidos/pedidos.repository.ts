@@ -2460,8 +2460,8 @@ export async function recibirOrdenParcial(
     const rec = recMap.get(it.sku) ?? 0;
     if (rec > Number(it.cantidad)) throw new Error(`No podés recibir más de lo pedido en ${it.sku}.`);
   }
-  if (o.items.every((it) => (recMap.get(it.sku) ?? 0) <= 0))
-    throw new Error('Indicá al menos una cantidad recibida.');
+  if (o.items.every((it) => (recMap.get(it.sku) ?? 0) <= 0) && (esServicioOrden(o) || !nota?.trim()))
+    throw new Error('Indicá una nota explicando por qué no llegó ningún producto.');
   // Marca con la que llegó cada renglón. Si el proveedor mandó otra marca, la
   // nota es obligatoria: queda en la OC para pagos y para evaluar al proveedor.
   const marcaMap = new Map(recepciones.map((r) => [r.sku, r]));

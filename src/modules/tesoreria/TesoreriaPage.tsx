@@ -1,4 +1,5 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { ReintegrosProveedor } from '@/modules/pedidos/ReintegrosProveedor';
 import { Link } from 'react-router-dom';
 import { EmptyState } from '@/shared/ui/EmptyState';
 import { Modal, ConfirmDialog } from '@/shared/ui/Modal';
@@ -249,6 +250,7 @@ export function TesoreriaMovilView() {
         {!soloTelefono && <Link to="/app/tesoreria" className="btn btn-sm btn-ghost">Vista completa ↗</Link>}
       </header>
       <div className="tesoreria-movil-acciones">
+        <ReintegrosProveedor tesoreria canWrite={canWrite} />
         <button type="button" className="btn btn-primary" onClick={() => setModal('pendientes')}>Pagar OC y SV</button>
         {canWrite && <button type="button" className="btn btn-ghost" disabled={!cajas.length} onClick={() => setModal('conversor')}>💱 Convertir</button>}
       </div>
@@ -460,6 +462,7 @@ export function TesoreriaPage() {
       </div>
 
       {vista === 'tasas' && <TasasView />}
+      <ReintegrosProveedor tesoreria canWrite={canWrite} />
 
       {vista === 'tesoreria' && (
       <>

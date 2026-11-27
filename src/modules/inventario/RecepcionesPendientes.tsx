@@ -620,7 +620,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
       const rec = Number(recibidas[it.sku]) || 0;
       if (rec > Number(it.cantidad)) { setError(`No podés recibir más de lo pedido en ${it.sku}.`); return; }
     }
-    if (recepciones.every((r) => r.cantidad_recibida <= 0)) { setError('Indicá al menos una cantidad recibida.'); return; }
+    if (recepciones.every((r) => r.cantidad_recibida <= 0) && (esServicioOrden(orden) || !nota.trim())) { setError('Indicá una nota explicando por qué no llegó ningún producto.'); return; }
     if (huboDiferencia && !nota.trim()) { setError('Hay diferencias con lo pedido: indicá una nota explicando.'); return; }
     if (itemRes) {
       const v = despieceValido(despiece, kgRes, costoRes);
@@ -690,6 +690,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
     <>
     <Modal title={`Recibir ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
       <form id="recibir-form" onSubmit={submit}>
+        <p className="muted">Al confirmar cantidades menores a las pedidas se genera automáticamente el reintegro pendiente en Compras y Tesorería, al precio unitario de la OC.</p>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
         {verWhatsappOrden && textoWaOrden && (
           <div className="card" style={{ marginBottom: '.75rem', border: '1px solid var(--success, #25D366)', padding: '.75rem' }}>
