@@ -238,7 +238,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesor
         <DetalleCompraTarjeta orden={o} titulo={"Faltantes · " + (o.oc_codigo || o.codigo)}>
         <ContextoCompraTarjeta orden={o} titulo="Faltantes de recepción" estado={reposiciones[o.id] ? 'En cotización · ' + reposiciones[o.id].codigo : 'Por gestionar'} detalle={[...o.items.filter(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)).map(i => `${i.sku} · ${i.nombre} · Pedido ${i.cantidad} · Recibido ${i.cantidad_recibida} · Faltan ${Number(i.cantidad) - Number(i.cantidad_recibida)}`), 'Motivo del almacenista: ' + (o.nota_recepcion || 'Sin observación registrada')]} />
         <p className="compras-motivo"><strong>👷 Motivo del almacenista:</strong> {o.nota_recepcion || 'Sin observación registrada'}</p>
-        <details className="compras-fila"><summary>📦 Ver productos faltantes</summary>
+        <details className="compras-fila" open><summary>📦 Productos faltantes</summary>
         <div className="compras-detalle">
         <table className="compras-productos"><thead><tr><th>Producto</th><th>Pedido</th><th>Recibido</th><th>Falta</th></tr></thead><tbody>{o.items.filter(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)).map((i, n) =>
           <tr key={n}><td>{i.nombre}<small>{i.sku}</small></td><td>{i.cantidad}</td><td>{i.cantidad_recibida ?? 0}</td><td><strong>{Number(i.cantidad) - Number(i.cantidad_recibida ?? 0)}</strong></td></tr>)}</tbody></table>
