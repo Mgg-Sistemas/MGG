@@ -304,6 +304,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesor
       }}>Registrar dinero recibido</button>}
       {recibir?.id === r.id && <form className="card compras-ingreso-reintegro" onSubmit={e => { e.preventDefault(); void confirmar(); }}>
         <div className="card-title">💳 Registrar ingreso del reintegro</div>
+        {error && <p role="alert" style={{ color: 'var(--danger)' }}>{error}</p>}
         <p className="muted">Importe a recibir: <strong>{Number(r.monto).toFixed(2)} {r.moneda}</strong></p>
         <div className="form-grid">
           <div className="form-row"><label htmlFor={'reintegro-caja-' + r.id}>Caja de ingreso ({r.moneda})</label>
