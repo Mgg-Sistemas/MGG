@@ -5,6 +5,7 @@ import type { RetencionPracticada } from './retencionesFiscal.repository';
 import {
   cadenaCanonicoFiscal, calcularSha256Hex, generarQrVerificacion, lineaEquivalenteBs, partesComprobante,
   nombreArchivoComprobantePdf, nombreArchivoComprobantesFacturaPdf, normalizarNombreParaArchivo, normalizarNumeroFacturaParaArchivo,
+  conceptoFiscalPdf,
 } from './comprobanteRetencionPdf';
 
 // Datos inventados: ninguna empresa, proveedor ni cliente real.
@@ -282,6 +283,31 @@ describe('nombre de archivo para imprimir comprobantes de retención', () => {
     expect(nombreArchivoComprobantesFacturaPdf('00001', [r1, r2])).toBe('ComprobanteDeRetencion_IVA_ISLR_MaquinaEjemplarCA_00001.pdf');
   });
 });
+
+describe('conceptoFiscalPdf · concepto tributario legal en comprobante (Decreto 1808)', () => {
+  it('en ISLR sustituye descripciones de partida como "MANO DE OBRA" por el concepto fiscal oficial', () => {
+    const r = retencion({ tipo: 'islr', conceptoNombre: 'MANO DE OBRA' });
+    expect(conceptoFiscalPdf(r)).toBe('Servicios (contratistas y subcontratistas)');
+  });
+
+  it('en ISLR si viene null o vacío usa Servicios (contratistas y subcontratistas)', () => {
+    const r = retencion({ tipo: 'islr', conceptoNombre: null });
+    expect(conceptoFiscalPdf(r)).toBe('Servicios (contratistas y subcontratistas)');
+  });
+
+  it('en ISLR respeta un concepto fiscal formal existente', () => {
+    const r = retencion({ tipo: 'islr', conceptoNombre: 'Honorarios profesionales' });
+    expect(conceptoFiscalPdf(r)).toBe('Honorarios profesionales');
+  });
+
+  it('en IVA usa el concepto propio o SERVICIOS por defecto', () => {
+    const r1 = retencion({ tipo: 'iva', conceptoNombre: null });
+    expect(conceptoFiscalPdf(r1)).toBe('SERVICIOS');
+    const r2 = retencion({ tipo: 'iva', conceptoNombre: 'COMPRAS' });
+    expect(conceptoFiscalPdf(r2)).toBe('COMPRAS');
+  });
+});
+
 
 
 

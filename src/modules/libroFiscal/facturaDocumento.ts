@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Retenciones · Datos fiscales de una factura (P03)
+   Golden Touch · Retenciones · Datos fiscales de una factura (P03)
 
    Lo que la pantalla revisa antes de registrar una factura (la base revisa
    lo mismo con retencion_documentos_forma): número y control de 1 a 30

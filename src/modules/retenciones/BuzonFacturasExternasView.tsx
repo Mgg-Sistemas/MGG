@@ -1,5 +1,5 @@
 /* ============================================================
-   MGG · Retenciones · Buzón de Facturas Externas y Multi-Empresa
+   Golden Touch · Retenciones · Buzón de Facturas Externas y Multi-Empresa
    Apartado para revisar las facturas que se cargan desde el teléfono
    fuera de la oficina, separadas por la empresa que las recibe.
    Incluye la ficha fiscal de cada empresa, avisos sonoros y en pantalla
@@ -43,6 +43,7 @@ import {
 import { mensajeFacturaExterna } from './mensajeFacturaExterna';
 import { EmpresaEditor } from './EmpresaEditor';
 import { estadoRetencionDeBuzon, badgeEstadoRetencion } from './estadoRetencion';
+import { esEmpresaGt } from './empresaActual';
 
 /** Cómo se dice cada estado del buzón en pantalla (la clave interna no se muestra). */
 const ROTULO_ESTADO_BUZON: Record<EstatusFacturaBuzon, string> = {
@@ -74,7 +75,17 @@ function totalizar(facs: readonly FacturaBuzon[]) {
   return { bs, usd, vigentes: vigentes.length };
 }
 
-export function BuzonFacturasExternasView({ onRegistrar }: { onRegistrar?: (fac: FacturaBuzon) => void } = {}) {
+export interface BuzonFacturasExternasViewProps {
+  empresaId?: string | null;
+  onEmpresaChange?: (id: string) => void;
+  onRegistrar?: (fac: FacturaBuzon) => void;
+}
+
+export function BuzonFacturasExternasView({
+  empresaId,
+  onEmpresaChange,
+  onRegistrar,
+}: BuzonFacturasExternasViewProps = {}) {
   const { can } = usePermissions();
   const canWrite = can('retenciones', 'escritura');
 
@@ -83,10 +94,17 @@ export function BuzonFacturasExternasView({ onRegistrar }: { onRegistrar?: (fac:
   const [loading, setLoading] = useState(true);
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
-  // Filtros
-  const [empresaFiltro, setEmpresaFiltro] = useState<string>('todas');
+  // Filtros inicializados con la empresa activa de sesión si viene provista
+  const [empresaFiltro, setEmpresaFiltro] = useState<string>(empresaId || 'todas');
   const [estatusFiltro, setEstatusFiltro] = useState<string>('todas');
   const [busqueda, setBusqueda] = useState('');
+
+  // Sincronizar automáticamente el filtro cuando la empresa activa en el banner cambia
+  useEffect(() => {
+    if (empresaId) {
+      setEmpresaFiltro(empresaId);
+    }
+  }, [empresaId]);
 
   // Modales
   const [detalle, setDetalle] = useState<FacturaBuzon | null>(null);
@@ -198,7 +216,33 @@ export function BuzonFacturasExternasView({ onRegistrar }: { onRegistrar?: (fac:
   // Filtrado
   const facturasFiltradas = useMemo(() => {
     return facturas.filter((f) => {
-      if (empresaFiltro !== 'todas' && f.empresaId !== empresaFiltro) return false;
+      if (empresaFiltro !== 'todas') {
+        const empSel = empresas.find((e) => e.id === empresaFiltro);
+        const esGtFiltro =
+          empresaFiltro === 'empresa-golden-touch' ||
+          empresaFiltro === 'gt-default' ||
+          empresaFiltro === 'golden_touch' ||
+          empresaFiltro === 'GT' ||
+          (empSel && esEmpresaGt(empSel));
+
+        if (esGtFiltro) {
+          const esGtFac =
+            !f.empresaId ||
+            f.empresaId === 'empresa-golden-touch' ||
+            f.empresaId === 'gt-default' ||
+            f.empresaId === 'golden_touch' ||
+            f.empresaId === 'GT' ||
+            (f.empresaNombre && f.empresaNombre.toLowerCase().includes('golden touch'));
+          if (!esGtFac) return false;
+        } else {
+          // Empresa no GT (ej. MTO): coincidencia estricta por id, clave o nombre
+          const match =
+            f.empresaId === empresaFiltro ||
+            (empSel?.clave && f.empresaId === empSel.clave) ||
+            (empSel?.nombre && f.empresaNombre && f.empresaNombre.trim().toLowerCase() === empSel.nombre.trim().toLowerCase());
+          if (!match) return false;
+        }
+      }
       if (estatusFiltro !== 'todas' && f.estatus !== estatusFiltro) return false;
       if (busqueda.trim()) {
         const q = busqueda.toLowerCase().trim();
@@ -207,20 +251,49 @@ export function BuzonFacturasExternasView({ onRegistrar }: { onRegistrar?: (fac:
       }
       return true;
     });
-  }, [facturas, empresaFiltro, estatusFiltro, busqueda]);
+  }, [facturas, empresas, empresaFiltro, estatusFiltro, busqueda]);
+
+  // Facturas base de la empresa para totales
+  const facturasEmpresaBase = useMemo(() => {
+    if (empresaFiltro === 'todas') return facturas;
+    const empSel = empresas.find((e) => e.id === empresaFiltro);
+    const esGtFiltro =
+      empresaFiltro === 'empresa-golden-touch' ||
+      empresaFiltro === 'gt-default' ||
+      empresaFiltro === 'golden_touch' ||
+      empresaFiltro === 'GT' ||
+      (empSel && esEmpresaGt(empSel));
+
+    return facturas.filter((f) => {
+      if (esGtFiltro) {
+        return (
+          !f.empresaId ||
+          f.empresaId === 'empresa-golden-touch' ||
+          f.empresaId === 'gt-default' ||
+          f.empresaId === 'golden_touch' ||
+          f.empresaId === 'GT' ||
+          (f.empresaNombre && f.empresaNombre.toLowerCase().includes('golden touch'))
+        );
+      }
+      return (
+        f.empresaId === empresaFiltro ||
+        (empSel?.clave && f.empresaId === empSel.clave) ||
+        (empSel?.nombre && f.empresaNombre && f.empresaNombre.trim().toLowerCase() === empSel.nombre.trim().toLowerCase())
+      );
+    });
+  }, [facturas, empresas, empresaFiltro]);
 
   // Totales del buzón (de la empresa elegida o de todas)
   const totales = useMemo(() => {
-    const base = empresaFiltro === 'todas' ? facturas : facturas.filter((f) => f.empresaId === empresaFiltro);
-    const montos = totalizar(base);
+    const montos = totalizar(facturasEmpresaBase);
     return {
       ...montos,
-      recibidasCount: base.filter((f) => f.estatus === 'recibida').length,
-      enRevisionCount: base.filter((f) => f.estatus === 'en_revision').length,
-      retenidasCount: base.filter((f) => f.estatus === 'retenida').length,
-      totalCount: base.length,
+      recibidasCount: facturasEmpresaBase.filter((f) => f.estatus === 'recibida').length,
+      enRevisionCount: facturasEmpresaBase.filter((f) => f.estatus === 'en_revision').length,
+      retenidasCount: facturasEmpresaBase.filter((f) => f.estatus === 'retenida').length,
+      totalCount: facturasEmpresaBase.length,
     };
-  }, [facturas, empresaFiltro]);
+  }, [facturasEmpresaBase]);
 
   // Total en Bs por empresa (solo las que tienen facturas)
   const porEmpresa = useMemo(() => {
@@ -294,7 +367,7 @@ export function BuzonFacturasExternasView({ onRegistrar }: { onRegistrar?: (fac:
             onClick={() => setModalEmpresas(true)}
             title={canWrite ? 'Ver, agregar y editar las empresas que reciben facturas y su ficha fiscal' : 'Ver las empresas que reciben facturas'}
           >
-            🏢 Empresas y fichas fiscales ({empresas.length})
+            🏢 Empresas ({empresas.length})
           </button>
 
           {empresaSeleccionadaActual && (
@@ -412,7 +485,13 @@ export function BuzonFacturasExternasView({ onRegistrar }: { onRegistrar?: (fac:
                 <select
                   className="select sm"
                   value={empresaFiltro}
-                  onChange={(e) => setEmpresaFiltro(e.target.value)}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setEmpresaFiltro(val);
+                    if (val !== 'todas' && onEmpresaChange) {
+                      onEmpresaChange(val);
+                    }
+                  }}
                 >
                   <option value="todas">Todas las empresas ({facturas.length})</option>
                   {empresas.map((emp) => (

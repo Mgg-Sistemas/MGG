@@ -90,7 +90,6 @@ export interface ConfigRetencion {
   retieneEstadal?: boolean;
   /** Estatus del Kanban de compras que se procesan en el módulo de Retenciones. */
   estadosKanbanRetencion?: EstadoOrden[];
-  estatusKanbanRetencion?: string[];
   pctIvaGeneral: number;    // 75
   pctIvaEspecial: number;   // 100
   valorUt: number;          // define el sustraendo del ISLR
@@ -117,6 +116,8 @@ export interface ConfigRetencion {
   incluirQr?: boolean;
   /** C4a (D6): el buzón / vista teléfono está activo (visible) para el módulo. Default true. */
   buzonActivo?: boolean;
+  /** Gobernanza multi-empresa: si false, el módulo opera en modo Empresa Única (Single) */
+  multiempresaActivo?: boolean;
 }
 
 /** Estatus del Kanban de compras que por defecto son abordables en Retenciones. */
@@ -126,29 +127,22 @@ export const ESTADOS_KANBAN_RETENCION_DEFECTO: EstadoOrden[] = [
 
 /**
  * Los valores con los que arranca la pantalla mientras se lee la configuración.
- * Es el DEFAULT de CAPACIDAD del cálculo (puede IVA), NO el régimen de una empresa:
+ * Es el DEFAULT de CAPACIDAD del cálculo, NO el régimen de una empresa:
  * quién practica IVA lo decide L6 (Parámetros → Régimen), que el app lee por el JSON
- * de configuración; este default solo aplica si esa config no carga. Por eso GT, que
- * es contribuyente ordinario, no retiene IVA aunque aquí la capacidad siga en true.
- * No es contribuyente especial. Lo que vale es lo guardado en Parámetros.
+ * de configuración; este default solo aplica si esa config no carga.
+ * GT y toda empresa nueva nace como contribuyente ordinario: NO es agente de retención de IVA
+ * ni especial por defecto (Providencia SNAT/2025/000054).
+ * Tampoco retiene ISAE a menos que sea designada expresamente por ordenanza municipal.
+ * Lo que vale es lo gobernado y guardado en Parámetros.
  */
 export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   rif: null, razonSocial: null, direccionFiscal: null, municipio: null, estado: null,
   email: 'info@goldentouch1127.com',
-  esAgenteRetencionIva: true,
+  esAgenteRetencionIva: false,
   esContribuyenteEspecial: false,
   retieneIslr: true,
-  retieneMunicipal: true,
+  retieneMunicipal: false,
   estadosKanbanRetencion: ESTADOS_KANBAN_RETENCION_DEFECTO,
-  estatusKanbanRetencion: [
-    'confirmada_metodo',
-    'oc_aprobada',
-    'cuenta_abierta',
-    'por_recibir',
-    'pagada',
-    'recibida',
-    'finalizada',
-  ],
   pctIvaGeneral: 75, pctIvaEspecial: 100,
   valorUt: 0, pctIgtf: 3,
   ivaAlicuota: 16,
@@ -159,6 +153,7 @@ export const CONFIG_RETENCION_DEFECTO: ConfigRetencion = {
   incluirSello: true,
   incluirQr: true,
   buzonActivo: true,
+  multiempresaActivo: true,
 };
 
 /* ───────────────── Qué puede practicar la empresa ───────────────── */
@@ -169,16 +164,17 @@ type ConfigRegimen = Pick<ConfigRetencion,
 
 /**
  * ¿Puede la empresa practicar esta retención? Las recibidas se registran siempre.
- * IVA/IGTF dependen de la designación; ISLR/municipal/estadal, de las banderas de
- * régimen (por defecto true, para no cambiar a GT ni al single-empresa de hoy).
+ * IVA/IGTF dependen de designación formal como agente o contribuyente especial.
+ * ISAE (municipal) y regional dependen de activación explícita en Parámetros.
+ * ISLR aplica por defecto (Decreto 1.808) a personas jurídicas pagadoras.
  */
 export function puedePracticar(tipo: TipoImpuesto, config: ConfigRegimen): boolean {
-  if (tipo === 'iva') return config.esAgenteRetencionIva || config.esContribuyenteEspecial;
-  if (tipo === 'igtf') return config.esContribuyenteEspecial;
+  if (tipo === 'iva') return config.esAgenteRetencionIva === true || config.esContribuyenteEspecial === true;
+  if (tipo === 'igtf') return config.esContribuyenteEspecial === true;
   if (tipo === 'islr') return config.retieneIslr !== false;
-  if (tipo === 'municipal') return config.retieneMunicipal !== false;
-  if (tipo === 'regional') return config.retieneEstadal !== false;
-  return true;
+  if (tipo === 'municipal') return config.retieneMunicipal === true;
+  if (tipo === 'regional') return config.retieneEstadal === true;
+  return false;
 }
 
 /** Por qué no puede, en una línea, o null si puede. */

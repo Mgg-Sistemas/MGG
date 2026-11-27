@@ -22,7 +22,8 @@ import { CompartirWhatsapp } from '@/shared/ui/CompartirWhatsapp';
 import { date, money } from '@/shared/lib/format';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 import { completarRif, formatearRif } from '@/shared/lib/rif';
-import { getTasaHoy } from '@/modules/tesoreria/tasas.repository';
+import { getTasaHoy, getTasaUsdDeFecha } from '@/modules/tesoreria/tasas.repository';
+import { fechaTasaBcv } from '@/modules/libroFiscal/retencionesCalculo';
 import { buzonDisponible } from '@/modules/libroFiscal/disponibilidad';
 import { leerMonto, numeroATexto } from '@/modules/libroFiscal/validarCarga';
 import { SeLeyo } from '@/modules/libroFiscal/SeLeyo';
@@ -860,17 +861,65 @@ function FormularioCargaFactura({
   const inputFotosRef = useRef<HTMLInputElement>(null);
   const inputPdfsRef = useRef<HTMLInputElement>(null);
 
-  // Precargar la tasa del día (Banco Central) si está disponible; no pisa lo escrito.
+  // Sanitizadores por campo: permiten ingresar solo los caracteres correspondientes
+  const onRifChange = (e: ChangeEvent<HTMLInputElement>) => {
+    // Solo caracteres válidos de RIF SENIAT (J, G, V, E, P, C, números y guiones)
+    const val = e.target.value.toUpperCase().replace(/[^JGVEPC0-9-]/g, '').slice(0, 15);
+    setProveedorRif(val);
+    setRifAviso(null);
+  };
+
+  const onFacturaChange = (e: ChangeEvent<HTMLInputElement>) => {
+    // Solo alfanumérico fiscal (números, letras de serie y guiones)
+    const val = e.target.value.toUpperCase().replace(/[^0-9A-Z-]/g, '').slice(0, 30);
+    setNumeroFactura(val);
+  };
+
+  const onControlChange = (e: ChangeEvent<HTMLInputElement>) => {
+    // Solo números y guiones para número de control fiscal
+    const val = e.target.value.replace(/[^0-9-]/g, '').slice(0, 20);
+    setNumeroControl(val);
+  };
+
+  const onMontoChange = (e: ChangeEvent<HTMLInputElement>) => {
+    // Solo números, comas y puntos
+    const val = e.target.value.replace(/[^0-9.,]/g, '').slice(0, 20);
+    setMontoTotal(val);
+  };
+
+  const onTasaChange = (e: ChangeEvent<HTMLInputElement>) => {
+    // Solo números, comas y puntos
+    const val = e.target.value.replace(/[^0-9.,]/g, '').slice(0, 15);
+    setTasa(val);
+  };
+
+  // Consulta reactiva de la tasa del día (Banco Central) para la fecha seleccionada.
+  // Cuando el usuario cambia la fecha de la factura, busca y actualiza automáticamente la tasa de ese día.
   useEffect(() => {
     let cancel = false;
-    getTasaHoy().then((th) => {
-      if (!cancel && th?.usd) {
-        const texto = numeroATexto(th.usd);
-        setTasa((actual) => actual || texto);
-      }
-    }).catch(() => { /* sin tasa del día: se escribe a mano */ });
+    const fEfectiva = fechaTasaBcv(fechaFactura) || fechaFactura;
+    if (!fEfectiva) return;
+
+    getTasaUsdDeFecha(fEfectiva)
+      .then((t) => {
+        if (!cancel && t != null && Number(t) > 0) {
+          setTasa(numeroATexto(t));
+        } else if (!cancel && fEfectiva === hoy) {
+          getTasaHoy()
+            .then((th) => {
+              if (!cancel && th?.usd) {
+                setTasa(numeroATexto(th.usd));
+              }
+            })
+            .catch(() => {});
+        }
+      })
+      .catch(() => {
+        /* sin tasa registrada para esa fecha: se puede escribir a mano */
+      });
+
     return () => { cancel = true; };
-  }, []);
+  }, [fechaFactura, hoy]);
 
   // Si la empresa elegida ya no está entre las activas, tomar la primera
   useEffect(() => {
@@ -1115,7 +1164,8 @@ function FormularioCargaFactura({
             className="input surt-input"
             placeholder="Ej. Ferretería El Tornillo C.A."
             value={proveedorNombre}
-            onChange={(e) => setProveedorNombre(e.target.value)}
+            onChange={(e) => setProveedorNombre(e.target.value.slice(0, 120))}
+            maxLength={120}
             required
           />
         </div>
@@ -1123,11 +1173,12 @@ function FormularioCargaFactura({
           <label>RIF del proveedor</label>
           <input
             type="text"
-            className="input surt-input"
+            className="input surt-input mono"
             placeholder="Ej. J-12345678-9"
             value={proveedorRif}
-            onChange={(e) => { setProveedorRif(e.target.value); setRifAviso(null); }}
+            onChange={onRifChange}
             onBlur={revisarRif}
+            maxLength={15}
             autoCapitalize="characters"
           />
           {rifAviso && <small className="hint" style={{ color: 'var(--danger)' }}>{rifAviso}</small>}
@@ -1136,19 +1187,28 @@ function FormularioCargaFactura({
 
       {/* Tipo de documento: Factura por defecto */}
       <div className="surt-campo">
-        <label>Tipo de documento *</label>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+          <label style={{ margin: 0 }}>Tipo de documento *</label>
+          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary, #f59e0b)' }}>
+            ● {TIPOS_DOCUMENTO_BUZON.find((t) => t.valor === tipoDocumento)?.etiqueta || 'Factura'}
+          </span>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: `repeat(${TIPOS_DOCUMENTO_BUZON.length}, 1fr)`, gap: '0.4rem' }}>
-          {TIPOS_DOCUMENTO_BUZON.map((t) => (
-            <button
-              key={t.valor}
-              type="button"
-              className={`btn ${tipoDocumento === t.valor ? 'primario' : ''}`}
-              style={{ minHeight: '48px', fontSize: '0.92rem', fontWeight: 700 }}
-              onClick={() => setTipoDocumento(t.valor)}
-            >
-              {t.etiqueta}
-            </button>
-          ))}
+          {TIPOS_DOCUMENTO_BUZON.map((t) => {
+            const esSel = tipoDocumento === t.valor;
+            return (
+              <button
+                key={t.valor}
+                type="button"
+                className={`buzon-doc-btn ${esSel ? 'sel' : ''}`}
+                onClick={() => setTipoDocumento(t.valor)}
+                title={t.etiqueta}
+              >
+                {esSel && <span className="doc-dot" />}
+                <span>{t.etiqueta}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -1158,20 +1218,22 @@ function FormularioCargaFactura({
           <label>Número de factura</label>
           <input
             type="text"
-            className="input surt-input"
+            className="input surt-input mono"
             placeholder="Ej. 00045812"
             value={numeroFactura}
-            onChange={(e) => setNumeroFactura(e.target.value)}
+            onChange={onFacturaChange}
+            maxLength={30}
           />
         </div>
         <div className="surt-campo">
           <label>Número de control</label>
           <input
             type="text"
-            className="input surt-input"
+            className="input surt-input mono"
             placeholder="Ej. 00-123456"
             value={numeroControl}
-            onChange={(e) => setNumeroControl(e.target.value)}
+            onChange={onControlChange}
+            maxLength={20}
           />
         </div>
       </div>
@@ -1189,23 +1251,28 @@ function FormularioCargaFactura({
           />
         </div>
         <div className="surt-campo">
-          <label>Moneda *</label>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+            <label style={{ margin: 0 }}>Moneda *</label>
+            <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--primary, #f59e0b)' }}>
+              ● {moneda === 'USD' ? 'Dólares ($)' : 'Bolívares (Bs)'}
+            </span>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem' }}>
             <button
               type="button"
-              className={`btn ${moneda === 'USD' ? 'primario' : ''}`}
-              style={{ minHeight: '56px', fontSize: '1.05rem', fontWeight: 800 }}
+              className={`buzon-moneda-btn ${moneda === 'USD' ? 'sel' : ''}`}
               onClick={() => setMoneda('USD')}
             >
-              💵 Dólares ($)
+              {moneda === 'USD' && <span className="moneda-dot" />}
+              <span>💵 Dólares ($)</span>
             </button>
             <button
               type="button"
-              className={`btn ${moneda === 'Bs' ? 'primario' : ''}`}
-              style={{ minHeight: '56px', fontSize: '1.05rem', fontWeight: 800 }}
+              className={`buzon-moneda-btn ${moneda === 'Bs' ? 'sel' : ''}`}
               onClick={() => setMoneda('Bs')}
             >
-              🇻🇪 Bolívares (Bs)
+              {moneda === 'Bs' && <span className="moneda-dot" />}
+              <span>🇻🇪 Bolívares (Bs)</span>
             </button>
           </div>
         </div>
@@ -1218,10 +1285,11 @@ function FormularioCargaFactura({
           <input
             type="text"
             inputMode="decimal"
-            className="input surt-input"
+            className="input surt-input mono"
             placeholder="Ej. 1.234,56"
             value={montoTotal}
-            onChange={(e) => setMontoTotal(e.target.value)}
+            onChange={onMontoChange}
+            maxLength={20}
           />
           <SeLeyo texto={montoTotal} />
           {equivalenteBs != null && (
@@ -1233,10 +1301,11 @@ function FormularioCargaFactura({
           <input
             type="text"
             inputMode="decimal"
-            className="input surt-input"
+            className="input surt-input mono"
             placeholder="Ej. 36,50"
             value={tasa}
-            onChange={(e) => setTasa(e.target.value)}
+            onChange={onTasaChange}
+            maxLength={15}
           />
           <SeLeyo texto={tasa} decimales={4} />
         </div>
@@ -1250,7 +1319,8 @@ function FormularioCargaFactura({
           style={{ minHeight: '80px', paddingTop: '0.5rem' }}
           placeholder="Ej. Compra de repuestos para el tractor D8K, lubricantes y filtros..."
           value={descripcion}
-          onChange={(e) => setDescripcion(e.target.value)}
+          maxLength={500}
+          onChange={(e) => setDescripcion(e.target.value.slice(0, 500))}
         />
       </div>
 
@@ -1261,7 +1331,8 @@ function FormularioCargaFactura({
           className="input surt-input"
           placeholder="Ej. Entregado por chofer Pedro, factura original en sobre..."
           value={observaciones}
-          onChange={(e) => setObservaciones(e.target.value)}
+          maxLength={300}
+          onChange={(e) => setObservaciones(e.target.value.slice(0, 300))}
         />
       </div>
 

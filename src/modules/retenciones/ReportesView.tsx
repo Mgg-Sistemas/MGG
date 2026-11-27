@@ -22,10 +22,12 @@ import {
 import { descargarCsv, lineaTotales, reporteExcel, reportePdf, type CabeceraReporte } from './reportesRetencionesArchivos';
 import { armarTxtIva, filasTxtIva, type PeriodoCampo2 } from './txtSeniatIva';
 import { armarXmlIslr, bytesIso88591, filasXmlIslr } from './xmlSeniatIslr';
+import { ReporteEstatusGeneralEmpresas } from './ReporteEstatusGeneralEmpresas';
 
 interface PlantillaReporte { id: string; nombre: string; titulo: string }
 
 const PLANTILLAS_SISTEMA: PlantillaReporte[] = [
+  { id: 'estatus_empresas', nombre: '📊 Estatus general de empresas', titulo: 'Estatus general y consolidado de empresas' },
   { id: 'relacion_iva', nombre: 'Relación quincenal de IVA', titulo: 'Relación quincenal de IVA' },
   { id: 'relacion_islr', nombre: 'Relación mensual de ISLR', titulo: 'Relación mensual de ISLR' },
   { id: 'relacion_isae', nombre: 'Relación mensual de ISAE', titulo: 'Relación mensual de ISAE' },
@@ -57,12 +59,26 @@ const PERIODOS: { value: PeriodoReporte; label: string; grupo: 'Atajos' | 'Elegi
 
 const fechaVe = (s: string) => { const [y, m, d] = s.split('-'); return `${d}/${m}/${y}`; };
 
-export function ReportesView({ actor, empresaId = null, empresaFicha = null }: {
+export function ReportesView({
+  actor,
+  empresaId = null,
+  empresaFicha = null,
+  empresaNombre,
+  esGt: _esGt = true,
+  practicaClaves = null,
+  esEspecial,
+  onCambiarEmpresa,
+}: {
   actor: string;
   /** Multi-empresa: los reportes salen de ESA empresa. null = single-empresa (todo, como hoy). */
   empresaId?: string | null;
   /** Multi-empresa: la ficha de la empresa NO-GT (régimen y %); null = GT/single (config global). */
   empresaFicha?: FichaFiscalEmpresa | null;
+  empresaNombre?: string;
+  esGt?: boolean;
+  practicaClaves?: ReadonlySet<string> | null;
+  esEspecial?: boolean;
+  onCambiarEmpresa?: (empresaId: string) => void;
 }) {
   const hoy = diaVE(new Date().toISOString()) || new Date().toISOString().slice(0, 10);
 
@@ -70,11 +86,16 @@ export function ReportesView({ actor, empresaId = null, empresaFicha = null }: {
   const [errorCarga, setErrorCarga] = useState<string | null>(null);
   const [config, setConfig] = useState<ConfigRetencion | null>(null);
 
-  const [plantillaId, setPlantillaId] = useState('relacion_iva');
+  // ¿Retiene IVA la empresa activa? Solo si fue designada contribuyente especial por el SENIAT.
+  const retieneIva = esEspecial !== undefined
+    ? esEspecial
+    : (practicaClaves ? practicaClaves.has('IVA') : Boolean(config?.esAgenteRetencionIva));
+
+  const [plantillaId, setPlantillaId] = useState(() => (retieneIva ? 'relacion_iva' : 'relacion_islr'));
   const [propiaId, setPropiaId] = useState<string | null>(null);
-  const [periodo, setPeriodo] = useState<PeriodoReporte>('quincena_anterior');
+  const [periodo, setPeriodo] = useState<PeriodoReporte>(() => (retieneIva ? 'quincena_anterior' : 'mes_anterior'));
   const [eleccion, setEleccion] = useState<EleccionPeriodo>({});
-  const [impuestos, setImpuestos] = useState<Record<string, boolean>>(SOLO('iva'));
+  const [impuestos, setImpuestos] = useState<Record<string, boolean>>(() => SOLO(retieneIva ? 'iva' : 'islr'));
   const [direccion, setDireccion] = useState<FiltroReporte['direccion']>('practicada');
   const [estado, setEstado] = useState<EstadoFiltro>('');
   const [moneda, setMoneda] = useState<FiltroReporte['moneda']>('');
@@ -99,6 +120,15 @@ export function ReportesView({ actor, empresaId = null, empresaFicha = null }: {
   const [verArc, setVerArc] = useState(false);
   const [arcAnio, setArcAnio] = useState(() => new Date().getFullYear());
   const [arcProveedorRif, setArcProveedorRif] = useState('');
+
+  // Si la empresa no retiene IVA (Ordinario), conmutar automáticamente fuera de la relación de IVA
+  useEffect(() => {
+    if (plantillaId === 'relacion_iva' && !retieneIva) {
+      setPlantillaId('relacion_islr');
+      setPeriodo('mes_anterior');
+      setImpuestos(SOLO('islr'));
+    }
+  }, [plantillaId, retieneIva]);
 
   // Los impuestos ACTIVOS de la tabla: uno deshabilitado no aparece en los filtros del reporte.
   // Degradación segura: si no se puede leer (o la tabla está vacía), se usa la lista fija completa.
@@ -126,9 +156,22 @@ export function ReportesView({ actor, empresaId = null, empresaFicha = null }: {
   useRealtime(['retenciones'], () => { void cargar(); });
   useRealtime(['retencion_impuestos'], () => { cargarImpuestosActivos(); });
 
-  // La lista de impuestos del filtro, solo los activos (o todos si no hay datos).
-  const impuestosReporteVista = useMemo(() => impuestosReporteActivos(impuestosActivos), [impuestosActivos]);
+  // La lista de impuestos del filtro, solo los activos y los que la empresa practica (omite IVA si es ordinario).
+  const impuestosReporteVista = useMemo(() => {
+    const lista = impuestosReporteActivos(impuestosActivos);
+    if (!retieneIva) {
+      return lista.filter((i) => i.key !== 'iva');
+    }
+    return lista;
+  }, [impuestosActivos, retieneIva]);
   useEffect(() => { setMisPlantillas(leerPlantillas(actor)); }, [actor]);
+
+  const plantillasSistemaVisibles = useMemo(() => {
+    return PLANTILLAS_SISTEMA.filter((p) => {
+      if (p.id === 'relacion_iva' && !retieneIva) return false;
+      return true;
+    });
+  }, [retieneIva]);
 
   const proveedoresIslr = useMemo(() => {
     const mapa = new Map<string, string>();
@@ -157,7 +200,8 @@ export function ReportesView({ actor, empresaId = null, empresaFicha = null }: {
 
   function seleccionarPlantilla(id: string) {
     setPlantillaId(id); setPropiaId(null);
-    if (id === 'relacion_iva') { setPeriodo('quincena_anterior'); setImpuestos(SOLO('iva')); setDireccion('practicada'); setAgrupar('ninguno'); }
+    if (id === 'estatus_empresas') { /* vista dinámica multiempresa */ }
+    else if (id === 'relacion_iva') { setPeriodo('quincena_anterior'); setImpuestos(SOLO('iva')); setDireccion('practicada'); setAgrupar('ninguno'); }
     else if (id === 'relacion_islr') { setPeriodo('mes_anterior'); setImpuestos(SOLO('islr')); setDireccion('practicada'); setAgrupar('ninguno'); }
     else if (id === 'relacion_isae') { setPeriodo('mes_anterior'); setImpuestos(SOLO('isae')); setDireccion('practicada'); setAgrupar('ninguno'); }
     else if (id === 'libro') { setPeriodo('mes_actual'); setImpuestos(TODOS); setDireccion(''); setAgrupar('ninguno'); }
@@ -300,7 +344,7 @@ export function ReportesView({ actor, empresaId = null, empresaFicha = null }: {
       {/* ── Sidebar: plantillas ── */}
       <aside className="lfv8-rep-plantillas" aria-label="Plantillas de reporte">
         <h4>Plantillas del sistema</h4>
-        {PLANTILLAS_SISTEMA.map((p) => (
+        {plantillasSistemaVisibles.map((p) => (
           <button key={p.id} className="lfv8-rep-pl" aria-current={!propiaId && plantillaId === p.id ? 'true' : undefined} onClick={() => seleccionarPlantilla(p.id)}>
             {p.nombre}
           </button>
@@ -323,12 +367,37 @@ export function ReportesView({ actor, empresaId = null, empresaFicha = null }: {
         <p className="muted" style={{ fontSize: '.72rem', padding: '.2rem .6rem' }}>Se guardan solo en este navegador: no se ven desde otra computadora ni las ven otros usuarios.</p>
       </aside>
 
-      {/* ── Constructor del reporte ── */}
-      <section className="lfv8-rep-constructor">
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.6rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
-          <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{titulo}</h2>
-          <span className="muted" style={{ fontSize: '.78rem' }}>{propia ? 'Plantilla propia' : 'Plantilla del sistema'}</span>
-        </div>
+      {/* ── Constructor del reporte o Estatus General de Empresas ── */}
+      {plantillaId === 'estatus_empresas' && !propiaId ? (
+        <section className="lfv8-rep-constructor" style={{ minWidth: 0 }}>
+          <ReporteEstatusGeneralEmpresas
+            actor={actor}
+            config={config}
+            onSeleccionarEmpresa={onCambiarEmpresa}
+          />
+        </section>
+      ) : (
+        <section className="lfv8-rep-constructor">
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.6rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '1.1rem' }}>{titulo}</h2>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', marginTop: 4 }}>
+                <span style={{ background: 'rgba(255, 138, 0, 0.12)', color: 'var(--primary)', border: '1px solid rgba(255, 138, 0, 0.25)', fontSize: '.76rem', padding: '1px 8px', borderRadius: 4, fontWeight: 600 }}>
+                  🏢 {empresaNombre || config?.razonSocial || 'Golden Touch'}
+                </span>
+                {retieneIva ? (
+                  <span style={{ fontSize: '.74rem', color: '#eab308', background: 'rgba(234, 179, 8, 0.12)', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>
+                    ⭐ Agente de Retención IVA (Especial)
+                  </span>
+                ) : (
+                  <span style={{ fontSize: '.74rem', color: '#38bdf8', background: 'rgba(56, 189, 248, 0.12)', padding: '1px 6px', borderRadius: 4, fontWeight: 600 }}>
+                    🏢 Contribuyente Ordinario (No retiene IVA)
+                  </span>
+                )}
+              </div>
+            </div>
+            <span className="muted" style={{ fontSize: '.78rem' }}>{propia ? 'Plantilla propia' : 'Plantilla del sistema'}</span>
+          </div>
 
         {/* Filtros */}
         <div className="lfv8-rep-filtros">
@@ -458,13 +527,15 @@ export function ReportesView({ actor, empresaId = null, empresaFicha = null }: {
           <button className="btn" onClick={() => void exportar('csv')} disabled={!tabla || !!generando}>Descargar CSV</button>
           <button className="btn" onClick={() => void exportar('excel')} disabled={!tabla || !!generando}>{generando === 'excel' ? 'Generando…' : 'Descargar Excel'}</button>
           <button className="btn" onClick={() => void exportar('pdf')} disabled={!tabla || !!generando}>{generando === 'pdf' ? 'Generando…' : 'Imprimir / PDF'}</button>
-          <button className="btn" aria-expanded={verTxt} onClick={() => { setVerTxt((v) => !v); setVerXml(false); setVerArc(false); }}>TXT para el SENIAT (IVA)</button>
+          {retieneIva && (
+            <button className="btn" aria-expanded={verTxt} onClick={() => { setVerTxt((v) => !v); setVerXml(false); setVerArc(false); }}>TXT para el SENIAT (IVA)</button>
+          )}
           <button className="btn" aria-expanded={verXml} onClick={() => { setVerXml((v) => !v); setVerTxt(false); setVerArc(false); }}>XML para el SENIAT (ISLR)</button>
           <button className="btn" aria-expanded={verArc} onClick={() => { setVerArc((v) => !v); setVerTxt(false); setVerXml(false); }}
             title="Comprobante de Retención de ISLR Anual por Proveedor (Forma ARC - Art. 24 Decreto 1.808)">Comprobante ARC (ISLR)</button>
         </div>
 
-        {verTxt && (
+        {retieneIva && verTxt && (
           <div className="card" style={{ margin: '.4rem 0', borderColor: 'var(--warning)' }}>
             <strong style={{ fontSize: '.9rem' }}>TXT de retenciones de IVA para el SENIAT</strong>
             <p className="muted" style={{ fontSize: '.8rem', margin: '.3rem 0' }}>
@@ -634,6 +705,7 @@ export function ReportesView({ actor, empresaId = null, empresaFicha = null }: {
           )}
         </div>
       </section>
+      )}
     </div>
   );
 }

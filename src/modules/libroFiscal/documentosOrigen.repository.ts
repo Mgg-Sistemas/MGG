@@ -271,3 +271,50 @@ export async function dejarDeCubrir(enlace: Pick<DocumentoDeOrigen, 'enlaceId' |
   if (error) throw errorRetencion(error, 'No se pudo quitar el enlace.');
   if (!data?.length) throw new Error('No se quitó el enlace: sin permiso de Retenciones o Tesorería, o ya no existe.');
 }
+
+export interface DatosDirectoExtra {
+  id: string;
+  codigo: string;
+  proveedorNombre: string;
+  proveedorRif?: string | null;
+  moneda: 'Bs' | 'USD';
+  total: number;
+}
+
+/** Carga datos de compras directas y servicios directos referenciados por archivos de factura. */
+export async function cargarDatosDirectosPorIds(facturas: FacturaDeOrigen[]): Promise<Map<string, DatosDirectoExtra>> {
+  const map = new Map<string, DatosDirectoExtra>();
+  const cdIds = Array.from(new Set(facturas.filter((f) => f.origen.tipo === 'compra_directa').map((f) => f.origen.id)));
+  const sdIds = Array.from(new Set(facturas.filter((f) => f.origen.tipo === 'servicio_directo').map((f) => f.origen.id)));
+
+  const [cdRes, sdRes] = await Promise.all([
+    cdIds.length > 0
+      ? supabase.from('compras_directas').select('id, codigo, proveedor_id, proveedor_nombre, moneda, gasto').in('id', cdIds)
+      : Promise.resolve({ data: [] }),
+    sdIds.length > 0
+      ? supabase.from('servicios_directos').select('id, codigo, proveedor_id, proveedor_nombre, moneda, gasto').in('id', sdIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  for (const r of (cdRes.data ?? []) as Record<string, unknown>[]) {
+    map.set(String(r.id), {
+      id: String(r.id),
+      codigo: String(r.codigo || 'CD'),
+      proveedorNombre: texto(r.proveedor_nombre) || 'Proveedor compra directa',
+      moneda: r.moneda === 'Bs' ? 'Bs' : 'USD',
+      total: Number(r.gasto) || 0,
+    });
+  }
+
+  for (const r of (sdRes.data ?? []) as Record<string, unknown>[]) {
+    map.set(String(r.id), {
+      id: String(r.id),
+      codigo: String(r.codigo || 'SD'),
+      proveedorNombre: texto(r.proveedor_nombre) || 'Proveedor servicio directo',
+      moneda: r.moneda === 'Bs' ? 'Bs' : 'USD',
+      total: Number(r.gasto) || 0,
+    });
+  }
+
+  return map;
+}

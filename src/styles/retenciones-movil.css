@@ -2,10 +2,6 @@
    Golden Touch · Retenciones · Buzón Móvil y Multi-Empresa
    Estilos para la vista de teléfono (soportes, adjuntos, WhatsApp)
    y la bandeja multi-empresa de escritorio.
-   30-10-2026: solo tokens del tema de MGG (theme.css). Lo traído de GT
-   usaba colores de tema claro (#2563eb, #065f46…) y --surface-1/--r-full,
-   que en MGG no existen; las pastillas copian a .badge y los
-   seleccionados a .chip-active, igual que en el resto del sistema.
    ============================================================ */
 
 .buzon-movil {
@@ -49,7 +45,7 @@
 .buzon-audio-toggle.activo {
   border-color: var(--primary);
   background: var(--grad-primary-soft);
-  color: var(--primary-3);
+  color: var(--primary-2);
   font-weight: 600;
 }
 
@@ -69,7 +65,7 @@
   font-weight: 700;
   font-size: 0.95rem;
   border-radius: var(--r-md);
-  border: 1px solid transparent;
+  border: none;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -81,10 +77,9 @@
 }
 
 .buzon-tab-btn.activo {
-  background: var(--grad-primary-soft);
-  border-color: var(--primary);
+  background: var(--surface-3);
   color: var(--text);
-  box-shadow: var(--shadow-sm);
+  box-shadow: inset 0 -2px 0 var(--primary);
 }
 
 /* Selector horizontal de empresas */
@@ -102,8 +97,8 @@
   padding: 0.45rem 0.9rem;
   border-radius: 999px;
   border: 1px solid var(--border);
-  background: var(--bg-1);
-  color: var(--text-muted);
+  background: var(--surface-2);
+  color: var(--text);
   font-size: 0.85rem;
   font-weight: 600;
   cursor: pointer;
@@ -114,8 +109,7 @@
 .buzon-empresa-chip.sel {
   border-color: var(--primary);
   background: var(--grad-primary-soft);
-  color: var(--text);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 15%, transparent) inset;
+  color: var(--primary-3);
 }
 
 /* Tarjeta de factura en la lista móvil */
@@ -153,7 +147,7 @@
   border-radius: 999px;
   background: var(--surface-3);
   color: var(--text);
-  border: 1px solid var(--border-strong);
+  border: 1px solid var(--border);
 }
 
 .buzon-estatus-pill {
@@ -166,23 +160,23 @@
   border-radius: 999px;
 }
 
-/* Mismos tonos que .badge.info / .warning / .success y la neutra de theme.css */
+/* Mismos tonos que .badge.info / .warning / .success del sistema. */
 .buzon-estatus-recibida {
-  background: color-mix(in srgb, var(--info) 15%, transparent);
-  color: color-mix(in srgb, var(--info) 70%, var(--text));
-  border: 1px solid color-mix(in srgb, var(--info) 40%, transparent);
+  background: rgba(74, 168, 255, 0.15);
+  color: #7fc1ff;
+  border: 1px solid rgba(74, 168, 255, 0.4);
 }
 
 .buzon-estatus-en_revision {
-  background: color-mix(in srgb, var(--warning) 15%, transparent);
-  color: color-mix(in srgb, var(--warning) 70%, var(--text));
-  border: 1px solid color-mix(in srgb, var(--warning) 40%, transparent);
+  background: rgba(245, 177, 51, 0.15);
+  color: #ffcc66;
+  border: 1px solid rgba(245, 177, 51, 0.4);
 }
 
 .buzon-estatus-retenida {
-  background: color-mix(in srgb, var(--success) 15%, transparent);
-  color: color-mix(in srgb, var(--success) 70%, var(--text));
-  border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
+  background: rgba(41, 192, 129, 0.15);
+  color: #5fdca9;
+  border: 1px solid rgba(41, 192, 129, 0.4);
 }
 
 .buzon-estatus-descartada {
@@ -244,6 +238,13 @@
   border-top: 1px solid var(--border);
 }
 
+@media (max-width: 480px) {
+  .buzon-card-acciones {
+    grid-template-columns: 1fr;
+    gap: 0.4rem;
+  }
+}
+
 /* Cuadrícula de adjuntos en formulario de carga */
 .buzon-adjuntos-cont {
   border: 1px dashed var(--border-strong);
@@ -301,6 +302,10 @@
   border: 1px solid var(--border);
   background: var(--surface-3);
   aspect-ratio: 1;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
 }
 
 .buzon-thumb-item img {
@@ -339,9 +344,9 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--danger);
-  color: #fff;
-  border: none;
+  background: var(--bg-0);
+  color: var(--danger);
+  border: 1px solid var(--danger);
   font-size: 0.75rem;
   font-weight: 800;
   display: flex;
@@ -362,9 +367,9 @@
   gap: 0.6rem;
   padding: 0.75rem;
   border-radius: var(--r-md);
-  background: color-mix(in srgb, var(--success) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--success) 40%, transparent);
-  color: color-mix(in srgb, var(--success) 70%, var(--text));
+  background: rgba(41, 192, 129, 0.12);
+  border: 1px solid rgba(41, 192, 129, 0.4);
+  color: #5fdca9;
   font-weight: 700;
   margin-bottom: 1rem;
 }
@@ -385,7 +390,7 @@
 
 .buzon-badge-alerta {
   background: var(--primary);
-  color: var(--bg-0);
+  color: #1a0e00;
   padding: 0.15rem 0.5rem;
   border-radius: 9999px;
   font-size: 0.75rem;
@@ -462,6 +467,88 @@
   background: var(--surface-2);
 }
 
+/* Botones de tipo de documento en formulario móvil */
+.buzon-doc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 48px;
+  padding: 0.5rem 0.5rem;
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.buzon-doc-btn:active {
+  transform: scale(0.98);
+}
+
+.buzon-doc-btn.sel {
+  border: 2px solid var(--primary, #f59e0b);
+  background: var(--grad-primary-soft, rgba(245, 158, 11, 0.16));
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+}
+
+.buzon-doc-btn .doc-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary, #f59e0b);
+  box-shadow: 0 0 6px var(--primary, #f59e0b);
+  flex-shrink: 0;
+}
+
+/* Botones de moneda en formulario móvil */
+.buzon-moneda-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  min-height: 52px;
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--r-md);
+  border: 1.5px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.buzon-moneda-btn:active {
+  transform: scale(0.98);
+}
+
+.buzon-moneda-btn.sel {
+  border: 2px solid var(--primary, #f59e0b);
+  background: var(--grad-primary-soft, rgba(245, 158, 11, 0.16));
+  color: #fff;
+  font-weight: 800;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.25);
+}
+
+.buzon-moneda-btn .moneda-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary, #f59e0b);
+  box-shadow: 0 0 6px var(--primary, #f59e0b);
+  flex-shrink: 0;
+}
+
 /* Ficha fiscal en escritorio */
 .buzon-ficha-fiscal-seccion {
   background: var(--surface-2);
@@ -485,9 +572,9 @@
   align-items: center;
   gap: 0.25rem;
   padding: 0.15rem 0.45rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--success) 15%, transparent);
-  color: color-mix(in srgb, var(--success) 70%, var(--text));
+  border-radius: 9999px;
+  background: rgba(41, 192, 129, 0.15);
+  color: #5fdca9;
   font-size: 0.75rem;
   font-weight: 700;
 }
@@ -497,9 +584,9 @@
   align-items: center;
   gap: 0.25rem;
   padding: 0.15rem 0.45rem;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--warning) 15%, transparent);
-  color: color-mix(in srgb, var(--warning) 70%, var(--text));
+  border-radius: 9999px;
+  background: rgba(245, 177, 51, 0.15);
+  color: #ffcc66;
   font-size: 0.75rem;
   font-weight: 700;
 }

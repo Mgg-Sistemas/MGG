@@ -103,6 +103,22 @@ export function correlativoDeNumero(numero: string | null | undefined): string {
   return d.length >= 14 ? d.slice(6, 14) : d || '—';
 }
 
+/**
+ * Determina el concepto legal a imprimir en el comprobante fiscal.
+ * En retenciones de ISLR (Decreto 1.808), los conceptos corresponden al catálogo tributario.
+ * Descripciones internas de partidas u órdenes (como "Mano de Obra") se corrigen al
+ * concepto normativo aplicable ("Servicios (contratistas y subcontratistas)").
+ */
+export function conceptoFiscalPdf(r: RetencionPracticada): string {
+  const norm = (r.conceptoNombre ?? '').trim();
+  if (r.tipo === 'islr') {
+    if (!norm || norm.toUpperCase() === 'MANO DE OBRA') {
+      return 'Servicios (contratistas y subcontratistas)';
+    }
+  }
+  return norm || (r.tipo === 'islr' ? 'Servicios (contratistas y subcontratistas)' : 'SERVICIOS');
+}
+
 /** El valor de cada columna de la tabla del comprobante (por su campo). */
 export function valoresDeColumnas(r: RetencionPracticada): Record<string, string> {
   const op = r.operacionNumero != null
@@ -113,11 +129,15 @@ export function valoresDeColumnas(r: RetencionPracticada): Record<string, string
   const esNc = r.tipoDocumento === 'nota_credito';
   const documento = r.facturaNumero || r.docCodigo || '—';
   const exentoMonto = r.exento != null ? r.exento : 0;
-  // En IVA el total se puede reconstruir como base + IVA + exento. En ISLR no:
-  // la base puede ser solo un porcentaje del pago y no se presenta como total.
+  // En IVA el total se puede reconstruir como base + IVA + exento. En ISLR, si se conoce el IVA de la factura,
+  // también se reconstruye exactamente como base + IVA + exento.
   const totFactura = r.facturaTotal != null
     ? r.facturaTotal
-    : r.tipo === 'islr' ? null : (r.baseImponible + r.impuesto + exentoMonto);
+    : r.impuesto > 0
+      ? (r.baseImponible + r.impuesto + exentoMonto)
+      : r.tipo === 'islr' ? null : (r.baseImponible + r.impuesto + exentoMonto);
+
+  const causadoMonto = obtenerImpuestoCausado(r);
 
   return {
     operacion: op,
@@ -132,15 +152,42 @@ export function valoresDeColumnas(r: RetencionPracticada): Record<string, string
     total_factura: totFactura == null ? '—' : montoPdf(totFactura * signo, r.moneda),
     sin_derecho: montoPdf((r.sinDerechoCreditoIva ?? 0) * signo, r.moneda),
     exento: montoPdf(exentoMonto * signo, r.moneda),
-    concepto: r.conceptoNombre || 'SERVICIOS',
+    concepto: conceptoFiscalPdf(r),
     base: montoPdf(r.baseImponible * signo, r.moneda),
     alicuota: r.alicuota ? `${r.alicuota}%` : '—',
-    iva: montoPdf((r.impuestoCausado ?? r.impuesto ?? 0) * signo, r.moneda),
-    causado: montoPdf((r.impuestoCausado ?? r.impuesto ?? 0) * signo, r.moneda),
+    iva: montoPdf(causadoMonto * signo, r.moneda),
+    causado: montoPdf(causadoMonto * signo, r.moneda),
     sustraendo: r.sustraendo ? montoPdf(r.sustraendo, r.moneda) : '0,00',
     pct: `${r.porcentaje}%`,
     monto: montoPdf(r.montoRetenido * signo, r.moneda),
   };
+}
+
+/**
+ * Determina el Impuesto Causado de la operación comercial.
+ * En IVA: el 100 % del IVA de la factura.
+ * En ISLR: el IVA de la factura que grava la operación comercial (o la diferencia entre total y base si no está explícito).
+ */
+export function obtenerImpuestoCausado(r: RetencionPracticada): number {
+  const exento = r.exento != null ? r.exento : 0;
+  if (r.tipo === 'islr') {
+    // 1. Si la retención tiene registrado el IVA de la factura
+    if (r.impuesto && r.impuesto > 0) return r.impuesto;
+    // 2. Si se conoce el total de la factura y supera la base imponible, la diferencia es el IVA causado
+    if (r.facturaTotal != null && r.baseImponible > 0 && r.facturaTotal > r.baseImponible) {
+      return Math.round((r.facturaTotal - r.baseImponible - exento) * 100) / 100;
+    }
+    // 3. Si impuestoCausado está guardado y es distinto del monto retenido (es el IVA)
+    if (r.impuestoCausado != null && r.impuestoCausado > 0 && (r.montoRetenido === 0 || r.impuestoCausado !== r.montoRetenido)) {
+      return r.impuestoCausado;
+    }
+    // 4. Fallback si existe impuestoCausado mayor a 0
+    if (r.impuestoCausado != null && r.impuestoCausado > 0) {
+      return r.impuestoCausado;
+    }
+    return 0;
+  }
+  return r.impuestoCausado ?? r.impuesto ?? 0;
 }
 
 const COLUMNAS_NUMERICAS = new Set(['total_factura', 'sin_derecho', 'exento', 'base', 'alicuota', 'iva', 'causado', 'sustraendo', 'pct', 'monto']);
@@ -269,7 +316,7 @@ async function urlADataUrl(url: string): Promise<string> {
 }
 
 /** Carga las imágenes de logo, firma y sello digital de la empresa SOLO si están cargadas en Parámetros del módulo. */
-export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<{
+export async function cargarElementosDigitales(fecha = hoyVenezuela(), empresaId?: string | null): Promise<{
   logoDataUrl: string | null;
   firmaDataUrl: string | null;
   selloDataUrl: string | null;
@@ -308,7 +355,9 @@ export async function cargarElementosDigitales(fecha = hoyVenezuela()): Promise<
   } catch { /* noop */ }
 
   // ── Fallbacks institucionales para Golden Touch si no hay versión subida en la base ──
-  if (!logoDataUrl) {
+  // Si la retención pertenece a otra empresa receptora (NO-GT), NO se estampa el logo de Golden Touch.
+  const esGt = !empresaId || empresaId === 'empresa-golden-touch';
+  if (!logoDataUrl && esGt) {
     try {
       const { loadLogoPdfDataUrl } = await import('@/shared/lib/pdfLogo');
       logoDataUrl = await loadLogoPdfDataUrl();
@@ -334,13 +383,22 @@ export async function generarDocComprobanteRetencionPdf(
   ]);
 
   const leerDocCabecera = async () => {
-    if (!r.documentoId) return null;
     try {
-      const res = await supabase.from('retencion_documentos')
-        .select('tipo_documento, factura_afectada_nro, factura_total, exento')
-        .eq('id', r.documentoId)
-        .maybeSingle();
-      return res.data;
+      if (r.documentoId) {
+        const res = await supabase.from('retencion_documentos')
+          .select('tipo_documento, factura_afectada_nro, factura_total, exento, iva_monto, iva_alicuota')
+          .eq('id', r.documentoId)
+          .maybeSingle();
+        if (res.data) return res.data;
+      }
+      if (r.facturaNumero) {
+        const res = await supabase.from('retencion_documentos')
+          .select('tipo_documento, factura_afectada_nro, factura_total, exento, iva_monto, iva_alicuota')
+          .eq('factura_nro', r.facturaNumero)
+          .maybeSingle();
+        if (res.data) return res.data;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -396,6 +454,8 @@ export async function generarDocComprobanteRetencionPdf(
     facturaTotal,
     exento: exentoMonto,
     licenciaSujeto,
+    impuesto: r.impuesto || (docCabecera?.iva_monto != null ? Number(docCabecera.iva_monto) : 0),
+    alicuota: r.alicuota || (docCabecera?.iva_alicuota != null ? Number(docCabecera.iva_alicuota) : 0),
   };
 
   const f = aplicarFormato(r.tipo, formato);
@@ -435,7 +495,7 @@ export async function generarDocComprobanteRetencionPdf(
 
   // 3. Resto del formato: Logo a la izquierda y Recuadro de Comprobante a la derecha
   const fechaEmisionRef = r.fecha || r.facturaFecha || diaVE(r.createdAt) || hoyVenezuela();
-  const cargados = await cargarElementosDigitales(fechaEmisionRef);
+  const cargados = await cargarElementosDigitales(fechaEmisionRef, r.empresaId);
   const logoDataUrl = opciones.logoDataUrl !== undefined ? opciones.logoDataUrl : cargados.logoDataUrl;
   const firmaDataUrl = opciones.firmaDataUrl !== undefined ? opciones.firmaDataUrl : cargados.firmaDataUrl;
   const selloDataUrl = opciones.selloDataUrl !== undefined ? opciones.selloDataUrl : cargados.selloDataUrl;
@@ -729,7 +789,8 @@ export async function generarDocComprobanteRetencionPdf(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   const labelImp = r.tipo === 'islr' ? 'I.S.L.R.' : r.tipo === 'iva' ? 'I.V.A.' : r.tipo === 'municipal' ? 'I.S.A.E.' : 'Impuesto';
-  const textoConcepto = `Retención de ${labelImp}${r.conceptoNombre ? ` por concepto de: ${textoPdf(r.conceptoNombre)}` : ''}`;
+  const conceptoFiscal = conceptoFiscalPdf(rEnriquecida);
+  const textoConcepto = `Retención de ${labelImp}${conceptoFiscal ? ` por concepto de: ${textoPdf(conceptoFiscal)}` : ''}`;
   doc.text(textoConcepto, M, y);
 
   if (rEnriquecida.facturaAfectadaNro || rEnriquecida.tipoDocumento === 'nota_credito' || rEnriquecida.tipoDocumento === 'nota_debito') {
@@ -762,16 +823,17 @@ export async function generarDocComprobanteRetencionPdf(
   const idxRotuloTotal = primerColNumericaIdx > 0 ? primerColNumericaIdx - 1 : 0;
 
   const signoTabla = rEnriquecida.tipoDocumento === 'nota_credito' ? -1 : 1;
+  const causadoTotales = obtenerImpuestoCausado(rEnriquecida);
   const filaTotales = f.columnas.map((c, i) => {
     if (c.campo === 'total_factura') {
-      const total = rEnriquecida.facturaTotal ?? (r.tipo === 'islr' ? null : r.baseImponible + r.impuesto + (rEnriquecida.exento ?? 0));
+      const total = rEnriquecida.facturaTotal ?? (rEnriquecida.impuesto > 0 ? (rEnriquecida.baseImponible + rEnriquecida.impuesto + (rEnriquecida.exento ?? 0)) : (r.tipo === 'islr' ? null : r.baseImponible + r.impuesto + (rEnriquecida.exento ?? 0)));
       return total == null ? '—' : montoPdf(total * signoTabla, r.moneda);
     }
     if (c.campo === 'sin_derecho') return montoPdf((rEnriquecida.sinDerechoCreditoIva ?? 0) * signoTabla, r.moneda);
     if (c.campo === 'exento') return montoPdf((rEnriquecida.exento ?? 0) * signoTabla, r.moneda);
     if (c.campo === 'base') return montoPdf(r.baseImponible * signoTabla, r.moneda);
-    if (c.campo === 'iva') return montoPdf((r.impuestoCausado ?? r.impuesto ?? 0) * signoTabla, r.moneda);
-    if (c.campo === 'causado') return montoPdf((r.impuestoCausado ?? r.impuesto ?? 0) * signoTabla, r.moneda);
+    if (c.campo === 'iva') return montoPdf(causadoTotales * signoTabla, r.moneda);
+    if (c.campo === 'causado') return montoPdf(causadoTotales * signoTabla, r.moneda);
     if (c.campo === 'sustraendo') return r.sustraendo ? montoPdf(r.sustraendo, r.moneda) : '0,00';
     if (c.campo === 'monto') return montoPdf(r.montoRetenido * signoTabla, r.moneda);
     if (i === idxRotuloTotal) return f.rotulos.total || 'TOTALES:';

@@ -150,13 +150,14 @@ describe('registrar: con R7 usa la regla vigente; sin R7, el cálculo de hoy int
     baseImponible: 1000, impuesto: 160, porcentaje: 75, montoRetenido: 120, actor: 'prueba@ejemplo.com', ...over,
   } as NuevaRetencion);
   const regla = { regla_id: 'r-1', foto: { pasos: [] } };
+  const configConIva = { ...CONFIG_RETENCION_DEFECTO, esAgenteRetencionIva: true };
 
   it('sin R7: no busca reglas y el registro no lleva regla ni foto, aunque se le pasen', async () => {
     expect(await calcularConReglaVigente('IVA', { fecha: '2026-10-05', direccion: 'practicada', sujeto: null, moneda: 'Bs', tasa: null, pago: 0, baseImponible: 1000, iva: 160, supuesto: false, codigo: null })).toBeNull();
     expect(rpc).not.toHaveBeenCalled();
     cola.push({ data: [], error: null });
     cola.push({ data: { id: 'x', rol: 'practicada', tipo: 'IVA', estado: 'registrada', monto: 120 }, error: null });
-    await registrarRetencion(nueva({ regla }), CONFIG_RETENCION_DEFECTO);
+    await registrarRetencion(nueva({ regla }), configConIva);
     const ins = llamadas[1].metodos.find((m) => m[0] === 'insert')?.[1] as Record<string, unknown>;
     expect(ins.monto).toBe(120);
     expect('regla_id' in ins).toBe(false);
@@ -167,7 +168,7 @@ describe('registrar: con R7 usa la regla vigente; sin R7, el cálculo de hoy int
     tablas = new Set(['retencion_reglas']);
     cola.push({ data: [], error: null });
     cola.push({ data: { id: 'x', rol: 'practicada', tipo: 'IVA', estado: 'registrada', monto: 120 }, error: null });
-    await registrarRetencion(nueva({ regla }), CONFIG_RETENCION_DEFECTO);
+    await registrarRetencion(nueva({ regla }), configConIva);
     const ins = llamadas[1].metodos.find((m) => m[0] === 'insert')?.[1] as Record<string, unknown>;
     expect(ins).toMatchObject({ regla_id: 'r-1', foto: { pasos: [] } });
   });

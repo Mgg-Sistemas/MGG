@@ -47,6 +47,27 @@ export function semillaFacturaDesdeOrdenArchivo(f: FacturaDeOrigen, item: Retenc
   };
 }
 
+/** Orden seleccionada para practicar retención multilínea (v8 VF). */
+export function semillaFacturaDesdeOrden(item: RetencionItem): SemillaFactura {
+  const o = item.orden;
+  return {
+    direccion: 'practicada',
+    docKind: 'oc',
+    docId: o?.id ?? null,
+    contraparteId: o?.proveedor_id ?? null,
+    contraparteNombre: item.proveedorNombre,
+    moneda: o?.total_moneda === 'Bs' ? 'Bs' : 'USD',
+    facturaTotal: o?.total ?? null,
+    baseImponible: o ? Math.max(0, o.total - (o.iva_monto ?? 0) - (o.igtf_monto ?? 0)) : null,
+    iva: o?.iva_monto ?? 0,
+    adjunto: o?.factura_recepcion_path ? {
+      nombre: o.factura_recepcion_nombre || 'factura_recepcion',
+      bucket: 'compras-oc',
+      path: o.factura_recepcion_path,
+    } : undefined,
+  };
+}
+
 /** Orden histórica con factura adjunta: retención suelta, nunca factura nueva. */
 export function semillaRetencionDesdeOrden(item: RetencionItem, pends: ImpuestoPendiente[]): SemillaRetencion {
   const o = item.orden;

@@ -59,6 +59,25 @@ export function faltaEnLaCarga(c: { tipo: TipoImpuesto; facturaNumero: string; f
 }
 
 /**
+ * Valida que la retención cuente con un archivo físico de la factura (PDF o imagen).
+ * Sin archivo no hay retención.
+ */
+export function validarArchivoFacturaObligatorio(tieneSoporte: boolean, archivo?: File | null): string | null {
+  if (!tieneSoporte && !archivo) {
+    return 'Es obligatorio adjuntar la factura en PDF o imagen para respaldar la retención.';
+  }
+  if (archivo) {
+    const esValido = archivo.type === 'application/pdf'
+      || archivo.type.startsWith('image/')
+      || /\.(pdf|png|jpe?g|webp)$/i.test(archivo.name);
+    if (!esValido) {
+      return 'El archivo de la factura debe ser un PDF o una imagen (JPG, PNG, WebP).';
+    }
+  }
+  return null;
+}
+
+/**
  * Valida el tipo y descripción del documento de respaldo.
  * Si se indica «Otro documento», es obligatorio describirlo para auditoría.
  */
@@ -82,4 +101,3 @@ export function etiquetaDocumentoRespaldo(tipoArchivo: string, detalle: string):
   }
   return tipoArchivo.trim();
 }
-

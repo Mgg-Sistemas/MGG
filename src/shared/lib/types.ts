@@ -906,6 +906,8 @@ export interface ItemOrden {
   nombre: string;
   cantidad: number;
   precio: number;
+  /** Renglón con nombre genérico (sin producto en inventario aún). */
+  nombre_generico?: boolean;
   /** Precio unitario si se paga en divisa efectivo (USD), por producto. Para la
    *  comparativa BCV vs USD por línea (diferencia y % por producto). */
   precio_usd?: number | null;
@@ -1122,7 +1124,7 @@ export interface Orden {
   retencion_modo?: 'se_paga_despues' | 'completo_reembolso' | null;
   /** Flujo nuevo de compras (30-10-2026): ¿se retiene ANTES de pagar (va primero a
    *  Retenciones) o DESPUÉS (va a Tesorería y luego a Retenciones)? null = flujo viejo. */
-  retencion_momento?: 'antes' | 'despues' | null;
+  retencion_momento?: 'antes' | 'despues' | 'antes_de_pagar' | 'despues_de_pagar' | null;
   /** Retenciones por tipo indicadas al enviar a pagar (03-11-2026): ver pedidos/retencionesOc.ts. */
   retenciones?: unknown;
   /** Quién entrega una vez pagada (04-11-2026). null = delivery (las de antes). */

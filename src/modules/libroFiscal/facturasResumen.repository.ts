@@ -21,7 +21,6 @@ import {
   type FacturaConLineas, type LineaFacturaNueva,
 } from './retencionFacturas.repository';
 import { CONFIG_RETENCION_DEFECTO, type TipoImpuesto } from './retencionesCalculo';
-import type { DocKind } from './retencionesFiscal.repository';
 
 const V_RESUMEN = 'retencion_facturas_resumen';
 
@@ -45,7 +44,7 @@ export interface FacturaResumen {
   proveedorId: string | null;
   rif: string | null;
   razonSocial: string | null;
-  docKind: DocKind;
+  docKind: 'oc' | 'compra_directa' | 'servicio_directo' | 'manual';
   docId: string | null;
   createdAt: string;
   /** Impuesto (clave GT: IVA, ISLR…) → lo retenido (líneas no anuladas). */

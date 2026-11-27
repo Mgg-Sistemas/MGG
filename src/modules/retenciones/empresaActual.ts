@@ -28,16 +28,25 @@ export const CLAVE_EMPRESA_ACTUAL = 'gt.retenciones.empresaActual';
  */
 const ID_GT = 'empresa-golden-touch';
 
-/** ¿Es GT (la empresa principal)? GT conserva su régimen por R1; las demás, por su ficha. */
-export function esEmpresaGt(empresa: { id?: string } | null | undefined): boolean {
-  return !!empresa && empresa.id === ID_GT;
+/** ¿Es GT (la empresa principal)? Detecta a Golden Touch por su ID estable, clave, RIF o denominación social. */
+export function esEmpresaGt(empresa: { id?: string; clave?: string; rif?: string; nombre?: string } | null | undefined): boolean {
+  if (!empresa) return false;
+  const id = String(empresa.id ?? '').trim().toLowerCase();
+  if (id === ID_GT || id === 'gt-default' || id === 'golden_touch' || id === 'gt' || id === '1') return true;
+  const clave = String(empresa.clave ?? '').trim().toLowerCase();
+  if (clave === 'gt' || clave === 'golden_touch' || clave === 'golden-touch') return true;
+  const rif = String(empresa.rif ?? '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  if (rif === 'J501299935' || rif === 'J501127456' || rif.includes('50129993')) return true;
+  const nombre = String(empresa.nombre ?? '').trim().toLowerCase();
+  if (nombre.includes('golden touch') && !id.startsWith('empresa-mto') && !id.startsWith('empresa-mgg')) return true;
+  return false;
 }
 
 /**
  * Qué empresa debe quedar seleccionada, dada la lista y lo que recordaba el
  * navegador. Pura y testeable:
  *  - la guardada, si sigue existiendo y está activa;
- *  - si no, GT (empresa-golden-touch) si está;
+ *  - si no, GT (Golden Touch) si está;
  *  - si no, la primera activa (ya vienen ordenadas por `orden`);
  *  - si no hay ninguna, null.
  */
@@ -46,7 +55,7 @@ export function empresaPorDefecto(empresas: EmpresaReceptora[], guardadaId: stri
   const activas = empresas.filter((e) => e.activo);
   const elegibles = activas.length ? activas : empresas;
   if (guardadaId && elegibles.some((e) => e.id === guardadaId)) return guardadaId;
-  const gt = elegibles.find((e) => e.id === ID_GT);
+  const gt = elegibles.find((e) => esEmpresaGt(e));
   if (gt) return gt.id;
   return elegibles[0].id;
 }
@@ -72,10 +81,11 @@ export interface EmpresaActual {
 }
 
 /**
- * Resuelve la empresa actual del módulo. En single-empresa (detector apagado)
- * devuelve multiempresa=false y empresaId=null: nadie filtra, todo como hoy.
+ * Resuelve la empresa actual del módulo. En single-empresa (detector apagado o
+ * parámetro multiempresaActivo=false) devuelve multiempresa=false y empresaId=null:
+ * nadie filtra, todo como hoy (anclado a Empresa Base GT).
  */
-export function useEmpresaActual(): EmpresaActual {
+export function useEmpresaActual(multiempresaHabilitado: boolean = true): EmpresaActual {
   const [multiempresa, setMultiempresa] = useState(false);
   const [empresas, setEmpresas] = useState<EmpresaReceptora[]>([]);
   const [empresaId, setEmpresaIdState] = useState<string | null>(null);
@@ -84,6 +94,13 @@ export function useEmpresaActual(): EmpresaActual {
   useEffect(() => {
     let vivo = true;
     (async () => {
+      if (!multiempresaHabilitado) {
+        setMultiempresa(false);
+        setEmpresas([]);
+        setEmpresaIdState(null);
+        setCargando(false);
+        return;
+      }
       const hay = await multiEmpresaDisponible().catch(() => false);
       if (!vivo) return;
       if (!hay) { setMultiempresa(false); setEmpresas([]); setEmpresaIdState(null); setCargando(false); return; }
@@ -95,7 +112,7 @@ export function useEmpresaActual(): EmpresaActual {
       setCargando(false);
     })();
     return () => { vivo = false; };
-  }, []);
+  }, [multiempresaHabilitado]);
 
   const setEmpresaId = useCallback((id: string) => {
     setEmpresaIdState(id);

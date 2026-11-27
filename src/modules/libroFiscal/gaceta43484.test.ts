@@ -15,7 +15,8 @@ const concepto = (over: Partial<ConceptoRetencion>): ConceptoRetencion => ({
 
 describe('G.O. 43.484 Art. 18.8 · impuesto causado', () => {
   it('IVA: el impuesto causado es el IVA de la factura', () => {
-    const r = calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, CONFIG_RETENCION_DEFECTO);
+    const configAgente = { ...CONFIG_RETENCION_DEFECTO, esAgenteRetencionIva: true };
+    const r = calcularRetencionIva({ baseImponible: 1000, ivaFactura: 160 }, configAgente);
     expect(r.impuestoCausado).toBe(160);
     expect(r.montoRetenido).toBe(120);
   });

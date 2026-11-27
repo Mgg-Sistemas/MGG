@@ -52,13 +52,15 @@ export interface ResultadoActivar { ok: boolean; motivo?: string; }
 
 export type ModuloNotifKey =
   | 'administracion'
+  | 'contabilidad'
   | 'delivery'
   | 'inventario'
   | 'maquinaria'
   | 'combustible'
   | 'tesoreria'
   | 'cocina'
-  | 'compras';
+  | 'compras'
+  | 'retenciones';
 
 export interface ModuloNotifConfig {
   key: ModuloNotifKey;
@@ -69,6 +71,7 @@ export interface ModuloNotifConfig {
 
 export const MODULOS_NOTIFICACION: readonly ModuloNotifConfig[] = [
   { key: 'administracion', label: 'Administración', icono: '💼', hint: 'Vencimientos de documentos, licencias y permisos' },
+  { key: 'contabilidad', label: 'Contabilidad', icono: '📒', hint: 'Comprobantes, cierres de mes y estados financieros' },
   { key: 'delivery', label: 'Delivery / Carga', icono: '🛵', hint: 'Nuevos pedidos por tomar, asignaciones y traslados' },
   { key: 'inventario', label: 'Almacén / Solicitudes', icono: '📦', hint: 'Solicitudes de pedido por revisar y stock mínimo' },
   { key: 'maquinaria', label: 'Maquinaria y Flota', icono: '🚜', hint: 'Mantenimientos por horas, servicios y averías' },
@@ -76,11 +79,13 @@ export const MODULOS_NOTIFICACION: readonly ModuloNotifConfig[] = [
   { key: 'tesoreria', label: 'Tesorería', icono: '🏦', hint: 'Cuentas por pagar, aprobaciones y movimientos' },
   { key: 'cocina', label: 'Cocina / Comidas', icono: '🍽️', hint: 'Reposición de mercado y comensales' },
   { key: 'compras', label: 'Compras / Pedidos', icono: '🛒', hint: 'Órdenes de compra nuevas y cotizaciones' },
+  { key: 'retenciones', label: 'Retenciones / Facturas', icono: '🧾', hint: 'Facturas recibidas en buzón móvil y retenciones pendientes' },
 ];
 
 const STORAGE_KEY_MODULOS_NOTIF = 'mgg.notif_modulos_activos';
 const MODULOS_DEFECTO: Record<ModuloNotifKey, boolean> = {
   administracion: true,
+  contabilidad: true,
   delivery: true,
   inventario: true,
   maquinaria: true,
@@ -88,6 +93,7 @@ const MODULOS_DEFECTO: Record<ModuloNotifKey, boolean> = {
   tesoreria: true,
   cocina: true,
   compras: true,
+  retenciones: true,
 };
 
 let _modulosMemoria: Record<ModuloNotifKey, boolean> = { ...MODULOS_DEFECTO };

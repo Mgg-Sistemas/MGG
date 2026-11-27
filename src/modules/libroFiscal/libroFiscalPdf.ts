@@ -10,7 +10,7 @@
    ============================================================ */
 import { previewPdf } from '@/shared/lib/reportePreview';
 import {
-  TIPOS_IMPUESTO, labelDireccion,
+  TIPOS_IMPUESTO, enBolivares, labelDireccion,
   type ConfigRetencion, type DireccionRetencion, type ResumenLibro,
 } from './retencionesCalculo';
 import type { RetencionPracticada } from './retencionesFiscal.repository';
@@ -87,15 +87,20 @@ export async function verLibroFiscalPdf(
       const docAfecta = r.facturaAfectadaNro ? ` (Af: ${r.facturaAfectadaNro})` : '';
       const docTxt = `${docPrefijo}${r.facturaNumero ?? (r.docCodigo ?? '—')}${docAfecta}`;
 
+      const calcBs = r.montoBs ?? enBolivares(r.montoRetenido, r.moneda, r.tasa);
       const montoRetenidoBs = r.anulada
         ? '0,00 Bs'
-        : (r.montoBs != null
-            ? (esNc ? `-${montoPdf(r.montoBs, 'Bs')}` : montoPdf(r.montoBs, 'Bs'))
+        : (calcBs != null
+            ? (esNc ? `-${montoPdf(calcBs, 'Bs')}` : montoPdf(calcBs, 'Bs'))
             : '—');
 
       const montoRetenidoOrig = r.anulada
         ? '0,00'
         : (esNc ? `-${montoPdf(r.montoRetenido, r.moneda)}` : montoPdf(r.montoRetenido, r.moneda));
+
+      const baseOrig = r.anulada
+        ? '0,00'
+        : (esNc ? `-${montoPdf(r.baseImponible, r.moneda)}` : montoPdf(r.baseImponible, r.moneda));
 
       return filaPdf([
         r.numeroComprobante ?? '—',
@@ -105,7 +110,7 @@ export async function verLibroFiscalPdf(
         r.contraparteNombre ?? '—',
         r.contraparteRif ?? '—',
         docTxt,
-        montoPdf(r.baseImponible, r.moneda),
+        baseOrig,
         `${r.porcentaje}%`,
         montoRetenidoOrig,
         montoRetenidoBs,

@@ -9,6 +9,7 @@
 
 import { reproducirSonidoFacturaNueva } from './soundRetenciones';
 import type { FacturaExternaBuzon } from './facturasBuzon.repository';
+import { registrarServiceWorkerPush } from '@/shared/lib/webpush';
 
 const PREF_AVISOS_PANTALLA = 'gt.retenciones.avisos_pantalla';
 
@@ -54,6 +55,8 @@ export async function solicitarPermisoAvisos(): Promise<'granted' | 'denied' | '
   if (!isNotificacionesSoportadas()) return 'unsupported';
 
   try {
+    // Asegurar registro del Service Worker en navegadores móviles/PWA
+    void registrarServiceWorkerPush();
     const perm = await Notification.requestPermission();
     if (perm === 'granted') {
       setAvisosPantallaHabilitados(true);
@@ -147,24 +150,41 @@ export function lanzarAvisoFactura(
   // 4. Parpadeo en el título de la pestaña (visible aun con la pestaña en segundo plano)
   activarAlertaTitulo(`(1) 🧾 ${empresa}: ${proveedor}`);
 
-  // 5. Notificación nativa del sistema operativo
+  // 5. Notificación nativa del sistema operativo (móvil y escritorio)
   if (isNotificacionesSoportadas() && Notification.permission === 'granted') {
-    try {
-      const notif = new Notification(titulo, {
-        body: cuerpo,
-        icon: '/image.jpeg',
-        badge: '/image.jpeg',
-        tag: fac.id ? `mgg-factura-${fac.id}` : 'mgg-factura-nueva',
-      });
+    const notifOptions: NotificationOptions = {
+      body: cuerpo,
+      icon: '/android-chrome-192x192.png',
+      badge: '/favicon-32x32.png',
+      tag: fac.id ? `gt-factura-${fac.id}` : 'gt-factura-nueva',
+      data: { url: '/retenciones' },
+    };
 
-      notif.onclick = () => {
-        if (typeof window !== 'undefined') {
-          window.focus();
-        }
-        notif.close();
-      };
-    } catch {
-      /* Si el navegador rechaza Notification() por política de contexto */
+    // Vía Service Worker (imprescindible en Chrome Android y PWA móviles donde new Notification() es ilegal)
+    if (typeof navigator !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.ready
+        .then((reg) => reg.showNotification(titulo, notifOptions))
+        .catch(() => {
+          try {
+            const notif = new Notification(titulo, notifOptions);
+            notif.onclick = () => {
+              if (typeof window !== 'undefined') window.focus();
+              notif.close();
+            };
+          } catch {
+            /* Fallback si el navegador no permite ninguno */
+          }
+        });
+    } else {
+      try {
+        const notif = new Notification(titulo, notifOptions);
+        notif.onclick = () => {
+          if (typeof window !== 'undefined') window.focus();
+          notif.close();
+        };
+      } catch {
+        /* Silenciar si el navegador no permite Notification */
+      }
     }
   }
 }

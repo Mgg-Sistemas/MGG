@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   etiquetaDocumentoRespaldo, faltaEnLaCarga, leerMonto, numeroATexto, textoLeido,
-  validarDocumentoRespaldo,
+  validarArchivoFacturaObligatorio, validarDocumentoRespaldo,
 } from './validarCarga';
 
 describe('lo que la carga exige antes de registrar', () => {
@@ -115,3 +115,27 @@ describe('validación de documento de respaldo y Otro documento', () => {
   });
 });
 
+describe('validación de archivo obligatorio de factura', () => {
+  it('falla si no tiene soporte previo ni archivo cargado', () => {
+    expect(validarArchivoFacturaObligatorio(false, null)).toContain('obligatorio adjuntar la factura');
+    expect(validarArchivoFacturaObligatorio(false, undefined)).toContain('obligatorio adjuntar la factura');
+  });
+
+  it('pasa si ya tiene soporte previo aunque no adjunte archivo nuevo', () => {
+    expect(validarArchivoFacturaObligatorio(true, null)).toBeNull();
+  });
+
+  it('rechaza archivos con formatos no admitidos', () => {
+    const txtFile = { name: 'archivo.txt', type: 'text/plain' } as unknown as File;
+    expect(validarArchivoFacturaObligatorio(false, txtFile)).toContain('PDF o una imagen');
+  });
+
+  it('acepta PDFs e imágenes válidas', () => {
+    const pdf = { name: 'factura.pdf', type: 'application/pdf' } as unknown as File;
+    const img = { name: 'factura.png', type: 'image/png' } as unknown as File;
+    const jpg = { name: 'factura.jpg', type: 'image/jpeg' } as unknown as File;
+    expect(validarArchivoFacturaObligatorio(false, pdf)).toBeNull();
+    expect(validarArchivoFacturaObligatorio(false, img)).toBeNull();
+    expect(validarArchivoFacturaObligatorio(false, jpg)).toBeNull();
+  });
+});

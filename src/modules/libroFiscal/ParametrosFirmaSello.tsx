@@ -31,7 +31,7 @@ export function ParametrosFirmaSello({ puedeEditar }: { puedeEditar: boolean }) 
   return (
     <div>
       <p className="muted" style={{ fontSize: '.84rem', marginTop: 0 }}>
-        Lo que lleva cada comprobante de retención de la empresa. Una imagen nueva vale desde su fecha; los comprobantes anteriores conservan la que tenían.
+        Logo, firma y sello digital de la empresa para los comprobantes de retención emitidos. Si no se carga una imagen, el comprobante se emite con el recuadro en blanco para firma manuscrita y sello húmedo físico, garantizando estricta validez fiscal.
       </p>
       {error && (
         <div className="card" style={{ borderColor: 'var(--danger)' }}>

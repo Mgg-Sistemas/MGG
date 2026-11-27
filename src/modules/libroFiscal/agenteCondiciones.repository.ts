@@ -131,7 +131,106 @@ export async function registrarCondicion(c: CondicionNueva, empresaId?: string |
   }
   const id = (data as { id: string }[] | null)?.[0]?.id;
   if (!id) throw new Error('No se guardó el régimen: sin permiso de escritura en Retenciones.');
+  try {
+    const { data: cfgRow } = await supabase.from('config').select('value').eq('key', 'retenciones.parametros').maybeSingle();
+    if (cfgRow?.value) {
+      const v = { ...(cfgRow.value as Record<string, unknown>) };
+      if (c.condicion === 'agente_retencion' && c.impuestoClave === 'IVA') v.agente_retencion_iva = c.valor;
+      if (c.condicion === 'contribuyente_especial') v.contribuyente_especial = c.valor;
+      if (c.condicion === 'agente_retencion' && c.impuestoClave === 'MUNICIPAL') v.retiene_municipal = c.valor;
+      await supabase.from('config').update({ value: v }).eq('key', 'retenciones.parametros');
+    }
+  } catch {
+    /* sincronización accesoria */
+  }
   return id;
+}
+
+/**
+ * Guarda o actualiza una condición en la base de datos sin fallar por duplicados de la misma fecha «desde».
+ */
+export async function guardarOActualizarCondicion(c: CondicionNueva, empresaId?: string | null): Promise<string> {
+  const falta = faltaEnCondicion(c);
+  if (falta) throw new Error(falta);
+
+  let q = supabase.from(T_CONDICIONES).select('id').eq('condicion', c.condicion).eq('desde', c.desde);
+  if (c.condicion === 'contribuyente_especial') {
+    q = q.is('impuesto_clave', null);
+  } else {
+    q = q.eq('impuesto_clave', c.impuestoClave);
+  }
+  if (empresaId && (await regimenPorEmpresaDisponible())) {
+    q = q.eq('empresa_id', empresaId);
+  }
+  const { data: existente } = await q.maybeSingle();
+
+  if (existente?.id) {
+    await actualizarCondicion(existente.id, c);
+    return existente.id;
+  }
+  return registrarCondicion(c, empresaId);
+}
+
+/**
+ * Aplica el régimen maestro (Contribuyente Ordinario o Contribuyente Especial)
+ * actualizando en bloque las condiciones pertinentes y sincronizando la configuración general.
+ */
+export async function aplicarRegimenMaestro({
+  empresaId,
+  esEspecial,
+  desde,
+  motivo,
+  fuente,
+}: {
+  empresaId?: string | null;
+  esEspecial: boolean;
+  desde: string;
+  motivo: string;
+  fuente?: string | null;
+}): Promise<void> {
+  const condiciones: CondicionNueva[] = [
+    {
+      impuestoClave: 'IVA',
+      condicion: 'agente_retencion',
+      valor: esEspecial,
+      desde,
+      motivo,
+      fuente: fuente || null,
+    },
+    {
+      impuestoClave: null,
+      condicion: 'contribuyente_especial',
+      valor: esEspecial,
+      desde,
+      motivo,
+      fuente: fuente || null,
+    },
+    {
+      impuestoClave: 'IGTF',
+      condicion: 'agente_percepcion',
+      valor: esEspecial,
+      desde,
+      motivo,
+      fuente: fuente || null,
+    },
+  ];
+
+  for (const cond of condiciones) {
+    await guardarOActualizarCondicion(cond, empresaId);
+  }
+
+  // Sincronización explícita en tabla config
+  try {
+    const { data: cfgRow } = await supabase.from('config').select('value').eq('key', 'retenciones.parametros').maybeSingle();
+    if (cfgRow?.value) {
+      const v = { ...(cfgRow.value as Record<string, unknown>) };
+      v.agente_retencion_iva = esEspecial;
+      v.contribuyente_especial = esEspecial;
+      await supabase.from('config').update({ value: v }).eq('key', 'retenciones.parametros');
+    }
+  } catch {
+    /* sincronización accesoria */
+  }
 }
 
 /**
@@ -196,6 +295,21 @@ export async function actualizarCondicion(id: string, c: Partial<CondicionNueva>
     });
   }
   if (!data?.length) throw new Error('No se actualizó el régimen: sin permiso de escritura en Retenciones, o el registro ya no existe.');
+  try {
+    const { data: row } = await supabase.from(T_CONDICIONES).select('condicion, impuesto_clave, valor').eq('id', id).maybeSingle();
+    if (row) {
+      const { data: cfgRow } = await supabase.from('config').select('value').eq('key', 'retenciones.parametros').maybeSingle();
+      if (cfgRow?.value) {
+        const v = { ...(cfgRow.value as Record<string, unknown>) };
+        if (row.condicion === 'agente_retencion' && row.impuesto_clave === 'IVA') v.agente_retencion_iva = row.valor;
+        if (row.condicion === 'contribuyente_especial') v.contribuyente_especial = row.valor;
+        if (row.condicion === 'agente_retencion' && row.impuesto_clave === 'MUNICIPAL') v.retiene_municipal = row.valor;
+        await supabase.from('config').update({ value: v }).eq('key', 'retenciones.parametros');
+      }
+    }
+  } catch {
+    /* sincronización accesoria */
+  }
 }
 
 /** Elimina un registro del régimen. */

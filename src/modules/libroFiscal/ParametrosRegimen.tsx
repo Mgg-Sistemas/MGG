@@ -9,7 +9,8 @@ import { toast } from '@/shared/ui/Toast';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import {
   condicionVigente, consultarCondicion, faltaEnCondicion, listCondiciones,
-  registrarCondicion, actualizarCondicion, eliminarCondicion, type CondicionAgente, type CondicionRegistrada,
+  registrarCondicion, actualizarCondicion, eliminarCondicion, aplicarRegimenMaestro,
+  type CondicionAgente, type CondicionRegistrada,
 } from './agenteCondiciones.repository';
 import type { ClaveImpuesto } from './entes.repository';
 import { regimenPorEmpresaDisponible } from './disponibilidad';
@@ -30,18 +31,23 @@ const RENGLONES: { impuesto: ClaveImpuesto | null; condicion: CondicionAgente; t
     ayuda: 'El especial también retiene IVA y percibe el IGTF.',
   },
   {
+    impuesto: 'MUNICIPAL', condicion: 'agente_retencion', titulo: 'Agente de retención municipal (ISAE)',
+    ayuda: 'Con esta designación formal de la Alcaldía, la empresa retiene Impuesto sobre Actividades Económicas (ISAE) a proveedores.',
+  },
+  {
     impuesto: 'IGTF', condicion: 'agente_percepcion', titulo: 'Agente de percepción de IGTF',
     ayuda: 'Condición específica de percepción de IGTF sobre pagos en divisas o criptoactivos.',
   },
 ];
 
-export function ParametrosRegimen({ puedeEditar, empresas = [], empresaIdInicial = null, puedeBorrar = false }: {
+export function ParametrosRegimen({ puedeEditar, empresas = [], empresaIdInicial = null, puedeBorrar = false, onRegimenCambiado }: {
   puedeEditar: boolean;
   /** D2: empresas (datos planos) para elegir de quién se edita el régimen. Vacío = single-empresa. */
   empresas?: { id: string; nombre: string }[];
   empresaIdInicial?: string | null;
   /** Borrar una fila del régimen es admin-only (la tabla no tiene política DELETE para otros). */
   puedeBorrar?: boolean;
+  onRegimenCambiado?: () => void;
 }) {
   const [historial, setHistorial] = useState<CondicionRegistrada[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -57,30 +63,276 @@ export function ParametrosRegimen({ puedeEditar, empresas = [], empresaIdInicial
   useEffect(() => { void cargar(); }, [cargar]);
   useRealtime(['retencion_agente_condiciones'], () => { void cargar(); });
 
+  const hoy = hoyIso();
+  const empresaNombre = empresas.find((e) => e.id === empresaId)?.nombre ?? 'Golden Touch 1127 C.A.';
+
+  // Condiciones vigentes hoy: en Venezuela, solo la calificación formal como Contribuyente Especial otorga la cualidad
+  const vIva = historial ? condicionVigente(historial, 'IVA', 'agente_retencion', hoy) : null;
+  const vEsp = historial ? condicionVigente(historial, null, 'contribuyente_especial', hoy) : null;
+  const esEspecialActual = Boolean(vEsp?.valor);
+  const esOrdinarioActual = !esEspecialActual;
+
+  const [targetRegimen, setTargetRegimen] = useState<'ordinario' | 'especial'>('ordinario');
+  const [fechaDesde, setFechaDesde] = useState(hoy);
+  const [motivo, setMotivo] = useState('');
+  const [fuente, setFuente] = useState('');
+  const [guardandoRegimen, setGuardandoRegimen] = useState(false);
+
+  // Sincronizar targetRegimen cuando carga o cambia la empresa
+  useEffect(() => {
+    if (historial) {
+      setTargetRegimen(esEspecialActual ? 'especial' : 'ordinario');
+      setFechaDesde(hoy);
+    }
+  }, [historial, esEspecialActual, hoy]);
+
+  async function handleAplicarRegimen() {
+    if (!fechaDesde) {
+      toast('Indica la fecha de vigencia del régimen.', 'warning');
+      return;
+    }
+    const mot = motivo.trim() || (targetRegimen === 'especial'
+      ? 'Designación como Contribuyente Especial por el SENIAT'
+      : 'Contribuyente Ordinario (No retiene IVA)');
+    setGuardandoRegimen(true);
+    try {
+      await aplicarRegimenMaestro({
+        empresaId: porEmpresa ? empresaId : null,
+        esEspecial: targetRegimen === 'especial',
+        desde: fechaDesde,
+        motivo: mot,
+        fuente: fuente.trim() || (targetRegimen === 'especial' ? 'Providencia SENIAT' : null),
+      });
+      toast(`Régimen aplicado con éxito: ${empresaNombre} ahora opera como ${targetRegimen === 'especial' ? 'Contribuyente Especial' : 'Contribuyente Ordinario'}.`, 'success');
+      setMotivo('');
+      setFuente('');
+      await cargar();
+      onRegimenCambiado?.();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'No se pudo aplicar el régimen.', 'error');
+    } finally {
+      setGuardandoRegimen(false);
+    }
+  }
+
   return (
     <div>
       {porEmpresa && (
-        <div className="form-row" style={{ marginBottom: '.6rem' }}>
-          <label>Empresa</label>
-          <select className="select" value={empresaId ?? ''} onChange={(e) => setEmpresaId(e.target.value)} style={{ maxWidth: 320 }}>
+        <div className="form-row" style={{ marginBottom: '.75rem' }}>
+          <label style={{ fontWeight: 600 }}>Empresa receptora</label>
+          <select className="select" value={empresaId ?? ''} onChange={(e) => setEmpresaId(e.target.value)} style={{ maxWidth: 360 }}>
             {empresas.map((e) => <option key={e.id} value={e.id}>{e.nombre}</option>)}
           </select>
-          <small className="muted" style={{ display: 'block', marginTop: 2 }}>El régimen se edita por empresa; cada cambio marca a esta empresa.</small>
+          <small className="muted" style={{ display: 'block', marginTop: 2 }}>El régimen se administra por empresa: cada designación afecta a esta razón social.</small>
         </div>
       )}
-      <p className="muted" style={{ fontSize: '.84rem', marginTop: 0 }}>
-        Cada cambio vale desde su fecha. Una retención se valida con el régimen vigente a la fecha de su factura.
-      </p>
+
       {error && (
-        <div className="card" style={{ borderColor: 'var(--danger)' }}>
+        <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}>
           {error} <button type="button" className="btn btn-sm btn-ghost" onClick={() => void cargar()}>Reintentar</button>
         </div>
       )}
-      {!historial && !error && <p className="muted">Leyendo el régimen…</p>}
-      {historial && RENGLONES.map((r) => (
-        <RenglonRegimen key={`${r.condicion}:${r.impuesto ?? '*'}`} {...r} historial={historial.filter((h) => h.condicion === r.condicion && h.impuestoClave === r.impuesto)}
-          puedeEditar={puedeEditar} puedeBorrar={puedeBorrar} porEmpresa={porEmpresa} empresaId={porEmpresa ? empresaId : null} onCambio={() => void cargar()} />
-      ))}
+
+      {!historial && !error && <p className="muted">Consultando el régimen vigente…</p>}
+
+      {historial && (
+        <>
+          {/* Banner de Estado Actual */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '.6rem',
+            padding: '.85rem 1.15rem',
+            background: esEspecialActual ? 'rgba(245, 158, 11, 0.08)' : 'rgba(56, 189, 248, 0.08)',
+            border: `1.5px solid ${esEspecialActual ? 'rgba(245, 158, 11, 0.35)' : 'rgba(56, 189, 248, 0.3)'}`,
+            borderRadius: 12, marginBottom: '1rem',
+          }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '.5rem', flexWrap: 'wrap' }}>
+                <strong style={{ fontSize: '.96rem' }}>
+                  {empresaNombre} opera hoy como: {esEspecialActual ? '⭐ Contribuyente Especial' : '🏢 Contribuyente Ordinario'}
+                </strong>
+                <span className={`lfv8-regimen-badge ${esEspecialActual ? 'especial' : 'ordinario'}`}>
+                  {esEspecialActual ? 'Sujeto Pasivo Especial' : 'Régimen General'}
+                </span>
+              </div>
+              <div className="muted" style={{ fontSize: '.8rem', marginTop: '.25rem', lineHeight: 1.4 }}>
+                {esEspecialActual
+                  ? 'La empresa es Agente de Retención de IVA (75 % / 100 %) y perceptor de IGTF (3 %). Retiene ISLR e ISAE Municipal.'
+                  : 'La empresa NO retiene IVA a sus proveedores (el IVA se paga íntegro) y no percibe IGTF · Retiene ISLR (Decreto 1.808) e ISAE Municipal.'}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', fontSize: '.76rem', color: 'var(--text-muted)' }}>
+              <div>Vigente desde: <strong>{fechaCorta(vIva?.desde ?? vEsp?.desde ?? '2026-10-01')}</strong></div>
+              <div>{vIva?.fuente ?? vEsp?.fuente ? `Acto: ${vIva?.fuente ?? vEsp?.fuente}` : 'Sin providencia registrada'}</div>
+            </div>
+          </div>
+
+          {/* Selector Maestro de Régimen Tributario */}
+          <div style={{ marginBottom: '.5rem' }}>
+            <h4 style={{ margin: '0 0 .25rem', fontSize: '1rem', fontWeight: 700 }}>
+              Selector de Régimen Tributario ante el SENIAT
+            </h4>
+            <p className="muted" style={{ fontSize: '.82rem', margin: 0 }}>
+              Escoge el tipo de contribuyente para gobernar en 1 clic todas las retenciones que aplican a las facturas de compras de {empresaNombre}:
+            </p>
+          </div>
+
+          <div className="lfv8-regimen-grid">
+            {/* Opción 1: Contribuyente Ordinario */}
+            <button
+              type="button"
+              className={`lfv8-regimen-card ${targetRegimen === 'ordinario' ? 'active' : ''}`}
+              onClick={() => {
+                setTargetRegimen('ordinario');
+                if (!motivo || motivo.includes('Especial')) setMotivo('Contribuyente Ordinario (No retiene IVA)');
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+                <span className="lfv8-regimen-badge ordinario">Régimen General</span>
+                {esOrdinarioActual && (
+                  <span style={{ fontSize: '.72rem', color: '#38bdf8', fontWeight: 700 }}>● Activo hoy</span>
+                )}
+              </div>
+              <div className="lfv8-regimen-title">
+                <span>🏢 Contribuyente Ordinario</span>
+                {targetRegimen === 'ordinario' && <span style={{ color: 'var(--primary)', fontSize: '1.05rem' }}>✓</span>}
+              </div>
+              <div className="lfv8-regimen-desc">
+                Empresa sujeta al régimen tributario general. No ha sido designada Sujeto Pasivo Especial por el SENIAT.
+              </div>
+              <ul className="lfv8-regimen-bullets">
+                <li>
+                  <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 800 }}>✕</span>
+                  <span><strong>No retiene IVA:</strong> Paga el 100 % del IVA facturado al proveedor. No emite comprobantes de IVA.</span>
+                </li>
+                <li>
+                  <span style={{ color: 'var(--danger, #ef4444)', fontWeight: 800 }}>✕</span>
+                  <span><strong>No percibe IGTF:</strong> No actúa como agente de percepción del 3 % sobre cobros en divisas.</span>
+                </li>
+                <li>
+                  <span style={{ color: 'var(--success, #10b981)', fontWeight: 800 }}>✓</span>
+                  <span><strong>Sí retiene ISLR:</strong> Practica retenciones según Decreto 1.808 a personas jurídicas y naturales.</span>
+                </li>
+                <li>
+                  <span style={{ color: 'var(--success, #10b981)', fontWeight: 800 }}>✓</span>
+                  <span><strong>Sí retiene ISAE Municipal:</strong> Practica retención de actividades económicas de la Alcaldía de Caroní (1 %).</span>
+                </li>
+              </ul>
+            </button>
+
+            {/* Opción 2: Contribuyente Especial */}
+            <button
+              type="button"
+              className={`lfv8-regimen-card ${targetRegimen === 'especial' ? 'active' : ''}`}
+              onClick={() => {
+                setTargetRegimen('especial');
+                if (!motivo || motivo.includes('Ordinario')) setMotivo('Designación como Contribuyente Especial por el SENIAT');
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+                <span className="lfv8-regimen-badge especial">Sujeto Pasivo Especial</span>
+                {esEspecialActual && (
+                  <span style={{ fontSize: '.72rem', color: '#fbbf24', fontWeight: 700 }}>● Activo hoy</span>
+                )}
+              </div>
+              <div className="lfv8-regimen-title">
+                <span>⭐ Contribuyente Especial</span>
+                {targetRegimen === 'especial' && <span style={{ color: 'var(--primary)', fontSize: '1.05rem' }}>✓</span>}
+              </div>
+              <div className="lfv8-regimen-desc">
+                Designación formal del SENIAT mediante Providencia Administrativa notificada a la empresa.
+              </div>
+              <ul className="lfv8-regimen-bullets">
+                <li>
+                  <span style={{ color: 'var(--success, #10b981)', fontWeight: 800 }}>✓</span>
+                  <span><strong>Sí retiene IVA:</strong> Retiene el 75 % de alícuota general o 100 % en supuestos especiales (Art. 5 / sin RIF).</span>
+                </li>
+                <li>
+                  <span style={{ color: 'var(--success, #10b981)', fontWeight: 800 }}>✓</span>
+                  <span><strong>Sí percibe IGTF:</strong> Agente perceptor del 3 % sobre transacciones en moneda extranjera.</span>
+                </li>
+                <li>
+                  <span style={{ color: 'var(--success, #10b981)', fontWeight: 800 }}>✓</span>
+                  <span><strong>Sí retiene ISLR:</strong> Aplica retención según Decreto 1.808.</span>
+                </li>
+                <li>
+                  <span style={{ color: 'var(--success, #10b981)', fontWeight: 800 }}>✓</span>
+                  <span><strong>Sí retiene ISAE Municipal:</strong> Aplica retención de actividades económicas.</span>
+                </li>
+              </ul>
+            </button>
+          </div>
+
+          {/* Formulario de Confirmación y Aplicación */}
+          <div className="lfv8-regimen-action-box">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '.4rem', marginBottom: '.65rem' }}>
+              <strong style={{ fontSize: '.88rem' }}>
+                Aplicar configuración: {targetRegimen === 'especial' ? '⭐ Contribuyente Especial (Designado SENIAT)' : '🏢 Contribuyente Ordinario (No retiene IVA)'}
+              </strong>
+              <span className="hint muted" style={{ fontSize: '.76rem' }}>
+                Queda asentado en el historial con fecha y justificación.
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+              <div className="form-row" style={{ flex: '0 1 140px', margin: 0 }}>
+                <label style={{ fontSize: '.78rem' }}>Fecha de vigencia</label>
+                <input className="input" type="date" value={fechaDesde} onChange={(e) => setFechaDesde(e.target.value)} />
+              </div>
+              {targetRegimen === 'especial' && (
+                <div className="form-row" style={{ flex: '1 1 200px', margin: 0 }}>
+                  <label style={{ fontSize: '.78rem' }}>Providencia Administrativa SENIAT</label>
+                  <input
+                    className="input"
+                    placeholder="Ej. SNAT/2026/000054 (N° y fecha)"
+                    value={fuente}
+                    onChange={(e) => setFuente(e.target.value)}
+                  />
+                </div>
+              )}
+              <div className="form-row" style={{ flex: '2 1 230px', margin: 0 }}>
+                <label style={{ fontSize: '.78rem' }}>Motivo / Justificación</label>
+                <input
+                  className="input"
+                  value={motivo}
+                  onChange={(e) => setMotivo(e.target.value)}
+                  placeholder={targetRegimen === 'especial' ? 'Designación como Contribuyente Especial por el SENIAT' : 'Contribuyente ordinario (no designado agente de retención de IVA)'}
+                />
+              </div>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={() => void handleAplicarRegimen()}
+                disabled={guardandoRegimen || !puedeEditar}
+                style={{ minHeight: '36px', padding: '0 1.25rem', fontWeight: 600 }}
+              >
+                {guardandoRegimen ? 'Aplicando cambios…' : `⚡ Aplicar como ${targetRegimen === 'especial' ? 'Especial' : 'Ordinario'}`}
+              </button>
+            </div>
+          </div>
+
+          {/* Desplegable de Auditoría Detallada */}
+          <details style={{ marginTop: '1.25rem', border: '1px solid rgba(255, 255, 255, 0.08)', borderRadius: 12, padding: '.75rem 1rem', background: 'rgba(255, 255, 255, 0.015)' }}>
+            <summary style={{ cursor: 'pointer', fontWeight: 600, fontSize: '.84rem', color: 'var(--text-muted)', userSelect: 'none' }}>
+              ⚙️ Ver / Ajustar condiciones individuales e historial por tributo (Auditoría fiscal)
+            </summary>
+            <p className="muted" style={{ fontSize: '.78rem', margin: '.5rem 0 .75rem' }}>
+              Permite a los administradores fiscales y auditores consultar, editar o borrar registros históricos específicos por cada impuesto.
+            </p>
+            {RENGLONES.map((r) => (
+              <RenglonRegimen
+                key={`${r.condicion}:${r.impuesto ?? '*'}`}
+                {...r}
+                historial={historial.filter((h) => h.condicion === r.condicion && h.impuestoClave === r.impuesto)}
+                puedeEditar={puedeEditar}
+                puedeBorrar={puedeBorrar}
+                porEmpresa={porEmpresa}
+                empresaId={porEmpresa ? empresaId : null}
+                onCambio={() => { void cargar(); onRegimenCambiado?.(); }}
+              />
+            ))}
+          </details>
+        </>
+      )}
     </div>
   );
 }

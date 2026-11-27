@@ -32,13 +32,13 @@ vi.mock('@/shared/lib/supabase', () => ({
 
 import { rifValido } from '@/shared/lib/rif';
 import { EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
-import { CONFIG_RETENCION_DEFECTO } from './retencionesCalculo';
+import { CONFIG_RETENCION_DEFECTO, type ConfigRetencion } from './retencionesCalculo';
 import {
   SIN_PERMISO, aRetencion, anularRetencion, conceptosDeFilaGt, conceptosLocales, configDeJson, direccionDeGt,
   errorPorcentajesIva, guardarConfigRetencion,
   filaGtDeNueva, jsonDeConfig, llevaNumeroPropio, marcarDeclarada, registrarRetencion, rolAGt,
   sujetoAGt, sujetoDeGt, tipoAGt, tipoDeGt, tiposLicenciaDeJson, type NuevaRetencion,
-  consultarCorrelativoEstimado,
+  consultarCorrelativoEstimado, listRetenciones,
 } from './retencionesFiscal.repository';
 
 // Datos inventados. El RIF se arma con el dígito verificador que acepte la validación de GT.
@@ -54,6 +54,8 @@ const nueva = (over: Partial<NuevaRetencion> = {}): NuevaRetencion => ({
   baseImponible: 1000, alicuota: 16, impuesto: 160, porcentaje: 75, montoRetenido: 120,
   actor: 'prueba@ejemplo.com', ...over,
 });
+
+const configConIva: ConfigRetencion = { ...CONFIG_RETENCION_DEFECTO, esAgenteRetencionIva: true };
 
 beforeEach(() => { cola.length = 0; llamadas.length = 0; rpc.mockReset(); });
 
@@ -100,9 +102,9 @@ describe('traducciones entre el módulo y las tablas de GT', () => {
 });
 
 describe('la configuración es el JSON de Parámetros', () => {
-  it('sin datos: agente de IVA sí, especial no, y los datos de la empresa', () => {
+  it('sin datos: agente de IVA no, especial no, y los datos de la empresa', () => {
     const c = configDeJson(null);
-    expect(c.esAgenteRetencionIva).toBe(true);
+    expect(c.esAgenteRetencionIva).toBe(false);
     expect(c.esContribuyenteEspecial).toBe(false);
     expect(c.rif).toBe(EMPRESA_RIF);
     expect(c.razonSocial).toBe(EMPRESA_NOMBRE);
@@ -136,7 +138,7 @@ describe('la configuración es el JSON de Parámetros', () => {
     expect(j.iva_alicuota).toBe(16);
     expect(j.otra_clave).toBe('x');
     expect(j.unidad_tributaria).toBe(43);
-    expect(j.agente_retencion_iva).toBe(true);
+    expect(j.agente_retencion_iva).toBe(false);
   });
 });
 
@@ -186,8 +188,14 @@ describe('la fila que se escribe en el libro', () => {
     expect(f.iva_monto).toBeNull();
   });
 
+  it('multi-empresa (D1b): el suelto marca empresa_id en la línea solo si viene', () => {
+    expect(filaGtDeNueva(nueva({ empresaId: 'emp-1' }), { entero: 1, texto: 'x' }).empresa_id).toBe('emp-1');
+    expect('empresa_id' in filaGtDeNueva(nueva(), { entero: 1, texto: 'x' })).toBe(false);
+  });
+
   it('numera toda practicada menos el IGTF; las recibidas no', () => {
     expect(llevaNumeroPropio({ direccion: 'practicada', tipo: 'islr' })).toBe(true);
+    expect(llevaNumeroPropio({ direccion: 'practicada', tipo: 'islr', montoRetenido: 0 })).toBe(false);
     expect(llevaNumeroPropio({ direccion: 'practicada', tipo: 'igtf' })).toBe(false);
     expect(llevaNumeroPropio({ direccion: 'recibida', tipo: 'iva' })).toBe(false);
   });
@@ -197,7 +205,7 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
   it('practica un IVA: no pide ni arma el número; lo lee de la fila devuelta', async () => {
     cola.push({ data: [], error: null });                                    // doble registro: nada
     cola.push({ data: { id: 'r-9', rol: 'practicada', tipo: 'IVA', estado: 'registrada', comprobante_nro: '20261000000007', numero: 7, numero_origen: 'sistema' }, error: null });
-    const r = await registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO);
+    const r = await registrarRetencion(nueva(), configConIva);
     expect(rpc).not.toHaveBeenCalled();
     const insert = llamadas[1].metodos.find((m) => m[0] === 'insert')?.[1] as Record<string, unknown>;
     expect(insert.comprobante_nro).toBeNull();
@@ -230,7 +238,7 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
   it('RET_NUMERO_FORMATO de la base se explica con los dos formatos', async () => {
     cola.push({ data: [], error: null });
     cola.push({ data: null, error: { code: 'P0001', message: 'RET_NUMERO_FORMATO: el comprobante de ISLR lleva 10 dígitos.' } });
-    await expect(registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('10 dígitos');
+    await expect(registrarRetencion(nueva(), configConIva)).rejects.toThrow('10 dígitos');
   });
 
   it('operacion_numero (ISAE) se lee como dato informativo', () => {
@@ -241,7 +249,7 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
   it('el doble registro busca solo lo no anulado, con el rol y el impuesto de GT', async () => {
     cola.push({ data: [], error: null });
     cola.push({ data: { id: 'r-9', rol: 'practicada', tipo: 'IVA', estado: 'registrada' }, error: null });
-    await registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO);
+    await registrarRetencion(nueva(), configConIva);
     const m = llamadas[0].metodos;
     expect(m).toContainEqual(['eq', 'rol', 'practicada']);
     expect(m).toContainEqual(['eq', 'tipo', 'IVA']);
@@ -250,7 +258,7 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
 
   it('si la factura ya tiene una retención vigente, no inserta', async () => {
     cola.push({ data: [{ id: 'r-1', rol: 'practicada', tipo: 'IVA', estado: 'registrada', rif: RIF, factura_nro: '000123' }], error: null });
-    await expect(registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('ya tiene una retención');
+    await expect(registrarRetencion(nueva(), configConIva)).rejects.toThrow('ya tiene una retención');
     expect(rpc).not.toHaveBeenCalled();
   });
 
@@ -261,9 +269,9 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
   });
 
   it('sin factura, sin monto o con un RIF mal escrito no toca la base', async () => {
-    await expect(registrarRetencion(nueva({ facturaNumero: '' }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('N° de factura');
-    await expect(registrarRetencion(nueva({ montoRetenido: 0 }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('debe llevar el motivo');
-    await expect(registrarRetencion(nueva({ contraparteRif: 'J-12' }), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('RIF');
+    await expect(registrarRetencion(nueva({ facturaNumero: '' }), configConIva)).rejects.toThrow('N° de factura');
+    await expect(registrarRetencion(nueva({ montoRetenido: 0 }), configConIva)).rejects.toThrow('debe llevar el motivo');
+    await expect(registrarRetencion(nueva({ contraparteRif: 'J-12' }), configConIva)).rejects.toThrow('RIF');
     expect(rpc).not.toHaveBeenCalled();
   });
 
@@ -310,12 +318,26 @@ describe('registrar: el número de una practicada lo pone la base (V2)', () => {
   it('serie manual sin número (V2 · RET_NUMERO_FALTA): mensaje legible', async () => {
     cola.push({ data: [], error: null });
     cola.push({ data: null, error: { code: 'P0001', message: 'RET_NUMERO_FALTA: la serie es manual.' } });
-    await expect(registrarRetencion(nueva(), CONFIG_RETENCION_DEFECTO)).rejects.toThrow('escribe el número del comprobante');
+    await expect(registrarRetencion(nueva(), configConIva)).rejects.toThrow('escribe el número del comprobante');
   });
 
   it('numero_origen (V2) se lee como dato informativo', () => {
     expect(aRetencion({ id: 'r-1', rol: 'practicada', tipo: 'IVA', numero_origen: 'dado' }).numeroOrigen).toBe('dado');
     expect(aRetencion({ id: 'r-1', rol: 'practicada', tipo: 'IVA' }).numeroOrigen).toBeNull();
+  });
+});
+
+describe('multi-empresa: el libro filtra por empresa cuando se pide', () => {
+  it('con empresaId aplica eq(empresa_id)', async () => {
+    cola.push({ data: [], error: null });
+    await listRetenciones({ empresaId: 'emp-1' });
+    expect(llamadas[0].metodos).toContainEqual(['eq', 'empresa_id', 'emp-1']);
+  });
+
+  it('sin empresaId (single-empresa) no filtra por empresa', async () => {
+    cola.push({ data: [], error: null });
+    await listRetenciones({ direccion: 'practicada' });
+    expect(llamadas[0].metodos.some((x) => x[0] === 'eq' && x[1] === 'empresa_id')).toBe(false);
   });
 });
 
@@ -392,6 +414,18 @@ describe('consultarCorrelativoEstimado: previsualización del correlativo según
     expect(res.comprobante).toBe('20261000000015');
   });
 
+  it('B2 multi-empresa: con empresaId el estimado cuenta solo esa empresa', async () => {
+    cola.push({ data: [], error: null });
+    await consultarCorrelativoEstimado('iva', '202610', undefined, 'empresa-mto');
+    expect(llamadas[0].metodos).toContainEqual(['eq', 'empresa_id', 'empresa-mto']);
+  });
+
+  it('sin empresaId el estimado no filtra por empresa (single/GT, como hoy)', async () => {
+    cola.push({ data: [], error: null });
+    await consultarCorrelativoEstimado('iva', '202610');
+    expect(llamadas[0].metodos.some((m) => m[0] === 'eq' && m[1] === 'empresa_id')).toBe(false);
+  });
+
   it('para ISLR asigna formato continuo de 10 dígitos', async () => {
     cola.push({
       data: [{ numero: 3, comprobante_nro: '0000000003' }],
@@ -400,6 +434,17 @@ describe('consultarCorrelativoEstimado: previsualización del correlativo según
     const res = await consultarCorrelativoEstimado('islr', '202610');
     expect(res.numero).toBe(4);
     expect(res.comprobante).toBe('0000000004');
+    expect(res.comprobante).toHaveLength(10);
+  });
+
+  it('para ISLR con comprobante histórico de 14 dígitos extrae los últimos 8 dígitos sin desbordar a 14', async () => {
+    cola.push({
+      data: [{ numero: null, comprobante_nro: '20261000000005' }],
+      error: null,
+    });
+    const res = await consultarCorrelativoEstimado('islr', '202610');
+    expect(res.numero).toBe(6);
+    expect(res.comprobante).toBe('0000000006');
     expect(res.comprobante).toHaveLength(10);
   });
 });

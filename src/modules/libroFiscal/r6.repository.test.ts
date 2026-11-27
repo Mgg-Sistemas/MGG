@@ -58,13 +58,14 @@ describe('supuestos: piezas puras', () => {
   });
 
   it('el IVA con un supuesto de la base usa su % y su texto; sin supuesto, igual que antes', () => {
+    const cfgAgente = { ...CONFIG_RETENCION_DEFECTO, esAgenteRetencionIva: true };
     const base = { baseImponible: 1000, ivaFactura: 160 };
-    const con = calcularRetencionIva({ ...base, supuesto: { pct: 50, texto: 'Supuesto B' } }, CONFIG_RETENCION_DEFECTO);
+    const con = calcularRetencionIva({ ...base, supuesto: { pct: 50, texto: 'Supuesto B' } }, cfgAgente);
     expect(con.porcentaje).toBe(50);
     expect(con.montoRetenido).toBe(80);
     expect(con.explicacion).toMatch(/supuesto b/);
-    expect(calcularRetencionIva(base, CONFIG_RETENCION_DEFECTO).porcentaje).toBe(75);
-    expect(calcularRetencionIva({ ...base, motivos: { ivaNoDiscriminado: true } }, CONFIG_RETENCION_DEFECTO).porcentaje).toBe(100);
+    expect(calcularRetencionIva(base, cfgAgente).porcentaje).toBe(75);
+    expect(calcularRetencionIva({ ...base, motivos: { ivaNoDiscriminado: true } }, cfgAgente).porcentaje).toBe(100);
   });
 });
 

@@ -20,44 +20,33 @@
    se escribe a mano («dado»), y la base lo valida con el formato de su serie.
    ============================================================ */
 import { supabase } from '@/shared/lib/supabase';
-import type { EstadoOrden } from '@/shared/lib/types';
 import { todasLasFilas } from '@/shared/lib/todasLasFilas';
 import { EMPRESA_DOMICILIO, EMPRESA_EMAIL, EMPRESA_NOMBRE, EMPRESA_RIF } from '@/shared/lib/empresa';
 import { normalizarRif, rifValido } from '@/shared/lib/rif';
+import type { EstadoOrden } from '@/shared/lib/types';
 import {
   CONFIG_RETENCION_DEFECTO, enBolivares, formatoComprobante, formatoSerie, labelImpuesto, motivoNoPuedePracticar, numeroConFormato, textoDeFormato,
   type ConceptoRetencion, type ConfigRetencion, type DireccionRetencion,
   type EstadoRetencion, type SujetoRetenido, type TipoImpuesto,
 } from './retencionesCalculo';
 export { formatoComprobante, formatoSerie };
+export type { ConfigRetencion };
 import { mensajeDobleRegistro, normalizarFactura, retencionYaRegistrada } from './dobleRegistro';
 import { faltaEnLaCarga } from './validarCarga';
 import { errorRetencion } from './erroresRetencion';
 import { configDeFecha } from './parametros.repository';
 import { serieDeImpuesto } from './impuestos.repository';
-import { tablaDisponible, v2rDisponible } from './disponibilidad';
+import { tablaDisponible } from './disponibilidad';
 import { hoyVenezuela } from '@/shared/lib/rangosFecha';
 
 const T_RETENCIONES = 'retenciones';
-const T_CONCEPTOS = 'retencion_conceptos';
+const T_CONCEPTOS = 'retenciones_conceptos';
 const CLAVE_CONFIG = 'retenciones.parametros';
 const BUCKET = 'compras-oc';
 
 const n = (v: unknown) => (Number.isFinite(Number(v)) ? Number(v) : 0);
 const r2 = (v: number) => Math.round((Number(v) || 0) * 100) / 100;
 const texto = (v: unknown) => (v == null || v === '' ? null : String(v));
-
-function esColumnaInexistente(e: { code?: string; message?: string } | null | undefined): boolean {
-  if (!e) return false;
-  if (e.code === '42703' || e.code === 'PGRST204') return true;
-  return /column .* does not exist|could not find the .* column/i.test(e.message ?? '');
-}
-
-function esFuncionInexistente(e: { code?: string; message?: string } | null | undefined): boolean {
-  if (!e) return false;
-  if (e.code === '42883' || e.code === 'PGRST202') return true;
-  return /could not find the function|function .* does not exist/i.test(e.message ?? '');
-}
 
 /** Cuando un UPDATE no toca ninguna fila: la base no dio permiso, o la fila no existe. */
 export const SIN_PERMISO = 'No se guardó el cambio: el usuario no tiene permiso de escritura en Retenciones, o la retención ya no existe.';
@@ -111,18 +100,22 @@ export function configDeJson(v: JsonParametros | null | undefined): ConfigRetenc
     email: texto(j.empresa_email) ?? texto(j.agente_email) ?? EMPRESA_EMAIL,
     esAgenteRetencionIva: bool('agente_retencion_iva', CONFIG_RETENCION_DEFECTO.esAgenteRetencionIva),
     esContribuyenteEspecial: bool('contribuyente_especial', CONFIG_RETENCION_DEFECTO.esContribuyenteEspecial),
+    retieneIslr: bool('retiene_islr', true),
+    retieneMunicipal: bool('retiene_municipal', false),
+    estadosKanbanRetencion: Array.isArray(j.estados_kanban_retencion) ? (j.estados_kanban_retencion as EstadoOrden[]) : CONFIG_RETENCION_DEFECTO.estadosKanbanRetencion,
     pctIvaGeneral: n(j.iva_retencion) || 75,
     pctIvaEspecial: n(j.iva_retencion_especial) || 100,
     valorUt: n(j.unidad_tributaria),
     pctIgtf: j.igtf_alicuota == null ? CONFIG_RETENCION_DEFECTO.pctIgtf : n(j.igtf_alicuota),
+    ivaAlicuota: n(j.iva_alicuota) || CONFIG_RETENCION_DEFECTO.ivaAlicuota,
     licenciaMunicipal: texto(j.licencia_municipal) ?? texto(j.licencia_numero) ?? texto(j.rim) ?? null,
     imprimirOriginalYCopia: bool('imprimir_original_copia', true),
-    estadosKanbanRetencion: Array.isArray(j.estados_kanban_retencion)
-      ? (j.estados_kanban_retencion as EstadoOrden[])
-      : CONFIG_RETENCION_DEFECTO.estadosKanbanRetencion,
-    estatusKanbanRetencion: Array.isArray(j.estatus_kanban_retencion)
-      ? (j.estatus_kanban_retencion as string[])
-      : (CONFIG_RETENCION_DEFECTO.estatusKanbanRetencion as string[]),
+    incluirLogo: bool('comprobante_logo', true),
+    incluirFirma: bool('comprobante_firma', true),
+    incluirSello: bool('comprobante_sello', true),
+    incluirQr: bool('comprobante_qr', true),
+    buzonActivo: bool('buzon_activo', true),
+    multiempresaActivo: bool('multiempresa_activo', true),
   };
 }
 
@@ -140,20 +133,20 @@ export function jsonDeConfig(c: ConfigRetencion, previo: JsonParametros | null |
     licencia_municipal: c.licenciaMunicipal ?? '',
     agente_retencion_iva: c.esAgenteRetencionIva,
     contribuyente_especial: c.esContribuyenteEspecial,
+    retiene_islr: c.retieneIslr !== false,
+    retiene_municipal: c.retieneMunicipal === true,
+    estados_kanban_retencion: c.estadosKanbanRetencion ?? CONFIG_RETENCION_DEFECTO.estadosKanbanRetencion,
     iva_retencion: c.pctIvaGeneral,
     iva_retencion_especial: c.pctIvaEspecial,
     unidad_tributaria: c.valorUt,
     igtf_alicuota: c.pctIgtf,
     imprimir_original_copia: c.imprimirOriginalYCopia !== false,
-    estatus_kanban_retencion: c.estatusKanbanRetencion ?? [
-      'confirmada_metodo',
-      'oc_aprobada',
-      'cuenta_abierta',
-      'por_recibir',
-      'pagada',
-      'recibida',
-      'finalizada',
-    ],
+    comprobante_logo: c.incluirLogo !== false,
+    comprobante_firma: c.incluirFirma !== false,
+    comprobante_sello: c.incluirSello !== false,
+    comprobante_qr: c.incluirQr !== false,
+    buzon_activo: c.buzonActivo !== false,
+    multiempresa_activo: c.multiempresaActivo !== false,
   };
 }
 
@@ -164,7 +157,28 @@ async function leerJsonParametros(): Promise<JsonParametros | null> {
 }
 
 export async function getConfigRetencion(): Promise<ConfigRetencion> {
-  return configDeJson(await leerJsonParametros());
+  const cfg = configDeJson(await leerJsonParametros());
+  try {
+    const { data: conds } = await supabase.from('retencion_agente_condiciones')
+      .select('condicion, valor, desde, hasta')
+      .is('empresa_id', null)
+      .eq('condicion', 'contribuyente_especial');
+    if (conds && conds.length > 0) {
+      const hoy = hoyVenezuela().slice(0, 10);
+      const vigente = conds
+        .filter((c) => String(c.desde) <= hoy && (!c.hasta || String(c.hasta) >= hoy))
+        .sort((a, b) => String(b.desde).localeCompare(String(a.desde)))[0];
+      cfg.esContribuyenteEspecial = vigente ? vigente.valor === true : false;
+      cfg.esAgenteRetencionIva = cfg.esContribuyenteEspecial;
+    } else {
+      // Golden Touch es Contribuyente Ordinario ante el SENIAT: no retiene IVA salvo designación formal expresa
+      cfg.esContribuyenteEspecial = false;
+      cfg.esAgenteRetencionIva = false;
+    }
+  } catch {
+    /* fallback seguro */
+  }
+  return cfg;
 }
 
 /** La Providencia SNAT/2025/000054 (que derogó a la SNAT/2015/0049) solo admite 75% y 100%: los dos porcentajes son dato, pero no cualquier dato. */
@@ -197,18 +211,16 @@ export async function guardarConfigRetencion(c: ConfigRetencion, locales?: Alicu
   const falla = errorPorcentajesIva(c);
   if (falla) throw new Error(falla);
   const previo = await leerJsonParametros();
-  // Con R1 y R3, el régimen y los valores los escribe la base desde sus tablas con fecha:
-  // no se pisan con lo que la pantalla leyó antes.
-  const regimen = opciones?.conservarRegimen && previo
-    ? { agente_retencion_iva: previo.agente_retencion_iva, contribuyente_especial: previo.contribuyente_especial }
-    : {};
   const parametros = opciones?.conservarParametros && previo
     ? Object.fromEntries(CLAVES_R3.filter((k) => k in previo).map((k) => [k, previo[k]]))
     : {};
   const value = {
     ...jsonDeConfig(c, previo),
     ...(locales && !opciones?.conservarParametros ? { municipal_alicuota: n(locales.municipal), estadal_alicuota: n(locales.estadal) } : {}),
-    ...regimen,
+    agente_retencion_iva: c.esAgenteRetencionIva === true,
+    contribuyente_especial: c.esContribuyenteEspecial === true,
+    retiene_municipal: c.retieneMunicipal === true,
+    retiene_islr: c.retieneIslr !== false,
     ...parametros,
   };
   const { data, error } = await supabase.from('config')
@@ -327,52 +339,14 @@ export function conceptosLocales(j: JsonParametros | null | undefined): Concepto
   ];
 }
 
-function aConceptoMgg(r: Record<string, unknown>): ConceptoRetencion {
-  return {
-    id: String(r.id),
-    tipo: (r.tipo as ConceptoRetencion['tipo']) || 'islr',
-    codigo: r.codigo != null ? String(r.codigo) : null,
-    nombre: String(r.nombre || ''),
-    sujeto: (r.sujeto as SujetoRetenido) || 'todos',
-    porcentaje: Number(r.porcentaje) || 0,
-    basePct: Number(r.base_pct ?? r.basePct) || 100,
-    aplicaSustraendo: Boolean(r.aplica_sustraendo ?? r.aplicaSustraendo),
-    baseMinimaUt: Number(r.base_minima_ut ?? r.baseMinimaUt) || 0,
-    fundamento: r.fundamento != null ? String(r.fundamento) : null,
-    activo: r.activo !== false,
-    orden: Number(r.orden) || 0,
-  };
-}
-
 export async function listConceptos(soloActivos = false): Promise<ConceptoRetencion[]> {
-  // 1. Intento tabla GT `retencion_conceptos` (una fila por código con columnas por sujeto)
-  try {
-    let q = supabase.from(T_CONCEPTOS).select('codigo, concepto, pjd, pjnd, pnr, pnnr, base_pct, activo, orden, nota')
-      .order('orden', { ascending: true });
-    if (soloActivos) q = q.eq('activo', true);
-    const { data, error } = await q;
-    if (!error && data && data.length > 0) {
-      const islr = data.flatMap((r) => conceptosDeFilaGt(r as Record<string, unknown>));
-      return [...islr, ...conceptosLocales(await leerJsonParametros())];
-    }
-  } catch {
-    // Continuar al fallback
-  }
-
-  // 2. Intento esquema nativo MGG `retencion_conceptos` (id, tipo, nombre, sujeto, porcentaje)
-  try {
-    let q = supabase.from('retencion_conceptos').select('*').order('orden', { ascending: true });
-    if (soloActivos) q = q.eq('activo', true);
-    const { data, error } = await q;
-    if (!error && data && data.length > 0) {
-      return data.map((r) => aConceptoMgg(r as Record<string, unknown>));
-    }
-  } catch {
-    // Continuar al fallback
-  }
-
-  // 3. Fallback seguro a conceptos locales (sin romper el formulario de retenciones)
-  return conceptosLocales(await leerJsonParametros());
+  let q = supabase.from(T_CONCEPTOS).select('codigo, concepto, pjd, pjnd, pnr, pnnr, base_pct, activo, orden, nota')
+    .order('orden', { ascending: true });
+  if (soloActivos) q = q.eq('activo', true);
+  const { data, error } = await q;
+  if (error) throw errorRetencion(error, 'No se pudo leer el catálogo de conceptos.');
+  const islr = (data ?? []).flatMap((r) => conceptosDeFilaGt(r as Record<string, unknown>));
+  return [...islr, ...conceptosLocales(await leerJsonParametros())];
 }
 
 /** Separa el id sintético `codigo:SUJETO` del catálogo de GT. */
@@ -388,31 +362,6 @@ export function partirIdConcepto(id: string): { codigo: string; sujeto: SujetoGt
  */
 export async function guardarConcepto(c: Partial<ConceptoRetencion> & { nombre: string; tipo: ConceptoRetencion['tipo'] }): Promise<void> {
   if (c.tipo !== 'islr') throw new Error('La alícuota municipal y la estadal se cambian en Parámetros.');
-
-  // 1. Intento MGG `retencion_conceptos` si el id es un UUID
-  if (c.id && ES_UUID.test(c.id)) {
-    try {
-      const filaMgg = {
-        tipo: c.tipo,
-        codigo: c.codigo?.trim() || null,
-        nombre: c.nombre.trim(),
-        sujeto: c.sujeto || 'todos',
-        porcentaje: n(c.porcentaje),
-        base_pct: n(c.basePct) || 100,
-        aplica_sustraendo: !!c.aplicaSustraendo,
-        base_minima_ut: n(c.baseMinimaUt) || 0,
-        fundamento: c.fundamento ?? null,
-        activo: c.activo !== false,
-        ...(c.orden != null ? { orden: n(c.orden) } : {}),
-      };
-      const { data, error } = await supabase.from('retencion_conceptos').update(filaMgg).eq('id', c.id).select('id');
-      if (!error && data?.length) return;
-    } catch {
-      // Continuar al intento GT
-    }
-  }
-
-  // 2. Intento GT `retencion_conceptos`
   const codigo = (c.id ? partirIdConcepto(c.id).codigo : c.codigo)?.trim();
   const sujeto = sujetoAGt(c.sujeto);
   if (!codigo) throw new Error('Código del concepto requerido (Decreto 1.808).');
@@ -428,16 +377,8 @@ export async function guardarConcepto(c: Partial<ConceptoRetencion> & { nombre: 
 
 /** En GT un concepto se activa o se apaga entero: con todos sus sujetos. */
 export async function activarConcepto(id: string, activo: boolean): Promise<void> {
-  if (id.endsWith(':todos')) throw new Error('La alícuota municipal y la estadal se cambian en Parámetros.');
-  if (ES_UUID.test(id)) {
-    try {
-      const { data, error } = await supabase.from('retencion_conceptos').update({ activo }).eq('id', id).select('id');
-      if (!error && data?.length) return;
-    } catch {
-      // Continuar al intento GT
-    }
-  }
   const { codigo } = partirIdConcepto(id);
+  if (id.endsWith(':todos')) throw new Error('La alícuota municipal y la estadal se cambian en Parámetros.');
   const { data, error } = await supabase.from(T_CONCEPTOS).update({ activo }).eq('codigo', codigo).select('codigo');
   if (error) throw errorRetencion(error, 'No se pudo cambiar el concepto.');
   if (!data?.length) throw new Error(SIN_PERMISO);
@@ -452,10 +393,12 @@ export async function activarConcepto(id: string, activo: boolean): Promise<void
    La contraparte puede ser un cliente (el que nos retiene) o un proveedor
    (al que le retenemos), por eso no se llama «proveedor».                   */
 
-export type DocKind = 'oc' | 'compra_directa' | 'servicio_directo' | 'venta' | 'manual';
+export type DocKind = 'oc' | 'compra_directa' | 'servicio_directo' | 'manual';
 
 export interface RetencionPracticada {
   id: string;
+  /** Multi-empresa: ID de la empresa a la que pertenece la retención. */
+  empresaId?: string | null;
   /** VF: el documento fiscal (factura) al que pertenece la línea, si lo tiene. */
   documentoId?: string | null;
   tipo: TipoImpuesto;
@@ -501,7 +444,7 @@ export interface RetencionPracticada {
   moneda: string;
   tasa: number | null;
   baseImponible: number;
-  /** Base imponible convertida a Bolívares. */
+  /** Base imponible expresada en bolívares (null si no hay tasa). */
   baseBs?: number | null;
   alicuota: number;
   impuesto: number;
@@ -512,6 +455,8 @@ export interface RetencionPracticada {
   montoRetenido: number;
   /** Lo retenido en bolívares, que es como se declara (null si no hay tasa). */
   montoBs: number | null;
+  /** Valor de la Unidad Tributaria vigente con que se calculó (VU). */
+  valorUt?: number | null;
   comprobantePath: string | null;
   comprobanteNombre: string | null;
   observacion: string | null;
@@ -526,83 +471,77 @@ export interface RetencionPracticada {
   updatedAt: string | null;
 }
 
-/** Una fila de la tabla de GT o MGG → una retención del módulo. */
+/** Una fila de la tabla de GT → una retención del módulo. */
 export function aRetencion(r: Record<string, unknown>): RetencionPracticada {
-  const docKindRaw = texto(r.doc_kind);
-  const docKind: DocKind = r.orden_id || docKindRaw === 'oc'
-    ? 'oc'
-    : r.compra_directa_id || docKindRaw === 'compra_directa'
-      ? 'compra_directa'
-      : r.servicio_directo_id || docKindRaw === 'servicio_directo'
-        ? 'servicio_directo'
-        : r.venta_id || docKindRaw === 'venta'
-          ? 'venta'
-          : 'manual';
-  const sujeto = sujetoDeGt(r.sujeto) ?? ((r.contraparte_sujeto as SujetoRetenido | undefined) ?? null);
-  const fechaRef = String(r.factura_fecha ?? r.fecha ?? '');
-  const direccion: DireccionRetencion = r.rol != null
-    ? direccionDeGt(r.rol)
-    : (r.direccion === 'practicada' ? 'practicada' : 'recibida');
-  const dirFiscal = (r.direccion !== 'practicada' && r.direccion !== 'recibida' ? r.direccion : null)
-    ?? r.proveedor_direccion
-    ?? r.contraparte_direccion;
-  const td = r.tipo_documento ?? r.documento_tipo;
-  const moneda = String(r.moneda ?? 'Bs');
-  const tasa = r.tasa == null ? null : n(r.tasa);
-  const montoRetenido = n(r.monto ?? r.monto_retenido);
-  const montoBs = r.monto_bs != null
-    ? n(r.monto_bs)
-    : ('monto_retenido' in r && !('monto_bs' in r)
-        ? (enBolivares(montoRetenido, moneda, tasa) || null)
-        : null);
+  const doc = (r.retencion_documentos && typeof r.retencion_documentos === 'object' && !Array.isArray(r.retencion_documentos))
+    ? (r.retencion_documentos as Record<string, unknown>)
+    : (Array.isArray(r.retencion_documentos) && r.retencion_documentos[0] && typeof r.retencion_documentos[0] === 'object'
+      ? (r.retencion_documentos[0] as Record<string, unknown>)
+      : null);
+  const ordenId = r.orden_id ?? doc?.orden_id;
+  const compraDirectaId = r.compra_directa_id ?? doc?.compra_directa_id;
+  const servicioDirectoId = r.servicio_directo_id ?? doc?.servicio_directo_id;
+  const docKind: DocKind = ordenId ? 'oc' : compraDirectaId ? 'compra_directa' : servicioDirectoId ? 'servicio_directo' : 'manual';
+  const sujeto = sujetoDeGt(r.sujeto ?? doc?.sujeto);
+  const fechaFactura = texto(r.factura_fecha ?? doc?.factura_fecha);
+  const fechaEmision = texto(r.fecha);
+  const fechaRef = String(fechaFactura ?? fechaEmision ?? '');
+  const tipoDocRaw = r.tipo_documento ?? doc?.tipo_documento;
+  const facturaAfectadaRaw = r.factura_afectada_nro ?? doc?.factura_afectada_nro;
+  const facturaTotalRaw = r.factura_total ?? doc?.factura_total;
+  const exentoRaw = r.exento ?? doc?.exento;
   return {
     id: String(r.id), documentoId: texto(r.documento_id), tipo: tipoDeGt(r.tipo),
-    direccion,
-    estado: r.declarada_at || r.declarada_en || r.estado === 'declarada' ? 'declarada' : 'registrada',
+    direccion: direccionDeGt(r.rol ?? doc?.rol),
+    estado: r.declarada_at || r.estado === 'declarada' ? 'declarada' : 'registrada',
     docKind,
-    docId: texto(r.orden_id ?? r.compra_directa_id ?? r.servicio_directo_id ?? r.venta_id ?? r.doc_id),
-    docCodigo: texto(r.doc_codigo),
-    contraparteId: texto(r.proveedor_id ?? r.contraparte_id),
-    contraparteRif: texto(r.rif ?? r.contraparte_rif),
-    contraparteNombre: texto(r.razon_social ?? r.contraparte_nombre),
+    docId: texto(ordenId ?? compraDirectaId ?? servicioDirectoId),
+    docCodigo: null,
+    contraparteId: texto(r.proveedor_id ?? doc?.proveedor_id),
+    contraparteRif: texto(r.rif ?? doc?.rif),
+    contraparteNombre: texto(r.razon_social ?? doc?.razon_social),
     contraparteSujeto: sujeto,
-    contraparteDireccion: texto(dirFiscal),
+    contraparteDireccion: texto(r.direccion ?? r.proveedor_direccion ?? r.contraparte_direccion),
     contraparteEmail: texto(r.email ?? r.proveedor_email ?? r.contraparte_email),
-    facturaNumero: texto(r.factura_nro ?? r.factura_numero),
-    facturaControl: texto(r.factura_control),
-    facturaFecha: texto(r.factura_fecha),
-    fecha: texto(r.fecha ?? r.factura_fecha),
-    fechaEntrega: texto(r.fecha_entrega),
-    tipoDocumento: td === 'nota_debito' || td === 'nota_credito' ? td : (td === 'factura' ? 'factura' : null),
-    facturaAfectadaNro: texto(r.factura_afectada_nro),
-    facturaTotal: r.factura_total == null ? null : n(r.factura_total),
-    exento: r.exento == null ? null : n(r.exento),
-    sinDerechoCreditoIva: r.monto_sin_derecho_credito_iva == null ? null : n(r.monto_sin_derecho_credito_iva),
+    facturaNumero: texto(r.factura_nro ?? doc?.factura_nro),
+    facturaControl: texto(r.factura_control ?? doc?.factura_control),
+    facturaFecha: fechaFactura,
+    fecha: fechaEmision,
+    fechaEntrega: texto(r.fecha_entrega ?? doc?.fecha_entrega),
+    tipoDocumento: tipoDocRaw === 'nota_debito' || tipoDocRaw === 'nota_credito' ? tipoDocRaw : (tipoDocRaw === 'factura' ? 'factura' : null),
+    facturaAfectadaNro: texto(facturaAfectadaRaw),
+    facturaTotal: facturaTotalRaw == null ? null : n(facturaTotalRaw),
+    exento: exentoRaw == null ? null : n(exentoRaw),
+    sinDerechoCreditoIva: (r.monto_sin_derecho_credito_iva ?? doc?.monto_sin_derecho_credito_iva) == null
+      ? null : n(r.monto_sin_derecho_credito_iva ?? doc?.monto_sin_derecho_credito_iva),
     licenciaSujeto: texto(r.licencia_numero ?? r.contraparte_licencia),
-    periodo: String(r.comprobante_periodo ?? r.periodo ?? (fechaRef.length >= 7 ? `${fechaRef.slice(0, 4)}${fechaRef.slice(5, 7)}` : '')),
+    periodo: String(r.comprobante_periodo ?? (fechaRef.length >= 7 ? `${fechaRef.slice(0, 4)}${fechaRef.slice(5, 7)}` : '')),
     quincena: r.quincena === 1 || r.quincena === 2 ? r.quincena : null,
-    numeroComprobante: texto(r.comprobante_nro ?? r.numero_comprobante),
+    numeroComprobante: texto(r.comprobante_nro),
     numeroOrigen: r.numero_origen === 'sistema' || r.numero_origen === 'dado' ? r.numero_origen : null,
     operacionNumero: r.operacion_numero == null ? null : n(r.operacion_numero),
-    conceptoId: r.concepto_codigo ? `${r.concepto_codigo}${r.sujeto ? `:${r.sujeto}` : ''}` : texto(r.concepto_id),
-    conceptoNombre: texto(r.concepto ?? r.concepto_nombre),
-    moneda, tasa,
-    baseImponible: n(r.base ?? r.base_imponible),
-    baseBs: r.base_bs != null ? n(r.base_bs) : (r.base_imponible_bs != null ? n(r.base_imponible_bs) : null),
-    alicuota: n(r.iva_alicuota ?? r.alicuota), impuesto: n(r.iva_monto ?? r.impuesto),
-    impuestoCausado: r.impuesto_causado == null ? null : n(r.impuesto_causado),
-    porcentaje: n(r.porcentaje), sustraendo: n(r.sustraendo), montoRetenido,
-    montoBs,
+    conceptoId: r.concepto_codigo ? `${r.concepto_codigo}${(r.sujeto ?? doc?.sujeto) ? `:${r.sujeto ?? doc?.sujeto}` : ''}` : null,
+    conceptoNombre: texto(r.concepto),
+    moneda: String(r.moneda ?? doc?.moneda ?? 'Bs'), tasa: (r.tasa ?? doc?.tasa) == null ? null : n(r.tasa ?? doc?.tasa),
+    baseImponible: n(r.base),
+    baseBs: r.base_bs == null ? null : n(r.base_bs),
+    alicuota: n(r.iva_alicuota ?? doc?.iva_alicuota), impuesto: n(r.iva_monto ?? doc?.iva_monto),
+    impuestoCausado: (r.impuesto_causado ?? doc?.impuesto_causado) == null
+      ? null : n(r.impuesto_causado ?? doc?.impuesto_causado),
+    porcentaje: n(r.porcentaje), sustraendo: n(r.sustraendo), montoRetenido: n(r.monto),
+    montoBs: r.monto_bs == null ? null : n(r.monto_bs),
+    valorUt: r.valor_ut == null ? null : n(r.valor_ut),
     comprobantePath: texto(r.comprobante_path),
     comprobanteNombre: texto(r.comprobante_nombre),
-    observacion: texto(r.descripcion ?? r.observacion),
-    anulada: r.estado === 'anulada' || r.anulada === true,
+    observacion: texto(r.descripcion),
+    anulada: r.estado === 'anulada',
     anuladaMotivo: texto(r.anulada_motivo),
-    declaradaEn: texto(r.declarada_at ?? r.declarada_en),
+    declaradaEn: texto(r.declarada_at),
     declaradaPor: texto(r.declarada_por),
     actorName: texto(r.actor_name),
+    empresaId: texto(r.empresa_id ?? (doc as any)?.empresa_id),
     createdAt: String(r.created_at ?? ''),
-    updatedAt: texto(r.updated_at ?? r.actualizado_en),
+    updatedAt: texto(r.updated_at),
   };
 }
 
@@ -616,6 +555,7 @@ export interface FiltroRetenciones {
   hasta?: string;
   docId?: string;
   incluirAnuladas?: boolean;
+  /** Multi-empresa: filtra al libro de ESA empresa. Solo surte efecto si viene (en single-empresa no se pasa). */
   empresaId?: string | null;
 }
 
@@ -624,74 +564,44 @@ export interface FiltroRetenciones {
  * así que se pagina (un año de retenciones pasa ese tope sin esfuerzo).
  */
 export async function listRetenciones(f: FiltroRetenciones = {}): Promise<RetencionPracticada[]> {
-  const doFetch = (conGt: boolean) =>
-    todasLasFilas<Record<string, unknown>>((desde, hasta) => {
-      let q = supabase.from(T_RETENCIONES).select('*')
-        .order('factura_fecha', { ascending: false, nullsFirst: false })
-        .order('created_at', { ascending: false })
-        .order('id', { ascending: false })   // desempate estable: sin esto las páginas se solapan
-        .range(desde, hasta);
-      if (conGt) {
-        if (f.direccion) q = q.eq('rol', rolAGt(f.direccion));
-        if (f.periodo) q = q.eq('comprobante_periodo', f.periodo);
-        if (f.tipo) q = q.eq('tipo', tipoAGt(f.tipo));
-        if (f.docId) q = q.or(`orden_id.eq.${f.docId},compra_directa_id.eq.${f.docId},servicio_directo_id.eq.${f.docId}`);
-      } else {
-        if (f.direccion) q = q.eq('direccion', f.direccion);
-        if (f.periodo) q = q.eq('periodo', f.periodo);
-        if (f.tipo) q = q.in('tipo', [f.tipo, tipoAGt(f.tipo)]);
-        if (f.docId) q = q.eq('doc_id', f.docId);
-      }
-      if (f.estado) q = q.eq('estado', f.estado);
-      if (f.desde) q = q.gte('factura_fecha', f.desde);
-      if (f.hasta) q = q.lte('factura_fecha', f.hasta);
-      if (!f.incluirAnuladas) q = q.neq('estado', 'anulada');
-      return q;
-    });
-
-  try {
-    const filas = await doFetch(true);
-    return filas.map((r) => aRetencion(r));
-  } catch (err: unknown) {
-    const code = (err as { code?: string })?.code;
-    const msg = String((err as { message?: string })?.message ?? '');
-    if (code === '42703' || /column.*(rol|comprobante_periodo|orden_id).*does not exist/i.test(msg)) {
-      const filas = await doFetch(false);
-      return filas.map((r) => aRetencion(r));
-    }
-    throw err;
-  }
+  const conDocumentos = await tablaDisponible('retencion_documentos');
+  const columnas = conDocumentos
+    ? '*, retencion_documentos(tipo_documento, factura_afectada_nro, factura_total, exento)'
+    : '*';
+  const filas = await todasLasFilas<Record<string, unknown>>((desde, hasta) => {
+    let q = (supabase.from(T_RETENCIONES).select(columnas) as any)
+      .order('factura_fecha', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })   // desempate estable: sin esto las páginas se solapan
+      .range(desde, hasta);
+    if (f.direccion) q = q.eq('rol', rolAGt(f.direccion));
+    if (f.tipo) q = q.eq('tipo', tipoAGt(f.tipo));
+    if (f.estado) q = q.eq('estado', f.estado);
+    if (f.periodo) q = q.eq('comprobante_periodo', f.periodo);
+    if (f.desde) q = q.gte('factura_fecha', f.desde);
+    if (f.hasta) q = q.lte('factura_fecha', f.hasta);
+    if (f.docId) q = q.or(`orden_id.eq.${f.docId},compra_directa_id.eq.${f.docId},servicio_directo_id.eq.${f.docId}`);
+    // Multi-empresa: la columna la pone/copia la base (R13). Solo filtra si se pidió.
+    if (f.empresaId) q = q.eq('empresa_id', f.empresaId);
+    if (!f.incluirAnuladas) q = q.neq('estado', 'anulada');
+    return q;
+  });
+  return filas.map((r) => aRetencion(r));
 }
-
 
 /** Los períodos que tienen retenciones, del más nuevo al más viejo. */
 export async function listPeriodos(): Promise<string[]> {
   const { data, error } = await supabase.from(T_RETENCIONES).select('comprobante_periodo')
     .not('comprobante_periodo', 'is', null).order('comprobante_periodo', { ascending: false });
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const alt = await supabase.from(T_RETENCIONES).select('periodo')
-        .not('periodo', 'is', null).order('periodo', { ascending: false });
-      if (alt.error) throw alt.error;
-      return [...new Set((alt.data ?? []).map((r) => String((r as { periodo: string }).periodo)))];
-    }
-    throw error;
-  }
+  if (error) throw error;
   return [...new Set((data ?? []).map((r) => String((r as { comprobante_periodo: string }).comprobante_periodo)))];
 }
 
 export interface NuevaRetencion {
   /** R7: la regla vigente con que se calculó y la foto de sus pasos (de calcularConReglaVigente). Solo se guarda si existe R7. */
   regla?: { regla_id: string; foto: Record<string, unknown> } | null;
-  empresaId?: string | null;
   tipo: TipoImpuesto;
   direccion: DireccionRetencion;
-  tipoDocumento?: 'factura' | 'nota_debito' | 'nota_credito' | null;
-  facturaAfectadaNro?: string | null;
-  facturaTotal?: number | null;
-  exento?: number | null;
-  /** Monto manual «sin derecho a crédito IVA» (dato interno; no es un concepto literal del Art. 18.8). */
-  sinDerechoCreditoIva?: number | null;
   docKind: DocKind;
   docId?: string | null;
   docCodigo?: string | null;
@@ -717,15 +627,26 @@ export interface NuevaRetencion {
   municipio?: string | null;
   moneda: string;
   tasa?: number | null;
+  /** Total real de la factura o nota de débito (Art. 18.8), distinto de la base si aplica. */
+  facturaTotal?: number | null;
   baseImponible: number;
   alicuota?: number;
   impuesto?: number;
   /** Art. 18.8: impuesto causado (IVA de factura o bruto ISLR antes del sustraendo). */
   impuestoCausado?: number | null;
+  /** Dato interno manual; separado de `exento`. */
+  sinDerechoCreditoIva?: number | null;
   porcentaje: number;
   sustraendo?: number;
   montoRetenido: number;
   observacion?: string | null;
+  /**
+   * Multi-empresa: la empresa receptora. El registro suelto inserta una línea SIN
+   * documento cabecera, así que la empresa elegida se marca directamente en la
+   * línea (D1b). Solo viaja si viene (single-empresa no la manda). El camino de
+   * factura marca la empresa en la cabecera (ver FacturaNueva).
+   */
+  empresaId?: string | null;
   actor: string;
   actorName?: string | null;
 }
@@ -742,22 +663,13 @@ async function retencionVigenteDeLaFactura(input: NuevaRetencion): Promise<Reten
   const { data, error } = await supabase.from(T_RETENCIONES).select('*')
     .eq('rol', rolAGt(input.direccion)).eq('tipo', tipoAGt(input.tipo)).neq('estado', 'anulada')
     .ilike('factura_nro', `%${cola}%`);
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const alt = await supabase.from(T_RETENCIONES).select('*')
-        .eq('direccion', input.direccion).in('tipo', [input.tipo, tipoAGt(input.tipo)]).neq('estado', 'anulada')
-        .ilike('factura_numero', `%${cola}%`);
-      if (alt.error) throw alt.error;
-      return retencionYaRegistrada((alt.data ?? []).map((r) => aRetencion(r as Record<string, unknown>)), input);
-    }
-    throw error;
-  }
+  if (error) throw error;
   return retencionYaRegistrada((data ?? []).map((r) => aRetencion(r as Record<string, unknown>)), input);
 }
 
 /** ¿Lleva número propio? Toda practicada lo lleva, menos el IGTF (es una percepción). */
-export const llevaNumeroPropio = (i: Pick<NuevaRetencion, 'direccion' | 'tipo'>) =>
-  i.direccion === 'practicada' && i.tipo !== 'igtf';
+export const llevaNumeroPropio = (i: Pick<NuevaRetencion, 'direccion' | 'tipo'> & { montoRetenido?: number }) =>
+  i.direccion === 'practicada' && i.tipo !== 'igtf' && (i.montoRetenido == null || i.montoRetenido > 0);
 
 /** La fila de GT de una retención nueva (sin el número propio, que se pide aparte). */
 export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | null; texto: string | null }): Record<string, unknown> {
@@ -766,6 +678,7 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
   const fecha = (input.fechaRetencion || input.facturaFecha || hoyVenezuela()).slice(0, 10);
   return {
     rol: rolAGt(input.direccion), tipo: tipoAGt(input.tipo), estado: 'registrada', fecha,
+    // La pantalla propone hoy, pero si el llamador no confirma una entrega no se inventa.
     fecha_entrega: input.fechaEntrega?.slice(0, 10) || null,
     numero: numero.entero, comprobante_nro: numero.texto,
     comprobante_periodo: input.periodo, quincena: input.quincena ?? null,
@@ -777,10 +690,7 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
     factura_nro: input.facturaNumero?.trim() || null,
     factura_control: input.facturaControl?.trim() || null,
     factura_fecha: input.facturaFecha || null,
-    ...(input.tipoDocumento ? { tipo_documento: input.tipoDocumento } : {}),
-    ...(input.facturaAfectadaNro ? { factura_afectada_nro: input.facturaAfectadaNro.trim() } : {}),
-    ...(input.facturaTotal != null ? { factura_total: input.facturaTotal } : {}),
-    ...(input.exento != null ? { exento: input.exento } : {}),
+    factura_total: input.facturaTotal ?? null,
     base: r2(input.baseImponible),
     iva_alicuota: input.tipo === 'iva' ? input.alicuota ?? null : null,
     iva_monto: input.tipo === 'iva' ? input.impuesto ?? null : null,
@@ -798,46 +708,11 @@ export function filaGtDeNueva(input: NuevaRetencion, numero: { entero: number | 
     orden_id: input.docKind === 'oc' ? input.docId ?? null : null,
     compra_directa_id: input.docKind === 'compra_directa' ? input.docId ?? null : null,
     servicio_directo_id: input.docKind === 'servicio_directo' ? input.docId ?? null : null,
-    ...(input.docKind === 'venta' ? { venta_id: input.docId ?? null } : {}),
     actor: input.actor, actor_name: input.actorName ?? null,
     updated_at: new Date().toISOString(),
-  };
-}
-
-/** La fila nativa MGG (`retenciones-modulo-fiscal.sql`) de una retención nueva. */
-function filaMggDeNueva(input: NuevaRetencion, numero: { entero: number | null; texto: string | null }): Record<string, unknown> {
-  const conceptoIdUuid = input.conceptoId && ES_UUID.test(input.conceptoId) ? input.conceptoId : null;
-  return {
-    tipo: input.tipo,
-    direccion: input.direccion,
-    estado: 'registrada',
-    doc_kind: input.docKind,
-    doc_id: input.docKind === 'manual' ? null : input.docId ?? null,
-    doc_codigo: input.docCodigo ?? null,
-    contraparte_id: input.direccion === 'practicada' ? input.contraparteId ?? null : null,
-    contraparte_rif: input.contraparteRif ? normalizarRif(input.contraparteRif) : null,
-    contraparte_nombre: input.contraparteNombre?.trim() || null,
-    contraparte_sujeto: input.contraparteSujeto ?? null,
-    factura_numero: input.facturaNumero?.trim() || null,
-    factura_control: input.facturaControl?.trim() || null,
-    factura_fecha: input.facturaFecha || null,
-    documento_tipo: input.tipoDocumento ?? 'factura',
-    periodo: input.periodo,
-    quincena: input.quincena ?? null,
-    numero_comprobante: numero.texto,
-    concepto_id: conceptoIdUuid,
-    concepto_nombre: input.conceptoNombre?.trim() || null,
-    moneda: input.moneda || 'Bs',
-    tasa: input.tasa ?? null,
-    base_imponible: r2(input.baseImponible),
-    alicuota: n(input.alicuota),
-    impuesto: n(input.impuesto),
-    porcentaje: n(input.porcentaje),
-    sustraendo: n(input.sustraendo),
-    monto_retenido: r2(input.montoRetenido),
-    observacion: input.observacion?.trim() || null,
-    actor: input.actor,
-    actor_name: input.actorName ?? null,
+    // Multi-empresa (D1b): el registro suelto inserta una línea SIN cabecera, así que la
+    // empresa elegida se marca aquí mismo. Solo viaja si viene (single-empresa no la manda).
+    ...(input.empresaId ? { empresa_id: input.empresaId } : {}),
   };
 }
 
@@ -880,32 +755,12 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
   // R3: la UT (y los % del IVA) de la fecha de la factura. Antes de pedir el número: si falta, no se gasta.
   const vigente = await configDeFecha(config, (input.facturaFecha ?? '').slice(0, 10), [input.tipo]);
 
-  // Con V2R, el número de una practicada lo asigna la base. Solo viaja si se escribió a mano: «dado».
-  // Sin V2R (la base de hoy), el front lo pide con siguiente_numero_retencion si aún no viene numerada.
-  let numero: { entero: number | null; texto: string | null } = { entero: null, texto: input.numeroComprobante?.trim() || null };
-  if (!(await v2rDisponible())) {
-    if (llevaNumeroPropio(input) && !numero.texto) {
-      const { data, error } = await supabase.rpc('siguiente_numero_retencion', { p_tipo: tipoAGt(input.tipo), p_periodo: input.periodo });
-      if (error) {
-        if (esFuncionInexistente(error)) {
-          const alt = await supabase.rpc('siguiente_comprobante_retencion', { p_tipo: input.tipo, p_periodo: input.periodo });
-          if (alt.error) throw alt.error;
-          const textoNro = String(alt.data ?? '').trim();
-          if (!textoNro) throw new Error('La base no devolvió el número del comprobante.');
-          const digitos = textoNro.replace(/\D/g, '');
-          const enteroAlt = input.tipo === 'iva' && digitos.length >= 14 ? Number(digitos.slice(6)) : Number(digitos);
-          numero = { entero: enteroAlt > 0 ? enteroAlt : null, texto: textoNro };
-        } else {
-          throw error;
-        }
-      } else {
-        const entero = Number(data);
-        if (!(entero > 0)) throw new Error('La base no devolvió el número del comprobante.');
-        numero = { entero, texto: formatoComprobante(input.periodo, entero, input.tipo) };
-      }
-    }
-  } else if (numero.texto && input.direccion === 'practicada') {
-    // V2R: la serie (si numera y su formato) sale de retencion_impuestos; sin R2, las reglas fijas.
+  // La base numera cada practicada al insertar (único lugar donde dos usuarios no
+  // sacan el mismo). El número solo viaja desde el front si se escribió a mano: «dado».
+  const numero: { entero: number | null; texto: string | null } = { entero: null, texto: input.numeroComprobante?.trim() || null };
+  if (numero.texto && input.direccion === 'practicada') {
+    // El número «dado» se valida con la serie (si numera y su formato) de
+    // retencion_impuestos; sin R2, con las reglas fijas del impuesto.
     const serie = await serieDeImpuesto(tipoAGt(input.tipo));
     const numera = serie ? serie.numera : llevaNumeroPropio(input);
     const formato = serie ? serie.formato : formatoSerie(input.tipo);
@@ -921,15 +776,7 @@ export async function registrarRetencion(input: NuevaRetencion, config: ConfigRe
   const conRegla = input.regla && (await tablaDisponible('retencion_reglas')) ? input.regla : null;
   const fila = { ...filaGtDeNueva(input, numero), valor_ut: vigente.valorUt > 0 ? vigente.valorUt : null, ...(conRegla ?? {}) };
   const { data, error } = await supabase.from(T_RETENCIONES).insert(fila).select('*').single();
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const filaMgg = filaMggDeNueva(input, numero);
-      const alt = await supabase.from(T_RETENCIONES).insert(filaMgg).select('*').single();
-      if (alt.error) throw errorLegible(alt.error);
-      return aRetencion(alt.data as Record<string, unknown>);
-    }
-    throw errorLegible(error);
-  }
+  if (error) throw errorLegible(error);
   return aRetencion(data as Record<string, unknown>);
 }
 
@@ -945,21 +792,10 @@ function exigirFilas(data: unknown[] | null): void {
 export async function anularRetencion(id: string, motivo: string): Promise<void> {
   const m = motivo.trim();
   if (!m) throw new Error('Motivo de anulación requerido: queda en el libro como constancia.');
-  const ahora = new Date().toISOString();
   const { data, error } = await supabase.from(T_RETENCIONES)
-    .update({ estado: 'anulada', anulada_motivo: m, updated_at: ahora })
+    .update({ estado: 'anulada', anulada_motivo: m, updated_at: new Date().toISOString() })
     .eq('id', id).neq('estado', 'anulada').select('id');
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const alt = await supabase.from(T_RETENCIONES)
-        .update({ estado: 'anulada', anulada: true, anulada_en: ahora, anulada_motivo: m, actualizado_en: ahora })
-        .eq('id', id).neq('estado', 'anulada').select('id');
-      if (alt.error) throw alt.error;
-      exigirFilas(alt.data);
-      return;
-    }
-    throw error;
-  }
+  if (error) throw error;
   exigirFilas(data);
 }
 
@@ -972,21 +808,60 @@ export async function marcarDeclarada(id: string, declarada: boolean, actor: str
     declarada_por: declarada ? actor : null,
     updated_at: ahora,
   }).eq('id', id).neq('estado', 'anulada').select('id');
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const alt = await supabase.from(T_RETENCIONES).update({
-        estado: declarada ? 'declarada' : 'registrada',
-        declarada_en: declarada ? ahora : null,
-        declarada_por: declarada ? actor : null,
-        actualizado_en: ahora,
-      }).eq('id', id).neq('estado', 'anulada').select('id');
-      if (alt.error) throw alt.error;
-      exigirFilas(alt.data);
-      return;
-    }
-    throw error;
-  }
+  if (error) throw error;
   exigirFilas(data);
+}
+
+export interface DatosCorreccionRetencion {
+  base: number;
+  monto: number;
+  impuestoCausado?: number | null;
+  ivaMonto?: number | null;
+  ivaAlicuota?: number | null;
+  baseBs?: number | null;
+  montoBs?: number | null;
+}
+
+/**
+ * Corrige la base gravable y montos de una retención emitida erróneamente sobre el total con IVA.
+ * Actualiza la línea y, si existe documento_id, también la cabecera en retencion_documentos.
+ */
+export async function corregirBaseRetencion(id: string, datos: DatosCorreccionRetencion): Promise<void> {
+  const ahora = new Date().toISOString();
+  const patch: Record<string, unknown> = {
+    base: datos.base,
+    monto: datos.monto,
+    impuesto_causado: datos.impuestoCausado ?? datos.ivaMonto ?? datos.monto,
+    updated_at: ahora,
+  };
+  if (datos.ivaMonto !== undefined) patch.iva_monto = datos.ivaMonto;
+  if (datos.ivaAlicuota !== undefined) patch.iva_alicuota = datos.ivaAlicuota;
+  if (datos.baseBs !== undefined) patch.base_bs = datos.baseBs;
+  if (datos.montoBs !== undefined) patch.monto_bs = datos.montoBs;
+
+  const { data, error } = await supabase.from(T_RETENCIONES)
+    .update(patch)
+    .eq('id', id)
+    .neq('estado', 'anulada')
+    .select('id, documento_id');
+
+  if (error) throw error;
+  exigirFilas(data);
+
+  const docId = data[0]?.documento_id;
+  if (docId && datos.ivaMonto != null) {
+    try {
+      await supabase.from('retencion_documentos')
+        .update({
+          iva_monto: datos.ivaMonto,
+          iva_alicuota: datos.ivaAlicuota ?? 16,
+          updated_at: ahora,
+        })
+        .eq('id', docId);
+    } catch {
+      // Ignorar si retencion_documentos no existe o falla
+    }
+  }
 }
 
 /** Adjunta el comprobante: el que firma el proveedor, o el que entregó el cliente. */
@@ -1000,22 +875,10 @@ export async function adjuntarComprobante(id: string, file: File, tipo?: string)
   const { error: upErr } = await supabase.storage.from(BUCKET)
     .upload(path, file, { upsert: true, contentType: file.type || 'application/pdf' });
   if (upErr) throw upErr;
-  const ahora = new Date().toISOString();
-  const nombreFinal = tipo ? `${tipo} · ${file.name}` : file.name;
   const { data, error } = await supabase.from(T_RETENCIONES)
-    .update({ comprobante_path: path, comprobante_nombre: nombreFinal, updated_at: ahora })
+    .update({ comprobante_path: path, comprobante_nombre: tipo ? `${tipo} · ${file.name}` : file.name, updated_at: new Date().toISOString() })
     .eq('id', id).select('id');
-  if (error) {
-    if (esColumnaInexistente(error)) {
-      const alt = await supabase.from(T_RETENCIONES)
-        .update({ comprobante_path: path, comprobante_nombre: nombreFinal, actualizado_en: ahora })
-        .eq('id', id).select('id');
-      if (alt.error) throw alt.error;
-      exigirFilas(alt.data);
-      return;
-    }
-    throw error;
-  }
+  if (error) throw error;
   exigirFilas(data);
 }
 
@@ -1068,46 +931,18 @@ export async function consultarCorrelativoEstimado(
     if (conPeriodo && periodo) {
       q = q.eq('comprobante_periodo', periodo);
     }
+    // B2 (multi-empresa): cada empresa lleva su propia serie (R14). Si viene la empresa,
+    // el estimado cuenta solo sus retenciones, para que coincida con el número que asignará la base.
     if (empresaId) {
       q = q.eq('empresa_id', empresaId);
     }
 
-    const { data, error } = await q
+    const { data } = await q
       .order('numero', { ascending: false, nullsFirst: false })
       .limit(20);
 
     let maxNum = 0;
-    if (error && esColumnaInexistente(error)) {
-      const clavePer = conPeriodo ? periodo : '000000';
-      const { data: numRow } = await supabase
-        .from('retencion_numeros')
-        .select('ultimo')
-        .eq('tipo', tipo)
-        .eq('periodo', clavePer)
-        .maybeSingle();
-      if (numRow && Number((numRow as { ultimo?: unknown }).ultimo) > maxNum) {
-        maxNum = Number((numRow as { ultimo?: unknown }).ultimo);
-      }
-      let qMgg = supabase
-        .from(T_RETENCIONES)
-        .select('numero_comprobante')
-        .eq('direccion', 'practicada')
-        .in('tipo', [tipo, tipoGt]);
-      if (conPeriodo && periodo) qMgg = qMgg.eq('periodo', periodo);
-      const { data: dataMgg } = await qMgg.order('created_at', { ascending: false }).limit(20);
-      for (const fila of (dataMgg ?? []) as { numero_comprobante: unknown }[]) {
-        if (fila.numero_comprobante) {
-          const digitos = String(fila.numero_comprobante).replace(/\D/g, '');
-          if (conPeriodo && digitos.length >= 14 && digitos.startsWith(periodo)) {
-            const sec = Number(digitos.slice(6));
-            if (!Number.isNaN(sec) && sec > maxNum) maxNum = sec;
-          } else if (!conPeriodo && digitos.length >= 1) {
-            const sec = Number(digitos.length === 14 ? digitos.slice(6) : digitos.slice(-10));
-            if (!Number.isNaN(sec) && sec > maxNum) maxNum = sec;
-          }
-        }
-      }
-    } else if (data && data.length > 0) {
+    if (data && data.length > 0) {
       for (const fila of data as { numero: unknown; comprobante_nro: unknown }[]) {
         const numFila = fila.numero != null ? Number(fila.numero) : null;
         if (numFila != null && !Number.isNaN(numFila) && numFila > maxNum) {

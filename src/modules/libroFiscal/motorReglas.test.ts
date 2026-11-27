@@ -52,7 +52,7 @@ const concepto = (over: Partial<ConceptoRetencion> = {}): ConceptoRetencion => (
   aplicaSustraendo: true, baseMinimaUt: 83.3334, fundamento: null, activo: true, orden: 1, ...over,
 });
 const vcPnr = { pct: 3, basePct: 100, minimo: 83.3334, minimoUnidad: 'UT' as const, sustraendoFactor: 83.3334 };
-const config = { ...CONFIG_RETENCION_DEFECTO, valorUt: 43 };
+const config = { ...CONFIG_RETENCION_DEFECTO, valorUt: 43, esAgenteRetencionIva: true };
 
 describe('las reglas de arranque dan lo mismo que retencionesCalculo.ts', () => {
   it('IVA: 75 % del IVA; con supuesto, el 100 %', () => {

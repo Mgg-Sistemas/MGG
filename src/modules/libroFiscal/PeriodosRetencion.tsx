@@ -51,12 +51,22 @@ const ROTULO: Record<EstadoPeriodo, { texto: string; color: string }> = {
   otro_sistema: { texto: 'Lo declara el otro sistema', color: 'var(--text-muted)' },
 };
 
-export function PeriodosRetencion({ puedeEditar, impuestosActivos = null, practicaClaves = null }: {
+export function PeriodosRetencion({
+  puedeEditar,
+  impuestosActivos = null,
+  practicaClaves = null,
+  empresaId = null,
+  empresaNombre,
+}: {
   puedeEditar: boolean;
   /** Parámetros › Impuestos. null = no se pudo leer → se muestran todos. */
   impuestosActivos?: ImpuestosActivos | null;
   /** Régimen vigente de la empresa (claves GT). Solo filtra el año en curso. */
   practicaClaves?: ReadonlySet<string> | null;
+  /** Empresa activa: para aislar retenciones y conteos estrictamente por empresa. */
+  empresaId?: string | null;
+  /** Nombre o razón social de la empresa activa */
+  empresaNombre?: string;
 }) {
   const anioActual = Number(hoyVE().slice(0, 4)) || new Date().getFullYear();
   const [anio, setAnio] = useState(anioActual);
@@ -76,7 +86,7 @@ export function PeriodosRetencion({ puedeEditar, impuestosActivos = null, practi
       const prefijoAnio = `${anio}-`;
       const [ps, rs, imps] = await Promise.all([
         listPeriodos(anio),
-        listRetenciones({ direccion: 'practicada' }),
+        listRetenciones({ direccion: 'practicada', empresaId: empresaId ?? undefined }),
         opcionesImpuestoEnte().catch(() => []),
       ]);
       setPeriodos(ps);
@@ -87,7 +97,7 @@ export function PeriodosRetencion({ puedeEditar, impuestosActivos = null, practi
       );
       setImpuestos(imps); setError(null);
     } catch (e) { setError(mensaje(e, 'No se pudieron leer los períodos.')); }
-  }, [anio]);
+  }, [anio, empresaId]);
   useEffect(() => { setPeriodos(null); void cargar(); }, [cargar]);
   useRealtime(['retencion_periodos', 'retenciones', 'retencion_impuestos', 'retencion_agente_condiciones'], () => { void cargar(); });
 
@@ -119,6 +129,9 @@ export function PeriodosRetencion({ puedeEditar, impuestosActivos = null, practi
   return (
     <div>
       <div style={{ display: 'flex', gap: '.6rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
+        <span style={{ background: 'rgba(255, 138, 0, 0.12)', color: 'var(--primary)', border: '1px solid rgba(255, 138, 0, 0.25)', padding: '2px 8px', borderRadius: 4, fontWeight: 600, fontSize: '.82rem' }}>
+          🏢 {empresaNombre || 'Golden Touch'}
+        </span>
         <div style={{ display: 'flex', gap: '.2rem', alignItems: 'center' }}>
           <button type="button" className="btn btn-sm btn-ghost" aria-label="Año anterior" onClick={() => setAnio((a) => a - 1)}>‹</button>
           <strong style={{ minWidth: 48, textAlign: 'center' }}>{anio}</strong>

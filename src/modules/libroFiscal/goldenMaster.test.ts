@@ -60,7 +60,7 @@ const VC_ISLR = {
   pnr_servicios: { pct: 1, basePct: 100, ...CON_MIN } as VC,    // 003
 };
 
-const CONFIG = { ...CONFIG_RETENCION_DEFECTO, valorUt: UT };
+const CONFIG = { ...CONFIG_RETENCION_DEFECTO, valorUt: UT, esAgenteRetencionIva: true };
 
 /** DatosPrueba para un impuesto, con los parámetros/valores que lee su regla. */
 function datos(imp: ClaveImp, over: Partial<DatosPrueba> = {}): DatosPrueba {

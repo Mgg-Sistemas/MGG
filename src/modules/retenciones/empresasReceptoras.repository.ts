@@ -57,6 +57,8 @@ export interface EmpresaReceptora {
   /** Alícuota del Impuesto Municipal (ISAE) de la empresa según su municipio (F-ME1, default = la global de hoy). */
   alicuotaMunicipal?: number;
   imprimirOriginalYCopia?: boolean;
+  /** Designada Contribuyente Especial por el SENIAT (retiene IVA y percibe IGTF). */
+  esContribuyenteEspecial?: boolean;
 }
 
 export type EmpresaReceptoraInput = Omit<EmpresaReceptora, 'id' | 'clave' | 'orden'> & { id?: string; clave?: string; orden?: number };
@@ -64,6 +66,17 @@ export type EmpresaReceptoraInput = Omit<EmpresaReceptora, 'id' | 'clave' | 'ord
 const texto = (v: unknown): string | undefined => (v == null || v === '' ? undefined : String(v));
 
 function mapearFilaEmpresa(r: Record<string, unknown>, idx: number): EmpresaReceptora {
+  const clave = String(r.clave || r.id || '').trim().toLowerCase();
+  const id = String(r.id || '').trim().toLowerCase();
+  const rif = String(r.rif || '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+  const esGt = id === 'empresa-golden-touch' || clave === 'golden_touch' || clave === 'gt' || rif.includes('50129993');
+
+  // Si la columna en BD es null: para Golden Touch el valor proviene de su configuración histórica (Solo Original = false);
+  // para las demás empresas se asume el estándar (Original y Copia = true).
+  const impOrigCopia = r.imprimir_original_y_copia != null
+    ? r.imprimir_original_y_copia === true
+    : (esGt ? false : true);
+
   return {
     id: String(r.id),
     clave: String(r.clave || r.id),
@@ -86,7 +99,8 @@ function mapearFilaEmpresa(r: Record<string, unknown>, idx: number): EmpresaRece
     pctIgtf: r.pct_igtf != null ? Number(r.pct_igtf) : undefined,
     ivaAlicuota: r.iva_alicuota != null ? Number(r.iva_alicuota) : undefined,
     alicuotaMunicipal: r.alicuota_municipal != null ? Number(r.alicuota_municipal) : undefined,
-    imprimirOriginalYCopia: r.imprimir_original_y_copia !== false,
+    imprimirOriginalYCopia: impOrigCopia,
+    esContribuyenteEspecial: r.es_contribuyente_especial === true,
   };
 }
 
@@ -174,6 +188,7 @@ export async function guardarEmpresaReceptora(empresa: EmpresaReceptoraInput): P
   const filaFiscal: Record<string, unknown> = {};
   if (empresa.alicuotaMunicipal !== undefined) filaFiscal.alicuota_municipal = empresa.alicuotaMunicipal;
   if (empresa.imprimirOriginalYCopia !== undefined) filaFiscal.imprimir_original_y_copia = empresa.imprimirOriginalYCopia;
+  if (empresa.esContribuyenteEspecial !== undefined) filaFiscal.es_contribuyente_especial = empresa.esContribuyenteEspecial;
   const fila = { ...filaBase, ...filaFiscal };
 
   const textos = { unico: 'Ya hay una empresa con ese nombre corto: usa otro.' };
@@ -193,4 +208,116 @@ export async function eliminarEmpresaReceptora(id: string): Promise<void> {
   if (error?.code === '23503') throw new Error('No se puede borrar: tiene facturas cargadas. Desactívala para que no aparezca al cargar.');
   if (error) throw errorRetencion(error, 'No se pudo borrar la empresa.');
   if (!data?.length) throw new Error('No se borró la empresa: sin permiso para borrarla, o ya no existe.');
+}
+
+/**
+ * Preconfigura / sincroniza las empresas receptoras de Retenciones a partir de las
+ * existentes en el catálogo del módulo de Administración (`admin_empresas`).
+ *
+ * Si una empresa de Administración aún no existe en `retencion_empresas_receptoras`,
+ * la inserta automáticamente con su clave, nombre, RIF y defaults fiscales.
+ */
+export async function sincronizarEmpresasDesdeAdmin(): Promise<{
+  totalAdmin: number;
+  creadas: number;
+  actualizadas: number;
+  mensajes: string[];
+}> {
+  // 1. Consultar empresas registradas en Administración
+  const { data: adminData, error: errAdmin } = await supabase
+    .from('admin_empresas')
+    .select('*')
+    .order('orden', { ascending: true });
+
+  if (errAdmin || !adminData) {
+    return {
+      totalAdmin: 0,
+      creadas: 0,
+      actualizadas: 0,
+      mensajes: [errAdmin ? `No se pudo consultar admin_empresas: ${errAdmin.message}` : 'Sin empresas en Administración'],
+    };
+  }
+
+  // 2. Consultar empresas receptoras actuales
+  const { data: receptorasData, error: errRec } = await supabase
+    .from(TABLA)
+    .select('*');
+
+  if (errRec) {
+    return {
+      totalAdmin: adminData.length,
+      creadas: 0,
+      actualizadas: 0,
+      mensajes: [`Error al consultar ${TABLA}: ${errRec.message}`],
+    };
+  }
+
+  const receptoras = (receptorasData ?? []) as Record<string, unknown>[];
+  let creadas = 0;
+  let actualizadas = 0;
+  const mensajes: string[] = [];
+
+  for (const adm of adminData as Record<string, unknown>[]) {
+    const claveAdm = String(adm.clave || '').trim();
+    const nombreAdm = String(adm.nombre || '').trim();
+    const rifAdm = adm.rif ? String(adm.rif).trim() : '';
+    const esGt = claveAdm.toUpperCase() === 'GT' || nombreAdm.toLowerCase().includes('golden touch');
+
+    // Buscar si ya existe en receptoras
+    const match = receptoras.find((r) => {
+      if (esGt && (String(r.id) === 'empresa-golden-touch' || String(r.clave) === 'golden_touch')) return true;
+      if (adm.id && String(r.id) === String(adm.id)) return true;
+      if (claveAdm && (String(r.clave).toLowerCase() === claveAdm.toLowerCase() || String(r.clave) === claveDeEmpresa(claveAdm))) return true;
+      if (rifAdm && r.rif && String(r.rif).replace(/[^A-Za-z0-9]/g, '').toUpperCase() === rifAdm.replace(/[^A-Za-z0-9]/g, '').toUpperCase()) return true;
+      return false;
+    });
+
+    if (!match) {
+      // Determinar ID y Clave
+      const nuevoId = esGt ? 'empresa-golden-touch' : (adm.id ? String(adm.id) : crypto.randomUUID());
+      const nuevaClave = esGt ? 'golden_touch' : (claveDeEmpresa(nombreAdm) || claveAdm.toLowerCase() || `emp_${Date.now()}`);
+      const color = esGt ? '#eab308' : (claveAdm.toUpperCase() === 'MTO' ? '#d97706' : '#2563eb');
+
+      const filaInsert: Record<string, unknown> = {
+        id: nuevoId,
+        clave: nuevaClave,
+        nombre: nombreAdm,
+        nombre_corto: claveAdm || nombreAdm.slice(0, 30),
+        rif: rifAdm || 'J-00000000-0',
+        color_badge: color,
+        activo: adm.activa !== false,
+        orden: Number(adm.orden ?? 10),
+        pct_iva_general: 75,
+      };
+
+      const { error: insErr } = await supabase.from(TABLA).insert(filaInsert);
+      if (insErr) {
+        mensajes.push(`No se pudo importar ${nombreAdm}: ${insErr.message}`);
+      } else {
+        creadas++;
+        receptoras.push(filaInsert);
+      }
+    } else {
+      // Si existe pero le falta el RIF o nombre corto, complementar
+      const updates: Record<string, unknown> = {};
+      const rifExistente = String(match.rif ?? '').trim();
+      if ((!rifExistente || rifExistente === 'J-00000000-0') && rifAdm) {
+        updates.rif = rifAdm;
+      }
+      if (!match.nombre_corto && claveAdm) {
+        updates.nombre_corto = claveAdm;
+      }
+      if (Object.keys(updates).length > 0) {
+        const { error: upErr } = await supabase.from(TABLA).update(updates).eq('id', match.id);
+        if (!upErr) actualizadas++;
+      }
+    }
+  }
+
+  return {
+    totalAdmin: adminData.length,
+    creadas,
+    actualizadas,
+    mensajes,
+  };
 }

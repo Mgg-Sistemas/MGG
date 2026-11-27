@@ -22,12 +22,14 @@ interface ModalProps {
   minimizable?: boolean;
   children: ReactNode;
   footer?: ReactNode;
+  className?: string;
+  style?: React.CSSProperties;
 }
 
 /** Una ventana dentro de otra minimizada se esconde con ella. */
 const PadreOculto = createContext(false);
 
-export function Modal({ title, size = 'md', compact = false, onClose, onMinimizar, minimizable, children, footer }: ModalProps) {
+export function Modal({ title, size = 'md', compact = false, onClose, onMinimizar, minimizable, children, footer, className, style }: ModalProps) {
   // A pedido: el modal SOLO se cierra con la ✕ (o los botones explícitos del footer).
   // No se cierra al hacer clic afuera (backdrop) ni con la tecla Escape, para evitar
   // perder lo cargado por un clic accidental.
@@ -79,8 +81,8 @@ export function Modal({ title, size = 'md', compact = false, onClose, onMinimiza
 
   return createPortal(
     <PadreOculto.Provider value={oculto}>
-      <div className="modal-backdrop" style={oculto ? { display: 'none' } : undefined}>
-        <div className={`modal ${sizeClass}`}>
+      <div className={`modal-backdrop${className ? ` ${className}-backdrop` : ''}`} style={oculto ? { display: 'none' } : undefined}>
+        <div className={`modal ${sizeClass}${className ? ` ${className}` : ''}`} style={style}>
           <div className="modal-header">
             <h3 style={{ margin: 0 }}>{title ?? ''}</h3>
             <div style={{ display: 'flex', gap: '.35rem' }}>

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { faltaEnEmpresa, type EmpresaReceptoraInput } from './empresasReceptoras.repository';
+import { faltaEnEmpresa, claveDeEmpresa, type EmpresaReceptoraInput } from './empresasReceptoras.repository';
 
 const base: EmpresaReceptoraInput = {
   nombre: 'Minería Tin Oxide, C.A.', rif: 'V-12345678-1', colorBadge: '#000', activo: true,
@@ -25,5 +25,10 @@ describe('faltaEnEmpresa · validación de la config fiscal por empresa', () => 
 
   it('la alícuota del ISAE puede quedar vacía (usa la global)', () => {
     expect(faltaEnEmpresa({ ...base, alicuotaMunicipal: undefined })).toBeNull();
+  });
+
+  it('claveDeEmpresa genera claves limpias y seguras', () => {
+    expect(claveDeEmpresa('MTO Motor, C.A.')).toBe('mto_motor_c_a');
+    expect(claveDeEmpresa('Golden Touch 1127, C.A.')).toBe('golden_touch_1127_c_a');
   });
 });

@@ -203,7 +203,7 @@ export function PerfilFiscalModal({ fila, puedeEditar, onClose, onCambio, onIrAL
   }
 
   return (
-    <Modal title={`Perfil fiscal · ${fila.razonSocial}`} size="xl" onClose={() => !guardando && onClose()}
+    <Modal title={`Perfil fiscal · ${fila.razonSocial}`} size="xl" className="modal-perfil-proveedor" onClose={() => !guardando && onClose()}
       footer={(
         <>
           <button type="button" className="btn btn-ghost" onClick={onClose} disabled={guardando}>Cerrar</button>
@@ -214,6 +214,34 @@ export function PerfilFiscalModal({ fila, puedeEditar, onClose, onCambio, onIrAL
           )}
         </>
       )}>
+      <style>{`
+        .modal-backdrop.modal-perfil-proveedor-backdrop {
+          z-index: 10050 !important;
+          display: flex !important;
+          align-items: center !important;
+          justify-content: center !important;
+          padding: 1.5rem !important;
+        }
+        .modal.modal-perfil-proveedor {
+          z-index: 10051 !important;
+          width: min(840px, calc(100vw - 2.5rem)) !important;
+          max-width: min(840px, calc(100vw - 2.5rem)) !important;
+          height: auto !important;
+          max-height: min(85vh, 720px) !important;
+          border-radius: 14px !important;
+          border: 1px solid var(--border-strong, rgba(255, 255, 255, 0.16)) !important;
+          box-shadow: 0 25px 70px rgba(0, 0, 0, 0.85) !important;
+          margin: auto !important;
+          display: flex !important;
+          flex-direction: column !important;
+          overflow: hidden !important;
+        }
+        .modal.modal-perfil-proveedor .modal-body {
+          max-height: calc(85vh - 120px) !important;
+          overflow-y: auto !important;
+          padding: 1.25rem 1.4rem !important;
+        }
+      `}</style>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.6rem' }}>{error}</div>}
 
       {/* Ficha del proveedor: solo lectura */}

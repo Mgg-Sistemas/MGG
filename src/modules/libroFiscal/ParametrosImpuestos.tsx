@@ -80,6 +80,24 @@ export function ParametrosImpuestos({ puedeEditar, conceptosIslr }: { puedeEdita
 
   return (
     <div>
+      <div style={{
+        padding: '.75rem 1rem',
+        background: 'rgba(255, 255, 255, 0.025)',
+        border: '1px solid rgba(255, 255, 255, 0.08)',
+        borderRadius: 10,
+        marginBottom: '.85rem',
+        fontSize: '.82rem',
+        lineHeight: 1.45,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '.4rem', marginBottom: '.25rem' }}>
+          <strong style={{ color: 'var(--text-normal)' }}>🏛️ Catálogo Global de Tributos del Sistema</strong>
+        </div>
+        <p className="muted" style={{ margin: 0 }}>
+          Define la ficha técnica de cada tributo (ente recaudador, periodicidad, series y numeración oficial).
+          <br />
+          ℹ️ <strong>¿Qué retiene cada empresa?</strong> Se estipula individualmente en <strong>Parámetros › Régimen fiscal de la empresa</strong> (donde se define si opera como <em>Contribuyente Ordinario</em> —sin retención de IVA— o <em>Especial</em>) y en <strong>Flujo de compras</strong> (para ISAE municipal).
+        </p>
+      </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: '.6rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '.6rem' }}>
         <p className="muted" style={{ fontSize: '.84rem', margin: 0 }}>
           Cada impuesto con su serie y su exportación; lo que cambia con el tiempo (periodicidad, vencimiento, plazo de entrega) va por versiones desde una fecha.
@@ -325,8 +343,8 @@ function CamposFicha({ ficha, set, entes, conClave = false }: {
       >
         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap', fontSize: '.86rem' }}>
           <label style={{ display: 'inline-flex', gap: '.3rem', cursor: 'pointer' }}><input type="checkbox" checked={ficha.activo} onChange={(e) => set({ activo: e.target.checked })} /> Activo</label>
-          <label style={{ display: 'inline-flex', gap: '.3rem', cursor: 'pointer' }}><input type="checkbox" checked={ficha.admitePracticada} onChange={(e) => set({ admitePracticada: e.target.checked })} /> La empresa la practica</label>
-          <label style={{ display: 'inline-flex', gap: '.3rem', cursor: 'pointer' }}><input type="checkbox" checked={ficha.admiteSufrida} onChange={(e) => set({ admiteSufrida: e.target.checked })} /> Se la practican a la empresa</label>
+          <label style={{ display: 'inline-flex', gap: '.3rem', cursor: 'pointer' }} title="Habilita la retención a proveedores para empresas facultadas según su régimen"><input type="checkbox" checked={ficha.admitePracticada} onChange={(e) => set({ admitePracticada: e.target.checked })} /> Admite retención practicada (a proveedores)</label>
+          <label style={{ display: 'inline-flex', gap: '.3rem', cursor: 'pointer' }} title="Habilita registrar retenciones que clientes aplican a la empresa"><input type="checkbox" checked={ficha.admiteSufrida} onChange={(e) => set({ admiteSufrida: e.target.checked })} /> Admite retención recibida (de clientes)</label>
           <label style={{ display: 'inline-flex', gap: '.3rem', cursor: 'pointer' }}><input type="checkbox" checked={ficha.agrupa} onChange={(e) => set({ agrupa: e.target.checked })} /> Agrupar comprobantes</label>
           <label style={{ display: 'inline-flex', gap: '.3rem', cursor: 'pointer' }}><input type="checkbox" checked={ficha.numeraOperacion} onChange={(e) => set({ numeraOperacion: e.target.checked })} /> Lleva «Operación N°»</label>
         </div>

@@ -236,5 +236,83 @@ describe('construirColaPorHacer · Rediseño de Retenciones (Etapa 1)', () => {
       expect(ids).not.toContain('buzon-b-descartada');
     });
   });
+
+  describe('Resolución de orden asociada y soporte físico', () => {
+    it('resuelve orden padre desde todasOrdenes aunque no esté en pendientesOrdenes', () => {
+      const fc = mockFacturaOrigen('oc-resuelto');
+      const ordenResuelta: RetencionItem = {
+        orden: mockOrden('oc-resuelto', {
+          oc_codigo: 'OC-2026-0999',
+          total: 450,
+          total_moneda: 'USD',
+          iva_monto: 50,
+        }),
+        proveedorNombre: 'DISTRIBUIDORA REAL, C.A',
+      };
+
+      const cola = construirColaPorHacer({
+        empresaId: 'empresa-golden-touch',
+        esGt: true,
+        facturasBuzon: [],
+        facturasCompras: [fc],
+        pendientesOrdenes: [], // Vacío en pendientes
+        todasOrdenes: [ordenResuelta], // Resuelto
+        registradas: registradasVacias,
+        practica: practicaDefecto,
+      });
+
+      expect(cola).toHaveLength(1);
+      expect(cola[0].codigo).toBe('OC-2026-0999');
+      expect(cola[0].proveedorNombre).toBe('DISTRIBUIDORA REAL, C.A');
+      expect(cola[0].total).toBe(450);
+      expect(cola[0].ivaMonto).toBe(50);
+      expect(cola[0].rawOrdenItem).toBeDefined();
+    });
+
+    it('excluye órdenes canceladas o desistidas de la cola por hacer', () => {
+      const fc = mockFacturaOrigen('oc-cancelada');
+      const ordenCancelada: RetencionItem = {
+        orden: mockOrden('oc-cancelada', { estado: 'cancelada' }),
+        proveedorNombre: 'Proveedor Cancelado',
+      };
+
+      const cola = construirColaPorHacer({
+        empresaId: 'empresa-golden-touch',
+        esGt: true,
+        facturasBuzon: [],
+        facturasCompras: [fc],
+        pendientesOrdenes: [],
+        todasOrdenes: [ordenCancelada],
+        registradas: registradasVacias,
+        practica: practicaDefecto,
+      });
+
+      expect(cola).toHaveLength(0);
+    });
+
+    it('asigna el soporte físico correspondiente según soportesFisicos', () => {
+      const fc = mockFacturaOrigen('oc-con-fisico');
+      const cola = construirColaPorHacer({
+        empresaId: 'empresa-golden-touch',
+        esGt: true,
+        facturasBuzon: [],
+        facturasCompras: [fc],
+        pendientesOrdenes: [],
+        registradas: registradasVacias,
+        practica: practicaDefecto,
+        soportesFisicos: {
+          [`compras-${fc.adjuntoId}`]: {
+            recibido: true,
+            entregadoPor: 'Kelvin Peña',
+            recibidoEn: '2026-11-25T10:00:00Z',
+          },
+        },
+      });
+
+      expect(cola).toHaveLength(1);
+      expect(cola[0].soporteFisico?.recibido).toBe(true);
+      expect(cola[0].soporteFisico?.entregadoPor).toBe('Kelvin Peña');
+    });
+  });
 });
 
