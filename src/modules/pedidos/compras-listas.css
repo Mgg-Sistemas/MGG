@@ -25,10 +25,13 @@
 .compras-tarjeta > header { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.6rem; }
 .compras-tarjeta > header > strong { margin-right:auto; font-size:1.05rem; }
 .compras-proveedor { font-weight:600; color:var(--primary-3,#ffbd35); margin:.6rem 0; }
-.compras-contexto { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.7rem; font-size:.8rem; }
+.compras-contexto { display:grid; grid-template-columns:1fr; gap:.4rem; font-size:.82rem; }
 .compras-contexto dt { color:var(--muted,#a3b1c1); margin-bottom:.2rem; }
 .compras-contexto dd { margin:0; font-weight:600; overflow-wrap:anywhere; }
 .compras-motivo { background:rgba(128,144,164,.07); border-radius:8px; padding:.65rem; font-size:.85rem; overflow-wrap:anywhere; white-space:pre-wrap; }
 
 .compras-comprobantes { border-top:1px solid var(--border,#39424c); padding-top:.8rem; margin:.8rem 0; font-size:.85rem; }
 .compras-comprobantes .btn { max-width:100%; overflow-wrap:anywhere; white-space:normal; }
+
+.compras-contexto > div { display:flex; gap:.4rem; flex-wrap:wrap; align-items:baseline; }
+.compras-contexto dt { margin:0; }

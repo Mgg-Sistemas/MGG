@@ -78,10 +78,10 @@ export function PendientesCotizar({ origenId, compacto = false }: { origenId?: s
       <div className="compras-tarjetas">{visibles.slice(inicio, inicio + POR_PAGINA_COMPRAS).map(f => <article className="card compras-tarjeta" key={f.id}>
         <header><strong>{f.codigo}</strong><span className="badge warning">{f.items.length} productos</span><span className="muted">Por cotizar</span></header>
         <ContextoCompraTarjeta orden={ordenesOrigen[f.cotizacion_pendiente_origen_id || '']} titulo="Productos pendientes de cotizar" estado={'Por cotizar · ' + f.codigo} detalle={[...f.items.map(i => `${i.sku} · ${i.nombre} · Pendiente ${i.cantidad} ${i.unidad}`), 'Motivo del almacenista: ' + (ordenesOrigen[f.cotizacion_pendiente_origen_id || '']?.nota_recepcion || 'Sin observación registrada')]} />
-        {ordenesOrigen[f.cotizacion_pendiente_origen_id || '']?.nota_recepcion && <p className="compras-motivo"><strong>Motivo del almacenista:</strong> {ordenesOrigen[f.cotizacion_pendiente_origen_id || ''].nota_recepcion}</p>}
+        {ordenesOrigen[f.cotizacion_pendiente_origen_id || '']?.nota_recepcion && <p className="compras-motivo"><strong>👷 Motivo del almacenista:</strong> {ordenesOrigen[f.cotizacion_pendiente_origen_id || ''].nota_recepcion}</p>}
         <div className="compras-detalle">
         {f.notas && <p>{f.notas}</p>}
-        <details className="compras-fila"><summary>Ver productos pendientes</summary><table className="compras-productos"><thead><tr><th>Producto</th><th>Cantidad</th></tr></thead><tbody>{f.items.map((i, n) => <tr key={n}><td>{i.nombre}<small>{i.sku}</small></td><td>{i.cantidad} {i.unidad}</td></tr>)}</tbody></table></details>
+        <details className="compras-fila"><summary>📦 Ver productos pendientes</summary><table className="compras-productos"><thead><tr><th>Producto</th><th>Cantidad</th></tr></thead><tbody>{f.items.map((i, n) => <tr key={n}><td>{i.nombre}<small>{i.sku}</small></td><td>{i.cantidad} {i.unidad}</td></tr>)}</tbody></table></details>
         <div className="compras-acciones">
         <Link className="btn btn-primary" to={'/app/pedidos?tab=oc&detalle=' + f.id} onClick={() => setOpen(false)}>Abrir solicitud para cotizar</Link>
         {f.cotizacion_pendiente_origen_id && <Link className="btn btn-ghost" to={'/app/pedidos?tab=oc&detalle=' + f.cotizacion_pendiente_origen_id} onClick={() => setOpen(false)}>Ver OC de origen</Link>}
