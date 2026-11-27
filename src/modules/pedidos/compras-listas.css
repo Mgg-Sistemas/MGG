@@ -1,0 +1,21 @@
+.compras-panel { max-width: 1100px; margin: 0 auto; }
+.compras-barra, .compras-tabs, .compras-acciones, .compras-paginacion, .compras-paginacion > div { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; }
+.compras-barra { margin-bottom: 1rem; }
+.compras-barra .input { flex: 1; min-width: 180px; }
+.compras-tabs { margin-bottom: 1rem; padding-bottom: .8rem; border-bottom: 1px solid var(--border, #39424c); }
+.compras-tabs button[aria-pressed=true] { background: var(--accent, #ffb51b); color: #15191e; border-color: transparent; }
+.compras-fila { border: 1px solid var(--border, #39424c); border-radius: 12px; margin-bottom: .6rem; overflow: hidden; }
+.compras-fila > summary { cursor: pointer; padding: .85rem 1rem; display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; background: rgba(128, 144, 164, .05); }
+.compras-fila > summary::before { content: '›'; font-size: 1.25rem; color: var(--muted, #a3b1c1); }
+.compras-fila[open] > summary::before { content: '⌄'; }
+.compras-fila > summary strong { margin-right: auto; }
+.compras-detalle { padding: .8rem 1rem; border-top: 1px solid var(--border, #39424c); }
+.compras-detalle p { margin: .5rem 0; overflow-wrap: anywhere; }
+.compras-detalle ul { padding-left: 1.2rem; margin: .4rem 0 .8rem; }
+.compras-productos { width: 100%; border-collapse: collapse; font-size: .9rem; margin-bottom: .8rem; }
+.compras-productos th, .compras-productos td { text-align: left; padding: .5rem; border-bottom: 1px solid var(--border, #39424c); }
+.compras-productos th:not(:first-child), .compras-productos td:not(:first-child) { text-align: right; white-space: nowrap; }
+.compras-productos td small { display: block; color: var(--muted, #a3b1c1); }
+.compras-paginacion { justify-content: space-between; margin: .8rem 0; color: var(--muted, #a3b1c1); font-size: .85rem; }
+.compras-vacio { padding: 2rem 1rem; text-align: center; color: var(--muted, #a3b1c1); }
+@media(max-width: 600px) { .compras-fila > summary { padding: .75rem; gap: .5rem; } .compras-detalle { padding: .7rem; } .compras-acciones .btn { flex: 1; } .compras-productos { font-size: .8rem; } .compras-productos th, .compras-productos td { padding: .4rem .2rem; } }
