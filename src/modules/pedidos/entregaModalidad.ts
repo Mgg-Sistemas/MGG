@@ -29,6 +29,11 @@ export function etiquetaEntrega(m: EntregaModalidad | null | undefined): string 
   return op ? `${op.icono} ${op.label}` : '—';
 }
 
+/** 27-11-2026: OC en la columna «Pendiente por recibir» (pagada sin recibir o por recibir). */
+export function enPendientePorRecibir(o: Pick<Orden, 'estado' | 'recibida_en'>): boolean {
+  return (o.estado === 'pagada' && !o.recibida_en) || o.estado === 'por_recibir';
+}
+
 /** ¿Esta orden pide decir quién entrega? Los servicios no se entregan y la contra entrega ya llegó. */
 export function pideEntrega(o: Pick<Orden, 'clase' | 'condiciones_pago'>): boolean {
   return o.clase !== 'servicio' && o.condiciones_pago !== 'contra_entrega';

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { pendienteRetiro } from './entregaModalidad';
+import { enPendientePorRecibir, pendienteRetiro } from './entregaModalidad';
 import { armarCierre, detallePorRetirar, rangoCierre } from './cierreDiario';
 
 const base = {
@@ -29,6 +29,19 @@ describe('pendienteRetiro (06-11-2026)', () => {
   it('10-11-2026: las pagadas antes del 03-11 también se pueden mandar al delivery', () => {
     expect(pendienteRetiro({ ...base, pagada_en: '2026-10-29T14:43:46.703Z' })).toBe(true);
     expect(pendienteRetiro({ ...base, pagada_en: '2026-11-03T04:00:00.000Z' })).toBe(true);
+  });
+});
+
+describe('enPendientePorRecibir (27-11-2026)', () => {
+  it('es la columna «Pendiente por recibir», aunque el retiro ya esté confirmado', () => {
+    const confirmada = { ...base, retiro_confirmado_en: '2026-11-27T14:35:00Z' };
+    expect(enPendientePorRecibir(base)).toBe(true);
+    expect(enPendientePorRecibir(confirmada)).toBe(true);
+    expect(enPendientePorRecibir({ ...base, estado: 'por_recibir' })).toBe(true);
+  });
+  it('ya recibida u otras etapas no', () => {
+    expect(enPendientePorRecibir({ ...base, recibida_en: '2026-11-27T15:00:00Z' })).toBe(false);
+    expect(enPendientePorRecibir({ ...base, estado: 'oc_aprobada' })).toBe(false);
   });
 });
 

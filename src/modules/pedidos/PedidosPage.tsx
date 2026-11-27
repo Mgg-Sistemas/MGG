@@ -128,7 +128,7 @@ import { listAlmacenes } from '@/modules/inventario/almacenes.repository';
 import { listUsuarios } from '@/modules/usuarios/usuarios.repository';
 import { listEquipos, type MaquinariaEquipo } from '@/modules/maquinaria/maquinariaEquipos.repository';
 import type { Almacen } from '@/shared/lib/types';
-import { OPCIONES_ENTREGA, etiquetaEntrega, pendienteRetiro, pideEntrega, type EntregaModalidad } from './entregaModalidad';
+import { OPCIONES_ENTREGA, enPendientePorRecibir, etiquetaEntrega, pendienteRetiro, pideEntrega, type EntregaModalidad } from './entregaModalidad';
 import { ConfirmarRetiroModal } from './ConfirmarRetiroModal';
 import { OfertasComparativa } from './OfertasComparativa';
 import { AsignarProveedoresModal } from './AsignarProveedoresModal';
@@ -234,9 +234,9 @@ type ColumnaKanban = EstadoOrden | 'por_retirar';
  *   · El proveedor desistió → «Pendiente por cargar ofertas» (hay que reasignarla).
  */
 function columnaOc(o: Orden): ColumnaKanban {
+  if (enPendientePorRecibir(o)) return 'por_retirar';
   switch (o.estado) {
-    case 'pagada': return o.recibida_en ? 'recibida' : 'por_retirar';
-    case 'por_recibir': return 'por_retirar';
+    case 'pagada': return 'recibida';
     case 'anulada': return 'cancelada';
     case 'desistida_proveedor': return 'aprobada';
     default: return o.estado;
@@ -3236,6 +3236,8 @@ function OrdenDetailModal({
   usuarioRole,
 }: OrdenDetailModalProps) {
   const isPendiente = o.estado === 'pendiente';
+  // 27-11-2026: en «Pendiente por recibir» se ocultan los WhatsApp de SP y de almacén.
+  const ocPendientePorRecibir = enPendientePorRecibir(o);
   // Un SERVICIO no entra al inventario: se presta y queda en la traza del equipo asociado.
   const esServicioDet = o.clase === 'servicio';
   // La OP la aprueba quien gestiona compras (admin o analista); al aprobarla pasa a
@@ -3508,7 +3510,7 @@ function OrdenDetailModal({
         </button>
       )}
       {/* Revisión de almacén (29-10-2026): los mensajes salen SOLO con estos botones. */}
-      {flujoAlmacen && !esServicioDet && !isCuentaAbierta && (
+      {flujoAlmacen && !esServicioDet && !isCuentaAbierta && !ocPendientePorRecibir && (
         <button type="button" className="btn btn-ghost"
           title="Ver el mensaje de la Solicitud de Pedido (productos y cantidades) para copiarlo o mandarlo por WhatsApp"
           onClick={() => setMensajeWs({
@@ -3518,7 +3520,7 @@ function OrdenDetailModal({
           💬 WhatsApp de la SP
         </button>
       )}
-      {revisadaAlmacen && !isCuentaAbierta && (
+      {revisadaAlmacen && !isCuentaAbierta && !ocPendientePorRecibir && (
         <button type="button" className="btn btn-ghost"
           title="Ver el mensaje de almacén (qué tiene y qué va a solicitar a Compras) para copiarlo o mandarlo por WhatsApp"
           onClick={() => setMensajeWs({
