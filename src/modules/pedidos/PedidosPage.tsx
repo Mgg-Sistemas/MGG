@@ -2587,7 +2587,7 @@ function RecepcionParcialModal({
     >
       <p className="hint muted" style={{ marginTop: 0, fontSize: '.88rem' }}>
         Confirmá cuánto entró realmente al almacén por ítem. Solo lo recibido se suma al inventario.
-        Si llegó menos de lo pedido, dejá una <strong>nota</strong>. Al confirmar se genera automáticamente el reintegro pendiente en Compras y Tesorería por los faltantes, al precio unitario de la OC.
+        Si llegó menos de lo pedido, dejá una <strong>nota</strong>. Al confirmar se generan automáticamente el reintegro pendiente y una solicitud para cotizar las cantidades faltantes, vinculados a esta OC.
       </p>
       {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
 

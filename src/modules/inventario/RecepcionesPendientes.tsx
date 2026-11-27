@@ -690,7 +690,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
     <>
     <Modal title={`Recibir ${orden.oc_codigo ?? orden.codigo}`} size="lg" onClose={onClose} footer={footer}>
       <form id="recibir-form" onSubmit={submit}>
-        <p className="muted">Al confirmar cantidades menores a las pedidas se genera automáticamente el reintegro pendiente en Compras y Tesorería, al precio unitario de la OC.</p>
+        <p className="muted">Al confirmar cantidades menores a las pedidas se generan automáticamente el reintegro pendiente y una solicitud para cotizar los faltantes, vinculados a esta OC.</p>
         {error && <div className="card" style={{ borderColor: 'var(--danger)', marginBottom: '.75rem' }}><strong>Error:</strong> {error}</div>}
         {verWhatsappOrden && textoWaOrden && (
           <div className="card" style={{ marginBottom: '.75rem', border: '1px solid var(--success, #25D366)', padding: '.75rem' }}>

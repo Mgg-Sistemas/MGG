@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { supabase } from '@/shared/lib/supabase';
 import { Modal } from '@/shared/ui/Modal';
 import { toast } from '@/shared/ui/Toast';
@@ -34,6 +35,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
   const [lista, setLista] = useState<Reintegro[]>([]);
   const [orden, setOrden] = useState<Orden | null>(null);
   const [faltantes, setFaltantes] = useState<Orden[]>([]);
+  const [reposiciones, setReposiciones] = useState<Record<string, { id: string; codigo: string }>>({});
   const [buscar, setBuscar] = useState('');
   const [opciones, setOpciones] = useState<Orden[]>([]);
   const [cantidades, setCantidades] = useState<Record<number, string>>({});
@@ -61,6 +63,10 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
         const recibidas = await todasLasFilas<Orden>((desde, hasta) => supabase.from('ordenes')
           .select('*').not('recibida_en', 'is', null).or('clase.eq.producto,clase.is.null')
           .order('recibida_en', { ascending: false }).order('id').range(desde, hasta));
+        const solicitudes = await todasLasFilas<{ id: string; codigo: string; reposicion_origen_id: string }>((desde, hasta) =>
+          supabase.from('ordenes').select('id,codigo,reposicion_origen_id')
+            .not('reposicion_origen_id', 'is', null).order('id').range(desde, hasta));
+        setReposiciones(Object.fromEntries(solicitudes.map(s => [s.reposicion_origen_id, { id: s.id, codigo: s.codigo }])));
         setFaltantes(recibidas.filter(o =>
           o.items.some(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad))));
       }
@@ -181,7 +187,8 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
         <ul>{o.items.filter(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)).map((i, n) =>
           <li key={n}>{i.sku} · {i.nombre} · Pedidos {i.cantidad} · Recibidos {i.cantidad_recibida ?? 0} · Faltan {Number(i.cantidad) - Number(i.cantidad_recibida ?? 0)}</li>)}</ul>
         <p>{o.nota_recepcion}</p>
-        {canWrite && <button className="btn" disabled={saving} onClick={() => void recotizar(o)}>Cotizar faltantes / consultar reposición</button>}
+        {reposiciones[o.id] && <p>Solicitud para cotizar <Link to={"/app/pedidos?detalle=" + reposiciones[o.id].id} onClick={onClose}>{reposiciones[o.id].codigo}</Link> · Reposición vinculada a esta OC.</p>}
+        {canWrite && !reposiciones[o.id] && <button className="btn" disabled={saving} onClick={() => void recotizar(o)}>Cotizar faltantes</button>}
         {canWrite && o.items.some((_, indice) => cantidadSinReintegro(o, indice) > 0) && <button className="btn btn-ghost" disabled={saving} onClick={() => {
           setOrden(o); setOpciones([]); setMonto(''); setMoneda(o.moneda || 'USD');
           setCantidades(Object.fromEntries(o.items.map((_, n) => [n, String(cantidadSinReintegro(o, n))])));
