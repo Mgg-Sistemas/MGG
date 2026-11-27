@@ -622,7 +622,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
     }
     if (recepciones.every((r) => r.cantidad_recibida <= 0) && (esServicioOrden(orden) || !nota.trim())) { setError('Indicá una nota explicando por qué no llegó ningún producto.'); return; }
     if (huboDiferencia && !nota.trim()) { setError('Hay diferencias con lo pedido: indicá una nota explicando.'); return; }
-    if (itemRes) {
+    if (itemRes && kgRes > 0) {
       const v = despieceValido(despiece, kgRes, costoRes);
       if (!v.ok) { setError(v.motivo); return; }
     }
@@ -630,7 +630,7 @@ function RecibirModal({ orden, almacenes, actor, actorName, onClose, onSaved }: 
     try {
       // Si el almacenista cargó facturas, se suben antes de recibir.
       if (pideFactura && facturas.length) { await subirFacturasAlmacen(orden.id, facturas, actorName || actor); setFacturas([]); setFacturaSubida(true); }
-      if (itemRes) {
+      if (itemRes && kgRes > 0) {
         const { entradas } = await recibirOrdenDespiezada(
           orden, itemRes.sku,
           {
