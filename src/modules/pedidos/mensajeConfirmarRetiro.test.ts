@@ -36,6 +36,12 @@ describe('mensajeConfirmarRetiro (27-11-2026)', () => {
     expect(mensajeConfirmarRetiro({ ...base, retiro_confirmado_en: null }, 'FERRETERÍA CARONÍ', 'x@gmail.com')).toBeNull();
   });
 
+  it('al reabrir el aviso desde el detalle usa quién confirmó, aunque venga guardado en la OC', () => {
+    const m = mensajeConfirmarRetiro({ ...base, retiro_confirmado_por: 'hector@gmail.com' }, 'FERRETERÍA CARONÍ');
+    expect(m).toContain('👤 *Confirmó:* hector@gmail.com');
+    expect(mensajeConfirmarRetiro({ ...base, retiro_confirmado_por: 'hector@gmail.com' }, null, 'otro@gmail.com')).toContain('👤 *Confirmó:* otro@gmail.com');
+  });
+
   it('los datos que faltan no salen como «—»', () => {
     const m = mensajeConfirmarRetiro(base, null, null);
     expect(m).not.toContain('Proveedor:');

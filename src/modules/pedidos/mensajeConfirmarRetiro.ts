@@ -7,6 +7,8 @@
    se omiten y el pie de la empresa. El encabezado va en mayúsculas y
    entre `*` (negrita de WhatsApp) para que se vea grande; WhatsApp no
    tiene tamaño de letra. Con entrega a domicilio no hay aviso a la flota.
+   El mismo texto se puede volver a abrir desde el detalle de la OC cuando el
+   retiro ya estaba confirmado (incluidas las órdenes anteriores al aviso).
 
    ⚠ Emojis de color por sí mismos, sin el selector U+FE0F (ver
    combustible/mensajeMovimiento.ts). Solo por botón: nunca se envía solo.
@@ -15,7 +17,7 @@ import type { Orden } from '@/shared/lib/types';
 import { dateTime } from '@/shared/lib/format';
 import { entregaDe } from './entregaModalidad';
 
-type Confirmacion = Pick<Orden, 'codigo' | 'oc_codigo' | 'entrega_modalidad' | 'retiro_confirmado_en'>;
+type Confirmacion = Pick<Orden, 'codigo' | 'oc_codigo' | 'entrega_modalidad' | 'retiro_confirmado_en' | 'retiro_confirmado_por'>;
 
 /** Texto del aviso, o null si la orden no va a Delivery ni a Carga pesada. */
 export function mensajeConfirmarRetiro(
@@ -36,7 +38,7 @@ export function mensajeConfirmarRetiro(
   const proveedor = (proveedorNombre ?? '').trim();
   if (proveedor) L.push(`🏭 *Proveedor:* ${proveedor}`);
   L.push(`🚚 *Entrega:* ${cargaPesada ? 'Carga pesada' : 'Delivery'}`);
-  const quien = (confirmadoPor ?? '').trim();
+  const quien = (confirmadoPor ?? o.retiro_confirmado_por ?? '').trim();
   if (quien) L.push(`👤 *Confirmó:* ${quien}`);
   L.push(`🕒 *Fecha:* ${dateTime(o.retiro_confirmado_en)}`);
   L.push('', '🏢 *MINERAL GROUP GUAYANA C.A.*');

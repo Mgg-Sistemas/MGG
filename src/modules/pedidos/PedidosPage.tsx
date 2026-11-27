@@ -3451,6 +3451,11 @@ function OrdenDetailModal({
     </button>
   );
   const botonWhatsappPago = (titulo: string) => botonWhatsapp(textoPago, '💬 WhatsApp para pagar', titulo, `Avisar para pagar · ${o.oc_codigo ?? o.codigo}`);
+  // 27-11-2026: si el retiro ya estaba confirmado (también en OC anteriores al aviso),
+  // el detalle permite volver a ver el mismo WhatsApp sin volver a confirmar nada.
+  const mensajeRetiroListo = canManageProcurement && o.retiro_confirmado_en
+    ? mensajeConfirmarRetiro(o, nombreProveedorMsg(), persona(o.retiro_confirmado_por, personaMap, o.retiro_confirmado_en))
+    : null;
   /* La solicitud aprobada en PDF, para mandarla a cotizar: lleva los materiales
      con su medida y cantidad, y la columna de precio EN BLANCO. Se genera solo
      con este botón. */
@@ -3710,6 +3715,13 @@ function OrdenDetailModal({
         <button className="btn btn-primary" onClick={onConfirmarRetiro}
           title="Confirmar que se va a retirar y quién entrega: Delivery, Carga pesada o Con entrega a domicilio. Recién entonces le llega al delivery.">
           🚚 Confirmar retiro
+        </button>
+      )}
+      {mensajeRetiroListo && (
+        <button type="button" className="btn btn-ghost"
+          title="Volver a ver el aviso de WhatsApp para la flota; no confirma ni cambia el retiro"
+          onClick={() => setMensajeWs({ titulo: `Confirmar retiro · ${o.oc_codigo ?? o.codigo}`, texto: mensajeRetiroListo })}>
+          💬 WhatsApp de retiro
         </button>
       )}
       {isPagada && !o.recibida_en && canManageProcurement && (
