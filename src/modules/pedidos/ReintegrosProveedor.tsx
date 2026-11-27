@@ -1,3 +1,5 @@
+import { ComprobantesReintegro, type ComprobanteReintegro } from './ComprobantesReintegro';
+import { ContextoCompraTarjeta, type OrdenTarjeta } from './ContextoCompraTarjeta';
 import { PaginasCompras, POR_PAGINA_COMPRAS } from './ComprasListaCompacta';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
@@ -21,7 +23,8 @@ interface Reintegro {
   referencia: string | null;
   comprobante_url: string | null;
   generado_por_recepcion: boolean;
-  ordenes: { codigo: string; oc_codigo: string | null };
+  comprobantes_compras: ComprobanteReintegro[];
+  ordenes: OrdenTarjeta;
 }
 
 export function ReintegrosProveedor({ tesoreria = false, canWrite }: { tesoreria?: boolean; canWrite: boolean }) {
@@ -62,11 +65,11 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
     setLoading(true);
     try {
       const reintegros = await todasLasFilas<Reintegro>((desde, hasta) => supabase.from('compras_reintegros')
-        .select('*, ordenes(codigo, oc_codigo)').order('created_at', { ascending: false }).order('id').range(desde, hasta).returns<Reintegro[]>());
+        .select('*, ordenes(*,proveedores(razon_social))').order('created_at', { ascending: false }).order('id').range(desde, hasta).returns<Reintegro[]>());
       setLista(reintegros);
       if (!tesoreria) {
         const recibidas = await todasLasFilas<Orden>((desde, hasta) => supabase.from('ordenes')
-          .select('*').not('recibida_en', 'is', null).or('clase.eq.producto,clase.is.null')
+          .select('*,proveedores(razon_social)').not('recibida_en', 'is', null).or('clase.eq.producto,clase.is.null')
           .order('recibida_en', { ascending: false }).order('id').range(desde, hasta));
         const solicitudes = await todasLasFilas<{ id: string; codigo: string; reposicion_origen_id: string }>((desde, hasta) =>
           supabase.from('ordenes').select('id,codigo,reposicion_origen_id')
@@ -210,20 +213,25 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
     </div>}
     {error && <p role="alert" style={{ color: 'var(--danger)' }}>{error}</p>}
     {!tesoreria && vista === 'faltantes' && <section>
-      <p className="muted">Órdenes con diferencias de recepción. Despliega una orden para revisar los productos y las acciones.</p>
-      {faltantesVisibles.slice(inicio, inicio + POR_PAGINA_COMPRAS).map(o => <details className="compras-fila" key={o.id}>
-        <summary><strong>{o.oc_codigo || o.codigo}</strong><span className="badge warning">{o.items.filter(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)).length} productos faltantes</span><span className="muted">{reposiciones[o.id] ? 'En cotización' : 'Por gestionar'}</span></summary>
+      <p className="muted">Órdenes con diferencias de recepción. Revisa los datos de la compra, la observación de Almacén y los faltantes.</p>
+      <div className="compras-tarjetas">{faltantesVisibles.slice(inicio, inicio + POR_PAGINA_COMPRAS).map(o => <article className="card compras-tarjeta" key={o.id}>
+        <header><strong>{o.oc_codigo || o.codigo}</strong><span className="badge warning">{o.items.filter(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)).length} productos faltantes</span><span className="muted">{reposiciones[o.id] ? 'En cotización' : 'Por gestionar'}</span></header>
+        <ContextoCompraTarjeta orden={o} titulo="Faltantes de recepción" estado={reposiciones[o.id] ? 'En cotización · ' + reposiciones[o.id].codigo : 'Por gestionar'} detalle={[...o.items.filter(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)).map(i => `${i.sku} · ${i.nombre} · Pedido ${i.cantidad} · Recibido ${i.cantidad_recibida} · Faltan ${Number(i.cantidad) - Number(i.cantidad_recibida)}`), 'Motivo del almacenista: ' + (o.nota_recepcion || 'Sin observación registrada')]} />
+        <p className="compras-motivo"><strong>Motivo del almacenista:</strong> {o.nota_recepcion || 'Sin observación registrada'}</p>
+        <details className="compras-fila"><summary>Ver productos faltantes</summary>
         <div className="compras-detalle">
         <table className="compras-productos"><thead><tr><th>Producto</th><th>Pedido</th><th>Recibido</th><th>Falta</th></tr></thead><tbody>{o.items.filter(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)).map((i, n) =>
           <tr key={n}><td>{i.nombre}<small>{i.sku}</small></td><td>{i.cantidad}</td><td>{i.cantidad_recibida ?? 0}</td><td><strong>{Number(i.cantidad) - Number(i.cantidad_recibida ?? 0)}</strong></td></tr>)}</tbody></table>
-        <p>{o.nota_recepcion}</p>
+
         {reposiciones[o.id] && <p>Solicitud para cotizar <Link to={"/app/pedidos?tab=oc&detalle=" + reposiciones[o.id].id} onClick={onClose}>{reposiciones[o.id].codigo}</Link> · Reposición vinculada a esta OC.</p>}
         {canWrite && !reposiciones[o.id] && <button className="btn" disabled={saving} onClick={() => void recotizar(o)}>Cotizar faltantes</button>}
         {canWrite && o.items.some((_, indice) => cantidadSinReintegro(o, indice) > 0) && <button className="btn btn-ghost" disabled={saving} onClick={() => {
           setVista('nuevo'); setOrden(o); setOpciones([]); setMonto(''); setMoneda(o.moneda || 'USD');
           setCantidades(Object.fromEntries(o.items.map((_, n) => [n, String(cantidadSinReintegro(o, n))])));
         }}>Solicitar reintegro</button>}
-      </div></details>)}
+      </div></details>
+      <Link className="btn btn-ghost" to={"/app/pedidos?tab=oc&detalle=" + o.id} onClick={onClose}>Abrir OC</Link>
+      </article>)}</div>
     </section>}
     {!tesoreria && canWrite && vista === 'nuevo' && <section className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
       <h3>Solicitar reintegro</h3>
@@ -256,14 +264,18 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
     </section>}
     {loading && <p>Cargando…</p>}
     {!loading && vista !== 'nuevo' && !totalVisible && <p className="compras-vacio">No hay órdenes que coincidan con estos filtros.</p>}
-    {vista === 'reintegros' && reintegrosVisibles.slice(inicio, inicio + POR_PAGINA_COMPRAS).map(r => <details key={r.id} className="compras-fila">
-      <summary><strong>{r.ordenes.oc_codigo || r.ordenes.codigo}</strong><span>{Number(r.monto).toFixed(2)} {r.moneda}</span><span className={'badge ' + (r.estado === 'recibido' ? 'success' : 'warning')}>{r.estado === 'recibido' ? 'Recibido' : 'Pendiente'}</span></summary>
+    {vista === 'reintegros' && <div className="compras-tarjetas">{reintegrosVisibles.slice(inicio, inicio + POR_PAGINA_COMPRAS).map(r => <article key={r.id} className="card compras-tarjeta">
+      <header><strong>{r.ordenes.oc_codigo || r.ordenes.codigo}</strong><span>{Number(r.monto).toFixed(2)} {r.moneda}</span><span className={'badge ' + (r.estado === 'recibido' ? 'success' : 'warning')}>{r.estado === 'recibido' ? 'Recibido' : 'Pendiente'}</span></header>
+      <ContextoCompraTarjeta orden={r.ordenes} titulo="Reintegro de proveedor" estado={r.estado === 'recibido' ? 'Recibido en Tesorería' : 'Pendiente de devolución'} detalle={[`Importe del reintegro: ${Number(r.monto).toFixed(2)} ${r.moneda}`, 'Motivo del reintegro: ' + r.motivo, 'Motivo del almacenista: ' + (r.ordenes.nota_recepcion || 'Sin observación registrada'), ...r.detalle.map(i => `${i.sku} · ${i.nombre} · Cantidad ${i.cantidad}`), ...(r.referencia ? ['Referencia: ' + r.referencia] : [])]} />
       <div className="compras-detalle">
-      <p>{r.estado === 'recibido' ? 'Recibido en Tesorería' : 'Pendiente de devolución'} · {r.motivo}</p>
+      <p className="compras-motivo"><strong>Motivo del reintegro:</strong> {r.motivo}</p>
+      <p className="compras-motivo"><strong>Motivo del almacenista:</strong> {r.ordenes.nota_recepcion || 'Sin observación registrada'}</p>
       {r.generado_por_recepcion && <p className="muted">Generado automáticamente al recibir. Importe de los faltantes al precio unitario de la OC.</p>}
       <ul>{r.detalle.map(d => <li key={d.indice}>{d.sku} · {d.nombre} · {d.cantidad}</li>)}</ul>
+      <Link className="btn btn-ghost" to={"/app/pedidos?tab=oc&detalle=" + r.orden_id} onClick={onClose}>Abrir OC</Link>
+      <ComprobantesReintegro id={r.id} ordenId={r.orden_id} archivos={r.comprobantes_compras || []} canUpload={!tesoreria && canWrite} onSaved={cargar} />
       {r.referencia && <p>Referencia {r.referencia}</p>}
-      {r.comprobante_url && <button className="btn btn-ghost" onClick={() => void verComprobante(r.comprobante_url!)}>Ver comprobante</button>}
+      {r.comprobante_url && <button className="btn btn-ghost" onClick={() => void verComprobante(r.comprobante_url!)}>Ver comprobante de ingreso de Tesorería</button>}
       {tesoreria && canWrite && r.estado === 'pendiente' && <button className="btn btn-primary" disabled={saving} onClick={() => {
         setRecibir(r); setCaja(''); setCuenta('general'); setArchivo(null); setReferencia('');
       }}>Registrar dinero recibido</button>}
@@ -282,7 +294,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose }: { tesoreria: boolean;
         <button className="btn btn-primary" disabled={saving || !cuentas.length} onClick={() => void confirmar()}>{saving ? 'Registrando…' : 'Confirmar ingreso'}</button>
         <button className="btn btn-ghost" disabled={saving} onClick={() => setRecibir(null)}>Volver</button>
       </>}
-    </div></details>)}
+    </div></article>)}</div>}
     {vista !== 'nuevo' && <PaginasCompras total={totalVisible} pagina={paginaActual} onChange={setPagina} />}
     </div>
   </Modal>;
