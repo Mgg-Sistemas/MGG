@@ -14,6 +14,7 @@ describe('mensajeConfirmarRetiro (27-11-2026)', () => {
     const m = mensajeConfirmarRetiro(base, 'FERRETERÍA CARONÍ', 'analista1mgg@gmail.com');
     expect(m?.split('\n')[0]).toBe('*CONFIRMAR RETIRO POR SISTEMAS - DELIVERY*');
     expect(m).toContain('🔹 *Orden:* OC-2026-0243');
+    expect(m).toContain('📦 *Productos:* Para ver los productos, revise el sistema.');
     expect(m).toContain('🏭 *Proveedor:* FERRETERÍA CARONÍ');
     expect(m).toContain('🚚 *Entrega:* Delivery');
     expect(m).toContain('👤 *Confirmó:* analista1mgg@gmail.com');
@@ -26,6 +27,12 @@ describe('mensajeConfirmarRetiro (27-11-2026)', () => {
     expect(m?.split('\n')[0]).toBe('*CONFIRMAR RETIRO POR SISTEMAS - CARGA PESADA*');
     expect(m).toContain('🚚 *Entrega:* Carga pesada');
     expect(m?.toUpperCase()).not.toContain('SUBELO');
+  });
+
+  it('no muestra la lista de productos ni la palabra SUBELO', () => {
+    const m = mensajeConfirmarRetiro(base, 'FERRETERÍA CARONÍ', 'analista1mgg@gmail.com') ?? '';
+    expect(m).not.toMatch(/^•/m);
+    expect(m.toUpperCase()).not.toContain('SUBELO');
   });
 
   it('entrega a domicilio no genera aviso de flota', () => {

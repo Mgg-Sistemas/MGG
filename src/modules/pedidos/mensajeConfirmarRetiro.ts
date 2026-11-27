@@ -9,6 +9,7 @@
    tiene tamaño de letra. Con entrega a domicilio no hay aviso a la flota.
    El mismo texto se puede volver a abrir desde el detalle de la OC cuando el
    retiro ya estaba confirmado (incluidas las órdenes anteriores al aviso).
+   No lleva la lista de productos: dice que para verlos se revise el sistema.
 
    ⚠ Emojis de color por sí mismos, sin el selector U+FE0F (ver
    combustible/mensajeMovimiento.ts). Solo por botón: nunca se envía solo.
@@ -34,6 +35,7 @@ export function mensajeConfirmarRetiro(
     `*CONFIRMAR RETIRO POR SISTEMAS - ${cargaPesada ? 'CARGA PESADA' : 'DELIVERY'}*`,
     '',
     `🔹 *Orden:* ${o.oc_codigo ?? o.codigo}`,
+    '📦 *Productos:* Para ver los productos, revise el sistema.',
   ];
   const proveedor = (proveedorNombre ?? '').trim();
   if (proveedor) L.push(`🏭 *Proveedor:* ${proveedor}`);
