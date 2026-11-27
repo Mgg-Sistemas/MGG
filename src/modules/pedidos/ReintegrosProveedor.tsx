@@ -37,8 +37,12 @@ export function ReintegrosProveedor({ tesoreria = false, canWrite }: { tesoreria
     setErrorContador(!!error);
     if (!error) setPendientes(count || 0);
   }, []);
-  useEffect(() => { void cargarPendientes(); }, [cargarPendientes]);
-  useRealtime(['compras_reintegros'], () => { void cargarPendientes(); }, { pollMs: 30000 });
+  useEffect(() => {
+    void cargarPendientes();
+    const timer = setInterval(() => { if (!document.hidden) void cargarPendientes(); }, 30000);
+    return () => clearInterval(timer);
+  }, [cargarPendientes]);
+  useRealtime(['compras_reintegros'], () => { void cargarPendientes(); });
   return <>
     <button className="btn btn-ghost" style={pendientes && pendientes > 0 ? { background: 'var(--warning, #ffb51b)', color: '#111', borderColor: 'transparent', fontWeight: 700 } : undefined}
       title={errorContador ? 'No se pudo actualizar el contador. Abre la vista para consultar los reintegros.' : 'Consultar reintegros de proveedores'} onClick={() => setOpen(true)}>
