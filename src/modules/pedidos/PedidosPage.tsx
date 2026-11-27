@@ -3031,9 +3031,7 @@ const KanbanCard = memo(function KanbanCard({
       </div>
       <div className="meta">
         <span>{orden.items.length} ítem{orden.items.length !== 1 ? 's' : ''}</span>
-        {(orden.items_no_cotizados?.length ?? 0) > 0 && <span className="badge warning">
-          {orden.items_no_cotizados!.length} producto(s) pendientes de cotizar
-        </span>}
+        {(orden.items_no_cotizados?.length ?? 0) > 0 && <PendientesCotizar origenId={orden.id} compacto />}
         {creditoPagado && (
           <span className="badge success" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }}>
             ✓ Pagado · {orden.recibida_en ? 'finalizar' : 'a recepción'}

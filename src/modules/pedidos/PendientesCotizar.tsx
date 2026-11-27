@@ -16,7 +16,7 @@ interface PendienteCotizar {
   created_at: string;
 }
 
-export function PendientesCotizar({ origenId }: { origenId?: string }) {
+export function PendientesCotizar({ origenId, compacto = false }: { origenId?: string; compacto?: boolean }) {
   const [open, setOpen] = useState(false);
   const [lista, setLista] = useState<PendienteCotizar[]>([]);
   const [error, setError] = useState('');
@@ -45,9 +45,9 @@ export function PendientesCotizar({ origenId }: { origenId?: string }) {
         .join(' ').toLocaleLowerCase().includes(texto)) : lista;
   }, [buscar, lista]);
 
-  return <>
-    <button className="btn btn-ghost" onClick={() => setOpen(true)}>
-      Pendientes de cotizar{!loading && !error ? ' (' + lista.reduce((total, f) => total + f.items.length, 0) + ' productos)' : ''}
+  return <span onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
+    <button className={compacto ? "badge warning" : "btn btn-ghost"} style={compacto ? { cursor: 'pointer' } : undefined} onClick={(e) => { e.stopPropagation(); setOpen(true); }} onKeyDown={(e) => e.stopPropagation()}>
+      {compacto ? 'Cotizar pendientes' : 'Pendientes de cotizar'}{!loading && !error ? ' (' + lista.reduce((total, f) => total + f.items.length, 0) + ' productos)' : ''}
     </button>
     {open && <Modal title="Pendientes de cotizar" onClose={() => setOpen(false)}>
       <p>Productos que quedan por comprar. Abre la solicitud para cargar o elegir una cotización.</p>
@@ -60,9 +60,9 @@ export function PendientesCotizar({ origenId }: { origenId?: string }) {
         <strong>{f.codigo}</strong>
         {f.notas && <p>{f.notas}</p>}
         <ul>{f.items.map((i, n) => <li key={n}>{i.sku} · {i.nombre} · {i.cantidad} {i.unidad}</li>)}</ul>
-        <Link className="btn btn-primary" to={'/app/pedidos?detalle=' + f.id} onClick={() => setOpen(false)}>Abrir solicitud para cotizar</Link>
-        {f.cotizacion_pendiente_origen_id && <Link className="btn btn-ghost" to={'/app/pedidos?detalle=' + f.cotizacion_pendiente_origen_id} onClick={() => setOpen(false)}>Ver OC de origen</Link>}
+        <Link className="btn btn-primary" to={'/app/pedidos?tab=oc&detalle=' + f.id} onClick={() => setOpen(false)}>Abrir solicitud para cotizar</Link>
+        {f.cotizacion_pendiente_origen_id && <Link className="btn btn-ghost" to={'/app/pedidos?tab=oc&detalle=' + f.cotizacion_pendiente_origen_id} onClick={() => setOpen(false)}>Ver OC de origen</Link>}
       </section>)}
     </Modal>}
-  </>;
+  </span>;
 }
