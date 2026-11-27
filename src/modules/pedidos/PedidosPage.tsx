@@ -1,5 +1,6 @@
 import { cantidadEnUso, textoCantidadCompra, usaUnidadCompra } from './unidadCompra';
 import { ReintegrosProveedor } from './ReintegrosProveedor';
+import { PendientesCotizar } from './PendientesCotizar';
 import { errorMarcasRecepcion, marcaCambio, textoMarcaRecepcion } from './marcaRecibida';
 import type { RecepcionRenglon } from './pedidos.repository';
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from 'react';
@@ -774,6 +775,7 @@ export function PedidosPage() {
         </div>
         <div className="actions">
           {!soloSolicitud && <ReintegrosProveedor canWrite={canManageProcurement} />}
+          {!soloSolicitud && <PendientesCotizar />}
           {!soloSolicitud && (
           <Link to="/app/pedidos/historico" className="btn btn-ghost" title="Ver histórico filtrable de órdenes">
             ⌕ Histórico
@@ -3029,6 +3031,9 @@ const KanbanCard = memo(function KanbanCard({
       </div>
       <div className="meta">
         <span>{orden.items.length} ítem{orden.items.length !== 1 ? 's' : ''}</span>
+        {(orden.items_no_cotizados?.length ?? 0) > 0 && <span className="badge warning">
+          {orden.items_no_cotizados!.length} producto(s) pendientes de cotizar
+        </span>}
         {creditoPagado && (
           <span className="badge success" style={{ fontSize: '.62rem', padding: '.05rem .35rem' }}>
             ✓ Pagado · {orden.recibida_en ? 'finalizar' : 'a recepción'}
@@ -4177,6 +4182,16 @@ function OrdenDetailModal({
                 <div key={n}>{i.sku} · {i.nombre} · Recibidos {i.cantidad_recibida} de {i.cantidad} · Faltan {Number(i.cantidad) - Number(i.cantidad_recibida)}</div>)}
               <span className="muted">El reintegro pendiente se consulta en Reintegros de proveedores.</span>
             </div>}
+          </div>
+        </div>
+      )}
+      {(o.items_no_cotizados?.length ?? 0) > 0 && (
+        <div className="detail-row">
+          <div className="k">Pendientes de cotizar</div>
+          <div className="v">
+            <p>Estos productos quedaron fuera de la compra de esta OC por tener precio cero.</p>
+            <ul>{o.items_no_cotizados!.map((i, n) => <li key={n}>{i.sku} · {i.nombre} · {i.cantidad} {i.unidad}</li>)}</ul>
+            <PendientesCotizar origenId={o.id} />
           </div>
         </div>
       )}

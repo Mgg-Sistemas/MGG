@@ -1023,6 +1023,9 @@ export interface EventoHistorial {
 }
 
 export interface Orden {
+  /** Productos excluidos de la OC por no tener precio en la modalidad elegida. */
+  items_no_cotizados?: ItemOrden[];
+  cotizacion_pendiente_origen_id?: string | null;
   id: string;
   codigo: string;
   /** 'producto' (compra normal) | 'servicio' (recarga de gas, mantenimiento…). Falta = 'producto'. */
