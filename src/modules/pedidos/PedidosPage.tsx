@@ -152,7 +152,7 @@ import { CierreDiarioModal } from './CierreDiarioModal';
 import { CompraDirectaView } from './CompraDirectaView';
 import { ServicioDirectoView } from './ServicioDirectoView';
 import { OcPorLoteView } from './OcPorLoteView';
-import { quienCargo, quienSolicita } from './quienSolicita';
+import { analistaDeOrden, quienCargo, quienSolicita } from './quienSolicita';
 import { filtrarOrdenes, filtrarPorCreador, opcionesCreador } from './buscarOrdenes';
 import { esOrdenDelFlujoNuevo, useFlujoCompras, useFlujoRevisionAlmacen } from './revisionAlmacen.repository';
 import { etiquetaRetencionMomento, type RetencionMomento } from './retencionMomento';
@@ -1331,10 +1331,17 @@ export function PedidosPage() {
           onHecho={async (o) => {
             // 27-11-2026: el aviso se arma SOLO aquí, una vez, con la orden ya guardada.
             // Nunca desde refresh/realtime (reelegir transporte también refresca el retiro).
+            const provRetiro = o.proveedor_id ? proveedorMap.get(o.proveedor_id) : undefined;
+            const emailConfirma = usuario?.email ?? user?.email ?? null;
             const texto = mensajeConfirmarRetiro(
               o,
-              o.proveedor_id ? proveedorMap.get(o.proveedor_id)?.razon_social ?? null : null,
-              usuario?.email ?? user?.email ?? null,
+              provRetiro?.razon_social ?? null,
+              emailConfirma ? persona(emailConfirma, personaMap, o.retiro_confirmado_en) : null,
+              {
+                proveedorDireccion: provRetiro?.direccion ?? null,
+                solicita: quienSolicita(o),
+                analista: analistaDeOrden(o, (email, fecha) => persona(email ?? null, personaMap, fecha ?? null)),
+              },
             );
             setMensajeRetiroWs(texto ? { titulo: `Confirmar retiro · ${o.oc_codigo ?? o.codigo}`, texto } : null);
             notify(`Retiro confirmado · ${o.oc_codigo ?? o.codigo} · ${etiquetaEntrega(o.entrega_modalidad)}`, 'success', { link: '#/app/pedidos' });
@@ -3456,7 +3463,11 @@ function OrdenDetailModal({
   // 27-11-2026: si el retiro ya estaba confirmado (también en OC anteriores al aviso),
   // el detalle permite volver a ver el mismo WhatsApp sin volver a confirmar nada.
   const mensajeRetiroListo = canManageProcurement && o.retiro_confirmado_en
-    ? mensajeConfirmarRetiro(o, nombreProveedorMsg(), persona(o.retiro_confirmado_por, personaMap, o.retiro_confirmado_en))
+    ? mensajeConfirmarRetiro(o, nombreProveedorMsg(), o.retiro_confirmado_por ? persona(o.retiro_confirmado_por, personaMap, o.retiro_confirmado_en) : null, {
+      proveedorDireccion: proveedor?.direccion ?? (o.proveedor_id ? proveedorMap.get(o.proveedor_id)?.direccion ?? null : null),
+      solicita: personasMsg().solicita,
+      analista: personasMsg().analista,
+    })
     : null;
   /* La solicitud aprobada en PDF, para mandarla a cotizar: lleva los materiales
      con su medida y cantidad, y la columna de precio EN BLANCO. Se genera solo
