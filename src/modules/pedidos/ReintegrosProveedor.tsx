@@ -57,7 +57,7 @@ export function ReintegrosProveedor({ tesoreria = false, canWrite }: { tesoreria
 }
 
 function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesoreria: boolean; canWrite: boolean; onClose: () => void; onPendientes: (n: number) => void }) {
-  const [avisoRecibido, setAvisoRecibido] = useState<{ texto: string; archivos: File[] } | null>(null);
+  const [avisoRecibido, setAvisoRecibido] = useState<{ texto: string; archivos: File[]; enlaces: string[] } | null>(null);
   const [lista, setLista] = useState<Reintegro[]>([]);
   const [vista, setVista] = useState<'faltantes' | 'reintegros' | 'nuevo'>(tesoreria ? 'reintegros' : 'faltantes');
   const [filtro, setFiltro] = useState('');
@@ -185,12 +185,13 @@ function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesor
         p_id: recibir.id, p_caja: caja, p_cuenta: cuenta, p_referencia: referencia, p_comprobante: path,
       });
       if (e) throw e;
+      const enlacesComprobante = await urlAdjuntoOc(path).then(url => [url]).catch(() => [] as string[]);
       setAvisoRecibido({
         texto: mensajeReintegroRecibido({ codigo: recibir.ordenes.oc_codigo || recibir.ordenes.codigo,
           proveedor: recibir.ordenes.proveedores?.razon_social || 'Sin proveedor asignado', monto: recibir.monto,
           moneda: recibir.moneda, caja: cajas.find(c => c.id === caja)?.nombre || caja, cuenta,
           referencia: referencia.trim(), motivo: recibir.motivo, fecha: new Date().toISOString(), productos: recibir.detalle }),
-        archivos: [archivo],
+        archivos: [archivo], enlaces: enlacesComprobante,
       });
       setRecibir(null); setArchivo(null);
       toast('Ingreso registrado y reintegro recibido', 'success');
@@ -344,7 +345,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesor
     {vista !== 'nuevo' && <PaginasCompras total={totalVisible} pagina={paginaActual} onChange={setPagina} />}
     </div>
     {avisoRecibido && <Modal title="💬 Reintegro recibido · Compartir comprobante" onClose={() => setAvisoRecibido(null)}>
-      <div className="compras-panel"><CompartirWhatsapp texto={avisoRecibido.texto} fotos={avisoRecibido.archivos} /></div>
+      <div className="compras-panel"><CompartirWhatsapp texto={avisoRecibido.texto} fotos={{ archivos: avisoRecibido.archivos, enlaces: avisoRecibido.enlaces }} /></div>
     </Modal>}
   </Modal>;
 }
