@@ -20,7 +20,7 @@
 .compras-vacio { padding: 2rem 1rem; text-align: center; color: var(--muted, #a3b1c1); }
 @media(max-width: 600px) { .compras-fila > summary { padding: .75rem; gap: .5rem; } .compras-detalle { padding: .7rem; } .compras-acciones .btn { flex: 1; } .compras-productos { font-size: .8rem; } .compras-productos th, .compras-productos td { padding: .4rem .2rem; } }
 
-.compras-tarjetas { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,340px),1fr)); gap:1rem; align-items:start; }
+.compras-tarjetas { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr)); gap:1rem; align-items:start; }
 .compras-tarjeta { padding:1rem; margin:0; min-width:0; }
 .compras-tarjeta > header { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; margin-bottom:.6rem; }
 .compras-tarjeta > header > strong { margin-right:auto; font-size:1.05rem; }
@@ -35,3 +35,5 @@
 
 .compras-contexto > div { display:flex; gap:.4rem; flex-wrap:wrap; align-items:baseline; }
 .compras-contexto dt { margin:0; }
+
+.compras-acceso-reintegros { display:inline-flex; margin:.75rem 0 1rem; }

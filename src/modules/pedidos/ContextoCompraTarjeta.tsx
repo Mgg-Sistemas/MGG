@@ -11,7 +11,7 @@ const etiquetaSinPagoTesoreria = (c?: string | null) => c === 'contra_entrega' ?
 
 export type OrdenTarjeta = Orden & { proveedores?: { razon_social: string } | null };
 
-export function ContextoCompraTarjeta({ orden, titulo, detalle, estado }: { orden?: OrdenTarjeta; titulo: string; detalle: string[]; estado: string }) {
+export function ContextoCompraTarjeta({ orden, titulo, detalle, estado, compacto = false }: { orden?: OrdenTarjeta; titulo: string; detalle: string[]; estado: string; compacto?: boolean }) {
   const quien = useQuien();
   const [whatsapp, setWhatsapp] = useState(false);
   if (!orden) return <p className="muted">Datos de la OC no disponibles.</p>;
@@ -21,6 +21,14 @@ export function ContextoCompraTarjeta({ orden, titulo, detalle, estado }: { orde
   const proveedor = orden.proveedores?.razon_social || 'Sin proveedor asignado';
   const pago = pagada ? dateTime(pagada) : etiquetaSinPagoTesoreria(orden.condiciones_pago);
   const moneda = (orden as OrdenTarjeta & { moneda?: string; total_moneda?: string }).total_moneda || (orden as OrdenTarjeta & { moneda?: string }).moneda || 'USD';
+  if (compacto) return <>
+    <div className="compras-proveedor">{proveedor}</div>
+    <dl className="compras-contexto">
+      <div><dt>👤 Analista</dt><dd>{analista}</dd></div>
+      <div><dt>📅 Montada</dt><dd>{montada ? dateTime(montada) : '—'}</dd></div>
+      <div><dt>💳 Pagó Tesorería</dt><dd>{pago}</dd></div>
+    </dl>
+  </>;
   const texto = [
     `📋 *${titulo.toLocaleUpperCase()}*`, '', `🧾 *OC:* ${orden.oc_codigo || orden.codigo}`, `📋 *Solicitud:* ${orden.codigo}`,
     `🏪 *Proveedor:* ${proveedor}`, `👤 *Analista encargado:* ${analista}`,

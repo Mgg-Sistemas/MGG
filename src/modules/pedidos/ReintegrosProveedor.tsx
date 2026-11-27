@@ -1,3 +1,4 @@
+import { DetalleCompraTarjeta } from './DetalleCompraTarjeta';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { ComprobantesReintegro, type ComprobanteReintegro } from './ComprobantesReintegro';
 import { ContextoCompraTarjeta, type OrdenTarjeta } from './ContextoCompraTarjeta';
@@ -43,13 +44,13 @@ export function ReintegrosProveedor({ tesoreria = false, canWrite }: { tesoreria
     return () => clearInterval(timer);
   }, [cargarPendientes]);
   useRealtime(['compras_reintegros'], () => { void cargarPendientes(); });
-  return <>
+  return <div className="compras-acceso-reintegros">
     <button className="btn btn-ghost" style={pendientes && pendientes > 0 ? { background: 'var(--warning, #ffb51b)', color: '#111', borderColor: 'transparent', fontWeight: 700 } : undefined}
       title={errorContador ? 'No se pudo actualizar el contador. Abre la vista para consultar los reintegros.' : 'Consultar reintegros de proveedores'} onClick={() => setOpen(true)}>
       ↩ Reintegros de proveedores <span aria-live="polite">{pendientes !== null ? `(${pendientes})` : ''}</span>
     </button>
     {open && <PanelReintegros tesoreria={tesoreria} canWrite={canWrite} onPendientes={setPendientes} onClose={() => { setOpen(false); void cargarPendientes(); }} />}
-  </>;
+  </div>;
 }
 
 function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesoreria: boolean; canWrite: boolean; onClose: () => void; onPendientes: (n: number) => void }) {
@@ -234,6 +235,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesor
       <p className="muted">Órdenes con diferencias de recepción. Revisa los datos de la compra, la observación de Almacén y los faltantes.</p>
       <div className="compras-tarjetas">{faltantesVisibles.slice(inicio, inicio + POR_PAGINA_COMPRAS).map(o => <article className="card compras-tarjeta" key={o.id}>
         <header><strong>{o.oc_codigo || o.codigo}</strong><span className="badge warning">{o.items.filter(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)).length} productos faltantes</span><span className="muted">{reposiciones[o.id] ? 'En cotización' : 'Por gestionar'}</span></header>
+        <DetalleCompraTarjeta orden={o} titulo={"Faltantes · " + (o.oc_codigo || o.codigo)}>
         <ContextoCompraTarjeta orden={o} titulo="Faltantes de recepción" estado={reposiciones[o.id] ? 'En cotización · ' + reposiciones[o.id].codigo : 'Por gestionar'} detalle={[...o.items.filter(i => i.cantidad_recibida != null && Number(i.cantidad_recibida) < Number(i.cantidad)).map(i => `${i.sku} · ${i.nombre} · Pedido ${i.cantidad} · Recibido ${i.cantidad_recibida} · Faltan ${Number(i.cantidad) - Number(i.cantidad_recibida)}`), 'Motivo del almacenista: ' + (o.nota_recepcion || 'Sin observación registrada')]} />
         <p className="compras-motivo"><strong>👷 Motivo del almacenista:</strong> {o.nota_recepcion || 'Sin observación registrada'}</p>
         <details className="compras-fila"><summary>📦 Ver productos faltantes</summary>
@@ -249,7 +251,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesor
         }}>Solicitar reintegro</button>}
       </div></details>
       <Link className="btn btn-ghost" to={"/app/pedidos?tab=oc&detalle=" + o.id} onClick={onClose}>Abrir OC</Link>
-      </article>)}</div>
+      </DetalleCompraTarjeta></article>)}</div>
     </section>}
     {!tesoreria && canWrite && vista === 'nuevo' && <section className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
       <h3>Solicitar reintegro</h3>
@@ -284,6 +286,8 @@ function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesor
     {!loading && vista !== 'nuevo' && !totalVisible && <p className="compras-vacio">No hay órdenes que coincidan con estos filtros.</p>}
     {vista === 'reintegros' && <div className="compras-tarjetas">{reintegrosVisibles.slice(inicio, inicio + POR_PAGINA_COMPRAS).map(r => <article key={r.id} className="card compras-tarjeta">
       <header><strong>{r.ordenes.oc_codigo || r.ordenes.codigo}</strong><span>{Number(r.monto).toFixed(2)} {r.moneda}</span><span className={'badge ' + (r.estado === 'recibido' ? 'success' : 'warning')}>{r.estado === 'recibido' ? 'Recibido' : 'Pendiente'}</span></header>
+      <DetalleCompraTarjeta orden={r.ordenes} titulo={"Reintegro · " + (r.ordenes.oc_codigo || r.ordenes.codigo)}>
+      <h3>↩️ Importe del reintegro: {Number(r.monto).toFixed(2)} {r.moneda} · {r.estado === 'recibido' ? 'Recibido' : 'Pendiente'}</h3>
       <ContextoCompraTarjeta orden={r.ordenes} titulo="Reintegro de proveedor" estado={r.estado === 'recibido' ? 'Recibido en Tesorería' : 'Pendiente de devolución'} detalle={[`Importe del reintegro: ${Number(r.monto).toFixed(2)} ${r.moneda}`, 'Motivo del reintegro: ' + r.motivo, 'Motivo del almacenista: ' + (r.ordenes.nota_recepcion || 'Sin observación registrada'), ...r.detalle.map(i => `${i.sku} · ${i.nombre} · Cantidad ${i.cantidad}`), ...(r.referencia ? ['Referencia: ' + r.referencia] : [])]} />
       <div className="compras-detalle">
       <p className="compras-motivo"><strong>📝 Motivo del reintegro:</strong> {r.motivo}</p>
@@ -312,7 +316,7 @@ function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesor
         <button className="btn btn-primary" disabled={saving || !cuentas.length} onClick={() => void confirmar()}>{saving ? 'Registrando…' : 'Confirmar ingreso'}</button>
         <button className="btn btn-ghost" disabled={saving} onClick={() => setRecibir(null)}>Volver</button>
       </>}
-    </div></article>)}</div>}
+    </div></DetalleCompraTarjeta></article>)}</div>}
     {vista !== 'nuevo' && <PaginasCompras total={totalVisible} pagina={paginaActual} onChange={setPagina} />}
     </div>
   </Modal>;

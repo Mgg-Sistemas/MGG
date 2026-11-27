@@ -1,3 +1,4 @@
+import { DetalleCompraTarjeta } from './DetalleCompraTarjeta';
 import { ContextoCompraTarjeta, type OrdenTarjeta } from './ContextoCompraTarjeta';
 import { PaginasCompras, POR_PAGINA_COMPRAS } from './ComprasListaCompacta';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -77,6 +78,7 @@ export function PendientesCotizar({ origenId, compacto = false }: { origenId?: s
       {!loading && !error && !visibles.length && <p>No hay pendientes que coincidan.</p>}
       <div className="compras-tarjetas">{visibles.slice(inicio, inicio + POR_PAGINA_COMPRAS).map(f => <article className="card compras-tarjeta" key={f.id}>
         <header><strong>{f.codigo}</strong><span className="badge warning">{f.items.length} productos</span><span className="muted">Por cotizar</span></header>
+        <DetalleCompraTarjeta orden={ordenesOrigen[f.cotizacion_pendiente_origen_id || '']} titulo={"Pendientes de cotizar · " + f.codigo}>
         <ContextoCompraTarjeta orden={ordenesOrigen[f.cotizacion_pendiente_origen_id || '']} titulo="Productos pendientes de cotizar" estado={'Por cotizar · ' + f.codigo} detalle={[...f.items.map(i => `${i.sku} · ${i.nombre} · Pendiente ${i.cantidad} ${i.unidad}`), 'Motivo del almacenista: ' + (ordenesOrigen[f.cotizacion_pendiente_origen_id || '']?.nota_recepcion || 'Sin observación registrada')]} />
         {ordenesOrigen[f.cotizacion_pendiente_origen_id || '']?.nota_recepcion && <p className="compras-motivo"><strong>👷 Motivo del almacenista:</strong> {ordenesOrigen[f.cotizacion_pendiente_origen_id || ''].nota_recepcion}</p>}
         <div className="compras-detalle">
@@ -86,7 +88,7 @@ export function PendientesCotizar({ origenId, compacto = false }: { origenId?: s
         <Link className="btn btn-primary" to={'/app/pedidos?tab=oc&detalle=' + f.id} onClick={() => setOpen(false)}>Abrir solicitud para cotizar</Link>
         {f.cotizacion_pendiente_origen_id && <Link className="btn btn-ghost" to={'/app/pedidos?tab=oc&detalle=' + f.cotizacion_pendiente_origen_id} onClick={() => setOpen(false)}>Ver OC de origen</Link>}
         </div></div>
-      </article>)}</div>
+      </DetalleCompraTarjeta></article>)}</div>
       <PaginasCompras total={visibles.length} pagina={paginaActual} onChange={setPagina} />
       </div>
     </Modal>}
