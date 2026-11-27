@@ -37,3 +37,7 @@
 .compras-contexto dt { margin:0; }
 
 .compras-acceso-reintegros { display:inline-flex; margin:.75rem 0 1rem; }
+
+.compras-ingreso-reintegro, .compras-resumen-pago { padding:1rem; margin:1rem 0; }
+.compras-ingreso-reintegro .form-row, .compras-resumen-pago .form-row { display:flex; flex-direction:column; gap:.4rem; min-width:0; }
+.compras-ingreso-reintegro .form-grid { gap:1rem; }

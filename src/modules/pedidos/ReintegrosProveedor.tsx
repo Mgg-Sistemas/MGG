@@ -1,3 +1,4 @@
+import { CompraYReintegroDetalle } from './CompraYReintegroDetalle';
 import { DetalleCompraTarjeta } from './DetalleCompraTarjeta';
 import { useRealtime } from '@/shared/lib/useRealtime';
 import { ComprobantesReintegro, type ComprobanteReintegro } from './ComprobantesReintegro';
@@ -294,28 +295,40 @@ function PanelReintegros({ tesoreria, canWrite, onClose, onPendientes }: { tesor
       <p className="compras-motivo"><strong>👷 Motivo del almacenista:</strong> {r.ordenes.nota_recepcion || 'Sin observación registrada'}</p>
       {r.generado_por_recepcion && <p className="muted">Generado automáticamente al recibir. Importe de los faltantes al precio unitario de la OC.</p>}
       <ul>{r.detalle.map(d => <li key={d.indice}>{d.sku} · {d.nombre} · {d.cantidad}</li>)}</ul>
-      <Link className="btn btn-ghost" to={"/app/pedidos?tab=oc&detalle=" + r.orden_id} onClick={onClose}>Abrir OC</Link>
+      <CompraYReintegroDetalle orden={r.ordenes} monto={r.monto} moneda={r.moneda} estado={r.estado} />
       <ComprobantesReintegro id={r.id} ordenId={r.orden_id} archivos={r.comprobantes_compras || []} canUpload={!tesoreria && canWrite} onSaved={cargar} />
       {r.referencia && <p>Referencia {r.referencia}</p>}
       {r.comprobante_url && <button className="btn btn-ghost" onClick={() => void verComprobante(r.comprobante_url!)}>Ver comprobante de ingreso de Tesorería</button>}
-      {tesoreria && canWrite && r.estado === 'pendiente' && <button className="btn btn-primary" disabled={saving} onClick={() => {
+      {tesoreria && canWrite && r.estado === 'pendiente' && recibir?.id !== r.id && <button className="btn btn-primary" disabled={saving} onClick={() => {
         setRecibir(r); setCaja(''); setCuenta('general'); setArchivo(null); setReferencia('');
       }}>Registrar dinero recibido</button>}
-      {recibir?.id === r.id && <>
-        <label>Caja / cuenta de ingreso ({r.moneda})
-          <select className="input" value={caja} onChange={e => setCaja(e.target.value)}>
-            <option value="">Seleccionar</option>
-            {cajas.filter(c => c.moneda === r.moneda && !c.externo && c.tipo !== 'centro_acopio').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-          </select>
-        </label>
-        <label>Cuenta<select className="input" value={cuenta} onChange={e => setCuenta(e.target.value)}>
-          {cuentas.map(c => <option key={c}>{c}</option>)}
-        </select></label>
-        <label>Referencia<input className="input" value={referencia} onChange={e => setReferencia(e.target.value)} /></label>
-        <label>Comprobante (imagen o PDF)<input type="file" accept="image/*,application/pdf" onChange={e => setArchivo(e.target.files?.[0] ?? null)} /></label>
-        <button className="btn btn-primary" disabled={saving || !cuentas.length} onClick={() => void confirmar()}>{saving ? 'Registrando…' : 'Confirmar ingreso'}</button>
-        <button className="btn btn-ghost" disabled={saving} onClick={() => setRecibir(null)}>Volver</button>
-      </>}
+      {recibir?.id === r.id && <form className="card compras-ingreso-reintegro" onSubmit={e => { e.preventDefault(); void confirmar(); }}>
+        <div className="card-title">💳 Registrar ingreso del reintegro</div>
+        <p className="muted">Importe a recibir: <strong>{Number(r.monto).toFixed(2)} {r.moneda}</strong></p>
+        <div className="form-grid">
+          <div className="form-row"><label htmlFor={'reintegro-caja-' + r.id}>Caja de ingreso ({r.moneda})</label>
+            <select id={'reintegro-caja-' + r.id} className="select" value={caja} required onChange={e => setCaja(e.target.value)}>
+              <option value="">Seleccionar caja</option>
+              {cajas.filter(c => c.moneda === r.moneda && !c.externo && c.tipo !== 'centro_acopio').map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+            </select>
+          </div>
+          <div className="form-row"><label htmlFor={'reintegro-cuenta-' + r.id}>Cuenta</label>
+            <select id={'reintegro-cuenta-' + r.id} className="select" value={cuenta} required disabled={!caja || !cuentas.length} onChange={e => setCuenta(e.target.value)}>
+              {cuentas.map(c => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="form-row"><label htmlFor={'reintegro-ref-' + r.id}>Referencia del ingreso</label>
+            <input id={'reintegro-ref-' + r.id} className="input" value={referencia} required placeholder="Número de referencia" onChange={e => setReferencia(e.target.value)} />
+          </div>
+          <div className="form-row"><label htmlFor={'reintegro-soporte-' + r.id}>Comprobante del ingreso (imagen o PDF)</label>
+            <input id={'reintegro-soporte-' + r.id} className="input" type="file" required accept="image/*,application/pdf" onChange={e => setArchivo(e.target.files?.[0] ?? null)} />
+          </div>
+        </div>
+        <div className="compras-acciones" style={{ marginTop: '1rem' }}>
+          <button type="submit" className="btn btn-primary" disabled={saving || !cuentas.length}>{saving ? 'Registrando…' : '✓ Confirmar ingreso'}</button>
+          <button type="button" className="btn btn-ghost" disabled={saving} onClick={() => setRecibir(null)}>Cancelar</button>
+        </div>
+      </form>}
     </div></DetalleCompraTarjeta></article>)}</div>}
     {vista !== 'nuevo' && <PaginasCompras total={totalVisible} pagina={paginaActual} onChange={setPagina} />}
     </div>
